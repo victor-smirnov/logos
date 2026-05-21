@@ -2671,6 +2671,10 @@ private:
     // user-defined #[fn_macro] resolution path.
     std::optional<lir::LExprPtr> lower_builtin_macro(
         hermes::TinyMapView node, const std::string& callee_name);
+    // Large individual built-in macro handlers split out of lower_builtin_macro.
+    lir::LExprPtr lower_macro_include(hermes::TinyMapView node);
+    lir::LExprPtr lower_macro_concat(hermes::TinyMapView node);
+    lir::LExprPtr lower_macro_concat_bytes(hermes::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
     // as an expr whose value is the tail expression (or void if absent).
     lir::LExprPtr lower_block_expr(hermes::TinyMapView node);

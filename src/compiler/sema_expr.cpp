@@ -12956,6 +12956,360 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
 //
 // On any validation failure we diag and return error_expr() so the rest
 // of sema keeps moving.
+lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+    std::string raw;
+    if (node.has_key(la::RAW_TEXT))
+        raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+    while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                            raw.front() == '\n')) raw.erase(0, 1);
+    while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                            raw.back()  == '\n')) raw.pop_back();
+    if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+        raw = raw.substr(1, raw.size() - 2);
+    std::string path = raw;
+    if (!path.empty() && path[0] != '/' && !file_.empty()) {
+        auto slash = file_.rfind('/');
+        if (slash != std::string::npos)
+            path = file_.substr(0, slash + 1) + path;
+    }
+    std::ifstream in(path);
+    if (!in) {
+        error(std::format("include!: cannot read '{}'", path));
+        return error_expr();
+    }
+    std::string contents((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+    // Wrap as an expression body and re-parse.
+    std::string wrap_src = std::format(
+        "package __include_expr;\nfn __f() -> i32 {{ {} }}\n", contents);
+    logos::compiler::LogosParser inc_parser(wrap_src);
+    auto inc_doc = inc_parser.parse_module();
+    if (inc_doc.is_null() || !inc_parser.at_eof()) {
+        error(std::format("include!: file '{}' does not parse as a single expression "
+                          "(item-position include! is not supported)", path));
+        return error_expr();
+    }
+    // Navigate MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → TAIL or last EXPR.
+    const uint8_t* src_base = HermesAccess::base(inc_doc);
+    auto root = inc_doc.root_object().as_tiny_map();
+    if (root.is_null()) { error("include!: wrap parse produced null module"); return error_expr(); }
+    auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom || !tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+    };
+    auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom || !tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return nullptr;
+        AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
+        if (!el.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + el.to_offset().value());
+    };
+    auto nav_array_last_av = [&](TinyObjectMap* tom, uint8_t key) -> AnyVal {
+        if (!tom || !tom->has_key(key)) return AnyVal{};
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return AnyVal{};
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return AnyVal{};
+        return arr->get(arr->size() - 1, const_cast<uint8_t*>(src_base));
+    };
+    // The wrap_src parser allocates inside its own holder; we need to
+    // splice the resulting AST back into the current document's holder
+    // so subsequent lowering sees consistent offsets. Use the existing
+    // splice helper used by fn_macro re-parse.
+    auto* module_tom = const_cast<TinyObjectMap*>(root.ptr());
+    auto* fn_def  = nav_array_first(module_tom, la::ITEMS.code);
+    auto* fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : nullptr;
+    AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
+    if (!last_av.is_pointer()) {
+        error("include!: included file is empty / does not parse as expression");
+        return error_expr();
+    }
+    // The included AST lives in `inc_doc` (a different holder). Walking
+    // into it requires that holder; capture it for the dive.
+    auto inc_holder = inc_doc.holder();
+    TinyMapView last_view(last_av.to_offset(), inc_holder);
+    if (code_of(last_view) == la::TAIL_EXPR && last_view.has_key(la::VALUE)) {
+        auto prev = holder_;
+        holder_ = inc_holder;
+        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
+        holder_ = prev;
+        return r;
+    }
+    if (code_of(last_view) == la::EXPR_STMT && last_view.has_key(la::VALUE)) {
+        auto prev = holder_;
+        holder_ = inc_holder;
+        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
+        holder_ = prev;
+        return r;
+    }
+    error("include!: last item in file is not an expression");
+    return error_expr();
+}
+
+lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+    std::string raw;
+    if (node.has_key(la::RAW_TEXT))
+        raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+    // Strip outer whitespace.
+    while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                            raw.front() == '\n')) raw.erase(0, 1);
+    while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                            raw.back()  == '\n')) raw.pop_back();
+    // Split on top-level commas. State: in_string / in_escape.
+    std::vector<std::string> pieces;
+    std::string cur;
+    bool in_string = false;
+    bool in_escape = false;
+    for (char c : raw) {
+        if (in_escape) { cur += c; in_escape = false; continue; }
+        if (in_string) {
+            if (c == '\\') { cur += c; in_escape = true; continue; }
+            if (c == '"')  { in_string = false; }
+            cur += c;
+            continue;
+        }
+        if (c == '"') { in_string = true; cur += c; continue; }
+        if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
+        cur += c;
+    }
+    if (!cur.empty()) pieces.push_back(std::move(cur));
+    // Decode each piece.
+    std::string out;
+    for (auto& piece : pieces) {
+        std::string p = piece;
+        while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
+                              p.front() == '\n')) p.erase(0, 1);
+        while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
+                              p.back()  == '\n')) p.pop_back();
+        if (p.empty()) continue;
+        if (p.size() >= 2 && p.front() == '"' && p.back() == '"') {
+            // String literal — strip quotes and decode common escapes.
+            std::string body = p.substr(1, p.size() - 2);
+            std::string decoded;
+            for (size_t i = 0; i < body.size(); ++i) {
+                if (body[i] == '\\' && i + 1 < body.size()) {
+                    char n = body[i + 1];
+                    switch (n) {
+                    case 'n':  decoded += '\n'; ++i; continue;
+                    case 't':  decoded += '\t'; ++i; continue;
+                    case 'r':  decoded += '\r'; ++i; continue;
+                    case '\\': decoded += '\\'; ++i; continue;
+                    case '"':  decoded += '"';  ++i; continue;
+                    case '0':  decoded += '\0'; ++i; continue;
+                    default: break;
+                    }
+                }
+                decoded += body[i];
+            }
+            out += decoded;
+            continue;
+        }
+        if (p == "true")  { out += "true";  continue; }
+        if (p == "false") { out += "false"; continue; }
+        // Integer literal — strip any suffix (`42i32`, `100u64`, etc.).
+        bool is_int = !p.empty() && (p[0] == '-' || std::isdigit((unsigned char)p[0]));
+        if (is_int) {
+            size_t end = p[0] == '-' ? 1 : 0;
+            while (end < p.size() && std::isdigit((unsigned char)p[end])) ++end;
+            if (end > (p[0] == '-' ? 1u : 0u)) {
+                out += p.substr(0, end);
+                continue;
+            }
+        }
+        error(std::format("concat!: unsupported arg '{}' (string/int/bool literals only)", p));
+        return error_expr();
+    }
+    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+    TypeRef u8_t = pool_->alloc(std::move(u8_b));
+    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+    sl_b.elem = u8_t;
+    TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+    return builder().lit_str(std::move(out), slice_u8_t);
+}
+
+lir::LExprPtr SemaChecker::lower_macro_concat_bytes(TinyMapView node) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::make_doc;
+    using logos::hermes::copy_object_into;
+    std::string raw;
+    if (node.has_key(la::RAW_TEXT))
+        raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+    while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
+                            raw.front() == '\n')) raw.erase(0, 1);
+    while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
+                            raw.back()  == '\n')) raw.pop_back();
+    std::vector<std::string> pieces;
+    std::string cur;
+    bool in_string = false;
+    bool in_escape = false;
+    for (char c : raw) {
+        if (in_escape) { cur += c; in_escape = false; continue; }
+        if (in_string) {
+            if (c == '\\') { cur += c; in_escape = true; continue; }
+            if (c == '"')  { in_string = false; }
+            cur += c;
+            continue;
+        }
+        if (c == '"') { in_string = true; cur += c; continue; }
+        if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
+        cur += c;
+    }
+    if (!cur.empty()) pieces.push_back(std::move(cur));
+    std::vector<uint8_t> bytes;
+    auto hex_nib = [](char ch) -> int {
+        if (ch >= '0' && ch <= '9') return ch - '0';
+        if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+        if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+        return -1;
+    };
+    auto decode_byte_escape = [&](std::string_view body, size_t& i,
+                                  const std::string& src) -> bool {
+        // body[i] == '\\'; consumes the escape and appends one byte.
+        if (i + 1 >= body.size()) {
+            error(std::format("concat_bytes!: dangling '\\' in '{}'", src));
+            return false;
+        }
+        char e = body[i + 1];
+        uint8_t b = 0;
+        switch (e) {
+        case 'n':  b = '\n'; break;
+        case 't':  b = '\t'; break;
+        case 'r':  b = '\r'; break;
+        case '0':  b = 0;    break;
+        case '\\': b = '\\'; break;
+        case '\'': b = '\''; break;
+        case '"':  b = '"';  break;
+        case 'x': {
+            if (i + 3 < body.size()) {
+                int hi = hex_nib(body[i + 2]);
+                int lo = hex_nib(body[i + 3]);
+                if (hi >= 0 && lo >= 0) {
+                    bytes.push_back((uint8_t)((hi << 4) | lo));
+                    i += 4;
+                    return true;
+                }
+            }
+            error(std::format(
+                "concat_bytes!: malformed \\x escape in '{}'", src));
+            i += 2;
+            return true;
+        }
+        default:
+            error(std::format(
+                "concat_bytes!: unknown escape '\\{}' in '{}'", e, src));
+            i += 2;
+            return true;
+        }
+        bytes.push_back(b);
+        i += 2;
+        return true;
+    };
+    for (auto& piece : pieces) {
+        std::string p = piece;
+        while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
+                              p.front() == '\n')) p.erase(0, 1);
+        while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
+                              p.back()  == '\n')) p.pop_back();
+        if (p.empty()) continue;
+        // Byte-string literal: b"..."
+        if (p.size() >= 3 && p[0] == 'b' && p[1] == '"' && p.back() == '"') {
+            std::string body = p.substr(2, p.size() - 3);
+            for (size_t i = 0; i < body.size(); ) {
+                if (body[i] == '\\') {
+                    if (!decode_byte_escape(body, i, p)) break;
+                } else {
+                    bytes.push_back((uint8_t)body[i]);
+                    ++i;
+                }
+            }
+            continue;
+        }
+        // Byte char literal: b'X' or b'\\n' etc.
+        if (p.size() >= 4 && p[0] == 'b' && p[1] == '\'' && p.back() == '\'') {
+            std::string body = p.substr(2, p.size() - 3);
+            if (body.empty()) {
+                error(std::format(
+                    "concat_bytes!: empty byte-char literal '{}'", p));
+                continue;
+            }
+            if (body[0] == '\\') {
+                size_t i = 0;
+                decode_byte_escape(body, i, p);
+            } else {
+                bytes.push_back((uint8_t)body[0]);
+            }
+            continue;
+        }
+        // Integer literal (decimal or 0x / 0o / 0b prefixes), possibly
+        // with trailing type suffix like `0x42u8`. We accept any value
+        // that fits in 0..=255 and reject the rest.
+        bool is_neg = (!p.empty() && p[0] == '-');
+        size_t scan = is_neg ? 1 : 0;
+        int base = 10;
+        if (scan + 1 < p.size() && p[scan] == '0' &&
+            (p[scan + 1] == 'x' || p[scan + 1] == 'X')) { base = 16; scan += 2; }
+        else if (scan + 1 < p.size() && p[scan] == '0' &&
+                 (p[scan + 1] == 'o' || p[scan + 1] == 'O')) { base = 8; scan += 2; }
+        else if (scan + 1 < p.size() && p[scan] == '0' &&
+                 (p[scan + 1] == 'b' || p[scan + 1] == 'B')) { base = 2; scan += 2; }
+        int64_t v = 0;
+        bool any_digit = false;
+        for (; scan < p.size(); ++scan) {
+            char ch = p[scan];
+            if (ch == '_') continue;
+            int d = -1;
+            if (base == 10 && ch >= '0' && ch <= '9') d = ch - '0';
+            else if (base == 16) { d = hex_nib(ch); }
+            else if (base == 8 && ch >= '0' && ch <= '7') d = ch - '0';
+            else if (base == 2 && (ch == '0' || ch == '1')) d = ch - '0';
+            if (d < 0) break;
+            v = v * base + d;
+            any_digit = true;
+        }
+        if (!any_digit) {
+            error(std::format(
+                "concat_bytes!: unsupported arg '{}' (expected byte string, "
+                "byte char, or integer literal in 0..=255)", piece));
+            return error_expr();
+        }
+        if (is_neg) v = -v;
+        if (v < 0 || v > 255) {
+            error(std::format(
+                "concat_bytes!: integer literal {} out of u8 range", v));
+            return error_expr();
+        }
+        bytes.push_back((uint8_t)v);
+    }
+    auto u8t = u8_t();
+    std::vector<lir::LExprPtr> elems;
+    elems.reserve(bytes.size());
+    for (auto b : bytes)
+        elems.push_back(builder().lit_int((int64_t)b, u8t));
+    auto arr_t = make_array(u8t, (uint64_t)bytes.size());
+    return builder().arr_lit(std::move(elems), arr_t);
+}
+
 std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, const std::string& callee_name) {
     using logos::hermes::AnyVal;
     using logos::hermes::HermesAccess;
@@ -12996,104 +13350,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // expression form is wired here (item-position would need pre-sema
     // AST splicing). Path is resolved relative to the including file
     // (mirrors include_str! below).
-    if (callee_name == "include") {
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
-                                raw.front() == '\n')) raw.erase(0, 1);
-        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
-                                raw.back()  == '\n')) raw.pop_back();
-        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
-            raw = raw.substr(1, raw.size() - 2);
-        std::string path = raw;
-        if (!path.empty() && path[0] != '/' && !file_.empty()) {
-            auto slash = file_.rfind('/');
-            if (slash != std::string::npos)
-                path = file_.substr(0, slash + 1) + path;
-        }
-        std::ifstream in(path);
-        if (!in) {
-            error(std::format("include!: cannot read '{}'", path));
-            return error_expr();
-        }
-        std::string contents((std::istreambuf_iterator<char>(in)),
-                             std::istreambuf_iterator<char>());
-        // Wrap as an expression body and re-parse.
-        std::string wrap_src = std::format(
-            "package __include_expr;\nfn __f() -> i32 {{ {} }}\n", contents);
-        logos::compiler::LogosParser inc_parser(wrap_src);
-        auto inc_doc = inc_parser.parse_module();
-        if (inc_doc.is_null() || !inc_parser.at_eof()) {
-            error(std::format("include!: file '{}' does not parse as a single expression "
-                              "(item-position include! is not supported)", path));
-            return error_expr();
-        }
-        // Navigate MODULE → ITEMS[0]=FN_DEF → BODY=BLOCK → TAIL or last EXPR.
-        const uint8_t* src_base = HermesAccess::base(inc_doc);
-        auto root = inc_doc.root_object().as_tiny_map();
-        if (root.is_null()) { error("include!: wrap parse produced null module"); return error_expr(); }
-        auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
-            if (!tom || !tom->has_key(key)) return nullptr;
-            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
-            if (!av.is_pointer()) return nullptr;
-            return reinterpret_cast<TinyObjectMap*>(
-                const_cast<uint8_t*>(src_base) + av.to_offset().value());
-        };
-        auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
-            if (!tom || !tom->has_key(key)) return nullptr;
-            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
-            if (!av.is_pointer()) return nullptr;
-            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
-                const_cast<uint8_t*>(src_base) + av.to_offset().value());
-            if (arr->size() == 0) return nullptr;
-            AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
-            if (!el.is_pointer()) return nullptr;
-            return reinterpret_cast<TinyObjectMap*>(
-                const_cast<uint8_t*>(src_base) + el.to_offset().value());
-        };
-        auto nav_array_last_av = [&](TinyObjectMap* tom, uint8_t key) -> AnyVal {
-            if (!tom || !tom->has_key(key)) return AnyVal{};
-            AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
-            if (!av.is_pointer()) return AnyVal{};
-            auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
-                const_cast<uint8_t*>(src_base) + av.to_offset().value());
-            if (arr->size() == 0) return AnyVal{};
-            return arr->get(arr->size() - 1, const_cast<uint8_t*>(src_base));
-        };
-        // The wrap_src parser allocates inside its own holder; we need to
-        // splice the resulting AST back into the current document's holder
-        // so subsequent lowering sees consistent offsets. Use the existing
-        // splice helper used by fn_macro re-parse.
-        auto* module_tom = const_cast<TinyObjectMap*>(root.ptr());
-        auto* fn_def  = nav_array_first(module_tom, la::ITEMS.code);
-        auto* fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : nullptr;
-        AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
-        if (!last_av.is_pointer()) {
-            error("include!: included file is empty / does not parse as expression");
-            return error_expr();
-        }
-        // The included AST lives in `inc_doc` (a different holder). Walking
-        // into it requires that holder; capture it for the dive.
-        auto inc_holder = inc_doc.holder();
-        TinyMapView last_view(last_av.to_offset(), inc_holder);
-        if (code_of(last_view) == la::TAIL_EXPR && last_view.has_key(la::VALUE)) {
-            auto prev = holder_;
-            holder_ = inc_holder;
-            auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
-            holder_ = prev;
-            return r;
-        }
-        if (code_of(last_view) == la::EXPR_STMT && last_view.has_key(la::VALUE)) {
-            auto prev = holder_;
-            holder_ = inc_holder;
-            auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
-            holder_ = prev;
-            return r;
-        }
-        error("include!: last item in file is not an expression");
-        return error_expr();
-    }
+    if (callee_name == "include") return lower_macro_include(node);
 
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
@@ -13173,250 +13430,14 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // RAW_TEXT directly — splits on top-level commas (respects string
     // quotes + escapes) and decodes each piece. Non-literal args are a
     // compile error.
-    if (callee_name == "concat") {
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        // Strip outer whitespace.
-        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
-                                raw.front() == '\n')) raw.erase(0, 1);
-        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
-                                raw.back()  == '\n')) raw.pop_back();
-        // Split on top-level commas. State: in_string / in_escape.
-        std::vector<std::string> pieces;
-        std::string cur;
-        bool in_string = false;
-        bool in_escape = false;
-        for (char c : raw) {
-            if (in_escape) { cur += c; in_escape = false; continue; }
-            if (in_string) {
-                if (c == '\\') { cur += c; in_escape = true; continue; }
-                if (c == '"')  { in_string = false; }
-                cur += c;
-                continue;
-            }
-            if (c == '"') { in_string = true; cur += c; continue; }
-            if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
-            cur += c;
-        }
-        if (!cur.empty()) pieces.push_back(std::move(cur));
-        // Decode each piece.
-        std::string out;
-        for (auto& piece : pieces) {
-            std::string p = piece;
-            while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
-                                  p.front() == '\n')) p.erase(0, 1);
-            while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
-                                  p.back()  == '\n')) p.pop_back();
-            if (p.empty()) continue;
-            if (p.size() >= 2 && p.front() == '"' && p.back() == '"') {
-                // String literal — strip quotes and decode common escapes.
-                std::string body = p.substr(1, p.size() - 2);
-                std::string decoded;
-                for (size_t i = 0; i < body.size(); ++i) {
-                    if (body[i] == '\\' && i + 1 < body.size()) {
-                        char n = body[i + 1];
-                        switch (n) {
-                        case 'n':  decoded += '\n'; ++i; continue;
-                        case 't':  decoded += '\t'; ++i; continue;
-                        case 'r':  decoded += '\r'; ++i; continue;
-                        case '\\': decoded += '\\'; ++i; continue;
-                        case '"':  decoded += '"';  ++i; continue;
-                        case '0':  decoded += '\0'; ++i; continue;
-                        default: break;
-                        }
-                    }
-                    decoded += body[i];
-                }
-                out += decoded;
-                continue;
-            }
-            if (p == "true")  { out += "true";  continue; }
-            if (p == "false") { out += "false"; continue; }
-            // Integer literal — strip any suffix (`42i32`, `100u64`, etc.).
-            bool is_int = !p.empty() && (p[0] == '-' || std::isdigit((unsigned char)p[0]));
-            if (is_int) {
-                size_t end = p[0] == '-' ? 1 : 0;
-                while (end < p.size() && std::isdigit((unsigned char)p[end])) ++end;
-                if (end > (p[0] == '-' ? 1u : 0u)) {
-                    out += p.substr(0, end);
-                    continue;
-                }
-            }
-            error(std::format("concat!: unsupported arg '{}' (string/int/bool literals only)", p));
-            return error_expr();
-        }
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-        return builder().lit_str(std::move(out), slice_u8_t);
-    }
+    if (callee_name == "concat") return lower_macro_concat(node);
 
     // concat_bytes!(b"foo", 0x42, b"bar", b'A') — compile-time byte-array
     // concat. Supports byte string literals (`b"..."`), byte char literals
     // (`b'X'`), and integer literals in u8 range. Result is `[u8; N]`.
     // Mirrors Rust's nightly `concat_bytes!`. Like `concat!`, parses
     // RAW_TEXT directly and splits on top-level commas.
-    if (callee_name == "concat_bytes") {
-        std::string raw;
-        if (node.has_key(la::RAW_TEXT))
-            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        while (!raw.empty() && (raw.front() == ' ' || raw.front() == '\t' ||
-                                raw.front() == '\n')) raw.erase(0, 1);
-        while (!raw.empty() && (raw.back()  == ' ' || raw.back()  == '\t' ||
-                                raw.back()  == '\n')) raw.pop_back();
-        std::vector<std::string> pieces;
-        std::string cur;
-        bool in_string = false;
-        bool in_escape = false;
-        for (char c : raw) {
-            if (in_escape) { cur += c; in_escape = false; continue; }
-            if (in_string) {
-                if (c == '\\') { cur += c; in_escape = true; continue; }
-                if (c == '"')  { in_string = false; }
-                cur += c;
-                continue;
-            }
-            if (c == '"') { in_string = true; cur += c; continue; }
-            if (c == ',') { pieces.push_back(std::move(cur)); cur.clear(); continue; }
-            cur += c;
-        }
-        if (!cur.empty()) pieces.push_back(std::move(cur));
-        std::vector<uint8_t> bytes;
-        auto hex_nib = [](char ch) -> int {
-            if (ch >= '0' && ch <= '9') return ch - '0';
-            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
-            return -1;
-        };
-        auto decode_byte_escape = [&](std::string_view body, size_t& i,
-                                      const std::string& src) -> bool {
-            // body[i] == '\\'; consumes the escape and appends one byte.
-            if (i + 1 >= body.size()) {
-                error(std::format("concat_bytes!: dangling '\\' in '{}'", src));
-                return false;
-            }
-            char e = body[i + 1];
-            uint8_t b = 0;
-            switch (e) {
-            case 'n':  b = '\n'; break;
-            case 't':  b = '\t'; break;
-            case 'r':  b = '\r'; break;
-            case '0':  b = 0;    break;
-            case '\\': b = '\\'; break;
-            case '\'': b = '\''; break;
-            case '"':  b = '"';  break;
-            case 'x': {
-                if (i + 3 < body.size()) {
-                    int hi = hex_nib(body[i + 2]);
-                    int lo = hex_nib(body[i + 3]);
-                    if (hi >= 0 && lo >= 0) {
-                        bytes.push_back((uint8_t)((hi << 4) | lo));
-                        i += 4;
-                        return true;
-                    }
-                }
-                error(std::format(
-                    "concat_bytes!: malformed \\x escape in '{}'", src));
-                i += 2;
-                return true;
-            }
-            default:
-                error(std::format(
-                    "concat_bytes!: unknown escape '\\{}' in '{}'", e, src));
-                i += 2;
-                return true;
-            }
-            bytes.push_back(b);
-            i += 2;
-            return true;
-        };
-        for (auto& piece : pieces) {
-            std::string p = piece;
-            while (!p.empty() && (p.front() == ' ' || p.front() == '\t' ||
-                                  p.front() == '\n')) p.erase(0, 1);
-            while (!p.empty() && (p.back()  == ' ' || p.back()  == '\t' ||
-                                  p.back()  == '\n')) p.pop_back();
-            if (p.empty()) continue;
-            // Byte-string literal: b"..."
-            if (p.size() >= 3 && p[0] == 'b' && p[1] == '"' && p.back() == '"') {
-                std::string body = p.substr(2, p.size() - 3);
-                for (size_t i = 0; i < body.size(); ) {
-                    if (body[i] == '\\') {
-                        if (!decode_byte_escape(body, i, p)) break;
-                    } else {
-                        bytes.push_back((uint8_t)body[i]);
-                        ++i;
-                    }
-                }
-                continue;
-            }
-            // Byte char literal: b'X' or b'\\n' etc.
-            if (p.size() >= 4 && p[0] == 'b' && p[1] == '\'' && p.back() == '\'') {
-                std::string body = p.substr(2, p.size() - 3);
-                if (body.empty()) {
-                    error(std::format(
-                        "concat_bytes!: empty byte-char literal '{}'", p));
-                    continue;
-                }
-                if (body[0] == '\\') {
-                    size_t i = 0;
-                    decode_byte_escape(body, i, p);
-                } else {
-                    bytes.push_back((uint8_t)body[0]);
-                }
-                continue;
-            }
-            // Integer literal (decimal or 0x / 0o / 0b prefixes), possibly
-            // with trailing type suffix like `0x42u8`. We accept any value
-            // that fits in 0..=255 and reject the rest.
-            bool is_neg = (!p.empty() && p[0] == '-');
-            size_t scan = is_neg ? 1 : 0;
-            int base = 10;
-            if (scan + 1 < p.size() && p[scan] == '0' &&
-                (p[scan + 1] == 'x' || p[scan + 1] == 'X')) { base = 16; scan += 2; }
-            else if (scan + 1 < p.size() && p[scan] == '0' &&
-                     (p[scan + 1] == 'o' || p[scan + 1] == 'O')) { base = 8; scan += 2; }
-            else if (scan + 1 < p.size() && p[scan] == '0' &&
-                     (p[scan + 1] == 'b' || p[scan + 1] == 'B')) { base = 2; scan += 2; }
-            int64_t v = 0;
-            bool any_digit = false;
-            for (; scan < p.size(); ++scan) {
-                char ch = p[scan];
-                if (ch == '_') continue;
-                int d = -1;
-                if (base == 10 && ch >= '0' && ch <= '9') d = ch - '0';
-                else if (base == 16) { d = hex_nib(ch); }
-                else if (base == 8 && ch >= '0' && ch <= '7') d = ch - '0';
-                else if (base == 2 && (ch == '0' || ch == '1')) d = ch - '0';
-                if (d < 0) break;
-                v = v * base + d;
-                any_digit = true;
-            }
-            if (!any_digit) {
-                error(std::format(
-                    "concat_bytes!: unsupported arg '{}' (expected byte string, "
-                    "byte char, or integer literal in 0..=255)", piece));
-                return error_expr();
-            }
-            if (is_neg) v = -v;
-            if (v < 0 || v > 255) {
-                error(std::format(
-                    "concat_bytes!: integer literal {} out of u8 range", v));
-                return error_expr();
-            }
-            bytes.push_back((uint8_t)v);
-        }
-        auto u8t = u8_t();
-        std::vector<lir::LExprPtr> elems;
-        elems.reserve(bytes.size());
-        for (auto b : bytes)
-            elems.push_back(builder().lit_int((int64_t)b, u8t));
-        auto arr_t = make_array(u8t, (uint64_t)bytes.size());
-        return builder().arr_lit(std::move(elems), arr_t);
-    }
+    if (callee_name == "concat_bytes") return lower_macro_concat_bytes(node);
 
     // stringify!(...) — return the raw text between the parens as a str
     // literal. Same as Rust's `stringify!` (no macro expansion of the
