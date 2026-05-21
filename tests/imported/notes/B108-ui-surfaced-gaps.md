@@ -15,7 +15,18 @@ Categories: `compiler-bug` (crash / wrong runtime value / verifier fail),
 
 ## compiler-bug
 
-### 1. Place-borrow `&mut x[i]` through user `IndexMut` does not write back
+### 1. Place-borrow `&mut x[i]` through user `IndexMut` does not write back — FIXED (2026-05-21)
+**Fixed.** `&mut f[i]` / `&f[i]` over a user `Index`/`IndexMut` struct now
+dispatch to `index_mut()` / `index()` and return the resulting `&mut Output` /
+`&Output` place reference DIRECTLY (new `SemaChecker::lower_index_place`, wired
+into the `ADDR_OF` / `ADDR_OF_MUT` cases). The receiver address is the real
+variable slot (`&mut f`), not a spilled copy, so the write lands. The
+`&mut f[1]` / `&f[1]` rows in `overloaded/overloaded-index.logos` are restored;
+dedicated regression at `tests/logos/pass/index_mut_place_borrow.logos`.
+(`overloaded-index-autoderef.rs` is still skipped — it additionally needs Box
+autoderef + method autoderef through the index place; see missing-feature #2.)
+
+Original report:
 - Upstream: `overloaded/overloaded-index-autoderef.rs` (and the `&mut f[1]` block of `overloaded/overloaded-index.rs`).
 - Minimal trigger:
   ```

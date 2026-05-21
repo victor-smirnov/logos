@@ -1,0 +1,48 @@
+// Regression: borrowing the place produced by a user `Index`/`IndexMut`
+// impl. `&mut f[i]` must dispatch to `index_mut` and return the real `&mut
+// Output` place so a write through it lands; `&f[i]` likewise returns the
+// real `&Output`. Previously `&mut f[i]` lowered to `addr_of_temp(*(f.index(
+// i)))` — it took the immutable `index()` on a spilled COPY of `f` and then
+// the address of a fresh temp holding the loaded value, so `*p = v` was lost
+// (silent wrong value). Surfaced by B108 overloaded/overloaded-index.
+package index_mut_place_borrow;
+
+use logos.lang.ops;
+
+struct Foo { x: i64, y: i64 }
+
+impl Index<i64, i64> for Foo {
+    fn index(&self, z: i64) -> &i64 {
+        if z == 0i64 { return &self.x; }
+        return &self.y;
+    }
+}
+impl IndexMut<i64, i64> for Foo {
+    fn index_mut(&mut self, z: i64) -> &mut i64 {
+        if z == 0i64 { return &mut self.x; }
+        return &mut self.y;
+    }
+}
+
+fn main() -> i32 {
+    let mut f = Foo { x: 1i64, y: 2i64 };
+
+    // immutable place borrow reads the real field
+    let r: &i64 = &f[0i64];
+    if *r != 1i64 { return 1i32; }
+
+    // mutable place borrow: write must reach f.y
+    let p: &mut i64 = &mut f[1i64];
+    *p = 4i64;
+    if f[1i64] != 4i64 { return 2i32; }
+
+    // and f.x via index 0
+    let q: &mut i64 = &mut f[0i64];
+    *q = 7i64;
+    if f[0i64] != 7i64 { return 3i32; }
+
+    // direct index read/write still works alongside place borrows
+    f[1i64] = 9i64;
+    if f[1i64] != 9i64 { return 4i32; }
+    return 0i32;
+}

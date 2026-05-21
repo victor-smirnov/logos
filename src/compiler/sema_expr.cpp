@@ -696,6 +696,11 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             }
             return builder().addr_of_temp(std::move(inner), true, make_ref(true, it));
         }
+        // &mut f[i] over a user IndexMut struct → index_mut() place ref.
+        if (code_of(child) == la::INDEX_READ) {
+            if (auto place = lower_index_place(child, /*is_mut=*/true))
+                return place;
+        }
         // &mut <expr> — temporary materialization
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
@@ -1532,6 +1537,11 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 return inner_v;
             }
             return builder().addr_of_temp(std::move(inner_v), false, make_ref(false, it));
+        }
+        // &f[i] over a user Index struct → index() place ref (no deref/temp).
+        if (code_of(child) == la::INDEX_READ) {
+            if (auto place = lower_index_place(child, /*is_mut=*/false))
+                return place;
         }
         // &<expr> — temporary materialization: spill rvalue to stack
         auto inner = lower_expr(child);
@@ -7528,6 +7538,64 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     ng_t.lifetime_args = std::move(ng_lt_args);
     TypeRef lit_result_type = pool_->alloc(std::move(ng_t));
     return builder().struct_lit(std::string(sname), std::move(fields), lit_result_type);
+}
+
+lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
+    if (code_of(node) != la::INDEX_READ) return nullptr;
+    auto recv_node = map_of(node.get(la::RECEIVER.code));
+    auto recv = lower_expr(recv_node);
+    auto arr_type = recv->type;
+    if (TypeRef(arr_type).kind() != LogosType::Kind::Struct) return nullptr;
+
+    auto type_name = concrete_struct_name(arr_type);
+    auto base_name = std::string(TypeRef(arr_type).struct_name());
+    // For `&mut f[i]` we need IndexMut; for `&f[i]`, Index is enough.
+    const char* trait = is_mut ? "IndexMut" : "Index";
+    bool has_trait = impls_.count(std::string(trait) + "::" + type_name) ||
+                     (!base_name.empty() &&
+                      impls_.count(std::string(trait) + "::" + base_name));
+    if (!has_trait) {
+        // `&mut f[i]` but no IndexMut impl — not a user index-place we can
+        // honour. Fall through (generic path will diagnose / copy).
+        return nullptr;
+    }
+    std::string method = is_mut ? "__index_mut" : "__index";
+    auto mangled = type_name + method;
+    const SemaFuncInfo* fit = nullptr;
+    for (auto* c : find_func_candidates(mangled)) {
+        if (c->param_types.size() == 2) { fit = c; break; }
+    }
+    if (!fit) return nullptr;
+
+    lir::LExprPtr idx = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    widen_int_expr(idx, fit->param_types[1], builder());
+
+    // Receiver address: for a plain variable take the REAL slot address
+    // (`&mut f`), not a spilled copy — otherwise index_mut writes into a
+    // temporary and the mutation is lost. Other receiver shapes fall back to
+    // addr_of_temp (best-effort; a place chain like `g.h[i]` keeps the
+    // pre-existing behaviour).
+    auto self_ref_t = make_ref(is_mut, arr_type);
+    lir::LExprPtr recv_ref;
+    if (code_of(recv_node) == la::VAR_REF) {
+        auto var_name = std::string(str_of(recv_node.get(la::NAME.code)));
+        recv_ref = builder().addr_of(var_name, self_ref_t);
+    } else if (is_ref_like(TypeRef(arr_type).kind())) {
+        // Receiver is already a reference/pointer to the struct — pass through.
+        recv_ref = std::move(recv);
+    } else {
+        recv_ref = builder().addr_of_temp(std::move(recv), is_mut, self_ref_t);
+    }
+    std::vector<lir::LExprPtr> args;
+    args.push_back(std::move(recv_ref));
+    args.push_back(std::move(idx));
+    // index_mut returns `&mut Output` / index returns `&Output`; that IS the
+    // place reference the caller wants — return it directly (no deref).
+    return builder().call(
+        fit->symbol_name.empty() ? mangled : fit->symbol_name,
+        {}, std::move(args), fit->ret_type);
 }
 
 lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {

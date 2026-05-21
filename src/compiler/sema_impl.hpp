@@ -2632,6 +2632,12 @@ private:
     lir::LExprPtr lower_field_read(hermes::TinyMapView node);
     lir::LExprPtr lower_struct_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_index_read(hermes::TinyMapView node);
+    // `&f[i]` / `&mut f[i]` over a user Index/IndexMut struct: dispatch to
+    // index()/index_mut() and return the resulting place reference DIRECTLY
+    // (no deref, no temp). Returns nullptr if `node` is not an INDEX_READ
+    // over a user-Index type, so the caller falls through to its generic
+    // address-of path. is_mut selects index_mut (requires IndexMut).
+    lir::LExprPtr lower_index_place(hermes::TinyMapView node, bool is_mut);
     lir::LExprPtr lower_arr_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_arr_fill_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_list_comp(hermes::TinyMapView node);

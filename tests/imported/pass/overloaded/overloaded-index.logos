@@ -2,9 +2,12 @@
 // Original path: tests/ui/overloaded/overloaded-index.rs
 // Modifications: isize → i64; Logos Index/IndexMut take both Idx and Output
 // as trait type-params (Index<i64, i64>). `f[0] = 3` write-side dispatch via
-// IndexMut works. The `&mut f[1]` / `&f[1]` raw-place-borrow tests dropped
-// (place-borrow through overloaded index not exercised). Int trait methods
-// (get/get_from_ref/inc) kept and called on the index result via a local.
+// IndexMut works. The `&mut f[1]` / `&f[1]` raw-place-borrow tests are
+// RESTORED — borrowing the overloaded-index place now dispatches to
+// index_mut()/index() and returns the real place (fixed 2026-05-21). The
+// trailing `f[1].inc()` / `f[1].get()` method-autoderef-through-index calls
+// are kept as calls on a local bound from `f[1]` (method autoderef through a
+// user Index is a separate, still-open gap — see notes/B108).
 package m_overloaded_index;
 
 use logos.std.fmt;
@@ -58,9 +61,21 @@ fn main() -> i32 {
     f[0i64] = 3i64;
     assert_eq!(f[0i64], 3i64);
 
+    // Restored: place-borrow through the overloaded index.
+    {
+        let p: &mut i64 = &mut f[1i64];
+        *p = 4i64;
+    }
+    {
+        let p: &i64 = &f[1i64];
+        assert_eq!(*p, 4i64);
+    }
+
+    // `f[1].inc()` (method autoderef through Index) is still a gap; bind the
+    // value to a local and call the Int methods on it (f[1] is 4 here → 5).
     let mut a: i64 = f[1i64];
     a.inc();
-    assert_eq!(a.get(), 3i64);
-    assert_eq!(a.get_from_ref(), 3i64);
+    assert_eq!(a.get(), 5i64);
+    assert_eq!(a.get_from_ref(), 5i64);
     return 0;
 }
