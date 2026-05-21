@@ -9510,10 +9510,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
+    // A bounded type-param used as the static-call class (`S::method` inside
+    // `fn f<S: Bound>()`) must dispatch through the trait bound, NOT a concrete
+    // same-name struct that happens to be in scope. This matters when a generic
+    // stdlib method like `Iterator::sum<S: Sum<Item>> { S::sum(self) }` is
+    // lowered as a TEMPLATE in a consumer that also declares `struct S` — the
+    // type-param `S` shadows the struct `S` (Rust scoping). Detect an ACTIVE
+    // abstract type-param (resolves to a TypeVar in scope) and skip the
+    // concrete-symbol lookups so resolution falls to the generic-static
+    // dispatch (current_type_bounds_) below.
+    bool class_is_abstract_tp = false;
+    if (auto tpit = current_type_params_.find(std::string(class_name));
+        tpit != current_type_params_.end() &&
+        TypeRef(tpit->second).kind() == LogosType::Kind::TypeVar)
+        class_is_abstract_tp = true;
+
     // Bug 3 fix: look in both funcs_ and generic_funcs_ (generic static methods
     // registered with type params end up in generic_funcs_, not funcs_).
     const SemaFuncInfo* fi_ptr = nullptr;
-    {
+    if (!class_is_abstract_tp) {
         std::vector<TypeRef> arg_types;
         for (auto& a : arg_exprs) arg_types.push_back(a->type);
         auto fit = find_func_by_base_and_signature(mangled, arg_types, false);
