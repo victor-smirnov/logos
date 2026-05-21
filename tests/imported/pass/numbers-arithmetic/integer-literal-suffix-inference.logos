@@ -1,0 +1,53 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/integer-literal-suffix-inference.rs
+// Modifications: every literal explicitly suffixed (Logos requires it);
+// inner fns hoisted to module scope; signed MIN values written as
+// `-(MAX) - 1` since `-128i8` parses as `-(128i8)` which overflows.
+package integer_literal_suffix_inference_test;
+
+fn id_i8(n: i8) -> i8 { return n; }
+fn id_i16(n: i16) -> i16 { return n; }
+fn id_i32(n: i32) -> i32 { return n; }
+fn id_i64(n: i64) -> i64 { return n; }
+
+fn id_uint(n: u64) -> u64 { return n; }
+fn id_u8(n: u8) -> u8 { return n; }
+fn id_u16(n: u16) -> u16 { return n; }
+fn id_u32(n: u32) -> u32 { return n; }
+fn id_u64(n: u64) -> u64 { return n; }
+
+fn main() -> i32 {
+    let j8: i8 = -127i8 - 1i8;
+    id_i8(j8);
+    id_i8(-127i8 - 1i8);
+
+    let j16: i16 = -32767i16 - 1i16;
+    id_i16(j16);
+    id_i16(-32767i16 - 1i16);
+
+    let j32: i32 = -2147483647i32 - 1i32;
+    id_i32(j32);
+
+    let j64: i64 = -9223372036854775807i64 - 1i64;
+    id_i64(j64);
+
+    let ju: u64 = 1u64;
+    id_uint(ju);
+    id_uint(1u64);
+
+    let j8u: u8 = 255u8;
+    id_u8(j8u);
+    id_u8(255u8);
+
+    let j16u: u16 = 65535u16;
+    id_u16(j16u);
+    id_u16(65535u16);
+
+    let j32u: u32 = 4294967295u32;
+    id_u32(j32u);
+    id_u32(4294967295u32);
+
+    let j64u: u64 = 18446744073709551615u64;
+    id_u64(j64u);
+    id_u64(18446744073709551615u64);
+    return 0;
+}

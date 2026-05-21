@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/shift-near-oflo.rs
+// Modifications: the `id()`/static-mut const-eval-defeating wrapper and the
+// macro expansion are dropped; the edge-case shift assertions are written
+// out per integer width with explicit suffixes. signed MIN written as
+// `-(MAX) - 1`; hex literals (0x80u8 …) preserved. Shift operands kept on
+// the same width as the value. Tests no-overflow at the max valid shift.
+package shift_near_oflo_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn test_left_shift() {
+    // i8 / u8
+    assert_eq!(1i8 << 0i8, 1i8);
+    assert_eq!(1u8 << 0u8, 1u8);
+    assert_eq!(1i8 << 7i8, -127i8 - 1i8);
+    assert_eq!(1u8 << 7u8, 0x80u8);
+    assert_eq!(3i8 << 7i8, -127i8 - 1i8);
+    assert_eq!(3u8 << 7u8, 0x80u8);
+
+    // i16 / u16
+    assert_eq!(1i16 << 15i16, -32767i16 - 1i16);
+    assert_eq!(1u16 << 15u16, 0x8000u16);
+
+    // i32 / u32
+    assert_eq!(1i32 << 31i32, -2147483647i32 - 1i32);
+    assert_eq!(1u32 << 31u32, 0x80000000u32);
+
+    // i64 / u64
+    assert_eq!(1i64 << 63i64, -9223372036854775807i64 - 1i64);
+    assert_eq!(1u64 << 63u64, 0x8000000000000000u64);
+}
+
+fn test_right_shift() {
+    assert_eq!(1i8 >> 0i8, 1i8);
+    assert_eq!(1u8 >> 0u8, 1u8);
+    // sign-bit carried by arithmetic right shift
+    assert_eq!((-127i8 - 1i8) >> 7i8, -1i8);
+    // high bit shifted to LSB
+    assert_eq!(0x40i8 >> 6i8, 1i8);
+    assert_eq!(0x80u8 >> 7u8, 1u8);
+
+    assert_eq!((-2147483647i32 - 1i32) >> 31i32, -1i32);
+    assert_eq!(0x80000000u32 >> 31u32, 1u32);
+}
+
+fn main() -> i32 {
+    test_left_shift();
+    test_right_shift();
+    return 0;
+}

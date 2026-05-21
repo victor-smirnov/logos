@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/match/issue-36401.rs
+// Modifications: the `static [(u8, Event); 1]` array is replaced with a
+// local tuple (the test only matches its single element); `panic!("…{:?}")`
+// → panic(str). Tests a tuple pattern combining an integer literal with an
+// enum unit-variant pattern.
+package issue_36401_test;
+
+use logos.lang.panic;
+
+enum Event {
+    Key(u8),
+    Resize,
+    Unknown(u16),
+}
+
+fn main() -> i32 {
+    let pair = (1u8, Event::Resize);
+    match pair {
+        (1u8, Event::Resize) => {}
+        _ => { panic("unexpected"); }
+    }
+    return 0;
+}

@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/binding/match-beginning-vert.rs
+// Modifications: the leading `|` on each arm is dropped (Logos doesn't
+// accept a leading vertical bar before the first alternative); the
+// `for foo in &[A,B,...]` driver and the `if let` guard arm are dropped and
+// the match is exercised directly per variant. The `B | C` or-pattern arm is
+// preserved. println! → assert_eq! return value.
+package match_beginning_vert_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Foo { A, B, C, D, E }
+
+fn label(f: Foo) -> i32 {
+    match f {
+        Foo::A          => 1i32,
+        Foo::B | Foo::C => 2i32,
+        Foo::D          => 3i32,
+        _               => 0i32,
+    }
+}
+
+fn main() -> i32 {
+    assert_eq!(label(Foo::A), 1i32);
+    assert_eq!(label(Foo::B), 2i32);
+    assert_eq!(label(Foo::C), 2i32);
+    assert_eq!(label(Foo::D), 3i32);
+    assert_eq!(label(Foo::E), 0i32);
+    return 0;
+}

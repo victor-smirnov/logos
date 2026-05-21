@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/vec-matching-fixed.rs
+// Modifications: unreachable!() → panic(str); assert_eq! kept; literals
+// suffixed i32. Tests fixed-length array patterns: literal arms, leading
+// and middle `..` rest patterns, and full destructuring bind.
+package vec_matching_fixed_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+
+fn a() {
+    let x = [1i32, 2i32, 3i32];
+    match x {
+        [1i32, 2i32, 4i32]  => { panic("u"); }
+        [0i32, 2i32, 3i32, ..] => { panic("u"); }
+        [0i32, .., 3i32]    => { panic("u"); }
+        [0i32, ..]          => { panic("u"); }
+        [1i32, 2i32, 3i32]  => {}
+        [_, _, _]           => { panic("u"); }
+    }
+    match x {
+        [..] => {}
+    }
+    match x {
+        [_, _, _, ..] => {}
+    }
+    match x {
+        [a, b, c] => {
+            assert_eq!(1i32, a);
+            assert_eq!(2i32, b);
+            assert_eq!(3i32, c);
+        }
+    }
+}
+
+fn main() -> i32 {
+    a();
+    return 0;
+}

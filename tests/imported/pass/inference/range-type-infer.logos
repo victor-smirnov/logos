@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/inference/range-type-infer.rs
+// Modifications: the `.map(...).collect::<Vec<_>>()` iterator-adapter parts
+// are dropped (Vec/collect/closures are heavier features); the range-based
+// `for` loops — which are the inference points the test exercises — are
+// preserved, with the loop bodies made self-checking via accumulators.
+// Issues #21672, #21595, #21649.
+package range_type_infer_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut parity_sum = 0i32;
+    for x in 0i32..10i32 { parity_sum += x % 2i32; }
+    assert_eq!(parity_sum, 5i32);
+
+    let mut count = 0i32;
+    for x in 0i32..100i32 {
+        let _f = x as f32;
+        count += 1i32;
+    }
+    assert_eq!(count, 100i32);
+
+    let array = [true, false];
+    let mut hits = 0i32;
+    for i in 0i64..1i64 {
+        if array[i] { hits += 1i32; }
+    }
+    assert_eq!(hits, 1i32);
+    return 0;
+}

@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/generics/generic-fn-unique.rs
+// Modifications: Box<T> → plain T (Logos has no Box yet; the test only
+// exercises a generic identity function); println! dropped; the result is
+// asserted. Tests a generic fn passing its parameter through unchanged.
+package generic_fn_unique_test;
+
+fn f<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let x = f::<i64>(3i64);
+    if x != 3i64 { return 1; }
+    return 0;
+}

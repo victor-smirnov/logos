@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/match/issue-113012.rs
+// Modifications: the `const FOO` with a `match` initializer is rewritten as
+// a runtime tuple-struct construction with a `match` expression argument
+// (Logos has no const-eval; metacall is its compile-time channel). The unit
+// payload `()` is replaced with an i32, and the open-ended `0..` range arm
+// (not accepted by Logos) is written as a literal `0` arm. Tests a `match`
+// expression used directly as a constructor argument.
+package issue_113012_test;
+
+struct Foo(i32);
+
+fn main() -> i32 {
+    let _f = Foo(match 0i32 {
+        0i32 => 5i32,
+        _ => 6i32,
+    });
+    return 0;
+}

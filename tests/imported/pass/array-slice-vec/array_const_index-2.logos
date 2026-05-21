@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/array_const_index-2.rs
+// Modifications: the const-expression array size `[i32; (ARR[0]-41) as usize]`
+// is dropped (Logos array sizes are plain literals, no const-eval); the
+// const array + const-index access is rewritten as a top-level `pub const`
+// array indexed at runtime and asserted. Tests indexing a compile-time
+// array constant.
+package array_const_index_2_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+pub const ARR: [i32; 6] = [42i32, 43i32, 44i32, 45i32, 46i32, 47i32];
+
+fn main() -> i32 {
+    assert_eq!(ARR[3i64], 45i32);
+    assert_eq!(ARR[0i64], 42i32);
+    assert_eq!(ARR[5i64], 47i32);
+    return 0;
+}

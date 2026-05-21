@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust tests/ui/generics/generic-newtype-struct.rs
+// Modifications: literal suffixed i64. Tests constructing a generic
+// tuple-struct (newtype).
+package generic_newtype_struct_test;
+
+struct S<T>(T);
+
+fn main() -> i32 {
+    let _s = S(2i64);
+    return 0;
+}

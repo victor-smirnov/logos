@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/binding/use-uninit-match.rs
+// Modifications: enum renamed MyOption (Logos lowercase-type lint); isize
+// → i64; turbofish-in-pattern dropped (T inferred); println! dropped.
+// Tests matching over a generic enum's variants with a counter.
+package use_uninit_match_test;
+
+enum MyOption<T> { none, some(T) }
+
+fn foo<T>(o: MyOption<T>) -> i64 {
+    let mut x: i64 = 5i64;
+    match o {
+        MyOption::none => {}
+        MyOption::some(_t) => { x += 1i64; }
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    if foo::<i64>(MyOption::none) != 5i64 { return 1; }
+    if foo::<i64>(MyOption::some(7i64)) != 6i64 { return 2; }
+    return 0;
+}

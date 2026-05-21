@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/destructure-array-1.rs
+// Modifications: the destructuring array pattern in the fn parameter
+// (`fn foo([a,b,c,d]: [D;4], …)`) is rewritten to take the array by value
+// and index it (array-pattern fn parameters aren't accepted by Logos); the
+// `D` struct with an empty Drop is replaced with an i64 element (the test's
+// point — moving a fixed-size array by value into a fn and selecting an
+// element — is preserved). assert_eq! kept.
+package destructure_array_1_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn foo(arr: [i64; 4], i: u64) -> i64 {
+    match i {
+        0u64 => arr[0i64],
+        1u64 => arr[1i64],
+        2u64 => arr[2i64],
+        _    => arr[3i64],
+    }
+}
+
+fn main() -> i32 {
+    let d1 = foo([1i64, 2i64, 3i64, 4i64], 1u64);
+    let d3 = foo([5i64, 6i64, 7i64, 8i64], 3u64);
+    assert_eq!(d1, 2i64);
+    assert_eq!(d3, 8i64);
+    return 0;
+}

@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/match/match-usize-min-max-pattern.rs
+// Modifications: usize::MIN / usize::MAX (no associated consts on primitives
+// in Logos) inlined as 0u64 and the u64 max literal; usize → u64. Tests a
+// tuple pattern of two integer literals. Regression #37686.
+package match_usize_min_max_pattern_test;
+
+fn main() -> i32 {
+    match (0u64, 0u64) {
+        (0u64, 18446744073709551615u64) => {}
+        _ => {}
+    }
+    return 0;
+}

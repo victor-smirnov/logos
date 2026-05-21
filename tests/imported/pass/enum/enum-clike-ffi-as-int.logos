@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/enum/enum-clike-ffi-as-int.rs
+// Modifications: the `extern "C"` fn-ptr transmute (the ABI-compatibility
+// probe) is dropped — Logos has no transmute; the test reduces to checking
+// that a C-like enum's explicit discriminants cast to the right integer
+// values. `#[repr(u32)]` dropped (representation is implicit here).
+package enum_clike_ffi_as_int_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Foo {
+    A = 0,
+    B = 23,
+}
+
+fn foo() -> Foo { return Foo::B; }
+
+fn main() -> i32 {
+    assert_eq!(Foo::A as u32, 0u32);
+    assert_eq!(Foo::B as u32, 23u32);
+    assert_eq!(foo() as u32, 23u32);
+    return 0;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/recursion/recursion-tail-call-no-arg-leak.rs
+// Modifications: String uses logos.mem.string. Verifies a tail-recursive
+// call carrying an owned String argument runs cleanly (no arg-slot leak).
+// Regression #160.
+package recursion_tail_call_no_arg_leak_test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+fn inner(dummy: String, b: bool) {
+    if b {
+        return inner(dummy, false);
+    }
+}
+
+fn main() -> i32 {
+    inner("hi".to_string(), true);
+    return 0;
+}

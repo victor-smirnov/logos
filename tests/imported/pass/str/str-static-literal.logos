@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust tests/ui/str/str-static-literal.rs
+// Modifications: println! dropped; `&'static str` written as `str`. Checks
+// a bare string literal is usable as a str value.
+package str_static_literal_test;
+
+fn main() -> i32 {
+    let x: str = "foo";
+    let _ = x;
+    return 0;
+}

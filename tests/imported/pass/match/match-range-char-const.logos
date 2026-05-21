@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/match/match-range-char-const.rs
+// Modifications: const char range bounds inlined as char literals (Logos
+// pins range-pattern bounds to literals). Tests an inclusive char range
+// pattern. Regression #18464.
+package match_range_char_const_test;
+
+fn main() -> i32 {
+    match '5' {
+        '0'..='9' => {}
+        _         => {}
+    }
+    return 0;
+}

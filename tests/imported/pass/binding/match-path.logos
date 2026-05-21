@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/binding/match-path.rs
+// Modifications: inner `mod m1` flattened to top-level enum (Logos modules
+// are packages, not inline `mod` blocks); exhaustive match over a
+// payload-less enum preserved.
+package match_path_test;
+
+enum Foo { foo1, foo2 }
+
+fn bar(x: Foo) -> i32 {
+    match x {
+        Foo::foo1 => return 1i32,
+        Foo::foo2 => return 2i32,
+    }
+}
+
+fn main() -> i32 {
+    if bar(Foo::foo1) != 1i32 { return 1i32; }
+    if bar(Foo::foo2) != 2i32 { return 2i32; }
+    return 0;
+}

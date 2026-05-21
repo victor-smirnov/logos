@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/loop-break-cont.rs
+// Modifications: usize → u64; println! dropped; assert!/assert_eq! kept.
+// Tests loop bodies with break, continue, and the even/odd parity carried
+// across continue.
+package loop_break_cont_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut i = 0u64;
+    loop {
+        i += 1u64;
+        if i == 10u64 { break; }
+    }
+    assert_eq!(i, 10u64);
+
+    let mut is_even = false;
+    loop {
+        if i == 21u64 { break; }
+        is_even = false;
+        i += 1u64;
+        if i % 2u64 != 0u64 { continue; }
+        is_even = true;
+    }
+    assert!(!is_even);
+
+    loop {
+        if i == 22u64 { break; }
+        is_even = false;
+        i += 1u64;
+        if i % 2u64 != 0u64 { continue; }
+        is_even = true;
+    }
+    assert!(is_even);
+    return 0;
+}

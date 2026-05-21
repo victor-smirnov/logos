@@ -1,0 +1,58 @@
+// Imported from rust-lang/rust tests/ui/match/overeager-sub-match-pruning-13027.rs
+// Modifications: a representative subset of the functions is ported
+// (lit-shadow-range, range-shadow-lit, range-shadow-range); the `val()` /
+// `CONST` indirections are inlined as literals; usize → i32; literals
+// suffixed. Tests that overlapping literal/range arms with a `if false`
+// guard fall through to the next matching arm. Regression #13027.
+package overeager_sub_match_pruning_13027_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn lit_shadow_range() {
+    assert_eq!(2i32, match 1i32 {
+        1i32 if false  => 1i32,
+        1i32..=2i32    => 2i32,
+        _              => 3i32
+    });
+    // value is out of the range of the second arm → wildcard
+    assert_eq!(3i32, match 3i32 {
+        1i32 if false  => 1i32,
+        1i32..=2i32    => 2i32,
+        _              => 3i32
+    });
+}
+
+fn range_shadow_lit() {
+    assert_eq!(2i32, match 1i32 {
+        1i32..=2i32 if false => 1i32,
+        1i32                 => 2i32,
+        _                    => 3i32
+    });
+    assert_eq!(3i32, match 3i32 {
+        1i32..=2i32 if false => 1i32,
+        1i32                 => 2i32,
+        _                    => 3i32
+    });
+}
+
+fn range_shadow_range() {
+    assert_eq!(2i32, match 1i32 {
+        0i32..=2i32 if false => 1i32,
+        1i32..=3i32          => 2i32,
+        _                    => 3i32
+    });
+    assert_eq!(3i32, match 5i32 {
+        0i32..=2i32 if false => 1i32,
+        1i32..=3i32          => 2i32,
+        _                    => 3i32
+    });
+}
+
+fn main() -> i32 {
+    lit_shadow_range();
+    range_shadow_lit();
+    range_shadow_range();
+    return 0;
+}

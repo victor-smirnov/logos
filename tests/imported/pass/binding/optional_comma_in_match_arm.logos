@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/binding/optional_comma_in_match_arm.rs
+// Modifications: the `unsafe { }` arm and `&1`-ref-pattern match dropped;
+// arms wrapped in braces (Logos block-arm form). Tests that match arms with
+// block-like bodies (loop/while/if/match/block) parse with and without a
+// trailing comma. literals suffixed i32.
+package optional_comma_in_match_arm_test;
+
+fn main() -> i32 {
+    let x = 1i32;
+
+    match x {
+        1i32 => { loop { break; } },
+        2i32 => { while true { break; } },
+        3i32 => { if true { } },
+        4i32 => { if true { } else { } },
+        5i32 => { match 0i32 { _ => {} } },
+        6i32 => { },
+        _    => {},
+    }
+
+    match x {
+        1i32 => { loop { break; } }
+        2i32 => { while true { break; } }
+        3i32 => { if true { } }
+        4i32 => { if true { } else { } }
+        5i32 => { match 0i32 { _ => {} } }
+        6i32 => { }
+        _    => {}
+    }
+    return 0;
+}

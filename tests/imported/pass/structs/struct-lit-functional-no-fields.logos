@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/structs/struct-lit-functional-no-fields.rs
+// Modifications: the generic `Foo<T>` is monomorphized to i64 fields; the
+// `derive(Clone)` round-trip and the String instantiation are dropped (the
+// test's point is the field-less functional-update `Foo { ..foo }`); the
+// resulting fields are asserted instead of compared via derived PartialEq.
+package struct_lit_functional_no_fields_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Foo {
+    bar: i64,
+    baz: i64,
+}
+
+fn main() -> i32 {
+    let foo = Foo { bar: 0i64, baz: 1i64 };
+    let foo2 = Foo { ..foo };
+    assert_eq!(foo2.bar, 0i64);
+    assert_eq!(foo2.baz, 1i64);
+    return 0;
+}

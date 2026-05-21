@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/binding/simple-generic-match.rs
+// Modifications: enum renamed Clam (uppercase); isize → i64; turbofish in
+// pattern dropped (T inferred). Tests matching over a single-variant
+// generic enum payload.
+package simple_generic_match_test;
+
+enum Clam<T> { a(T) }
+
+fn main() -> i32 {
+    let c = Clam::a(2i64);
+    match c {
+        Clam::a(_) => {}
+    }
+    return 0;
+}

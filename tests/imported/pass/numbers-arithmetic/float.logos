@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/float.rs
+// Modifications: println! dropped (the printed value is not asserted
+// upstream); the comparison-operator chain is preserved as an explicit
+// boolean check. Literals suffixed f64.
+package float_test;
+
+fn main() -> i32 {
+    let pi = 3.1415927f64;
+    let r = -pi * (pi + 2.0f64 / pi) - pi * 5.0f64;
+    let _ = r;
+    if pi == 5.0f64 || pi < 10.0f64 || pi <= 2.0f64
+           || pi != 22.0f64 / 7.0f64 || pi >= 10.0f64 || pi > 1.0f64 {
+        return 0;
+    }
+    return 1;
+}

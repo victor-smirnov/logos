@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/binding/match-reassign.rs
+// Modifications: Box<i32> → i32 (no Box needed); regression checks that
+// reassigning a variable inside a match arm body (plus an extra `let`)
+// doesn't confuse the checker. assert_eq! kept.
+package match_reassign_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn check_eq(x: i32, y: i32) {
+    assert_eq!(x, y);
+}
+
+fn main() -> i32 {
+    let mut x = 1i32;
+    match x {
+        y => {
+            x = 2i32;
+            let _tmp = 1i32;
+            check_eq(y, 1i32);
+        }
+    }
+    assert_eq!(x, 2i32);
+    return 0;
+}

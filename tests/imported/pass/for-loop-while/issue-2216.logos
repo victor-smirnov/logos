@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/issue-2216.rs
+// Modifications: println! dropped; assert_eq! kept; literals suffixed i32.
+// Tests labeled loops with `break 'label`, `continue 'label`, and a plain
+// `break` settling on the right control-flow target.
+package issue_2216_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut x = 0i32;
+
+    'foo: loop {
+        'bar: loop {
+            loop {
+                if 1i32 == 2i32 {
+                    break 'foo;
+                }
+                else {
+                    break 'bar;
+                }
+            }
+            continue 'foo;
+        }
+        x = 42i32;
+        break;
+    }
+
+    assert_eq!(x, 42i32);
+    return 0;
+}

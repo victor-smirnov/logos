@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/enum/issue-19340-2.rs
+// Modifications: String field uses logos.mem.string; literal age suffixed
+// u32. Tests constructing and matching a single-variant struct-style enum
+// with named fields (binding the fields).
+package issue_19340_2_test;
+
+use logos.mem.string;
+use logos.lang.str;
+
+enum Homura {
+    Madoka {
+        name: String,
+        age: u32,
+    },
+}
+
+fn main() -> i32 {
+    let homura = Homura::Madoka {
+        name: "Akemi".to_string(),
+        age: 14u32,
+    };
+
+    match homura {
+        Homura::Madoka { name, age } => {}
+    }
+    return 0;
+}

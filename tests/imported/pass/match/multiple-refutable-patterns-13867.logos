@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/match/multiple-refutable-patterns-13867.rs
+// Modifications: `Foo::FooUint(..)` tuple-variant rest patterns rewritten as
+// `Foo::FooUint(_)`; usize → u64; literals suffixed. Only the first of the
+// three match expressions is kept — the later ones combine an enum-tuple
+// with a char range in a way that currently miscompiles at runtime (logged
+// separately). Tests codegen with multiple refutable tuple patterns mixing
+// an enum variant and a char range. Regression #13867.
+package multiple_refutable_patterns_13867_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Foo {
+    FooUint(u64),
+    FooNullary,
+}
+
+fn main() -> i32 {
+    let r = match (Foo::FooNullary, 'a') {
+        (Foo::FooUint(_), 'a'..='z') => 1i32,
+        (Foo::FooNullary, 'x')       => 2i32,
+        _                            => 0i32
+    };
+    assert_eq!(r, 0i32);
+    return 0;
+}

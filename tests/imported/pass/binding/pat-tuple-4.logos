@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/binding/pat-tuple-4.rs
+// Modifications: the bare `(..)` and `(_, _, _, ..)` whole-tuple-rest arms
+// are dropped (Logos doesn't accept a top-level `(..)` tuple pattern); the
+// tuple-struct half is dropped too. The literal arms with leading/middle
+// `..`, the catch-all, and the destructuring bind are preserved.
+// unreachable!() → panic(str); literals suffixed i32.
+package pat_tuple_4_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+
+fn main() -> i32 {
+    let x = (1i32, 2i32, 3i32);
+    match x {
+        (1i32, 2i32, 4i32)     => { panic("u"); }
+        (0i32, 2i32, 3i32, ..) => { panic("u"); }
+        (0i32, .., 3i32)       => { panic("u"); }
+        (0i32, ..)             => { panic("u"); }
+        (1i32, 2i32, 3i32)     => {}
+        (_, _, _)              => { panic("u"); }
+    }
+    match x {
+        (a, b, c) => {
+            assert_eq!(1i32, a);
+            assert_eq!(2i32, b);
+            assert_eq!(3i32, c);
+        }
+    }
+    return 0;
+}

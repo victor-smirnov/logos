@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/while-with-break.rs
+// Modifications: isize → i64; the throwaway `vec![1..5]` (there to test it
+// is freed by break) and println! are dropped; the break-at-condition and
+// post-loop value check are preserved.
+package while_with_break_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut i: i64 = 90i64;
+    while i < 100i64 {
+        i = i + 1i64;
+        if i == 95i64 {
+            break;
+        }
+    }
+    assert_eq!(i, 95i64);
+    return 0;
+}

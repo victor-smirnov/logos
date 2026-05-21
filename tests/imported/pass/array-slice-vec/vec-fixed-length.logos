@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/vec-fixed-length.rs
+// Modifications: size_of/test_big_vec dropped (size_of is a metacall in
+// Logos, not the point of the test); isize → i64; literals suffixed.
+// Core test — indexing a fixed-length array — is preserved.
+package vec_fixed_length_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let x: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    assert_eq!(x[0i64], 1i64);
+    assert_eq!(x[1i64], 2i64);
+    assert_eq!(x[2i64], 3i64);
+    assert_eq!(x[3i64], 4i64);
+    return 0;
+}

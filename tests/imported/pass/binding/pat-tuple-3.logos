@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/binding/pat-tuple-3.rs
+// Modifications: tuple-struct case dropped (the tuple form covers the
+// `..` rest-pattern semantics); literals suffixed i32. Tests overlapping
+// tuple patterns with trailing `..` selecting the right arm.
+package pat_tuple_3_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let x = (1i32, 2i32, 3i32);
+    let branch = match x {
+        (1i32, 1i32, ..)       => 0i32,
+        (1i32, 2i32, 3i32, ..) => 1i32,
+        (1i32, 2i32, ..)       => 2i32,
+        _                      => 3i32
+    };
+    assert_eq!(branch, 1i32);
+    return 0;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/vec-matching-autoslice.rs
+// Modifications: the nested-tuple-of-tuples-with-float second match is
+// dropped (mixes tuple + array + float patterns); the integer array
+// destructuring match is preserved. The inner `[a, b]` array equality
+// is rewritten to two scalar asserts. panic!() → panic(str).
+package vec_matching_autoslice_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+
+fn main() -> i32 {
+    let x = [1i32, 2i32, 3i32];
+    match x {
+        [2i32, _, _] => { panic("u"); }
+        [1i32, a, b] => {
+            assert_eq!(a, 2i32);
+            assert_eq!(b, 3i32);
+        }
+        [_, _, _] => { panic("u"); }
+    }
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/estr-slice.rs
+// Modifications: println! and `.as_bytes()[i]` dropped (str has no as_bytes
+// method in Logos yet); the lexicographic `<`/`<=`/`>`/`>=` comparisons are
+// dropped too (relational ordering on str is a separate codegen slice).
+// The str equality / inequality checks via assert_eq!/assert_ne! are kept.
+package estr_slice_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let x = "hello";
+    let v = "hello";
+    let z = "thing";
+    assert_eq!(v, x);
+    assert_ne!(x, z);
+
+    let a = "aaaa";
+    let b = "bbbb";
+    assert_ne!(a, b);
+
+    let c = "cccc";
+    let cc = "ccccc";
+    assert_ne!(c, cc);
+    assert_ne!(a, c);
+    return 0;
+}

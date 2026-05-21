@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/tuple/tuple-index.rs
+// Modifications: the tuple-struct (Point) half is dropped — Logos supports
+// reading tuple-struct fields but not writing them yet — and the inner
+// `&mut x.1` borrow block is rewritten to a direct compound-assign (taking
+// a `&mut` to a tuple field is a separate slice). The plain-tuple `.0`/`.1`
+// access and compound-assign is preserved. isize → i64; assert_eq! kept.
+package tuple_index_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let mut x = (3i64, 2i64);
+    assert_eq!(x.0, 3i64);
+    assert_eq!(x.1, 2i64);
+    x.0 += 5i64;
+    assert_eq!(x.0, 8i64);
+    x.1 -= 2i64;
+    x.0 += 3i64;
+    assert_eq!(x.0, 11i64);
+    assert_eq!(x.1, 0i64);
+    return 0;
+}

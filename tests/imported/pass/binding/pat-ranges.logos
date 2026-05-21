@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/binding/pat-ranges.rs
+// Modifications: the `const`/module-path range bounds (NUM1, m::NUM2, the
+// `::NUM1` path forms) are inlined as integer literals; the legacy `...`
+// range syntax is dropped in favour of `..=`; panic!() → panic(str). Tests
+// `if let` with inclusive range patterns, including a negative range.
+package pat_ranges_test;
+
+use logos.lang.panic;
+
+fn main() -> i32 {
+    if let 10i32..=16i32 = 10i32 {} else { panic("a"); }
+    if let 10i32..=16i32 = 11i32 {} else { panic("b"); }
+    if let -13i32..=-10i32 = 12i32 { panic("c"); } else {}
+    return 0;
+}

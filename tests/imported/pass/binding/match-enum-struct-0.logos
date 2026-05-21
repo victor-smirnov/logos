@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/binding/match-enum-struct-0.rs
+// Modifications: isize → i64; panic!() → panic(str). Regression #5625 —
+// a struct-variant pattern arm against the unit variant must not match.
+package match_enum_struct_0_test;
+
+use logos.lang.panic;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e = E::Bar;
+    match e {
+        E::Foo { f: _f } => { panic("u"); }
+        _                => {}
+    }
+    return 0;
+}

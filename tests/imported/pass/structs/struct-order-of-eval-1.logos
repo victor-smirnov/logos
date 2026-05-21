@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/structs/struct-order-of-eval-1.rs
+// Modifications: String fields → i64 (the test exercises field override
+// order with a functional-update base, not String specifically); the field
+// shadowed by the explicit `f0` is asserted to take the explicit value while
+// `f1` comes from the `..` base.
+package struct_order_of_eval_1_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct S {
+    f0: i64,
+    f1: i64,
+}
+
+fn main() -> i32 {
+    let s = S {
+        f0: 100i64,
+        ..S {
+            f0: 1i64,
+            f1: 23i64
+        }
+    };
+    assert_eq!(s.f0, 100i64);
+    assert_eq!(s.f1, 23i64);
+    return 0;
+}

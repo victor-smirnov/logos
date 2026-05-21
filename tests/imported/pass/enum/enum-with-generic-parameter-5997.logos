@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/enum/enum-with-generic-parameter-5997.rs
+// Modifications: the unused local generic enum/struct in `f` are dropped
+// (Logos doesn't take local item declarations there and they're dead code);
+// isize → i64. Tests instantiating a generic fn returning bool. Issue #5997.
+package enum_with_generic_parameter_5997_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn f<T>() -> bool {
+    return true;
+}
+
+fn main() -> i32 {
+    let b = f::<i64>();
+    assert!(b);
+    return 0;
+}

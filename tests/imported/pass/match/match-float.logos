@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/match/match-float.rs
+// Modifications: the f16/f128 blocks, `.to_bits()`, and the `matches!`
+// macro checks are dropped (those features aren't in Logos); the core
+// point — `0.0 == -0.0` uses value (not bitwise) equality — is preserved
+// for f32 and f64. consts → locals; literals suffixed.
+package match_float_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn check_f32() {
+    let f1: f32 = 0.0f32;
+    let f2: f32 = -0.0f32;
+    assert_eq!(f1, f2);
+}
+
+fn check_f64() {
+    let f1: f64 = 0.0f64;
+    let f2: f64 = -0.0f64;
+    assert_eq!(f1, f2);
+}
+
+fn main() -> i32 {
+    check_f32();
+    check_f64();
+    return 0;
+}

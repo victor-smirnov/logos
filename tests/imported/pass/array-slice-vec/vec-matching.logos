@@ -1,0 +1,47 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/vec-matching.rs
+// Modifications: the subslice-binding arms (`a @ ..` binding to a slice and
+// the `&[_]` slice-match functions b()/b_slice()/e()) are dropped — Logos
+// has no `&[T; N] → &[T]` slice-from-array coercion yet — leaving the
+// single-element, leading-rest, and branch-selecting array patterns.
+// panic!() → panic(str); assert_eq! kept; literals suffixed i32.
+package vec_matching_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.panic;
+
+fn a() {
+    let x = [1i32];
+    match x {
+        [a] => {
+            assert_eq!(a, 1i32);
+        }
+    }
+}
+
+fn c() {
+    let x = [1i32];
+    match x {
+        [2i32, ..] => { panic("u"); }
+        [..]       => {}
+    }
+}
+
+fn d() {
+    let x = [1i32, 2i32, 3i32];
+    let branch = match x {
+        [1i32, 1i32, ..]       => 0i32,
+        [1i32, 2i32, 3i32, ..] => 1i32,
+        [1i32, 2i32, ..]       => 2i32,
+        _                      => 3i32
+    };
+    assert_eq!(branch, 1i32);
+}
+
+fn main() -> i32 {
+    a();
+    c();
+    d();
+    return 0;
+}

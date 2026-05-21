@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/binding/match-enum-struct-1.rs
+// Modifications: isize → i64; panic!() → panic(str); struct-variant enum
+// matched with `{ .. }` and named-field bind. Both forms preserved.
+package match_enum_struct_1_test;
+
+use logos.lang.panic;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e = E::Foo { f: 1i64 };
+    match e {
+        E::Foo { .. } => {},
+        _ => { panic("unexpected"); }
+    }
+    let e2 = E::Foo { f: 1i64 };
+    match e2 {
+        E::Foo { f: _f } => {},
+        _ => { panic("unexpected"); }
+    }
+    return 0;
+}

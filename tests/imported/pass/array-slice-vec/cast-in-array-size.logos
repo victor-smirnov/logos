@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/array-slice-vec/cast-in-array-size.rs
+// Modifications: array sizes must be plain integer literals in Logos (no
+// const-expr / `as usize` sizing), so the `as`-cast-in-size dimension is
+// dropped; the remaining test exercises `as usize` casts of char/bool and
+// repeat-array construction. isize → i64.
+package cast_in_array_size_test;
+
+fn main() -> i32 {
+    let _b: [bool; 1] = [true; 1];
+    let _c: [bool; 10] = [true; 10];
+    let _d: [bool; 1] = [true; 1];
+
+    let nl = '\n' as i64;
+    if nl != 10i64 { return 1; }
+    let t = true as i64;
+    if t != 1i64 { return 2; }
+    let one = 1i64 as i64;
+    if one != 1i64 { return 3; }
+    return 0;
+}

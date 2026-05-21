@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust tests/ui/enum/enum-univariant-repr.rs
+// Modifications: the `mem::size_of` / `mem::transmute` layout checks and the
+// `#[repr(...)]` attributes are dropped (size_of is a metacall and Logos has
+// no transmute); the explicit-discriminant cast and the data-carrying
+// univariant enum match are preserved. assert_eq! kept.
+package enum_univariant_repr_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Univariant {
+    X = 17,
+}
+
+enum UnivariantWithData {
+    Z(u8),
+}
+
+fn main() -> i32 {
+    assert_eq!(17i32, Univariant::X as i32);
+
+    let z = UnivariantWithData::Z(42u8);
+    match z {
+        UnivariantWithData::Z(v) => { assert_eq!(v, 42u8); }
+    }
+    return 0;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/binding/match-range-infer.rs
+// Modifications: cross-type inferred-bound arms dropped (Logos pins the
+// range pattern type to the scrutinee suffix); the same-type inclusive
+// range pattern is preserved. panic!() → panic(str).
+package match_range_infer_test;
+
+use logos.lang.panic;
+
+fn main() -> i32 {
+    match 1i32 {
+        1i32..=3i32 => {}
+        _ => { panic("should match range"); }
+    }
+    match 2u16 {
+        1u16..=3u16 => {}
+        _ => { panic("should match range u16"); }
+    }
+    return 0;
+}

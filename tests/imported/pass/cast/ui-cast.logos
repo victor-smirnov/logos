@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/cast/cast.rs
+// (renamed ui-cast to avoid a global test-name clash with an existing
+//  pass/cast test in the suite.)
+// Modifications: isize → i64; the raw-pointer `_`-inference tail dropped;
+// char results compared via `as u32` (char does not implement Debug, so
+// `assert_eq!` on a char is replaced with an int-cast comparison). Tests
+// char↔int casts, truncating casts (`as u8 as i8`), and `false as u32`.
+package cast_test;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn main() -> i32 {
+    let i: i64 = 'Q' as i64;
+    assert_eq!(i, 0x51i64);
+    let u: u32 = i as u32;
+    assert_eq!(u, 0x51u32);
+    assert_eq!(u, 'Q' as u32);
+    assert_eq!(i as u8, 'Q' as u8);
+    assert_eq!(i as u8 as i8, 'Q' as u8 as i8);
+    let c: char = 0x51u32 as char;
+    if (c as u32) != ('Q' as u32) { return 1; }
+    assert_eq!(0u32, false as u32);
+    return 0;
+}
