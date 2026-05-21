@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/issue-2063.rs
+// Modifications: recursive `struct T(Box<T>)` → `struct Node { next: &Node }`
+// (Logos has no Box; a reference field gives the same self-referential shape
+// that the original used to stress autoderef-loop-prevention); `String`-
+// returning `my_to_string` → an `i32`-returning method; `pub fn main()`→
+// `fn main()->i32`. The test's point: type-checking a self-referential type
+// with a trait impl must not loop. No instance is constructed (matches Rust).
+package m_typeck_issue_2063;
+
+struct Node {
+    next: &Node,
+}
+
+trait ToStr2 {
+    fn my_to_int(&self) -> i32;
+}
+
+impl ToStr2 for Node {
+    fn my_to_int(&self) -> i32 { return 1i32; }
+}
+
+fn use_node(x: &Node) -> i32 {
+    return x.my_to_int();
+}
+
+fn main() -> i32 {
+    return 0;
+}

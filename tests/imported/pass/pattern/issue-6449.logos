@@ -1,0 +1,70 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-6449.rs
+// Modifications: `crate::` path prefixes dropped (Logos uses unqualified enum
+// paths); `isize`→`i64`; tuple-variant `Bar(isize)` kept; literals suffixed;
+// `panic!()` arms → `return N`; single-field `Foo::Bar(..)` rest-pattern →
+// `Foo::Bar(_)` (Logos does not parse `..` in a single-field tuple variant);
+// nested enum patterns inside variant payloads (`Other1(Foo::Baz)`) → bind +
+// re-match in body (Logos does not support nested variant patterns);
+// `assert_eq!` kept. Exercises guards, enum patterns, payload binding.
+package m_issue_6449;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Foo {
+    Bar(i64),
+    Baz,
+}
+
+enum Other {
+    Other1(Foo),
+    Other2(Foo, Foo),
+}
+
+fn main() -> i32 {
+    match Foo::Baz {
+        Foo::Bar(3i64) => { return 1; }
+        Foo::Bar(_) if false => { return 2; }
+        Foo::Bar(_) if false => { return 3; }
+        Foo::Bar(_n) => { return 4; }
+        Foo::Baz => {}
+    }
+    match Foo::Bar(3i64) {
+        Foo::Bar(3i64) => {}
+        Foo::Bar(_) if false => { return 5; }
+        Foo::Bar(_) if false => { return 6; }
+        Foo::Bar(_n) => { return 7; }
+        Foo::Baz => { return 8; }
+    }
+    match Foo::Bar(4i64) {
+        Foo::Bar(3i64) => { return 9; }
+        Foo::Bar(_) if false => { return 10; }
+        Foo::Bar(_) if false => { return 11; }
+        Foo::Bar(n) => { assert_eq!(n, 4i64); }
+        Foo::Baz => { return 12; }
+    }
+
+    // Nested enum patterns inside a variant payload are not supported in Logos;
+    // bind the inner Foo and re-match it in the body (per the compiler hint).
+    match Other::Other1(Foo::Baz) {
+        Other::Other1(inner) => {
+            match inner {
+                Foo::Baz => {}
+                Foo::Bar(_) => {}
+            }
+        }
+        Other::Other2(a, b) => {
+            match a {
+                Foo::Baz => {}
+                Foo::Bar(_) => {}
+            }
+            match b {
+                Foo::Baz => {}
+                Foo::Bar(_) => {}
+            }
+        }
+    }
+    return 0;
+}

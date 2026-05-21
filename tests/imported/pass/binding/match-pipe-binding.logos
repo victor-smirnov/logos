@@ -1,0 +1,64 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-pipe-binding.rs
+// Modifications: `pub fn main()`→`fn main()->i32`; the String-payload test1 is
+// dropped (its point — cross-rebind across or-pattern arms — is covered by the
+// integer test2/test3/test4/test5); `panic!()` arms → return codes; literals
+// suffixed; assert_eq! kept. Exercises top-level or-patterns with cross-binding
+// (`(1, a, b) | (2, b, a)`), `ref` binds, and guards.
+package m_match_pipe_binding;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+fn test2() -> i32 {
+    match (1i32, 2i32, 3i32) {
+        (1i32, a, b) | (2i32, b, a) => {
+            assert_eq!(a, 2i32);
+            assert_eq!(b, 3i32);
+        }
+        _ => { return 1; }
+    }
+    return 0;
+}
+
+fn test3() -> i32 {
+    match (1i32, 2i32, 3i32) {
+        (1i32, ref a, ref b) | (2i32, ref b, ref a) => {
+            assert_eq!(*a, 2i32);
+            assert_eq!(*b, 3i32);
+        }
+        _ => { return 1; }
+    }
+    return 0;
+}
+
+fn test4() -> i32 {
+    match (1i32, 2i32, 3i32) {
+        (1i32, a, b) | (2i32, b, a) if a == 2i32 => {
+            assert_eq!(a, 2i32);
+            assert_eq!(b, 3i32);
+        }
+        _ => { return 1; }
+    }
+    return 0;
+}
+
+fn test5() -> i32 {
+    match (1i32, 2i32, 3i32) {
+        (1i32, ref a, ref b) | (2i32, ref b, ref a) if *a == 2i32 => {
+            assert_eq!(*a, 2i32);
+            assert_eq!(*b, 3i32);
+        }
+        _ => { return 1; }
+    }
+    return 0;
+}
+
+fn main() -> i32 {
+    if test2() != 0i32 { return 2; }
+    if test3() != 0i32 { return 3; }
+    if test4() != 0i32 { return 4; }
+    if test5() != 0i32 { return 5; }
+    return 0;
+}

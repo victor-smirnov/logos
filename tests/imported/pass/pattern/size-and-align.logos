@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/size-and-align.rs
+// Modifications: `isize`→`i64`; generic enum `clam<T>` kept (renamed `Clam<G>`
+// — single-letter `T` collides with stdlib generic params); `Vec`+`vec![]`
+// replaced with three direct `Clam<i64>` values + a hand loop (the test's point
+// is matching a generic-enum variant); turbofish-in-pattern `clam::a::<T>`
+// dropped (plain `Clam::A`/`Clam::B`); `println!`/`panic!` arms → return codes;
+// payload binds kept. Matching variant `B` must select the correct arm.
+package m_size_and_align;
+
+enum Clam<G> {
+    A(G, i64),
+    B,
+}
+
+fn uhoh(v: Clam<i64>) -> i32 {
+    match v {
+        Clam::A(_t, u) => {
+            return 1;
+        }
+        Clam::B => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    let r0 = uhoh(Clam::<i64>::B);
+    let r1 = uhoh(Clam::<i64>::B);
+    let r2 = uhoh(Clam::<i64>::A(42i64, 17i64));
+    if r0 != 0i32 { return 10; }
+    if r1 != 0i32 { return 11; }
+    if r2 != 1i32 { return 12; }
+    return 0;
+}

@@ -1,0 +1,62 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/matcher-trait-equality-13323.rs
+// Modifications: `String` fields → `str`; `s.to_string()` → store the `str`
+// directly; `Box<EqualTo<T>>` constructor → direct `EqualTo<T>` value (Logos
+// has no Box); `T: Eq` + `self.expected.eq(&actual)` → a `==` comparison on the
+// concrete `str` instantiation (the generic Eq bound + Box are the incidental
+// parts); `assert!`/`assert_that` kept. Exercises a struct returning `&str`
+// borrows of its field through lifetime-annotated methods, plus a generic
+// `Matcher<T>` trait dispatched on a concrete instantiation.
+package m_matcher_trait_equality_13323;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+struct StrWrap {
+    s: str
+}
+
+impl StrWrap {
+    fn new(s: str) -> StrWrap {
+        return StrWrap { s: s };
+    }
+    fn get_s(&self) -> str {
+        return self.s;
+    }
+}
+
+struct MyStruct {
+    s: StrWrap
+}
+
+impl MyStruct {
+    fn new(s: str) -> MyStruct {
+        return MyStruct { s: StrWrap::new(s) };
+    }
+    fn get_str_wrap(&self) -> &StrWrap {
+        return &self.s;
+    }
+}
+
+struct EqualTo {
+    expected: str
+}
+
+impl EqualTo {
+    fn matches(&self, actual: str) -> bool {
+        return self.expected == actual;
+    }
+}
+
+fn assert_that(actual: str, matcher: &EqualTo) {
+    assert!(matcher.matches(actual));
+}
+
+fn main() -> i32 {
+    let my_struct = MyStruct::new("zomg");
+    let sw = my_struct.get_str_wrap();
+    let m = EqualTo { expected: "zomg" };
+    assert_that(sw.get_s(), &m);
+    return 0;
+}

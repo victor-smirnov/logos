@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/infer-struct-with-trait-object.rs
+// Modifications: generic trait `X<T>` → non-generic trait `X` with an
+// `i32`-returning method (Logos `dyn` trait objects of a *generic* trait drag
+// in assoc-type-style projection the original used `dummy` for); `Box<dyn X>`
+// fields → `&dyn X` (no Box); `struct F;`→`struct F {}`; `pub fn main()`→
+// `fn main()->i32`. Exercises a struct whose fields are trait objects, used to
+// stress inference (#11677 was an ICE in field-type inference).
+package m_infer_struct_with_trait_object;
+
+trait X {
+    fn dummy(&self) -> i32;
+}
+
+struct S {
+    f: &dyn X,
+    g: &dyn X,
+}
+
+struct F {}
+impl X for F {
+    fn dummy(&self) -> i32 { return 5i32; }
+}
+
+fn main() -> i32 {
+    let a = F {};
+    let b = F {};
+    let s = S { f: &a as &dyn X, g: &b as &dyn X };
+    if s.f.dummy() != 5i32 { return 1; }
+    if s.g.dummy() != 5i32 { return 2; }
+    return 0;
+}

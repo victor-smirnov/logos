@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/deref/dereferenceable-type-behavior-22992.rs
+// Modifications: heavily reduced to the part Logos supports — method-call
+// autoderef through a user `Deref` impl (immutable `&self`). The original's
+// reference-overload impls (`impl M for &&X` etc.) and `println!`-disambiguated
+// dispatch are Rust ref-coercion machinery Logos doesn't model. Kept: a struct
+// `X` derefs to a wrapped `Wv` carrying an i32, and a struct `Z` derefs to `Y`
+// derefs to `Wv` — so `z.refm()` autoderefs two levels to reach `Wv::refm`.
+// `Deref<Target>` is the Logos trait-type-param shape; literals suffixed.
+package m_dereferenceable_type_behavior_22992;
+
+use logos.lang.ops;
+
+struct Wv { val: i32 }
+impl Wv { fn refm(&self) -> i32 { return self.val; } }
+
+struct X { val: Wv }
+impl Deref<Wv> for X {
+    fn deref(&self) -> &Wv { return &self.val; }
+}
+
+struct Y { val: Wv }
+impl Deref<Wv> for Y {
+    fn deref(&self) -> &Wv { return &self.val; }
+}
+
+struct Z { val: Y }
+impl Deref<Y> for Z {
+    fn deref(&self) -> &Y { return &self.val; }
+}
+
+fn main() -> i32 {
+    let x = X { val: Wv { val: 42i32 } };
+    if x.refm() != 42i32 { return 1; }
+
+    let y = Y { val: Wv { val: 7i32 } };
+    if y.refm() != 7i32 { return 2; }
+
+    let z = Z { val: Y { val: Wv { val: 99i32 } } };
+    if z.refm() != 99i32 { return 3; }
+    return 0;
+}

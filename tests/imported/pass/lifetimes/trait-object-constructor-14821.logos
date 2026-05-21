@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/trait-object-constructor-14821.rs
+// Modifications: `struct Meow;`→`struct Meow {}`; `pub fn new`→`fn new`;
+// `pub fn main()`→`fn main()->i32`; `&r as &dyn SomeTrait` explicit cast kept;
+// a `tag()` method added to SomeTrait so the stored trait objects are
+// observably reachable. Exercises a struct holding two `&dyn Trait` fields,
+// constructed via an associated fn taking `&dyn Trait` args.
+package m_trait_object_constructor_14821;
+
+trait SomeTrait {
+    fn tag(&self) -> i32;
+}
+
+struct Meow {}
+impl SomeTrait for Meow {
+    fn tag(&self) -> i32 { return 7i32; }
+}
+
+struct Foo {
+    x: &dyn SomeTrait,
+    y: &dyn SomeTrait,
+}
+
+impl Foo {
+    fn new(x: &dyn SomeTrait, y: &dyn SomeTrait) -> Foo {
+        return Foo { x: x, y: y };
+    }
+}
+
+fn main() -> i32 {
+    let r = Meow {};
+    let s = Meow {};
+    let q = Foo::new(&r as &dyn SomeTrait, &s as &dyn SomeTrait);
+    if q.x.tag() != 7i32 { return 1; }
+    if q.y.tag() != 7i32 { return 2; }
+    return 0;
+}
