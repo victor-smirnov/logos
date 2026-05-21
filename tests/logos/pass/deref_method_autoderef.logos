@@ -1,0 +1,25 @@
+// Regression: method-call autoderef through a user `Deref` impl. When the
+// receiver is a struct with no direct method `m` but it impls `Deref<Target>`,
+// resolution derefs to `Target` (transitively) and finds `m` there — Rust does
+// this during method resolution. A direct method on the outer type still wins
+// (no spurious deref). Surfaced by B108 (deref/overloaded/methods category).
+package deref_method_autoderef;
+
+use logos.lang.ops;
+
+struct C { v: i32 }
+struct B { inner: C }
+struct A { inner: B }
+
+impl C { fn foo(&self) -> i32 { return self.v; } }
+impl A { fn own(&self) -> i32 { return 100i32; } }
+
+impl Deref<B> for A { fn deref(&self) -> &B { return &self.inner; } }
+impl Deref<C> for B { fn deref(&self) -> &C { return &self.inner; } }
+
+fn main() -> i32 {
+    let a = A { inner: B { inner: C { v: 9i32 } } };
+    if a.foo() != 9i32 { return 1i32; }    // 2-level autoderef A -> B -> C
+    if a.own() != 100i32 { return 2i32; }  // direct method on A wins, no deref
+    return 0i32;
+}

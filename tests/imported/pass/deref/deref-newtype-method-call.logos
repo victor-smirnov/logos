@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/deref/deref-newtype-method-call.rs
+// (regression test for rust-lang/rust#22992)
+// Modifications: Rust's tuple/unit structs `struct A(B); struct B;` →
+// named-field `struct A { inner: B }` / zero-field `struct B {}` (Logos's
+// `struct B;` is an explicit-instantiation directive, not a unit struct);
+// `impl Deref` assoc-type `Target = B` → Logos's `Deref<B>` trait type-param;
+// `foo(&self)` returns an i32 sentinel so `fn main() -> i32` can assert the
+// autoderef-through-Deref method call resolved. The point of the test — a
+// method defined on the Deref target reachable via `.foo()` on the newtype —
+// is preserved (method autoderef through a user Deref; fixed 2026-05-21).
+package m_deref_newtype_method_call;
+
+use logos.lang.ops;
+
+struct B {}
+struct A { inner: B }
+
+impl Deref<B> for A {
+    fn deref(&self) -> &B { return &self.inner; }
+}
+
+impl B {
+    fn foo(&self) -> i32 { return 42i32; }
+}
+
+fn main() -> i32 {
+    let a = A { inner: B {} };
+    if a.foo() != 42i32 { return 1i32; }
+    return 0i32;
+}

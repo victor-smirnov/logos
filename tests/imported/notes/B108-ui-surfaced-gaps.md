@@ -50,7 +50,19 @@ Original report:
 
 ## missing-feature
 
-### 2. Method-call autoderef through a user `Deref`
+### 2. Method-call autoderef through a user `Deref` — FIXED (2026-05-21)
+**Fixed.** `lower_method_call` now runs a bounded autoderef loop: when the
+receiver is a struct with no DIRECT method `m` but it impls `Deref<Target>`,
+it derefs (transitively) to `Target` and retries resolution. A direct method
+on the outer type still wins. Uses the immutable `Deref` (the surfaced cases
+are all `&self` calls); `DerefMut`-driven autoderef for `&mut self` methods,
+`Box`/`Rc`/`RefCell` autoderef, and method-autoderef through an *index* place
+(`f[1].inc()`) remain follow-ups. Ported `deref/deref-newtype-method-call.rs`
+(adapted to named structs); regression `tests/logos/pass/deref_method_autoderef.logos`.
+Tests still blocked on OTHER features (Rc/RefCell/Box, assoc-types,
+generic-Deref where-clauses) stay skipped — see their per-test reasons below.
+
+Original report:
 - Upstream: `deref/deref-newtype-method-call.rs`, `deref/dereferenceable-type-behavior-22992.rs`,
   `methods/inherent-method-resolution-on-deref-type-53843.rs`,
   `overloaded/overloaded-autoderef.rs`, `overloaded/overloaded-autoderef-order.rs` (method part),

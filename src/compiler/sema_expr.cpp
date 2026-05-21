@@ -5232,6 +5232,41 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
+    // Method autoderef through a user `Deref` impl: if the receiver is a
+    // struct with no DIRECT method `method_name` but it impls `Deref<Target>`,
+    // deref to `Target` and retry — Rust performs this as part of method
+    // resolution. Bounded loop (deref chains terminate; the cap guards against
+    // pathological cycles). Only fires when no direct method exists, so a
+    // method defined on the outer type always wins. Uses the immutable
+    // `Deref` (the surfaced cases are all `&self` calls); `DerefMut` for
+    // `&mut self` method autoderef is a separate follow-up.
+    for (int deref_guard = 0; deref_guard < 16; ++deref_guard) {
+        TypeRef rt = recv->type;
+        if (TypeRef(rt).kind() != LogosType::Kind::Struct) break;
+        auto sname_d = concrete_struct_name(rt);
+        auto base_d  = std::string(TypeRef(rt).struct_name());
+        std::string m(method_name);
+        bool direct = !find_func_candidates(sname_d + "__" + m).empty() ||
+                      (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty());
+        if (direct) break;
+        bool has_deref = impls_.count("Deref::" + sname_d) ||
+                         (!base_d.empty() && impls_.count("Deref::" + base_d));
+        if (!has_deref) break;
+        auto mangled_d = sname_d + "__deref";
+        auto ref_t = make_ref(false, rt);
+        auto* fit = find_func_by_base_and_signature(mangled_d, {ref_t}, false);
+        if (!fit) break;
+        auto recv_ref = builder().addr_of_temp(std::move(recv), false, ref_t);
+        std::vector<lir::LExprPtr> dargs;
+        dargs.push_back(std::move(recv_ref));
+        auto call_e = builder().call(
+            fit->symbol_name.empty() ? mangled_d : fit->symbol_name,
+            {}, std::move(dargs), fit->ret_type);
+        auto pointee = TypeRef(call_e->type).pointee()
+            ? TypeRef(call_e->type).pointee() : error_t();
+        recv = builder().deref(std::move(call_e), pointee);
+    }
+
 
     // Optional explicit method-level turbofish: `recv.method::<T1, T2>(args)`.
     // The turbofish-bearing METHOD_CALL alt wraps ARGS as { ITEMS: [...] }
