@@ -2855,6 +2855,11 @@ private:
     lir::LStmt lower_field_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_match(hermes::TinyMapView node);
     lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
+    // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
+    // emits a diagnostic if a non-guarded wildcard is absent and some
+    // variant / bool value is uncovered. Read-only over `smatch`; factored
+    // out of lower_match.
+    void check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type);
 
     // ── lower_fn and declaration lowering ───────────────────────
 

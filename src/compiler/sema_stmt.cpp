@@ -5356,6 +5356,90 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sfiw));
 }
 
+void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type) {
+    bool has_wild = false;
+    for (auto& arm : smatch.arms) {
+        if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
+            has_wild = true;
+            break;
+        }
+    }
+    if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+        auto [epkg_match, esi_match] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+        auto eit = esi_match ? enums_.find(sema_key(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
+        if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
+        if (eit != enums_.end()) {
+            std::set<int32_t> covered;
+            namespace ps = lir_schema::pat;
+            auto add_pat_ref = [&](lir_view::PatRef pr) {
+                if (!pr) return;
+                auto k = pr.kind();
+                if (k == ps::Code::Variant)
+                    covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pr}.disc()));
+                else if (k == ps::Code::VariantData)
+                    covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pr}.disc()));
+            };
+            for (auto& arm : smatch.arms) {
+                if (arm.guard) continue;
+                auto apr = pat_ref_of(arm.pat);
+                if (apr.kind() == ps::Code::Or) {
+                    lir_view::PatOrView{apr}.each_alt(
+                        [&](lir_view::PatRef alt) { add_pat_ref(alt); });
+                } else {
+                    add_pat_ref(apr);
+                }
+            }
+            if (!has_wild) {
+                std::string missing;
+                for (auto& v : eit->second.variants) {
+                    if (covered.find(v.value) == covered.end()) {
+                        if (!missing.empty()) missing += ", ";
+                        missing += std::string(v.name);
+                    }
+                }
+                if (!missing.empty())
+                    error(std::format("match is not exhaustive — missing variant(s): {}",
+                          missing));
+            } else {
+                // B-st-07: wildcard arm is unreachable when every variant
+                // is already covered AND the enum has only unit variants
+                // (so PatVariant covers each fully). For payload variants,
+                // "covered" is a disc-only approximation that can't
+                // distinguish irrefutable from refutable inner patterns,
+                // so we conservatively skip the warning there.
+                bool all_unit = true;
+                for (auto& v : eit->second.variants) {
+                    if (!v.payload_types.empty()) { all_unit = false; break; }
+                }
+                bool all_covered = true;
+                for (auto& v : eit->second.variants) {
+                    if (covered.find(v.value) == covered.end()) {
+                        all_covered = false;
+                        break;
+                    }
+                }
+                if (all_unit && all_covered && !eit->second.variants.empty())
+                    warn("unreachable wildcard arm: every variant of the "
+                         "enum is already covered explicitly");
+            }
+        }
+    }
+    if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Bool) {
+        bool has_true = false, has_false = false;
+        for (auto& arm : smatch.arms) {
+            if (arm.guard) continue;
+            auto apr = pat_ref_of(arm.pat);
+            if (apr.kind() == lir_schema::pat::Code::Bool) {
+                if (lir_view::PatBoolView{apr}.value()) has_true = true;
+                else has_false = true;
+            }
+        }
+        if (!has_true || !has_false)
+            error("match on bool is not exhaustive — missing "
+                  + std::string(!has_true ? "true" : "false"));
+    }
+}
+
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
@@ -5783,91 +5867,8 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // Merge per-arm contributions back into moved_vars_.
         moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
     }
-    // ── Exhaustiveness check ─────────────────────────────────
-    // Verify all variants of an enum (or bool) are covered.
-    {
-        bool has_wild = false;
-        for (auto& arm : smatch.arms) {
-            if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
-                has_wild = true;
-                break;
-            }
-        }
-        if (TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
-            auto [epkg_match, esi_match] = find_enum_by_name(TypeRef(scrut_type).enum_name());
-            auto eit = esi_match ? enums_.find(sema_key(epkg_match, TypeRef(scrut_type).enum_name())) : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(TypeRef(scrut_type).enum_name());
-            if (eit != enums_.end()) {
-                std::set<int32_t> covered;
-                namespace ps = lir_schema::pat;
-                auto add_pat_ref = [&](lir_view::PatRef pr) {
-                    if (!pr) return;
-                    auto k = pr.kind();
-                    if (k == ps::Code::Variant)
-                        covered.insert(static_cast<int32_t>(lir_view::PatVariantView{pr}.disc()));
-                    else if (k == ps::Code::VariantData)
-                        covered.insert(static_cast<int32_t>(lir_view::PatVariantDataView{pr}.disc()));
-                };
-                for (auto& arm : smatch.arms) {
-                    if (arm.guard) continue;
-                    auto apr = pat_ref_of(arm.pat);
-                    if (apr.kind() == ps::Code::Or) {
-                        lir_view::PatOrView{apr}.each_alt(
-                            [&](lir_view::PatRef alt) { add_pat_ref(alt); });
-                    } else {
-                        add_pat_ref(apr);
-                    }
-                }
-                if (!has_wild) {
-                    std::string missing;
-                    for (auto& v : eit->second.variants) {
-                        if (covered.find(v.value) == covered.end()) {
-                            if (!missing.empty()) missing += ", ";
-                            missing += std::string(v.name);
-                        }
-                    }
-                    if (!missing.empty())
-                        error(std::format("match is not exhaustive — missing variant(s): {}",
-                              missing));
-                } else {
-                    // B-st-07: wildcard arm is unreachable when every variant
-                    // is already covered AND the enum has only unit variants
-                    // (so PatVariant covers each fully). For payload variants,
-                    // "covered" is a disc-only approximation that can't
-                    // distinguish irrefutable from refutable inner patterns,
-                    // so we conservatively skip the warning there.
-                    bool all_unit = true;
-                    for (auto& v : eit->second.variants) {
-                        if (!v.payload_types.empty()) { all_unit = false; break; }
-                    }
-                    bool all_covered = true;
-                    for (auto& v : eit->second.variants) {
-                        if (covered.find(v.value) == covered.end()) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if (all_unit && all_covered && !eit->second.variants.empty())
-                        warn("unreachable wildcard arm: every variant of the "
-                             "enum is already covered explicitly");
-                }
-            }
-        }
-        if (!has_wild && TypeRef(scrut_type).kind() == LogosType::Kind::Bool) {
-            bool has_true = false, has_false = false;
-            for (auto& arm : smatch.arms) {
-                if (arm.guard) continue;
-                auto apr = pat_ref_of(arm.pat);
-                if (apr.kind() == lir_schema::pat::Code::Bool) {
-                    if (lir_view::PatBoolView{apr}.value()) has_true = true;
-                    else has_false = true;
-                }
-            }
-            if (!has_true || !has_false)
-                error("match on bool is not exhaustive — missing "
-                      + std::string(!has_true ? "true" : "false"));
-        }
-    }
+    // Exhaustiveness: enum/bool scrutinee must cover all cases.
+    check_match_exhaustiveness(smatch, scrut_type);
 
     if (has_hoist_let) {
         auto blk = lir::alloc_block(*cur_prog_);
