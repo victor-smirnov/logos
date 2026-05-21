@@ -2916,6 +2916,344 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
 }
 
+lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
+    std::string trait_name;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1) {
+                auto tnode = map_of(items.get(0));
+                if (tnode.has_key(la::NAME))
+                    trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+            }
+        }
+    }
+    if (trait_name.empty()) {
+        error("has_trait_of::<Trait>(t) requires one trait type argument");
+        return error_expr();
+    }
+    std::vector<lir::LExprPtr> rargs;
+    if (node.has_key(la::ARGS)) {
+        AnyVal av = node.get(la::ARGS.code);
+        if (!av.is_null()) {
+            auto args_list = map_of(av);
+            if (args_list.has_key(la::ITEMS)) {
+                auto items = arr_of(args_list.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    rargs.push_back(lower_expr(map_of(items.get(i))));
+            }
+        }
+    }
+    if (rargs.size() != 1) {
+        error("has_trait_of::<Trait>(t) requires exactly one Type argument");
+        return error_expr();
+    }
+    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
+    TypeRef u8_t = pool_->alloc(std::move(u8_b));
+    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
+    sl_b.elem = u8_t;
+    TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+    std::vector<lir::LExprPtr> all_args;
+    all_args.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
+    all_args.push_back(std::move(rargs[0]));
+    return builder().call("__has_trait_of__",
+                          {}, std::move(all_args),
+                          prim(LogosType::Kind::Bool));
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_tuple_all_eq(TinyMapView node) {
+    TypeRef elem = nullptr;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1)
+                elem = resolve_type(map_of(items.get(0)));
+        }
+    }
+    if (!elem) {
+        error("tuple_all_eq::<T>(a, b) requires exactly one type argument");
+        return error_expr();
+    }
+    if (TypeRef(elem).kind() != LogosType::Kind::Tuple) {
+        error("tuple_all_eq::<T>: T must be a tuple type");
+        return error_expr();
+    }
+    // Lower the two ref-to-tuple args. ARGS is a map { ITEMS: [...] }.
+    std::vector<lir::LExprPtr> arg_exprs;
+    if (node.has_key(la::ARGS)) {
+        AnyVal av = node.get(la::ARGS.code);
+        if (!av.is_null()) {
+            auto args_map = map_of(av);
+            if (args_map.has_key(la::ITEMS)) {
+                auto items = arr_of(args_map.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+            }
+        }
+    }
+    if (arg_exprs.size() != 2) {
+        error("tuple_all_eq::<T>(a, b) requires exactly two arguments");
+        return error_expr();
+    }
+    auto tuple_elems = TypeRef(elem).tuple_elems();
+    if (tuple_elems.empty()) {
+        return builder().lit_bool(true, bool_t());
+    }
+    // Defer to mono if any element is unbound (TypeVar). This
+    // covers the variadic-tuple impl body case where T = (A...)
+    // and A is the impl's pack TypeVar.
+    bool has_typevar = false;
+    for (auto e : tuple_elems) {
+        if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar) {
+            has_typevar = true;
+            break;
+        }
+    }
+    if (has_typevar) {
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        return builder().call("__tuple_all_eq__",
+                              std::move(targs),
+                              std::move(arg_exprs),
+                              bool_t());
+    }
+    // Concrete path: expand the chain in-line at sema time.
+    // tuple_index auto-derefs &Tuple — pass refs directly.
+    auto a_ref = std::move(arg_exprs[0]);
+    auto b_ref = std::move(arg_exprs[1]);
+    lir::LExprPtr chain = nullptr;
+    for (size_t i = 0; i < tuple_elems.size(); ++i) {
+        TypeRef et = tuple_elems[i];
+        auto a_f = builder().tuple_index(a_ref, (uint32_t)i, et);
+        auto b_f = builder().tuple_index(b_ref, (uint32_t)i, et);
+        // Resolve the elem-type's `eq` impl through sema's normal
+        // candidate lookup — finds the pkg-qualified symbol like
+        // `logos.lang.cmp.i32__eq__f__ref_i32__ref_i32`.
+        auto et_ref = make_ref(false, et);
+        std::string base_mangled = type_str(et) + "__eq";
+        std::vector<TypeRef> sig{et_ref, et_ref};
+        std::string callee_sym;
+        auto cands = find_func_candidates(base_mangled);
+        for (auto* fi2 : cands) {
+            if (fi2->param_types.size() == 2 &&
+                types_equal(fi2->param_types[0], et_ref) &&
+                types_equal(fi2->param_types[1], et_ref)) {
+                callee_sym = fi2->symbol_name.empty() ? base_mangled
+                                                      : fi2->symbol_name;
+                break;
+            }
+        }
+        if (callee_sym.empty()) {
+            error(std::format(
+                "tuple_all_eq::<T>: no `eq` impl found for element type '{}'",
+                type_str(et)));
+            return error_expr();
+        }
+        // Emit method_call with the explicit resolved_symbol. mlir-gen's
+        // primitive-receiver fast-path will route the call directly.
+        auto b_f_ref = builder().addr_of_temp(std::move(b_f), false, et_ref);
+        std::vector<lir::LExprPtr> margs;
+        margs.push_back(std::move(b_f_ref));
+        auto cmp = builder().method_call(std::move(a_f), "eq",
+                                          callee_sym, {},
+                                          std::move(margs), -1,
+                                          bool_t());
+        chain = chain ? builder().bin_op("&&", std::move(chain),
+                                          std::move(cmp), bool_t())
+                      : std::move(cmp);
+    }
+    return chain;
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
+    std::string sname;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1) {
+                auto item = map_of(items.get(0));
+                auto ic = code_of(item);
+                if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
+                    item.has_key(la::NAME))
+                    sname = std::string(str_of(item.get(la::NAME.code)));
+            }
+        }
+    }
+    if (sname.empty()) {
+        error("generic_of::<X>() requires a single bare struct/enum name");
+        return error_expr();
+    }
+    int64_t arity = -1;
+    if (cur_prog_) {
+        for (auto& sd : cur_prog_->structs)
+            if (sd.name == sname) { arity = (int64_t)sd.type_params.size(); break; }
+        if (arity < 0)
+            for (auto& ed : cur_prog_->enums)
+                if (ed.name == sname) { arity = (int64_t)ed.type_params.size(); break; }
+    }
+    if (arity < 0) {
+        error("generic_of::<X>(): unknown struct/enum '" + sname + "'");
+        return error_expr();
+    }
+    uint64_t uid = 1469598103934665603ull; // FNV-1a basis
+    auto fnv_mix = [&](std::string_view sv) {
+        for (char c : sv) {
+            uid ^= (uint8_t)c;
+            uid *= 1099511628211ull;
+        }
+    };
+    fnv_mix("generic:");
+    fnv_mix(sname);
+    auto type_t = make_struct_type("Type");
+    std::vector<std::pair<std::string, lir::LExprPtr>> f;
+    f.emplace_back("kind", builder().lit_int(
+        (int64_t)LogosType::Kind::Generic, prim(LogosType::Kind::U32)));
+    f.emplace_back("name", builder().lit_str(
+        sname, make_slice_type(u8_t())));
+    f.emplace_back("size", builder().lit_int(
+        arity, prim(LogosType::Kind::I64)));
+    f.emplace_back("align", builder().lit_int(
+        (int64_t)0, prim(LogosType::Kind::I64)));
+    f.emplace_back("uid",  builder().lit_int(
+        (int64_t)uid, prim(LogosType::Kind::U64)));
+    return builder().struct_lit("Type", std::move(f), type_t);
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
+    std::string sname;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1) {
+                auto item = map_of(items.get(0));
+                auto ic = code_of(item);
+                if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
+                    item.has_key(la::NAME))
+                    sname = std::string(str_of(item.get(la::NAME.code)));
+            }
+        }
+    }
+    if (sname.empty()) {
+        error("template_of::<X>() requires a single bare item name");
+        return error_expr();
+    }
+    // Walk current AST root.ITEMS for a declaration whose NAME matches.
+    uint32_t found_offset = 0;
+    if (!cur_root_.is_null() && cur_root_.has_key(la::ITEMS)) {
+        auto items = arr_of(cur_root_.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) {
+            auto raw = items.get(i);
+            if (raw.is_null() || !raw.is_pointer()) continue;
+            auto item = map_of(raw);
+            if (!item.has_key(la::NAME)) continue;
+            if (str_of(item.get(la::NAME.code)) == sname) {
+                found_offset = raw.raw();
+                break;
+            }
+        }
+    }
+    if (found_offset == 0) {
+        error("template_of::<X>(): no top-level item named '" + sname +
+              "' in this file");
+        return error_expr();
+    }
+    // Build inner AnyVal { raw: <u32 lit> }.
+    auto anyval_t = make_datatype_type("AnyVal");
+    std::vector<std::pair<std::string, lir::LExprPtr>> av_f;
+    av_f.emplace_back("raw", builder().lit_int(
+        (int64_t)found_offset, prim(LogosType::Kind::U32)));
+    auto av_lit = builder().struct_lit("AnyVal", std::move(av_f), anyval_t);
+    // Wrap in Template { raw: AnyVal{...} }.
+    auto template_t = make_struct_type("Template");
+    std::vector<std::pair<std::string, lir::LExprPtr>> tpl_f;
+    tpl_f.emplace_back("raw", std::move(av_lit));
+    return builder().struct_lit("Template", std::move(tpl_f), template_t);
+}
+
+lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
+    TypeRef elem = nullptr;
+    if (node.has_key(la::TYPE_PARAMS)) {
+        auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+        if (tplist.has_key(la::ITEMS)) {
+            auto items = arr_of(tplist.get(la::ITEMS.code));
+            if (items.size() == 1)
+                elem = resolve_type(map_of(items.get(0)));
+        }
+    }
+    if (!elem) {
+        error("type_code_of::<T>() requires exactly one type argument");
+        return error_expr();
+    }
+    uint64_t code = 0;
+    if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && TypeRef(elem).type_args().empty()) {
+        // Resolve package for this type (needed for both explicit and auto-hash paths).
+        // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
+        std::string pkg;
+        if (!TypeRef(elem).pkg_name().empty()) {
+            pkg = TypeRef(elem).pkg_name();
+        } else {
+            SemaStructInfo* found = nullptr;
+            { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); found = dsi; }
+            if (!found) { auto [sp, ssi] = find_struct_by_name(TypeRef(elem).struct_name()); found = ssi; }
+            if (found) pkg = found->package;
+            // If still not found, fall back to current package.
+            else pkg = cur_package_;
+        }
+        // Build the fully-qualified name used as explicit_type_codes_ key (matches
+        // the key written by apply_annots_to_struct in sema.cpp).
+        std::string fqn = pkg.empty() ? std::string(TypeRef(elem).struct_name()) : pkg + "::" + std::string(TypeRef(elem).struct_name());
+
+        // Check for explicit #[type_code=N] annotation first.
+        auto eit = explicit_type_codes_.find(fqn);
+        if (eit != explicit_type_codes_.end()) {
+            code = eit->second;
+        } else {
+            std::string canon = pkg + "::" + std::string(TypeRef(elem).struct_name());
+            auto hash = type_hash_23(canon);
+            uint64_t raw = type_hash_56bit(hash);
+            code = (raw < 128) ? (raw + 128) : raw;
+        }
+    } else if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && !TypeRef(elem).type_args().empty()) {
+        // If any type_arg is a TypeVar, defer resolution to mono so every
+        // instantiation of the surrounding generic function gets its own
+        // concrete type_code.  Otherwise (fully concrete), compute now.
+        bool has_tv = false;
+        for (auto a : TypeRef(elem).type_args())
+            if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tv = true; break; }
+        if (has_tv)
+            return builder().type_code_of(elem, prim(LogosType::Kind::U64));
+        // Resolve the package for this generic type.
+        // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
+        // Fall back to datatypes_ lookup (bare then qualified), then cur_package_.
+        std::string pkg;
+        if (!TypeRef(elem).pkg_name().empty()) {
+            pkg = TypeRef(elem).pkg_name();
+        } else {
+            SemaStructInfo* gsi = nullptr;
+            { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); gsi = dsi; }
+            if (!gsi) { auto it = datatypes_.find(TypeRef(elem).struct_name()); if (it != datatypes_.end()) gsi = &it->second; }
+            if (gsi) pkg = gsi->package;
+            else pkg = cur_package_;
+        }
+        std::string canon = pkg + "::" + type_str(elem);
+        auto eit = explicit_type_codes_.find(canon);
+        if (eit != explicit_type_codes_.end()) {
+            code = eit->second;
+        } else {
+            auto hash = type_hash_23(canon);
+            uint64_t raw = type_hash_56bit(hash);
+            code = (raw < 128) ? (raw + 128) : raw;
+        }
+    } else if (TypeRef(elem).kind() == LogosType::Kind::TypeVar) {
+        // `type_code_of::<T>()` inside a generic fn — defer.
+        return builder().type_code_of(elem, prim(LogosType::Kind::U64));
+    }
+    return builder().lit_int((int64_t)code, prim(LogosType::Kind::U64));
+}
+
 std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
     auto collect_type_args = [&]() -> std::vector<TypeRef> {
         std::vector<TypeRef> out;
@@ -3252,51 +3590,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // Mono recovers concrete T from t's StructLit "uid" field (which is a
     // __type_uid_of__ call carrying the type as a type-arg), then runs the
     // same impl-table recursion as __has_trait__.
-    if (callee == "has_trait_of") {
-        std::string trait_name;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1) {
-                    auto tnode = map_of(items.get(0));
-                    if (tnode.has_key(la::NAME))
-                        trait_name = std::string(str_of(tnode.get(la::NAME.code)));
-                }
-            }
-        }
-        if (trait_name.empty()) {
-            error("has_trait_of::<Trait>(t) requires one trait type argument");
-            return error_expr();
-        }
-        std::vector<lir::LExprPtr> rargs;
-        if (node.has_key(la::ARGS)) {
-            AnyVal av = node.get(la::ARGS.code);
-            if (!av.is_null()) {
-                auto args_list = map_of(av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        rargs.push_back(lower_expr(map_of(items.get(i))));
-                }
-            }
-        }
-        if (rargs.size() != 1) {
-            error("has_trait_of::<Trait>(t) requires exactly one Type argument");
-            return error_expr();
-        }
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-        std::vector<lir::LExprPtr> all_args;
-        all_args.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
-        all_args.push_back(std::move(rargs[0]));
-        return builder().call("__has_trait_of__",
-                              {}, std::move(all_args),
-                              prim(LogosType::Kind::Bool));
-    }
+    if (callee == "has_trait_of") return lower_intrinsic_has_trait_of(node);
 
     // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)
     // / typelist_tail::<L>() — O(1) probes over `L`'s type-pack
@@ -3376,109 +3670,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     //     variadic-tuple impl body), emit a `__tuple_all_eq__`
     //     placeholder LIR call. Mono expands the chain at clone time
     //     when the impl is instantiated for a concrete arity (B110).
-    if (callee == "tuple_all_eq") {
-        TypeRef elem = nullptr;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1)
-                    elem = resolve_type(map_of(items.get(0)));
-            }
-        }
-        if (!elem) {
-            error("tuple_all_eq::<T>(a, b) requires exactly one type argument");
-            return error_expr();
-        }
-        if (TypeRef(elem).kind() != LogosType::Kind::Tuple) {
-            error("tuple_all_eq::<T>: T must be a tuple type");
-            return error_expr();
-        }
-        // Lower the two ref-to-tuple args. ARGS is a map { ITEMS: [...] }.
-        std::vector<lir::LExprPtr> arg_exprs;
-        if (node.has_key(la::ARGS)) {
-            AnyVal av = node.get(la::ARGS.code);
-            if (!av.is_null()) {
-                auto args_map = map_of(av);
-                if (args_map.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_map.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        arg_exprs.push_back(lower_expr(map_of(items.get(i))));
-                }
-            }
-        }
-        if (arg_exprs.size() != 2) {
-            error("tuple_all_eq::<T>(a, b) requires exactly two arguments");
-            return error_expr();
-        }
-        auto tuple_elems = TypeRef(elem).tuple_elems();
-        if (tuple_elems.empty()) {
-            return builder().lit_bool(true, bool_t());
-        }
-        // Defer to mono if any element is unbound (TypeVar). This
-        // covers the variadic-tuple impl body case where T = (A...)
-        // and A is the impl's pack TypeVar.
-        bool has_typevar = false;
-        for (auto e : tuple_elems) {
-            if (e && TypeRef(e).kind() == LogosType::Kind::TypeVar) {
-                has_typevar = true;
-                break;
-            }
-        }
-        if (has_typevar) {
-            std::vector<TypeRef> targs; targs.push_back(elem);
-            return builder().call("__tuple_all_eq__",
-                                  std::move(targs),
-                                  std::move(arg_exprs),
-                                  bool_t());
-        }
-        // Concrete path: expand the chain in-line at sema time.
-        // tuple_index auto-derefs &Tuple — pass refs directly.
-        auto a_ref = std::move(arg_exprs[0]);
-        auto b_ref = std::move(arg_exprs[1]);
-        lir::LExprPtr chain = nullptr;
-        for (size_t i = 0; i < tuple_elems.size(); ++i) {
-            TypeRef et = tuple_elems[i];
-            auto a_f = builder().tuple_index(a_ref, (uint32_t)i, et);
-            auto b_f = builder().tuple_index(b_ref, (uint32_t)i, et);
-            // Resolve the elem-type's `eq` impl through sema's normal
-            // candidate lookup — finds the pkg-qualified symbol like
-            // `logos.lang.cmp.i32__eq__f__ref_i32__ref_i32`.
-            auto et_ref = make_ref(false, et);
-            std::string base_mangled = type_str(et) + "__eq";
-            std::vector<TypeRef> sig{et_ref, et_ref};
-            std::string callee_sym;
-            auto cands = find_func_candidates(base_mangled);
-            for (auto* fi2 : cands) {
-                if (fi2->param_types.size() == 2 &&
-                    types_equal(fi2->param_types[0], et_ref) &&
-                    types_equal(fi2->param_types[1], et_ref)) {
-                    callee_sym = fi2->symbol_name.empty() ? base_mangled
-                                                          : fi2->symbol_name;
-                    break;
-                }
-            }
-            if (callee_sym.empty()) {
-                error(std::format(
-                    "tuple_all_eq::<T>: no `eq` impl found for element type '{}'",
-                    type_str(et)));
-                return error_expr();
-            }
-            // Emit method_call with the explicit resolved_symbol. mlir-gen's
-            // primitive-receiver fast-path will route the call directly.
-            auto b_f_ref = builder().addr_of_temp(std::move(b_f), false, et_ref);
-            std::vector<lir::LExprPtr> margs;
-            margs.push_back(std::move(b_f_ref));
-            auto cmp = builder().method_call(std::move(a_f), "eq",
-                                              callee_sym, {},
-                                              std::move(margs), -1,
-                                              bool_t());
-            chain = chain ? builder().bin_op("&&", std::move(chain),
-                                              std::move(cmp), bool_t())
-                          : std::move(cmp);
-        }
-        return chain;
-    }
+    if (callee == "tuple_all_eq") return lower_intrinsic_tuple_all_eq(node);
 
     // tuple_each_field_debug::<T>(self, f) — Debug-format every field of tuple
     // T into Formatter `f`. Used by the variadic `impl<A...: Debug> Debug for
@@ -3626,60 +3818,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // unapplied generic constructor X (struct or enum). kind=Generic,
     // name=X, size=arity. UID = FNV-1a of "generic:X" (stable; mono mirrors
     // it in __apply_generic__'s outputs of the same arity-error path).
-    if (callee == "generic_of") {
-        std::string sname;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1) {
-                    auto item = map_of(items.get(0));
-                    auto ic = code_of(item);
-                    if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
-                        item.has_key(la::NAME))
-                        sname = std::string(str_of(item.get(la::NAME.code)));
-                }
-            }
-        }
-        if (sname.empty()) {
-            error("generic_of::<X>() requires a single bare struct/enum name");
-            return error_expr();
-        }
-        int64_t arity = -1;
-        if (cur_prog_) {
-            for (auto& sd : cur_prog_->structs)
-                if (sd.name == sname) { arity = (int64_t)sd.type_params.size(); break; }
-            if (arity < 0)
-                for (auto& ed : cur_prog_->enums)
-                    if (ed.name == sname) { arity = (int64_t)ed.type_params.size(); break; }
-        }
-        if (arity < 0) {
-            error("generic_of::<X>(): unknown struct/enum '" + sname + "'");
-            return error_expr();
-        }
-        uint64_t uid = 1469598103934665603ull; // FNV-1a basis
-        auto fnv_mix = [&](std::string_view sv) {
-            for (char c : sv) {
-                uid ^= (uint8_t)c;
-                uid *= 1099511628211ull;
-            }
-        };
-        fnv_mix("generic:");
-        fnv_mix(sname);
-        auto type_t = make_struct_type("Type");
-        std::vector<std::pair<std::string, lir::LExprPtr>> f;
-        f.emplace_back("kind", builder().lit_int(
-            (int64_t)LogosType::Kind::Generic, prim(LogosType::Kind::U32)));
-        f.emplace_back("name", builder().lit_str(
-            sname, make_slice_type(u8_t())));
-        f.emplace_back("size", builder().lit_int(
-            arity, prim(LogosType::Kind::I64)));
-        f.emplace_back("align", builder().lit_int(
-            (int64_t)0, prim(LogosType::Kind::I64)));
-        f.emplace_back("uid",  builder().lit_int(
-            (int64_t)uid, prim(LogosType::Kind::U64)));
-        return builder().struct_lit("Type", std::move(f), type_t);
-    }
+    if (callee == "generic_of") return lower_intrinsic_generic_of(node);
 
     // template_of::<X>() — typed sugar over the OView::find_template_decl
     // runtime walk. Resolves X at sema time, walks cur_root_.ITEMS to find
@@ -3687,57 +3826,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // u32 literal inside `Template { raw: AnyVal { raw: <offset> } }`.
     // Drops the runtime byte-compare scan; closes step 5 of the typelevel-
     // metaprog taxonomy. Same-AST scope (matches find_template_decl).
-    if (callee == "template_of") {
-        std::string sname;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1) {
-                    auto item = map_of(items.get(0));
-                    auto ic = code_of(item);
-                    if ((ic == la::TYPE_REF.code || ic == la::GENERIC_INST.code) &&
-                        item.has_key(la::NAME))
-                        sname = std::string(str_of(item.get(la::NAME.code)));
-                }
-            }
-        }
-        if (sname.empty()) {
-            error("template_of::<X>() requires a single bare item name");
-            return error_expr();
-        }
-        // Walk current AST root.ITEMS for a declaration whose NAME matches.
-        uint32_t found_offset = 0;
-        if (!cur_root_.is_null() && cur_root_.has_key(la::ITEMS)) {
-            auto items = arr_of(cur_root_.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto raw = items.get(i);
-                if (raw.is_null() || !raw.is_pointer()) continue;
-                auto item = map_of(raw);
-                if (!item.has_key(la::NAME)) continue;
-                if (str_of(item.get(la::NAME.code)) == sname) {
-                    found_offset = raw.raw();
-                    break;
-                }
-            }
-        }
-        if (found_offset == 0) {
-            error("template_of::<X>(): no top-level item named '" + sname +
-                  "' in this file");
-            return error_expr();
-        }
-        // Build inner AnyVal { raw: <u32 lit> }.
-        auto anyval_t = make_datatype_type("AnyVal");
-        std::vector<std::pair<std::string, lir::LExprPtr>> av_f;
-        av_f.emplace_back("raw", builder().lit_int(
-            (int64_t)found_offset, prim(LogosType::Kind::U32)));
-        auto av_lit = builder().struct_lit("AnyVal", std::move(av_f), anyval_t);
-        // Wrap in Template { raw: AnyVal{...} }.
-        auto template_t = make_struct_type("Template");
-        std::vector<std::pair<std::string, lir::LExprPtr>> tpl_f;
-        tpl_f.emplace_back("raw", std::move(av_lit));
-        return builder().struct_lit("Template", std::move(tpl_f), template_t);
-    }
+    if (callee == "template_of") return lower_intrinsic_template_of(node);
 
     // variant_count_of::<E>() / variant_names_of::<E>() /
     // variant_payload_counts_of::<E>() / variant_payload_types_flat_of::<E>()
@@ -3847,86 +3936,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // For concrete (non-generic) datatypes: SHA-256 of "package::Name" truncated to 56 bits,
     // shifted to >= 128 if needed (codes 1-127 are reserved for inline AnyVal).
     // For non-datatype T: returns 0.
-    if (callee == "type_code_of") {
-        TypeRef elem = nullptr;
-        if (node.has_key(la::TYPE_PARAMS)) {
-            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-            if (tplist.has_key(la::ITEMS)) {
-                auto items = arr_of(tplist.get(la::ITEMS.code));
-                if (items.size() == 1)
-                    elem = resolve_type(map_of(items.get(0)));
-            }
-        }
-        if (!elem) {
-            error("type_code_of::<T>() requires exactly one type argument");
-            return error_expr();
-        }
-        uint64_t code = 0;
-        if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && TypeRef(elem).type_args().empty()) {
-            // Resolve package for this type (needed for both explicit and auto-hash paths).
-            // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
-            std::string pkg;
-            if (!TypeRef(elem).pkg_name().empty()) {
-                pkg = TypeRef(elem).pkg_name();
-            } else {
-                SemaStructInfo* found = nullptr;
-                { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); found = dsi; }
-                if (!found) { auto [sp, ssi] = find_struct_by_name(TypeRef(elem).struct_name()); found = ssi; }
-                if (found) pkg = found->package;
-                // If still not found, fall back to current package.
-                else pkg = cur_package_;
-            }
-            // Build the fully-qualified name used as explicit_type_codes_ key (matches
-            // the key written by apply_annots_to_struct in sema.cpp).
-            std::string fqn = pkg.empty() ? std::string(TypeRef(elem).struct_name()) : pkg + "::" + std::string(TypeRef(elem).struct_name());
-
-            // Check for explicit #[type_code=N] annotation first.
-            auto eit = explicit_type_codes_.find(fqn);
-            if (eit != explicit_type_codes_.end()) {
-                code = eit->second;
-            } else {
-                std::string canon = pkg + "::" + std::string(TypeRef(elem).struct_name());
-                auto hash = type_hash_23(canon);
-                uint64_t raw = type_hash_56bit(hash);
-                code = (raw < 128) ? (raw + 128) : raw;
-            }
-        } else if (TypeRef(elem).kind() == LogosType::Kind::ZonedStruct && !TypeRef(elem).type_args().empty()) {
-            // If any type_arg is a TypeVar, defer resolution to mono so every
-            // instantiation of the surrounding generic function gets its own
-            // concrete type_code.  Otherwise (fully concrete), compute now.
-            bool has_tv = false;
-            for (auto a : TypeRef(elem).type_args())
-                if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tv = true; break; }
-            if (has_tv)
-                return builder().type_code_of(elem, prim(LogosType::Kind::U64));
-            // Resolve the package for this generic type.
-            // Prefer TypeRef(elem).pkg_name() (set by resolve_type via find_datatype_by_name).
-            // Fall back to datatypes_ lookup (bare then qualified), then cur_package_.
-            std::string pkg;
-            if (!TypeRef(elem).pkg_name().empty()) {
-                pkg = TypeRef(elem).pkg_name();
-            } else {
-                SemaStructInfo* gsi = nullptr;
-                { auto [dp, dsi] = find_datatype_by_name(TypeRef(elem).struct_name()); gsi = dsi; }
-                if (!gsi) { auto it = datatypes_.find(TypeRef(elem).struct_name()); if (it != datatypes_.end()) gsi = &it->second; }
-                if (gsi) pkg = gsi->package;
-                else pkg = cur_package_;
-            }
-            std::string canon = pkg + "::" + type_str(elem);
-            auto eit = explicit_type_codes_.find(canon);
-            if (eit != explicit_type_codes_.end()) {
-                code = eit->second;
-            } else {
-                auto hash = type_hash_23(canon);
-                uint64_t raw = type_hash_56bit(hash);
-                code = (raw < 128) ? (raw + 128) : raw;
-            }
-        } else if (TypeRef(elem).kind() == LogosType::Kind::TypeVar) {
-            // `type_code_of::<T>()` inside a generic fn — defer.
-            return builder().type_code_of(elem, prim(LogosType::Kind::U64));
-        }
-        return builder().lit_int((int64_t)code, prim(LogosType::Kind::U64));
-    }
+    if (callee == "type_code_of") return lower_intrinsic_type_code_of(node);
 
     // is_data_plain_of::<T>() — returns true (1) if T is a DataPlain datatype
     // (no relative-pointer fields), false (0) otherwise.

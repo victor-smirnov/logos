@@ -2578,6 +2578,13 @@ private:
     // fall through to lower_generic_call's general generic-resolution path.
     std::optional<lir::LExprPtr> lower_type_intrinsic(
         hermes::TinyMapView node, std::string_view callee);
+    // Individual large intrinsic handlers split out of lower_type_intrinsic's
+    // flat callee-dispatch (each terminal; uses node + members only).
+    lir::LExprPtr lower_intrinsic_tuple_all_eq(hermes::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_type_code_of(hermes::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_generic_of(hermes::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_template_of(hermes::TinyMapView node);
+    lir::LExprPtr lower_intrinsic_has_trait_of(hermes::TinyMapView node);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
     // Per-receiver-shape method-dispatch handlers, factored out of the
