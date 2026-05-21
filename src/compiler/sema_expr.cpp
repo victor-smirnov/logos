@@ -7205,6 +7205,51 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         if (!explicit_args.empty() && explicit_args.size() == sinfo.type_params.size())
             spec_info = find_best_sema_struct_spec(std::string(sname), explicit_args);
 
+        // Recursive unification: infer the struct's type-params even when they
+        // appear NESTED inside a compound field type (e.g. field
+        // `inner: HashMapKeys<K, u8>` infers K from the value's type-arg).
+        // Walks decl and value types in parallel; binds an as-yet-uninferred
+        // TypeVar to the value-side type at the matching position. Without
+        // this, a type-param that only surfaces inside a generic field type is
+        // never inferred from fields — and when no return-type hint is present
+        // (e.g. a generic method lowered as a template), it falls through to
+        // error_t() below, poisoning the instantiation as `Foo<<error>>`.
+        std::function<void(TypeRef, TypeRef)> unify_field_tv =
+            [&](TypeRef decl_t, TypeRef val_t) {
+            if (!decl_t || !val_t) return;
+            using K = LogosType::Kind;
+            if (decl_t.kind() == K::TypeVar) {
+                auto tv = decl_t.type_var_name();
+                if (tv.empty() || inferred.count(std::string(tv))) return;
+                // Only infer the struct's OWN type-params; ignore stray vars.
+                bool is_param = false;
+                for (auto& tp : sinfo.type_params)
+                    if (tp.name == tv) { is_param = true; break; }
+                if (!is_param) return;
+                if (val_t.kind() == K::Error || val_t.kind() == K::IntLit ||
+                    val_t.kind() == K::FloatLit) return;
+                inferred[std::string(tv)] = val_t;
+                return;
+            }
+            // Recurse pairwise into matching structure.
+            if (decl_t.elem() && val_t.elem())
+                unify_field_tv(decl_t.elem(), val_t.elem());
+            if (decl_t.pointee() && val_t.pointee())
+                unify_field_tv(decl_t.pointee(), val_t.pointee());
+            auto da = decl_t.type_args();
+            auto va = val_t.type_args();
+            for (size_t i = 0; i < da.size() && i < va.size(); ++i)
+                unify_field_tv(da[i], va[i]);
+            // FnPtr / closure field types carry their type-params inside the
+            // parameter list and return type (e.g. `pred: fn(T) -> bool`).
+            auto dcp = decl_t.closure_params();
+            auto vcp = val_t.closure_params();
+            for (size_t i = 0; i < dcp.size() && i < vcp.size(); ++i)
+                unify_field_tv(dcp[i], vcp[i]);
+            if (decl_t.closure_ret() && val_t.closure_ret())
+                unify_field_tv(decl_t.closure_ret(), val_t.closure_ret());
+        };
+
         for (auto& [fname, fval] : fields) {
             auto raw_ft = [&]() -> TypeRef {
                 if (spec_info) {
@@ -7258,6 +7303,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     if (vt.kind() != LogosType::Kind::Error)
                         inferred[std::string(tv)] = vt;
                 }
+            } else {
+                // General case: type-params nested inside a compound field
+                // type (generic struct/enum, tuple, nested ptr-of-generic).
+                unify_field_tv(raw_ft, fval->type);
             }
         }
         // For any TypeVar still not inferred from fields, fall back to hint.

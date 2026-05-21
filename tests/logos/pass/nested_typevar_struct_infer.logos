@@ -1,0 +1,28 @@
+package nested_typevar_struct_infer;
+// Regression: struct-literal type-arg inference must recurse into a
+// type-param that appears only NESTED inside a compound field type
+// (generic-struct field + fn-ptr field). Previously the param fell through
+// to error_t(), poisoning the instantiation as `Wrap<<error>>`.
+struct Inner<K> { x: K }
+struct Wrap<K> { inner: Inner<K> }
+struct Pred<T> { pred: fn(T) -> bool }
+
+fn pos(v: i32) -> bool { return v > 0i32; }
+
+fn build_wrap(i: Inner<i32>) -> i32 {
+    let w = Wrap { inner: i };   // K inferred from nested `inner: Inner<K>`
+    return w.inner.x;
+}
+
+fn call_pred(p: Pred<i32>, v: i32) -> bool {
+    let f = p.pred;
+    return f(v);
+}
+
+fn main() -> i32 {
+    let inr = Inner { x: 7i32 };
+    let r = build_wrap(inr);
+    let p = Pred { pred: pos };   // T inferred from fn(T)->bool field
+    if call_pred(p, r) { return 0i32; }
+    return 1i32;
+}
