@@ -4619,6 +4619,105 @@ void SemaChecker::track_recv_moved(const lir::LExprPtr& recv, TypeRef self_forma
     mark_moved_expr(expr_ref_of(*recv));
 }
 
+// Raw-pointer built-in arithmetic methods: byte_add/byte_sub/add/sub (offset)
+// and byte_offset_from/offset_from (distance). nullopt when the receiver is
+// not a raw pointer, or for any other method name (falls through to the
+// struct-lookup path below).
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_raw_ptr(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    if (TypeRef(recv->type).kind() != LogosType::Kind::Ptr) return std::nullopt;
+    auto mk_arith = [&](lir::EPtrArith::Op op) -> lir::LExprPtr {
+        if (!inside_unsafe_)
+            error(std::format("pointer method '{}' requires unsafe context", method_name));
+        auto args = lower_call_args(node);
+        if (args.size() != 1) {
+            error(std::format("pointer method '{}' expects 1 argument, got {}",
+                  method_name, args.size()));
+            return error_expr();
+        }
+        auto at = args[0]->type;
+        auto i64ty = prim(LogosType::Kind::I64);
+        if (TypeRef(at).kind() != LogosType::Kind::Error && !types_compatible(at, i64ty))
+            error(std::format("pointer method '{}': argument must be i64, got {}",
+                  method_name, type_str(at)));
+        widen_int_expr(args[0], i64ty, builder());
+        auto ret_type = recv->type;
+        return builder().ptr_arith(op, std::move(recv), std::move(args[0]), ret_type);
+    };
+    auto mk_diff = [&](bool by_byte) -> lir::LExprPtr {
+        if (!inside_unsafe_)
+            error(std::format("pointer method '{}' requires unsafe context", method_name));
+        auto args = lower_call_args(node);
+        if (args.size() != 1) {
+            error(std::format("pointer method '{}' expects 1 argument, got {}",
+                  method_name, args.size()));
+            return error_expr();
+        }
+        auto at = args[0]->type;
+        if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(at).kind() != LogosType::Kind::Ptr)
+            error(std::format("pointer method '{}': argument must be a pointer, got {}",
+                  method_name, type_str(at)));
+        return builder().ptr_diff(by_byte, std::move(recv), std::move(args[0]), prim(LogosType::Kind::I64));
+    };
+    if (method_name == "byte_add")         return mk_arith(lir::EPtrArith::ByteAdd);
+    if (method_name == "byte_sub")         return mk_arith(lir::EPtrArith::ByteSub);
+    if (method_name == "add")              return mk_arith(lir::EPtrArith::Add);
+    if (method_name == "sub")              return mk_arith(lir::EPtrArith::Sub);
+    if (method_name == "byte_offset_from") return mk_diff(true);
+    if (method_name == "offset_from")      return mk_diff(false);
+    return std::nullopt;  // other methods resolve via struct lookup below
+}
+
+// &tagged<TS> Trait method call: tag-based dispatch through the tier-1 table.
+// The receiver is a thin *const u8 pointer; the type_code is read at runtime
+// via TS. nullopt only when the receiver is not a TaggedPtr.
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    TypeRef rtg(recv->type);
+    if (!(rtg && rtg.kind() == LogosType::Kind::TaggedPtr)) return std::nullopt;
+    auto ts_name  = std::string(rtg.struct_name());  // e.g. "DataTypeTagSystem"
+    auto tname    = std::string(rtg.trait_name());   // e.g. "Stringify"
+    auto tit = traits_.find(tname);
+    if (tit == traits_.end()) {
+        error(std::format("&tagged<{}> {}: trait '{}' not found", ts_name, tname, tname));
+        return error_expr();
+    }
+    for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
+        auto& m = tit->second.methods[mi];
+        if (m.name != method_name) continue;
+        if (m.is_unsafe && !inside_unsafe_)
+            error(std::format("call to unsafe method '{}' requires unsafe context",
+                              std::string(method_name)));
+        std::vector<lir::LExprPtr> arg_exprs;
+        if (node.has_key(la::ARGS)) {
+            auto args_node = arr_of(node.get(la::ARGS.code));
+            for (uint64_t i = 0; i < args_node.size(); ++i)
+                arg_exprs.push_back(lower_expr(map_of(args_node.get(i))));
+        }
+        size_t expected_explicit = m.param_types.size() > 0
+            ? m.param_types.size() - 1 : 0;
+        if (arg_exprs.size() != expected_explicit)
+            error(std::format("method '{}': expected {} args, got {}",
+                              std::string(method_name), expected_explicit, arg_exprs.size()));
+        // Return type: substitute Self → &tagged<TS> Trait (the receiver type).
+        TypeRef ret_type = m.ret_type;
+        if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
+            TypeRef(ret_type).type_var_name() == "Self")
+            ret_type = recv->type;
+        track_args_moved(arg_exprs);
+        lir::EMethodCall mc;
+        mc.receiver    = std::move(recv);
+        mc.method      = std::string(method_name);
+        mc.args        = std::move(arg_exprs);
+        mc.vtable_index = -1;
+        mc.tag_system  = std::string(ts_name);
+        mc.tag_trait   = std::string(tname);
+        return builder().method_call_v(std::move(mc), ret_type);
+    }
+    error(std::format("trait '{}' has no method '{}'", tname, method_name));
+    return error_expr();
+}
+
 // Phase 1B-15: method call on a DstRef receiver. The impl method's self type
 // (`&Self` / `&mut Self`) resolved to DstRef per Phase 1B-14, so funcs_ has an
 // entry keyed by `Foo__method` with param[0] of type DstRef. Dispatch directly
@@ -5102,49 +5201,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     //   p.add(n)      / p.sub(n)       — offset n elements
     //   p.byte_offset_from(q)          — i64 byte distance
     //   p.offset_from(q)               — i64 element distance
-    if (TypeRef(recv->type).kind() == LogosType::Kind::Ptr) {
-        auto parse_args = [&]() { return lower_call_args(node); };
-        auto mk_arith = [&](lir::EPtrArith::Op op) -> lir::LExprPtr {
-            if (!inside_unsafe_)
-                error(std::format("pointer method '{}' requires unsafe context", method_name));
-            auto args = parse_args();
-            if (args.size() != 1) {
-                error(std::format("pointer method '{}' expects 1 argument, got {}",
-                      method_name, args.size()));
-                return error_expr();
-            }
-            auto at = args[0]->type;
-            auto i64ty = prim(LogosType::Kind::I64);
-            if (TypeRef(at).kind() != LogosType::Kind::Error && !types_compatible(at, i64ty))
-                error(std::format("pointer method '{}': argument must be i64, got {}",
-                      method_name, type_str(at)));
-            widen_int_expr(args[0], i64ty, builder());
-            auto ret_type = recv->type;
-            return builder().ptr_arith(op, std::move(recv), std::move(args[0]), ret_type);
-        };
-        auto mk_diff = [&](bool by_byte) -> lir::LExprPtr {
-            if (!inside_unsafe_)
-                error(std::format("pointer method '{}' requires unsafe context", method_name));
-            auto args = parse_args();
-            if (args.size() != 1) {
-                error(std::format("pointer method '{}' expects 1 argument, got {}",
-                      method_name, args.size()));
-                return error_expr();
-            }
-            auto at = args[0]->type;
-            if (TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(at).kind() != LogosType::Kind::Ptr)
-                error(std::format("pointer method '{}': argument must be a pointer, got {}",
-                      method_name, type_str(at)));
-            return builder().ptr_diff(by_byte, std::move(recv), std::move(args[0]), prim(LogosType::Kind::I64));
-        };
-        if (method_name == "byte_add")         return mk_arith(lir::EPtrArith::ByteAdd);
-        if (method_name == "byte_sub")         return mk_arith(lir::EPtrArith::ByteSub);
-        if (method_name == "add")              return mk_arith(lir::EPtrArith::Add);
-        if (method_name == "sub")              return mk_arith(lir::EPtrArith::Sub);
-        if (method_name == "byte_offset_from") return mk_diff(true);
-        if (method_name == "offset_from")      return mk_diff(false);
-        // fall through: other methods (if any) resolve via struct lookup below
-    }
+    if (auto r = try_method_on_raw_ptr(node, recv, method_name)) return *r;
 
     // *mut dyn Trait / *const dyn Trait method dispatch: peel the Ptr to
     // expose the underlying TraitObject so the existing vtable-call branch
@@ -5164,49 +5221,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     // &tagged<TS> Trait method call: tag-based dispatch through the tier-1 table.
     // The receiver is a thin *const u8 pointer; type_code is read at runtime via TS.
-    if (TypeRef rtg(recv->type); rtg && rtg.kind() == LogosType::Kind::TaggedPtr) {
-        auto ts_name  = std::string(rtg.struct_name());  // e.g. "DataTypeTagSystem"
-        auto tname    = std::string(rtg.trait_name());   // e.g. "Stringify"
-        auto tit = traits_.find(tname);
-        if (tit == traits_.end()) {
-            error(std::format("&tagged<{}> {}: trait '{}' not found", ts_name, tname, tname));
-            return error_expr();
-        }
-        for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
-            auto& m = tit->second.methods[mi];
-            if (m.name != method_name) continue;
-            if (m.is_unsafe && !inside_unsafe_)
-                error(std::format("call to unsafe method '{}' requires unsafe context",
-                                  std::string(method_name)));
-            std::vector<lir::LExprPtr> arg_exprs;
-            if (node.has_key(la::ARGS)) {
-                auto args_node = arr_of(node.get(la::ARGS.code));
-                for (uint64_t i = 0; i < args_node.size(); ++i)
-                    arg_exprs.push_back(lower_expr(map_of(args_node.get(i))));
-            }
-            size_t expected_explicit = m.param_types.size() > 0
-                ? m.param_types.size() - 1 : 0;
-            if (arg_exprs.size() != expected_explicit)
-                error(std::format("method '{}': expected {} args, got {}",
-                                  std::string(method_name), expected_explicit, arg_exprs.size()));
-            // Return type: substitute Self → &tagged<TS> Trait (the receiver type).
-            TypeRef ret_type = m.ret_type;
-            if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::TypeVar &&
-                TypeRef(ret_type).type_var_name() == "Self")
-                ret_type = recv->type;
-            track_args_moved(arg_exprs);
-            lir::EMethodCall mc;
-            mc.receiver    = std::move(recv);
-            mc.method      = std::string(method_name);
-            mc.args        = std::move(arg_exprs);
-            mc.vtable_index = -1;
-            mc.tag_system  = std::string(ts_name);
-            mc.tag_trait   = std::string(tname);
-            return builder().method_call_v(std::move(mc), ret_type);
-        }
-        error(std::format("trait '{}' has no method '{}'", tname, method_name));
-        return error_expr();
-    }
+    if (auto r = try_method_on_tagged(node, recv, method_name)) return *r;
 
     // TypeVar with trait bounds: look up trait method signature.
     // The actual impl method will be resolved during monomorphization.

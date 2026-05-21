@@ -2572,6 +2572,10 @@ private:
         hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dyn(
         hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_raw_ptr(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_tagged(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     // Move-tracking shared by the method-dispatch handlers: mark by-value
     // move-type args / receiver as moved so scope-end auto-Drop doesn't fire
     // on ownership the call has transferred. (Promoted from local lambdas.)
