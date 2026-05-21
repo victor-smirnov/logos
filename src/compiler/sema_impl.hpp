@@ -2572,6 +2572,12 @@ private:
                                       std::vector<TypeRef> type_args,
                                       std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_generic_call(hermes::TinyMapView node);
+    // The leading magic-builtin / type-trait intrinsic dispatch of
+    // lower_generic_call (is_same, type_of, has_trait, typelist_*, tuple_*, …).
+    // Returns the lowered call when `callee` is such an intrinsic; nullopt to
+    // fall through to lower_generic_call's general generic-resolution path.
+    std::optional<lir::LExprPtr> lower_type_intrinsic(
+        hermes::TinyMapView node, std::string_view callee);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_method_call(hermes::TinyMapView node);
     // Per-receiver-shape method-dispatch handlers, factored out of the

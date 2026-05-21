@@ -2916,11 +2916,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
 }
 
-lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
-    auto callee = str_of(node.get(la::CALLEE.code));
-
-    // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
-    // Helper: collect resolved type args.
+std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
     auto collect_type_args = [&]() -> std::vector<TypeRef> {
         std::vector<TypeRef> out;
         if (!node.has_key(la::TYPE_PARAMS)) return out;
@@ -4170,6 +4166,15 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         payload.push_back(std::move(struct_expr));
         return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
     }
+    return std::nullopt;
+}
+
+lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
+    auto callee = str_of(node.get(la::CALLEE.code));
+
+    // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
+    // Helper: collect resolved type args.
+    if (auto r = lower_type_intrinsic(node, callee)) return *r;
 
     size_t n_args = 0;
     if (node.has_key(la::ARGS)) {
