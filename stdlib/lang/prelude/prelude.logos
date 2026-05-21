@@ -1,0 +1,41 @@
+// logos.lang.prelude — the implicit no-alloc, no-OS surface.
+//
+// Re-exports the lang-tier names every Logos file needs by default
+// (marker/operator/conversion traits, Option/Result + bare variants,
+// the explicit-drop fn). See docs/core-port/prelude-design.md.
+//
+// Carries `#![no_implicit_prelude]` so the prelude does not import
+// itself (and so the foundational modules it re-exports never form an
+// import cycle through it).
+#![no_implicit_prelude]
+package logos.lang.prelude;
+
+// Marker traits: Copy, Sized, Send, Sync, Unpin
+pub use logos.lang.marker;
+
+// Operator + drop/Fn traits: Drop, Fn/FnMut/FnOnce, Index, Deref,
+// Add/Sub/Mul/Div/Rem, Range family.
+pub use logos.lang.ops;
+
+// Conversion: AsRef, AsMut, From, Into, TryFrom, TryInto
+pub use logos.lang.convert;
+
+// Default
+pub use logos.lang.default;
+
+// Cloning + equality + ordering
+pub use logos.lang.clone;
+pub use logos.lang.cmp;
+
+// Hashing
+pub use logos.lang.hash;
+
+// Iteration
+pub use logos.lang.iter;
+
+// Option / Result + bare variants (Some/None, Ok/Err)
+pub use logos.lang.option;
+pub use logos.lang.result;
+
+// Explicit-drop free fn (the Drop *trait* lives in logos.lang.ops above)
+pub use logos.lang.drop;

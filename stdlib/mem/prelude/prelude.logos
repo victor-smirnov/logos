@@ -1,0 +1,20 @@
+// logos.mem.prelude — the implicit heap-allocating surface on top of lang.
+//
+// Re-exports the lang prelude transitively, plus the mem-tier owning
+// types (Box, Rc, Arc, String, Vec). See docs/core-port/prelude-design.md.
+#![no_implicit_prelude]
+package logos.mem.prelude;
+
+// Lang prelude — implicit transitive surface.
+pub use logos.lang.prelude;
+
+// Owning smart pointers
+pub use logos.mem.boxed;     // Box
+pub use logos.mem.rc;        // Rc
+pub use logos.mem.sync;      // Arc
+
+// Owning string + conversion traits
+pub use logos.mem.string;    // String, ToString
+
+// The one heap container that's prelude-worthy
+pub use logos.mem.collections.vec;   // Vec

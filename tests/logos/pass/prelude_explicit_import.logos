@@ -1,0 +1,19 @@
+// Prelude: `use logos.lang.prelude;` / `use logos.mem.prelude;` give the whole
+// tier surface via one import (re-export modules added 2026-05-21). Exercises
+// the lang surface (Option/Some/None/match) through lang.prelude and the
+// transitive lang surface + String through mem.prelude.
+package prelude_explicit_import;
+
+use logos.mem.prelude;   // → lang.prelude (Option/…) + String/Vec
+
+fn pick(o: Option<i64>) -> i64 {
+    match o { Some(x) => { return x; } None => { return -1i64; } }
+}
+
+fn main() -> i32 {
+    if pick(Some(5i64)) != 5i64 { return 1i32; }
+    if pick(None) != -1i64 { return 2i32; }
+    let s = String::from("hello");
+    if s.len() != 5i64 { return 3i32; }
+    return 0i32;
+}

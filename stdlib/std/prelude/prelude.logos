@@ -1,0 +1,11 @@
+// logos.std.prelude — the implicit OS-touching surface on top of mem.
+//
+// Currently identical to mem.prelude in items (Rust's std prelude adds
+// nothing of its own beyond core/alloc). The file exists so the layered
+// structure stays uniform: a consumer selecting `logos.std.prelude` gets
+// the full transitive surface. See docs/core-port/prelude-design.md.
+#![no_implicit_prelude]
+package logos.std.prelude;
+
+pub use logos.mem.prelude;
+// (No std-only additions at this time.)
