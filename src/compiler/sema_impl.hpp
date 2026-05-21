@@ -2746,6 +2746,13 @@ private:
     // Internal: build_pattern's body without eager mirror emit. Recurses via
     // build_pattern (so sub-patterns get their own eager emit).
     lir::Pattern build_pattern_impl(hermes::TinyMapView pnode, TypeRef scrut_type);
+    // build_pattern_impl sub-handlers, factored out of its pc-keyed dispatch.
+    // Each lowers one pattern kind; depends only on pnode/scrut_type/members
+    // (recurses via build_pattern), no state shared across branches.
+    lir::Pattern build_pattern_variant(hermes::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_variant_data(hermes::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_bytes(hermes::TinyMapView pnode, TypeRef scrut_type);
+    lir::Pattern build_pattern_or(hermes::TinyMapView pnode, TypeRef scrut_type);
     // Helper for inline PatWild construction with eager mirror emit.
     lir::Pattern make_pat_wild(std::string_view name);
     // If pnode is a Hermes scalar pattern (PAT_HERMES_NULL/BOOL/INT), returns a

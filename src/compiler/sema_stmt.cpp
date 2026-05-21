@@ -1847,453 +1847,635 @@ lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     return build_pattern_impl(pnode, scrut_type);
 }
 
-lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
-    int32_t pc = code_of(pnode);
-    if (pc == la::PAT_VARIANT) {
-        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
-        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
-        // CP-cm-03: prelude shorthand `Some` / `None` / `Ok` / `Err`
-        // (no `Enum::` qualifier). Remap to enum+variant when the
-        // user-supplied NAME is one of the prelude variant names.
+lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut_type) {
+    int32_t pc = code_of(pnode); (void)pc;
+    auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+    auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+    // CP-cm-03: prelude shorthand `Some` / `None` / `Ok` / `Err`
+    // (no `Enum::` qualifier). Remap to enum+variant when the
+    // user-supplied NAME is one of the prelude variant names.
+    if (pvname.empty()) {
+        auto prelude_remap = [&](const char* en) -> bool {
+            auto [pkg, esi] = find_enum_by_name(en);
+            if (!esi) return false;
+            for (auto& v : esi->variants)
+                if (v.name == pename) {
+                    pvname = std::move(pename);
+                    pename = en;
+                    return true;
+                }
+            return false;
+        };
+        if (pename == "Some" || pename == "None")
+            prelude_remap("Option");
+        else if (pename == "Ok" || pename == "Err")
+            prelude_remap("Result");
+        // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
         if (pvname.empty()) {
-            auto prelude_remap = [&](const char* en) -> bool {
-                auto [pkg, esi] = find_enum_by_name(en);
-                if (!esi) return false;
-                for (auto& v : esi->variants)
-                    if (v.name == pename) {
-                        pvname = std::move(pename);
-                        pename = en;
-                        return true;
-                    }
-                return false;
-            };
-            if (pename == "Some" || pename == "None")
-                prelude_remap("Option");
-            else if (pename == "Ok" || pename == "Err")
-                prelude_remap("Result");
-            // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
-            if (pvname.empty()) {
-                auto vit = cur_imports_.variant_aliases.find(pename);
-                if (vit != cur_imports_.variant_aliases.end())
-                    prelude_remap(vit->second.c_str());
-            }
+            auto vit = cur_imports_.variant_aliases.find(pename);
+            if (vit != cur_imports_.variant_aliases.end())
+                prelude_remap(vit->second.c_str());
         }
-        int32_t disc = 0;
-        auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
-        auto eit = esi_pv ? enums_.find(sema_key(epkg_pv, pename)) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(pename);
-        if (eit == enums_.end()) {
-            error(std::format("pattern: unknown enum '{}'", pename));
-        } else {
-            // NS5: guard scrut_type null before accessing kind (could be null for unknown types).
-            if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-                TypeRef(scrut_type).enum_name() != pename)
-                error(std::format("pattern: enum '{}' != scrutinee '{}'",
-                      pename, type_str(scrut_type)));
-            bool found = false;
-            for (auto& v : eit->second.variants)
-                if (v.name == pvname) { disc = v.value; found = true; break; }
-            if (!found)
-                error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
-        }
-        lir::Pattern p_;
-        p_.mirror_offset_ = lir_mirror_emit_pat_variant(*cur_prog_, pename, pvname, disc);
-        return p_;
     }
-    if (pc == la::PAT_VARIANT_DATA) {
-        auto pename = std::string(str_of(pnode.get(la::NAME.code)));
-        auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
-        // CP-cm-03: Rust-prelude shorthand on patterns —
-        // `Some(x)` / `Ok(x)` / `Err(x)` parsed as PAT_VARIANT_DATA
-        // with NAME=variant, FIELD="". Reroute to enum+variant
-        // form when the enum is in scope and tuple-struct lookup
-        // would otherwise fail.
+    int32_t disc = 0;
+    auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
+    auto eit = esi_pv ? enums_.find(sema_key(epkg_pv, pename)) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(pename);
+    if (eit == enums_.end()) {
+        error(std::format("pattern: unknown enum '{}'", pename));
+    } else {
+        // NS5: guard scrut_type null before accessing kind (could be null for unknown types).
+        if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
+            TypeRef(scrut_type).enum_name() != pename)
+            error(std::format("pattern: enum '{}' != scrutinee '{}'",
+                  pename, type_str(scrut_type)));
+        bool found = false;
+        for (auto& v : eit->second.variants)
+            if (v.name == pvname) { disc = v.value; found = true; break; }
+        if (!found)
+            error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
+    }
+    lir::Pattern p_;
+    p_.mirror_offset_ = lir_mirror_emit_pat_variant(*cur_prog_, pename, pvname, disc);
+    return p_;
+}
+
+lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef scrut_type) {
+    int32_t pc = code_of(pnode); (void)pc;
+    auto pename = std::string(str_of(pnode.get(la::NAME.code)));
+    auto pvname = std::string(str_of(pnode.get(la::FIELD.code)));
+    // CP-cm-03: Rust-prelude shorthand on patterns —
+    // `Some(x)` / `Ok(x)` / `Err(x)` parsed as PAT_VARIANT_DATA
+    // with NAME=variant, FIELD="". Reroute to enum+variant
+    // form when the enum is in scope and tuple-struct lookup
+    // would otherwise fail.
+    if (pvname.empty()) {
+        auto prelude_remap = [&](const char* en) -> bool {
+            auto [pkg, esi] = find_enum_by_name(en);
+            if (!esi) return false;
+            for (auto& v : esi->variants)
+                if (v.name == pename) {
+                    pvname = std::move(pename);
+                    pename = en;
+                    return true;
+                }
+            return false;
+        };
+        if (pename == "Some" || pename == "None")
+            prelude_remap("Option");
+        else if (pename == "Ok" || pename == "Err")
+            prelude_remap("Result");
+        // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
         if (pvname.empty()) {
-            auto prelude_remap = [&](const char* en) -> bool {
-                auto [pkg, esi] = find_enum_by_name(en);
-                if (!esi) return false;
-                for (auto& v : esi->variants)
-                    if (v.name == pename) {
-                        pvname = std::move(pename);
-                        pename = en;
-                        return true;
-                    }
-                return false;
-            };
-            if (pename == "Some" || pename == "None")
-                prelude_remap("Option");
-            else if (pename == "Ok" || pename == "Err")
-                prelude_remap("Result");
-            // CP-cm-02: `use Type.{V1, …};` bare-variant alias map.
-            if (pvname.empty()) {
-                auto vit = cur_imports_.variant_aliases.find(pename);
-                if (vit != cur_imports_.variant_aliases.end())
-                    prelude_remap(vit->second.c_str());
-            }
+            auto vit = cur_imports_.variant_aliases.find(pename);
+            if (vit != cur_imports_.variant_aliases.end())
+                prelude_remap(vit->second.c_str());
         }
-        // B-ts-01: bare `Foo(a, b)` (no `::` separator) — pvname is
-        // empty. If `Foo` resolves to a tuple-struct, lower as a
-        // struct destructure with synth field names "0", "1", …
-        // each paired with the user-supplied sub-pattern (binding
-        // names become PatWild sub-pats).
-        if (pvname.empty()) {
-            auto [tspkg_p, tsi_p] = find_struct_by_name(pename);
-            if (tsi_p && tsi_p->is_tuple_struct) {
-                lir::PatStruct ps;
-                ps.struct_name = pename;
-                ps.has_rest    = false;
-                size_t sub_n = 0;
-                if (pnode.has_key(la::ARGS)) {
-                    auto aav = pnode.get(la::ARGS.code);
-                    if (!aav.is_null() && aav.is_pointer()) {
-                        auto blist = map_of(aav);
-                        if (blist.has_key(la::ITEMS)) {
-                            auto bitems = arr_of(blist.get(la::ITEMS.code));
-                            sub_n = bitems.size();
-                            for (uint64_t j = 0; j < bitems.size(); ++j) {
-                                auto bnode = map_of(bitems.get(j));
-                                TypeRef ftype = j < tsi_p->fields.size()
-                                                ? tsi_p->fields[j].type : nullptr;
-                                lir::PatFieldBinding fb;
-                                fb.field_name = std::to_string(j);
-                                fb.sub.push_back(build_pattern(bnode, ftype));
-                                ps.fields.push_back(std::move(fb));
-                            }
+    }
+    // B-ts-01: bare `Foo(a, b)` (no `::` separator) — pvname is
+    // empty. If `Foo` resolves to a tuple-struct, lower as a
+    // struct destructure with synth field names "0", "1", …
+    // each paired with the user-supplied sub-pattern (binding
+    // names become PatWild sub-pats).
+    if (pvname.empty()) {
+        auto [tspkg_p, tsi_p] = find_struct_by_name(pename);
+        if (tsi_p && tsi_p->is_tuple_struct) {
+            lir::PatStruct ps;
+            ps.struct_name = pename;
+            ps.has_rest    = false;
+            size_t sub_n = 0;
+            if (pnode.has_key(la::ARGS)) {
+                auto aav = pnode.get(la::ARGS.code);
+                if (!aav.is_null() && aav.is_pointer()) {
+                    auto blist = map_of(aav);
+                    if (blist.has_key(la::ITEMS)) {
+                        auto bitems = arr_of(blist.get(la::ITEMS.code));
+                        sub_n = bitems.size();
+                        for (uint64_t j = 0; j < bitems.size(); ++j) {
+                            auto bnode = map_of(bitems.get(j));
+                            TypeRef ftype = j < tsi_p->fields.size()
+                                            ? tsi_p->fields[j].type : nullptr;
+                            lir::PatFieldBinding fb;
+                            fb.field_name = std::to_string(j);
+                            fb.sub.push_back(build_pattern(bnode, ftype));
+                            ps.fields.push_back(std::move(fb));
                         }
                     }
                 }
-                if (sub_n != tsi_p->fields.size())
-                    error(std::format(
-                        "tuple-struct pattern '{}': expected {} fields, got {}",
-                        pename, tsi_p->fields.size(), sub_n));
-                auto mo = lir_mirror_emit_pat_struct(
-                    *cur_prog_, ps.struct_name, ps.fields, ps.has_rest);
-                lir::Pattern p_;
-                p_.mirror_offset_ = mo;
-                return p_;
             }
+            if (sub_n != tsi_p->fields.size())
+                error(std::format(
+                    "tuple-struct pattern '{}': expected {} fields, got {}",
+                    pename, tsi_p->fields.size(), sub_n));
+            auto mo = lir_mirror_emit_pat_struct(
+                *cur_prog_, ps.struct_name, ps.fields, ps.has_rest);
+            lir::Pattern p_;
+            p_.mirror_offset_ = mo;
+            return p_;
         }
-        int32_t disc = 0;
-        const SemaVariantInfo* vinfo = nullptr;
-        auto [epkg_pvd, esi_pvd] = find_enum_by_name(pename);
-        auto eit = esi_pvd ? enums_.find(sema_key(epkg_pvd, pename)) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(pename);
-        if (eit == enums_.end()) {
-            error(std::format("pattern: unknown enum '{}'", pename));
-        } else {
-            for (auto& v : eit->second.variants)
-                if (v.name == pvname) { vinfo = &v; disc = v.value; break; }
-            if (!vinfo)
-                error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
-        }
-        std::vector<std::string> bindings;
-        bool pat_is_struct_shape = pnode.has_key(la::variant::IS_STRUCT_SHAPE) &&
-            pnode.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
-        // P4-pm-01 (refutable inner): pre-compute the per-position resolved
-        // payload types so refutable sub-patterns can synthesize typed
-        // guard expressions while we walk the pattern. (The post-hoc
-        // binding_types pass below still runs — it's the canonical input
-        // to lir_mirror_emit_pat_variant_data.)
-        SemaSubst pat_subst;
-        if (vinfo && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-            !TypeRef(scrut_type).type_args().empty() && eit != enums_.end()) {
-            auto& einfo = eit->second;
-            for (size_t k = 0; k < einfo.type_params.size() &&
-                                 k < TypeRef(scrut_type).type_args().size(); ++k)
-                pat_subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
-        }
-        auto pat_field_type = [&](size_t idx) -> TypeRef {
-            if (!vinfo || idx >= vinfo->payload_types.size()) return error_t();
-            auto pt = vinfo->payload_types[idx];
-            return pat_subst.empty() ? pt : subst_type_sema(pt, pat_subst);
-        };
-        // Synthesize a binding + guard for a refutable inner sub-pat. Returns
-        // the synth binding name (caller stores it at the correct position
-        // in `bindings`). Caller must also have `current_pat_refutable_guards_`
-        // wired or guard generation is silently skipped (then the pattern
-        // becomes too permissive — caller already errored).
-        auto synth_refutable_inner =
-            [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field) -> std::string {
-            std::string synth = std::format(
-                "__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++);
-            int32_t sc = code_of(sub);
-            lir::LExprPtr value;
-            if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
-                auto sv = str_of(sub.get(la::VALUE.code));
-                int64_t v = parse_int_literal(sv);
-                value = builder().lit_int(v,
-                    (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                        ? ftype
-                        : prim(LogosType::Kind::I64));
-            } else if (sc == la::PAT_NEG_INT && sub.has_key(la::VALUE)) {
-                auto sv = str_of(sub.get(la::VALUE.code));
-                int64_t v = -parse_int_literal(sv);
-                value = builder().lit_int(v,
-                    (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                        ? ftype
-                        : prim(LogosType::Kind::I64));
-            } else if (sc == la::PAT_BOOL && sub.has_key(la::VALUE)) {
-                bool b = sub.get(la::VALUE.code).as_value<int32_t>() != 0;
-                value = builder().lit_bool(b, bool_t());
-            } else if (sc == la::PAT_CHAR && sub.has_key(la::VALUE)) {
-                auto sv = str_of(sub.get(la::VALUE.code));
-                int64_t v = sv.empty() ? 0 : (int64_t)(uint8_t)sv[0];
-                value = builder().lit_int(v, prim(LogosType::Kind::Char));
-            } else {
-                return std::string();  // not a supported refutable
-            }
-            if (current_pat_refutable_guards_) {
-                TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+    }
+    int32_t disc = 0;
+    const SemaVariantInfo* vinfo = nullptr;
+    auto [epkg_pvd, esi_pvd] = find_enum_by_name(pename);
+    auto eit = esi_pvd ? enums_.find(sema_key(epkg_pvd, pename)) : enums_.end();
+    if (eit == enums_.end()) eit = enums_.find(pename);
+    if (eit == enums_.end()) {
+        error(std::format("pattern: unknown enum '{}'", pename));
+    } else {
+        for (auto& v : eit->second.variants)
+            if (v.name == pvname) { vinfo = &v; disc = v.value; break; }
+        if (!vinfo)
+            error(std::format("pattern: enum '{}' has no variant '{}'", pename, pvname));
+    }
+    std::vector<std::string> bindings;
+    bool pat_is_struct_shape = pnode.has_key(la::variant::IS_STRUCT_SHAPE) &&
+        pnode.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
+    // P4-pm-01 (refutable inner): pre-compute the per-position resolved
+    // payload types so refutable sub-patterns can synthesize typed
+    // guard expressions while we walk the pattern. (The post-hoc
+    // binding_types pass below still runs — it's the canonical input
+    // to lir_mirror_emit_pat_variant_data.)
+    SemaSubst pat_subst;
+    if (vinfo && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
+        !TypeRef(scrut_type).type_args().empty() && eit != enums_.end()) {
+        auto& einfo = eit->second;
+        for (size_t k = 0; k < einfo.type_params.size() &&
+                             k < TypeRef(scrut_type).type_args().size(); ++k)
+            pat_subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
+    }
+    auto pat_field_type = [&](size_t idx) -> TypeRef {
+        if (!vinfo || idx >= vinfo->payload_types.size()) return error_t();
+        auto pt = vinfo->payload_types[idx];
+        return pat_subst.empty() ? pt : subst_type_sema(pt, pat_subst);
+    };
+    // Synthesize a binding + guard for a refutable inner sub-pat. Returns
+    // the synth binding name (caller stores it at the correct position
+    // in `bindings`). Caller must also have `current_pat_refutable_guards_`
+    // wired or guard generation is silently skipped (then the pattern
+    // becomes too permissive — caller already errored).
+    auto synth_refutable_inner =
+        [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field) -> std::string {
+        std::string synth = std::format(
+            "__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++);
+        int32_t sc = code_of(sub);
+        lir::LExprPtr value;
+        if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
+            auto sv = str_of(sub.get(la::VALUE.code));
+            int64_t v = parse_int_literal(sv);
+            value = builder().lit_int(v,
+                (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                     ? ftype
-                    : (value ? value->type : error_t());
-                auto vref = builder().var_ref(synth, rt);
-                auto guard = builder().bin_op("==", std::move(vref),
-                                              std::move(value), bool_t());
-                current_pat_refutable_guards_->push_back(std::move(guard));
-            }
-            return synth;
-        };
-        if (pat_is_struct_shape) {
-            // P4-pm-01: `E::V { x, y: pat, .. }` — read ITEMS as PAT_FIELD
-            // list. Each entry carries NAME (+ optional VALUE sub-pat) or
-            // is PAT_REST (`..`). Resolve names → positions in the
-            // variant's payload_field_names; build positional `bindings`
-            // (length = payload arity). Missing fields without `..` are
-            // an error; with `..` they're skipped (bound to "_").
-            if (vinfo && vinfo->payload_field_names.empty() && !vinfo->payload_types.empty()) {
-                error(std::format("{}::{} is a tuple-shape variant — use parentheses",
-                                  pename, pvname));
-            }
-            size_t arity = vinfo ? vinfo->payload_field_names.size() : 0;
-            std::vector<std::string> by_pos(arity, "_");
-            std::vector<bool> seen(arity, false);
-            bool has_rest = false;
-            if (pnode.has_key(la::ITEMS)) {
-                AnyVal iav = pnode.get(la::ITEMS.code);
-                if (!iav.is_null() && iav.is_pointer()) {
-                    auto fl = map_of(iav);
-                    ArrayView fitems;
-                    if (fl.has_key(la::ITEMS)) fitems = arr_of(fl.get(la::ITEMS.code));
-                    else                        fitems = arr_of(iav);
-                    for (uint64_t i = 0; i < fitems.size(); ++i) {
-                        auto fnode = map_of(fitems.get(i));
-                        int32_t fcode = code_of(fnode);
-                        if (fcode == la::PAT_REST) { has_rest = true; continue; }
-                        std::string fname = fnode.has_key(la::NAME)
-                            ? std::string(str_of(fnode.get(la::NAME.code)))
-                            : std::string();
-                        size_t idx = arity;
-                        if (vinfo) {
-                            for (size_t k = 0; k < arity; ++k)
-                                if (vinfo->payload_field_names[k] == fname) { idx = k; break; }
-                        }
-                        if (idx == arity) {
-                            if (vinfo)
-                                error(std::format("pattern {}::{}: no field named '{}'",
-                                      pename, pvname, fname));
-                            continue;
-                        }
-                        if (seen[idx]) {
-                            error(std::format("pattern {}::{}: field '{}' specified more than once",
+                    : prim(LogosType::Kind::I64));
+        } else if (sc == la::PAT_NEG_INT && sub.has_key(la::VALUE)) {
+            auto sv = str_of(sub.get(la::VALUE.code));
+            int64_t v = -parse_int_literal(sv);
+            value = builder().lit_int(v,
+                (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                    ? ftype
+                    : prim(LogosType::Kind::I64));
+        } else if (sc == la::PAT_BOOL && sub.has_key(la::VALUE)) {
+            bool b = sub.get(la::VALUE.code).as_value<int32_t>() != 0;
+            value = builder().lit_bool(b, bool_t());
+        } else if (sc == la::PAT_CHAR && sub.has_key(la::VALUE)) {
+            auto sv = str_of(sub.get(la::VALUE.code));
+            int64_t v = sv.empty() ? 0 : (int64_t)(uint8_t)sv[0];
+            value = builder().lit_int(v, prim(LogosType::Kind::Char));
+        } else {
+            return std::string();  // not a supported refutable
+        }
+        if (current_pat_refutable_guards_) {
+            TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                ? ftype
+                : (value ? value->type : error_t());
+            auto vref = builder().var_ref(synth, rt);
+            auto guard = builder().bin_op("==", std::move(vref),
+                                          std::move(value), bool_t());
+            current_pat_refutable_guards_->push_back(std::move(guard));
+        }
+        return synth;
+    };
+    if (pat_is_struct_shape) {
+        // P4-pm-01: `E::V { x, y: pat, .. }` — read ITEMS as PAT_FIELD
+        // list. Each entry carries NAME (+ optional VALUE sub-pat) or
+        // is PAT_REST (`..`). Resolve names → positions in the
+        // variant's payload_field_names; build positional `bindings`
+        // (length = payload arity). Missing fields without `..` are
+        // an error; with `..` they're skipped (bound to "_").
+        if (vinfo && vinfo->payload_field_names.empty() && !vinfo->payload_types.empty()) {
+            error(std::format("{}::{} is a tuple-shape variant — use parentheses",
+                              pename, pvname));
+        }
+        size_t arity = vinfo ? vinfo->payload_field_names.size() : 0;
+        std::vector<std::string> by_pos(arity, "_");
+        std::vector<bool> seen(arity, false);
+        bool has_rest = false;
+        if (pnode.has_key(la::ITEMS)) {
+            AnyVal iav = pnode.get(la::ITEMS.code);
+            if (!iav.is_null() && iav.is_pointer()) {
+                auto fl = map_of(iav);
+                ArrayView fitems;
+                if (fl.has_key(la::ITEMS)) fitems = arr_of(fl.get(la::ITEMS.code));
+                else                        fitems = arr_of(iav);
+                for (uint64_t i = 0; i < fitems.size(); ++i) {
+                    auto fnode = map_of(fitems.get(i));
+                    int32_t fcode = code_of(fnode);
+                    if (fcode == la::PAT_REST) { has_rest = true; continue; }
+                    std::string fname = fnode.has_key(la::NAME)
+                        ? std::string(str_of(fnode.get(la::NAME.code)))
+                        : std::string();
+                    size_t idx = arity;
+                    if (vinfo) {
+                        for (size_t k = 0; k < arity; ++k)
+                            if (vinfo->payload_field_names[k] == fname) { idx = k; break; }
+                    }
+                    if (idx == arity) {
+                        if (vinfo)
+                            error(std::format("pattern {}::{}: no field named '{}'",
                                   pename, pvname, fname));
-                            continue;
-                        }
-                        seen[idx] = true;
-                        // Inner pattern handling. Supported irrefutable shapes:
-                        //   - no VALUE → shorthand: binding name = field name
-                        //   - VALUE is PAT_WILD with NAME → bind to that name (or "_")
-                        //   - VALUE is PAT_WILD without NAME → "_" skip
-                        // Refutable inner (PAT_INT, PAT_VARIANT, ranges, …)
-                        // is not yet supported here — parity with the
-                        // tuple-shape PAT_VARIANT_DATA arm.
-                        if (!fnode.has_key(la::VALUE)) {
-                            by_pos[idx] = fname;  // shorthand
-                            continue;
-                        }
-                        auto sub = map_of(fnode.get(la::VALUE.code));
-                        int32_t sc = code_of(sub);
-                        if (sc == la::PAT_WILD) {
-                            std::string bn = sub.has_key(la::NAME)
-                                ? std::string(str_of(sub.get(la::NAME.code)))
-                                : std::string("_");
-                            by_pos[idx] = bn;
-                        } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
-                                   sc == la::PAT_BOOL || sc == la::PAT_CHAR) {
-                            // P4-pm-01 refutable inner — synth a binding +
-                            // emit an arm guard `__refut_… == <value>`.
-                            std::string synth = synth_refutable_inner(
-                                sub, pat_field_type(idx), fname);
-                            if (synth.empty()) {
-                                error(std::format(
-                                    "pattern {}::{} field '{}': unsupported refutable "
-                                    "literal sub-pattern",
-                                    pename, pvname, fname));
-                                by_pos[idx] = "_";
-                            } else {
-                                by_pos[idx] = std::move(synth);
-                            }
-                        } else {
+                        continue;
+                    }
+                    if (seen[idx]) {
+                        error(std::format("pattern {}::{}: field '{}' specified more than once",
+                              pename, pvname, fname));
+                        continue;
+                    }
+                    seen[idx] = true;
+                    // Inner pattern handling. Supported irrefutable shapes:
+                    //   - no VALUE → shorthand: binding name = field name
+                    //   - VALUE is PAT_WILD with NAME → bind to that name (or "_")
+                    //   - VALUE is PAT_WILD without NAME → "_" skip
+                    // Refutable inner (PAT_INT, PAT_VARIANT, ranges, …)
+                    // is not yet supported here — parity with the
+                    // tuple-shape PAT_VARIANT_DATA arm.
+                    if (!fnode.has_key(la::VALUE)) {
+                        by_pos[idx] = fname;  // shorthand
+                        continue;
+                    }
+                    auto sub = map_of(fnode.get(la::VALUE.code));
+                    int32_t sc = code_of(sub);
+                    if (sc == la::PAT_WILD) {
+                        std::string bn = sub.has_key(la::NAME)
+                            ? std::string(str_of(sub.get(la::NAME.code)))
+                            : std::string("_");
+                        by_pos[idx] = bn;
+                    } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
+                               sc == la::PAT_BOOL || sc == la::PAT_CHAR) {
+                        // P4-pm-01 refutable inner — synth a binding +
+                        // emit an arm guard `__refut_… == <value>`.
+                        std::string synth = synth_refutable_inner(
+                            sub, pat_field_type(idx), fname);
+                        if (synth.empty()) {
                             error(std::format(
-                                "pattern {}::{} field '{}': refutable inner "
-                                "pattern not yet supported in struct-shape "
-                                "variant patterns (use bind + body match)",
+                                "pattern {}::{} field '{}': unsupported refutable "
+                                "literal sub-pattern",
                                 pename, pvname, fname));
                             by_pos[idx] = "_";
+                        } else {
+                            by_pos[idx] = std::move(synth);
                         }
+                    } else {
+                        error(std::format(
+                            "pattern {}::{} field '{}': refutable inner "
+                            "pattern not yet supported in struct-shape "
+                            "variant patterns (use bind + body match)",
+                            pename, pvname, fname));
+                        by_pos[idx] = "_";
                     }
                 }
             }
-            if (vinfo && !has_rest) {
-                std::vector<std::string> missing;
-                for (size_t k = 0; k < arity; ++k)
-                    if (!seen[k])
-                        missing.push_back(vinfo->payload_field_names[k]);
-                if (!missing.empty()) {
-                    std::string list;
-                    for (size_t k = 0; k < missing.size(); ++k) {
-                        if (k) list += ", ";
-                        list += "'" + missing[k] + "'";
+        }
+        if (vinfo && !has_rest) {
+            std::vector<std::string> missing;
+            for (size_t k = 0; k < arity; ++k)
+                if (!seen[k])
+                    missing.push_back(vinfo->payload_field_names[k]);
+            if (!missing.empty()) {
+                std::string list;
+                for (size_t k = 0; k < missing.size(); ++k) {
+                    if (k) list += ", ";
+                    list += "'" + missing[k] + "'";
+                }
+                error(std::format(
+                    "pattern {}::{}: missing field(s): {} (use `..` to "
+                    "skip remaining fields)",
+                    pename, pvname, list));
+            }
+        }
+        for (auto& s : by_pos) bindings.push_back(std::move(s));
+    }
+    // Per-binding IS_REF / IS_MUT flags from `ref v` / `ref mut v`
+    // sub-patterns inside variant data — parallel to `bindings`,
+    // consulted below to wrap the corresponding binding_types with
+    // Ref/MutRef so codegen materialises the payload by-address.
+    std::vector<bool> binding_is_ref;
+    std::vector<bool> binding_is_mut;
+    if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
+        AnyVal aav = pnode.get(la::ARGS.code);
+        if (!aav.is_null() && aav.is_pointer()) {
+            auto blist = map_of(aav);
+            if (blist.has_key(la::ITEMS)) {
+                auto bitems = arr_of(blist.get(la::ITEMS.code));
+                for (uint64_t j = 0; j < bitems.size(); ++j) {
+                    auto bnode = map_of(bitems.get(j));
+                    // B-pt-04: variant-payload args now parse as full
+                    // patterns, but only PAT_WILD bindings (or PAT_UNIT
+                    // skip) are codegen'd today.  Anything else (struct,
+                    // tuple, nested variant, …) emits a diagnostic
+                    // until the match-lowering supports nested guards.
+                    int32_t bc = code_of(bnode);
+                    if (bc == la::PAT_UNIT) continue;  // () unit — no binding
+                    if (bc == la::PAT_WILD) {
+                        if (!bnode.has_key(la::NAME)) continue;
+                        bool is_ref = bnode.has_key(la::IS_REF) &&
+                                      bnode.get(la::IS_REF.code).is_value() &&
+                                      bnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+                        bool is_mut = bnode.has_key(la::IS_MUT) &&
+                                      bnode.get(la::IS_MUT.code).is_value() &&
+                                      bnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                        bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                        binding_is_ref.push_back(is_ref);
+                        binding_is_mut.push_back(is_ref && is_mut);
+                        continue;
+                    }
+                    // P4-pm-02: nested struct/tuple pattern inside
+                    // variant payload. Synth a payload slot binding;
+                    // the arm-body builder (which sees
+                    // current_pat_nested_subs_) emits an irrefutable
+                    // destructure `let <sub_pat> = __synth;` as a
+                    // body prologue. Refutable sub-patterns (nested
+                    // variant, range, …) still aren't supported here
+                    // — they need a nested-guard scheme.
+                    bool sub_is_irrefutable =
+                        (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE);
+                    if (sub_is_irrefutable && current_pat_nested_subs_) {
+                        std::string synth = std::format(
+                            "__pat_pld_{}_{}", pvname, tmp_var_count_++);
+                        bindings.push_back(synth);
+                        current_pat_nested_subs_->push_back({synth, bnode});
+                        continue;
+                    }
+                    // P4-pm-01 refutable inner (tuple-shape parallel) —
+                    // `Option::Some(1)` / `Result::Err(false)`. Synth a
+                    // binding + emit `__refut_… == <value>` as an arm
+                    // guard.
+                    if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
+                        bc == la::PAT_BOOL || bc == la::PAT_CHAR) {
+                        std::string synth = synth_refutable_inner(
+                            bnode, pat_field_type(j),
+                            std::format("{}", j));
+                        if (!synth.empty()) {
+                            bindings.push_back(std::move(synth));
+                            continue;
+                        }
                     }
                     error(std::format(
-                        "pattern {}::{}: missing field(s): {} (use `..` to "
-                        "skip remaining fields)",
-                        pename, pvname, list));
+                        "pattern {}::{}: nested patterns inside enum-variant "
+                        "payloads are not yet supported; bind to a name and "
+                        "match in the body",
+                        pename, pvname));
                 }
             }
-            for (auto& s : by_pos) bindings.push_back(std::move(s));
         }
-        // Per-binding IS_REF / IS_MUT flags from `ref v` / `ref mut v`
-        // sub-patterns inside variant data — parallel to `bindings`,
-        // consulted below to wrap the corresponding binding_types with
-        // Ref/MutRef so codegen materialises the payload by-address.
-        std::vector<bool> binding_is_ref;
-        std::vector<bool> binding_is_mut;
-        if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
-            AnyVal aav = pnode.get(la::ARGS.code);
-            if (!aav.is_null() && aav.is_pointer()) {
-                auto blist = map_of(aav);
-                if (blist.has_key(la::ITEMS)) {
-                    auto bitems = arr_of(blist.get(la::ITEMS.code));
-                    for (uint64_t j = 0; j < bitems.size(); ++j) {
-                        auto bnode = map_of(bitems.get(j));
-                        // B-pt-04: variant-payload args now parse as full
-                        // patterns, but only PAT_WILD bindings (or PAT_UNIT
-                        // skip) are codegen'd today.  Anything else (struct,
-                        // tuple, nested variant, …) emits a diagnostic
-                        // until the match-lowering supports nested guards.
-                        int32_t bc = code_of(bnode);
-                        if (bc == la::PAT_UNIT) continue;  // () unit — no binding
-                        if (bc == la::PAT_WILD) {
-                            if (!bnode.has_key(la::NAME)) continue;
-                            bool is_ref = bnode.has_key(la::IS_REF) &&
-                                          bnode.get(la::IS_REF.code).is_value() &&
-                                          bnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-                            bool is_mut = bnode.has_key(la::IS_MUT) &&
-                                          bnode.get(la::IS_MUT.code).is_value() &&
-                                          bnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
-                            bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
-                            binding_is_ref.push_back(is_ref);
-                            binding_is_mut.push_back(is_ref && is_mut);
-                            continue;
-                        }
-                        // P4-pm-02: nested struct/tuple pattern inside
-                        // variant payload. Synth a payload slot binding;
-                        // the arm-body builder (which sees
-                        // current_pat_nested_subs_) emits an irrefutable
-                        // destructure `let <sub_pat> = __synth;` as a
-                        // body prologue. Refutable sub-patterns (nested
-                        // variant, range, …) still aren't supported here
-                        // — they need a nested-guard scheme.
-                        bool sub_is_irrefutable =
-                            (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE);
-                        if (sub_is_irrefutable && current_pat_nested_subs_) {
-                            std::string synth = std::format(
-                                "__pat_pld_{}_{}", pvname, tmp_var_count_++);
-                            bindings.push_back(synth);
-                            current_pat_nested_subs_->push_back({synth, bnode});
-                            continue;
-                        }
-                        // P4-pm-01 refutable inner (tuple-shape parallel) —
-                        // `Option::Some(1)` / `Result::Err(false)`. Synth a
-                        // binding + emit `__refut_… == <value>` as an arm
-                        // guard.
-                        if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
-                            bc == la::PAT_BOOL || bc == la::PAT_CHAR) {
-                            std::string synth = synth_refutable_inner(
-                                bnode, pat_field_type(j),
-                                std::format("{}", j));
-                            if (!synth.empty()) {
-                                bindings.push_back(std::move(synth));
+    }
+    std::vector<TypeRef> binding_types;
+    if (vinfo) {
+        SemaSubst subst;
+        // L5: auto-deref `&Enum<T>` / `&mut Enum<T>` / `*const/mut Enum<T>`
+        // to the inner Enum for type-arg substitution. The match scrut
+        // already gets auto-deref'd at codegen; the type-arg propagation
+        // for binding types needs the same unwrap so `match &opt {
+        // Some(ref v) => *v }` over `&Option<i64>` binds `v: &i64`
+        // (and `*v` → `i64`) instead of `v: T` (typevar).
+        TypeRef enum_scrut = scrut_type;
+        if (enum_scrut &&
+            (TypeRef(enum_scrut).kind() == LogosType::Kind::Ref ||
+             TypeRef(enum_scrut).kind() == LogosType::Kind::MutRef ||
+             TypeRef(enum_scrut).kind() == LogosType::Kind::Ptr) &&
+            TypeRef(enum_scrut).pointee())
+            enum_scrut = TypeRef(enum_scrut).pointee();
+        if (enum_scrut &&
+            TypeRef(enum_scrut).kind() == LogosType::Kind::Enum &&
+            !TypeRef(enum_scrut).type_args().empty()) {
+            auto& einfo = eit->second;
+            for (size_t k = 0; k < einfo.type_params.size() &&
+                                k < TypeRef(enum_scrut).type_args().size(); ++k)
+                subst[einfo.type_params[k].name] = TypeRef(enum_scrut).type_args()[k];
+        }
+        for (auto pt : vinfo->payload_types) {
+            auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);
+            if (TypeRef(ct).kind() == LogosType::Kind::Void) continue;  // () unit — no field
+            binding_types.push_back(ct);
+        }
+    }
+    // S8-en-03: a single `_` placeholder against a unit-payload
+    // variant (`Either::Right(_)` where `U == ()`) is accepted as
+    // the bare-variant form. `binding_types` filters Void out, so
+    // a `Right<U=()>` ends up with 0 expected bindings; if the
+    // user supplied exactly one `_`, drop it silently.
+    if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_") {
+        bindings.clear();
+        binding_is_ref.clear();
+        binding_is_mut.clear();
+    }
+    if (bindings.size() != binding_types.size())
+        error(std::format("pattern {}::{}: expected {} bindings, got {}",
+              pename, pvname, binding_types.size(), bindings.size()));
+    // SL-sl-03 follow-up: wrap binding_types in Ref/MutRef for any
+    // PAT_WILD with `ref` / `ref mut`. mlir_gen detects this and
+    // returns the payload field's GEP address rather than a load,
+    // so the binding actually references the original payload slot.
+    for (size_t k = 0; k < binding_types.size() && k < binding_is_ref.size(); ++k) {
+        if (binding_is_ref[k] && binding_types[k]) {
+            binding_types[k] = make_ref(binding_is_mut[k], binding_types[k]);
+        }
+    }
+    auto mo = lir_mirror_emit_pat_variant_data(
+        *cur_prog_, pename, pvname, disc, bindings, binding_types);
+    lir::Pattern p_;
+    p_.mirror_offset_ = mo;
+    return p_;
+}
+
+lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_type) {
+    int32_t pc = code_of(pnode); (void)pc;
+    // P4-pm-07: `b"foo"` lowers to a PatSlice of PatInt sub-patterns,
+    // reusing the array-prefix slice-pattern codegen. Scrutinee must
+    // be a fixed-size `[u8; N]` array (matches Rust's
+    // `&[u8; N]` const-pattern semantics when the ref-pat layer is
+    // skipped). Dynamic `&[u8]` scrutinees are still future work
+    // (length check + memcmp).
+    auto sv = str_of(pnode.get(la::VALUE.code));
+    std::vector<uint8_t> bytes;
+    if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
+        std::string_view body = sv.substr(2, sv.size() - 3);
+        for (size_t i = 0; i < body.size(); ) {
+            unsigned char c = (unsigned char)body[i];
+            if (c == '\\' && i + 1 < body.size()) {
+                char e = body[i + 1];
+                uint8_t b = 0;
+                switch (e) {
+                    case 'n':  b = '\n'; break;
+                    case 't':  b = '\t'; break;
+                    case 'r':  b = '\r'; break;
+                    case '0':  b = 0;    break;
+                    case '\\': b = '\\'; break;
+                    case '\'': b = '\''; break;
+                    case '"':  b = '"';  break;
+                    case 'x': {
+                        if (i + 3 < body.size()) {
+                            auto hex = [](char c) -> int {
+                                if (c >= '0' && c <= '9') return c - '0';
+                                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                                return -1;
+                            };
+                            int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
+                            if (hi >= 0 && lo >= 0) {
+                                b = (uint8_t)((hi << 4) | lo);
+                                bytes.push_back(b);
+                                i += 4;
                                 continue;
                             }
                         }
                         error(std::format(
-                            "pattern {}::{}: nested patterns inside enum-variant "
-                            "payloads are not yet supported; bind to a name and "
-                            "match in the body",
-                            pename, pvname));
+                            "byte-string pattern: malformed \\x escape in '{}'", sv));
+                        i += 2; continue;
                     }
+                    default:
+                        error(std::format(
+                            "byte-string pattern: unknown escape '\\{}' in '{}'",
+                            e, sv));
+                        i += 2; continue;
                 }
+                bytes.push_back(b);
+                i += 2;
+            } else {
+                bytes.push_back(c);
+                ++i;
             }
         }
-        std::vector<TypeRef> binding_types;
-        if (vinfo) {
-            SemaSubst subst;
-            // L5: auto-deref `&Enum<T>` / `&mut Enum<T>` / `*const/mut Enum<T>`
-            // to the inner Enum for type-arg substitution. The match scrut
-            // already gets auto-deref'd at codegen; the type-arg propagation
-            // for binding types needs the same unwrap so `match &opt {
-            // Some(ref v) => *v }` over `&Option<i64>` binds `v: &i64`
-            // (and `*v` → `i64`) instead of `v: T` (typevar).
-            TypeRef enum_scrut = scrut_type;
-            if (enum_scrut &&
-                (TypeRef(enum_scrut).kind() == LogosType::Kind::Ref ||
-                 TypeRef(enum_scrut).kind() == LogosType::Kind::MutRef ||
-                 TypeRef(enum_scrut).kind() == LogosType::Kind::Ptr) &&
-                TypeRef(enum_scrut).pointee())
-                enum_scrut = TypeRef(enum_scrut).pointee();
-            if (enum_scrut &&
-                TypeRef(enum_scrut).kind() == LogosType::Kind::Enum &&
-                !TypeRef(enum_scrut).type_args().empty()) {
-                auto& einfo = eit->second;
-                for (size_t k = 0; k < einfo.type_params.size() &&
-                                    k < TypeRef(enum_scrut).type_args().size(); ++k)
-                    subst[einfo.type_params[k].name] = TypeRef(enum_scrut).type_args()[k];
-            }
-            for (auto pt : vinfo->payload_types) {
-                auto ct = subst.empty() ? pt : subst_type_sema(pt, subst);
-                if (TypeRef(ct).kind() == LogosType::Kind::Void) continue;  // () unit — no field
-                binding_types.push_back(ct);
-            }
-        }
-        // S8-en-03: a single `_` placeholder against a unit-payload
-        // variant (`Either::Right(_)` where `U == ()`) is accepted as
-        // the bare-variant form. `binding_types` filters Void out, so
-        // a `Right<U=()>` ends up with 0 expected bindings; if the
-        // user supplied exactly one `_`, drop it silently.
-        if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_") {
-            bindings.clear();
-            binding_is_ref.clear();
-            binding_is_mut.clear();
-        }
-        if (bindings.size() != binding_types.size())
-            error(std::format("pattern {}::{}: expected {} bindings, got {}",
-                  pename, pvname, binding_types.size(), bindings.size()));
-        // SL-sl-03 follow-up: wrap binding_types in Ref/MutRef for any
-        // PAT_WILD with `ref` / `ref mut`. mlir_gen detects this and
-        // returns the payload field's GEP address rather than a load,
-        // so the binding actually references the original payload slot.
-        for (size_t k = 0; k < binding_types.size() && k < binding_is_ref.size(); ++k) {
-            if (binding_is_ref[k] && binding_types[k]) {
-                binding_types[k] = make_ref(binding_is_mut[k], binding_types[k]);
-            }
-        }
-        auto mo = lir_mirror_emit_pat_variant_data(
-            *cur_prog_, pename, pvname, disc, bindings, binding_types);
-        lir::Pattern p_;
-        p_.mirror_offset_ = mo;
-        return p_;
+    } else {
+        error(std::format("byte-string pattern: malformed literal '{}'", sv));
     }
+    if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
+        auto sk = TypeRef(scrut_type).kind();
+        bool ok = false;
+        if (sk == LogosType::Kind::Array && TypeRef(scrut_type).elem() &&
+            TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8) {
+            ok = true;
+            size_t n = (size_t)TypeRef(scrut_type).arr_size();
+            if (n != bytes.size())
+                error(std::format(
+                    "byte-string pattern: literal length {} does not match "
+                    "scrutinee array length {}", bytes.size(), n));
+        }
+        if (!ok)
+            error(std::format(
+                "byte-string pattern requires `[u8; N]` scrutinee, got '{}'",
+                type_str(scrut_type)));
+    }
+    std::vector<lir::Pattern> prefix;
+    for (auto b : bytes) {
+        lir::Pattern sp;
+        sp.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, (int64_t)b);
+        prefix.push_back(std::move(sp));
+    }
+    std::vector<lir::Pattern> rest;     // empty — exact match, no `..`
+    std::vector<lir::Pattern> suffix;   // empty
+    auto mo = lir_mirror_emit_pat_slice(*cur_prog_, prefix, rest, suffix);
+    lir::Pattern p_;
+    p_.mirror_offset_ = mo;
+    return p_;
+}
+
+lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type) {
+    int32_t pc = code_of(pnode); (void)pc;
+    auto arr = arr_of(pnode.get(la::ITEMS.code));
+    // Single-item PAT_OR (no PIPE) — treat as the inner pattern.
+    if (arr.size() == 1)
+        return build_pattern(map_of(arr.get(0)), scrut_type);
+    lir::PatOr por;
+    for (uint64_t i = 0; i < arr.size(); ++i)
+        por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
+    // NG4: validate that all alternatives bind the exact same set of names.
+    namespace ps = lir_schema::pat;
+    // P4-pm-25: skip synth bindings introduced by P4-pm-01's refutable
+    // inner mechanism (`__refut_*`) and P4-pm-02's nested-pat synth
+    // (`__pat_pld_*`). They're per-alt unique by construction and would
+    // spuriously fail the same-name-set check.
+    auto is_synth = [](std::string_view n) {
+        return n.starts_with("__refut_") || n.starts_with("__pat_pld_") ||
+               n.starts_with("__sve_");
+    };
+    std::function<void(lir_view::PatRef, std::vector<std::string>&)> collect_names;
+    collect_names = [&](lir_view::PatRef pr, std::vector<std::string>& out) {
+        if (!pr) return;
+        auto k = pr.kind();
+        if (k == ps::Code::Wild) {
+            lir_view::PatWildView v{pr}; auto n = v.name();
+            if (n != "_" && !is_synth(n)) out.emplace_back(n);
+        } else if (k == ps::Code::At) {
+            lir_view::PatAtView v{pr}; auto n = v.name();
+            if (n != "_" && !is_synth(n)) out.emplace_back(n);
+            if (auto sub = v.sub()) collect_names(sub, out);
+        } else if (k == ps::Code::Tuple) {
+            lir_view::PatTupleView v{pr};
+            v.each_binding([&](std::string_view n) {
+                if (n != "_" && !is_synth(n)) out.emplace_back(n);
+            });
+        } else if (k == ps::Code::Struct) {
+            lir_view::PatStructView v{pr};
+            v.each_field([&](lir_view::PatFieldBindingView fv) {
+                auto sub = fv.sub();
+                if (sub) collect_names(sub, out);
+                else if (!is_synth(fv.field_name())) out.emplace_back(fv.field_name());
+            });
+        } else if (k == ps::Code::VariantData) {
+            lir_view::PatVariantDataView v{pr};
+            v.each_binding([&](std::string_view n) {
+                if (n != "_" && !is_synth(n)) out.emplace_back(n);
+            });
+        } else if (k == ps::Code::Or) {
+            lir_view::PatOrView v{pr};
+            bool first = true;
+            v.each_alt([&](lir_view::PatRef alt) {
+                if (first) { collect_names(alt, out); first = false; }
+            });
+        } else if (k == ps::Code::RefBind) {
+            lir_view::PatRefBindView v{pr}; auto n = v.name();
+            if (!n.empty() && n != "_") out.emplace_back(n);
+        } else if (k == ps::Code::RefPat) {
+            lir_view::PatRefPatView v{pr};
+            if (auto inner = v.inner()) collect_names(inner, out);
+        } else if (k == ps::Code::Slice) {
+            lir_view::PatSliceView v{pr};
+            v.each_prefix([&](lir_view::PatRef p) { collect_names(p, out); });
+            v.each_rest  ([&](lir_view::PatRef p) { collect_names(p, out); });
+            v.each_suffix([&](lir_view::PatRef p) { collect_names(p, out); });
+        }
+    };
+    if (!por.alts.empty()) {
+        std::vector<std::string> first_names;
+        collect_names(pat_ref_of(por.alts[0]), first_names);
+        std::sort(first_names.begin(), first_names.end());
+        for (size_t i = 1; i < por.alts.size(); ++i) {
+            std::vector<std::string> alt_names;
+            collect_names(pat_ref_of(por.alts[i]), alt_names);
+            std::sort(alt_names.begin(), alt_names.end());
+            if (alt_names != first_names)
+                error(std::format("or-pattern: all alternatives must bind the same variable names"));
+        }
+    }
+    auto mo = lir_mirror_emit_pat_or(*cur_prog_, por.alts);
+    lir::Pattern p_;
+    p_.mirror_offset_ = mo;
+    return p_;
+}
+
+lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
+    int32_t pc = code_of(pnode);
+    if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
+    if (pc == la::PAT_VARIANT_DATA) return build_pattern_variant_data(pnode, scrut_type);
     if (pc == la::PAT_FLOAT) {
         // B-pt-06: parse but reject — IEEE-equality patterns need a
         // language-level decision before we wire them through codegen.
@@ -2303,96 +2485,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
         return p_;
     }
-    if (pc == la::PAT_BYTES) {
-        // P4-pm-07: `b"foo"` lowers to a PatSlice of PatInt sub-patterns,
-        // reusing the array-prefix slice-pattern codegen. Scrutinee must
-        // be a fixed-size `[u8; N]` array (matches Rust's
-        // `&[u8; N]` const-pattern semantics when the ref-pat layer is
-        // skipped). Dynamic `&[u8]` scrutinees are still future work
-        // (length check + memcmp).
-        auto sv = str_of(pnode.get(la::VALUE.code));
-        std::vector<uint8_t> bytes;
-        if (sv.size() >= 3 && sv.front() == 'b' && sv[1] == '"' && sv.back() == '"') {
-            std::string_view body = sv.substr(2, sv.size() - 3);
-            for (size_t i = 0; i < body.size(); ) {
-                unsigned char c = (unsigned char)body[i];
-                if (c == '\\' && i + 1 < body.size()) {
-                    char e = body[i + 1];
-                    uint8_t b = 0;
-                    switch (e) {
-                        case 'n':  b = '\n'; break;
-                        case 't':  b = '\t'; break;
-                        case 'r':  b = '\r'; break;
-                        case '0':  b = 0;    break;
-                        case '\\': b = '\\'; break;
-                        case '\'': b = '\''; break;
-                        case '"':  b = '"';  break;
-                        case 'x': {
-                            if (i + 3 < body.size()) {
-                                auto hex = [](char c) -> int {
-                                    if (c >= '0' && c <= '9') return c - '0';
-                                    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                                    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-                                    return -1;
-                                };
-                                int hi = hex(body[i + 2]), lo = hex(body[i + 3]);
-                                if (hi >= 0 && lo >= 0) {
-                                    b = (uint8_t)((hi << 4) | lo);
-                                    bytes.push_back(b);
-                                    i += 4;
-                                    continue;
-                                }
-                            }
-                            error(std::format(
-                                "byte-string pattern: malformed \\x escape in '{}'", sv));
-                            i += 2; continue;
-                        }
-                        default:
-                            error(std::format(
-                                "byte-string pattern: unknown escape '\\{}' in '{}'",
-                                e, sv));
-                            i += 2; continue;
-                    }
-                    bytes.push_back(b);
-                    i += 2;
-                } else {
-                    bytes.push_back(c);
-                    ++i;
-                }
-            }
-        } else {
-            error(std::format("byte-string pattern: malformed literal '{}'", sv));
-        }
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
-            auto sk = TypeRef(scrut_type).kind();
-            bool ok = false;
-            if (sk == LogosType::Kind::Array && TypeRef(scrut_type).elem() &&
-                TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8) {
-                ok = true;
-                size_t n = (size_t)TypeRef(scrut_type).arr_size();
-                if (n != bytes.size())
-                    error(std::format(
-                        "byte-string pattern: literal length {} does not match "
-                        "scrutinee array length {}", bytes.size(), n));
-            }
-            if (!ok)
-                error(std::format(
-                    "byte-string pattern requires `[u8; N]` scrutinee, got '{}'",
-                    type_str(scrut_type)));
-        }
-        std::vector<lir::Pattern> prefix;
-        for (auto b : bytes) {
-            lir::Pattern sp;
-            sp.mirror_offset_ = lir_mirror_emit_pat_int(*cur_prog_, (int64_t)b);
-            prefix.push_back(std::move(sp));
-        }
-        std::vector<lir::Pattern> rest;     // empty — exact match, no `..`
-        std::vector<lir::Pattern> suffix;   // empty
-        auto mo = lir_mirror_emit_pat_slice(*cur_prog_, prefix, rest, suffix);
-        lir::Pattern p_;
-        p_.mirror_offset_ = mo;
-        return p_;
-    }
+    if (pc == la::PAT_BYTES) return build_pattern_bytes(pnode, scrut_type);
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
         auto sv = str_of(pnode.get(la::VALUE.code));
         int64_t v = parse_int_literal(sv);
@@ -2523,88 +2616,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         p_.mirror_offset_ = lir_mirror_emit_pat_range(*cur_prog_, lo, hi);
         return p_;
     }
-    if (pc == la::PAT_OR) {
-        auto arr = arr_of(pnode.get(la::ITEMS.code));
-        // Single-item PAT_OR (no PIPE) — treat as the inner pattern.
-        if (arr.size() == 1)
-            return build_pattern(map_of(arr.get(0)), scrut_type);
-        lir::PatOr por;
-        for (uint64_t i = 0; i < arr.size(); ++i)
-            por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
-        // NG4: validate that all alternatives bind the exact same set of names.
-        namespace ps = lir_schema::pat;
-        // P4-pm-25: skip synth bindings introduced by P4-pm-01's refutable
-        // inner mechanism (`__refut_*`) and P4-pm-02's nested-pat synth
-        // (`__pat_pld_*`). They're per-alt unique by construction and would
-        // spuriously fail the same-name-set check.
-        auto is_synth = [](std::string_view n) {
-            return n.starts_with("__refut_") || n.starts_with("__pat_pld_") ||
-                   n.starts_with("__sve_");
-        };
-        std::function<void(lir_view::PatRef, std::vector<std::string>&)> collect_names;
-        collect_names = [&](lir_view::PatRef pr, std::vector<std::string>& out) {
-            if (!pr) return;
-            auto k = pr.kind();
-            if (k == ps::Code::Wild) {
-                lir_view::PatWildView v{pr}; auto n = v.name();
-                if (n != "_" && !is_synth(n)) out.emplace_back(n);
-            } else if (k == ps::Code::At) {
-                lir_view::PatAtView v{pr}; auto n = v.name();
-                if (n != "_" && !is_synth(n)) out.emplace_back(n);
-                if (auto sub = v.sub()) collect_names(sub, out);
-            } else if (k == ps::Code::Tuple) {
-                lir_view::PatTupleView v{pr};
-                v.each_binding([&](std::string_view n) {
-                    if (n != "_" && !is_synth(n)) out.emplace_back(n);
-                });
-            } else if (k == ps::Code::Struct) {
-                lir_view::PatStructView v{pr};
-                v.each_field([&](lir_view::PatFieldBindingView fv) {
-                    auto sub = fv.sub();
-                    if (sub) collect_names(sub, out);
-                    else if (!is_synth(fv.field_name())) out.emplace_back(fv.field_name());
-                });
-            } else if (k == ps::Code::VariantData) {
-                lir_view::PatVariantDataView v{pr};
-                v.each_binding([&](std::string_view n) {
-                    if (n != "_" && !is_synth(n)) out.emplace_back(n);
-                });
-            } else if (k == ps::Code::Or) {
-                lir_view::PatOrView v{pr};
-                bool first = true;
-                v.each_alt([&](lir_view::PatRef alt) {
-                    if (first) { collect_names(alt, out); first = false; }
-                });
-            } else if (k == ps::Code::RefBind) {
-                lir_view::PatRefBindView v{pr}; auto n = v.name();
-                if (!n.empty() && n != "_") out.emplace_back(n);
-            } else if (k == ps::Code::RefPat) {
-                lir_view::PatRefPatView v{pr};
-                if (auto inner = v.inner()) collect_names(inner, out);
-            } else if (k == ps::Code::Slice) {
-                lir_view::PatSliceView v{pr};
-                v.each_prefix([&](lir_view::PatRef p) { collect_names(p, out); });
-                v.each_rest  ([&](lir_view::PatRef p) { collect_names(p, out); });
-                v.each_suffix([&](lir_view::PatRef p) { collect_names(p, out); });
-            }
-        };
-        if (!por.alts.empty()) {
-            std::vector<std::string> first_names;
-            collect_names(pat_ref_of(por.alts[0]), first_names);
-            std::sort(first_names.begin(), first_names.end());
-            for (size_t i = 1; i < por.alts.size(); ++i) {
-                std::vector<std::string> alt_names;
-                collect_names(pat_ref_of(por.alts[i]), alt_names);
-                std::sort(alt_names.begin(), alt_names.end());
-                if (alt_names != first_names)
-                    error(std::format("or-pattern: all alternatives must bind the same variable names"));
-            }
-        }
-        auto mo = lir_mirror_emit_pat_or(*cur_prog_, por.alts);
-        lir::Pattern p_;
-        p_.mirror_offset_ = mo;
-        return p_;
-    }
+    if (pc == la::PAT_OR) return build_pattern_or(pnode, scrut_type);
     if (pc == la::PAT_BOOL) {
         AnyVal bv = pnode.get(la::VALUE.code);
         bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
