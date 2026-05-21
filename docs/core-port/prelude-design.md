@@ -5,9 +5,29 @@ and `logos.std.prelude`. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
-Status: **draft for review.** Implementation in Phase 3 alongside
-`#![no_implicit_prelude]` grammar work and manifest `prelude`
-directive.
+Status: **modules landed (2026-05-21); implicit injection deferred.**
+
+Implementation progress:
+- ✅ Injection mechanism (manifest `prelude` directive, `#![no_implicit_prelude]`
+  grammar/sema, loader + sema wildcard injection) — already wired.
+- ✅ The three prelude modules `logos.{lang,mem,std}.prelude` now exist
+  (`stdlib/{lang,mem,std}/prelude/prelude.logos`, commit 980e6b11) and work as
+  EXPLICIT one-line imports: `use logos.lang.prelude;` brings Option/Some/None/
+  Result/Ok/Err + core traits; `use logos.mem.prelude;` adds String/Vec; the
+  3-level transitive re-export (std→mem→lang→option) resolves.
+- ⏳ IMPLICIT injection (zero `use` line) is NOT YET enabled. Wiring it for
+  single-file `logosc` compiles (set `load_modules(..., implicit_prelude)` +
+  `SemaOptions.implicit_prelude`) was attempted and reverted: with the prelude
+  in `cur_imports_.wildcard_packages` via the implicit path (sema.cpp ~5252), a
+  re-exported type like `Option` still fails to resolve ("unknown generic type
+  'Option'"), whereas the IDENTICAL explicit `use logos.std.prelude;` resolves
+  it. So wildcard resolution of a re-exported name behaves differently for an
+  implicitly-injected prelude vs an explicit `use` of the same package — a
+  loader-transitive-load or wildcard-re-export-expansion gap to root-cause in a
+  focused pass. Plus a blast-radius concern: turning it on changes name
+  resolution for every single-file compile (all tests) — needs a full-ctest
+  validation and tier-awareness (lang vs std prelude) before flipping the
+  default. The stdlib build (emit_module) must stay opted-out (cycles).
 
 ---
 
