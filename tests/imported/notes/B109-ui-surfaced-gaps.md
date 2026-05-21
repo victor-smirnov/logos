@@ -25,7 +25,17 @@ Categories: `compiler-bug` (crash / wrong runtime value / verifier fail),
 
 ## compiler-bug
 
-### 1. Match over a tuple of two enums SIGSEGVs at runtime
+### 1. Match over a tuple of two enums SIGSEGVs at runtime — FIXED (2026-05-21)
+**Fixed.** Codegen tested each tuple element's enum discriminant but never
+bound the nested variant payload (`(E::A(x), F::B(y))` → `x`/`y` unbound), so
+the arm body read garbage → SIGSEGV. Added a shared
+`MLIRGenImpl::bind_enum_payload(enum_ptr, te, pvd, added)` invoked from the
+tuple-element recursion in BOTH the statement (`extract_payload`) and
+expression (`extract_arm_payload`) match paths. Ported the upstream test
+(renamed 1-char enums per gap #4 below, `()` payloads → i32, `format!` → code
+asserts); regression `tests/logos/pass/match_tuple_of_enums_binding.logos`.
+
+Original report:
 - Upstream: `pattern/tuple-enum-match-15129.rs`.
 - Minimal trigger (compiles + links cleanly, then segfaults when run):
   ```

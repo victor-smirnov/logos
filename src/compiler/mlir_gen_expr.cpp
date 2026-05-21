@@ -2594,6 +2594,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     var_elem_types_[bindings[bi]] = elem_mlir;
                     added.push_back(bindings[bi]);
                 }
+                // Nested variant payload bindings: a tuple element may itself
+                // be an enum pattern (`(E::A(x), F::B(y))`). Load the element's
+                // enum pointer and bind the variant payload. Without this the
+                // nested binding was never emitted → SIGSEGV at runtime.
+                size_t si = 0;
+                tv.each_sub([&](lir_view::PatRef sp){
+                    size_t idx = si++;
+                    if (!sp || sp.kind() != pc::Code::VariantData) return;
+                    if (idx >= btypes.size() || !btypes[idx]) return;
+                    auto* te_sub = resolve_tagged_enum(
+                        std::string(lir_view::PatVariantDataView{sp}.enum_name()),
+                        btypes[idx]);
+                    if (!te_sub) return;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(idx)};
+                    auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), ttype, tptr, ei);
+                    auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), ep);
+                    bind_enum_payload(enum_ptr, te_sub,
+                                      lir_view::PatVariantDataView{sp}, added);
+                });
             }
         } else if (pat_ref.kind() == pc::Code::RefBind) {
             // `ref r` / `ref mut r` — bind name as a pointer to the scrutinee

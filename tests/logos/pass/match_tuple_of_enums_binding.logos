@@ -1,0 +1,43 @@
+// Regression: match over a tuple whose elements are enums, with payload
+// bindings inside the variant patterns (`(E::A(x), F::B(y))`). The tuple
+// element holds a heap pointer to the enum struct; codegen tested each
+// element's discriminant but never bound the nested payload (`x`/`y`), so the
+// arm body read garbage → runtime SIGSEGV. Fixed by a shared
+// `bind_enum_payload` helper invoked from the tuple-element recursion in both
+// the statement and expression match payload extraction. Surfaced by B109
+// (pattern/tuple-enum-match-15129).
+package match_tuple_of_enums_binding;
+
+enum Te { T1(i32), T2(i64) }
+enum Ve { V1(i64), V2(bool) }
+
+// expression form, bind from the second element
+fn ex(t: Te, v: Ve) -> i64 {
+    return match (t, v) {
+        (Te::T1(_), Ve::V1(i)) => 100i64 + i,
+        (Te::T1(_), Ve::V2(_)) => 1i64,
+        (Te::T2(_), Ve::V1(_)) => 2i64,
+        (Te::T2(_), Ve::V2(_)) => 3i64,
+    };
+}
+
+// statement form, bind from BOTH elements
+fn st(t: Te, v: Ve) -> i64 {
+    match (t, v) {
+        (Te::T1(a), Ve::V1(b)) => { return (a as i64) + b; }
+        (Te::T2(a), Ve::V1(b)) => { return a + b; }
+        (Te::T1(a), Ve::V2(_)) => { return a as i64; }
+        _ => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    if ex(Te::T1(0i32), Ve::V1(99i64)) != 199i64 { return 1i32; }
+    if ex(Te::T1(0i32), Ve::V2(true)) != 1i64 { return 2i32; }
+    if ex(Te::T2(0i64), Ve::V1(5i64)) != 2i64 { return 3i32; }
+
+    if st(Te::T1(3i32), Ve::V1(40i64)) != 43i64 { return 4i32; }
+    if st(Te::T2(5i64), Ve::V1(40i64)) != 45i64 { return 5i32; }
+    if st(Te::T1(7i32), Ve::V2(false)) != 7i64 { return 6i32; }
+    return 0i32;
+}

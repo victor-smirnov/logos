@@ -10,6 +10,116 @@ namespace logos::compiler {
 using namespace lir;
 
 // ---------------------------------------------------------------------------
+// Enum payload binding (shared by stmt + expr match, for tuple-element enums)
+// ---------------------------------------------------------------------------
+
+void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
+                                    const TaggedEnumInfo* te,
+                                    lir_view::PatVariantDataView pvd,
+                                    std::vector<std::string>& added) {
+    if (!enum_ptr || !te) return;
+    std::vector<std::string> bindings;
+    pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+    if (bindings.empty()) return;
+    std::vector<TypeRef> pvd_binding_types;
+    pvd.each_binding_type(pool_impl(),
+        [&](TypeRef t){ pvd_binding_types.push_back(t); });
+    int64_t pvd_disc = pvd.disc();
+    const TaggedEnumInfo::VariantPayload* vp = nullptr;
+    for (auto& v : te->variants)
+        if (v.disc == pvd_disc) { vp = &v; break; }
+    if (!vp) return;
+
+    // GEP {0,1} to the payload area, then GEP each field within the payload
+    // struct (mirrors the top-level VariantData extraction in extract_payload).
+    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+    auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
+        loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
+    llvm::SmallVector<mlir::Type> ft;
+    for (auto& t : vp->field_types) ft.push_back(t);
+    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
+        builder_.getContext(), ft);
+
+    for (size_t bi = 0; bi < bindings.size() && bi < vp->field_types.size(); ++bi) {
+        if (bindings[bi] == "_") continue;
+        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+        auto fp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), pay_struct, pay_ptr, fi);
+        TypeRef lt = bi < vp->logos_types.size() ? vp->logos_types[bi] : nullptr;
+
+        // `ref v` / `ref mut v` — sema wraps pvd_binding_types[bi] in
+        // Ref/MutRef while the payload type stays bare. Bind the GEP address.
+        bool is_ref_bind = false;
+        if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
+            auto ot = TypeRef(pvd_binding_types[bi]);
+            auto pt = lt ? TypeRef(lt) : TypeRef{};
+            bool pvd_is_ref = ot.kind() == LogosType::Kind::Ref ||
+                              ot.kind() == LogosType::Kind::MutRef;
+            bool payload_is_ref = pt &&
+                (pt.kind() == LogosType::Kind::Ref ||
+                 pt.kind() == LogosType::Kind::MutRef);
+            if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
+        }
+        if (is_ref_bind) {
+            auto alloca = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
+            scope_[bindings[bi]] = alloca;
+            let_vars_.insert(bindings[bi]);
+            var_elem_types_[bindings[bi]] = ptr_type();
+            added.push_back(bindings[bi]);
+            continue;
+        }
+        bool is_inline_struct = lt &&
+            (TypeRef(lt).kind() == LogosType::Kind::Struct ||
+             TypeRef(lt).kind() == LogosType::Kind::ZonedStruct);
+        if (is_inline_struct) {
+            // fp already points at the inline struct bytes — bind directly.
+            scope_[bindings[bi]] = fp;
+            let_vars_.insert(bindings[bi]);
+            var_struct_[bindings[bi]] = mlir_struct_key(lt);
+            added.push_back(bindings[bi]);
+            continue;
+        }
+        // Trait-object payload (e.g. `Option<&dyn T>`'s Some arm): bind the
+        // 8-byte handle directly (mirrors extract_payload / gen_let).
+        bool is_ref_to_trait = lt &&
+            (TypeRef(lt).kind() == LogosType::Kind::Ref ||
+             TypeRef(lt).kind() == LogosType::Kind::MutRef ||
+             TypeRef(lt).kind() == LogosType::Kind::Ptr) &&
+            TypeRef(lt).pointee() &&
+            TypeRef(TypeRef(lt).pointee()).kind() == LogosType::Kind::TraitObject;
+        bool is_bare_trait = lt &&
+            TypeRef(lt).kind() == LogosType::Kind::TraitObject;
+        auto bound_val = builder_.create<mlir::LLVM::LoadOp>(
+            loc_, vp->field_types[bi], fp);
+        if (is_bare_trait || is_ref_to_trait) {
+            TypeRef trait_t = is_bare_trait ? lt : TypeRef(lt).pointee();
+            scope_[bindings[bi]] = bound_val;
+            let_vars_.insert(bindings[bi]);
+            var_dyn_trait_[bindings[bi]] = std::string(TypeRef(trait_t).trait_name());
+            added.push_back(bindings[bi]);
+            continue;
+        }
+        auto alloca = create_entry_alloca(vp->field_types[bi]);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
+        scope_[bindings[bi]] = alloca;
+        let_vars_.insert(bindings[bi]);
+        var_elem_types_[bindings[bi]] = vp->field_types[bi];
+        // Evict stale shape-tracking (the name may be re-bound from an outer
+        // different-shape value).
+        var_struct_.erase(bindings[bi]);
+        var_class_.erase(bindings[bi]);
+        var_subscript_.erase(bindings[bi]);
+        var_tuple_.erase(bindings[bi]);
+        var_tagged_enum_.erase(bindings[bi]);
+        var_tagged_enum_ptr_.erase(bindings[bi]);
+        var_dyn_trait_.erase(bindings[bi]);
+        var_local_ptrs_.erase(bindings[bi]);
+        added.push_back(bindings[bi]);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Block
 // ---------------------------------------------------------------------------
 
@@ -1997,6 +2107,31 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 scope_[bindings[bi]] = alloca;
                 let_vars_.insert(bindings[bi]);
                 var_elem_types_[bindings[bi]] = elem_mlir;
+            }
+            // Nested variant payload bindings: a tuple element may itself be
+            // an enum pattern (`(E::A(x), F::B(y))`). The element slot holds a
+            // heap pointer to the enum struct; load it and bind the variant
+            // payload. Without this `x`/`y` were never bound in codegen and
+            // the arm body read garbage → SIGSEGV.
+            {
+                size_t si = 0;
+                std::vector<std::string> nested_added;
+                tv.each_sub([&](lir_view::PatRef sp){
+                    size_t idx = si++;
+                    if (!sp || sp.kind() != pc::Code::VariantData) return;
+                    if (idx >= btypes.size() || !btypes[idx]) return;
+                    auto* te_sub = resolve_tagged_enum(
+                        std::string(lir_view::PatVariantDataView{sp}.enum_name()),
+                        btypes[idx]);
+                    if (!te_sub) return;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(idx)};
+                    auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                        loc_, ptr_type(), ttype, tptr, ei);
+                    auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), ep);
+                    bind_enum_payload(enum_ptr, te_sub,
+                                      lir_view::PatVariantDataView{sp}, nested_added);
+                });
             }
             return;
         }

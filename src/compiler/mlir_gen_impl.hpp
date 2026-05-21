@@ -632,6 +632,17 @@ private:
     std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv);
     mlir::Value gen_struct_lit(lir_view::EStructLitView v);
 
+    // Bind the payload of a tagged-enum VariantData pattern given a pointer to
+    // the enum struct (`enum_ptr`) and its TaggedEnumInfo. Handles scalar,
+    // inline-struct, ref-bind, and trait-object payload bindings. Used by the
+    // tuple-element recursion in match payload extraction (a tuple whose
+    // element is an enum, e.g. `(E::A(x), F::B(y))`); the bound names are
+    // appended to `added`. Shared by the statement and expression match paths.
+    void bind_enum_payload(mlir::Value enum_ptr,
+                           const TaggedEnumInfo* te,
+                           lir_view::PatVariantDataView pvd,
+                           std::vector<std::string>& added);
+
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);
     mlir::Type subscript_elem_type(const std::string& name);

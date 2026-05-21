@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/tuple-enum-match-15129.rs
+// (regression test for rust-lang/rust#15129)
+// Modifications: enum names `T`/`V` → `Te`/`Ve` (a 1-letter user type name
+// currently collides with stdlib generic-parameter lowering — B109 gap #4);
+// the `T1(())` unit-typed payloads → `T1(i32)` (Logos has no `()` payload
+// surface) with a dummy `0i32`; `format!`/`String` results → a distinct i64
+// code per arm so `fn main() -> i32` can assert which arm matched. The point
+// of the test — matching a tuple of two enums with a payload binding from an
+// element (`V::V1(i)` / `V::V2(b)`) — is preserved (this miscompiled to a
+// runtime SIGSEGV until the tuple-element variant-payload binding was emitted;
+// fixed 2026-05-21).
+package m_tuple_enum_match_15129;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+enum Te { T1(i32), T2(i32) }
+enum Ve { V1(i64), V2(bool) }
+
+fn foo(t: Te, v: Ve) -> i64 {
+    return match (t, v) {
+        (Te::T1(_), Ve::V1(i)) => 1000i64 + i,
+        (Te::T2(_), Ve::V2(b)) => if b { 2001i64 } else { 2000i64 },
+        _ => 0i64,
+    };
+}
+
+fn main() -> i32 {
+    assert_eq!(foo(Te::T1(0i32), Ve::V1(99i64)), 1099i64);
+    assert_eq!(foo(Te::T2(0i32), Ve::V2(true)), 2001i64);
+    assert_eq!(foo(Te::T1(0i32), Ve::V2(false)), 0i64);
+    return 0i32;
+}
