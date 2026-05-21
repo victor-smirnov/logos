@@ -1149,6 +1149,33 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         auto elems = TypeRef(lt).tuple_elems();
         size_t arity = elems.size();
         std::string method_name = (op == "==") ? "eq" : "ne";
+        // CP-cm-08 precedence: an ALL-PRIMITIVE tuple compares by value via the
+        // mlir-gen fast-path (per-field load+cmp), exactly as it did before any
+        // tuple `Eq` impl was in scope. Only route through the `Eq`-trait impl
+        // for tuples with non-primitive fields (str / nested tuple / struct),
+        // which the fast-path can't handle. Without this, pulling cmp's
+        // variadic `impl<A...> Eq for (A...)` into scope (e.g. via the prelude)
+        // forces `(i32,i64,f64) ==` through the trait, which then demands
+        // `f64: Eq` — but f64 is PartialEq-only (Rust parity), breaking valid
+        // primitive-tuple comparisons.
+        bool all_prim_tuple = arity > 0;
+        {
+            auto is_prim = [](TypeRef t) {
+                if (!t) return false;
+                using K = LogosType::Kind;
+                switch (t.kind()) {
+                case K::I8: case K::I16: case K::I24: case K::I32:
+                case K::I56: case K::I64: case K::I128:
+                case K::U8: case K::U16: case K::U24: case K::U32:
+                case K::U56: case K::U64: case K::U128:
+                case K::F32: case K::F64: case K::Bool: case K::Char:
+                case K::Usize: case K::Isize:
+                case K::IntLit: case K::FloatLit: return true;
+                default: return false;
+                }
+            };
+            for (auto e : elems) if (!is_prim(e)) { all_prim_tuple = false; break; }
+        }
         // Try concrete-key first, then arity-keyed generic blanket, then
         // variadic-arity blanket (`impl<A...> Eq for (A...)`).
         std::vector<std::string> keys;
@@ -1166,6 +1193,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         const SemaFuncInfo* fi_eq = nullptr;
         std::string used_key;
         for (auto& k : keys) {
+            if (all_prim_tuple) break;  // primitive tuple → mlir-gen fast-path
             // Eq methods take &Self / &Self so the param shape is
             // (&Tuple, &Tuple) — but with finish_generic_call's lookup
             // path the find_func_by_base_and_signature with the recv
