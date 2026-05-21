@@ -516,6 +516,23 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         // generic itself (mono can't clone a method whose
                         // struct template is not yet instantiated).
                         size_t published = 0, published_tmpl = 0;
+                        // Multi-arena step 1: stamp each published element's
+                        // body map with its linear obj_id as EXPORT_ID, so the
+                        // element self-identifies for cross-arena references
+                        // (the stable handle that replaces name lookup).
+                        // TinyObjectMap::put is offset-stable — the map header
+                        // stays at its offset; only its values array may move —
+                        // so stamping after the mirror was emitted is safe.
+                        auto stamp_export_id =
+                            [&](hermes::arena_offset_t off, uint32_t oid) {
+                            if (off == hermes::arena_offset_t{}) return;
+                            auto* base = arena->head().data();
+                            auto* m = reinterpret_cast<hermes::TinyObjectMap*>(
+                                base + off.value());
+                            auto av = hermes::AnyVal::from_value<uint32_t>(
+                                oid, static_cast<uint8_t>(hermes::type_hash::U24));
+                            (void) m->put(lir_schema::stmt_keys::EXPORT_ID.code, av, *arena);
+                        };
                         auto try_publish = [&](const lir::LFunction& fn) {
                             if (fn.is_extern) return;
                             if (fn.is_specialization) return;
@@ -524,6 +541,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                             if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
                             auto av = hermes::AnyVal::from_offset(fn.body.mirror_offset_);
                             if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
+                                stamp_export_id(fn.body.mirror_offset_, *r);
                                 ++published;
                             }
                         };
@@ -548,12 +566,14 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         for (auto& tmpl : generic_fn_templates) {
                             auto av = hermes::AnyVal::from_offset(tmpl.body_offset);
                             if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                                stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;
                             }
                         }
                         for (auto& tmpl : generic_method_templates) {
                             auto av = hermes::AnyVal::from_offset(tmpl.body_offset);
                             if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
+                                stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;
                             }
                         }

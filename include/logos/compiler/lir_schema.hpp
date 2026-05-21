@@ -352,6 +352,14 @@ inline constexpr Key DROP_FIELDS       {"DROP_FIELDS",     33};   // u8
 inline constexpr Key ARR_SIZE          {"ARR_SIZE",        34};   // i64
 inline constexpr Key EXTRA_MIDS        {"EXTRA_MIDS",      35};   // Array<Varchar> — middle segments (between MID_FIELD and FIELD) in N-deep ChainFieldWrite
 inline constexpr Key MOVED_FIELDS      {"MOVED_FIELDS",    36};   // Array<Varchar> — SDrop: field names of `var_name` that were moved out and must not be auto-dropped
+
+// Multi-arena IR: dedicated per-element export ID. Stamped onto the
+// TinyObjectMap of every externally-referenceable element (the published
+// fn / method / template body block) at emit time, from a linear compile-time
+// counter (== the element's directory obj_id). u32, stored as a U24 AnyVal
+// (16M items/arena). Absent = not exported. This is the stable per-element
+// handle a cross-arena ExternalRef will carry instead of a name lookup.
+inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 AnyVal)
 } // namespace stmt_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────
