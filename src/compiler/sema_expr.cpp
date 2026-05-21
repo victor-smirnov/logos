@@ -4619,6 +4619,115 @@ void SemaChecker::track_recv_moved(const lir::LExprPtr& recv, TypeRef self_forma
     mark_moved_expr(expr_ref_of(*recv));
 }
 
+// Slice / str built-in (.len(), .as_ptr()) + user-defined `impl Trait for [T]`
+// (and `impl Trait for str`) method dispatch. nullopt only when the receiver
+// is not a Slice; a Slice with no matching method errors.
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    if (TypeRef(recv->type).kind() != LogosType::Kind::Slice) return std::nullopt;
+    if (method_name == "len") {
+        return builder().slice_len(std::move(recv), prim(LogosType::Kind::I64));
+    }
+    if (method_name == "as_ptr") {
+        return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
+    }
+    // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
+    // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
+    // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).
+    // Receiver is already Kind::Slice; no autoref needed since the impl
+    // method's `self: &Self` (= &UnsizedSlice<T>) canonicalises to the same
+    // Kind::Slice ABI.
+    std::vector<lir::LExprPtr> slc_args;
+    // CP-cm-08b: track each arg's AST so a second-pass re-lower can strip a
+    // UNARY-& wrapper if the impl wants flat `Slice` rather than `Ref<Slice>`.
+    std::vector<TinyMapView> slc_arg_asts = collect_arg_asts(node);
+    for (auto an : slc_arg_asts) slc_args.push_back(lower_expr(an));
+    std::string elem_name = type_str(TypeRef(recv->type).elem());
+    std::vector<std::string> keys;
+    keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
+    keys.push_back("$slice$T__" + std::string(method_name));  // generic blanket
+    // Phase 1B-11: when receiver is `&str` (== Slice<u8> in Logos), also try
+    // the `str__method` mangling produced by `impl Trait for str` (registered
+    // by sema_collect's `target == "str"` path).
+    if (TypeRef(recv->type).elem() &&
+        TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
+        keys.push_back("str__" + std::string(method_name));
+    }
+    for (auto& key : keys) {
+        const SemaFuncInfo* fi_ptr = nullptr;
+        std::vector<TypeRef> mtypes;
+        mtypes.push_back(recv->type);
+        for (auto& a : slc_args) mtypes.push_back(a->type);
+        if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
+            fi_ptr = fit;
+        } else if (auto git = find_generic_func(key)) {
+            fi_ptr = git;
+        }
+        // CP-cm-08b: impl-for-str's `&Self`=&UnsizedSlice<u8> canonicalises to
+        // Slice<u8>. User-written `s.eq(&t)` lowers `&t` to Ref<Slice> for
+        // t:str (the slice canonicalisation only fires on UnsizedSlice). Retry
+        // with each Ref<Slice<U>> arg flattened — if the impl is found that
+        // way, re-lower the strip-& AST so ABI matches.
+        std::vector<size_t> flat_idxs;
+        if (!fi_ptr) {
+            std::vector<TypeRef> mt2 = mtypes;
+            bool changed = false;
+            for (size_t i = 1; i < mt2.size(); ++i) {
+                auto tr = TypeRef(mt2[i]);
+                if (tr.kind() == LogosType::Kind::Ref &&
+                    tr.pointee() &&
+                    TypeRef(tr.pointee()).kind() == LogosType::Kind::Slice) {
+                    mt2[i] = tr.pointee();
+                    flat_idxs.push_back(i);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                if (auto fit = find_func_by_base_and_signature(key, mt2, false))
+                    fi_ptr = fit;
+                else if (auto git = find_generic_func(key))
+                    fi_ptr = git;
+            }
+        }
+        // Re-lower the &-wrapped slice args to their inner slice value.
+        for (auto idx : flat_idxs) {
+            size_t arg_i = idx - 1;
+            if (arg_i >= slc_arg_asts.size()) continue;
+            auto an = slc_arg_asts[arg_i];
+            // Strip outer UNARY with op "&" / ADDR_OF.
+            if (code_of(an) == la::UNARY) {
+                auto op_s = str_of(an.get(la::OP.code));
+                if (op_s == "&" && an.has_key(la::VALUE)) {
+                    slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
+                    continue;
+                }
+            }
+            if (code_of(an) == la::ADDR_OF_MUT && an.has_key(la::VALUE)) {
+                slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
+            }
+        }
+        if (!fi_ptr) continue;
+        std::vector<lir::LExprPtr> pargs;
+        pargs.push_back(std::move(recv));
+        for (auto& a : slc_args) pargs.push_back(std::move(a));
+        if (!fi_ptr->type_params.empty()) {
+            std::vector<TypeRef> m_type_args;
+            for (auto& tp : fi_ptr->type_params) {
+                if (tp.name == "T") m_type_args.push_back(TypeRef(pargs[0]->type).elem());
+                else m_type_args.push_back(error_t());
+            }
+            return finish_generic_call(
+                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+                *fi_ptr, std::move(m_type_args), std::move(pargs));
+        }
+        return builder().call(
+            fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
+            {}, std::move(pargs), fi_ptr->ret_type);
+    }
+    error(std::format("slice has no method '{}'", method_name));
+    return error_expr();
+}
+
 // Raw-pointer built-in arithmetic methods: byte_add/byte_sub/add/sub (offset)
 // and byte_offset_from/offset_from (distance). nullopt when the receiver is
 // not a raw pointer, or for any other method name (falls through to the
@@ -5080,113 +5189,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // for trait methods that take `&Self` (e.g. Eq.eq).
     if (auto r = try_method_on_tuple(node, recv, method_name)) return *r;
 
-    // Slice / str built-in methods: .len(), .as_ptr()
-    if (TypeRef(recv->type).kind() == LogosType::Kind::Slice) {
-        if (method_name == "len") {
-            return builder().slice_len(std::move(recv), prim(LogosType::Kind::I64));
-        }
-        if (method_name == "as_ptr") {
-            return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
-        }
-        // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
-        // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
-        // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).
-        // Parse args inline here — the outer arg_exprs vector isn't built
-        // until later in lower_method_call. Receiver is already Kind::Slice;
-        // no autoref needed since the impl method's `self: &Self` (=
-        // &UnsizedSlice<T>) canonicalises to the same Kind::Slice ABI.
-        std::vector<lir::LExprPtr> slc_args;
-        // CP-cm-08b: track each arg's AST so a second-pass re-lower can
-        // strip a UNARY-& wrapper if the impl wants flat `Slice` rather
-        // than `Ref<Slice>` for that param.
-        std::vector<TinyMapView> slc_arg_asts = collect_arg_asts(node);
-        for (auto an : slc_arg_asts) slc_args.push_back(lower_expr(an));
-        std::string elem_name = type_str(TypeRef(recv->type).elem());
-        std::vector<std::string> keys;
-        keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
-        keys.push_back("$slice$T__" + std::string(method_name));  // generic blanket
-        // Phase 1B-11: when receiver is `&str` (== Slice<u8> in Logos), also
-        // try the `str__method` mangling produced by `impl Trait for str`.
-        // Same dispatch path; the existing `target == "str"` collection
-        // (sema_collect.cpp ~2124) registers methods under this name.
-        if (TypeRef(recv->type).elem() &&
-            TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
-            keys.push_back("str__" + std::string(method_name));
-        }
-        for (auto& key : keys) {
-            const SemaFuncInfo* fi_ptr = nullptr;
-            std::vector<TypeRef> mtypes;
-            mtypes.push_back(recv->type);
-            for (auto& a : slc_args) mtypes.push_back(a->type);
-            if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
-                fi_ptr = fit;
-            } else if (auto git = find_generic_func(key)) {
-                fi_ptr = git;
-            }
-            // CP-cm-08b: impl-for-str's `&Self`=&UnsizedSlice<u8> canonicalises
-            // to Slice<u8>. User-written `s.eq(&t)` lowers `&t` to Ref<Slice>
-            // for t:str (the slice canonicalisation only fires on UnsizedSlice).
-            // Retry with each Ref<Slice<U>> arg flattened — if the impl is
-            // found that way, re-lower the strip-& AST so ABI matches.
-            std::vector<size_t> flat_idxs;
-            if (!fi_ptr) {
-                std::vector<TypeRef> mt2 = mtypes;
-                bool changed = false;
-                for (size_t i = 1; i < mt2.size(); ++i) {
-                    auto tr = TypeRef(mt2[i]);
-                    if (tr.kind() == LogosType::Kind::Ref &&
-                        tr.pointee() &&
-                        TypeRef(tr.pointee()).kind() == LogosType::Kind::Slice) {
-                        mt2[i] = tr.pointee();
-                        flat_idxs.push_back(i);
-                        changed = true;
-                    }
-                }
-                if (changed) {
-                    if (auto fit = find_func_by_base_and_signature(key, mt2, false))
-                        fi_ptr = fit;
-                    else if (auto git = find_generic_func(key))
-                        fi_ptr = git;
-                }
-            }
-            // Re-lower the &-wrapped slice args to their inner slice value.
-            for (auto idx : flat_idxs) {
-                size_t arg_i = idx - 1;
-                if (arg_i >= slc_arg_asts.size()) continue;
-                auto an = slc_arg_asts[arg_i];
-                // Strip outer UNARY with op "&" / ADDR_OF.
-                if (code_of(an) == la::UNARY) {
-                    auto op_s = str_of(an.get(la::OP.code));
-                    if (op_s == "&" && an.has_key(la::VALUE)) {
-                        slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
-                        continue;
-                    }
-                }
-                if (code_of(an) == la::ADDR_OF_MUT && an.has_key(la::VALUE)) {
-                    slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
-                }
-            }
-            if (!fi_ptr) continue;
-            std::vector<lir::LExprPtr> pargs;
-            pargs.push_back(std::move(recv));
-            for (auto& a : slc_args) pargs.push_back(std::move(a));
-            if (!fi_ptr->type_params.empty()) {
-                std::vector<TypeRef> m_type_args;
-                for (auto& tp : fi_ptr->type_params) {
-                    if (tp.name == "T") m_type_args.push_back(TypeRef(pargs[0]->type).elem());
-                    else m_type_args.push_back(error_t());
-                }
-                return finish_generic_call(
-                    fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                    *fi_ptr, std::move(m_type_args), std::move(pargs));
-            }
-            return builder().call(
-                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                {}, std::move(pargs), fi_ptr->ret_type);
-        }
-        error(std::format("slice has no method '{}'", method_name));
-        return error_expr();
-    }
+    if (auto r = try_method_on_slice(node, recv, method_name)) return *r;
 
     // Phase 1B-15: method call on a DstRef receiver. The impl method's
     // self type (`&Self` / `&mut Self`) resolved to DstRef per Phase

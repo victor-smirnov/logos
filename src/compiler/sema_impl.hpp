@@ -2568,6 +2568,8 @@ private:
     // in the original inline code.
     std::optional<lir::LExprPtr> try_method_on_tuple(
         hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_slice(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dstref(
         hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dyn(
