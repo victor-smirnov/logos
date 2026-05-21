@@ -2932,6 +2932,31 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             p_.mirror_offset_ = lir_mirror_emit_pat_ref_bind(*cur_prog_, bname, is_mut, btype);
             return p_;
         }
+        // A bare identifier that names a NO-PAYLOAD variant of the scrutinee's
+        // enum is a variant pattern, not a binding — e.g. `None` over
+        // `Option<T>` (the prelude variants `None`/`Some`/`Ok`/`Err` and
+        // user enums matched without the `Enum::` qualifier). Without this the
+        // bare name was lowered as an irrefutable wildcard binding, so
+        // `match opt { None => …, Some(_) => … }` / `if let None = opt`
+        // mis-dispatched (the `None` arm caught everything) and mis-codegened.
+        if (pnode.has_key(la::NAME) && scrut_type &&
+            TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+            std::string nm(str_of(pnode.get(la::NAME.code)));
+            if (!nm.empty() && nm != "_") {
+                std::string en(TypeRef(scrut_type).enum_name());
+                auto [epkg_v, esi_v] = find_enum_by_name(en);
+                if (esi_v) {
+                    for (auto& v : esi_v->variants) {
+                        if (v.name == nm && v.payload_types.empty()) {
+                            lir::Pattern p_;
+                            p_.mirror_offset_ = lir_mirror_emit_pat_variant(
+                                *cur_prog_, en, nm, v.value);
+                            return p_;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── PAT_STRUCT: Point { x: p, y } or Point { .. } ────────────────────

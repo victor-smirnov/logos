@@ -94,7 +94,18 @@ Original report:
   `record-pat` (whose point is exactly `T3::c(T2 { x: t1::a(m), .. }, _)`) can't
   be ported cleanly; skipped. HIGH-VALUE: struct-in-enum-payload is common.
 
-### 3. `if let None` / match-stmt with a no-payload `Option` arm mis-codegens (`func.return` parent error) — DIAGNOSED, deferred
+### 3. `if let None` / match-stmt with a no-payload `Option` arm mis-codegens (`func.return` parent error) — FIXED (2026-05-21)
+**FIXED.** Root cause: a bare identifier pattern that names a no-payload
+variant of the scrutinee's enum (`None`, or any unqualified user-enum variant)
+was lowered as an irrefutable WILDCARD BINDING (named after the variant), not a
+variant pattern — so the `None` arm caught everything and the dispatch/codegen
+broke. Fix in build_pattern: a bare NAME that matches a no-payload variant of
+the scrutinee's enum becomes a `PatVariant`. Bonus: passing the prelude `None`
+VALUE directly as a call arg (`f(None)`) also failed — it lowers to
+`Option<TypeVar>`, which `try_retype_bare_enum_arg` now treats as incomplete and
+retypes to the param's concrete spec. Regression
+`tests/logos/pass/bare_variant_pattern.logos`; nonzero-enum portable.
+
 **Corrected diagnosis (2026-05-21):** the custom-enum framing was a red herring.
 The trigger is a **statement match (or `if let`) over `Option<T>` with a
 no-payload `None` arm** — e.g. `if let None = opt { … }`, which desugars to

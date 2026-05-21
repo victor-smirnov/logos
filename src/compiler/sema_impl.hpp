@@ -366,18 +366,24 @@ private:
             rk != lir_schema::expr::Code::EnumLitData) return false;
         auto aa = at.type_args();
         auto pa = pt.type_args();
+        // "Incomplete" = no type-args, or any arg is Error / an unbound TypeVar.
+        // A bare prelude `None` lowers to `Option<TypeVar(T)>` (not Error, not
+        // empty), so the TypeVar case must count as incomplete.
+        auto is_unresolved = [](TypeRef t) {
+            return !t || TypeRef(t).kind() == LogosType::Kind::Error ||
+                   TypeRef(t).kind() == LogosType::Kind::TypeVar;
+        };
         bool incomplete = aa.empty();
         if (!incomplete)
             for (auto ta : aa)
-                if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) { incomplete = true; break; }
+                if (is_unresolved(ta)) { incomplete = true; break; }
         if (!incomplete) return false;
         for (auto ta : pa)
-            if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) return false;
+            if (is_unresolved(ta)) return false;
         if (!aa.empty()) {
             if (aa.size() != pa.size()) return false;
             for (size_t i = 0; i < aa.size(); ++i)
-                if (aa[i] && TypeRef(aa[i]).kind() != LogosType::Kind::Error &&
-                    !types_compatible(aa[i], pa[i])) return false;
+                if (!is_unresolved(aa[i]) && !types_compatible(aa[i], pa[i])) return false;
         }
         builder().retype_expr(arg, pt);
         return true;

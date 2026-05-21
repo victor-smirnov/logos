@@ -1,0 +1,32 @@
+// Regression: a bare identifier that names a no-payload variant of the
+// scrutinee's enum is a VARIANT pattern, not a wildcard binding — `None` over
+// Option, and bare user-enum variants. Previously bare `None` lowered as an
+// irrefutable wildcard (named "None"), so `match opt { None => …, Some(_) => … }`
+// / `if let None = opt` mis-dispatched and mis-codegened ('func.return' parent
+// error). Also covers passing the prelude `None`/`Some` VALUE directly as a
+// call argument (retyped to the param's concrete Option spec; the bare None
+// value lowers to Option<TypeVar> which the call-arg retype now treats as
+// incomplete). B111 #3.
+package bare_variant_pattern;
+use logos.lang.option;
+enum Color { Red, Green, Blue }
+fn opt_kind(s: Option<i64>) -> i32 {
+    match s { None => { return 0i32; } Some(_) => { return 1i32; } }
+}
+fn col(c: Color) -> i32 {
+    match c { Red => { return 10i32; } Green => { return 20i32; } _ => { return 30i32; } }
+}
+fn main() -> i32 {
+    if opt_kind(None) != 0i32 { return 1i32; }
+    if opt_kind(Some(7i64)) != 1i32 { return 2i32; }
+    // bare user-enum variant names (no Color:: prefix)
+    if col(Color::Red) != 10i32 { return 3i32; }
+    if col(Color::Green) != 20i32 { return 4i32; }
+    if col(Color::Blue) != 30i32 { return 5i32; }
+    // if let None / if let Some
+    let z: Option<i64> = None;
+    if let None = z { } else { return 6i32; }
+    let w = Some(9i64);
+    if let Some(v) = w { if v != 9i64 { return 7i32; } } else { return 8i32; }
+    return 0i32;
+}
