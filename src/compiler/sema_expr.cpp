@@ -4590,6 +4590,262 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
     return nullptr;
 }
 
+// Mark by-value move-type args as moved so scope-end Drops do not fire on
+// locals whose ownership has been transferred. Apply before any EMethodCall
+// is constructed (or finish_generic_call is invoked) — otherwise pushing a
+// freshly-built struct value via `vec.push(local)` leaves `local`'s Drop
+// registered, double-freeing the buffer that the Vec slot now owns.
+void SemaChecker::track_args_moved(const std::vector<lir::LExprPtr>& args) {
+    for (auto& a : args) {
+        if (!a) continue;
+        if (!is_move_type(a->type)) continue;
+        mark_moved_expr(expr_ref_of(*a));
+    }
+}
+
+// Mirror of track_args_moved for the receiver: when the resolved method takes
+// `self` by-value (formal self type is not Ref/MutRef/Ptr), the call consumes
+// ownership of the receiver. Without marking it moved, scope-end auto-drop
+// fires Drop on the caller's binding — double-Drop for any method that
+// internally transfers ownership to a returned struct (e.g. `Vec::into_iter`
+// leaks `self.ptr` into `VecIter`; the auto-drop then frees the buffer out
+// from under the returned iterator).
+void SemaChecker::track_recv_moved(const lir::LExprPtr& recv, TypeRef self_formal) {
+    if (!recv || !self_formal) return;
+    auto k = TypeRef(self_formal).kind();
+    if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+        k == LogosType::Kind::Ptr) return;  // by-ref / by-ptr: no move
+    if (!is_move_type(recv->type)) return;
+    mark_moved_expr(expr_ref_of(*recv));
+}
+
+// Phase 1B-15: method call on a DstRef receiver. The impl method's self type
+// (`&Self` / `&mut Self`) resolved to DstRef per Phase 1B-14, so funcs_ has an
+// entry keyed by `Foo__method` with param[0] of type DstRef. Dispatch directly
+// — no raw-pointer reinterpretation, which would mismatch the recorded
+// signature. nullopt only when the receiver is not a DstRef; a DstRef with no
+// matching method errors.
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    if (TypeRef(recv->type).kind() != LogosType::Kind::DstRef) return std::nullopt;
+    if (!inside_unsafe_)
+        error("method call through `&DstStruct` requires unsafe context");
+    auto sname_dst = std::string(TypeRef(recv->type).struct_name());
+    std::string mangled = sname_dst + "__" + std::string(method_name);
+    std::vector<lir::LExprPtr> d_args = lower_call_args(node);
+    std::vector<TypeRef> mtypes;
+    mtypes.push_back(recv->type);
+    for (auto& a : d_args) mtypes.push_back(a->type);
+    const SemaFuncInfo* dfi = nullptr;
+    if (auto fit = find_func_by_base_and_signature(mangled, mtypes, false))
+        dfi = fit;
+    else if (auto git = find_generic_func(mangled))
+        dfi = git;
+    if (dfi) {
+        std::vector<lir::LExprPtr> pargs;
+        pargs.push_back(std::move(recv));
+        for (auto& a : d_args) pargs.push_back(std::move(a));
+        if (!dfi->type_params.empty()) {
+            SemaSubst seed; seed["Self"] = mtypes[0];
+            std::vector<TypeRef> m_type_args;
+            if (infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
+                return finish_generic_call(
+                    dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
+                    *dfi, std::move(m_type_args), std::move(pargs));
+            }
+        } else {
+            return builder().call(
+                dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
+                {}, std::move(pargs), dfi->ret_type);
+        }
+    }
+    error(std::format("DstStruct '{}' has no method '{}'",
+                      sname_dst, std::string(method_name)));
+    return error_expr();
+}
+
+// &dyn Trait method call. First tries inherent `impl Trait for dyn Foo`
+// methods (mangled `$dyn$Foo__method`), then falls back to vtable dispatch
+// against the trait's declared methods. nullopt only when the receiver is not
+// a TraitObject; a trait object with no matching method errors.
+std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
+        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
+    TypeRef rt(recv->type);
+    if (!(rt && rt.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
+    auto tname = std::string(rt.trait_name());
+    // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled as
+    // `$dyn$Foo__method` (Phase 1B-10 collection). Try this BEFORE vtable
+    // dispatch so impls override / extend trait-method resolution.
+    {
+        std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
+        std::vector<lir::LExprPtr> d_args = lower_call_args(node);
+        std::vector<TypeRef> mtypes;
+        mtypes.push_back(recv->type);
+        for (auto& a : d_args) mtypes.push_back(a->type);
+        const SemaFuncInfo* dfi = nullptr;
+        if (auto fit = find_func_by_base_and_signature(dyn_key, mtypes, false))
+            dfi = fit;
+        else if (auto git = find_generic_func(dyn_key))
+            dfi = git;
+        if (dfi) {
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(recv));
+            for (auto& a : d_args) pargs.push_back(std::move(a));
+            if (!dfi->type_params.empty()) {
+                SemaSubst seed; seed["Self"] = mtypes[0];
+                std::vector<TypeRef> m_type_args;
+                if (!infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
+                    // Fall through to vtable dispatch on inference failure.
+                } else {
+                    return finish_generic_call(
+                        dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
+                        *dfi, std::move(m_type_args), std::move(pargs));
+                }
+            } else {
+                return builder().call(
+                    dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
+                    {}, std::move(pargs), dfi->ret_type);
+            }
+        }
+    }
+    auto tit = traits_.find(tname);
+    if (tit != traits_.end()) {
+        for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
+            auto& m = tit->second.methods[mi];
+            if (m.name == method_name) {
+                if (m.is_unsafe && !inside_unsafe_)
+                    error(std::format("call to unsafe method '{}' requires unsafe context",
+                                      std::string(method_name)));
+                std::vector<lir::LExprPtr> arg_exprs;
+                if (node.has_key(la::ARGS)) {
+                    auto args = arr_of(node.get(la::ARGS.code));
+                    for (uint64_t i = 0; i < args.size(); ++i)
+                        arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                }
+                uint64_t explicit_args = arg_exprs.size();
+                size_t expected_explicit = m.param_types.size() > 0
+                    ? m.param_types.size() - 1 : 0;
+                if (explicit_args != expected_explicit) {
+                    error(std::format("method call '{}': expected {} args, got {}",
+                                      std::string(method_name), expected_explicit, explicit_args));
+                } else {
+                    SemaSubst self_subst;
+                    self_subst["Self"] = recv->type;
+                    for (uint64_t i = 0; i < explicit_args; ++i) {
+                        auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
+                        widen_int_expr(arg_exprs[i], pt, builder());
+                        auto at = arg_exprs[i]->type;
+                        if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                            TypeRef(pt).kind() != LogosType::Kind::Error &&
+                            TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                            TypeRef(pt).kind() != LogosType::Kind::AssocType &&
+                            !types_compatible(at, pt))
+                            { auto [es, gs] = type_str_pair(pt, at);
+                              error(std::format("method '{}' arg {}: expected {}, got {}",
+                                              std::string(method_name), i + 1,
+                                              es, gs)); }
+                        if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                            TypeRef(pt).kind() != LogosType::Kind::AssocType)
+                            check_variance(at, pt, std::format("method '{}' arg {}",
+                                                               std::string(method_name), i + 1));
+                        if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
+                            TypeRef(pt).kind() != LogosType::Kind::Error &&
+                            TypeRef(pt).kind() != LogosType::Kind::TypeVar)
+                            if (auto v = get_intlit_value(arg_exprs[i]))
+                                if (!intlit_fits(*v, TypeRef(pt).kind()))
+                                    error(std::format("method '{}' arg {}: value {} does not fit in {}",
+                                                      std::string(method_name), i + 1, *v, type_str(pt)));
+                        // Check array literal elements against narrow array param type.
+                        if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
+                            auto vr = expr_ref_of(*arg_exprs[i]);
+                            if (vr.kind() == lir_schema::expr::Code::ArrLit) {
+                                lir_view::EArrLitView al{vr};
+                                for (uint64_t ei = 0; ei < al.count(); ++ei) {
+                                    auto el = al.elem(ei);
+                                    if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(el))
+                                            if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
+                                                error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
+                                }
+                            }
+                        }
+                        // Check tuple literal elements against narrow tuple param element types.
+                        if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
+                            auto vr = expr_ref_of(*arg_exprs[i]);
+                            if (vr.kind() == lir_schema::expr::Code::TupleLit) {
+                                lir_view::ETupleLitView tl{vr};
+                                uint64_t ei = 0;
+                                tl.each_elem([&](lir_view::ExprRef el) {
+                                    if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
+                                    if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                        if (auto v = get_intlit_value(el))
+                                            if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
+                                                error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
+                                                                  std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
+                                    if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
+                                        TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
+                                        el.kind() == lir_schema::expr::Code::ArrLit) {
+                                        lir_view::EArrLitView ial{el};
+                                        for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                                            auto iel = ial.elem(ii);
+                                            if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                                if (auto v = get_intlit_value(iel))
+                                                    if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
+                                                        error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
+                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
+                                        }
+                                    }
+                                    if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
+                                        el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
+                                        el.kind() == lir_schema::expr::Code::TupleLit) {
+                                        lir_view::ETupleLitView itl{el};
+                                        uint64_t ii = 0;
+                                        itl.each_elem([&](lir_view::ExprRef iel) {
+                                            if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
+                                            if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                                                if (auto v = get_intlit_value(iel))
+                                                    if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
+                                                        error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
+                                                              std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
+                                            ++ii;
+                                        });
+                                    }
+                                    ++ei;
+                                });
+                            }
+                        }
+                    }
+                }
+                // Return type: substitute Self → &dyn Trait, plus the trait's
+                // own type/const params (e.g. `Trait<STORE_CFG>`) → recv's
+                // trait_args, so methods that mention them in their return
+                // type don't carry an un-substituted ConstVar to the call site.
+                SemaSubst trait_subst;
+                trait_subst["Self"] = recv->type;
+                {
+                    auto& tparams = tit->second.type_params;
+                    auto trait_args = TypeRef(recv->type).type_args();
+                    for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
+                        trait_subst[tparams[ti].name] = trait_args[ti];
+                }
+                auto ret_type = subst_type_sema(m.ret_type, trait_subst);
+                track_args_moved(arg_exprs);
+                lir::EMethodCall mc;
+                mc.receiver     = std::move(recv);
+                mc.method       = std::string(method_name);
+                mc.type_args    = {}; // No type args for trait object calls for now
+                mc.args         = std::move(arg_exprs);
+                mc.vtable_index = (int32_t)mi;  // slot in vtable
+                mc.resolved_type = "";
+                return builder().method_call_v(std::move(mc), ret_type);
+            }
+        }
+    }
+    error(std::format("trait '{}' has no method '{}'", tname, method_name));
+    return error_expr();
+}
+
 // SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for (A,B,…)`
 // methods. Mirrors the slice path (sentinel-name lookup against `$tuple$N`
 // generic blanket / `$tuple$N$<t1>$<t2>…` concrete forms). Also handles
@@ -4691,36 +4947,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
-
-    // Helper: mark by-value move-type args as moved so scope-end Drops do
-    // not fire on locals whose ownership has been transferred. Apply
-    // before any EMethodCall is constructed (or finish_generic_call is
-    // invoked) — otherwise pushing a freshly-built struct value via
-    // `vec.push(local)` leaves `local`'s Drop registered, double-freeing
-    // the buffer that the Vec slot now owns.
-    auto track_args_moved = [this](const std::vector<lir::LExprPtr>& args) {
-        for (auto& a : args) {
-            if (!a) continue;
-            if (!is_move_type(a->type)) continue;
-            mark_moved_expr(expr_ref_of(*a));
-        }
-    };
-    // Mirror of track_args_moved for the receiver: when the resolved
-    // method takes `self` by-value (formal self type is not Ref/MutRef/Ptr),
-    // the call consumes ownership of the receiver. Without marking it
-    // moved, scope-end auto-drop fires Drop on the caller's binding —
-    // causing double-Drop for any method that internally transfers
-    // ownership to a returned struct (e.g. `Vec::into_iter` leaks
-    // `self.ptr` into `VecIter`; the auto-drop then frees the buffer
-    // out from under the returned iterator).
-    auto track_recv_moved = [this](const lir::LExprPtr& recv, TypeRef self_formal) {
-        if (!recv || !self_formal) return;
-        auto k = TypeRef(self_formal).kind();
-        if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
-            k == LogosType::Kind::Ptr) return;  // by-ref / by-ptr: no move
-        if (!is_move_type(recv->type)) return;
-        mark_moved_expr(expr_ref_of(*recv));
-    };
 
     // Optional explicit method-level turbofish: `recv.method::<T1, T2>(args)`.
     // The turbofish-bearing METHOD_CALL alt wraps ARGS as { ITEMS: [...] }
@@ -4869,42 +5095,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // of type DstRef. Look it up and dispatch directly — without the
     // raw-pointer reinterpretation, which would mismatch the impl's
     // recorded signature.
-    if (TypeRef(recv->type).kind() == LogosType::Kind::DstRef) {
-        if (!inside_unsafe_)
-            error("method call through `&DstStruct` requires unsafe context");
-        auto sname_dst = std::string(TypeRef(recv->type).struct_name());
-        std::string mangled = sname_dst + "__" + std::string(method_name);
-        std::vector<lir::LExprPtr> d_args = lower_call_args(node);
-        std::vector<TypeRef> mtypes;
-        mtypes.push_back(recv->type);
-        for (auto& a : d_args) mtypes.push_back(a->type);
-        const SemaFuncInfo* dfi = nullptr;
-        if (auto fit = find_func_by_base_and_signature(mangled, mtypes, false))
-            dfi = fit;
-        else if (auto git = find_generic_func(mangled))
-            dfi = git;
-        if (dfi) {
-            std::vector<lir::LExprPtr> pargs;
-            pargs.push_back(std::move(recv));
-            for (auto& a : d_args) pargs.push_back(std::move(a));
-            if (!dfi->type_params.empty()) {
-                SemaSubst seed; seed["Self"] = mtypes[0];
-                std::vector<TypeRef> m_type_args;
-                if (infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
-                    return finish_generic_call(
-                        dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
-                        *dfi, std::move(m_type_args), std::move(pargs));
-                }
-            } else {
-                return builder().call(
-                    dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
-                    {}, std::move(pargs), dfi->ret_type);
-            }
-        }
-        error(std::format("DstStruct '{}' has no method '{}'",
-                          sname_dst, std::string(method_name)));
-        return error_expr();
-    }
+    if (auto r = try_method_on_dstref(node, recv, method_name)) return *r;
 
     // Raw-pointer built-in arithmetic methods:
     //   p.byte_add(n) / p.byte_sub(n)  — offset n bytes, same pointer type
@@ -4969,184 +5160,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         lir_mirror_update_type(*cur_prog_, *recv);
     }
     // &dyn Trait method call: look up trait method, emit EMethodCall with vtable dispatch.
-    if (TypeRef rt(recv->type); rt && rt.kind() == LogosType::Kind::TraitObject) {
-        auto tname = std::string(rt.trait_name());
-        // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled
-        // as `$dyn$Foo__method` (Phase 1B-10 collection). Try this path
-        // BEFORE vtable dispatch so impls override / extend trait-method
-        // resolution. Parse args inline (the outer arg_exprs vector isn't
-        // built until further below in this function).
-        {
-            std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
-            std::vector<lir::LExprPtr> d_args = lower_call_args(node);
-            std::vector<TypeRef> mtypes;
-            mtypes.push_back(recv->type);
-            for (auto& a : d_args) mtypes.push_back(a->type);
-            const SemaFuncInfo* dfi = nullptr;
-            if (auto fit = find_func_by_base_and_signature(dyn_key, mtypes, false))
-                dfi = fit;
-            else if (auto git = find_generic_func(dyn_key))
-                dfi = git;
-            if (dfi) {
-                std::vector<lir::LExprPtr> pargs;
-                pargs.push_back(std::move(recv));
-                for (auto& a : d_args) pargs.push_back(std::move(a));
-                if (!dfi->type_params.empty()) {
-                    SemaSubst seed; seed["Self"] = mtypes[0];
-                    std::vector<TypeRef> m_type_args;
-                    if (!infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
-                        // Fall through to vtable dispatch on inference failure.
-                    } else {
-                        return finish_generic_call(
-                            dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
-                            *dfi, std::move(m_type_args), std::move(pargs));
-                    }
-                } else {
-                    return builder().call(
-                        dfi->symbol_name.empty() ? dyn_key : dfi->symbol_name,
-                        {}, std::move(pargs), dfi->ret_type);
-                }
-            }
-        }
-        auto tit = traits_.find(tname);
-        if (tit != traits_.end()) {
-            for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
-                auto& m = tit->second.methods[mi];
-                if (m.name == method_name) {
-                    if (m.is_unsafe && !inside_unsafe_)
-                        error(std::format("call to unsafe method '{}' requires unsafe context",
-                                          std::string(method_name)));
-                    std::vector<lir::LExprPtr> arg_exprs;
-                    if (node.has_key(la::ARGS)) {
-                        auto args = arr_of(node.get(la::ARGS.code));
-                        for (uint64_t i = 0; i < args.size(); ++i)
-                            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
-                    }
-                    uint64_t explicit_args = arg_exprs.size();
-                    size_t expected_explicit = m.param_types.size() > 0
-                        ? m.param_types.size() - 1 : 0;
-                    if (explicit_args != expected_explicit) {
-                        error(std::format("method call '{}': expected {} args, got {}",
-                                          std::string(method_name), expected_explicit, explicit_args));
-                    } else {
-                        SemaSubst self_subst;
-                        self_subst["Self"] = recv->type;
-                        for (uint64_t i = 0; i < explicit_args; ++i) {
-                            auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
-                            widen_int_expr(arg_exprs[i], pt, builder());
-                            auto at = arg_exprs[i]->type;
-                            if (TypeRef(at).kind() != LogosType::Kind::Error &&
-                                TypeRef(pt).kind() != LogosType::Kind::Error &&
-                                TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                                TypeRef(pt).kind() != LogosType::Kind::AssocType &&
-                                !types_compatible(at, pt))
-                                { auto [es, gs] = type_str_pair(pt, at);
-                                  error(std::format("method '{}' arg {}: expected {}, got {}",
-                                                  std::string(method_name), i + 1,
-                                                  es, gs)); }
-                            if (TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
-                                TypeRef(pt).kind() != LogosType::Kind::AssocType)
-                                check_variance(at, pt, std::format("method '{}' arg {}",
-                                                                   std::string(method_name), i + 1));
-                            if (TypeRef(at).kind() == LogosType::Kind::IntLit &&
-                                TypeRef(pt).kind() != LogosType::Kind::Error &&
-                                TypeRef(pt).kind() != LogosType::Kind::TypeVar)
-                                if (auto v = get_intlit_value(arg_exprs[i]))
-                                    if (!intlit_fits(*v, TypeRef(pt).kind()))
-                                        error(std::format("method '{}' arg {}: value {} does not fit in {}",
-                                                          std::string(method_name), i + 1, *v, type_str(pt)));
-                            // Check array literal elements against narrow array param type.
-                            if (TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem()) {
-                                auto vr = expr_ref_of(*arg_exprs[i]);
-                                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                                    lir_view::EArrLitView al{vr};
-                                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
-                                        auto el = al.elem(ei);
-                                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(el))
-                                                if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
-                                                    error(std::format("method '{}' arg {}: array element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).elem())));
-                                    }
-                                }
-                            }
-                            // Check tuple literal elements against narrow tuple param element types.
-                            if (TypeRef(at).kind() == LogosType::Kind::Tuple && TypeRef(pt).kind() == LogosType::Kind::Tuple) {
-                                auto vr = expr_ref_of(*arg_exprs[i]);
-                                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                                    lir_view::ETupleLitView tl{vr};
-                                    uint64_t ei = 0;
-                                    tl.each_elem([&](lir_view::ExprRef el) {
-                                        if (ei >= TypeRef(pt).tuple_elems().size()) { ++ei; return; }
-                                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                            if (auto v = get_intlit_value(el))
-                                                if (TypeRef(pt).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).kind()))
-                                                    error(std::format("method '{}' arg {}: tuple element {}: value {} does not fit in {}",
-                                                                      std::string(method_name), i + 1, ei, *v, type_str(TypeRef(pt).tuple_elems()[ei])));
-                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                            TypeRef(TypeRef(pt).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                                            lir_view::EArrLitView ial{el};
-                                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                                auto iel = ial.elem(ii);
-                                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                                    if (auto v = get_intlit_value(iel))
-                                                        if (!intlit_fits(*v, TypeRef(TypeRef(pt).tuple_elems()[ei]).elem().kind()))
-                                                            error(std::format("method '{}' arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                                  std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).elem())));
-                                            }
-                                        }
-                                        if (TypeRef(pt).tuple_elems()[ei] && TypeRef(TypeRef(pt).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                                            lir_view::ETupleLitView itl{el};
-                                            uint64_t ii = 0;
-                                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                                if (ii >= TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
-                                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                                    if (auto v = get_intlit_value(iel))
-                                                        if (TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                            error(std::format("method '{}' arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                                  std::string(method_name), i + 1, ei, ii, *v, type_str(TypeRef(TypeRef(pt).tuple_elems()[ei]).tuple_elems()[ii])));
-                                                ++ii;
-                                            });
-                                        }
-                                        ++ei;
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    // Return type: substitute Self → &dyn Trait, plus the
-                    // trait's own type/const params (e.g. `Trait<STORE_CFG>`)
-                    // → recv's trait_args. Without the latter, methods that
-                    // mention STORE_CFG in their return type carry an
-                    // un-substituted ConstVar through to the call site,
-                    // breaking type checks at let / arg position.
-                    SemaSubst trait_subst;
-                    trait_subst["Self"] = recv->type;
-                    {
-                        auto& tparams = tit->second.type_params;
-                        auto trait_args = TypeRef(recv->type).type_args();
-                        for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
-                            trait_subst[tparams[ti].name] = trait_args[ti];
-                    }
-                    auto ret_type = subst_type_sema(m.ret_type, trait_subst);
-                    track_args_moved(arg_exprs);
-                    lir::EMethodCall mc;
-                    mc.receiver     = std::move(recv);
-                    mc.method       = std::string(method_name);
-                    mc.type_args    = {}; // No type args for trait object calls for now
-                    mc.args         = std::move(arg_exprs);
-                    mc.vtable_index = (int32_t)mi;  // slot in vtable
-                    mc.resolved_type = "";
-                    return builder().method_call_v(std::move(mc), ret_type);
-                }
-            }
-        }
-        error(std::format("trait '{}' has no method '{}'", tname, method_name));
-        return error_expr();
-    }
+    if (auto r = try_method_on_dyn(node, recv, method_name)) return *r;
 
     // &tagged<TS> Trait method call: tag-based dispatch through the tier-1 table.
     // The receiver is a thin *const u8 pointer; type_code is read at runtime via TS.

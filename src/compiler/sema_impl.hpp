@@ -2568,6 +2568,15 @@ private:
     // in the original inline code.
     std::optional<lir::LExprPtr> try_method_on_tuple(
         hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_dstref(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    std::optional<lir::LExprPtr> try_method_on_dyn(
+        hermes::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
+    // Move-tracking shared by the method-dispatch handlers: mark by-value
+    // move-type args / receiver as moved so scope-end auto-Drop doesn't fire
+    // on ownership the call has transferred. (Promoted from local lambdas.)
+    void track_args_moved(const std::vector<lir::LExprPtr>& args);
+    void track_recv_moved(const lir::LExprPtr& recv, TypeRef self_formal);
     // Blanket-impl method dispatch: `impl<T: Bound> Trait for T { fn m … }`.
     // Tries every registered blanket against receiver type `type_name`;
     // on a unique match dispatches via finish_generic_call (moving recv +
