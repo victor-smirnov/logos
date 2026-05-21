@@ -5,8 +5,9 @@ and `logos.std.prelude`. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
-Status: **modules landed + R1/R2 default-on blockers fixed (2026-05-21);
-default-on still gated on R3 (B-mv-02 trait-collision).**
+Status: **modules landed + R1/R2/R3 default-on blockers fixed (2026-05-21);
+prelude-on regression 99→10; remaining 10 are unrelated to the prelude
+(mono method-emission, Eq/PartialEq, .expected drift).**
 
 Implementation progress:
 - ✅ Injection mechanism (manifest `prelude` directive, `#![no_implicit_prelude]`
@@ -44,13 +45,25 @@ Implementation progress:
     use-closure.
   - Combined: prelude-on 99 → **60**; base suite 3586/3586; the entire
     force-lower-artifact cluster gone.
-  - **R3 STILL OPEN** (last blocker for default-on) — ~45 tests redefine prelude
-    trait names (Drop/Default/From/Into/Add/Div/PartialEq) → "trait X defined in
-    both packages" (B-mv-02 cross-pkg same-name trait clobber). Fix B-mv-02
-    (local-shadows-prelude) OR migrate the tests to drop their redefinitions.
-    Then update 6 negative-test `.expected`, triage 2 pre-existing stragglers
-    (vec_usage runtime; generic_method_infer_struct mono), re-apply the 3-point
-    wiring + tier-awareness + keep stdlib emit_module opted-out.
+  - **R3 FIXED** (5b1789d2 core + 540c6e0b all sites) — cross-package same-name
+    traits AND type aliases now coexist (Rust parity): a user `trait From` /
+    `type MemDestroyer` shadows the same-named prelude/stdlib item in its own
+    package. The incumbent keeps the legacy bare registry slot; a collider
+    registers under `pkg::Name` only; `canonical_trait_name` /
+    `find_trait_iter_scoped` thread scope-aware resolution through bound→method
+    dispatch, coherence keying, assoc-type resolution, supertrait verification
+    (`SemaImplInfo.canonical_trait`), and the alias lookup. Cleared ~45
+    collisions → prelude-on 99 → 10.
+  - **Remaining 10** are NOT prelude/collision issues — they would fail the same
+    way for any program: a mono method-emission gap (`func.call op 'X__method'
+    does not reference a valid function` — generic_trait_method,
+    generic_method_infer_struct), an Eq-vs-PartialEq operator-mapping question
+    (tuple_eq_op: `(f64,f64) ==` requires Eq but f64 isn't Eq — Rust `==` is
+    PartialEq), a few pre-existing prelude-only stragglers (vec_usage runtime,
+    trait-cross-method, type-outlives-*, relaxed_sized_generic_ref), and
+    negative/snapshot `.expected` drift (gat_bounds_violation,
+    ir_snapshot_main_trivial). Triage these, then re-apply the 3-point wiring +
+    tier-awareness + keep stdlib emit_module opted-out to land default-on.
 
 ---
 
