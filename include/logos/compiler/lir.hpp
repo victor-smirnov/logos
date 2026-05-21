@@ -1269,6 +1269,15 @@ struct SemaOptions {
     // tries to call them and crashes on the unresolved symbol.
     bool disable_blob_skeletons = false;
 
+    // Layer .hermes0 dedup (library build): skeleton-skip only NON-generic
+    // from_binary dep functions — their bodies are dead weight in this layer's
+    // LIR blob (the consumer references them cross-arena / links them from the
+    // dep's .o). Generic templates keep LOCAL bodies so mono instantiates them
+    // here directly, avoiding the producer-side cross-arena clone path (which
+    // can emit wrong-layout instantiations → heap corruption). Consumers leave
+    // this false → full generic skeleton-skip (the Phase 5.B fast path).
+    bool blob_skip_nongeneric_only = false;
+
     // Three-layer split Phase 3.4: dotted package name to inject as an
     // implicit wildcard import for every NON-binary AST in this run that
     // does not carry `#![no_implicit_prelude]`. Empty means "no implicit

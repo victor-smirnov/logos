@@ -6387,6 +6387,7 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
         // scan_fn discovers generic instantiations called from those bodies.
         if (opts.disable_blob_skeletons) on = false;
         checker.set_use_blob_skeletons(on);
+        checker.set_blob_skip_nongeneric_only(opts.blob_skip_nongeneric_only);
     }
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is

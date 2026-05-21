@@ -381,16 +381,17 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         from_binary[i] = ao || bm;
     }
     // Sema — all files in the module are being compiled from source.
-    // Phase 4 fix: disable blob skeletons for emit_module's library-build
-    // sema. ast_only files are stamped from_binary=true here so the codegen
-    // pass treats their host-extern wrappers as "binary"; but those bodies
-    // also contain GENERIC_CALL nodes (e.g. vec_new::<QuoteItemBlob>) that
-    // mono's scan_fn must walk to discover required instantiations. Blob-
-    // skipping their bodies leaves those instantiations un-emitted in the
-    // output archive, breaking downstream JIT lookups (e.g. metaprog hooks
-    // in user code that transitively reach ast_only-resident generic calls).
+    // Layer .hermes0 dedup: keep blob skeletons ON so `depends`-archive
+    // modules are skeleton-skipped (referenced cross-arena, not re-embedded
+    // in this layer's LIR blob). Two guards keep it correct for a PRODUCER
+    // build (vs the consumer fast-path):
+    //  - lookup_export-gated (sema_decl.cpp): ast_only same-build files miss
+    //    the lookup → keep full bodies so mono's scan_fn sees their generics.
+    //  - blob_skip_nongeneric_only: generic templates keep local bodies so
+    //    mono instantiates them here directly, avoiding the producer-side
+    //    cross-arena clone (which can emit wrong-layout instantiations).
     SemaOptions sema_opts;
-    sema_opts.disable_blob_skeletons = true;
+    sema_opts.blob_skip_nongeneric_only = true;
     sema_opts.implicit_prelude = implicit_prelude;
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts);
     prog.print_diags(stderr);

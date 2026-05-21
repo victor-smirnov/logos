@@ -604,12 +604,22 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                        && cur_from_binary_
                        && !fn.is_extern
                        && !fn_is_metaprog_handler(fn.name)
-                       && !fn_is_metaprog_keep(fn.name);
+                       && !fn_is_metaprog_keep(fn.name)
+                       // Library build: keep generic template bodies LOCAL so
+                       // mono instantiates them here (no producer cross-arena
+                       // clone). Only non-generic dep bodies are skeleton-
+                       // skipped (dead weight in this layer's LIR blob).
+                       && (!blob_skip_nongeneric_only_ || fn.type_params.empty());
     if (blob_skip_body) {
-        skip_body = true;
-        ++blob_skip_count_;
+        // Skeleton-skip ONLY when a registered arena actually provides the
+        // body (lookup succeeds) — lets the library build skeleton-skip its
+        // `depends`-archive modules (mem referencing lang cross-arena) while
+        // ast_only same-build files (lookup miss) keep full bodies so mono's
+        // scan_fn discovers their generic calls.
         auto hit = hermes::global_arena_pool().lookup_export(fn.name);
         if (hit.ok()) {
+            skip_body = true;
+            ++blob_skip_count_;
             fn.body_external_ref = hermes::ExternalRef::make(hit.arena_id, hit.obj_id);
             ++blob_resolved_count_;
         }

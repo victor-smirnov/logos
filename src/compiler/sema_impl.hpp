@@ -137,6 +137,7 @@ public:
     // Phase 4.A (multi-arena IR): opt into skeleton-only lowering for
     // non-generic from_binary fns. Set by sema_lower from getenv("LOGOS_SEMA_USE_BLOB").
     void set_use_blob_skeletons(bool v) { use_blob_skeletons_ = v; }
+    void set_blob_skip_nongeneric_only(bool v) { blob_skip_nongeneric_only_ = v; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
@@ -1262,6 +1263,9 @@ private:
     // Phase 4.B will populate body_external_ref via lib export tables;
     // Phase 4.C wires mono + flips default.
     bool   use_blob_skeletons_      = false;
+    // Library build: restrict skeleton-skip to non-generic from_binary fns
+    // (keep generic template bodies local for correct local instantiation).
+    bool   blob_skip_nongeneric_only_ = false;
     // Phase 4.A counter: how many fn bodies were skipped via the blob path
     // in the current run. Surfaced when LOGOS_TRACE_PHASES is set to give
     // an observability hook for the skip path (otherwise the field would
