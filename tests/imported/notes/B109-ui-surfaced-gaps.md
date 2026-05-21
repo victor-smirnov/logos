@@ -96,6 +96,23 @@ Original report:
   (`Te`, `Clam`) makes them vanish. The user type-name namespace is not isolated
   from the stdlib generic-parameter namespace. Low-severity but a real footgun;
   worked around in every B109 port by avoiding 1-letter type names.
+- **Root cause (investigated 2026-05-21):** stdlib generic templates are
+  re-lowered from AST in the *user's* compilation context (per the .hm0 design).
+  When the user declares a concrete type `T`, it is registered in the global
+  struct/enum registry; while re-lowering a stdlib generic whose TYPE-PARAMETER
+  is also named `T` (e.g. `FilterIter<T>`), `resolve_type("T")` finds the user's
+  concrete `enum T` (or, here, resolves the param to `<error>`) instead of the
+  template's type-parameter. Repro (no iterators needed beyond the assert
+  imports): `package p; use logos.std.fmt; use logos.mem.string; use
+  logos.lang.str; enum T { A(i32), B(i32) } fn main()->i32 { let _=match T::A(0i32)
+  { T::A(x)=>x, T::B(y)=>y }; return 0i32; }` → `iter.logos:107: FilterIter field
+  'pred': expected fn(<error>) -> bool, got fn(T) -> bool`.
+- **Fix shape (deferred — bounded sema scoping change):** during generic
+  (re-)lowering, the active template's type-parameter names must SHADOW global
+  concrete type names in `resolve_type`. The type-param scope already exists for
+  binding; it needs to take precedence over the global registry lookup for bare
+  single-segment names. Deferred per draw-the-boundary (clean workaround exists;
+  1-char concrete type names are rare/unidiomatic) — pick up as a focused pass.
 
 ---
 
