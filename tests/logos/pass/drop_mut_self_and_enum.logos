@@ -1,0 +1,37 @@
+// Regression: drop-glue for the idiomatic `fn drop(&mut self)` Drop shape and
+// for enum Drop impls. drop_fn_for previously matched only a by-value
+// `drop(self: Self)` param (`types_equal(pt, t)`) and only Struct types — so
+// the canonical `&mut self` Drop never fired, and enums (whose name was never
+// turned into a `__drop` lookup key) were never dropped at all. Now drop_fn_for
+// also matches a `&mut self` / `&self` param (the SDrop call already passes the
+// value's address) and resolves enum `Drop` impls by enum name.
+package drop_mut_self_and_enum;
+
+// `&mut self` Drop on a struct (the Rust-idiomatic shape).
+struct R { p: *mut i64 }
+impl Drop for R { fn drop(&mut self) { unsafe { *self.p = *self.p + 1i64; } } }
+
+// Enum Drop (by-value).
+enum E { A(*mut i64), B(*mut i64) }
+impl Drop for E {
+    fn drop(self: E) {
+        match self {
+            E::A(c) => { unsafe { *c = *c + 10i64; } }
+            E::B(c) => { unsafe { *c = *c + 20i64; } }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    { let _r = R { p: &mut c as *mut i64 }; }      // R::drop → c += 1
+    unsafe { if *(&mut c as *mut i64) != 1i64 { return 1i32; } }
+
+    let mut d: i64 = 0i64;
+    { let _x = E::A(&mut d as *mut i64); }          // E::drop (A) → d += 10
+    unsafe { if *(&mut d as *mut i64) != 10i64 { return 2i32; } }
+
+    { let _y = E::B(&mut d as *mut i64); }          // E::drop (B) → d += 20
+    unsafe { if *(&mut d as *mut i64) != 30i64 { return 3i32; } }
+    return 0i32;
+}

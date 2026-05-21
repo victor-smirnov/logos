@@ -2199,6 +2199,10 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return "__typevar_pending__drop";
     std::string type_name;
     if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
+    // Enums can carry a user `Drop` impl too (`impl Drop for E`). Keyed by the
+    // enum name → `E__drop`. The SDrop codegen loads the heap pointer (enums
+    // are heap-ptr-to-struct) before calling the drop fn.
+    if (TypeRef(t).kind() == LogosType::Kind::Enum) type_name = std::string(TypeRef(t).enum_name());
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
     std::vector<TypeRef> sig{t};
@@ -2208,6 +2212,21 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         if (!cand || cand->param_types.size() != 1) continue;
         auto pt = cand->param_types[0];
         if (pt && types_equal(pt, t))
+            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+    }
+    // `fn drop(&mut self)` / `fn drop(&self)` — the canonical stdlib `Drop`
+    // shape. The param type is `&mut T` / `&T` (a ref to the struct), not the
+    // struct by value, so the by-value checks above miss it. The SDrop codegen
+    // already calls the drop fn with the value's address (same ABI as the
+    // by-value form, since structs pass by pointer), so matching the ref form
+    // here is sufficient — no codegen change needed.
+    for (auto* cand : find_func_candidates(mangled)) {
+        if (!cand || cand->param_types.size() != 1) continue;
+        auto pt = cand->param_types[0];
+        if (!pt) continue;
+        auto pk = TypeRef(pt).kind();
+        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+            TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), t))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
     // Generic Drop impl: `impl<T> Drop for Foo<T>` registers Foo__drop with
@@ -2223,6 +2242,12 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         auto pt = cand->param_types[0];
         if (!pt) continue;
         auto pk = TypeRef(pt).kind();
+        // Accept `&mut self` / `&self` by peeling one ref level.
+        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+            TypeRef(pt).pointee()) {
+            pt = TypeRef(pt).pointee();
+            pk = TypeRef(pt).kind();
+        }
         if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
         if (TypeRef(pt).struct_name() == TypeRef(t).struct_name())
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;

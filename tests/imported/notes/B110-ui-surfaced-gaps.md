@@ -46,7 +46,20 @@ compiler-bug #1).
 
 ## compiler-bug
 
-### 1. stdlib `Drop` (`&mut self`) does not fire drop-glue
+### 1. stdlib `Drop` (`&mut self`) does not fire drop-glue — FIXED (2026-05-21)
+**Fixed.** `drop_fn_for` matched only a by-value `drop(self: Self)` param
+(`types_equal(pt, t)`), missing the canonical `&mut self` shape (param is
+`&mut T`). Now it also matches a `&mut self` / `&self` param by peeling one ref
+level — no codegen change needed, since the SDrop call already passes the
+value's address (structs pass by pointer; `&mut self` is the same pointer).
+Regression: `tests/logos/pass/drop_mut_self_and_enum.logos`. **Follow-up (NOT
+done):** a GENERIC struct with `&mut self` Drop (`impl<T> Drop for Box2<T> {
+fn drop(&mut self) }`) — drop_fn_for resolves it (`&mut Box2<T>` base-name
+match) and the SDrop is emitted + re-mangled, but mono/clone_struct_def does
+not INSTANTIATE the `&mut self` drop method for the concrete spec (the by-value
+generic form IS instantiated and works). Distinct clone-instantiation facet.
+
+Original report:
 - Surfaced while porting every `drop/` test.
 - Minimal trigger (exits with the drop NOT having run):
   ```
@@ -67,7 +80,18 @@ compiler-bug #1).
   misses the canonical `&mut self` stdlib-`Drop` shape. HIGH-VALUE: this is the
   Rust-idiomatic Drop form.
 
-### 2. Enum Drop-glue does not fire (even with the local-`trait Drop` idiom)
+### 2. Enum Drop-glue does not fire (even with the local-`trait Drop` idiom) — FIXED (2026-05-21)
+**Fixed.** `drop_fn_for` only set the `__drop` lookup key for `Struct` types —
+for an `Enum` the type-name stayed empty, so it returned no drop fn and the
+enum's `Drop` impl was never resolved. Now it keys enum drops by enum name
+(`E__drop`). No SDrop codegen change needed: an enum variable's slot holds the
+heap-struct pointer directly (same one-level shape as a struct value), so the
+existing `call drop_fn(it->second)` is correct. Covers by-value and `&mut self`
+enum Drop. Regression: `tests/logos/pass/drop_mut_self_and_enum.logos`.
+**Follow-up (NOT done):** recursive drop of an enum variant's *payload* (a
+`Foo` with its own Drop inside `Bar::V(Foo)`) is still not walked.
+
+Original report:
 - Surfaced while porting `drop/destructor-run-for-let-ignore-6892.rs`.
 - Minimal trigger:
   ```
