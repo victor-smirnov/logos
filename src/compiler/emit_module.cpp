@@ -991,11 +991,36 @@ bool emit_module(const ModuleManifest& manifest,
         return true;
     }
 
+    // A-AST: do not re-export the AST of dependency modules pulled in from a
+    // lower-layer archive (from_binary_module=true). Those definitions are
+    // owned by their canonical archive (lang.a / mem.a), which is always on a
+    // consumer's search path in a layered link — build_binary_index routes
+    // dep packages to that owner via its owned-only `.pkgi`, and the owner's
+    // own prelude-sibling pull supplies the foundational traits. The embedded
+    // copy here was pure dead weight (~2.6 MB of lang+mem AST on std.hm0) that
+    // never won a lookup. Synth docs (the tail past from_binary_module_flags)
+    // are owned by THIS module and are kept.
+    //
+    // The LIR blob still carries dep definitions for codegen self-containment;
+    // thinning that is the separate A-LIR step (TypeUID indirection).
+    std::vector<ParsedModule> own_modules_for_h0;
+    own_modules_for_h0.reserve(modules_for_h0.size());
+    size_t dropped_dep_asts = 0;
+    for (size_t i = 0; i < modules_for_h0.size(); ++i) {
+        if (i < from_binary_module_flags.size() && from_binary_module_flags[i]) {
+            ++dropped_dep_asts;
+            continue;
+        }
+        own_modules_for_h0.push_back(modules_for_h0[i]);
+    }
     if (verbose) {
+        std::fprintf(stderr,
+            "emit_module: A-AST — keeping %zu own module(s), dropped %zu dep AST(s) from .hermes0\n",
+            own_modules_for_h0.size(), dropped_dep_asts);
         std::fprintf(stderr, "emit_module: writing → %s\n", h0_path.c_str());
     }
     uint64_t mflags = manifest.lazy ? module_flag::LAZY : 0;
-    if (!write_hermes0(h0_path, modules_for_h0,
+    if (!write_hermes0(h0_path, own_modules_for_h0,
                        manifest.lazy ? nullptr : &exports,
                        manifest.lazy ? nullptr : &lir_blob,
                        mflags)) {
