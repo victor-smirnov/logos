@@ -1647,7 +1647,7 @@
     pat_variant_args <- pat_single (COMMA pat_single)* COMMA?
                      => { ITEMS: $... }
 
-    pattern <- pat_single (PIPE pat_single)*
+    pattern <- PIPE? pat_single (PIPE pat_single)*
             => { CODE: PAT_OR, ITEMS: $... }
 
     // ── Single field in a struct pattern ─────────────────────────────────

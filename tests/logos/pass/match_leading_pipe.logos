@@ -1,0 +1,17 @@
+// Regression: optional leading `|` in a match arm pattern (Rust allows it).
+// Surfaced by B106 ui import. Grammar: pattern <- PIPE? pat_single ...
+package match_leading_pipe;
+fn f(x: i32) -> i32 {
+    match x {
+        | 1i32 | 2i32 => { return 9i32; }
+        | 3i32        => { return 7i32; }
+        _             => { return 0i32; }
+    }
+}
+fn main() -> i32 {
+    if f(1i32) != 9i32 { return 1; }
+    if f(2i32) != 9i32 { return 2; }
+    if f(3i32) != 7i32 { return 3; }
+    if f(5i32) != 0i32 { return 4; }
+    return 0;
+}

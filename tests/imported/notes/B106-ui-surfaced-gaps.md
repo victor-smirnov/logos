@@ -5,6 +5,22 @@ compiler gaps. The tests that hit them were SKIPPED (per policy: don't
 force/hack a broken port). Each is a candidate for a fundamental fix; when
 fixed, the corresponding upstream test becomes a regression.
 
+## Resolution status (2026-05-21 gap-closing pass)
+
+- **#1 str relational compare — FIXED** (353385ec): `str_cmp` in
+  logos.lang.str + lower_binop routes `<`/`<=`/`>`/`>=` on Slice<u8>.
+- **leading `|` in match arm — FIXED**: grammar `pattern <- PIPE? pat_single
+  …`. Regression: tests/logos/pass/match_leading_pipe.logos.
+- **unit struct `struct S;` — DIVERGENCE, not a fix.** `struct Name;` is
+  Logos's *explicit-instantiation* directive (`struct_inst`), not a
+  zero-field struct. Logos's zero-field struct is `struct S {}` (verified
+  works). Tests using `struct S;` should adapt to `{}` or skip.
+- **#2 (or-pattern binding), #3 (Some-guard-return), #4 (enum-in-tuple),
+  open-`..` range pattern — DEFERRED** as a precise match-codegen baghunt
+  (details below). Each is a multi-hour codegen/lowering excursion; deferred
+  per the draw-the-boundary discipline rather than thrash the heavily-used
+  match path unsupervised. Scoping notes added inline.
+
 ## Codegen / mlir-gen
 
 1. **str relational compare emits a pointer `arith.cmpi`** — `s1 < s2` /
@@ -21,10 +37,18 @@ fixed, the corresponding upstream test becomes a regression.
 
 ## Pattern-match lowering
 
-3. **Tuple or-pattern with cross-position rebinding** — `match t { (1,a,b) |
-   (2,b,a) => … }` (same names bound at different tuple positions per
-   alternative) → `func.return` / metacall MLIR failure. Blocks
-   `match-pipe-binding`.
+3. **Or-pattern with ANY variable binding** (broader than first thought) —
+   `match t { (1,a) | (2,a) => … }` already fails with `'func.return' op
+   expects parent op 'func.func'` / MLIR lowering failure; cross-position
+   rebind `(1,a,b)|(2,b,a)` is the same root. Value-only or-patterns
+   (`1 | 2 =>`) work. The scalar-discriminant or-pattern codegen
+   (mlir_gen_stmt.cpp ~2420) explicitly bails on non-scalar alts ("Callers
+   must not pass PatOr with non-scalar alts"), and the binding-extraction
+   takes only the first alt (~2297). **Recommended fundamental fix:** desugar
+   a PAT_OR arm into N separate arms (one per alternative, body cloned) at
+   sema match-lowering — handles scalar/structural/cross-rebind uniformly and
+   lets the fragile scalar-or codegen be retired. Risk: touches the
+   heavily-used match-lowering path → wants a dedicated, full-ctest pass.
 
 4. **Multi-arm `Some(_) if guard` / `Some(_)` over `Option<i64>` that
    returns** — a 2+ arm match on `Option<i64>` where guarded and unguarded
