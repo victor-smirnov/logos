@@ -5,7 +5,8 @@ and `logos.std.prelude`. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
-Status: **modules landed (2026-05-21); implicit injection deferred.**
+Status: **modules landed + R1/R2 default-on blockers fixed (2026-05-21);
+default-on still gated on R3 (B-mv-02 trait-collision).**
 
 Implementation progress:
 - ✅ Injection mechanism (manifest `prelude` directive, `#![no_implicit_prelude]`
@@ -25,21 +26,31 @@ Implementation progress:
   With all three set, a zero-`use`-line program compiles + runs: `Option`/`Some`/
   `None`/`match`/`String` resolve via `effective_import_pkgs()`'s transitive
   `pub use` expansion (std→mem→lang→option). Confirmed end-to-end.
-- ⛔ DEFAULT-ON is BLOCKED by a deeper bug. Flipping it on for every single-file
-  compile regressed **99 / 3586** tests (full-ctest, 2026-05-21). The failures
-  are nearly all ONE root: pulling the iterator/collection generic surface
-  (`logos.lang.iter`, `logos.mem.collections.*`) into a consumer via the prelude
-  wildcard RE-LOWERS those stdlib generic templates in the consumer context, and
-  their type-parameters resolve to `<error>` — e.g. `RevIter__filter` →
-  `FilterIter <error>`, `HashSet__iter` → `HashMapKeys<<error>, u8>`,
-  `ObjectMap::init undefined`. This is the B109 #4 / cross-arena-generic-clone
-  family (stdlib generics should use their BINARY form, not re-lower in the
-  consumer; skeleton-skip/binary_symbols apparently doesn't cover the
-  prelude-pulled re-export path). The wiring was reverted to keep the suite
-  green. UNBLOCK PATH: fix the stdlib-generic-re-lowering-in-consumer bug (make
-  prelude-pulled generics resolve to their binary instances / bind type-params
-  correctly), THEN re-apply the 3-point wiring + add tier-awareness (lang vs std)
-  + keep the stdlib emit_module build opted-out (cycles).
+- 🟡 DEFAULT-ON regressed **99 / 3586** (2026-05-21). Diagnosed into THREE
+  independent roots (NOT one); two now fixed:
+  - **R2 FIXED** (commit 47bab8c1) — consumer template-lowering produced
+    type-param→`<error>`: sema struct-lit type-arg inference didn't recurse into
+    a type-param NESTED inside a compound field (`HashMapKeys<K,u8>`,
+    `fn(T)->bool`), so with no return hint (template / force-lower path) it fell
+    to `error_t()` → `Foo<<error>>`. Added recursive `unify_field_tv`. Fixes
+    HashSet__iter / RevIter__filter / MapIter__filter / FilterIter.
+  - **R1 FIXED** (commit 962f53c3) — loader over-drag: `visit_binary_module`'s
+    `pkg_in_prelude` dragged the WHOLE `logos.mem.*` layer (collections/encoding/
+    mem.hermes) out of liblogos-mem.a whenever a compile touched Vec/String, then
+    re-lowered it every compile (perf regression ~26%) and force-lowered its
+    generics in trait-bound/HRTB programs (the `ObjectMap::init` / `Array__equal`
+    artifacts). Narrowed `pkg_in_prelude` to `logos.lang.*` only — the genuine
+    no-`use` cross-cutting foundation. Mem packages now load only via the
+    use-closure.
+  - Combined: prelude-on 99 → **60**; base suite 3586/3586; the entire
+    force-lower-artifact cluster gone.
+  - **R3 STILL OPEN** (last blocker for default-on) — ~45 tests redefine prelude
+    trait names (Drop/Default/From/Into/Add/Div/PartialEq) → "trait X defined in
+    both packages" (B-mv-02 cross-pkg same-name trait clobber). Fix B-mv-02
+    (local-shadows-prelude) OR migrate the tests to drop their redefinitions.
+    Then update 6 negative-test `.expected`, triage 2 pre-existing stragglers
+    (vec_usage runtime; generic_method_infer_struct mono), re-apply the 3-point
+    wiring + tier-awareness + keep stdlib emit_module opted-out.
 
 ---
 
