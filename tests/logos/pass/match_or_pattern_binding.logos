@@ -1,0 +1,68 @@
+// Regression: or-patterns whose alternatives bind variables. The merged
+// PatOr codegen only handled pure scalar-literal alts and extracted payload
+// from alt[0]; binding/structural alts produced wrong code (statement form:
+// `func.return` parent error; expression form: dispatched on the scrutinee
+// pointer). Fix: sema fans out a binding/structural or-pattern arm into one
+// arm per alternative (lower_match + lower_match_expr), and the match-expr
+// codegen now extracts Tuple/At/RefBind/RefPat bindings. Covers tuple-or,
+// cross-position rebind, enum-variant-or, in both statement and expression
+// position, plus the scalar-or path that must stay merged.
+package match_or_pattern_binding;
+
+enum E { A(i32), B(i32), C }
+
+// statement form, tuple-or with shared binding
+fn st(t: (i32, i32)) -> i32 {
+    match t {
+        (1i32, a) | (2i32, a) => { return a; }
+        _ => { return -1i32; }
+    }
+}
+
+// expression form, tuple-or with shared binding
+fn ex(t: (i32, i32)) -> i32 {
+    return match t {
+        (1i32, a) | (2i32, a) => a,
+        _ => -1i32,
+    };
+}
+
+// cross-position rebind
+fn xr(t: (i32, i32, i32)) -> i32 {
+    return match t {
+        (1i32, a, b) | (2i32, b, a) => a - b,
+        _ => -100i32,
+    };
+}
+
+// enum-variant or-pattern with same-name payload binding
+fn en(e: E) -> i32 {
+    return match e { E::A(x) | E::B(x) => x, E::C => 0i32, };
+}
+
+// pure scalar or-pattern stays merged
+fn sc(x: i32) -> i32 {
+    return match x { 1i32 | 2i32 | 3i32 => 100i32, _ => 0i32, };
+}
+
+fn main() -> i32 {
+    if st((1i32, 10i32)) != 10i32 { return 1i32; }
+    if st((2i32, 20i32)) != 20i32 { return 2i32; }
+    if st((3i32, 30i32)) != -1i32 { return 3i32; }
+
+    if ex((1i32, 11i32)) != 11i32 { return 4i32; }
+    if ex((2i32, 21i32)) != 21i32 { return 5i32; }
+    if ex((9i32, 31i32)) != -1i32 { return 6i32; }
+
+    if xr((1i32, 7i32, 3i32)) != 4i32 { return 7i32; }    // a=7,b=3
+    if xr((2i32, 7i32, 3i32)) != -4i32 { return 8i32; }   // b=7,a=3 -> 3-7
+    if xr((5i32, 1i32, 1i32)) != -100i32 { return 9i32; }
+
+    if en(E::A(40i32)) != 40i32 { return 10i32; }
+    if en(E::B(50i32)) != 50i32 { return 11i32; }
+    if en(E::C) != 0i32 { return 12i32; }
+
+    if sc(2i32) != 100i32 { return 13i32; }
+    if sc(5i32) != 0i32 { return 14i32; }
+    return 0i32;
+}

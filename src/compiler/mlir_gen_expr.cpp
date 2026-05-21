@@ -2561,6 +2561,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 var_elem_types_[name] = sv.getType();
                 added.push_back(name);
             }
+        } else if (pat_ref.kind() == pc::Code::Tuple) {
+            // Tuple pattern bindings (`(1, a)`, `(a, b)`) — GEP each element
+            // and bind its name. Mirrors the match-statement extract_payload.
+            // Needed for or-pattern fan-out of tuple alts (`(1,a)|(2,a)`):
+            // dispatch was handled but the binding `a` was never extracted,
+            // so the arm read garbage.
+            auto ttype = scrut_le->type ? tuple_llvm_type(scrut_le->type) : mlir::Type();
+            mlir::Value tptr = scrut_ptr ? scrut_ptr : scrut;
+            if (ttype && tptr) {
+                if (tptr.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(ttype);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, tptr, a);
+                    tptr = a;
+                }
+                lir_view::PatTupleView tv{pat_ref};
+                std::vector<std::string> bindings;
+                tv.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
+                std::vector<TypeRef> btypes;
+                tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
+                for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
+                    if (bindings[bi] == "_") continue;
+                    auto elem_mlir = logos_to_mlir(btypes[bi]);
+                    if (!elem_mlir) continue;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+                    auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
+                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
+                    auto alloca = create_entry_alloca(elem_mlir);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                    scope_[bindings[bi]] = alloca;
+                    let_vars_.insert(bindings[bi]);
+                    var_elem_types_[bindings[bi]] = elem_mlir;
+                    added.push_back(bindings[bi]);
+                }
+            }
         } else if (pat_ref.kind() == pc::Code::RefBind) {
             // `ref r` / `ref mut r` — bind name as a pointer to the scrutinee
             // slot so `*r` in a guard or body reads through the original

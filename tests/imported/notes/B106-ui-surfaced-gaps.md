@@ -15,11 +15,21 @@ fixed, the corresponding upstream test becomes a regression.
   Logos's *explicit-instantiation* directive (`struct_inst`), not a
   zero-field struct. Logos's zero-field struct is `struct S {}` (verified
   works). Tests using `struct S;` should adapt to `{}` or skip.
-- **#2 (or-pattern binding), #3 (Some-guard-return), #4 (enum-in-tuple),
-  open-`..` range pattern — DEFERRED** as a precise match-codegen baghunt
-  (details below). Each is a multi-hour codegen/lowering excursion; deferred
-  per the draw-the-boundary discipline rather than thrash the heavily-used
-  match path unsupervised. Scoping notes added inline.
+- **#2 or-pattern WITH binding — FIXED (2026-05-21).** Implemented the
+  recommended fundamental fix: sema fans out a binding/structural or-pattern
+  arm into one arm per alternative (extended `or_needs_fanout` from
+  variant-only to "any non-scalar-literal alt"; added the same fan-out to
+  `lower_match_expr`, which previously had none). The match-expression
+  codegen `extract_arm_payload` gained Tuple/At/RefBind/RefPat cases so the
+  fanned-out alts' bindings are extracted. Pure scalar or-patterns (`1|2|3`)
+  stay merged. Covers cross-position rebind (`(1,a,b)|(2,b,a)`) and
+  enum-variant-or (`A(x)|B(x)`) in both statement and expression position.
+  Regression: tests/logos/pass/match_or_pattern_binding.logos.
+- **#3 (Some-guard-return), #4 (enum-in-tuple), open-`..` range pattern —
+  DEFERRED** as a precise match-codegen baghunt (details below). Each is a
+  multi-hour codegen/lowering excursion; deferred per the draw-the-boundary
+  discipline rather than thrash the heavily-used match path unsupervised.
+  Scoping notes added inline.
 
 ## Codegen / mlir-gen
 

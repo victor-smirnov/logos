@@ -5575,19 +5575,25 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
         // and same-variant-with-bindings or-patterns stay merged.
         struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; };
+        // An or-pattern alternative is "merge-safe" only if it is a pure
+        // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
+        // The merged PatOr codegen treats each alt as a scalar discriminant
+        // and extracts payload from alt[0] only — so anything that binds a
+        // variable (tuple `(1,a)|(2,a)`, struct, variant payload, named
+        // wildcard) or has a non-scalar/refutable shape (range, slice) must
+        // be fanned out into one arm per alternative so each alt goes through
+        // the normal single-arm path with its own payload extraction and
+        // refutable-inner guard.
+        auto alt_is_merge_safe = [](int32_t c) -> bool {
+            return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
+        };
         auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
             if (code_of(lhs) != la::PAT_OR) return false;
             if (!lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
             if (a.size() < 2) return false;
-            // Need fan-out if at least one alt is a variant pattern
-            // (PAT_VARIANT/PAT_VARIANT_DATA), since payload extraction
-            // differs per disc. Scalar-only alts are handled correctly
-            // by the existing merged PatOr.
-            for (uint64_t k = 0; k < a.size(); ++k) {
-                int32_t c = code_of(map_of(a.get(k)));
-                if (c == la::PAT_VARIANT || c == la::PAT_VARIANT_DATA) return true;
-            }
+            for (uint64_t k = 0; k < a.size(); ++k)
+                if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
             return false;
         };
         std::vector<EffArm> eff_arms;
@@ -5984,8 +5990,50 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
     if (node.has_key(la::ITEMS)) {
         auto arms = arr_of(node.get(la::ITEMS.code));
+        // Or-pattern fan-out (symmetric to lower_match). An or-pattern arm
+        // whose alternatives bind variables or have non-scalar/refutable
+        // shapes (`(1,a)|(2,a)`, variant payloads, etc.) is expanded into one
+        // synthetic arm per alternative so each goes through the normal
+        // single-arm path with its own payload extraction. Pure scalar-literal
+        // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
+        // variant codegen mishandled bindings — e.g. dispatched on the
+        // scrutinee pointer (`arith.cmpi ptr, 0`).
+        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; };
+        auto alt_is_merge_safe = [](int32_t c) -> bool {
+            return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
+        };
+        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+            if (code_of(lhs) != la::PAT_OR) return false;
+            if (!lhs.has_key(la::ITEMS)) return false;
+            auto a = arr_of(lhs.get(la::ITEMS.code));
+            if (a.size() < 2) return false;
+            for (uint64_t k = 0; k < a.size(); ++k)
+                if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
+            return false;
+        };
+        std::vector<EffArm> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
+            if (code_of(arm) != la::MATCH_ARM) { eff_arms.push_back({arm, -1}); continue; }
+            if (arm.has_key(la::LHS)) {
+                auto lhs = map_of(arm.get(la::LHS.code));
+                if (or_needs_fanout(lhs)) {
+                    auto a = arr_of(lhs.get(la::ITEMS.code));
+                    for (uint64_t k = 0; k < a.size(); ++k)
+                        eff_arms.push_back({arm, (int32_t)k});
+                    continue;
+                }
+            }
+            eff_arms.push_back({arm, -1});
+        }
+        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+            if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
+            auto lhs = map_of(arm.get(la::LHS.code));
+            return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
+        };
+        for (uint64_t i = 0; i < eff_arms.size(); ++i) {
+            auto arm = eff_arms[i].arm;
+            int32_t alt_idx = eff_arms[i].alt_idx;
             if (code_of(arm) != la::MATCH_ARM) continue;
 
             lir::LExprPtr synth_guard = nullptr;
@@ -5995,7 +6043,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 std::vector<lir::LStmt> g_stmts;
                 std::vector<HermesPatBinding> g_binds;
                 auto raw = build_hermes_pat_guard(
-                    map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                    effective_lhs(arm, alt_idx), root_var, anyval_t,
                     base_var, g_stmts, g_binds);
                 if (!g_stmts.empty() && raw) {
                     auto blk = lir::alloc_block(*cur_prog_);
@@ -6006,7 +6054,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 }
                 if (!g_binds.empty()) {
                     (void)build_hermes_pat_guard(
-                        map_of(arm.get(la::LHS.code)), root_var, anyval_t,
+                        effective_lhs(arm, alt_idx), root_var, anyval_t,
                         base_var, body_prologue, body_binds);
                 }
             }
@@ -6026,7 +6074,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
             lir::Pattern pat = arm.has_key(la::LHS)
-                ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
+                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
                 : make_pat_wild("_");
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
