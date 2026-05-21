@@ -1,0 +1,19 @@
+// Regression: a bare/incompletely-typed generic-enum literal passed directly as
+// a call argument must be retyped to the parameter's concrete enum spec, so
+// mlir-gen emits the heap-ptr form (not a C-style i32 discriminant → operand
+// mismatch). Sibling of the lower_assign retype; here in call-argument position.
+package enum_lit_call_arg;
+enum Opt<X> { None, Some(X) }
+fn cmp(x: Opt<i64>, y: Opt<i64>) -> bool {
+    return match x {
+        Opt::Some(a) => match y { Opt::Some(b) => a == b, Opt::None => false, },
+        Opt::None => match y { Opt::Some(_) => false, Opt::None => true, },
+    };
+}
+fn main() -> i32 {
+    if cmp(Opt::Some(3i64), Opt::None) { return 1i32; }
+    if !cmp(Opt::None, Opt::None) { return 2i32; }
+    if !cmp(Opt::Some(5i64), Opt::Some(5i64)) { return 3i32; }
+    if cmp(Opt::Some(5i64), Opt::Some(6i64)) { return 4i32; }
+    return 0i32;
+}

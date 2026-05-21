@@ -112,7 +112,18 @@ Original report:
   uses the local-`Opt` form. Related to the broader stdlib-`Option`-over-generic
   fragility (see #4).
 
-### 4. A bare generic-enum literal passed *directly* as a call argument mis-codegens
+### 4. A bare generic-enum literal passed *directly* as a call argument mis-codegens — FIXED (2026-05-21)
+**Fixed.** Same root as the B110 lower_assign retype, in call-argument position:
+`cmp(Opt::Some(3), Opt::None)` lowered the bare/partially-typed enum literal
+without the parameter type, so it carried no (or `<error>`) type-args and
+mlir-gen emitted a C-style i32 discriminant (operand mismatch vs the heap-ptr
+param). Fix: new `try_retype_bare_enum_arg(arg, param_type)` (mirrors the
+try_coerce_* family), called at the resolved-function arg-coercion sites; it
+retypes an incompletely-typed enum-literal arg to the concrete param enum when
+the known type-args match. Regression `tests/logos/pass/enum_lit_call_arg.logos`.
+compare-generic-enums now portable without the typed-local workaround.
+
+Original report:
 - Surfaced while porting `structs-enums/compare-generic-enums.rs`.
 - Minimal trigger (MLIR verify fail / operand-type mismatch at compile time):
   ```

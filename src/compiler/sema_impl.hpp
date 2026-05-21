@@ -345,6 +345,43 @@ private:
                                   make_slice_type(et.elem()));
         return true;
     }
+    // Retype an incompletely-typed generic enum-literal argument to the
+    // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
+    // `Opt::Some(3)` passed directly as a call argument carries no (or
+    // `<error>`) type-args, so mlir-gen emits a C-style i32 discriminant where
+    // the heap-ptr enum is expected (operand-type mismatch). The parameter type
+    // pins the missing args. Mirrors lower_assign's retype
+    // ([[baghunt-replace-ref-option-cascade]]). Only fires when the literal's
+    // known (non-error) type-args already match the target's, so a genuine
+    // mismatch is still rejected downstream.
+    bool try_retype_bare_enum_arg(lir::LExprPtr& arg, TypeRef expected) {
+        if (!arg || !expected) return false;
+        TypeRef at(arg->type), pt(expected);
+        if (at.kind() != LogosType::Kind::Enum ||
+            pt.kind() != LogosType::Kind::Enum) return false;
+        if (pt.type_args().empty()) return false;
+        if (at.enum_name() != pt.enum_name()) return false;
+        auto rk = expr_ref_of(*arg).kind();
+        if (rk != lir_schema::expr::Code::EnumLit &&
+            rk != lir_schema::expr::Code::EnumLitData) return false;
+        auto aa = at.type_args();
+        auto pa = pt.type_args();
+        bool incomplete = aa.empty();
+        if (!incomplete)
+            for (auto ta : aa)
+                if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) { incomplete = true; break; }
+        if (!incomplete) return false;
+        for (auto ta : pa)
+            if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) return false;
+        if (!aa.empty()) {
+            if (aa.size() != pa.size()) return false;
+            for (size_t i = 0; i < aa.size(); ++i)
+                if (aa[i] && TypeRef(aa[i]).kind() != LogosType::Kind::Error &&
+                    !types_compatible(aa[i], pa[i])) return false;
+        }
+        builder().retype_expr(arg, pt);
+        return true;
+    }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
     // Returns true if coercion was applied (arg's type is changed to FnPtr).
     bool try_coerce_closure_to_fnptr(lir::LExprPtr& arg, TypeRef expected) {
