@@ -1705,6 +1705,13 @@ private:
         // `impl<'a, 'b: 'a> ...` → [("'b", "'a")].
         std::vector<std::pair<std::string, std::string>> impl_lifetime_outlives;
         std::string doc;     // outer `///` doc-comment on the impl block
+        // B-mv-02: canonical (scope-resolved) registry key of the implemented
+        // trait, captured at collect time when cur_package_ is the impl's own
+        // package. Lets later GLOBAL passes (supertrait verification) that
+        // iterate impls_ without per-impl scope resolve to the SAME trait the
+        // impl actually targets, instead of whatever same-name trait holds the
+        // bare slot. Empty ⇒ fall back to bare trait_name (non-colliding).
+        std::string canonical_trait;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -1875,6 +1882,7 @@ private:
         TypeRef         type;
         std::vector<TypeParam>   type_params;
         std::vector<std::string> lifetime_params;  // e.g. ["'z"] for type Foo<'z, T> = ...
+        std::string     package;  // B-mv-02: owning package for cross-pkg coexistence
     };
 
     // Lifetime substitution map: "'z" → "'a"  (name → name, erased at codegen).
@@ -2103,6 +2111,19 @@ private:
             if (it != traits_.end()) return it;
         }
         return traits_.find(std::string(name));
+    }
+    // Canonical registry key for a trait NAME as resolved in the current scope:
+    // the bare name for a trait that uniquely owns the bare slot (no behaviour
+    // change vs the legacy registry), or `pkg::Name` for a same-name trait that
+    // a B-mv-02 collision pushed under its package-qualified key. Use this
+    // wherever a trait name is composed into a registry key (impls_, coherence,
+    // assoc) or looked up, so a user trait and a same-named stdlib/prelude trait
+    // route to DISTINCT entries. Falls back to the bare name when unresolved
+    // (forward refs / not-yet-collected) — callers then behave as before.
+    std::string canonical_trait_name(std::string_view name) {
+        auto it = find_trait_iter_scoped(name);
+        if (it != traits_.end()) return it->first;
+        return std::string(name);
     }
     bool has_struct(std::string_view name)   { return find_struct_by_name(name).second   != nullptr; }
     bool has_datatype(std::string_view name) { return find_datatype_by_name(name).second != nullptr; }

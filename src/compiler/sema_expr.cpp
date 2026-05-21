@@ -5420,7 +5420,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         StrSet st_visited;
         std::function<void(const std::string&)> search_trait = [&](const std::string& tname) {
             if (!st_visited.insert(tname).second) return;  // cycle / diamond guard (Bug 2)
-            auto tit = traits_.find(tname);
+            auto tit = find_trait_iter_scoped(tname);  // B-mv-02: user trait shadows same-name stdlib
             if (tit == traits_.end()) return;
             for (auto& m : tit->second.methods) {
                 if (m.name != method_name) continue;
@@ -5453,7 +5453,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::function<void(const std::string&)> add_b =
                 [&](const std::string& tn) {
                     if (!t_bounds.insert(tn).second) return;
-                    auto it = traits_.find(tn);
+                    auto it = find_trait_iter_scoped(tn);
                     if (it != traits_.end())
                         for (auto& s : it->second.supertraits) add_b(s.trait_name);
                 };
@@ -5596,7 +5596,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (bit2 != current_type_bounds_.end()) {
                     for (auto& bound : bit2->second) {
                         if (bound.trait_name != chosen_trait) continue;
-                        auto tit = traits_.find(bound.trait_name);
+                        auto tit = find_trait_iter_scoped(bound.trait_name);
                         if (tit == traits_.end()) break;
                         // Map each trait type param name to the bound's type arg
                         for (size_t ti = 0; ti < tit->second.type_params.size() &&

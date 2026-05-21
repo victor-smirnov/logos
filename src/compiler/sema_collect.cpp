@@ -1543,17 +1543,35 @@ void SemaChecker::collect_enum(TinyMapView node) {
 void SemaChecker::collect_type_alias(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     if (!node.has_key(la::TYPE)) return;
-    // Bug 1 fix: detect duplicate type alias names.
-    if (type_aliases_.count(name))
-        error(std::format("duplicate type alias '{}'", name));
     TypeAliasEntry entry;
+    entry.package = cur_package_;
     entry.lifetime_params = read_lifetime_params(node);
     entry.type_params = read_type_params(node);
     push_type_params(entry.type_params);
     entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
     pop_type_params(entry.type_params);
-    type_aliases_[name] = std::move(entry);
-    if (!cur_from_binary_) user_type_alias_keys_.insert(name);
+    // B-mv-02 (type-alias facet, mirrors collect_trait): a user `type
+    // MemDestroyer = ...` coexists with a same-name stdlib alias pulled in via
+    // the prelude. Incumbent (first / different package) keeps the bare slot;
+    // a same-name alias from another package registers under `pkg::Name` only.
+    // lookup_type_by_name probes `cur_package_::name` first, so user code
+    // resolves to its own alias. Real duplicate = same package + same name.
+    auto bit = type_aliases_.find(name);
+    const bool bare_taken_by_other =
+        bit != type_aliases_.end() && !bit->second.package.empty() &&
+        bit->second.package != cur_package_;
+    if (bare_taken_by_other) {
+        const std::string qkey = sema_key(cur_package_, name);
+        if (type_aliases_.count(qkey))
+            error(std::format("duplicate type alias '{}'", name));
+        type_aliases_[qkey] = std::move(entry);
+        if (!cur_from_binary_) user_type_alias_keys_.insert(qkey);
+    } else {
+        if (bit != type_aliases_.end())
+            error(std::format("duplicate type alias '{}'", name));
+        type_aliases_[name] = std::move(entry);
+        if (!cur_from_binary_) user_type_alias_keys_.insert(name);
+    }
 }
 
 void SemaChecker::collect_const(TinyMapView node) {
@@ -2829,8 +2847,18 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
             trait_args_key += "]";
         }
-        std::string coh_key = trait_name + trait_args_key + "::" + target;
+        // B-mv-02: key coherence by the CANONICAL (scope-resolved) trait name
+        // so a user `impl Hash for i32` and the stdlib's own `Hash` impl for the
+        // same type are NOT seen as conflicting implementations of one trait
+        // (they implement distinct same-name traits). Non-colliding traits
+        // resolve to their bare name → unchanged. impls_ stays bare-keyed;
+        // dispatch composes the bare chosen_trait + target and the target
+        // disambiguates the dispatch entry.
+        std::string coh_trait = trait_name.empty() ? trait_name
+                                                    : canonical_trait_name(trait_name);
+        std::string coh_key = coh_trait + trait_args_key + "::" + target;
         std::string key = trait_name + "::" + target;
+        info.canonical_trait = coh_trait;  // for global supertrait verification
         bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
         if (!impl_is_negative && !is_generic_impl && coherence_keys_.count(coh_key)) {
             error(std::format("conflicting implementations of trait '{}' for type '{}'",
@@ -3801,7 +3829,12 @@ void SemaChecker::check_supertrait_impls() {
     for (auto& [key, impl] : impls_) {
         const std::string& tname  = impl.trait_name;
         const std::string& target = impl.target_type;
-        auto tit = traits_.find(tname);
+        // B-mv-02: resolve the impl's OWN trait (captured canonically at collect
+        // time), not whatever same-name trait holds the bare slot — otherwise a
+        // user `impl Container for Foo` would be checked against a same-named
+        // stdlib trait's supertraits (e.g. fabric::Container: Datatype).
+        auto tit = traits_.find(impl.canonical_trait.empty() ? tname
+                                                             : impl.canonical_trait);
         if (tit == traits_.end()) continue;
         ctx_ = std::format("impl {} for {}", tname, target);  // set once per impl
         for (auto& super : tit->second.supertraits) {

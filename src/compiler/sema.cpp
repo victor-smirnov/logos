@@ -2152,8 +2152,11 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
                 return it->second.type;
             return nullptr;
         };
-        if (auto t = check_alias(ukey)) return t;
+        // B-mv-02: probe the current package's own alias FIRST so a user
+        // `type MemDestroyer` shadows a same-name stdlib alias that holds the
+        // bare slot (Rust scoping). Then the bare slot, then wildcard imports.
         if (!cur_package_.empty()) if (auto t = check_alias(sema_key(cur_package_, ukey))) return t;
+        if (auto t = check_alias(ukey)) return t;
         for (auto& pkg : cur_imports_.wildcard_packages)
             if (auto t = check_alias(sema_key(pkg, ukey))) return t;
     }
@@ -3863,7 +3866,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                     std::string tn = std::move(worklist.back());
                     worklist.pop_back();
                     if (!seen.insert(tn).second) continue;
-                    auto tit = traits_.find(tn);
+                    auto tit = find_trait_iter_scoped(tn);
                     if (tit == traits_.end()) continue;
                     for (auto& at : tit->second.assoc_types) {
                         if (at.name == assoc) { trait_for_assoc = tn; break; }
@@ -3890,7 +3893,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         // T::A::B — search bounds of the associated type itself if we had them,
         // but currently we only store trait_name for the assoc type.
         // We'll search the trait indicated by base_type's own resolution.
-        auto tit = traits_.find(TypeRef(base_type).trait_name());
+        auto tit = find_trait_iter_scoped(TypeRef(base_type).trait_name());
         if (tit != traits_.end()) {
             // This is slightly wrong: T::A might be bound to traits OTHER than the one it's defined in.
             // But our current system doesn't support "type Item: Bound;".
@@ -3907,7 +3910,7 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // method signatures. Look up the assoc-type definition on the
     // impl's trait directly.
     if (trait_for_assoc.empty() && !current_impl_trait_name_.empty()) {
-        auto tit = traits_.find(current_impl_trait_name_);
+        auto tit = find_trait_iter_scoped(current_impl_trait_name_);
         if (tit != traits_.end()) {
             for (auto& at : tit->second.assoc_types) {
                 if (at.name == assoc) {
