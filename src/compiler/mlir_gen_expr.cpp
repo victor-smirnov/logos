@@ -405,11 +405,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
         for (auto& vi : info.variants)
             if (vi.disc == disc) { vp = &vi; break; }
         if (vp) {
-            // Build a struct type for this variant's payload
-            llvm::SmallVector<mlir::Type> ft;
-            for (auto& t : vp->field_types) ft.push_back(t);
-            auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                builder_.getContext(), ft);
+            // Build a struct type for this variant's payload (inline aggregate
+            // types so field offsets match the inline memcpy footprint).
+            auto pay_struct = variant_payload_struct(*vp);
             for (size_t i = 0; i < payload.size() && i < vp->field_types.size(); ++i) {
                 auto* pl_le = lexpr_of(payload[i]);
                 if (!pl_le) return nullptr;
@@ -2478,10 +2476,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 for (auto& v : te_info->variants)
                     if (v.disc == pvd_disc) { vp = &v; break; }
                 if (vp) {
-                    llvm::SmallVector<mlir::Type> ft;
-                    for (auto& t : vp->field_types) ft.push_back(t);
-                    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                        builder_.getContext(), ft);
+                    auto pay_struct = variant_payload_struct(*vp);
                     for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};

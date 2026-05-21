@@ -470,6 +470,16 @@ private:
     // Resolve a tagged enum name from the expression type (handles generic enums).
     const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, TypeRef type);
 
+    // Build the LLVM struct type for a variant's payload, using the INLINE
+    // aggregate type (not the collapsed `ptr`) for struct/tuple payload fields.
+    // The constructor memcpy's aggregate payload fields inline (their full ABI
+    // byte size), so the payload struct type used for field GEPs must reserve
+    // the same inline footprint — otherwise a field after an aggregate (e.g.
+    // the `z` in `C(T2, i64)`) lands at the wrong offset and aliases the
+    // aggregate's bytes. Pass `vp.field_types` collapsed for scalar fields.
+    mlir::LLVM::LLVMStructType variant_payload_struct(
+        const TaggedEnumInfo::VariantPayload& vp);
+
     // Build the anonymous LLVM struct type for a tuple.
     mlir::Type tuple_llvm_type(TypeRef t);
 

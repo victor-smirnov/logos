@@ -35,10 +35,7 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
     auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
-    llvm::SmallVector<mlir::Type> ft;
-    for (auto& t : vp->field_types) ft.push_back(t);
-    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-        builder_.getContext(), ft);
+    auto pay_struct = variant_payload_struct(*vp);
 
     for (size_t bi = 0; bi < bindings.size() && bi < vp->field_types.size(); ++bi) {
         if (bindings[bi] == "_") continue;
@@ -2152,10 +2149,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 for (auto& vinfo : te_info->variants)
                     if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
                 if (vp && !bindings.empty()) {
-                    llvm::SmallVector<mlir::Type> ft;
-                    for (auto& t : vp->field_types) ft.push_back(t);
-                    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                        builder_.getContext(), ft);
+                    auto pay_struct = variant_payload_struct(*vp);
                     for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
@@ -3051,10 +3045,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                 for (auto& vinfo : te_info->variants)
                     if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
                 if (vp && !bindings.empty()) {
-                    llvm::SmallVector<mlir::Type> ft;
-                    for (auto& t : vp->field_types) ft.push_back(t);
-                    auto pay_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                        builder_.getContext(), ft);
+                    auto pay_struct = variant_payload_struct(*vp);
                     for (size_t bi = 0; bi < bindings.size() &&
                                          bi < vp->field_types.size(); ++bi) {
                         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};

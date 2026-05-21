@@ -344,6 +344,31 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     }
 }
 
+mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
+        const TaggedEnumInfo::VariantPayload& vp) {
+    llvm::SmallVector<mlir::Type> ft;
+    for (size_t i = 0; i < vp.field_types.size(); ++i) {
+        TypeRef lt = i < vp.logos_types.size() ? vp.logos_types[i] : TypeRef{};
+        mlir::Type t = vp.field_types[i];
+        if (lt) {
+            auto k = TypeRef(lt).kind();
+            if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
+                // Inline struct: use the identified struct type so the field
+                // occupies its full ABI footprint, not a collapsed ptr.
+                auto sit = struct_types_.find(mlir_struct_key(lt));
+                if (sit == struct_types_.end())
+                    sit = struct_types_.find(std::string(TypeRef(lt).struct_name()));
+                if (sit != struct_types_.end() && sit->second.llvm_type)
+                    t = sit->second.llvm_type;
+            } else if (k == LogosType::Kind::Tuple) {
+                if (auto tt = tuple_llvm_type(lt)) t = tt;
+            }
+        }
+        ft.push_back(t);
+    }
+    return mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ft);
+}
+
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     // Skip if fully populated already (variants filled in). Stub entries
     // (pre-registered by mlir_gen.cpp's two-pass loop) have empty variants

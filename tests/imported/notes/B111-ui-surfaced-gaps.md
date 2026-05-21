@@ -54,7 +54,19 @@ Categories below: `compiler-bug` (crash / wrong runtime value / verifier fail),
   through a named-field struct instead of a tuple; the tuple half keeps only
   shared `&x.0` borrows. Likely a sibling of the B108 `&mut x[i]` writeback bug.
 
-### 2. Multi-field struct payload extracted from an enum variant misreads later fields
+### 2. Multi-field struct payload extracted from an enum variant misreads later fields — FIXED (2026-05-21)
+**Fixed.** `register_tagged_enum` stored `vp.field_types[i] = logos_to_mlir(pt)`,
+which collapses a struct payload field to `ptr` (8 bytes) — but the constructor
+memcpy's the struct INLINE (full ABI size, correctly counted in `variant_bytes`).
+So the payload struct type `{ptr, i64}` used for field GEPs put the field after a
+struct at offset 8 (inside the struct's bytes), clobbering it on write and
+misreading it on read. Fix: new `variant_payload_struct(vp)` builds the payload
+struct literal using the INLINE aggregate type (identified struct / tuple) for
+struct/tuple fields; routed all four payload-struct-literal sites (write
+EEnumLitData, read extract_payload ×2, bind_enum_payload) through it. Regression
+`tests/logos/pass/enum_struct_payload_offset.logos`. `record-pat.rs` now portable.
+
+Original report:
 - Surfaced while porting `structs-enums/record-pat.rs` (test SKIPPED).
 - Minimal trigger (compiles + links; wrong runtime value):
   ```
