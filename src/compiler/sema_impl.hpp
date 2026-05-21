@@ -686,6 +686,45 @@ private:
         return ArrayView(av.to_offset(), holder_);
     }
 
+    // ── Call/method argument parsing ──────────────────────────────
+    // A call/method-call node's ARGS appears in one of three shapes, which
+    // were re-parsed inline at every dispatch site in lower_method_call /
+    // lower_call / lower_generic_call:
+    //   - absent / null            → no args
+    //   - turbofish form `{ITEMS:[…]}` (a map carrying the arg list under
+    //     ITEMS, emitted by the turbofish-bearing CALL/METHOD_CALL alt)
+    //   - legacy flat ObjectArray  → the arg nodes directly
+    // collect_arg_asts returns the arg AST nodes in source order; callers
+    // apply their own lowering policy (lower_expr vs lower_arg_with_hint).
+    // The shape probe order (ITEMS first, else pointer-array) matches the
+    // historical inline logic exactly.
+    std::vector<hermes::TinyMapView> collect_arg_asts(hermes::TinyMapView node) noexcept {
+        using namespace sema_detail;
+        std::vector<hermes::TinyMapView> out;
+        if (!node.has_key(la::ARGS)) return out;
+        auto args_av = node.get(la::ARGS.code);
+        if (args_av.is_null()) return out;
+        auto args_list = map_of(args_av);
+        if (args_list.has_key(la::ITEMS)) {
+            auto items = arr_of(args_list.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i)
+                out.push_back(map_of(items.get(i)));
+        } else if (args_av.is_pointer()) {
+            auto arr = arr_of(args_av);
+            for (uint64_t i = 0; i < arr.size(); ++i)
+                out.push_back(map_of(arr.get(i)));
+        }
+        return out;
+    }
+
+    // collect_arg_asts + lower each via lower_expr. Replaces the common
+    // "parse the args and lower them" idiom (no per-arg type hint).
+    std::vector<lir::LExprPtr> lower_call_args(hermes::TinyMapView node) {
+        std::vector<lir::LExprPtr> args;
+        for (auto an : collect_arg_asts(node)) args.push_back(lower_expr(an));
+        return args;
+    }
+
     // ── Diagnostics ──────────────────────────────────────────────
 
     SemaResult result_;

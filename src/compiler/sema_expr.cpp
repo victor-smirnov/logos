@@ -4666,22 +4666,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             recv_is_ref = true;
             tup_t = TypeRef(tup_t).pointee();
         }
-        std::vector<lir::LExprPtr> tup_args;
-        if (node.has_key(la::ARGS)) {
-            auto args_av = node.get(la::ARGS.code);
-            if (!args_av.is_null()) {
-                auto args_list = map_of(args_av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        tup_args.push_back(lower_expr(map_of(items.get(i))));
-                } else if (args_av.is_pointer()) {
-                    auto arr = arr_of(args_av);
-                    for (uint64_t i = 0; i < arr.size(); ++i)
-                        tup_args.push_back(lower_expr(map_of(arr.get(i))));
-                }
-            }
-        }
+        std::vector<lir::LExprPtr> tup_args = lower_call_args(node);
         auto elems = TypeRef(tup_t).tuple_elems();
         size_t arity = elems.size();
         std::vector<std::string> keys;
@@ -4780,29 +4765,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // CP-cm-08b: track each arg's AST so a second-pass re-lower can
         // strip a UNARY-& wrapper if the impl wants flat `Slice` rather
         // than `Ref<Slice>` for that param.
-        std::vector<TinyMapView> slc_arg_asts;
-        if (node.has_key(la::ARGS)) {
-            auto args_av = node.get(la::ARGS.code);
-            if (!args_av.is_null()) {
-                auto args_list = map_of(args_av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i) {
-                        auto an = map_of(items.get(i));
-                        slc_arg_asts.push_back(an);
-                        slc_args.push_back(lower_expr(an));
-                    }
-                } else if (args_av.is_pointer()) {
-                    // Legacy flat-array shape (no turbofish).
-                    auto arr = arr_of(args_av);
-                    for (uint64_t i = 0; i < arr.size(); ++i) {
-                        auto an = map_of(arr.get(i));
-                        slc_arg_asts.push_back(an);
-                        slc_args.push_back(lower_expr(an));
-                    }
-                }
-            }
-        }
+        std::vector<TinyMapView> slc_arg_asts = collect_arg_asts(node);
+        for (auto an : slc_arg_asts) slc_args.push_back(lower_expr(an));
         std::string elem_name = type_str(TypeRef(recv->type).elem());
         std::vector<std::string> keys;
         keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
@@ -4901,24 +4865,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             error("method call through `&DstStruct` requires unsafe context");
         auto sname_dst = std::string(TypeRef(recv->type).struct_name());
         std::string mangled = sname_dst + "__" + std::string(method_name);
-        // Parse args inline (the outer arg_exprs vector isn't built yet at
-        // this point in lower_method_call).
-        std::vector<lir::LExprPtr> d_args;
-        if (node.has_key(la::ARGS)) {
-            auto args_av = node.get(la::ARGS.code);
-            if (!args_av.is_null()) {
-                auto args_list = map_of(args_av);
-                if (args_list.has_key(la::ITEMS)) {
-                    auto items = arr_of(args_list.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        d_args.push_back(lower_expr(map_of(items.get(i))));
-                } else if (args_av.is_pointer()) {
-                    auto arr = arr_of(args_av);
-                    for (uint64_t i = 0; i < arr.size(); ++i)
-                        d_args.push_back(lower_expr(map_of(arr.get(i))));
-                }
-            }
-        }
+        std::vector<lir::LExprPtr> d_args = lower_call_args(node);
         std::vector<TypeRef> mtypes;
         mtypes.push_back(recv->type);
         for (auto& a : d_args) mtypes.push_back(a->type);
@@ -4956,15 +4903,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     //   p.byte_offset_from(q)          — i64 byte distance
     //   p.offset_from(q)               — i64 element distance
     if (TypeRef(recv->type).kind() == LogosType::Kind::Ptr) {
-        auto parse_args = [&]() {
-            std::vector<lir::LExprPtr> args;
-            if (node.has_key(la::ARGS)) {
-                auto av = arr_of(node.get(la::ARGS.code));
-                for (uint64_t i = 0; i < av.size(); ++i)
-                    args.push_back(lower_expr(map_of(av.get(i))));
-            }
-            return args;
-        };
+        auto parse_args = [&]() { return lower_call_args(node); };
         auto mk_arith = [&](lir::EPtrArith::Op op) -> lir::LExprPtr {
             if (!inside_unsafe_)
                 error(std::format("pointer method '{}' requires unsafe context", method_name));
@@ -5030,22 +4969,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // built until further below in this function).
         {
             std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
-            std::vector<lir::LExprPtr> d_args;
-            if (node.has_key(la::ARGS)) {
-                auto args_av = node.get(la::ARGS.code);
-                if (!args_av.is_null()) {
-                    auto args_list = map_of(args_av);
-                    if (args_list.has_key(la::ITEMS)) {
-                        auto items = arr_of(args_list.get(la::ITEMS.code));
-                        for (uint64_t i = 0; i < items.size(); ++i)
-                            d_args.push_back(lower_expr(map_of(items.get(i))));
-                    } else if (args_av.is_pointer()) {
-                        auto arr = arr_of(args_av);
-                        for (uint64_t i = 0; i < arr.size(); ++i)
-                            d_args.push_back(lower_expr(map_of(arr.get(i))));
-                    }
-                }
-            }
+            std::vector<lir::LExprPtr> d_args = lower_call_args(node);
             std::vector<TypeRef> mtypes;
             mtypes.push_back(recv->type);
             for (auto& a : d_args) mtypes.push_back(a->type);
