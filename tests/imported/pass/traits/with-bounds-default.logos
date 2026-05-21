@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/with-bounds-default.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code checks; receivers `self: &i64`; the `impl Getter for
+// Option<T>` block + the `Some("hi")` assertion dropped (Logos: focus on the
+// primitive impl exercising the default method). A trait default method
+// `do_get2` returning `(T, T)` via `.clone()`, with a `T: Clone` bound.
+package with_bounds_default;
+
+use logos.lang.clone;
+
+trait Getter<T: Clone> {
+    fn do_get(self: &Self) -> T;
+
+    fn do_get2(self: &Self) -> (T, T) {
+        let x = self.do_get();
+        return (x.clone(), x.clone());
+    }
+}
+
+impl Getter<i64> for i64 {
+    fn do_get(self: &i64) -> i64 { return *self; }
+}
+
+fn main() -> i32 {
+    let r = 3i64.do_get2();
+    if r.0 != 3i64 { return 1; }
+    if r.1 != 3i64 { return 2; }
+    return 0;
+}

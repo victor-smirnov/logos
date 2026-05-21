@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-recursive-blanket-impl.rs
+// Modifications: `fn main()`→`fn main()->i32`; receivers spelled explicitly;
+// the `[u8]` impl of Foo dropped (unsized slice receiver out of scope) while
+// the recursive blanket `impl<A,T: Foo<A>> Foo<A> for &T` is kept; 1-char
+// generic params widened. Tests that a `(&mut m).foo()` call resolves to the
+// inherent Bar impl on MyType (auto-deref) rather than the generic blanket
+// impl for `&T`.
+package method_recursive_blanket_impl;
+
+trait Foo<Ax> {
+    fn foo(self: &Self, a: Ax);
+}
+
+impl<Ax, Ty: Foo<Ax>> Foo<Ax> for &Ty {
+    fn foo(self: &&Ty, a: Ax) {
+        (*self).foo(a);
+    }
+}
+
+trait Bar {
+    fn foo(self: &Self);
+}
+
+struct MyType {}
+
+impl Bar for MyType {
+    fn foo(self: &MyType) {}
+}
+
+fn main() -> i32 {
+    let mut m = MyType {};
+    (&mut m).foo();
+    return 0;
+}

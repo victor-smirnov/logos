@@ -1,0 +1,50 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-6334.rs
+// Modifications: usize→u64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code check; receivers `self: &Foo`/`self: &Bar`; unit
+// structs→`{}`. A generic method `combine<T: A+B>` whose bound order differs
+// between the trait decl (`A+B`) and the impl (`B+A`); dispatched through a
+// generic fn `use_c`.
+package issue_6334;
+
+trait A {
+    fn a(self: &Self) -> u64;
+}
+
+trait B {
+    fn b(self: &Self) -> u64;
+}
+
+trait C {
+    fn combine<T: A + B>(self: &Self, t: &T) -> u64;
+}
+
+struct Foo {}
+
+impl A for Foo {
+    fn a(self: &Foo) -> u64 { return 1u64; }
+}
+
+impl B for Foo {
+    fn b(self: &Foo) -> u64 { return 2u64; }
+}
+
+struct Bar {}
+
+impl C for Bar {
+    fn combine<T: B + A>(self: &Bar, t: &T) -> u64 {
+        return (t.a() * 100u64) + t.b();
+    }
+}
+
+fn use_c<S: C, T: B + A>(s: &S, t: &T) -> u64 {
+    return s.combine(t);
+}
+
+fn main() -> i32 {
+    let foo = Foo {};
+    let bar = Bar {};
+    let r = use_c(&bar, &foo);
+    if r != 102u64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-vec-arg.rs
+// Modifications: isize→i64; `pub fn main()`→`fn main()->i32`; the original empty
+// main now builds an array and calls sum/sum_imm so the coercions are
+// codegenned + checked (return-code). The key coercion — `sum_mut` calling
+// `sum(y)` where `y: &mut [i64]` is passed to a `&[i64]` parameter (immutable
+// reborrow) — is preserved and type-checked even though `sum_mut` isn't called
+// from main (no easy `&mut [T]` literal: an array `&a` slices to `&[i64]`).
+package coerce_reborrow_imm_vec_arg;
+
+fn sum(x: &[i64]) -> i64 {
+    let mut s = 0i64;
+    for y in x { s += *y; }
+    return s;
+}
+
+fn sum_mut(y: &mut [i64]) -> i64 {
+    return sum(y);
+}
+
+fn sum_imm(y: &[i64]) -> i64 {
+    return sum(y);
+}
+
+fn main() -> i32 {
+    let a = [1i64, 2i64, 3i64];
+    if sum(&a) != 6i64 { return 1; }
+    if sum_imm(&a) != 6i64 { return 2; }
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/self.rs
+// Modifications: isize→i64; literal suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert!`→return-code check; the receiver type is a struct wrapper (Cint)
+// instead of the primitive isize — a chained default-method call on a *primitive*
+// impl (default `scratch` calling default `purr`) hits a Self-substitution
+// compiler bug (see notes/B113); the struct form exercises the same concept.
+// A trait default method (`scratch`) calls another default method (`purr`);
+// the concrete impl only overrides `meow`.
+package default_method_self;
+
+struct Cint { val: i64 }
+
+trait Cat {
+    fn meow(self: &Self) -> bool;
+    fn scratch(self: &Self) -> bool { return self.purr(); }
+    fn purr(self: &Self) -> bool { return true; }
+}
+
+impl Cat for Cint {
+    fn meow(self: &Cint) -> bool { return self.scratch(); }
+}
+
+fn main() -> i32 {
+    let c = Cint { val: 5i64 };
+    if !c.meow() { return 1; }
+    return 0;
+}

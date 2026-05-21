@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/trivial.rs
+// Modifications: isize→i64; literal suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert!`→return-code check; `self`/receiver spelled `self: &i64`.
+// Exercises a trait default method (`purr`) reached transitively through two
+// concrete impl methods on the primitive type i64.
+package default_method_trivial;
+
+trait Cat {
+    fn meow(self: &Self) -> bool;
+    fn scratch(self: &Self) -> bool;
+    fn purr(self: &Self) -> bool { return true; }
+}
+
+impl Cat for i64 {
+    fn meow(self: &i64) -> bool { return self.scratch(); }
+    fn scratch(self: &i64) -> bool { return self.purr(); }
+}
+
+fn main() -> i32 {
+    if !5i64.meow() { return 1; }
+    return 0;
+}

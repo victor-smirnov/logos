@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-implementation-restriction-5988.rs
+// Modifications: `fn main()`→`fn main()->i32`; receivers spelled explicitly;
+// unit struct `A`→`A {}`; trait name `T`→`Tr` (1-char clash). A blanket
+// `impl<U: Tr> B for U` provides B for any Tr type; `&a as &dyn B` then
+// dispatches B::f through the trait object.
+package trait_implementation_restriction_5988;
+
+trait B {
+    fn f(self: &Self);
+}
+
+trait Tr: B {
+}
+
+struct A {}
+
+impl<U: Tr> B for U {
+    fn f(self: &U) { }
+}
+
+impl Tr for A {
+}
+
+fn main() -> i32 {
+    let a = A {};
+    let br = &a as &dyn B;
+    br.f();
+    return 0;
+}

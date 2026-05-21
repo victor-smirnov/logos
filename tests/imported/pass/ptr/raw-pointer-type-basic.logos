@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ptr_ops/raw-pointer-type-basic.rs
+// Modifications: isize→i64; `pub fn main()`→`fn main()->i32`. Raw pointer
+// (`*const i64`) used as a function argument and return type.
+package raw_pointer_type_basic;
+
+fn f(a: *const i64) -> *const i64 {
+    return a;
+}
+
+fn g(a: *const i64) -> *const i64 {
+    let b = f(a);
+    return b;
+}
+
+fn main() -> i32 {
+    return 0;
+}

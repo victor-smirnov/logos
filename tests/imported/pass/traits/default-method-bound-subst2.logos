@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst2.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code check; receiver `self: &Self`; 1-char generic params
+// widened (T→Ty, V kept). A trait `A<Ty>` with a default method `g(Ty)->Ty`,
+// reached through a generic fn bounded `V: A<Ty>`.
+package default_method_bound_subst2;
+
+trait A<Ty> {
+    fn g(self: &Self, x: Ty) -> Ty { return x; }
+}
+
+impl A<i64> for i64 { }
+
+fn f<Ty, V: A<Ty>>(i: V, j: Ty) -> Ty {
+    return i.g(j);
+}
+
+fn main() -> i32 {
+    if f(0i64, 2i64) != 2i64 { return 1; }
+    return 0;
+}

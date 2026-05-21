@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/bug-7295.rs
+// Modifications: `pub fn main()`→`fn main()->i32`; receivers `self: &Self`;
+// 1-char generic params widened (T→Ty, U→Up). Exercises a method-generic
+// (`func2<Up>`) trait default method that calls another method-generic required
+// method (`func1<Up>`) on self.
+package bug_7295;
+
+trait Foo<Ty> {
+    fn func1<Up>(self: &Self, t: Up, w: Ty);
+
+    fn func2<Up>(self: &Self, t: Up, w: Ty) {
+        self.func1(t, w);
+    }
+}
+
+fn main() -> i32 {
+    return 0;
+}

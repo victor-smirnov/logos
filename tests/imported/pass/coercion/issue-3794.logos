@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/issue-3794.rs
+// Modifications: isize→i64; `pub fn main()`→`fn main()->i32`; `#[derive(Debug)]`
+// + `println!("{:?}", self)` body replaced with `print()` returning the field
+// (return-code checked); `Box<S>`/`Box<dyn T>`→stack value + `&dyn T`; receivers
+// `self: &S`. A concrete `&S` coerces to a `&dyn T` trait object that dispatches
+// the trait method.
+package issue_3794;
+
+trait T {
+    fn print(self: &Self) -> i64;
+}
+
+struct S {
+    s: i64,
+}
+
+impl T for S {
+    fn print(self: &S) -> i64 { return self.s; }
+}
+
+fn print_t(t: &dyn T) -> i64 {
+    return t.print();
+}
+
+fn print_s(s: &S) -> i64 {
+    return s.print();
+}
+
+fn main() -> i32 {
+    let s = S { s: 5i64 };
+    if print_s(&s) != 5i64 { return 1; }
+    let t: &dyn T = &s;
+    if print_t(t) != 5i64 { return 2; }
+    return 0;
+}

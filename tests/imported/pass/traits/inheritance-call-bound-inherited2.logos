@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/call-bound-inherited2.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code check; receivers `self: &A`. Calls Foo::f given a
+// T: Baz bound, where Baz: Bar: Foo (two-level supertrait chain).
+package inheritance_call_bound_inherited2;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar: Foo { fn g(self: &Self) -> i64; }
+trait Baz: Bar { fn h(self: &Self) -> i64; }
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(self: &A) -> i64 { return 10i64; } }
+impl Bar for A { fn g(self: &A) -> i64 { return 20i64; } }
+impl Baz for A { fn h(self: &A) -> i64 { return 30i64; } }
+
+fn gg<T: Baz>(a: &T) -> i64 {
+    return a.f();
+}
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    if gg(&a) != 10i64 { return 1; }
+    return 0;
+}

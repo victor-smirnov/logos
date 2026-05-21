@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst3.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code checks; receiver `self: &Self`; 1-char method-generic
+// param T→Ty; tuple comparison done field-wise (`.0`/`.1`); the second u8
+// assertion kept. A method-generic default method returning `(Ty, Ty)`, reached
+// through a generic fn bounded `V: A`.
+package default_method_bound_subst3;
+
+trait A {
+    fn g<Ty>(self: &Self, x: Ty, y: Ty) -> (Ty, Ty) { return (x, y); }
+}
+
+impl A for i64 { }
+
+fn f<Ty, V: A>(i: V, j: Ty, k: Ty) -> (Ty, Ty) {
+    return i.g(j, k);
+}
+
+fn main() -> i32 {
+    let r = f(0i64, 1i64, 2i64);
+    if r.0 != 1i64 { return 1; }
+    if r.1 != 2i64 { return 2; }
+    let r2 = f(0i64, 1u8, 2u8);
+    if r2.0 != 1u8 { return 3; }
+    if r2.1 != 2u8 { return 4; }
+    return 0;
+}

@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/multiple-inheritors.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code checks; receivers `self: &S`; unit-payload field
+// `bogus: ()`→`bogus: i64`. Both B and C inherit A; a fn bounded T: B + C.
+package inheritance_multiple_inheritors;
+
+trait A { fn a(self: &Self) -> i64; }
+trait B: A { fn b(self: &Self) -> i64; }
+trait C: A { fn c(self: &Self) -> i64; }
+
+struct S { bogus: i64 }
+
+impl A for S { fn a(self: &S) -> i64 { return 10i64; } }
+impl B for S { fn b(self: &S) -> i64 { return 20i64; } }
+impl C for S { fn c(self: &S) -> i64 { return 30i64; } }
+
+fn f<T: B + C>(x: &T) -> i64 {
+    if x.a() != 10i64 { return 1i64; }
+    if x.b() != 20i64 { return 2i64; }
+    if x.c() != 30i64 { return 3i64; }
+    return 0i64;
+}
+
+fn main() -> i32 {
+    let s = S { bogus: 0i64 };
+    if f(&s) != 0i64 { return 1; }
+    return 0;
+}

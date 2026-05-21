@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-dependent-autofn.rs
+// Modifications: `pub fn main()`→`fn main()->i32`; `where F: FnOnce()`→the
+// inline `<F: FnOnce()>` bound; the original passed `main` itself as the
+// FnOnce value (`both(main)`) — replaced with a separate `dummy` fn since
+// Logos's `main` has an `i32` return. `both` threads an `F: FnOnce()` value
+// through two identity calls, preserving its type.
+package regions_dependent_autofn;
+
+use logos.lang.ops;
+
+fn subslice<F: FnOnce()>(v: F) -> F { return v; }
+
+fn both<F: FnOnce()>(v: F) -> F {
+    return subslice(subslice(v));
+}
+
+fn dummy() {}
+
+fn main() -> i32 {
+    let _ = both(dummy);
+    return 0;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst.rs
+// Modifications: `pub fn main()`→`fn main()->i32`; `assert_eq!`→return-code
+// checks; receiver `self: &Self`; 1-char generic params widened (T→Ty, U→Up,
+// V kept); the second `impl<T> A<T> for u32` dropped (only the i32 path is
+// exercised); tuple compared field-wise. A trait `A<Ty>` with a method-generic
+// default `g<Up>` returning `(Ty, Up)`, reached through a generic fn.
+package default_method_bound_subst;
+
+trait A<Ty> {
+    fn g<Up>(self: &Self, x: Ty, y: Up) -> (Ty, Up) { return (x, y); }
+}
+
+impl A<i32> for i32 { }
+
+fn f<Ty, Up, V: A<Ty>>(i: V, j: Ty, k: Up) -> (Ty, Up) {
+    return i.g(j, k);
+}
+
+fn main() -> i32 {
+    let r = f(0i32, 1i32, 2i32);
+    if r.0 != 1i32 { return 1; }
+    if r.1 != 2i32 { return 2; }
+    return 0;
+}

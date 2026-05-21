@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/overloading-simple.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert!`/`assert_eq!`→return-code checks; receivers `self: &MyInt`;
+// `#[derive(Debug)]` dropped; the supertrait + impl use Logos's `Eq`
+// (== / != operators) instead of Rust's `PartialEq`. A generic fn bounded
+// `T: MyNum` (MyNum: Eq) uses `==` to compare two values.
+package inheritance_overloading_simple;
+
+use logos.lang.cmp;
+
+trait MyNum: Eq { }
+
+struct MyInt { val: i64 }
+
+impl Eq for MyInt {
+    fn eq(self: &MyInt, other: &MyInt) -> bool { return self.val == other.val; }
+}
+
+impl MyNum for MyInt {}
+
+fn f<T: MyNum>(x: T, y: T) -> bool {
+    return x == y;
+}
+
+fn mi(v: i64) -> MyInt { return MyInt { val: v }; }
+
+fn main() -> i32 {
+    let x = mi(3i64);
+    let y = mi(5i64);
+    let z = mi(3i64);
+    if f(x, y) { return 1; }
+    let x2 = mi(3i64);
+    if !f(x2, z) { return 2; }
+    return 0;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code check; receiver `self: &i64`. An empty impl inherits
+// the trait default method; a generic fn bounded `T: A` calls it.
+package default_method_bound;
+
+trait A {
+    fn g(self: &Self) -> i64 { return 10i64; }
+}
+
+impl A for i64 { }
+
+fn f<T: A>(i: T) -> i64 {
+    return i.g();
+}
+
+fn main() -> i32 {
+    if f(0i64) != 10i64 { return 1; }
+    return 0;
+}

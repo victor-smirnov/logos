@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-implementation-for-primitive-type-5280.rs
+// Modifications: literal suffixed; `pub fn main()`→`fn main()->i32`; the
+// `type FontTableTag = u32` alias inlined to u32 (Logos: trait impl on the
+// concrete primitive); by-value `self`→`self: Self`. Trait impl on a primitive.
+package trait_impl_primitive_5280;
+
+trait FontTableTagConversions {
+    fn tag_to_string(self: Self);
+}
+
+impl FontTableTagConversions for u32 {
+    fn tag_to_string(self: u32) {
+        let _ = &self;
+    }
+}
+
+fn main() -> i32 {
+    5u32.tag_to_string();
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-implementation-for-usize-5321.rs
+// Modifications: usize→u64; literal suffixed; `pub fn main()`→`fn main()->i32`;
+// the `for _ in 0..self { println! }` body replaced with a counting loop and a
+// return-code check (no println; the original just printed "yes" `self` times).
+// Trait impl on a primitive u64, called via method syntax `2u64.yes()`.
+package trait_impl_usize_5321;
+
+trait Fooable {
+    fn yes(self: Self) -> u64;
+}
+
+impl Fooable for u64 {
+    fn yes(self: u64) -> u64 {
+        let mut count = 0u64;
+        let mut i = 0u64;
+        while i < self {
+            count = count + 1u64;
+            i = i + 1u64;
+        }
+        return count;
+    }
+}
+
+fn main() -> i32 {
+    if 2u64.yes() != 2u64 { return 1; }
+    return 0;
+}

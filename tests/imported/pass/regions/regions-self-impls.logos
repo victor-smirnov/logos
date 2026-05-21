@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-self-impls.rs
+// Modifications: isize→i64; `pub fn main()`→`fn main()->i32`; the `println!`
+// dropped, the borrow-check via a return-code; receiver `self: &Clam<'a>`;
+// trait name CamelCased. A struct holding a `&'a i64` and a lifetime-parametric
+// trait whose method returns that borrowed field with lifetime `'a`.
+package regions_self_impls;
+
+struct Clam<'a> {
+    chowder: &'a i64,
+}
+
+trait GetChowder<'a> {
+    fn get_chowder(self: &Self) -> &'a i64;
+}
+
+impl<'a> GetChowder<'a> for Clam<'a> {
+    fn get_chowder(self: &Clam<'a>) -> &'a i64 { return self.chowder; }
+}
+
+fn main() -> i32 {
+    let three = 3i64;
+    let clam = Clam { chowder: &three };
+    if *clam.get_chowder() != 3i64 { return 1; }
+    return 0;
+}

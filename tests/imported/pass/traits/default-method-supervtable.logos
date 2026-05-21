@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/supervtable.rs
+// Modifications: isize→i64; literals suffixed; `pub fn main()`→`fn main()->i32`;
+// `assert_eq!`→return-code check; by-value `self`→`self: Self`. Calls a fn
+// bounded over a supertrait (`require_y`) from inside a default method on the
+// subtrait Z.
+package default_method_supervtable;
+
+fn require_y<T: Y>(x: T) -> i64 { return x.y(); }
+
+trait Y {
+    fn y(self: Self) -> i64;
+}
+
+trait Z: Y {
+    fn x(self: Self) -> i64 {
+        return require_y(self);
+    }
+}
+
+impl Y for i64 {
+    fn y(self: i64) -> i64 { return self; }
+}
+
+impl Z for i64 {}
+
+fn main() -> i32 {
+    if 12i64.x() != 12i64 { return 1; }
+    return 0;
+}
