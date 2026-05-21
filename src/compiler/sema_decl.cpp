@@ -18,6 +18,113 @@ using hermes::MemHolder;
 
 // Declaration lowering methods
 
+void SemaChecker::compute_fn_lifetime_outlives(TinyMapView node, lir::LFunction& fn) {
+    std::unordered_set<std::string> fn_lts(fn.lifetime_params.begin(),
+                                           fn.lifetime_params.end());
+    auto fn_lifetime_known = [&](std::string_view lt) {
+        if (lt.empty()) return false;
+        if (lt == "'static" || lt == "static") return true;
+        return fn_lts.count(std::string(lt)) > 0;
+    };
+    auto walk_implied = [&](TypeRef t, std::string outer,
+                            std::vector<std::pair<std::string, std::string>>& out,
+                            auto& recur) -> void {
+        if (!t) return;
+        auto kind = t.kind();
+        if (kind == LogosType::Kind::Ref || kind == LogosType::Kind::MutRef) {
+            std::string my_lt(t.lifetime());
+            // Only emit pairs whose lifetimes are declared on the fn —
+            // generic / template-internal lifetimes (from a generic
+            // struct's definition) aren't fn-scope, and surfacing them
+            // here would trigger spurious "undeclared lifetime" errors.
+            if (!outer.empty() && !my_lt.empty() && my_lt != outer &&
+                fn_lifetime_known(my_lt) && fn_lifetime_known(outer))
+                out.emplace_back(my_lt, outer);
+            std::string next_outer = my_lt.empty() ? outer : my_lt;
+            recur(t.pointee(), next_outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Struct || kind == LogosType::Kind::ZonedStruct ||
+            kind == LogosType::Kind::Enum) {
+            for (auto& lt : t.lifetime_args()) {
+                std::string s(lt);
+                if (!outer.empty() && !s.empty() && s != outer &&
+                    fn_lifetime_known(s) && fn_lifetime_known(outer))
+                    out.emplace_back(s, outer);
+            }
+            for (auto a : t.type_args()) recur(a, outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Tuple) {
+            for (auto e : t.tuple_elems()) recur(e, outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Slice || kind == LogosType::Kind::Array) {
+            recur(t.elem(), outer, out, recur);
+            return;
+        }
+        if (kind == LogosType::Kind::Ptr) {
+            recur(t.pointee(), outer, out, recur);
+            return;
+        }
+    };
+    fn.lifetime_outlives = read_lifetime_outlives(node);
+    for (auto& p : fn.params) walk_implied(p.type, "", fn.lifetime_outlives, walk_implied);
+    walk_implied(fn.ret_type, "", fn.lifetime_outlives, walk_implied);
+    auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
+    for (auto& p : where_outlives) fn.lifetime_outlives.push_back(std::move(p));
+    // Merge type-outlives bounds from where clause.
+    if (node.has_key(la::WHERE)) {
+        AnyVal wav = node.get(la::WHERE.code);
+        if (!wav.is_null()) {
+            auto wmap = map_of(wav);
+            if (wmap.has_key(la::ITEMS)) {
+                auto witems = arr_of(wmap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < witems.size(); ++i) {
+                    auto witem = map_of(witems.get(i));
+                    if (code_of(witem) != la::TYPE_PARAM) continue;
+                    if (!witem.has_key(la::ITEMS)) continue;
+                    std::string tname(str_of(witem.get(la::NAME.code)));
+                    auto inner = arr_of(witem.get(la::ITEMS.code));
+                    TypeParam* target = nullptr;
+                    for (auto& tp : fn.type_params)
+                        if (tp.name == tname) { target = &tp; break; }
+                    if (!target) continue;
+                    for (uint64_t j = 0; j < inner.size(); ++j) {
+                        auto inode = map_of(inner.get(j));
+                        if (code_of(inode) != la::LIFETIME_PARAM) continue;
+                        target->lifetime_outlives.push_back(
+                            std::string(str_of(inode.get(la::NAME.code))));
+                    }
+                }
+            }
+        }
+    }
+    // Validate declared names.
+    std::unordered_set<std::string> declared(fn.lifetime_params.begin(),
+                                             fn.lifetime_params.end());
+    auto known = [&](std::string_view lt) {
+        if (lt.empty()) return true;
+        if (lt == "'static" || lt == "static") return true;
+        return declared.count(std::string(lt)) > 0;
+    };
+    for (auto& [lng, sht] : fn.lifetime_outlives) {
+        if (!known(lng))
+            error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
+                              fn.name, lng));
+        if (!known(sht))
+            error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
+                              fn.name, sht));
+    }
+    for (auto& tp : fn.type_params) {
+        for (auto& lt : tp.lifetime_outlives) {
+            if (!known(lt))
+                error(std::format("fn '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
+                                  fn.name, lt, tp.name, lt));
+        }
+    }
+}
+
 lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx) {
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
@@ -433,112 +540,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // B65: outlives bounds — capture explicit + implied + where-clause +
     // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-
     // bounds walker sees the resolved signature.
-    {
-        std::unordered_set<std::string> fn_lts(fn.lifetime_params.begin(),
-                                               fn.lifetime_params.end());
-        auto fn_lifetime_known = [&](std::string_view lt) {
-            if (lt.empty()) return false;
-            if (lt == "'static" || lt == "static") return true;
-            return fn_lts.count(std::string(lt)) > 0;
-        };
-        auto walk_implied = [&](TypeRef t, std::string outer,
-                                std::vector<std::pair<std::string, std::string>>& out,
-                                auto& recur) -> void {
-            if (!t) return;
-            auto kind = t.kind();
-            if (kind == LogosType::Kind::Ref || kind == LogosType::Kind::MutRef) {
-                std::string my_lt(t.lifetime());
-                // Only emit pairs whose lifetimes are declared on the fn —
-                // generic / template-internal lifetimes (from a generic
-                // struct's definition) aren't fn-scope, and surfacing them
-                // here would trigger spurious "undeclared lifetime" errors.
-                if (!outer.empty() && !my_lt.empty() && my_lt != outer &&
-                    fn_lifetime_known(my_lt) && fn_lifetime_known(outer))
-                    out.emplace_back(my_lt, outer);
-                std::string next_outer = my_lt.empty() ? outer : my_lt;
-                recur(t.pointee(), next_outer, out, recur);
-                return;
-            }
-            if (kind == LogosType::Kind::Struct || kind == LogosType::Kind::ZonedStruct ||
-                kind == LogosType::Kind::Enum) {
-                for (auto& lt : t.lifetime_args()) {
-                    std::string s(lt);
-                    if (!outer.empty() && !s.empty() && s != outer &&
-                        fn_lifetime_known(s) && fn_lifetime_known(outer))
-                        out.emplace_back(s, outer);
-                }
-                for (auto a : t.type_args()) recur(a, outer, out, recur);
-                return;
-            }
-            if (kind == LogosType::Kind::Tuple) {
-                for (auto e : t.tuple_elems()) recur(e, outer, out, recur);
-                return;
-            }
-            if (kind == LogosType::Kind::Slice || kind == LogosType::Kind::Array) {
-                recur(t.elem(), outer, out, recur);
-                return;
-            }
-            if (kind == LogosType::Kind::Ptr) {
-                recur(t.pointee(), outer, out, recur);
-                return;
-            }
-        };
-        fn.lifetime_outlives = read_lifetime_outlives(node);
-        for (auto& p : fn.params) walk_implied(p.type, "", fn.lifetime_outlives, walk_implied);
-        walk_implied(fn.ret_type, "", fn.lifetime_outlives, walk_implied);
-        auto where_outlives = read_lifetime_outlives_from(node, la::WHERE.code);
-        for (auto& p : where_outlives) fn.lifetime_outlives.push_back(std::move(p));
-        // Merge type-outlives bounds from where clause.
-        if (node.has_key(la::WHERE)) {
-            AnyVal wav = node.get(la::WHERE.code);
-            if (!wav.is_null()) {
-                auto wmap = map_of(wav);
-                if (wmap.has_key(la::ITEMS)) {
-                    auto witems = arr_of(wmap.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < witems.size(); ++i) {
-                        auto witem = map_of(witems.get(i));
-                        if (code_of(witem) != la::TYPE_PARAM) continue;
-                        if (!witem.has_key(la::ITEMS)) continue;
-                        std::string tname(str_of(witem.get(la::NAME.code)));
-                        auto inner = arr_of(witem.get(la::ITEMS.code));
-                        TypeParam* target = nullptr;
-                        for (auto& tp : fn.type_params)
-                            if (tp.name == tname) { target = &tp; break; }
-                        if (!target) continue;
-                        for (uint64_t j = 0; j < inner.size(); ++j) {
-                            auto inode = map_of(inner.get(j));
-                            if (code_of(inode) != la::LIFETIME_PARAM) continue;
-                            target->lifetime_outlives.push_back(
-                                std::string(str_of(inode.get(la::NAME.code))));
-                        }
-                    }
-                }
-            }
-        }
-        // Validate declared names.
-        std::unordered_set<std::string> declared(fn.lifetime_params.begin(),
-                                                 fn.lifetime_params.end());
-        auto known = [&](std::string_view lt) {
-            if (lt.empty()) return true;
-            if (lt == "'static" || lt == "static") return true;
-            return declared.count(std::string(lt)) > 0;
-        };
-        for (auto& [lng, sht] : fn.lifetime_outlives) {
-            if (!known(lng))
-                error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
-                                  fn.name, lng));
-            if (!known(sht))
-                error(std::format("fn '{}': use of undeclared lifetime name '{}' in outlives clause",
-                                  fn.name, sht));
-        }
-        for (auto& tp : fn.type_params) {
-            for (auto& lt : tp.lifetime_outlives) {
-                if (!known(lt))
-                    error(std::format("fn '{}': use of undeclared lifetime name '{}' in `{}: {}` bound",
-                                      fn.name, lt, tp.name, lt));
-            }
-        }
-    }
+    compute_fn_lifetime_outlives(node, fn);
     current_outlives_ = fn.lifetime_outlives;  // B64/B65: visible to coercion sites
 
     // unsafe fn body is implicitly an unsafe context

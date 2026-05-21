@@ -2864,6 +2864,10 @@ private:
     // ── lower_fn and declaration lowering ───────────────────────
 
     lir::LFunction lower_fn(hermes::TinyMapView node, std::string_view struct_ctx = {});
+    // Derive `fn.lifetime_outlives` from the fn's params/return implied bounds
+    // plus its where-clause (and merge where-clause type-param lifetime
+    // bounds). Reads `node`, mutates `fn` only; factored out of lower_fn.
+    void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::LFunction& fn);
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
     lir::LEnumDef lower_enum_def(hermes::TinyMapView node);
     lir::LConst lower_const_def(hermes::TinyMapView node);
