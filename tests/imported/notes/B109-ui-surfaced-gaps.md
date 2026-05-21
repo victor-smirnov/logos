@@ -87,7 +87,19 @@ Original report:
   through a tuple scrutinee miscomputes operand types. (Single-slice slice-match
   not retested here; the tuple form is the trigger.)
 
-### 4. Single-letter type name collides with stdlib generic type-params
+### 4. Single-letter type name collides with stdlib generic type-params — WON'T-FIX (rename; 2026-05-21)
+**Resolution: rename the user type, don't fix the compiler** (maintainer
+decision 2026-05-21). The collision only arises when a *concrete* type is named
+with a single uppercase letter (`T`/`I`/`R`/`V`), which violates the universal
+convention every port already follows (concrete types are CamelCase words;
+single letters are reserved for type-parameters). The affected ports were all
+adapted by renaming (e.g. `enum T` → `enum Te`), which is the idiomatic form
+anyway — no test remains blocked. Reclassified from compiler-bug/deferred to
+intentional-divergence; the root-cause + fix-shape notes below are retained only
+as a pointer if the namespace-isolation work is ever wanted for its own sake,
+but it is NOT scheduled.
+
+Original report:
 - Surfaced while porting `pattern/tuple-enum-match-15129.rs`.
 - Minimal trigger: declaring `enum T { .. }` (or `struct T`, `struct V`) at top
   level poisons stdlib lowering — emits spurious errors like
@@ -107,12 +119,11 @@ Original report:
   logos.lang.str; enum T { A(i32), B(i32) } fn main()->i32 { let _=match T::A(0i32)
   { T::A(x)=>x, T::B(y)=>y }; return 0i32; }` → `iter.logos:107: FilterIter field
   'pred': expected fn(<error>) -> bool, got fn(T) -> bool`.
-- **Fix shape (deferred — bounded sema scoping change):** during generic
-  (re-)lowering, the active template's type-parameter names must SHADOW global
-  concrete type names in `resolve_type`. The type-param scope already exists for
-  binding; it needs to take precedence over the global registry lookup for bare
-  single-segment names. Deferred per draw-the-boundary (clean workaround exists;
-  1-char concrete type names are rare/unidiomatic) — pick up as a focused pass.
+- **Fix shape (NOT scheduled — see WON'T-FIX above):** if ever wanted, during
+  generic (re-)lowering the active template's type-parameter names would need to
+  SHADOW global concrete type names in `resolve_type` (the type-param scope
+  exists for binding; it would take precedence over the global registry lookup
+  for bare single-segment names). Not worth doing — rename is the resolution.
 
 ---
 
