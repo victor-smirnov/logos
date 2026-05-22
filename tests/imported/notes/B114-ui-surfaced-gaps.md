@@ -12,6 +12,11 @@ struct functional-update, range/or patterns — all worked prelude-only.)
 
 ## Skipped tests + precise gap
 
+> **UPDATE 2026-05-21**: the first two entries below (closure-reform,
+> match-vec-rvalue) are **FIXED and RE-IMPORTED** (batch RB114 — see
+> RUSTC-PROVENANCE.md and the RESOLVED section at the bottom). Kept here for
+> the gap-history record.
+
 - **compiler-bug (genuine)** — generic `where F: FnOnce(T)->U` (or `FnMut`)
   called with a *closure literal* returns garbage. `tests/ui/functions-closures/closure-reform.rs`.
   Minimal repro: `fn call_it<F>(f: F)->i64 where F: FnOnce(i64)->i64 { f(10) }`

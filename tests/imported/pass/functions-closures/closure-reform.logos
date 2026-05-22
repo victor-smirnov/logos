@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-reform.rs
+// A closure literal passed through a generic `where F: FnOnce(T)->U` bound,
+// capturing an outer local. Modifications: String/format!/println! → i64
+// arithmetic + return-code checks (the test's point is closure-through-Fn-
+// family-bound dispatch, not formatting); the three upstream call shapes
+// (block body, expr-via-block, fully annotated) are preserved. Fn-family
+// traits resolve via the implicit prelude (no `use`).
+package closure_reform;
+
+fn call_it<F>(f: F) -> i64 where F: FnOnce(i64) -> i64 { return f(10i64); }
+
+fn main() -> i32 {
+    // capturing closure, block body
+    let base1: i64 = 100i64;
+    if call_it(|s| { return base1 + s; }) != 110i64 { return 1i32; }
+
+    // capturing closure, second binding (move-once semantics)
+    let base2: i64 = 200i64;
+    if call_it(|s| { return base2 + s; }) != 210i64 { return 2i32; }
+
+    // fully annotated param + return
+    let base3: i64 = 300i64;
+    if call_it(|s: i64| -> i64 { return base3 + s; }) != 310i64 { return 3i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-vec-rvalue.rs
+// Tests that matching an owned (drop-carrying) value bound by a whole-value
+// pattern does not double-drop. Modifications: `vec![1,2,3]` → vec_new+push;
+// `assert_eq!` → return-code checks; `x[i]` → `x.get(i)`; `x.len()` →
+// `x.length()`. Vec resolves via the implicit prelude (no `use`).
+package match_vec_rvalue;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(1i64); v.push(2i64); v.push(3i64);
+    match v {
+        x => {
+            if x.length() != 3i64 { return 1i32; }
+            if x.get(0i64) != 1i64 { return 2i32; }
+            if x.get(1i64) != 2i64 { return 3i32; }
+            if x.get(2i64) != 3i64 { return 4i32; }
+        }
+    }
+    return 0i32;
+}
