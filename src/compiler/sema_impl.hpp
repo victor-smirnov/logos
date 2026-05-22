@@ -173,7 +173,7 @@ private:
 
     // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
     // Size = int(Kind::Error) + 1 to cover all Kind values.
-    std::array<TypeRef, int(LogosType::Kind::Error) + 1> prims_{};
+    std::array<TypeRef, int(LogosType::Kind::Never) + 1> prims_{};
 
     void init_primitives();
 
@@ -186,6 +186,7 @@ private:
     TypeRef isize_t()   { return prim(LogosType::Kind::Isize); }
     TypeRef intlit_t()  { return prim(LogosType::Kind::IntLit); }
     TypeRef error_t()   { return prim(LogosType::Kind::Error); }
+    TypeRef never_t()   { return prim(LogosType::Kind::Never); }
 
     // Single point of truth for the target's pointer size. Logos ships
     // 64-bit only today; if we ever target 32-bit, change this constant

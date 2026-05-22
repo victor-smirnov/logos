@@ -918,33 +918,62 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::GENERIC_REF:  return lower_generic_ref(expr);
     case la::METHOD_CALL:  return lower_method_call(expr);
     case la::INVOKE_EXPR:  return lower_invoke_expr(expr);
-    case la::BREAK_EXPR: {
-        // P3-pg-04: `break` in expression position (e.g. `int_id(break)`
-        // or `let x = if cond { val } else { break };`). Logos lacks a
-        // Never (`!`) type, so we can't propagate divergent typing
-        // through the expression chain. Instead, lower to an EBlockExpr
-        // wrapping a real SBreak stmt + a dummy result value:
-        //   - The SBreak emits a `cf.br` to the nearest loop exit at
-        //     mlir-gen time, terminating the current block.
-        //   - gen_expr_kind(EBlockExpr) checks is_terminated() and
-        //     returns nullptr — the dummy result is never materialised.
-        //   - Callers tolerate nullptr (gen_let early-returns,
-        //     gen_call drops the call), and the outer gen_block stops
-        //     iterating once the block is terminated. Control reaches
-        //     the loop exit block, then the post-loop fn body.
-        // The dummy literal carries error_t() so sema's downstream
-        // type checks treat it as a propagated error (no spurious
-        // mismatch diagnostics on the surrounding expression).
-        if (loop_depth_ == 0) {
-            error("'break' outside loop");
-            return builder().lit_int(0, error_t());
-        }
+    case la::BREAK_EXPR:
+    case la::CONTINUE_EXPR:
+    case la::RETURN_EXPR: {
+        // Diverging control-flow in expression position — value is the never
+        // type `!` (`let x = if c { v } else { return e }`, `_ => break`,
+        // `match … { … => continue }`). Lower to an EBlockExpr wrapping the
+        // real diverging stmt (SBreak / SContinue / SReturn) + a dummy result:
+        //   - the stmt emits its terminator (cf.br to loop exit/header, or
+        //     func.return) at mlir-gen time, terminating the block;
+        //   - gen_expr_kind(EBlockExpr) sees is_terminated() and returns
+        //     nullptr — the dummy is never materialised;
+        //   - the block_expr's TYPE is Never, which coerces to / unifies with
+        //     the surrounding expected type (so no spurious mismatch).
         auto blk = lir::alloc_block(*cur_prog_);
-        auto br_stmt = builder().stmt_break(/*value=*/nullptr, /*label=*/"",
-                                            node_line_);
-        blk->stmts.push_back(std::move(br_stmt));
-        auto dummy = builder().lit_int(0, error_t());
-        return builder().block_expr(blk, std::move(dummy), error_t());
+        if (c == la::RETURN_EXPR) {
+            lir::LExprPtr rval = nullptr;
+            if (expr.has_key(la::VALUE)) {
+                rval = lower_expr(map_of(expr.get(la::VALUE.code)));
+                if (rval && ret_type_ &&
+                    TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
+                    TypeRef(rval->type).kind() != LogosType::Kind::Error &&
+                    !compat(rval->type, ret_type_)) {
+                    auto [es, gs] = type_str_pair(ret_type_, rval->type);
+                    error(std::format("return type mismatch — expected {}, got {}", es, gs));
+                }
+            }
+            blk->stmts.push_back(builder().stmt_return(std::move(rval), node_line_));
+        } else if (c == la::CONTINUE_EXPR) {
+            if (loop_depth_ == 0) { error("'continue' outside loop"); return builder().lit_int(0, never_t()); }
+            std::string label;
+            if (expr.has_key(la::LABEL)) label = std::string(str_of(expr.get(la::LABEL.code)));
+            blk->stmts.push_back(builder().stmt_continue(std::move(label), node_line_));
+        } else {  // BREAK_EXPR
+            if (loop_depth_ == 0) { error("'break' outside loop"); return builder().lit_int(0, never_t()); }
+            lir::LExprPtr bval = nullptr;
+            if (expr.has_key(la::VALUE)) bval = lower_expr(map_of(expr.get(la::VALUE.code)));
+            std::string label;
+            if (expr.has_key(la::LABEL)) label = std::string(str_of(expr.get(la::LABEL.code)));
+            // Attribute a break-with-value to the target loop frame so the
+            // loop becomes a value-yielding expression (mirrors the stmt path).
+            if (bval && bval->type && TypeRef(bval->type).kind() != LogosType::Kind::Error) {
+                LoopBreakFrame* target = nullptr;
+                if (!loop_break_frames_.empty()) {
+                    if (label.empty()) target = &loop_break_frames_.back();
+                    else for (auto it = loop_break_frames_.rbegin(); it != loop_break_frames_.rend(); ++it)
+                        if (it->label == label) { target = &*it; break; }
+                }
+                if (target && !target->without_value) {
+                    if (!target->value_type) target->value_type = bval->type;
+                    else target->value_type = unify_numeric(target->value_type, bval->type);
+                }
+            }
+            blk->stmts.push_back(builder().stmt_break(std::move(bval), std::move(label), node_line_));
+        }
+        auto dummy = builder().lit_int(0, never_t());
+        return builder().block_expr(blk, std::move(dummy), never_t());
     }
     case la::STATIC_CALL:  return lower_static_call(expr);
     case la::METACALL:     return lower_metacall(expr);
@@ -10174,21 +10203,23 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                     } else {
                         result = lower_expr(val_node);
                     }
-                } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_DESTRUCT && lc != la::RETURN) {
+                } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR &&
+                           lc != la::LET && lc != la::LET_DESTRUCT &&
+                           lc != la::RETURN && lc != la::BREAK && lc != la::CONTINUE) {
                     result = lower_expr(s);
                 } else {
                     block->stmts.push_back(lower_stmt(s));
-                    // G141-1: a branch whose last statement is a `return` never
-                    // yields a value — it is the never type `!`. Mark it
-                    // divergent (Error) so the if-expression unifier adopts the
-                    // OTHER arm's type instead of failing on `void vs i64`
-                    // (parallels the tail-`panic` case above). NOTE: only
-                    // `return` here — `break`/`continue` in an if-expr-as-value
-                    // branch are NOT yet wired in codegen (the loop jump isn't
-                    // emitted, so the value-form would hang); leaving them as a
-                    // clean type error is sounder than a silent hang.
-                    if (lc == la::RETURN)
-                        divergent_t = error_t();
+                    // A branch whose last statement diverges (`return` / `break`
+                    // / `continue`, with a trailing `;`) never yields a value —
+                    // it is the never type `!`. Mark the branch Never so the
+                    // if-expression unifier adopts the OTHER arm's type. The
+                    // emitted stmt (SReturn / SBreak / SContinue) terminates the
+                    // block at codegen, and the if-expr value-merge skips a
+                    // terminated branch (is_terminated). (`break`/`continue`
+                    // without a `;` parse as BREAK_EXPR/CONTINUE_EXPR and reach
+                    // the Never path through lower_expr instead.)
+                    if (lc == la::RETURN || lc == la::BREAK || lc == la::CONTINUE)
+                        divergent_t = never_t();
                 }
             } else {
                 block->stmts.push_back(lower_stmt(s));
@@ -10217,9 +10248,14 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         else_val = lower_expr(else_node);
 
     // Determine result type: pick the more concrete type when IntLit vs concrete int.
+    // A diverging (Never) branch contributes no type — the if-expression's type
+    // is the OTHER arm (Never is `!`, a subtype of every type).
     TypeRef result_type = then_val->type;
-    if (TypeRef(then_val->type).kind() == LogosType::Kind::Error)
+    if (TypeRef(then_val->type).kind() == LogosType::Kind::Error ||
+        TypeRef(then_val->type).kind() == LogosType::Kind::Never)
         result_type = else_val->type;
+    else if (TypeRef(else_val->type).kind() == LogosType::Kind::Never)
+        result_type = then_val->type;
     else if (TypeRef(else_val->type).kind() != LogosType::Kind::Error) {
         if (!types_compatible(then_val->type, else_val->type) &&
             !types_compatible(else_val->type, then_val->type)) {

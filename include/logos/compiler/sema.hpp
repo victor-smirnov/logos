@@ -95,7 +95,15 @@ struct LogosType {
                                   //              `mut_ptr` flags `&mut` vs `&`. Mono substitutes
                                   //              `&Wrap<T>` to DstRef when Wrap is_dst at
                                   //              instantiation time.
-        Error                     // sentinel for ill-typed expressions
+        Error,                    // sentinel for ill-typed expressions
+        Never                     // the `!` never type — value of a diverging
+                                  // expression (return / break / continue /
+                                  // panic / `-> !` call / `loop {}`). A subtype
+                                  // of every type: coerces to any expected type,
+                                  // and unifying it with T yields T. Never
+                                  // materialises a value at codegen (the
+                                  // diverging expr emits its own terminator).
+                                  // Appended after Error to keep kind IDs stable.
     };
 
     // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()

@@ -32,6 +32,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     if (is_anyval(tv)) return cache_ret(builder_.getI32Type());
     switch (tv.kind()) {
     case LogosType::Kind::Void:   return nullptr;
+    // The never type yields no value — a diverging expression emits its own
+    // terminator, so a Never-typed slot is never materialised (treat as void).
+    case LogosType::Kind::Never:  return nullptr;
     case LogosType::Kind::I32:    return cache_ret(builder_.getI32Type());
     case LogosType::Kind::I64:    return cache_ret(builder_.getI64Type());
     case LogosType::Kind::F64:    return cache_ret(builder_.getF64Type());

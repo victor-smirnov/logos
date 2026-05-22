@@ -1,0 +1,40 @@
+package never_type_full;
+
+fn diverge() -> ! { loop { } }
+
+fn classify(n: i64) -> i64 {
+    // return as match-arm value
+    let a: i64 = match n { 0 => return 100i64, _ => n * 2i64 };
+    return a;
+}
+
+fn main() -> i32 {
+    // return in if-expr branch
+    let x: i64 = if false { return 9i32; } else { 5i64 };
+    if x != 5i64 { return 1i32; }
+
+    // match-arm return
+    if classify(0i64) != 100i64 { return 2i32; }
+    if classify(3i64) != 6i64 { return 3i32; }
+
+    // break-with-value via loop + break in if-expr branch
+    let mut s: i64 = 0i64;
+    let r: i64 = loop {
+        s = s + 1i64;
+        let step: i64 = if s > 3i64 { break s * 10i64; } else { s };
+        if step > 100i64 { return 4i32; }
+    };
+    if r != 40i64 { return 5i32; }
+
+    // continue in if-expr branch
+    let mut acc: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < 5i64 {
+        k = k + 1i64;
+        let v: i64 = if k == 3i64 { continue; } else { k };
+        acc = acc + v;
+    }
+    if acc != 12i64 { return 6i32; }  // 1+2+4+5 (skip 3)
+
+    return 0i32;
+}

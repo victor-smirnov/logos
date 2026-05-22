@@ -1554,6 +1554,12 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(from, to)) return true;
+    // The never type `!` is a subtype of every type: a diverging expression
+    // (return / break / continue / panic / `-> !` call) coerces to whatever
+    // the context expects. Permissive in both directions — Never never yields
+    // a real value, so accepting it where Never is "expected" is harmless.
+    if (from.kind() == LogosType::Kind::Never ||
+        to.kind()   == LogosType::Kind::Never) return true;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
@@ -1808,6 +1814,7 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::Generic:     return "generic " + std::string(TypeRef(t).struct_name());
     case LogosType::Kind::CfgSlotType: return "<cfg-slot-type>";
     case LogosType::Kind::Error:       return "<error>";
+    case LogosType::Kind::Never:       return "!";
     }
     return "<unknown>";
 }
@@ -2106,6 +2113,7 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::IntLit);
     ap(LogosType::Kind::FloatLit);
     ap(LogosType::Kind::Error);
+    ap(LogosType::Kind::Never);
 }
 
 TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
@@ -2130,6 +2138,7 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
     if (name == "isize") return prim(LogosType::Kind::Isize);
     if (name == "char")  return prim(LogosType::Kind::Char);
     if (name == "void") return prim(LogosType::Kind::Void);
+    if (name == "!")    return prim(LogosType::Kind::Never);
     if (name == "str") {
         // Phase 1B-3: `str` keyword. Default meaning is the existing
         // fat-pointer form Slice<u8> (Rust's `&str` shape). When the

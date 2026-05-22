@@ -1188,7 +1188,7 @@
     // type_or_lt_arg's hermes_lit alt; at top-level naming, use
     // `pub const X: HermesStatic = @{...};` instead of legacy
     // `pub type X = @{...};` (the latter no longer parses).
-    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / paren_type / qualified_assoc_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / never_type / closure_type / fn_ptr_type / tuple_type / paren_type / qualified_assoc_type / assoc_type_ref / simple_type
 
     // (T) — paren-wrapped type. Distinct from `()` (unit), `(T,)` (1-tuple),
     // and `(T1, T2)` (n-tuple). Sema unwraps PAREN_TYPE.TYPE to its inner.
@@ -1445,6 +1445,11 @@
                 => { CODE: FN_PTR_TYPE, RET_TYPE: $5 }
 
     // () — unit/void type (empty tuple, equivalent to void)
+    // The never type `!` (e.g. `fn diverge() -> !`). A standalone BANG in
+    // type position is unambiguous (negation only appears in expr position).
+    never_type <- BANG
+               => { CODE: TYPE_REF, NAME: $1 }
+
     unit_type <- LPAREN RPAREN
               => { CODE: TUPLE_TYPE }
 
@@ -2294,7 +2299,19 @@
                   / loop_expr        // loop { ... }  — as expression (break value)
                   / if_expr          // if cond { ... } else { ... }  — as expression
                   / match_stmt       // match expr { ... }  — as expression
-                  / KW_BREAK    => { CODE: BREAK_EXPR }      // P3-pg-04 (bare only)
+                  // Diverging control-flow in expression position — value is
+                  // the never type `!` (e.g. `let x = if c { v } else { return e }`,
+                  // `_ => break`, `match … { … => continue }`). Longest-match
+                  // first per keyword. Statement forms (return_stmt/break_stmt/
+                  // continue_stmt) are tried earlier at the statement level.
+                  / KW_RETURN expr            => { CODE: RETURN_EXPR, VALUE: $2 }
+                  / KW_RETURN                 => { CODE: RETURN_EXPR }
+                  / KW_BREAK LIFETIME expr    => { CODE: BREAK_EXPR, LABEL: $2, VALUE: $3 }
+                  / KW_BREAK LIFETIME         => { CODE: BREAK_EXPR, LABEL: $2 }
+                  / KW_BREAK expr             => { CODE: BREAK_EXPR, VALUE: $2 }
+                  / KW_BREAK                  => { CODE: BREAK_EXPR }      // P3-pg-04
+                  / KW_CONTINUE LIFETIME      => { CODE: CONTINUE_EXPR, LABEL: $2 }
+                  / KW_CONTINUE               => { CODE: CONTINUE_EXPR }
                   / KW_METACALL block
                                      => { CODE: METACALL, VALUE: $2 }
                   / KW_METACALL LPAREN expr RPAREN

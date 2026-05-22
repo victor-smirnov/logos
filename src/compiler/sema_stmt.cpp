@@ -6582,8 +6582,14 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 TypeRef vt = val->type;
                 val = builder().block_expr(std::move(blk), std::move(val), vt);
             }
-            if (TypeRef(result_type).kind() == LogosType::Kind::Error) {
+            // A diverging arm (Never = `!`) contributes no type — the match's
+            // type is that of the non-diverging arms (Never is a subtype of
+            // every type). Treat Never like Error in the accumulator.
+            if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
+                TypeRef(result_type).kind() == LogosType::Kind::Never) {
                 result_type = val->type;
+            } else if (TypeRef(val->type).kind() == LogosType::Kind::Never) {
+                // keep result_type — this arm yields no value.
             } else if (TypeRef(val->type).kind() != LogosType::Kind::Error) {
                 if (!types_compatible(val->type, result_type) &&
                     !types_compatible(result_type, val->type)) {
