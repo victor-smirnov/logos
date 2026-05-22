@@ -148,3 +148,12 @@ declaration. A name-resolution / scoping bug, not specific to `iter`.
   primitive-`+` surface differs). `issue-22258` / `issue-21922` dropped.
 - **digit-group underscores inside `'\u{...}'`** (`'\u{10__FFFF}'`) → parser
   error. `issue-43692` uses the plain-escape form.
+
+## G126-3 precise repro (2026-05-22)
+Direct fn array param + named-fn-as-Fn-bound BOTH work. Only a CLOSURE LITERAL
+with an array param indexed in its body fails: `apply(|a:[i64;3]| a[0]+a[1]+a[2])`
+→ `llvm.getelementptr operand #0 must be LLVM pointer ... got !llvm.array<3 x i64>`.
+The closure binds `a` as an array VALUE; indexing GEPs the value. Fix: spill
+array-typed closure params to an alloca in the closure-body param binding (+
+register var_subscript_/var_local_ptrs_), the closure analogue of the B104
+struct-field array spill. Localized to closure-param codegen.
