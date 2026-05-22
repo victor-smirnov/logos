@@ -10154,6 +10154,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // exposes `x: &T = &__refbind_*` to the user code.
     struct RefBind { std::string user; std::string synth; TypeRef ty; };
     std::vector<RefBind> ref_binds;
+    // `|mut x: T|` / `|mut x|` — mutable closure-param binding. Synth-param +
+    // prologue `let mut x = synth;` (mirrors fn `mut` params). Synth is NOT
+    // sema-scope-defined → move-type params don't get double drop glue.
+    struct MutBind { std::string user; std::string synth; TypeRef ty; };
+    std::vector<MutBind> mut_binds;
+    StrSet mut_synth_names;
     // C5-cl-07: `|(a, b, …): (T1, T2, …)|` tuple-destructure parameter.
     // The param itself takes a synth tuple-typed name; a body prologue
     // emits `let (a, b, …) = __tup_param_*;` so user code sees the
@@ -10231,10 +10237,19 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     bool is_ref_bind = p.has_key(la::IS_REF) &&
                                        p.get(la::IS_REF.code).as_value<uint8_t>() != 0 &&
                                        p.has_key(la::TYPE);
+                    bool is_mut_bind = !is_ref_bind &&
+                                       p.has_key(la::IS_MUT) &&
+                                       p.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
                     if (is_ref_bind) {
                         std::string synth = std::format("__refbind_{}__{}",
                                                        closure_id, pname);
                         ref_binds.push_back({pname, synth, ptype});
+                        params.push_back({synth, ptype});
+                    } else if (is_mut_bind) {
+                        std::string synth = std::format("__mutclos_{}__{}",
+                                                       closure_id, pname);
+                        mut_binds.push_back({pname, synth, ptype});
+                        mut_synth_names.insert(synth);
                         params.push_back({synth, ptype});
                     } else {
                         params.push_back({pname, ptype});
@@ -10258,8 +10273,15 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 
     // Push a new scope with closure params
     push_scope();
-    for (auto& p : params)
+    for (auto& p : params) {
+        // Skip mut-bind synths: the user name is defined mutable below; defining
+        // the synth too would give move-type params double drop glue.
+        if (mut_synth_names.count(p.name)) continue;
         define(p.name, p.type);
+    }
+    // `|mut x|` — register the user-visible mutable binding.
+    for (auto& mb : mut_binds)
+        define(mb.user, mb.ty, /*is_mut=*/true);
     // C5-cl-03: register user-visible `ref`-bound names as &T aliases.
     for (auto& rb : ref_binds)
         define(rb.user, make_ref(false, rb.ty));
@@ -10291,8 +10313,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
     // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each
     // tuple-destructure param's element.
-    if (!ref_binds.empty() || !tuple_params.empty()) {
+    if (!ref_binds.empty() || !tuple_params.empty() || !mut_binds.empty()) {
         std::vector<lir::LStmt> prologue;
+        for (auto& mb : mut_binds) {
+            lir::SLet sl;
+            sl.name   = mb.user;
+            sl.type   = mb.ty;
+            sl.is_mut = true;
+            sl.value  = builder().var_ref(mb.synth, mb.ty);
+            prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
         for (auto& rb : ref_binds) {
             lir::SLet sl;
             sl.name   = rb.user;

@@ -1,0 +1,22 @@
+// `|mut x|` / `|mut x: T|` — mutable closure-parameter bindings (Rust idiom).
+// Desugared like fn `mut` params: synth immutable param + `let mut x = synth;`.
+package closure_mut_param;
+
+fn apply<F>(f: F, x: i64) -> i64 where F: FnMut(i64) -> i64 { return f(x); }
+fn run<F>(mut f: F) where F: FnMut() { f(); }
+
+fn main() -> i32 {
+    let g = |mut x: i64| -> i64 { x = x + 100i64; return x; };
+    if apply(g, 5i64) != 105i64 { return 1i32; }
+
+    let h = |mut y: i64| -> i64 { y = y * 2i64; return y; };   // type inferred from bound
+    if apply(h, 7i64) != 14i64 { return 2i32; }
+
+    // capturing closure mutating an outer mut local (nullary)
+    let mut hit: i64 = 0i64;
+    let c = || { hit = hit + 1i64; };
+    run(c);
+    if hit != 1i64 { return 3i32; }
+
+    return 0i32;
+}

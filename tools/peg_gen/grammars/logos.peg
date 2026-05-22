@@ -2507,6 +2507,11 @@
                   => { CODE: PARAM, NAME: $2, IS_REF: true }
                    / KW_REF IDENT COLON type_ref
                   => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
+                   // `|mut x: T|` / `|mut x|` — mutable closure-param binding.
+                   / KW_MUT IDENT COLON type_ref
+                  => { CODE: PARAM, NAME: $2, TYPE: $4, IS_MUT: true }
+                   / KW_MUT IDENT
+                  => { CODE: PARAM, NAME: $2, IS_MUT: true }
                    / LPAREN pat_binding_list RPAREN COLON type_ref
                   => { CODE: PARAM, NAMES: $2, TYPE: $5 }
                    / IDENT COLON type_ref

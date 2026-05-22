@@ -53,10 +53,10 @@ struct functional-update, range/or patterns — all worked prelude-only.)
   (the `call_f<F: FnMut()>` line). Workaround for the `closure-reform` thunk used
   `FnOnce() -> i64` — but that test was skipped for the FnOnce-closure bug above.
 
-- **unsupported-syntax** — nullary closure mutable-capture: `|| { hit = true; }`
-  capturing an outer `mut` local emits `mlir_gen: assign to undefined 'hit'`.
-  (Surfaced while adapting closure-reform; closure-reform skipped for the worse
-  FnOnce-closure-literal bug above.)
+- ~~**unsupported-syntax** — nullary closure mutable-capture: `|| { hit = true; }`~~
+  **FIXED 2026-05-22.** Capturing closures (incl. nullary) that mutate an outer
+  `mut` local now work. Also closure `|mut x|` mutable-param bindings now parse +
+  work (grammar + closure-lowering desugar). See docs/DIVERGENCES.md.
 
 - **unsupported-feature** — refutable inner pattern inside a struct-shape variant
   pattern: `Meal::ForHere { o: Order::Hamburger }` / `T3::C { f0: T2 { x: T1::A {..} }, .. }`
