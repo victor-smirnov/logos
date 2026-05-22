@@ -118,3 +118,15 @@ template-enqueue site as the blanket-default-method baghunt, but for a *primitiv
 (non-struct) concrete `T`. Test kept in the struct-receiver form.
 
 §B catch-up — Rust dispatches the blanket impl uniformly for primitive and struct T.
+
+## G1 follow-up (2026-05-22 investigation)
+`Foo::val(o)` UFCS through a `&dyn Foo` arg0 → "undefined static method". The
+method form `o.val()` vtable-dispatches fine (try_method_on_dyn). My
+trait-qualified-UFCS fix (lower_static_call) mangles to `<concrete>__method`,
+but arg0 is a TraitObject (no concrete struct name) → falls through to the error.
+Fix: when the trait-UFCS arg0 type is a TraitObject for that trait, reroute to
+the &dyn vtable dispatch. Blocker: `try_method_on_dyn(node, recv, method)`
+re-lowers method args from the AST node's ARGS, but the STATIC_CALL node's ARGS
+include arg0 (the receiver) + rest — so it can't be passed directly. Needs
+try_method_on_dyn refactored to accept a pre-lowered recv + pre-lowered arg
+list (or a synthetic node with ARGS=rest). Moderate refactor; deferred.
