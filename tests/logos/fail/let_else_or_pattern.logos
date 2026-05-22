@@ -1,0 +1,4 @@
+package let_else_or_pattern;
+enum E { A(i64), B(i64) }
+fn f(v: E) -> i64 { let E::A(x) | E::B(x) = v else { return 0i64; }; return x; }
+fn main() -> i32 { return 0i32; }

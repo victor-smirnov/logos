@@ -15,6 +15,19 @@ per-file `Original path:` headers (B6/B100+/B107/B133–B143/Bnever).
 
 ## NEW gaps surfaced
 
+> **STATUS 2026-05-22:** G144-2 ✅ FIXED (or-pattern wildcard alt — dispatch +
+> dead-block sweep), G144-5 ✅ FIXED (tuple ordering), G144-6 ✅ FIXED
+> (tuple-index on call result), G144-3 facet-B ✅ FIXED (let-else continue/break
+> else codegen — same dead-block root). DEFERRED (shared "or-pattern binding
+> EXTRACTION in non-top-level position" facet, both now a CLEAN error — no
+> crash/miscompile): G144-1 (or-pattern binding nested in an enclosing tuple →
+> "undefined variable"), G144-3 facet-A (or-pattern in `let-else` → explicit
+> "not yet supported"; previously bindingless = SILENT wrong-result, binding =
+> SIGSEGV — both now rejected). The deferred facet needs match/let-else codegen
+> to do multi-alt dispatch + per-alt payload binding from whichever alt matched
+> (top-level match or-patterns already do this; replicating for tuple-element +
+> let-else positions is the focused-session work).
+
 ### G144-1 — an or-pattern nested INSIDE another tuple position drops its binding (TRACTABLE)
 
 A top-level or-pattern binding the same name from either tuple alternative works:

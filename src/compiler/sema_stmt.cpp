@@ -1164,32 +1164,47 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     // 4. Add pattern bindings to outer scope
     {
         namespace ps = lir_schema::pat;
-        auto pr = pat_ref_of(pat);
         auto* pool = cur_prog_->type_pool.impl();
-        if (pr.kind() == ps::Code::VariantData) {
-            lir_view::PatVariantDataView v{pr};
-            std::vector<std::string_view> names;
-            std::vector<TypeRef> types;
-            v.each_binding([&](std::string_view n) { names.push_back(n); });
-            v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
-            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                define(std::string(names[i]), types[i]);
-        } else if (pr.kind() == ps::Code::Tuple) {
-            lir_view::PatTupleView v{pr};
-            std::vector<std::string_view> names;
-            std::vector<TypeRef> types;
-            v.each_binding([&](std::string_view n) { names.push_back(n); });
-            v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
-            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_")
-                    define(std::string(names[i]), types[i]);
-        } else if (pr.kind() == ps::Code::Wild) {
-            lir_view::PatWildView v{pr};
-            auto n = v.name();
-            if (n != "_")
-                define(std::string(n), scrut_type);
-        }
-        // PatVariant (no bindings) — nothing to define
+        std::function<void(lir_view::PatRef)> define_bindings =
+            [&](lir_view::PatRef pr) {
+            if (pr.kind() == ps::Code::VariantData) {
+                lir_view::PatVariantDataView v{pr};
+                std::vector<std::string_view> names;
+                std::vector<TypeRef> types;
+                v.each_binding([&](std::string_view n) { names.push_back(n); });
+                v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+                for (size_t i = 0; i < names.size() && i < types.size(); ++i)
+                    if (names[i] != "_")
+                        define(std::string(names[i]), types[i]);
+            } else if (pr.kind() == ps::Code::Tuple) {
+                lir_view::PatTupleView v{pr};
+                std::vector<std::string_view> names;
+                std::vector<TypeRef> types;
+                v.each_binding([&](std::string_view n) { names.push_back(n); });
+                v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+                for (size_t i = 0; i < names.size() && i < types.size(); ++i)
+                    if (names[i] != "_")
+                        define(std::string(names[i]), types[i]);
+            } else if (pr.kind() == ps::Code::Wild) {
+                lir_view::PatWildView v{pr};
+                auto n = v.name();
+                if (n != "_")
+                    define(std::string(n), scrut_type);
+            } else if (pr.kind() == ps::Code::Or) {
+                // G144-3a: an or-pattern in `let-else` is not yet supported.
+                // SLetElse codegen dispatches on a SINGLE expected discriminant,
+                // so `let A | B = v else …` only ever matches the first alt
+                // (silent wrong result for the others), and a binding alt
+                // (`A(x) | B(x)`) additionally SIGSEGVs (no per-alt payload
+                // extract). Reject cleanly until the codegen does multi-alt
+                // dispatch + per-alt bind (shared facet with the nested-tuple
+                // or-binding, G144-1). Use a `match` with an else-arm meanwhile.
+                error("or-pattern in `let-else` is not yet supported "
+                      "(use a `match` with an else-arm)");
+            }
+            // PatVariant (no bindings) — nothing to define
+        };
+        define_bindings(pat_ref_of(pat));
     }
 
     // 5. Emit SLetElse
