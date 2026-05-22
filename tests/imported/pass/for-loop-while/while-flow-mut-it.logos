@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-flow-graph.rs
+// Modifications: `isize`->i64; trivial `while` body extended to a small
+// down-counter so the flow graph has a back-edge with a state change.
+// Exercises a `while` whose condition reads a mutated local.
+package fl_while_flow_mut_it;
+
+fn main() -> i32 {
+    let mut x: i64 = 10i64;
+    while x != 0i64 { x = x - 1i64; }
+    if x != 0i64 { return 1i32; }
+    return 0i32;
+}

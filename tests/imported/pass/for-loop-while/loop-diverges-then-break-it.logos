@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-diverges.rs
+// Modifications: the original empty diverging `loop {}` (which never returns)
+// replaced by a loop that runs a fixed number of iterations then breaks, so
+// the program terminates; `println!` dropped. Exercises a `loop` whose only
+// exit is an interior `break` guarded by a counter.
+package fl_loop_diverges_then_break_it;
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    loop {
+        n = n + 1i64;
+        if n == 7i64 { break; }
+    }
+    if n != 7i64 { return 1i32; }
+    return 0i32;
+}

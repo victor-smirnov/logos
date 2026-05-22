@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-with-generic-parameter-5997.rs
+// Modifications: the enum/struct are declared at module scope (Logos has no
+// fn-local type items); the generic fn returns a bool after using the type.
+// `assert!`->if-return. Exercises a generic enum used through a generic fn.
+package en_generic_enum_in_fn;
+
+enum E<T> { V(T) }
+
+fn f<T>(x: T) -> bool {
+    let _e: E<T> = E::V(x);
+    return true;
+}
+
+fn main() -> i32 {
+    let b: bool = f::<i64>(7i64);
+    if !b { return 1i32; }
+    return 0i32;
+}

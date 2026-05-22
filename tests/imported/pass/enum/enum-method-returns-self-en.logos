@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/enum/ (enum method returning an enum value).
+// Feature: an inherent method that returns a fresh value of the same enum
+// type (the `flip` constructor pattern). `&self`->self:&T.
+package en_enum_method_returns_self;
+
+enum Dir { N, S }
+
+impl Dir {
+    fn flip(self: &Dir) -> Dir {
+        match *self { Dir::N => Dir::S, Dir::S => Dir::N }
+    }
+    fn code(self: &Dir) -> i32 {
+        match *self { Dir::N => 0i32, Dir::S => 1i32 }
+    }
+}
+
+fn main() -> i32 {
+    let d: Dir = Dir::N;
+    let f: Dir = d.flip();
+    if f.code() != 1i32 { return 1i32; }
+    return 0i32;
+}

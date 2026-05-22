@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum_u8_variant.rs
+// Modifications: `#[repr(u8)]` dropped; the single payload-carrying variant
+// matched with a wildcard arm. CamelCase variant. Exercises matching a
+// single-variant enum with an inner field via `_`.
+package en_u8_variant_wildcard;
+
+enum Foo { Inner(u8) }
+
+fn main() -> i32 {
+    let f: Foo = Foo::Inner(1u8);
+    match f {
+        _ => {}
+    }
+    return 0i32;
+}

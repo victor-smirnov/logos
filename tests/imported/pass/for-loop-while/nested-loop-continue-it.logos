@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/foreach-nested.rs
+// Modifications: the two `FnMut` closure layers rewritten as two nested
+// range `for` loops writing into a fixed array via a flat index counter;
+// `assert_eq!`->return checks. Exercises nested for-loops, mutating an array
+// element computed from both indices.
+package fl_nested_loop_continue_it;
+
+fn main() -> i32 {
+    let mut a: [i64; 4] = [0i64; 4];
+    let mut p: i64 = 0i64;
+    for i in 0i64..2i64 {
+        for j in 0i64..2i64 {
+            a[p] = 10i64 * i + j;
+            p = p + 1i64;
+        }
+    }
+    if a[0] != 0i64 { return 1i32; }
+    if a[1] != 1i64 { return 2i32; }
+    if a[2] != 10i64 { return 3i32; }
+    if a[3] != 11i64 { return 4i32; }
+    return 0i32;
+}

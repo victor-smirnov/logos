@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-disr-val-pretty.rs
+// Modifications: a C-like enum with an explicit negative discriminant
+// (`Imaginary = -1`) plus auto-incremented variants; cast to `i64` and
+// checked. `isize`->i64; `assert_eq!`->return. Exercises negative + implicit
+// discriminant values.
+package en_negative_discriminant;
+
+enum Color { Red = 1, Green, Blue, Imaginary = -1 }
+
+fn main() -> i32 {
+    if (Color::Red as i64) != 1i64 { return 1i32; }
+    if (Color::Green as i64) != 2i64 { return 2i32; }
+    if (Color::Blue as i64) != 3i64 { return 3i32; }
+    if (Color::Imaginary as i64) != -1i64 { return 4i32; }
+    return 0i32;
+}

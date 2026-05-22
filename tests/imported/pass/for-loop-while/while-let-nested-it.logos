@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-let.rs
+// Modifications: BinaryHeap->`Vec<i64>` drained via `.pop()` (LIFO); the
+// nested `while let` over a fresh inner Vec computes a cross-product sum;
+// `assert_eq!`->return. Exercises `while let Some(x) = v.pop()` nested.
+package fl_while_let_nested_it;
+
+fn main() -> i32 {
+    let mut a: Vec<i64> = vec_new::<i64>();
+    a.push(1i64); a.push(2i64);
+    let mut sum: i64 = 0i64;
+    while let Some(x) = a.pop() {
+        let mut b: Vec<i64> = vec_new::<i64>();
+        b.push(1i64); b.push(2i64);
+        while let Some(y) = b.pop() { sum = sum + x * y; }
+    }
+    if sum != 9i64 { return 1i32; }
+    return 0i32;
+}

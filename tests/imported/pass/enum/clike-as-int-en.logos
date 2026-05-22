@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-univariant-repr.rs
+// Modifications: `#[repr(...)]` + `mem::size_of` + `transmute` dropped (no
+// stable layout-introspection surface here); the discriminant-cast core kept.
+// CamelCase variants. Exercises explicit + implicit C-like discriminants cast
+// to an integer with `as`.
+package en_clike_as_int;
+
+enum E { X = 17, Y, Z = 100 }
+
+fn main() -> i32 {
+    if (E::X as i32) != 17i32 { return 1i32; }
+    if (E::Y as i32) != 18i32 { return 2i32; }
+    if (E::Z as i32) != 100i32 { return 3i32; }
+    return 0i32;
+}

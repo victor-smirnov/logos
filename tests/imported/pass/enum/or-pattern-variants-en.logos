@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/namespaced-enums.rs (or-pattern axis distilled)
+// Modifications: a three-variant C-like enum matched with an or-pattern
+// (`E::A | E::B`) collapsing two variants into one arm. CamelCase variants.
+// Exercises an or-pattern across enum variants.
+package en_or_pattern_variants;
+
+enum E { A, B, C }
+
+fn f(e: E) -> i32 {
+    match e {
+        E::A | E::B => 1i32,
+        E::C => 2i32,
+    }
+}
+
+fn main() -> i32 {
+    if f(E::A) != 1i32 { return 1i32; }
+    if f(E::B) != 1i32 { return 2i32; }
+    if f(E::C) != 2i32 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-size-variance.rs
+// Modifications: the warn-only `#[warn(variant_size_differences)]` axis dropped;
+// the enum with mixed-arity payload variants is constructed + matched. `i64`
+// payloads. CamelCase variants. Exercises an enum mixing a multi-field tuple
+// variant, a single-field variant, and a nullary variant.
+package en_many_data_variants;
+
+enum E { L(i64, i64, i64), M(i64), N }
+
+fn sum(e: E) -> i64 {
+    match e {
+        E::L(a, b, c) => a + b + c,
+        E::M(a) => a,
+        E::N => 0i64,
+    }
+}
+
+fn main() -> i32 {
+    if sum(E::L(1i64, 2i64, 3i64)) != 6i64 { return 1i32; }
+    if sum(E::M(7i64)) != 7i64 { return 2i32; }
+    if sum(E::N) != 0i64 { return 3i32; }
+    return 0i32;
+}

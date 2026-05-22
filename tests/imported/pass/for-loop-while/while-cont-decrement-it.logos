@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-cont.rs
+// Modifications: `println!` dropped; `assert!`->if-return. Exercises a
+// `while` loop with an explicit `continue` at the tail of the body.
+package fl_while_cont_decrement_it;
+
+fn main() -> i32 {
+    let mut i: i64 = 5i64;
+    let mut count: i64 = 0i64;
+    while i > 0i64 {
+        if i <= 0i64 { return 1i32; }
+        count = count + 1i64;
+        i = i - 1i64;
+        continue;
+    }
+    if count != 5i64 { return 2i32; }
+    return 0i32;
+}

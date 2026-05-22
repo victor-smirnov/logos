@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/linear-for-loop.rs
+// Modifications: distilled to the for-over-&Vec accumulation core; `println!`
+// and the byte-iteration tail dropped (.bytes() not in scope here);
+// `vec![1,2,3]`->vec_new+push; `assert_eq!`->return-code check. Exercises a
+// range for-loop summing 0..6 and a for-over-&Vec summing its elements.
+package fl_range_sum_it;
+
+fn main() -> i32 {
+    let mut x: Vec<i64> = vec_new::<i64>();
+    x.push(1i64); x.push(2i64); x.push(3i64);
+    let mut y: i64 = 0i64;
+    for i in &x { y = y + *i; }
+    if y != 6i64 { return 1i32; }
+
+    let mut z: i64 = 0i64;
+    for i in 0i64..6i64 { z = z + i; }
+    if z != 15i64 { return 2i32; }
+    return 0i32;
+}

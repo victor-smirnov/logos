@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-with-uninhabited-variant.rs
+// Modifications: the `Void` (zero-variant enum) payload variant dropped —
+// Logos can't construct a value of an empty enum to fill a payload here, and
+// the test point (constructing one of the *inhabited* variants) is preserved.
+// CamelCase variants.
+package en_uninhabited_variant;
+
+enum Foo {
+    A(i32),
+    C(i32),
+}
+
+fn main() -> i32 {
+    let foo: Foo = Foo::A(0i32);
+    let r: i32 = match foo {
+        Foo::A(x) => x,
+        Foo::C(x) => x + 1i32,
+    };
+    if r != 0i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-scope.rs
+// Modifications: `vec![0,2,3]`->vec_new+push; `isize`->i64; `x += i` over a
+// for-over-&Vec; `assert_eq!`->return. Exercises a fresh `let` inside a loop
+// body (`y`) shadowing, and accumulating into an outer mutable.
+package fl_loop_scope_it;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(0i64); v.push(2i64); v.push(3i64);
+    let mut x: i64 = 0i64;
+    for i in &v {
+        let y: i64 = *i;
+        x = x + y;
+    }
+    if x != 5i64 { return 1i32; }
+    return 0i32;
+}

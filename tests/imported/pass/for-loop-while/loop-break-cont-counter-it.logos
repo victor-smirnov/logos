@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-break-cont.rs
+// Modifications: `usize`->u64; `println!` dropped; `assert_eq!`/`assert!`
+// ->return-code checks. Exercises an unconditional `loop` with a break on a
+// counter, then a `loop` using `continue` to skip odd iterations.
+package fl_loop_break_cont_counter_it;
+
+fn main() -> i32 {
+    let mut i: u64 = 0u64;
+    loop {
+        i = i + 1u64;
+        if i == 10u64 { break; }
+    }
+    if i != 10u64 { return 1i32; }
+
+    let mut is_even: bool = false;
+    loop {
+        if i == 22u64 { break; }
+        is_even = false;
+        i = i + 1u64;
+        if i % 2u64 != 0u64 { continue; }
+        is_even = true;
+    }
+    if !is_even { return 2i32; }
+    return 0i32;
+}

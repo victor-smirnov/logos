@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/enum/ (enum method dispatch pattern).
+// Feature: an inherent method on a payload-carrying enum that matches on
+// `*self` and computes from the bound payload. `&self`->self:&T.
+package en_enum_method_area;
+
+enum Shape { Circle(f64), Square(f64) }
+
+impl Shape {
+    fn area(self: &Shape) -> f64 {
+        match *self {
+            Shape::Circle(r) => 3i32 as f64 * r * r,
+            Shape::Square(s) => s * s,
+        }
+    }
+}
+
+fn main() -> i32 {
+    let c: Shape = Shape::Circle(2.0f64);
+    if c.area() != 12.0f64 { return 1i32; }
+    let s: Shape = Shape::Square(3.0f64);
+    if s.area() != 9.0f64 { return 2i32; }
+    return 0i32;
+}

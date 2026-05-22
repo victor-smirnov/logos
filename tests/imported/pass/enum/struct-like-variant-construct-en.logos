@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/struct-like-variant-construct.rs
+// Modifications: `isize`->i64; `f64` fields kept; CamelCase variant names.
+// Exercises constructing both struct-like enum variants (named fields).
+package en_struct_like_variant_construct;
+
+enum Foo {
+    Bar { a: i64, b: i64 },
+    Baz { c: f64, d: f64 },
+}
+
+fn main() -> i32 {
+    let _x: Foo = Foo::Bar { a: 2i64, b: 3i64 };
+    let _y: Foo = Foo::Baz { c: 1.0f64, d: 2.0f64 };
+    return 0i32;
+}

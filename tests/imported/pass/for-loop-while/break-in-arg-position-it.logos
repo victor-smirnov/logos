@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/issue-51345.rs
+// Modifications: `Vec::new()`->vec_new; the loop body `v.push(break)` keeps
+// the test point — `break` in argument position diverges before the call,
+// so the loop exits on the first iteration. Vec from the implicit prelude.
+package fl_break_in_arg_position_it;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    let mut count: i64 = 0i64;
+    loop { count = count + 1i64; v.push(break); }
+    if count != 1i64 { return 1i32; }
+    return 0i32;
+}

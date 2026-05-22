@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/match-either-enum-variants-6117.rs
+// Modifications: `Box::new(17)`->plain i64 payload (Box dropped); the match
+// keeps a catch-all `_` arm. CamelCase variants. Exercises a two-parameter
+// generic enum constructed + matched with one arm plus a wildcard.
+package en_generic_either;
+
+enum Either<T, U> { Left(T), Right(U) }
+
+fn main() -> i32 {
+    let e: Either<i64, bool> = Either::Left(17i64);
+    let r: i64 = match e {
+        Either::Left(x) => x,
+        _ => 0i64,
+    };
+    if r != 17i64 { return 1i32; }
+    return 0i32;
+}
