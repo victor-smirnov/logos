@@ -3053,6 +3053,37 @@ private:
         if (!e || !target || !e->type) return;
         auto ek = TypeRef(e->type).kind();
         auto tk = TypeRef(target).kind();
+        // G149-2 (silent miscompile): `&<int-literal>` passed where `&T` is
+        // expected. The arg lowers to an AddrOfTemp whose inner literal stays
+        // its default width (IntLit→i32), so codegen allocates an i32 temp and
+        // stores i32 — but the callee loads `T` (e.g. i64) through the pointer,
+        // reading adjacent stack garbage. Recurse into the temp's inner literal
+        // and widen it to the pointee so the temp's slot is sized to T.
+        if ((ek == LogosType::Kind::Ref || ek == LogosType::Kind::MutRef) &&
+            (tk == LogosType::Kind::Ref || tk == LogosType::Kind::MutRef) &&
+            TypeRef(e->type).pointee() && TypeRef(target).pointee()) {
+            auto er = expr_ref_of(*e);
+            if (er.kind() == lir_schema::expr::Code::AddrOfTemp) {
+                lir_view::EAddrOfTempView av{er};
+                TypeRef ipt = TypeRef(target).pointee();
+                if (auto* inner = lexpr_of(av.inner())) {
+                    auto ik = inner->type ? TypeRef(inner->type).kind()
+                                          : LogosType::Kind::Error;
+                    bool widenable = is_integer_kind(ik) &&
+                                     is_integer_kind(TypeRef(ipt).kind()) &&
+                                     ik != TypeRef(ipt).kind() &&
+                                     (can_widen_int(ik, TypeRef(ipt).kind()) ||
+                                      (get_intlit_value(inner) &&
+                                       intlit_fits(*get_intlit_value(inner),
+                                                   TypeRef(ipt).kind())));
+                    if (widenable) {
+                        lir::LExprPtr casted = b.cast(inner, ipt);
+                        e = b.addr_of_temp(casted, av.is_mut(), target);
+                    }
+                }
+            }
+            return;
+        }
         if (ek == tk) return;
         bool ok = can_widen_int(ek, tk);
         if (!ok && is_integer_kind(TypeRef(e->type).kind()) && is_integer_kind(TypeRef(target).kind())) {

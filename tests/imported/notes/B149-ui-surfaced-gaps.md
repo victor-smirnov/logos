@@ -43,7 +43,9 @@ A NON-crashing faithful subset of the same area was imported as
 `factory-assoc-type-b149` (assoc-type projection works fine when the impl is concrete,
 incl. the recursive tuple-impl, just not when routed through a generic-param method-chain).
 
-### G149-2 — ⚠️ SILENT MISCOMPILE (deep): passing `&<int-literal>` to a `&self` method of a 3-FIELD GENERIC struct AFTER mutating it via `&mut self` reads garbage / corrupts the value
+### G149-2 — ✅ FIXED (2026-05-22): passing `&<int-literal>` to a `&self` method of a 3-FIELD GENERIC struct AFTER mutating it via `&mut self` reads garbage / corrupts the value
+
+**Fix**: ROOT CAUSE was not aliasing — it was integer-literal width. `&<int-literal>` lowers to an `AddrOfTemp` whose inner literal keeps its default width (IntLit→i32); codegen allocated an i32 temp and stored i32, but the callee loaded `i64` through the `&i64` pointer → 4 bytes of value + 4 bytes of adjacent stack garbage (non-deterministic). `widen_int_expr` (sema_impl.hpp) bailed for ref-vs-ref. Now it recurses into an `AddrOfTemp` against `&T`/`&mut T`: when the inner is an integer expr/literal widenable to the pointee, it re-casts the inner and rebuilds the temp sized to T. Regression `tests/logos/pass/addr_of_int_literal_widen` + re-import `class-impl-very-parameterized-trait-b149`. 4514/4514. ORIGINAL REPORT below:
 
 A generic struct with THREE fields (the generic field last) mutated through a `&mut self`
 method in a loop, then queried by a `&self` method that takes a `&i64` arg:

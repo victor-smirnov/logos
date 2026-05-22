@@ -1,0 +1,22 @@
+package addr_of_int_literal_widen;
+// G149-2 regression: `&<int-literal>` passed where `&i64` is expected must
+// size the temporary to i64 (not the literal's default i32 width), else the
+// callee loads i64 through the pointer and reads adjacent stack garbage —
+// a non-deterministic silent miscompile.
+struct C<T> { meows: i64, how_hungry: i64, name: T }
+impl<T> C<T> {
+    fn bump(self: &mut C<T>) { self.meows = self.meows + 1; }
+    fn ck(self: &C<T>, k: &i64) -> bool { return *k <= self.meows; }
+    fn pk(self: &C<T>, k: &i64) -> i64 { return *k; }
+}
+fn free_ck(k: &i64, m: i64) -> bool { return *k <= m; }
+fn main() -> i64 {
+    let mut c: C<i64> = C { meows: 2, how_hungry: 57, name: 9 };
+    let mut i: i64 = 0;
+    while i < 6 { c.bump(); i = i + 1; }
+    if c.meows != 8 { return 50 + c.meows; }
+    if c.pk(&2) != 2 { return 60; }
+    if !c.ck(&2) { return 61; }
+    if !free_ck(&2, 8) { return 62; }
+    return 0;
+}

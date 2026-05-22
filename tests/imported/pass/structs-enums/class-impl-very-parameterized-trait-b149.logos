@@ -1,0 +1,25 @@
+package class_impl_very_parameterized_trait_b149;
+// Faithful subset of rustc tests/ui/structs-enums/class-impl-very-parameterized-trait.rs.
+// 3-field generic struct mutated via &mut self in a loop, then queried by a
+// &self method taking a `&i64` arg — exercises G149-2 (&<literal> temp must be
+// sized to the param pointee). isize→i64; String/find/get/Option<&T> dropped;
+// `assert!(spotty.contains_key(&2))` + `len()==8` checked → exit 0.
+enum cat_type { tuxedo, tabby, tortoiseshell }
+struct cat<T> { meows: i64, how_hungry: i64, name: T }
+impl<T> cat<T> {
+    fn len(self: &cat<T>) -> i64 { return self.meows; }
+    fn contains_key(self: &cat<T>, k: &i64) -> bool { return *k <= self.meows; }
+    fn meow(self: &mut cat<T>) {
+        self.meows = self.meows + 1;
+        if self.meows % 5 == 0 { self.how_hungry = self.how_hungry + 1; }
+    }
+    fn speak(self: &mut cat<T>) { self.meow(); }
+}
+fn main() -> i64 {
+    let mut spotty: cat<cat_type> = cat { meows: 2, how_hungry: 57, name: cat_type::tuxedo };
+    let mut i: i64 = 0;
+    while i < 6 { spotty.speak(); i = i + 1; }
+    if spotty.len() != 8 { return 1; }
+    if !spotty.contains_key(&2) { return 2; }
+    return 0;
+}
