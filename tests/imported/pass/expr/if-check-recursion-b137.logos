@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if/if-check.rs
+// Modifications: usize→u64; println!/panic! → nonzero ret; the `if/else if/else`
+//   chain with early returns + recursive call kept verbatim.
+// Tests an `if / else if / else` chain with early `return`s and a recursive
+//   self-call (`even(x - 2)`).
+package if_check_recursion_b137;
+
+fn even(x: u64) -> bool {
+    if x < 2u64 {
+        return false;
+    } else if x == 2u64 {
+        return true;
+    } else {
+        return even(x - 2u64);
+    }
+}
+
+fn main() -> i32 {
+    if !even(2u64) { return 1i32; }
+    if !even(8u64) { return 2i32; }
+    if even(7u64) { return 3i32; }
+    return 0i32;
+}

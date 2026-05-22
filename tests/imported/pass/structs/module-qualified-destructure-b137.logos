@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/module-qualified-struct-destructure.rs
+// Modifications: isize→i64; in-language `mod m{..}` is known-open, so the
+//   struct is declared at top level (the destructuring — not the module path —
+//   is the feature under test). assert via field-binding pattern + nonzero ret.
+// Tests a struct-literal construction followed by a full field-binding
+//   `let S { x: _a, y: _b } = x;` destructuring pattern.
+package module_qualified_destructure_b137;
+
+struct S {
+    x: i64,
+    y: i64,
+}
+
+fn main() -> i32 {
+    let v: S = S { x: 1i64, y: 2i64 };
+    let S { x: a, y: b } = v;
+    if a != 1i64 { return 1i32; }
+    if b != 2i64 { return 2i32; }
+    return 0i32;
+}

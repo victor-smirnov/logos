@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if/expr-if-panic-pass.rs
+// Modifications: literals suffixed; the never-typed `panic!()` arm replaced by
+//   a never-reached literal arm (panic! is not ported and an `if`-arm that
+//   diverges via `panic!` is a separate never-type path); assert_eq! → nonzero
+//   ret. The kept feature is `if/else` (and `if/else if/else`) used as the
+//   VALUE of a `let`, with the taken arm yielding a literal.
+// Tests `let x = if c { a } else { b };` if-as-expression in value position,
+//   including a three-way `if/else if/else` value.
+package if_panic_arm_as_value_b137;
+
+fn main() -> i32 {
+    let a: i64 = if false { 0i64 } else { 10i64 };
+    if a != 10i64 { return 1i32; }
+
+    let b: i64 = if true { 10i64 } else { 0i64 };
+    if b != 10i64 { return 2i32; }
+
+    let c: i64 = if false { 0i64 } else if false { 1i64 } else { 10i64 };
+    if c != 10i64 { return 3i32; }
+    return 0i32;
+}

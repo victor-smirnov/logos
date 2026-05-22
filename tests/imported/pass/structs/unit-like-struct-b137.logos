@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/unit-like-struct.rs
+// Modifications: println! in the match arm dropped; matched via the unit
+//   struct's name pattern; nonzero ret on a sentinel.
+// Modifications (2): Logos has no bodyless `struct Foo;`; the unit struct is
+//   written `struct Foo {}` and constructed `Foo {}`. The bare-name match
+//   pattern `Foo` is replaced by `Foo {} =>` (the empty-fields struct pattern).
+// Tests a unit-like struct `struct Foo {}`, constructed `Foo {}`, then matched
+//   with the empty-fields struct pattern `Foo {} => {..}`.
+package unit_like_struct_b137;
+
+struct Foo {}
+
+fn main() -> i32 {
+    let x: Foo = Foo {};
+    let mut hit: i32 = 1i32;
+    match x {
+        Foo {} => { hit = 0i32; }
+    }
+    return hit;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn-twice.rs
+// Modifications: isize→i64; in-language `mod foomod{..}` dropped (known-open),
+//   the generic fn declared at top level; turbofish kept. The feature is
+//   instantiating the SAME generic fn at the same type twice (mono dedup).
+// Tests two calls of a no-payload generic fn `foo::<i64>()` (monomorphized once).
+package generic_fn_twice_b137;
+
+fn foo<T>() {
+}
+
+fn main() -> i32 {
+    foo::<i64>();
+    foo::<i64>();
+    return 0i32;
+}

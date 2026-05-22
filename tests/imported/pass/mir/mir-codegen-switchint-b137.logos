@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_switchint.rs
+// Modifications: literals suffixed; assert_eq! → nonzero ret. The match arms
+//   yield values (match-as-expression returning i32 from an i8 scrutinee).
+// Tests a `match` over a small integer with a literal arm + `_` catch-all
+//   lowered to a switch, used in value position.
+package mir_codegen_switchint_b137;
+
+fn foo(x: i8) -> i32 {
+    match x {
+        1i8 => 0i32,
+        _ => 1i32,
+    }
+}
+
+fn main() -> i32 {
+    if foo(0i8) != 1i32 { return 1i32; }
+    if foo(1i8) != 0i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-newtype-struct.rs
+// Modifications: rustc tuple-struct `S<T>(T)` → named struct `S<T>{a:T}`
+//   (Logos has no tuple-struct ctor syntax); construction via `S{a:2i64}`.
+// Tests that a generic single-field struct constructs at a concrete type.
+package generic_newtype_struct_b137;
+
+struct S<T> {
+    a: T,
+}
+
+fn main() -> i32 {
+    let _s: S<i64> = S { a: 2i64 };
+    return 0i32;
+}

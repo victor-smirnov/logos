@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_const_prop_identity.rs (issue #91725)
+// Modifications: `&a` shared-borrow line kept; `b |= a` compound bitwise-or
+//   assignment on bool kept; assert! → nonzero ret.
+// Tests `|=` compound-assignment on bool plus a shared borrow of a local.
+package mir_const_prop_identity_b137;
+
+fn main() -> i32 {
+    let a: bool = true;
+    let _r = &a;
+    let mut b: bool = false;
+    b |= a;
+    if !b { return 1i32; }
+    return 0i32;
+}
