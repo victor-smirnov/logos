@@ -93,3 +93,23 @@ tuple-eq-compare (structural `==`/`!=` on 2- and 3-tuples), tuple-return-destruc
 heterogeneous tuple), tuple-mut-field-write (writing through a tuple field place on a
 `mut` local), tuple-arg-ret-chain (3-tuple through fn arg + return, composed twice),
 unit-tuple-value (`()` as a value: fn `-> ()` returning `()`, `let u: () = ()`).
+
+## N1 follow-up (2026-05-22 investigation) — SILENT MISCOMPILE, fix cascades
+`match (a,b) { (None,None)=>…, (None,Some(x))=>… }` over `(None, Some(9))`
+wrongly selects the `(None,None)` arm. Root chain found:
+1. A bare `None` tuple-element parses as `PAT_WILD(name="None")` (a binding),
+   not a variant — build_pattern's bare-variant recognition (sema_stmt.cpp ~2997)
+   only fires when scrut_type IS the enum, but the tuple-element PAT_WILD
+   single-alt unwrap (~2830) calls make_pat_wild() directly, bypassing it. So the
+   element is an untested wildcard → silent wrong-arm.
+2. Fix attempt A: route variant-named tuple elements through build_pattern
+   (→ PatVariant) + add a no-payload `Code::Variant` disc-check to BOTH tuple
+   dispatches (mlir_gen_stmt ~2696 / mlir_gen_expr ~3076, which only handled
+   VariantData). Result: SIGSEGV — the tuple-element enum disc-check derefs an
+   invalid ptr. `(Some(a),_)` element0 ALSO segfaults via the PRE-EXISTING
+   VariantData path, so the tuple stores enum elements in a form where
+   `LoadOp(ptr, slot)` then `GEP{0,0}` is wrong (enum likely stored INLINE in the
+   tuple, not as a heap ptr — or None is a null/niche slot). REVERTED.
+Proper fix: reconcile the tuple-enum-element representation (match the top-level
+heap-ptr convention or handle inline) FIRST, then the disc-checks + bare-variant
+recognition land safely. Deep — focused session. (HIGH priority: silent wrong-arm.)
