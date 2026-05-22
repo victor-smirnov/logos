@@ -1,0 +1,22 @@
+package dynamic_slice_match_named_rest;
+// G149-4: dynamic-slice (&[T]) top-level match — element binding + named rest
+// sub-slice. Also covers the pre-existing silent miscompile where `[x, ..]`
+// over &[T] returned garbage (dispatch fell through to scalar-disc on the ptr).
+fn sum_tail(v: &[i64]) -> i64 {
+    match v {
+        [] => { return 0; }
+        [x, xs @ ..] => { return x + sum_tail(xs); }
+    }
+}
+fn head(v: &[i64]) -> i64 {
+    match v {
+        [] => { return -1; }
+        [x, ..] => { return x; }
+    }
+}
+fn main() -> i64 {
+    let a: [i64; 4] = [10, 20, 30, 40];
+    if head(&a) != 10 { return 1; }
+    if sum_tail(&a) != 100 { return 2; }
+    return 0;
+}

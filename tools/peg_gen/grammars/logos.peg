@@ -1702,7 +1702,10 @@
                    => { ITEMS: $... }
 
     // ── Single element in a slice pattern ────────────────────────────────
-    pat_slice_elem <- DOTDOT
+    // G149-4: `xs @ ..` binds the trailing/middle sub-slice to a name.
+    pat_slice_elem <- IDENT AT DOTDOT
+                   => { CODE: PAT_REST, NAME: $1 }
+                    / DOTDOT
                    => { CODE: PAT_REST }
                     / pat_single
 

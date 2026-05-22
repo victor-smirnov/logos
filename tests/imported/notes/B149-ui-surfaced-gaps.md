@@ -100,7 +100,9 @@ catch-up gap (move-by-copy semantics for Copy captures), not a blessed divergenc
 after the move closure is precisely this check). The non-`move` borrowing form works
 correctly and is what `return-from-closure-b149` uses.
 
-### G149-4 — DEFERRED (moderate): a NAMED slice-rest binding `[_, xs @ ..]` / `[_, .. xs]` is unsupported (parse error near `@` / `..`)
+### G149-4 — ✅ FIXED (2026-05-22): a NAMED slice-rest binding `[_, xs @ ..]` is unsupported (parse error near `@`)
+
+**Fix** — turned out broader than named-rest: TOP-LEVEL dynamic-slice (`&[T]`) match was entirely unimplemented (dispatch required Array kind; binding only handled Array). `[x, ..]` over `&[T]` fell through to the default scalar-disc path and cmpi'd the slice POINTER → silent wrong dispatch/garbage (PRE-EXISTING miscompile). Fixed end-to-end (stmt path): (1) grammar `pat_slice_elem` accepts `IDENT AT DOTDOT` → PAT_REST+NAME; (2) sema binds a named rest as `&[T]` (make_slice_type), anonymous `..` binds nothing; (3) gen_match adds a dynamic-slice dispatch branch (gate on runtime `len`: `== prefix` or `>= prefix+suffix` with rest, plus literal prefix-element checks); (4) extract_payload binds prefix elements through the data ptr and constructs the named-rest sub-slice `{data+prefix, len-prefix}`; (5) is_irrefutable treats any fixed-prefix/suffix slice pattern as refutable (only pure `[..]`/`[xs @ ..]` is irrefutable). Re-import `slice-pattern-recursion-15104-b149`; regression `dynamic_slice_match_named_rest`. 4519/4519. EXPR-path (match-as-expression) dynamic-slice top-level binding not yet wired (separate follow-up; stmt path covers the imported tests). ORIGINAL REPORT below:
 
 Anonymous middle/trailing `..` rest patterns work (`[0, ..]`, `[0, .., 3]`, `[..]` — all
 imported in prior batches), but BINDING the rest slice to a name does not parse:

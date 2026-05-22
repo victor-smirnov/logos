@@ -3297,7 +3297,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             if (found_rest)
                                 error("slice pattern: only one '..' allowed");
                             found_rest = true;
-                            psl.rest.push_back(make_pat_wild("_"));
+                            // G149-4: `xs @ ..` carries a NAME — bind the
+                            // rest sub-slice to it (else anonymous `..`).
+                            std::string rest_name = "_";
+                            if (enode.has_key(la::NAME))
+                                rest_name = std::string(str_of(enode.get(la::NAME.code)));
+                            psl.rest.push_back(make_pat_wild(rest_name));
                             continue;
                         }
                         auto sub = build_pattern(enode, elem_type);
@@ -4030,7 +4035,10 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         TypeRef elem_t = (scrut_type && TypeRef(scrut_type).elem())
                           ? TypeRef(scrut_type).elem() : error_t();
         v.each_prefix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
-        v.each_rest  ([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
+        // G149-4: a named rest (`xs @ ..`) binds the sub-slice as `&[T]`
+        // (Slice kind), not an element. Anonymous `_` rest binds nothing.
+        TypeRef rest_slice_t = make_slice_type(elem_t);
+        v.each_rest  ([&](lir_view::PatRef p) { bind_pattern_ref(p, rest_slice_t); });
         v.each_suffix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
     } else if (k == ps::Code::Or) {
         lir_view::PatOrView v{pr};
