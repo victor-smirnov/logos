@@ -1,0 +1,10 @@
+package never_type_panic_value;
+fn get(c: bool) -> i64 {
+    // panic is now `-> !`, usable in value position
+    let x: i64 = if c { 5i64 } else { panic("nope") };
+    return x;
+}
+fn main() -> i32 {
+    if get(true) != 5i64 { return 1i32; }
+    return 0i32;
+}

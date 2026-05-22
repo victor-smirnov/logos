@@ -39,7 +39,15 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         // both forms by the same callee name.
         if (cc == la::CALL.code || cc == la::FN_MACRO_CALL.code) {
             auto callee = str_of(node.get(la::CALLEE.code));
-            return callee == "panic";
+            if (callee == "panic") return true;
+            // A call to any `-> !` (Never-returning) function diverges —
+            // generalises the historical hand-coded `panic` name check now
+            // that the never type exists (abort / exit / unreachable / a
+            // user `-> !` fn all qualify).
+            for (auto* fi : find_func_candidates(std::string(callee)))
+                if (fi && fi->ret_type &&
+                    TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
+                    return true;
         }
         return false;
     };

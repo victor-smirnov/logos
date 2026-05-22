@@ -11,7 +11,7 @@ use logos.lang.result;
 use logos.lang.option;
 use logos.lang.str;
 
-extern fn abort();
+extern fn abort() -> !;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 // Hook into the test-recovery runtime: if a #[test] runner has installed
 // a TLS jmp_buf via logos_run_with_recovery, this call captures `msg` and
@@ -26,7 +26,7 @@ extern fn logos_run_with_recovery(fn_ptr: fn()) -> i32;
 extern fn logos_panic_last_msg() -> *const u8;
 extern fn logos_panic_last_msg_len() -> i64;
 
-pub fn panic(msg: str) {
+pub fn panic(msg: str) -> ! {
     unsafe {
         let prefix: str = "panic: ";
         write(2, prefix.as_ptr(), 7);
