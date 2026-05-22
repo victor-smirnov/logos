@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/issue-3743.rs
+// Modifications: dropped `#[derive]`/`#[inline]`/`println!`; the `std::ops::Mul`
+//   blanket `impl<Res,Rhs: RhsOfVec2Mul<Result=Res>> Mul<Rhs>` is specialized to the
+//   concrete `impl Mul<f64> for Vec2` (the operator-`*` sugar `a * 3.0` -> the explicit
+//   `a.mul(3.0)` method call, since custom `Mul`-via-`*` resolution differs); `vmul`
+//   takes `&Vec2` (so `lhs.vmul` works through the `&Vec2`); assoc-type `Result`/`Output`
+//   kept; literals f64-suffixed; checked the result fields with distinct nonzero returns.
+// Tests an associated-type RHS-visitor pattern (`mul_vec2_by` dispatch) (#3743).
+package mul_rhs_visitor_3743_b146;
+
+struct Vec2 { x: f64, y: f64 }
+
+impl Vec2 {
+    fn vmul(self: &Vec2, other: f64) -> Vec2 {
+        Vec2 { x: self.x * other, y: self.y * other }
+    }
+}
+
+trait Mul<Rhs> { type Output; fn mul(self: Vec2, rhs: Rhs) -> Self::Output; }
+trait RhsOfVec2Mul { type Result; fn mul_vec2_by(self: &f64, lhs: &Vec2) -> Self::Result; }
+
+impl Mul<f64> for Vec2 {
+    type Output = Vec2;
+    fn mul(self: Vec2, rhs: f64) -> Vec2 { rhs.mul_vec2_by(&self) }
+}
+
+impl RhsOfVec2Mul for f64 {
+    type Result = Vec2;
+    fn mul_vec2_by(self: &f64, lhs: &Vec2) -> Vec2 { lhs.vmul(*self) }
+}
+
+fn main() -> i32 {
+    let a = Vec2 { x: 3.0f64, y: 4.0f64 };
+    let v1 = a.mul(3.0f64);
+    if v1.x != 9.0f64 { return 1i32; }
+    if v1.y != 12.0f64 { return 2i32; }
+    return 0i32;
+}

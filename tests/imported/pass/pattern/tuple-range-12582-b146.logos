@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-12582.rs
+// Modifications: literals suffixed i64; assert_eq! -> distinct nonzero return; the
+//   NESTED-tuple form `((1..=2,2),)` is dropped (nested-tuple element value-test is a
+//   known gap, see B146 notes) — kept the top-level tuple-range form.
+// Tests a tuple range pattern `(1..=2, 2)` selected over literal-tuple arms.
+package tuple_range_12582_b146;
+
+fn main() -> i32 {
+    let x = 1i64;
+    let y = 2i64;
+    let a = match (x, y) {
+        (1i64, 1i64) => 1i64,
+        (2i64, 2i64) => 2i64,
+        (1i64..=2i64, 2i64) => 3i64,
+        _ => 4i64,
+    };
+    if a != 3i64 { return 1i32; }
+    return 0i32;
+}

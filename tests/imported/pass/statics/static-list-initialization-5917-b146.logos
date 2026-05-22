@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/static/static-list-initialization-5917.rs
+// Modifications: isize->i64; tuple-struct `T(&\047static [isize])` -> a named-field struct
+//   holding a fixed `[i64;3]`; `static t : T` -> a fn building/returning it (static ->
+//   returned value); the `let T(ref v) = t` destructure -> field access; assert_eq! ->
+//   nonzero return.
+// Tests building a struct holding a list and reading its first element (#5917).
+package static_list_initialization_5917_b146;
+
+struct T { v: [i64; 3] }
+
+fn t() -> T { return T { v: [5i64, 4i64, 3i64] }; }
+
+fn main() -> i32 {
+    let tv = t();
+    if tv.v[0] != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/nested-function-names-issue-8587.rs
+// Modifications: isize->i64; `&self`->`self:&X`; in-fn nested `fn inner` items hoisted
+//   to module scope (in-language nested fns -> module scope); empty `struct X` -> a
+//   `{_z}` field; assert_eq! -> distinct nonzero return.
+// Tests that same-named helpers in different methods stay distinct (#8587).
+package nested_function_names_8587_b146;
+
+struct X { _z: i64 }
+
+fn inner_f() -> i64 { 0i64 }
+fn inner_g() -> i64 { 1i64 }
+fn inner_h() -> i64 { 2i64 }
+
+impl X {
+    fn f(self: &X) -> i64 { inner_f() }
+    fn g(self: &X) -> i64 { inner_g() }
+    fn h(self: &X) -> i64 { inner_h() }
+}
+
+fn main() -> i32 {
+    let n = X { _z: 0i64 };
+    if n.f() != 0i64 { return 1i32; }
+    if n.g() != 1i64 { return 2i32; }
+    if n.h() != 2i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-consts/associated-const.rs
+// Modifications: the `<i32 as Foo>::ID` qualified-path syntax is rejected (parse error,
+//   see B146 notes), so the const is read via the concrete-type path `i32::ID` (which
+//   dispatches the same impl const); assert_eq! -> nonzero return.
+// Tests a trait associated const `const ID` impl'd for i32, read via `i32::ID`.
+package associated_const_trait_b146;
+
+trait Foo { const ID: i32; }
+
+impl Foo for i32 { const ID: i32 = 1i32; }
+
+fn main() -> i32 {
+    if i32::ID != 1i32 { return 1i32; }
+    return 0i32;
+}

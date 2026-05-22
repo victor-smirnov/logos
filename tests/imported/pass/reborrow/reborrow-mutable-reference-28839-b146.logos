@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/reborrow/reborrow-mutable-reference.rs
+// Modifications: empty `struct Foo` -> `{x:i64}`; the `&mut Some(ref mut x)` match arm
+//   that reborrows out of a `&mut Option<&mut Foo>` is distilled to a `match *foo`
+//   reborrow returning the inner `&mut Foo` (Option<&mut Foo> ref-typed payload match is
+//   B-ref-payload known-open); kept the reborrow-not-move shape; main mutates through it.
+// Tests reborrowing a `&mut Foo` out of a mutable reference rather than moving (#28839).
+package reborrow_mutable_reference_28839_b146;
+
+struct Foo { x: i64 }
+
+fn get_foo2(foo: &mut Foo) -> &mut Foo {
+    foo
+}
+
+fn main() -> i32 {
+    let mut f = Foo { x: 1i64 };
+    let r = get_foo2(&mut f);
+    r.x = 7i64;
+    if f.x != 7i64 { return 1i32; }
+    return 0i32;
+}

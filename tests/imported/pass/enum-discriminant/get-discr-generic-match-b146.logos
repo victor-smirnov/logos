@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/get_discr.rs
+// Modifications: dropped `#[repr(u8/i8)]` + the giant 254-variant enums (their point is
+//   layout/niche, irrelevant here); kept the generic `match_e<X>(E<X>)->u8` discriminant
+//   read over a generic enum with a payload variant + two unit variants; `use E::*` ->
+//   qualified `E::A` etc.; assert_eq! -> distinct nonzero return.
+// Tests a generic enum E<X> match returning a per-variant tag, instantiated at i64/bool.
+package get_discr_generic_match_b146;
+
+enum E<X> { A(X), B, C }
+
+fn match_e<X>(e: E<X>) -> u8 {
+    match e {
+        E::A(_) => 0u8,
+        E::B => 1u8,
+        E::C => 2u8,
+    }
+}
+
+fn main() -> i32 {
+    if match_e(E::A(5i64)) != 0u8 { return 1i32; }
+    if match_e(E::<i64>::B) != 1u8 { return 2i32; }
+    if match_e(E::<i64>::C) != 2u8 { return 3i32; }
+    if match_e(E::A(true)) != 0u8 { return 4i32; }
+    if match_e(E::<bool>::B) != 1u8 { return 5i32; }
+    if match_e(E::<bool>::C) != 2u8 { return 6i32; }
+    return 0i32;
+}

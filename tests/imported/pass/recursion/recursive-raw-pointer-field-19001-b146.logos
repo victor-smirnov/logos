@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/recursive-struct-with-raw-pointer-field.rs
+// Modifications: `*mut [Loopy; 1]` -> `*mut Loopy` (the array-of-self detail is incidental
+//   to the recursive-raw-ptr point); `core::ptr::null_mut()` -> `0u64 as *mut Loopy`;
+//   pub fn main -> i32 returning 0.
+// Tests a struct with a raw-pointer field referencing its own type (#19001).
+package recursive_raw_pointer_field_19001_b146;
+
+struct Loopy { ptr: *mut Loopy }
+
+fn main() -> i32 {
+    let _t = Loopy { ptr: 0u64 as *mut Loopy };
+    return 0i32;
+}

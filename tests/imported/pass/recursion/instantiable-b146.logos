@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/instantiable.rs
+// Modifications: usize->u64; tuple-struct `foo(X)` -> a named-field struct; `ptr::null()`
+//   -> a 0-cast `*const foo`; pub fn main -> i32 returning 0.
+// Tests an instantiable self-referential struct via a raw-pointer field.
+package instantiable_b146;
+
+struct Foo { inner: X }
+struct X { x: u64, nxt: *const Foo }
+
+fn main() -> i32 {
+    let _x = Foo { inner: X { x: 0u64, nxt: 0u64 as *const Foo } };
+    return 0i32;
+}

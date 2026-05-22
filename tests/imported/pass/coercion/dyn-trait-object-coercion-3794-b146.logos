@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/issue-3794.rs
+// Modifications: isize->i64; `&self`->`self:&S`; dropped `#[derive(Debug)]`/`println!`;
+//   the method prints in upstream — here it returns the field so we can assert it
+//   reached through the `&dyn T` dispatch; `Box<S>`/`Box<dyn T>` -> stack `S` + a
+//   `&dyn T` coercion (Box known-open B111); nonzero return.
+// Tests coercing a `&S` to `&dyn T` and dispatching the trait method (#3794).
+package dyn_trait_object_coercion_3794_b146;
+
+trait T {
+    fn val(self: &S) -> i64;
+}
+
+struct S {
+    s: i64,
+}
+
+impl T for S {
+    fn val(self: &S) -> i64 { self.s }
+}
+
+fn print_t(t: &dyn T) -> i64 {
+    t.val()
+}
+
+fn print_s(s: &S) -> i64 {
+    s.val()
+}
+
+fn main() -> i32 {
+    let s = S { s: 5i64 };
+    if print_s(&s) != 5i64 { return 1i32; }
+    let t: &dyn T = &s;
+    if print_t(t) != 5i64 { return 2i32; }
+    return 0i32;
+}

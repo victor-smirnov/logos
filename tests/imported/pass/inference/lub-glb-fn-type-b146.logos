@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/lub-glb-with-unbound-infer-var.rs
+// Modifications: the `fn(_)` closures `|_| ()` are top-level fn items (closures-as-fn-
+//   pointers); `22`/`4` suffixed i64; the `fn(_)` annotations -> explicit `fn(i64)`;
+//   pub fn main -> i32 returning 0.
+// Tests the LUB of two `fn(i64)` items selected by a `match`, then called.
+package lub_glb_fn_type_b146;
+
+fn a_f(_x: i64) { }
+fn b_f(_x: i64) { }
+
+fn main() -> i32 {
+    let c_f: fn(i64) = match 22i64 {
+        0i64 => a_f,
+        _ => b_f,
+    };
+    c_f(4i64);
+    return 0i32;
+}

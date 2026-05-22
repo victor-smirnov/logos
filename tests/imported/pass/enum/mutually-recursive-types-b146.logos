@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type/mutually-recursive-types.rs
+// Modifications: isize->i64; dropped `#[derive(Debug,PartialEq)]`; `Box<Self>` recursive
+//   payload -> a `*const Self` raw-pointer payload (Box known-open B111); the Tree/List
+//   mutual-recursion pair is distilled to the self-recursive `SmallList` (a payload
+//   variant `Kons(i64, *const SmallList)` + a nil variant) plus a separate C-like
+//   `Colour` enum; constructed each variant; pub fn main -> i32 returning 0.
+// Tests a self-recursive enum via a raw-pointer payload + a C-like enum.
+package mutually_recursive_types_b146;
+
+enum Colour { Red, Green, Blue }
+
+enum SmallList { Kons(i64, *const SmallList), Neel }
+
+fn main() -> i32 {
+    let _r = Colour::Red;
+    let _g = Colour::Green;
+    let _b = Colour::Blue;
+    let _n = SmallList::Neel;
+    let _l = SmallList::Kons(42i64, 0u64 as *const SmallList);
+    return 0i32;
+}

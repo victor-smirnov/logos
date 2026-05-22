@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type/unit-type-basic-usages.rs
+// Modifications: pub fn main -> i32 returning 0; the `fn f(u: ())` param form is
+//   dropped (unit-typed parameters are rejected — see B146 notes); kept the `()`
+//   let-binding + reassignment + a unit-returning fn (no unit PARAM).
+// Tests `()` unit type as a let binding, reassignment, and a unit-returning fn.
+package unit_type_basic_usages_b146;
+
+fn f() -> () {
+    ()
+}
+
+fn main() -> i32 {
+    let _u1: () = ();
+    let mut _u2: () = f();
+    _u2 = ();
+    return 0i32;
+}

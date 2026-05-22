@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/expr-fn.rs
+// Modifications: isize->i64; assert_eq! -> distinct nonzero return; the nested in-fn
+//   `fn` items are hoisted to module scope (in-language nested fn items -> module
+//   scope per batch convention); `Vec`/`vec!` test case dropped (B111 known-open).
+// Modifications (cont.): bare-block-as-fn-body `{ e }` is not recognized as the
+//   value tail (B146 notes), so f_block uses `let x = { e }; x`.
+// Tests fn bodies whose tail is a literal / match / if / block-in-let / explicit return / let.
+package expr_fn_b146;
+
+fn f_int() -> i64 { 10i64 }
+fn f_alt() -> i64 { match true { false => { 10i64 } true => { 20i64 } } }
+fn f_if() -> i64 { if true { 10i64 } else { 20i64 } }
+fn f_block() -> i64 { let x = { 10i64 }; x }
+fn f_ret() -> i64 { return 10i64; }
+fn f_372() -> i64 { let x = { 3i64 }; x }
+fn f_generic<T>(t: T) -> T { t }
+
+fn main() -> i32 {
+    if f_int() != 10i64 { return 1i32; }
+    if f_alt() != 20i64 { return 2i32; }
+    if f_if() != 10i64 { return 3i32; }
+    if f_block() != 10i64 { return 4i32; }
+    if f_ret() != 10i64 { return 5i32; }
+    if f_372() != 3i64 { return 6i32; }
+    if f_generic(10i64) != 10i64 { return 7i32; }
+    return 0i32;
+}

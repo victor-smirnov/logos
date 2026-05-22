@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/static/issue-1660.rs
+// Modifications: isize->i64; `static _x: isize = 1<<2;` -> a local let with a shift
+//   initializer (static -> local value per batch convention); pub fn main -> i32; the
+//   shift result is checked so the test exercises the `1<<2` const-shape expression.
+// Tests a shift-expression initializer `1 << 2` (#1660).
+package static_shift_init_1660_b146;
+
+fn main() -> i32 {
+    let x: i64 = 1i64 << 2i64;
+    if x != 4i64 { return 1i32; }
+    return 0i32;
+}

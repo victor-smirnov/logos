@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clause-method-substituion-rpass.rs
+// Modifications: empty `struct S`/`struct X` -> `{_z}`; `&self` on the trait default ->
+//   `self:&X`; `Bar::method` receiver `&self` on i32 -> `self:&i64`; the method is called
+//   via the turbofish `n.method::<S>()` on a concrete i64; no asserts (the test's point is
+//   that the nested where-clause `where X: Foo<U>` resolves at the call site).
+// Tests a generic method whose where-clause `A: Foo<B>` discharges through impls.
+package where_clause_method_substitution_b146;
+
+trait FooT<T> { fn dummy(self: &X, arg: T) { } }
+
+trait BarT<A> {
+    fn method<B>(self: &i64) where A: FooT<B>;
+}
+
+struct S { _z: i64 }
+struct X { _z: i64 }
+
+impl FooT<S> for X { }
+
+impl BarT<X> for i64 {
+    fn method<U>(self: &i64) where X: FooT<U> { }
+}
+
+fn main() -> i32 {
+    let n = 1i64;
+    n.method::<S>();
+    return 0i32;
+}

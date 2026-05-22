@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/auto-instantiate.rs
+// Modifications: isize->i64; dropped `#[derive(Debug)]`/`println!`; checked the fields
+//   directly instead of printing; assert -> distinct nonzero return.
+// Tests type-param inference of a generic `f<T,U>(T,U)->Pair<T,U>` from its arguments (#45).
+package auto_instantiate_45_b146;
+
+struct Pair<T, U> { a: T, b: U }
+struct Triple { x: i64, y: i64, z: i64 }
+
+fn f<T, U>(x: T, y: U) -> Pair<T, U> {
+    return Pair { a: x, b: y };
+}
+
+fn main() -> i32 {
+    let p1 = f(Triple { x: 3i64, y: 4i64, z: 5i64 }, 4i64);
+    if p1.a.x != 3i64 { return 1i32; }
+    if p1.b != 4i64 { return 2i32; }
+    let p2 = f(5i64, 6i64);
+    if p2.a != 5i64 { return 3i32; }
+    return 0i32;
+}

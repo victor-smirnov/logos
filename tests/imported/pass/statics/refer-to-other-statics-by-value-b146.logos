@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/static/refer-to-other-statics-by-value.rs
+// Modifications: usize->u64; `static A`/`static B = A` -> fns returning the value
+//   (static -> returned value per batch convention); assert_eq! -> nonzero return.
+// Tests one static initialized by reference to another (modeled via fns).
+package refer_to_other_statics_by_value_b146;
+
+fn a() -> u64 { return 42u64; }
+fn b() -> u64 { return a(); }
+
+fn main() -> i32 {
+    if b() != 42u64 { return 1i32; }
+    return 0i32;
+}

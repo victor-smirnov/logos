@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-6449.rs
+// Modifications: isize->i64; the `crate::Foo::Bar` crate-qualified paths -> plain
+//   `Foo::Bar` (no in-language crate path); `panic!()` arms -> distinct nonzero returns;
+//   the `Foo::Bar(..)` rest arm dropped (redundant with `Foo::Bar(_)`); added a `_`
+//   catch-all to the nested-enum match (the exhaustiveness checker does not yet treat
+//   two `Other1(Foo::Baz)`+`Other1(Foo::Bar(_))` arms as covering `Other1`).
+// Tests nested enum-variant matching with literal arms, false guards, and bindings.
+package nested_enum_match_6449_b146;
+
+enum Foo { Bar(i64), Baz }
+enum Other { Other1(Foo), Other2(Foo, Foo) }
+
+fn main() -> i32 {
+    let m1 = match Foo::Baz {
+        Foo::Bar(3i64) => 1i32,
+        Foo::Bar(_) if false => 2i32,
+        Foo::Bar(_n) => 3i32,
+        Foo::Baz => 0i32,
+    };
+    if m1 != 0i32 { return 10i32; }
+    let m2 = match Foo::Bar(4i64) {
+        Foo::Bar(3i64) => 1i32,
+        Foo::Bar(_) if false => 2i32,
+        Foo::Bar(n) => { if n != 4i64 { 9i32 } else { 0i32 } }
+        Foo::Baz => 4i32,
+    };
+    if m2 != 0i32 { return 11i32; }
+    let m3 = match Other::Other2(Foo::Baz, Foo::Bar(1i64)) {
+        Other::Other1(Foo::Baz) => 1i32,
+        Other::Other1(Foo::Bar(_)) => 2i32,
+        Other::Other2(Foo::Baz, Foo::Bar(_)) => 0i32,
+        Other::Other2(_, _) => 3i32,
+        _ => 5i32,
+    };
+    if m3 != 0i32 { return 12i32; }
+    return 0i32;
+}
