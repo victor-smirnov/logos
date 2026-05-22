@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-immediate.rs
+// Modifications: assert_eq! -> exit code (closure returns a flag).
+// Tests a closure taking mixed-width integer args (u8, u16, u8) and reading them.
+package closure_immediate_b150;
+
+fn main() -> i64 {
+    let c = |a: u8, b: u16, d: u8| -> i64 {
+        if a != 1 { return 1; }
+        if b != 2 { return 2; }
+        if d != 3 { return 3; }
+        return 0;
+    };
+    return c(1, 2, 3);
+}

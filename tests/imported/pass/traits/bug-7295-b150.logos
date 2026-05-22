@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/bug-7295.rs
+// Modifications: `&self` -> `self: &Self`; added a concrete impl + call so the
+//   default method `func2` (which calls the method-generic `func1` on self) is
+//   exercised; assert -> exit code.
+// Tests a trait `Foo<T>` with a METHOD-GENERIC method `func1<U>` and a default
+//   method `func2<U>` that forwards to `self.func1(t, w)` — generic-on-generic
+//   trait method dispatch through a default method.
+package bug_7295_b150;
+
+trait Foo<T> {
+    fn func1<U>(self: &Self, t: U, w: T) -> i64;
+
+    fn func2<U>(self: &Self, t: U, w: T) -> i64 {
+        return self.func1(t, w);
+    }
+}
+
+struct S {}
+
+impl Foo<i64> for S {
+    fn func1<U>(self: &Self, t: U, w: i64) -> i64 { return w; }
+}
+
+fn main() -> i64 {
+    let s = S {};
+    if s.func2(true, 9i64) != 9 { return 1; }
+    return 0;
+}

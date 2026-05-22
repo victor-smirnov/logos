@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_array.rs
+// Modifications: shrunk the 1024-element array to 8 (the point is array-repeat
+//   codegen, not the size); slice-equality assert -> element-by-element check;
+//   `[x; N]` repeat expression with a computed `x`.
+// Tests array-repeat expression `[x; N]` where x is a runtime-computed value,
+//   returned from a fn and read back.
+package mir_codegen_array_b150;
+
+fn into_inner() -> [u64; 8] {
+    let x: u64 = 10 + 20;
+    return [x; 8];
+}
+
+fn main() -> i64 {
+    let a = into_inner();
+    let mut i: i64 = 0;
+    while i < 8 {
+        if a[i as u64] != 30 { return 1; }
+        i += 1;
+    }
+    return 0;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum_u8_variant.rs
+// Modifications: dropped `#[repr(u8)]` (layout attribute, incidental); added an
+//   exit-code return; matches a single-variant enum carrying a u8 field.
+// Tests pattern matching on an enum whose only variant carries an inner u8 field.
+package enum_u8_variant_b150;
+
+enum Foo {
+    Foo(u8),
+}
+
+fn main() -> i64 {
+    match Foo::Foo(1) {
+        _ => {}
+    }
+    return 0;
+}

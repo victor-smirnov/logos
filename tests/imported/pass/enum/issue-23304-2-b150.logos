@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/issue-23304-2.rs
+// Modifications: isize -> i64; assert_eq! -> exit code; kept the explicit
+//   discriminant chained from another enum's discriminant.
+// Tests enum explicit discriminants where one enum's variant discriminant is
+//   `OtherEnum::Variant as i64`, and casting the variant to i64.
+package issue_23304_2_b150;
+
+enum X { A = 42 }
+
+enum Y { A = X::A as i64 }
+
+fn main() -> i64 {
+    let x = X::A;
+    let x = x as i64;
+    if x != 42 { return 1; }
+    if (Y::A as i64) != 42 { return 2; }
+    return 0;
+}

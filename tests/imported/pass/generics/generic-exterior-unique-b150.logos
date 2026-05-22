@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-exterior-unique.rs
+// Modifications: Box<T> dropped — the field holds T by value (the test's essence
+//   is a generic struct wrapping a generic value via a generic factory fn);
+//   isize -> i64; turbofish kept; assert_eq! -> exit code.
+// Tests a generic struct field of type T set via a generic helper fn, read back.
+package generic_exterior_unique_b150;
+
+struct Recbox<T> { x: T }
+
+fn reclift<T>(t: T) -> Recbox<T> { return Recbox { x: t }; }
+
+fn main() -> i64 {
+    let foo: i64 = 17;
+    let rbfoo: Recbox<i64> = reclift::<i64>(foo);
+    if rbfoo.x != foo { return 1; }
+    return 0;
+}

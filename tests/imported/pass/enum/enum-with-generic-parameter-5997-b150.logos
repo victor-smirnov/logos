@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-with-generic-parameter-5997.rs
+// Modifications: the nested enum/struct definitions are hoisted to top level
+//   (Logos has no item definitions inside fn bodies for enums/structs here);
+//   isize -> i64; assert! -> exit code; turbofish kept.
+// Tests a generic fn instantiated with i64 returning a bool, plus generic
+//   enum/struct types declared but unused inside the program.
+package enum_with_generic_parameter_5997_b150;
+
+enum E<T> { V(T) }
+struct S<T>(T);
+
+fn f<T>() -> bool {
+    return true;
+}
+
+fn main() -> i64 {
+    let b = f::<i64>();
+    if !b { return 1; }
+    return 0;
+}

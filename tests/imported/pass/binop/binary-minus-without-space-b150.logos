@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binary-minus-without-space.rs
+// Modifications: `panic!` arm -> nonzero return; assert_eq! -> exit code.
+// Tests that `1-1` (binary minus with no surrounding spaces) parses as
+//   subtraction (not a negative literal), and that `-1` matches the `-1` pattern.
+package binary_minus_without_space_b150;
+
+fn main() -> i64 {
+    match -1 { -1 => {}, _ => { return 1; } }
+    if 1-1 != 0 { return 2; }
+    return 0;
+}

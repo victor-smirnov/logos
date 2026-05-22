@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-newtype-struct.rs
+// Modifications: construct + a field read to keep it meaningful.
+// Tests a generic tuple-struct (newtype) `S<T>(T)` constructed with i64.
+package generic_newtype_struct_b150;
+
+struct S<T>(T);
+
+fn main() -> i64 {
+    let s = S(2);
+    if s.0 != 2 { return 1; }
+    return 0;
+}

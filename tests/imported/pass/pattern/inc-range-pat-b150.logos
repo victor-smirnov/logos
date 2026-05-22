@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/inc-range-pat.rs
+// Modifications: dropped the old `...` syntax variant (kept `..=`); assert! ->
+//   exit code; integer and char inclusive-range patterns in match.
+// Tests inclusive-range patterns (`..=`) over integers and chars.
+package inc_range_pat_b150;
+
+fn main() -> i64 {
+    let ok_i = match 42 { 0 ..= 100 => true, _ => false };
+    if !ok_i { return 1; }
+    let ok_c = match 'x' { 'a' ..= 'z' => true, _ => false };
+    if !ok_c { return 2; }
+    return 0;
+}

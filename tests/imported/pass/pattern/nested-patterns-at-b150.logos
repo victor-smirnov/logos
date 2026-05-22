@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/nested-patterns.rs
+// Modifications: the `panic!()` fallback arm rewritten as a nonzero return;
+//   assert_eq! -> exit code; dropped the `ref` binding modes (`ref x`/`ref a`)
+//   because `ref IDENT @ Pattern` is a parse error in Logos (gap G150-1) — the
+//   binding-after-`@` essence is preserved with by-value bindings.
+// Tests a binding-after-`@` over a struct: `x @ A { a, b: 20 }` binds both the
+//   whole struct (x) and an inner field (a) while matching the literal b.
+package nested_patterns_at_b150;
+
+struct A { a: u8, b: u8 }
+
+fn main() -> i64 {
+    match (A { a: 10, b: 20 }) {
+        x @ A { a, b: 20 } => {
+            if x.a != 10 { return 1; }
+            if a != 10 { return 2; }
+            return 0;
+        }
+        A { b: _b, .. } => { return 3; }
+    }
+}

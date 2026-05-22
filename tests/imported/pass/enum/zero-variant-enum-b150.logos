@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/zero-variant-enum-pattern-matching-3037.rs
+// Modifications: the String return type changed to i64 (String incidental); the
+//   uninhabited-type match with zero arms is kept verbatim; fn is defined but
+//   never called (matches original — it is uninhabited so unreachable).
+// Tests declaring a zero-variant (uninhabited) enum and a `match` over a value
+//   of that type with NO arms (exhaustive because there are no variants).
+package zero_variant_enum_b150;
+
+enum What { }
+
+fn what_to_i64(x: What) -> i64 {
+    match x {
+    }
+}
+
+fn main() -> i64 {
+    return 0;
+}

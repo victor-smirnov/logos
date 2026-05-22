@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/copy-trait-implicit-copy.rs
+// Modifications: added a return + use of the copied values in a check (orig
+//   main is empty); `T: Copy` bound.
+// Tests that a type parameter bounded by `Copy` is implicitly copyable — binding
+//   `v` to two locals without moving it.
+package copy_trait_implicit_copy_b150;
+
+fn can_copy_copy<T: Copy>(v: T) -> T {
+    let _a = v;
+    let _b = v;
+    return v;
+}
+
+fn main() -> i64 {
+    if can_copy_copy(7i64) != 7 { return 1; }
+    return 0;
+}

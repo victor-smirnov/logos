@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-8351-1.rs
+// Modifications: isize -> i64; the `panic!()` arms are unreachable for the test
+//   value and rewritten as nonzero returns; struct-variant + `{..}` rest pattern.
+// Tests matching a struct-variant enum: a specific field-value arm, a `{..}`
+//   catch-all for the same variant, then a wildcard.
+package issue_8351_1_b150;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn check(e: E) -> i64 {
+    match e {
+        E::Foo { f: 1 } => 1,
+        E::Foo { .. } => 0,
+        _ => 2,
+    }
+}
+
+fn main() -> i64 {
+    return check(E::Foo { f: 0 });
+}

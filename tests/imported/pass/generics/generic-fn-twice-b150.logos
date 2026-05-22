@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn-twice.rs
+// Modifications: inline `mod foomod {}` flattened to a free generic fn (Logos
+//   uses `package` for modules); isize -> i64; turbofish kept.
+// Tests instantiating the same generic fn twice with the same type argument.
+package generic_fn_twice_b150;
+
+fn foo<T>() { }
+
+fn main() -> i64 {
+    foo::<i64>();
+    foo::<i64>();
+    return 0;
+}

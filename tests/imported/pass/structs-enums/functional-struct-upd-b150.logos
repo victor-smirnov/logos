@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/functional-struct-upd.rs
+// Modifications: dropped #[derive(Debug)] + println!; isize -> i64; verify the
+//   updated fields via exit-code checks.
+// Tests functional struct-update syntax `Foo { x: 4, .. a }` — overriding one
+//   field while inheriting the rest from another struct value.
+package functional_struct_upd_b150;
+
+struct Foo {
+    x: i64,
+    y: i64,
+}
+
+fn main() -> i64 {
+    let a = Foo { x: 1, y: 2 };
+    let c = Foo { x: 4, .. a };
+    if c.x != 4 { return 1; }
+    if c.y != 2 { return 2; }
+    return 0;
+}

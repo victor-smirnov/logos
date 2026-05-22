@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-fn.rs
+// Modifications: isize -> i64; nested fn-item bound to a local then called via
+//   the local; assert_eq! -> exit code.
+// Tests a nested fn item, taking its value into a local binding, and calling it.
+package block_fn_b150;
+
+fn test_fn() -> i64 {
+    fn ten() -> i64 { return 10; }
+    let rs = ten;
+    return rs();
+}
+
+fn main() -> i64 {
+    if test_fn() != 10 { return 1; }
+    return 0;
+}

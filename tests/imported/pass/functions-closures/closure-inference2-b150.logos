@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-inference2.rs
+// Modifications: assert_eq! -> exit code; closure stays untyped (identity).
+// Tests a closure whose body is a brace-block, with arg/return type inferred
+//   from the call sites, called multiple times.
+package closure_inference2_b150;
+
+fn main() -> i64 {
+    let f = |i: i64| i;
+    if f(2) != 2 { return 1; }
+    if f(5) != 5 { return 2; }
+    return 0;
+}
