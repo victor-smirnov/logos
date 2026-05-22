@@ -52,6 +52,25 @@ TYPE in inherent-impl method bodies (params `x: Self`, `y: &Self`, return
 RECEIVER PATH of a static method call is not threaded to the impl's concrete
 type. Affected (worked around with `Foo::empty()`): `self/self-impl-2-b141`.
 
+**INVESTIGATED 2026-05-22 — DEEPER THAN A MISSING-CASE, deferred.** First fix
+attempt (resolve `Self` in lower_static_call via `current_type_params_["Self"]`,
+mirroring resolve_type) FAILED: a debug probe showed `current_type_params_
+["Self"]` during the lowering of `Foo::make` is `Struct(Vec)` — a STALE binding
+leaking from a previously-lowered stdlib impl. Root: the Self binding is set in
+sema_decl.cpp:187 ONLY `if (!current_type_params_.count("Self"))`, i.e. it is
+not properly scoped/reset per impl-method — a prior impl's Self persists, so
+`Self` in a later inherent impl can resolve to the wrong type. (The reason
+`Self`-as-a-TYPE *appears* to work is likely that those sites resolve via a
+different path or the leaked type happens not to matter; the static-call path
+exposes the leak.) Real fix = make the Self binding an RAII save/restore scoped
+to each fn/impl-method lowering (clear+set on entry, restore on exit), THEN
+resolve `Self::method` to the concrete type. This is a Self-binding-scope
+correctness fix (touches sema_decl lower_fn + the collection-phase Self set),
+not a one-line static-call addition — defer to a focused session. Same family
+as G140-3 (Self inside const-generic/blanket impl body). The fprintf probe +
+the lower_static_call resolve_class edit were reverted; only never-type (G141-1)
+landed.
+
 Tractability: TRACTABLE — missing-case. This is the static-call-path facet of
 the `Self`-alias family (cf. B140 G140-3, which covered `Self` as a self-param
 TYPE in const-generic/blanket impls, and B140's note on return-type-driven trait
