@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/nested-exhaustive-match.rs (bool arm shape)
+// Exhaustive bool-literal patterns `true`/`false`. assert->return-code.
+package match_bool_pat;
+fn f(b: bool) -> i64 { match b { true => 1i64, false => 0i64 } }
+fn main() -> i32 {
+    if f(true) == 1i64 && f(false) == 0i64 { return 0i32; }
+    return 1i32;
+}

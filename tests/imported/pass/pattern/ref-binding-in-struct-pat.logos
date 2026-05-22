@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/nested-patterns.rs (ref-field shape)
+// `ref` binding on a struct field in a match arm: `P { x: ref r }`. isize->i64;
+// assert->return-code.
+package ref_binding_in_struct_pat;
+struct P { x: i64 }
+fn main() -> i32 {
+    let p: P = P { x: 9i64 };
+    match p {
+        P { x: ref r } => { if *r == 9i64 { return 0i32; } return 2i32; }
+    }
+}

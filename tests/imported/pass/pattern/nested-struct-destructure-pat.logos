@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/nested-patterns.rs (nested struct shape)
+// Nested struct destructuring in a `let`: `let Outer { i: Inner { v }, k } = o`.
+// u8->i64; ref-bindings dropped (by-value, irrefutable); assert->return-code.
+package nested_struct_destructure_pat;
+struct Inner { v: i64 }
+struct Outer { i: Inner, k: i64 }
+fn main() -> i32 {
+    let o: Outer = Outer { i: Inner { v: 5i64 }, k: 2i64 };
+    let Outer { i: Inner { v }, k } = o;
+    if v + k == 7i64 { return 0i32; }
+    return 1i32;
+}

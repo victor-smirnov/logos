@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-6449.rs (guards distilled)
+// Match guards `x if cond` interleaved with literal/wildcard arms over an enum.
+// isize->i64; `crate::` paths dropped; tuple-variant Bar(n)->kept; assert->return-code.
+package match_guard_pat;
+enum Foo { Bar(i64), Baz }
+fn classify(f: Foo) -> i64 {
+    match f {
+        Foo::Bar(n) if n > 0i64 => 1i64,
+        Foo::Bar(_n) => 2i64,
+        Foo::Baz => 3i64,
+    }
+}
+fn main() -> i32 {
+    if classify(Foo::Bar(5i64)) == 1i64 && classify(Foo::Bar(-1i64)) == 2i64
+       && classify(Foo::Baz) == 3i64 { return 0i32; }
+    return 1i32;
+}

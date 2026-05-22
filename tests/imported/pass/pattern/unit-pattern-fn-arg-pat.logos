@@ -1,0 +1,6 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/unit-pattern-matching-in-function-argument-7519.rs
+// Unit-type `(():())` pattern in a function parameter; Logos models () as i64.
+package unit_pattern_fn_arg_pat;
+fn foo(u: i64) { }
+fn main() -> i32 { foo(0i64); return 0i32; }

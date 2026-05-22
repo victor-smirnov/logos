@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/integer-range-binding.rs (char-range arm)
+// Inclusive char-range patterns `'a'..='z'`. assert->return-code.
+package char_range_pat;
+fn f(c: char) -> i64 { match c { 'a'..='z' => 1i64, '0'..='9' => 2i64, _ => 0i64 } }
+fn main() -> i32 {
+    if f('m') == 1i64 && f('5') == 2i64 && f('?') == 0i64 { return 0i32; }
+    return 1i32;
+}

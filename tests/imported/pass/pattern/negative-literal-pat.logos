@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/integer-range-binding.rs (negative-literal shape)
+// Negative integer literal patterns `-1`. literals suffixed; assert->return-code.
+package negative_literal_pat;
+fn f(n: i64) -> i64 { match n { -1i64 => 10i64, 0i64 => 20i64, _ => 30i64 } }
+fn main() -> i32 {
+    if f(-1i64) == 10i64 && f(0i64) == 20i64 && f(7i64) == 30i64 { return 0i32; }
+    return 1i32;
+}

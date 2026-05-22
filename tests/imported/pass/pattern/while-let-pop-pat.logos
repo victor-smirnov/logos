@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/irrefutable-let-patterns.rs (while-let shape)
+// `while let Some(x) = v.pop()` draining a Vec via the Option-yielding loop pattern.
+// vec! -> vec_new+push; assert->return-code.
+package while_let_pop_pat;
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new();
+    v.push(1i64); v.push(2i64); v.push(3i64);
+    let mut sum: i64 = 0i64;
+    while let Some(x) = v.pop() { sum = sum + x; }
+    if sum == 6i64 { return 0i32; }
+    return 1i32;
+}

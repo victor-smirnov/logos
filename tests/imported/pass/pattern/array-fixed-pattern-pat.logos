@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/slice-patterns-irrefutable.rs (fixed-array shape)
+// Fixed-size array pattern `[x, y, z]` binding all elements (irrefutable, via
+// Into<[..;N]> upstream; here a direct array literal). usize->i64; assert->return-code.
+package array_fixed_pattern_pat;
+fn main() -> i32 {
+    let a: [i64; 3] = [1i64, 2i64, 3i64];
+    let r: i64 = match a { [x, y, z] => x + y + z };
+    if r == 6i64 { return 0i32; }
+    return 1i32;
+}

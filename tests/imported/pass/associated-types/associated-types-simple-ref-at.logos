@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-simple.rs
+// FAITHFUL re-import (B115's associated-types-simple-at returned by value because
+// `&Self::Value` did not parse). Now `&Self::Value` ref-to-projection returns
+// parse + codegen correctly. isize->i64; `&self`->`self:&T`; assert_eq->return-code.
+package associated_types_simple_ref_at;
+trait Get { type Value; fn get(self: &Self) -> &Self::Value; }
+struct Struct { x: i64 }
+impl Get for Struct { type Value = i64; fn get(self: &Struct) -> &i64 { return &(*self).x; } }
+fn main() -> i32 {
+    let s: Struct = Struct { x: 100i64 };
+    if *s.get() == 100i64 { return 0i32; }
+    return 1i32;
+}

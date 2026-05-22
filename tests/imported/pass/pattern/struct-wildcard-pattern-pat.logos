@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/struct-wildcard-pattern-14308.rs
+// Struct rest-pattern `A { .. }` + a literal-field arm fallthrough. isize->i64;
+// tuple-struct `A(..)`->named-field `A{..}`; assert_eq->return-code.
+package struct_wildcard_pattern_pat;
+struct A { v: i64 }
+fn main() -> i32 {
+    let x: i64 = match (A { v: 3i64 }) { A { .. } => 1i64 };
+    let y: i64 = match (A { v: 4i64 }) { A { v: _w } => 2i64 };
+    if x == 1i64 && y == 2i64 { return 0i32; }
+    return 1i32;
+}

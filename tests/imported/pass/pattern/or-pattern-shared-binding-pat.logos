@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/or-patterns.rs (shared-binding shape)
+// Or-pattern across two enum variants binding the SAME name on both sides:
+// `E::A(n) | E::B(n)`. isize->i64; assert_eq->return-code.
+package or_pattern_shared_binding_pat;
+enum E { A(i64), B(i64) }
+fn f(e: E) -> i64 { match e { E::A(n) | E::B(n) => n } }
+fn main() -> i32 {
+    if f(E::A(5i64)) == 5i64 && f(E::B(7i64)) == 7i64 { return 0i32; }
+    return 1i32;
+}

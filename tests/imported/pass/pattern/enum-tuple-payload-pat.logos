@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/tuple-enum-match-15129.rs (shape)
+// Tuple-payload enum-variant destructuring `Node(a, b)` binding both fields.
+// isize->i64; assert_eq->return-code.
+package enum_tuple_payload_pat;
+enum Tree { Leaf, Node(i64, i64) }
+fn sum(t: Tree) -> i64 { match t { Tree::Leaf => 0i64, Tree::Node(a, b) => a + b } }
+fn main() -> i32 {
+    if sum(Tree::Node(3i64, 4i64)) == 7i64 && sum(Tree::Leaf) == 0i64 { return 0i32; }
+    return 1i32;
+}

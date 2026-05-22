@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/integer-range-binding.rs
+// Full-width inclusive-range patterns. Upstream uses irrefutable `let RANGE = v`;
+// ported to refutable `match` (same exhaustiveness/range coverage). Literals suffixed.
+package integer_range_binding_pat;
+fn main() -> i32 {
+    let a: i32 = match 1i32 { -2147483648i32..=2147483647i32 => 1i32 };
+    let b: u8 = match 0u8 { 0u8..=255u8 => 1u8 };
+    let c: i8 = match 0i8 { -128i8..=127i8 => 1i8 };
+    if a == 1i32 && b == 1u8 && (c as i64) == 1i64 { return 0i32; }
+    return 1i32;
+}

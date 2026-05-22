@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/nested-patterns.rs
+// Binding-after-@ with a struct pattern + field sub-bindings: `x @ A { a, b }`.
+// u8->i64; ref-bindings dropped (by-value); literal field arm dropped (refutable
+// struct field sub-pattern not yet supported); assert_eq->return-code.
+package bindings_after_at_struct_pat;
+struct A { a: i64, b: i64 }
+fn main() -> i32 {
+    match (A { a: 10i64, b: 20i64 }) {
+        x @ A { a: a, b: b } => {
+            if x.a == 10i64 && a == 10i64 && b == 20i64 { return 0i32; }
+            return 2i32;
+        }
+    }
+}

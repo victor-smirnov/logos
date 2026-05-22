@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/irrefutable-let-patterns.rs (if-let shape)
+// `if let Some(n) = opt` binding the payload. Prelude Option/Some. assert->return-code.
+package if_let_binding_pat;
+fn main() -> i32 {
+    let o: Option<i64> = Some(5i64);
+    if let Some(n) = o { if n == 5i64 { return 0i32; } }
+    return 1i32;
+}

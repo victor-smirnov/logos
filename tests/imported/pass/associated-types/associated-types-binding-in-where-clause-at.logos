@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-binding-in-where-clause.rs
+// Now-faithful: equality bound `Foo<A = Bar>` / `Foo<A = u64>` normalizes the
+// projection `T::A` to the concrete type (gap 4) + qualified-path return
+// `<Self as Foo>::A`. #[derive(PartialEq)] dropped (unit struct unused).
+// isize->i64; usize->u64; char Foo-impl modeled on i32 (char arith not needed);
+// `&self`->`self:&T`; unit struct Bar->named-field stub.
+package associated_types_binding_in_where_clause_at;
+trait Foo { type A; fn boo(self: &Self) -> <Self as Foo>::A; }
+struct Bar { tag: i64 }
+impl Foo for i64 { type A = u64; fn boo(self: &i64) -> u64 { return 42u64; } }
+impl Foo for i32 { type A = Bar; fn boo(self: &i32) -> Bar { return Bar { tag: 7i64 }; } }
+fn foo_bar<I: Foo<A = Bar>>(x: I) -> Bar { return x.boo(); }
+fn foo_uint<I: Foo<A = u64>>(x: I) -> u64 { return x.boo(); }
+fn main() -> i32 {
+    let a: i64 = 42i64;
+    let u: u64 = foo_uint(a);
+    let c: i32 = 5i32;
+    let b: Bar = foo_bar(c);
+    if u == 42u64 && b.tag == 7i64 { return 0i32; }
+    return 1i32;
+}

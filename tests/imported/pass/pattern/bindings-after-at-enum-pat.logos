@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/bindings-after-at/or-patterns.rs
+// Binding-after-@ over an enum-variant pattern: `bar @ Some(_)`. Prelude
+// Option/Some/None. Or-pattern-inside-constructor (`Some(Foo | Bar)`) dropped
+// (unparsed); MatchArm enum -> return-code; assert_eq->return-code.
+package bindings_after_at_enum_pat;
+enum Test { Foo, Bar, Baz }
+fn test(foo: Option<Test>) -> i64 {
+    match foo {
+        bar @ Some(_t) => { return 0i64; }
+        _ => { return 2i64; }
+    }
+}
+fn main() -> i32 {
+    if test(Some(Test::Foo)) == 0i64 && test(Some(Test::Baz)) == 0i64 && test(None) == 2i64 {
+        return 0i32;
+    }
+    return 1i32;
+}
