@@ -1652,6 +1652,12 @@
 
     pat_binding <- LPAREN RPAREN
                 => { CODE: PAT_UNIT }
+               // G140-4: `..` rest skip in a tuple let-binding `let (x, ..) = t`.
+               // The let-destructure lowering converts a rest into the right
+               // number of `_` skips so the remaining names land on the correct
+               // tuple positions (mirrors the match tuple-pattern rest).
+               / DOTDOT
+                => { CODE: PAT_REST }
                // Nested tuple binding: `let (a, (b, c)) = …`. The sub-list is
                // stored under NAMES (same shape as LET_DESTRUCT) so the sema
                // let-destructure lowering recurses into it.

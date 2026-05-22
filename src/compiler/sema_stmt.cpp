@@ -564,20 +564,51 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         auto arr = arr_of(nlist.get(la::ITEMS.code));
         size_t arity = TypeRef(src_ty).kind() == LogosType::Kind::Tuple
                            ? TypeRef(src_ty).tuple_elems().size() : 0;
-        if (arr.size() != arity)
-            error(std::format("let (...) = ...: expected {} bindings, got {}",
-                  arity, arr.size()));
+        // G140-4: a single `..` rest absorbs the unmatched middle positions.
+        // Names before the rest bind low positions; names after bind the tail.
+        int rest_idx = -1;
+        size_t n_named = 0;
+        for (uint64_t i = 0; i < arr.size(); ++i) {
+            if (code_of(map_of(arr.get(i))) == la::PAT_REST) {
+                if (rest_idx >= 0)
+                    error("let (...) = ...: at most one `..` rest allowed");
+                rest_idx = (int)i;
+            } else {
+                ++n_named;
+            }
+        }
+        if (rest_idx < 0) {
+            if (arr.size() != arity)
+                error(std::format("let (...) = ...: expected {} bindings, got {}",
+                      arity, arr.size()));
+        } else if (n_named > arity) {
+            error(std::format("let (...) = ...: {} bindings exceed tuple arity {}",
+                  n_named, arity));
+        }
         // Spill the source to a temp so each element read references it once.
         std::string src_tmp = std::format("__destruct_{}", destruct_counter_++);
         define(src_tmp, src_ty);
         lir::SLet sl;
         sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        for (uint64_t i = 0; i < arr.size() && i < arity; ++i) {
+        // names after the rest occupy the tail: first such name maps to
+        // position (arity - trailing_count).
+        size_t trailing = rest_idx < 0 ? 0 : (arr.size() - 1 - (size_t)rest_idx);
+        for (uint64_t i = 0; i < arr.size(); ++i) {
             auto bnode = map_of(arr.get(i));
-            auto elem_t = TypeRef(src_ty).tuple_elems()[i];
+            if (code_of(bnode) == la::PAT_REST) continue;
+            // Map pattern-item index → tuple position.
+            size_t pos;
+            if (rest_idx < 0 || (int)i < rest_idx) {
+                pos = i;                                  // before the rest
+            } else {
+                size_t after_k = i - (size_t)rest_idx - 1;  // 0-based after rest
+                pos = arity - trailing + after_k;
+            }
+            if (pos >= arity) continue;
+            auto elem_t = TypeRef(src_ty).tuple_elems()[pos];
             auto elem_expr = builder().tuple_index(
-                builder().var_ref(src_tmp, src_ty), (uint32_t)i, elem_t);
+                builder().var_ref(src_tmp, src_ty), (uint32_t)pos, elem_t);
             if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
                 // Nested tuple — recurse.
                 bind_list(map_of(bnode.get(la::NAMES.code)), std::move(elem_expr), elem_t);
