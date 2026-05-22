@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/coercion-as-explicit-cast.rs (trivial same-type casts)
+// Modifications: identity numeric casts T as T; trait/array-unsize/Box tail dropped (separate features).
+package cast_coercion_trivial_ca;
+fn main() -> i32 {
+    let a = 42i32 as i32;
+    let b = 42u8 as u8;
+    if a != 42i32 { return 1; }
+    if b != 42u8  { return 2; }
+    return 0;
+}

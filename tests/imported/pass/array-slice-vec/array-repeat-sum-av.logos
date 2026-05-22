@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/repeated-vector-syntax.rs
+// Modifications: [v; N] repeat array, summed via for-over-&arr.
+package array_repeat_sum_av;
+fn main() -> i32 {
+    let a: [i64; 4] = [7i64; 4];
+    let mut s = 0i64;
+    for x in &a { s = s + *x; }
+    if s != 28i64 { return 1; }
+    return 0;
+}

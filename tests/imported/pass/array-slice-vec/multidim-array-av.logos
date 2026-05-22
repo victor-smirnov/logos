@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/ (multi-dim fixed array distillation)
+// Modifications: literal [[i64;2];2] multi-dim array, nested indexing.
+package multidim_array_av;
+fn main() -> i32 {
+    let grid: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    if grid[0i64][1i64] != 2i64 { return 1; }
+    if grid[1i64][0i64] != 3i64 { return 2; }
+    return 0;
+}

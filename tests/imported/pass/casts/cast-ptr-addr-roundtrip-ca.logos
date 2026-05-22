@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs / cast-region-to-uint.rs (addr-ptr/ptr-addr facet)
+// Modifications: usize<->*const roundtrip; no unsafe block needed in Logos for these casts.
+package cast_ptr_addr_roundtrip_ca;
+fn main() -> i32 {
+    let x: u64 = 12u64;
+    let p: *const i64 = x as *const i64;
+    let back: u64 = p as u64;
+    if back != 12u64 { return 1; }
+    return 0;
+}

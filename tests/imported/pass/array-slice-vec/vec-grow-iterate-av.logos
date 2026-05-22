@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/vec-late-init.rs (Vec grow then read facet)
+// Modifications: build a Vec in a while loop, sum via for-over-&v, check length.
+package vec_grow_iterate_av;
+fn main() -> i32 {
+    let mut v = vec_new::<i64>();
+    let mut i = 0i64;
+    while i < 5i64 { v.push(i*i); i = i + 1i64; }
+    let mut s = 0i64;
+    for x in &v { s = s + *x; }
+    if s != 30i64 { return 1; }
+    if v.length() != 5i64 { return 2; }
+    return 0;
+}

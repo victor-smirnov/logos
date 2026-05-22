@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (prim-int-cast bool facet)
+// Modifications: bool -> u16/i64/u8 (false=0,true=1).
+package cast_bool_to_int_ca;
+fn main() -> i32 {
+    if (false as u16) != 0u16 { return 1; }
+    if (true  as u16) != 1u16 { return 2; }
+    if (false as i64) != 0i64 { return 3; }
+    if (true  as i64) != 1i64 { return 4; }
+    if (true  as u8)  != 1u8  { return 5; }
+    return 0;
+}

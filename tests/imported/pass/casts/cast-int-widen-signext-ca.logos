@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (numeric-cast widening facet)
+// Modifications: small signed widening sign-extends; small unsigned widening zero-extends.
+package cast_int_widen_signext_ca;
+fn main() -> i32 {
+    let n: i8 = -1i8;
+    if (n as i32) != (-1i32) { return 1; }
+    if (n as i64) != (-1i64) { return 2; }
+    let u: u8 = 0xffu8;
+    if (u as u32) != 255u32  { return 3; }
+    if (u as i32) != 255i32  { return 4; }
+    return 0;
+}

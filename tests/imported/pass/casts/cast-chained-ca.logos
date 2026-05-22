@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (chained cast facet)
+// Modifications: chained casts l as u32 as u64 as u32 / signed analogue preserve the value.
+package cast_chained_ca;
+fn main() -> i32 {
+    let l: u64 = 0x8090a0b0c0d0e0f0u64;
+    if (l as u32 as u64 as u32) != (l as u32) { return 1; }
+    if (l as i32 as i64 as i32) != (l as i32) { return 2; }
+    return 0;
+}

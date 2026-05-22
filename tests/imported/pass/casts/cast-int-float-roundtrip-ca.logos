@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (numeric int<->float facet)
+// Modifications: trimmed to the int->f64 / f64->int subset; assert_eq -> return codes.
+package cast_int_float_roundtrip_ca;
+fn main() -> i32 {
+    if (0i64 as f64) != 0.0f64 { return 1; }
+    if (1i64 as f64) != 1.0f64 { return 2; }
+    let a: f64 = 3.0f64;
+    if (a as i64) != 3i64 { return 3; }
+    return 0;
+}

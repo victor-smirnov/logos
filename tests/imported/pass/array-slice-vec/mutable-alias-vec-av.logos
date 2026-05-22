@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mutable-alias-vec.rs
+// Modifications: Vec::new -> vec_new; v.len() -> v.length(); println dropped; assert -> return code.
+package mutable_alias_vec_av;
+fn grow(v: &mut Vec<i64>) { v.push(1i64); }
+fn main() -> i32 {
+    let mut v = vec_new::<i64>();
+    grow(&mut v); grow(&mut v); grow(&mut v);
+    if v.length() != 3i64 { return 1; }
+    return 0;
+}

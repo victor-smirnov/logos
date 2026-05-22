@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/vec-tail-matching.rs (array-of-structs facet)
+// Modifications: tail/slice match dropped (B5 named-nested); kept the array-of-structs build + for-over-&arr (deref *f) + index field read.
+package array_of_structs_av;
+struct Foo { x: i64 }
+fn main() -> i32 {
+    let arr: [Foo; 3] = [Foo{x:1i64}, Foo{x:2i64}, Foo{x:3i64}];
+    let mut sum = 0i64;
+    for f in &arr { sum = sum + (*f).x; }
+    if sum != 6i64 { return 1; }
+    if arr[2i64].x != 3i64 { return 2; }
+    return 0;
+}

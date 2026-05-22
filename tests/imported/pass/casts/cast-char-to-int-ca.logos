@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (prim-int-cast char facet)
+// Modifications: char -> u32/u16/u8, incl. multibyte chars narrowed (truncation) and sign reinterpretation to i16.
+package cast_char_to_int_ca;
+fn main() -> i32 {
+    if ('a' as u32) != 0x61u32 { return 1; }
+    if ('a' as u8)  != 0x61u8  { return 2; }
+    let big: char = '英';
+    if (big as u16) != 0x82f1u16    { return 3; }
+    if (big as i16) != (-0x7d0fi16) { return 4; }
+    return 0;
+}

@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/ (fixed array as a struct field)
+// Modifications: struct with a [i64;4] field, constructed via struct literal, indexed.
+package array_struct_field_av;
+struct Grid { cells: [i64; 4] }
+fn main() -> i32 {
+    let g = Grid { cells: [10i64, 20i64, 30i64, 40i64] };
+    if g.cells[2i64] != 30i64 { return 1; }
+    return 0;
+}

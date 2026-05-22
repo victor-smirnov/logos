@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/repeated-vector-syntax.rs (bool nested-array facet)
+// Modifications: nested [[bool;2];3] array literal, index reads.
+package nested_bool_array_av;
+fn main() -> i32 {
+    let x: [[bool; 2]; 3] = [[true, false], [false, true], [true, true]];
+    if x[0i64][0i64] != true  { return 1; }
+    if x[1i64][0i64] != false { return 2; }
+    if x[2i64][1i64] != true  { return 3; }
+    return 0;
+}

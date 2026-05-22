@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/variance-vec-covariant.rs (get-or-default facet)
+// Modifications: covariance/lifetime axis dropped (not a runtime feature); kept the v.get(0)/empty-default shape via &Vec helper. cloned()/or_else() expressed directly.
+package vec_first_or_default_av;
+fn first_or(v: &Vec<i64>, d: i64) -> i64 {
+    if v.length() == 0i64 { return d; }
+    return v.get(0i64);
+}
+fn main() -> i32 {
+    let mut a = vec_new::<i64>(); a.push(22i64);
+    let b = vec_new::<i64>();
+    if first_or(&a, 0i64)  != 22i64 { return 1; }
+    if first_or(&b, 99i64) != 99i64 { return 2; }
+    return 0;
+}

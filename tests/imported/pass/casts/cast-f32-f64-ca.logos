@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (float<->float facet)
+// Modifications: f32<->f64 roundtrip for exact-representable values.
+package cast_f32_f64_ca;
+fn main() -> i32 {
+    let a: f64 = 1.5f64;
+    let b: f32 = a as f32;
+    if (b as f64) != 1.5f64 { return 1; }
+    let c: f32 = 2.25f32;
+    if (c as f64) != 2.25f64 { return 2; }
+    return 0;
+}

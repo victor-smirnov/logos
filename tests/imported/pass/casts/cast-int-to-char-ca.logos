@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs / u8-to-char-cast-9918.rs (u8-char-cast facet)
+// Modifications: u8 -> char then back to u32; b'..' byte literals dropped (parse gap G122).
+package cast_int_to_char_ca;
+fn main() -> i32 {
+    let c: char = 0x61u8 as char;
+    if c != 'a' { return 1; }
+    let z: char = 0u8 as char;
+    if (z as u32) != 0u32 { return 2; }
+    return 0;
+}

@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (numeric narrowing/reinterpret facet)
+// Modifications: a large u64 narrowed to u8/i8/u32/i32, checking the truncated bit-pattern incl. sign reinterpretation.
+package cast_u64_narrow_signed_ca;
+fn main() -> i32 {
+    let l: u64 = 0x8090a0b0c0d0e0f0u64;
+    if (l as u8)  != 0xf0u8        { return 1; }
+    if (l as i8)  != (-0x10i8)     { return 2; }
+    if (l as u32) != 0xc0d0e0f0u32 { return 3; }
+    if (l as i32) != (-0x3f2f1f10i32) { return 4; }
+    return 0;
+}

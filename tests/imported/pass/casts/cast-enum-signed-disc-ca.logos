@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs (signed-discriminant enum-cast facet)
+// Modifications: negative discriminant cast to u16 (wraps to 65535) / i16 (-1).
+package cast_enum_signed_disc_ca;
+enum ValuedSigned { M1 = -1, P1 = 1, }
+fn main() -> i32 {
+    if (ValuedSigned::M1 as u16) != 65535u16 { return 1; }
+    if (ValuedSigned::M1 as i16) != (-1i16)  { return 2; }
+    if (ValuedSigned::P1 as u16) != 1u16     { return 3; }
+    if (ValuedSigned::P1 as i16) != 1i16     { return 4; }
+    return 0;
+}
