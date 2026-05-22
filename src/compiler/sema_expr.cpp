@@ -9621,6 +9621,31 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
+    // Trait-qualified UFCS: `Trait::method(recv, …)` — when class_name is a
+    // TRAIT (not a struct/enum/type-param), dispatch on the first argument's
+    // concrete receiver type (which must impl the trait). `Type::method(recv)`
+    // (type-qualified) already works; this adds the trait-qualified form.
+    if (find_trait_iter_scoped(std::string(class_name)) != traits_.end() &&
+        !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
+        find_struct_by_name(std::string(class_name)).second == nullptr) {
+        TypeRef rt = arg_exprs[0]->type;
+        while (rt && (is_ref_like(TypeRef(rt).kind()) ||
+                      TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
+               TypeRef(rt).pointee())
+            rt = TypeRef(rt).pointee();
+        std::string rname;
+        if (rt) {
+            auto rk = TypeRef(rt).kind();
+            if (rk == LogosType::Kind::Struct || rk == LogosType::Kind::ZonedStruct)
+                rname = TypeRef(rt).type_args().empty()
+                            ? TypeRef(rt).struct_name().to_string()
+                            : concrete_struct_name(rt);
+            else if (rk == LogosType::Kind::Enum)
+                rname = TypeRef(rt).enum_name().to_string();
+        }
+        if (!rname.empty()) { resolved_class = rname; mangled = rname + "__" + std::string(method_name); }
+    }
+
     // A bounded type-param used as the static-call class (`S::method` inside
     // `fn f<S: Bound>()`) must dispatch through the trait bound, NOT a concrete
     // same-name struct that happens to be in scope. This matters when a generic

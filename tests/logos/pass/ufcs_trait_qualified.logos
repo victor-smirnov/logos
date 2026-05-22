@@ -1,0 +1,25 @@
+// Trait-qualified UFCS `Trait::method(recv, args)` dispatches on the first
+// argument's concrete type (which impls the trait). Type-qualified
+// `Type::method(recv)` already worked; this adds the trait-qualified form.
+package ufcs_trait_qualified;
+
+trait Greet { fn hello(self: &Self) -> i64; }
+struct Dog { }
+struct Cat { }
+impl Greet for Dog { fn hello(self: &Dog) -> i64 { return 42i64; } }
+impl Greet for Cat { fn hello(self: &Cat) -> i64 { return 7i64; } }
+
+trait Add2 { fn addk(self: &Self, k: i64) -> i64; }
+struct Num { v: i64 }
+impl Add2 for Num { fn addk(self: &Num, k: i64) -> i64 { return self.v + k; } }
+
+fn main() -> i32 {
+    let d: Dog = Dog {};
+    let c: Cat = Cat {};
+    if Greet::hello(&d) != 42i64 { return 1i32; }   // dispatch on Dog
+    if Greet::hello(&c) != 7i64 { return 2i32; }    // dispatch on Cat
+    let n: Num = Num { v: 10i64 };
+    if Add2::addk(&n, 5i64) != 15i64 { return 3i32; }  // multi-arg
+    if Dog::hello(&d) != 42i64 { return 4i32; }     // type-qualified still works
+    return 0i32;
+}
