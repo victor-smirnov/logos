@@ -1,0 +1,7 @@
+package tuple_index_on_call;
+fn pair() -> (u16, u8) { return (7u16, 9u8); }
+fn main() -> i32 {
+    if pair().0 != 7u16 { return 1i32; }
+    if pair().1 != 9u8 { return 2i32; }
+    return 0i32;
+}

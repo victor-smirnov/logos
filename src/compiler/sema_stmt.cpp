@@ -2208,6 +2208,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     if (ac == la::PAT_VARIANT_DATA && !data_has_binding(an)) continue;
                     if (ac == la::PAT_INT || ac == la::PAT_NEG_INT ||
                         ac == la::PAT_BOOL || ac == la::PAT_CHAR) continue;
+                    // G144-2: a bindingless wildcard alt (`Some(0 | _)`) is a
+                    // catch-all — the guard `match synth { 0 | _ => true, _ =>
+                    // false }` evaluates to always-true, which is correct. A
+                    // NAMED wildcard would bind (lost through the guard) → reject.
+                    if (ac == la::PAT_WILD &&
+                        (!an.has_key(la::NAME) || str_of(an.get(la::NAME.code)) == "_"))
+                        continue;
                     return std::string();  // binding/unsupported alt → fall to error
                 }
             }

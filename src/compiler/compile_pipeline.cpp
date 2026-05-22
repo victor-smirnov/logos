@@ -14,6 +14,7 @@
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Pass/PassManager.h>
+#include <mlir/Transforms/RegionUtils.h>
 #include <mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h>
 #include <mlir/Conversion/ArithToLLVM/ArithToLLVM.h>
 #include <mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h>
@@ -77,6 +78,20 @@ int lower_and_emit_object(lir::LProgram& prog,
 
     // ── MLIR → LLVM dialect ────────────────────────────────────
     if (std::getenv("LOGOS_DUMP_MLIR")) mlir_module->dump();
+    // Erase unreachable blocks before lowering. A match with an irrefutable
+    // early arm (e.g. `0 | _ => …` ahead of a `_ => …`) leaves the later arm's
+    // block with no predecessors; its `arith.constant`s never get converted by
+    // the arith→LLVM pass and then fail `translateModuleToLLVMIR` ("missing
+    // LLVMTranslationDialectInterface registration for arith.constant"). This is
+    // a surgical dead-block sweep (no folding of live code), unlike a full
+    // canonicalize.
+    {
+        mlir::IRRewriter rewriter(&mlir_ctx);
+        mlir_module->walk([&](mlir::func::FuncOp fn) {
+            if (!fn.getBody().empty())
+                (void)mlir::eraseUnreachableBlocks(rewriter, fn.getBody());
+        });
+    }
     mlir::PassManager pm(&mlir_ctx);
     pm.addPass(mlir::createSCFToControlFlowPass());
     pm.addPass(mlir::createConvertControlFlowToLLVMPass());

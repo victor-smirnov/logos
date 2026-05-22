@@ -1,0 +1,10 @@
+package tuple_ordering_cmp;
+fn main() -> i32 {
+    let a: (i64, i64, i64) = (1i64, 2i64, 3i64);
+    if !(a < (1i64, 2i64, 4i64)) { return 1i32; }
+    if !(a <= (1i64, 2i64, 3i64)) { return 2i32; }
+    if a > (1i64, 2i64, 3i64) { return 3i32; }
+    if !((2i64, 0i64) > (1i64, 9i64)) { return 4i32; }
+    if !((5u8, 1u8) >= (5u8, 1u8)) { return 5i32; }
+    return 0i32;
+}

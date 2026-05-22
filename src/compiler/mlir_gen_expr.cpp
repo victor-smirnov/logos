@@ -778,6 +778,80 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         }
     }
 
+    // G144-5: tuple lexicographic ordering (`<` / `<=` / `>` / `>=`) on an
+    // all-primitive tuple — emit per-element load + compare and fold right-to-
+    // left (`lt_i || (eq_i && rest)`), mirroring the `==` fast-path above.
+    // Without this the tuple lowers to a pointer and the generic path feeds the
+    // slot pointer into arith.cmpi. `>`/`>=` are handled by swapping operands;
+    // the seed is false for strict (`<`,`>`) and true for non-strict (`<=`,`>=`).
+    if ((op == "<" || op == "<=" || op == ">" || op == ">=") &&
+        lhs_l->type && rhs_l->type &&
+        TypeRef(lhs_l->type).kind() == LogosType::Kind::Tuple &&
+        TypeRef(rhs_l->type).kind() == LogosType::Kind::Tuple) {
+        auto le = TypeRef(lhs_l->type).tuple_elems();
+        auto re = TypeRef(rhs_l->type).tuple_elems();
+        auto is_prim_ord = [](TypeRef t) {
+            if (!t) return false;
+            using K = LogosType::Kind;
+            switch (t.kind()) {
+            case K::I8:  case K::I16: case K::I24: case K::I32:
+            case K::I56: case K::I64: case K::I128:
+            case K::U8:  case K::U16: case K::U24: case K::U32:
+            case K::U56: case K::U64: case K::U128:
+            case K::F32: case K::F64: case K::Bool: case K::Char:
+            case K::Usize: case K::Isize:
+            case K::IntLit: case K::FloatLit: return true;
+            default: return false;
+            }
+        };
+        bool all_prim = le.size() == re.size() && !le.empty();
+        if (all_prim) for (auto e : le) if (!is_prim_ord(e)) { all_prim = false; break; }
+        if (all_prim) {
+            mlir::Type struct_ty = tuple_llvm_type(lhs_l->type);
+            bool swap = (op == ">" || op == ">=");
+            bool strict = (op == "<" || op == ">");
+            mlir::Value lp = swap ? rhs : lhs;   // "less-than" operand order
+            mlir::Value rp = swap ? lhs : rhs;
+            auto is_unsigned = [](LogosType::Kind k) {
+                using K = LogosType::Kind;
+                return k == K::U8 || k == K::U16 || k == K::U24 || k == K::U32 ||
+                       k == K::U56 || k == K::U64 || k == K::U128 ||
+                       k == K::Usize || k == K::Bool || k == K::Char;
+            };
+            if (struct_ty) {
+                // Seed: all-equal ⇒ strict false / non-strict true.
+                mlir::Value acc = builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, strict ? 0LL : 1LL, 1);
+                for (int i = (int)le.size() - 1; i >= 0; --i) {
+                    auto elem_t = logos_to_mlir(le[i]);
+                    if (!elem_t) { acc = nullptr; break; }
+                    auto gep = [&](mlir::Value base) {
+                        auto p = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), struct_ty, base,
+                            llvm::ArrayRef<mlir::LLVM::GEPArg>{0, (int32_t)i});
+                        return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_t, p).getResult();
+                    };
+                    auto lv = gep(lp);
+                    auto rv = gep(rp);
+                    mlir::Value lt_i, eq_i;
+                    if (mlir::isa<mlir::FloatType>(elem_t)) {
+                        lt_i = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OLT, lv, rv);
+                        eq_i = builder_.create<mlir::arith::CmpFOp>(loc_, mlir::arith::CmpFPredicate::OEQ, lv, rv);
+                    } else {
+                        auto pred = is_unsigned(TypeRef(le[i]).kind())
+                            ? mlir::arith::CmpIPredicate::ult : mlir::arith::CmpIPredicate::slt;
+                        lt_i = builder_.create<mlir::arith::CmpIOp>(loc_, pred, lv, rv);
+                        eq_i = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, lv, rv);
+                    }
+                    // acc = lt_i || (eq_i && acc)
+                    auto eq_and = builder_.create<mlir::arith::AndIOp>(loc_, eq_i, acc);
+                    acc = builder_.create<mlir::arith::OrIOp>(loc_, lt_i, eq_and);
+                }
+                if (acc) return acc;
+            }
+        }
+    }
+
     // For pointer comparisons, use llvm.icmp instead of arith.cmpi
     bool is_ptr_cmp = mlir::isa<mlir::LLVM::LLVMPointerType>(lhs.getType());
     // Rust-style auto-deref at `==` / `!=` for &T / &mut T when both
@@ -2025,6 +2099,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
     if (!stype) return nullptr;
     auto elem_mlir = logos_to_mlir(type);
     if (!elem_mlir) return nullptr;
+    // G144-6: a call returning a tuple by value yields an SSA struct aggregate
+    // (not a pointer); GEP requires a pointer, so spill it to a stack slot
+    // first — mirrors the struct-field-on-call-result path.
+    if (recv.getType() != ptr_type())
+        recv = spill_to_alloca(recv);
     llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(v.index())};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
@@ -3234,11 +3313,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             lir_view::PatOrView{arm_pat_ref}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
             mlir::Block* cur_else = else_block;
             for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
+                auto alt = alts[static_cast<size_t>(ai)];
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
-                int64_t disc = get_disc(alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
+                // G144-2: a wildcard / binding alt (`0 | _`) is irrefutable —
+                // it matches unconditionally. Emit an unconditional branch to
+                // the arm rather than a bogus `scrut == get_disc(Wild)=0` test
+                // (which both mis-matched and left a dead-block arith.constant
+                // that failed LLVM translation).
+                if (alt.kind() == pc::Code::Wild ||
+                    alt.kind() == pc::Code::RefBind) {
+                    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
+                    cur_else = test_block;
+                    continue;
+                }
+                int64_t disc = get_disc(alt);
                 auto disc_val = coerce_int(
                     builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 64), scrut_type);
                 auto eq = builder_.create<mlir::arith::CmpIOp>(

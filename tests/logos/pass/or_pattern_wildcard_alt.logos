@@ -1,0 +1,9 @@
+package or_pattern_wildcard_alt;
+fn classify(x: Option<i64>) -> bool { match x { Option::Some(0i64 | _) => { return true; } _ => { return false; } } }
+fn top(n: i64) -> i64 { match n { 0i64 | _ => 10i64 } }
+fn main() -> i32 {
+    if !classify(Option::Some(3i64)) { return 1i32; }
+    if classify(Option::None) { return 2i32; }
+    if top(7i64) != 10i64 { return 3i32; }
+    return 0i32;
+}

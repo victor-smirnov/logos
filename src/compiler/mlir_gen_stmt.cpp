@@ -2607,11 +2607,21 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             lir_view::PatOrView{arm_pat}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
             mlir::Block* cur_else = else_block;
             for (int64_t ai = static_cast<int64_t>(alts.size()) - 1; ai >= 0; --ai) {
+                auto alt = alts[static_cast<size_t>(ai)];
                 auto* test_block = new mlir::Block();
                 region->push_back(test_block);
-                int64_t disc = get_scalar_disc(alts[static_cast<size_t>(ai)]);
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
+                // G144-2: a wildcard / binding alt (`0 | _`) is irrefutable —
+                // match unconditionally rather than emit a bogus
+                // `scrut == get_scalar_disc(Wild)` test (wrong match + a
+                // dead-block arith.constant that fails LLVM translation).
+                if (alt.kind() == pc::Code::Wild || alt.kind() == pc::Code::RefBind) {
+                    builder_.create<mlir::cf::BranchOp>(loc_, arm_entry);
+                    cur_else = test_block;
+                    continue;
+                }
+                int64_t disc = get_scalar_disc(alt);
                 if (disc == std::numeric_limits<int64_t>::min()) {
                     // Unrepresentable alt (e.g. PatRange, structural): skip to next test.
                     // Sema should have rejected this, but fall-through safely instead of
