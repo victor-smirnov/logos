@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-26251.rs
+// Modifications: the &str arm VALUES → i64 codes (string-literal results are a
+//   separate path); `panic!` arm → an unreachable sentinel; assert_eq! →
+//   nonzero ret. The overlapping char-range arms + an `if false` GUARD on the
+//   first arm (which must be skipped, falling through to the exact-char arm)
+//   are kept verbatim.
+// Tests overlapping inclusive char-range match arms with a match GUARD: a
+//   guarded `'a'..='b' if false` arm is skipped in favor of the exact `'a'` arm.
+package char_range_guard_b137;
+
+fn main() -> i32 {
+    let x: char = 'a';
+    let y: i64 = match x {
+        'a' ..= 'b' if false => 1i64,
+        'a' => 2i64,
+        'a' ..= 'b' => 3i64,
+        _ => 9i64,
+    };
+    if y != 2i64 { return 1i32; }
+    return 0i32;
+}

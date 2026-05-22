@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/u32-decr.rs
+// Modifications: literals suffixed; assert_eq! → nonzero ret.
+// Tests `u32` subtraction of 1 from a large value.
+package u32_decr_b137;
+
+fn main() -> i32 {
+    let mut word: u32 = 200000u32;
+    word = word - 1u32;
+    if word != 199999u32 { return 1i32; }
+    return 0i32;
+}

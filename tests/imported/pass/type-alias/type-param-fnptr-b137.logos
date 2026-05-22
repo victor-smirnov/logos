@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias/type-param.rs
+// Modifications: the `extern "C"` alias dropped; the `Bar<T> = fn(T) -> bool`
+//   generic-fn-pointer type alias kept and actually USED (upstream's main is
+//   empty — a smoke test that the alias's type parameter resolves). A matching
+//   fn item is coerced into the alias-typed local and invoked.
+// Tests a generic type alias over a fn-pointer type: `type Bar<T> = fn(T)->bool`.
+package type_param_fnptr_b137;
+
+type Bar<T> = fn(T) -> bool;
+
+fn is_zero(x: i64) -> bool {
+    return x == 0i64;
+}
+
+fn main() -> i32 {
+    let f: Bar<i64> = is_zero;
+    if !f(0i64) { return 1i32; }
+    if f(5i64) { return 2i32; }
+    return 0i32;
+}

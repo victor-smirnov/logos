@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/inc-range-pat.rs
+// Modifications: literals suffixed; the deprecated `...` (three-dot) form
+//   dropped (Logos uses `..=`); assert! → nonzero ret; integer + char inclusive
+//   range patterns kept.
+// Tests inclusive range patterns `0..=100` (int) and `'a'..='z'` (char) in match.
+package inc_range_pat_b137;
+
+fn main() -> i32 {
+    let ok_int: bool = match 42i64 {
+        0i64 ..= 100i64 => true,
+        _ => false,
+    };
+    if !ok_int { return 1i32; }
+
+    let ok_char: bool = match 'x' {
+        'a' ..= 'z' => true,
+        _ => false,
+    };
+    if !ok_char { return 2i32; }
+    return 0i32;
+}

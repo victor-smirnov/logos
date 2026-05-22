@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/bug-7295.rs
+// Modifications: `&self`→`self: &Self`; the trait is implemented for a concrete
+//   struct + the default method actually exercised (upstream's main is empty —
+//   it only type-checks; here we call func2 to confirm the default forwards to
+//   the required method). assert via nonzero ret.
+// Tests a trait with a method-generic required method `func1<U>` and a
+//   method-generic DEFAULT method `func2<U>` that forwards to `func1`.
+package method_generic_default_fwd_b137;
+
+trait Foo<T> {
+    fn func1<U>(self: &Self, t: U, w: T) -> T;
+    fn func2<U>(self: &Self, t: U, w: T) -> T {
+        return self.func1(t, w);
+    }
+}
+
+struct S {}
+
+impl Foo<i64> for S {
+    fn func1<U>(self: &Self, t: U, w: i64) -> i64 {
+        return w;
+    }
+}
+
+fn main() -> i32 {
+    let s: S = S {};
+    if s.func2(7i32, 99i64) != 99i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/nested-index.rs
+// Modifications: literals suffixed; assert_eq! → nonzero ret; the trailing
+//   `0.0..1.1` range-expr line dropped (Range value is a separate feature).
+// Tests nested tuple-index projection `t.1.1` and `t.1.1.1` on nested tuples.
+package nested_index_b137;
+
+fn main() -> i32 {
+    let n: i64 = (1i64, (2i64, 3i64)).1.1;
+    if n != 3i64 { return 1i32; }
+
+    let m: i64 = (1i64, (2i64, (3i64, 4i64))).1.1.1;
+    if m != 4i64 { return 2i32; }
+    return 0i32;
+}

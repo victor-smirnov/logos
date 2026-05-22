@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-18060.rs (#18060: match arm order)
+// Modifications: literals suffixed; `...`→`..=`; assert_eq! → nonzero ret.
+//   The match over a 2-tuple with a mix of literal and inclusive-range
+//   sub-patterns is kept (verifies arms are tried top-to-bottom).
+// Tests a match over a `(i64, i64)` tuple combining literal and `..=` range
+//   element sub-patterns, with overlapping arms resolved by order.
+package tuple_range_arm_order_b137;
+
+fn classify(p: (i64, i64)) -> i64 {
+    match p {
+        (0i64, 2i64 ..= 5i64) => 1i64,
+        (1i64, 3i64) => 2i64,
+        (_, 2i64 ..= 5i64) => 3i64,
+        (_, _) => 4i64,
+    }
+}
+
+fn main() -> i32 {
+    if classify((1i64, 3i64)) != 2i64 { return 1i32; }
+    if classify((1i64, 7i64)) != 4i64 { return 2i32; }
+    if classify((0i64, 4i64)) != 1i64 { return 3i32; }
+    if classify((9i64, 3i64)) != 3i64 { return 4i32; }
+    return 0i32;
+}

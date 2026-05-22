@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/num.rs
+// Modifications: trait names map to Logos's Eq/Ord (PartialEq/PartialOrd); the
+//   `loop {}` diverging bodies → a real `return` using the bound methods so the
+//   generic fns are actually monomorphized + called (upstream's empty main only
+//   type-checks). `&self`-style param `n: &T`→`n: &T` kept; assert via ret.
+// Tests a supertrait chain: `NumExt: Eq + Ord`, `FloatExt: NumExt`, with
+//   generic fns bounded on each, dispatching the inherited comparison methods.
+package supertrait_bound_chain_b137;
+
+trait NumExt: Eq + Ord {}
+
+trait FloatExt: NumExt {}
+
+fn at_least_one<T: NumExt>(a: &T, b: &T) -> bool {
+    return a == b;
+}
+
+impl NumExt for i64 {}
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let y: i64 = 5i64;
+    if !at_least_one(&x, &y) { return 1i32; }
+    return 0i32;
+}

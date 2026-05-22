@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum_u8_variant.rs (#34571)
+// Modifications: `#[repr(u8)]` dropped; literals suffixed; the variant renamed
+//   to CamelCase `Inner` (Logos rejects a variant named like its enum); the
+//   single payload-carrying variant constructed and matched with a `_`
+//   wildcard arm; nonzero-ret to confirm the arm fires.
+// Tests matching a single-variant enum carrying a `u8` payload with a `_` arm.
+package enum_payload_wildcard_match_b137;
+
+enum Foo {
+    Inner(u8),
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo::Inner(1u8);
+    let mut hit: i32 = 1i32;
+    match f {
+        _ => { hit = 0i32; }
+    }
+    return hit;
+}

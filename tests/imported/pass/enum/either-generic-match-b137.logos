@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/match-either-enum-variants-6117.rs (#6117)
+// Modifications: `Box<isize>` payload → plain `i64` (stack); the unit-payload
+//   `Right(())` arm rewritten to bind the payload `Right(_)` (unit-typed
+//   payloads are rejected, so U is instantiated as i64 too); nonzero-ret on the
+//   matched arm.
+// Tests constructing and matching a generic two-parameter enum
+//   `Either<T, U> { Left(T), Right(U) }`.
+package either_generic_match_b137;
+
+enum Either<T, U> {
+    Left(T),
+    Right(U),
+}
+
+fn main() -> i32 {
+    let e: Either<i64, i64> = Either::Left(17i64);
+    let mut hit: i32 = 1i32;
+    match e {
+        Either::Right(_) => {}
+        _ => { hit = 0i32; }
+    }
+    return hit;
+}
