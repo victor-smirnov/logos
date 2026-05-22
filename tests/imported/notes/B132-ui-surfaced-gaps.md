@@ -113,3 +113,18 @@ wrongly selects the `(None,None)` arm. Root chain found:
 Proper fix: reconcile the tuple-enum-element representation (match the top-level
 heap-ptr convention or handle inline) FIRST, then the disc-checks + bare-variant
 recognition land safely. Deep — focused session. (HIGH priority: silent wrong-arm.)
+
+## N1 CORRECTION (2026-05-22): the segfault is PRE-EXISTING, not from the fix attempt
+On the CLEAN (reverted) compiler, `match (Some(7),0) { (Some(a),_) => a, _ => -1 }`
+ALSO SIGSEGVs. So tuple-with-an-enum-ELEMENT matching is a pre-existing broken
+path: the VariantData tuple-element disc-check (`LoadOp(ptr, slot)` then
+`GEP{0,0}`) derefs an invalid ptr — the tuple stores the enum element in a form
+inconsistent with the top-level heap-ptr-to-struct convention (suspected: enum
+stored INLINE in the tuple slot, so the loaded "ptr" is actually the disc bytes).
+Two coupled bugs: (a) PRE-EXISTING — `(Some(a),_)` / any enum-payload tuple
+element match segfaults; (b) N1 — no-payload-variant tuple element (`None`) is
+parsed as a binding (untested → silent wrong-arm). BOTH need the tuple-enum-
+element representation reconciled with the top-level enum convention first.
+Agents have been avoiding enum-element tuples (int/bool elements + whole-bind).
+HIGH priority (correctness: silent wrong-arm + crash). Focused session.
+See [[ref_enum_two_level_convention]].
