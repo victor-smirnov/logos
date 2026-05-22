@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ generic-struct-with-bounded-field patterns.
+// Feature: a generic struct `Box1<T: Val>` storing a bound-carrying field, with a
+// method delegating to the field's trait method. Tests bound propagation from the
+// struct's type-param into a method body.
+package generic_struct_trait_field_tr2;
+
+trait Val { fn v(self: &Self) -> i64; }
+
+struct Leaf { n: i64 }
+impl Val for Leaf { fn v(self: &Leaf) -> i64 { return (*self).n; } }
+
+struct Box1<T: Val> { inner: T }
+
+impl<T: Val> Box1<T> {
+    fn total(self: &Box1<T>) -> i64 { return (*self).inner.v() + 1i64; }
+}
+
+fn main() -> i32 {
+    let b = Box1 { inner: Leaf { n: 41i64 } };
+    if b.total() == 42i64 { return 0i32; }
+    return 1i32;
+}

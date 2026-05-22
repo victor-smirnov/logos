@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/multidispatch-conditional-impl-not-considered.rs (issue #17594)
+// Feature: an inherent method shadows a conditional blanket trait impl `impl<T> Foo for T where T: Clone`
+// when the receiver type does NOT satisfy the `Clone` bound — the inherent `foo` is selected.
+// RefCell removed (uses plain value); assert via the inherent method being chosen (returns 7).
+package multidispatch_conditional_impl_tr2;
+
+trait Foo { fn foo(self: &Self) -> i64 { return 1i64; } }
+
+impl<T: Clone> Foo for T {}
+
+struct Bar {}
+
+impl Bar { fn foo(self: &Bar) -> i64 { return 7i64; } }
+
+fn main() -> i32 {
+    let b = Bar {};
+    if b.foo() == 7i64 { return 0i32; }
+    return 1i32;
+}

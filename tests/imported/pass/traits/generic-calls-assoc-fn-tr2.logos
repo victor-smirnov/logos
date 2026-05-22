@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/num3.rs (adapted)
+// Feature: a generic fn calls a trait ASSOCIATED FUNCTION through the bound using
+// fully-qualified syntax (`T::from(1)`), with the result used in the body.
+// Option<Self> return reduced to a plain Self (no Option needed for the runnable core).
+package generic_calls_assoc_fn_tr2;
+
+trait FromInt { fn from_int(i: i64) -> Self; }
+
+struct Wrapped { n: i64 }
+impl FromInt for Wrapped { fn from_int(i: i64) -> Wrapped { return Wrapped { n: i }; } }
+
+fn build<T: FromInt>(i: i64) -> T { return T::from_int(i); }
+
+fn main() -> i32 {
+    let w: Wrapped = build::<Wrapped>(41i64);
+    if w.n == 41i64 { return 0i32; }
+    return 1i32;
+}

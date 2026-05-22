@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ where-clause dispatch patterns.
+// Feature: a generic fn with a where-clause bound (`where T: Speak`) rather than
+// inline `T: Speak` — same dispatch, where-clause syntax.
+package where_clause_method_tr2;
+
+trait Speak { fn say(self: &Self) -> i64; }
+
+struct Dog {}
+impl Speak for Dog { fn say(self: &Dog) -> i64 { return 42i64; } }
+
+fn talk<T>(x: &T) -> i64 where T: Speak { return x.say(); }
+
+fn main() -> i32 {
+    let d = Dog {};
+    if talk(&d) == 42i64 { return 0i32; }
+    return 1i32;
+}

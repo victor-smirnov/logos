@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/dyn-trait.rs (adapted to user trait)
+// Feature: a fn parameter typed `&dyn Tr` accepting any impl, plus a vtable default
+// method (`describe` calls the dynamically-dispatched `kind`). Two impls passed.
+package trait_object_arg_two_impls_tr2;
+
+trait Kinded {
+    fn kind(self: &Self) -> i64;
+    fn describe(self: &Self) -> i64 { return self.kind() + 100i64; }
+}
+
+struct Foo {}
+struct Bar {}
+impl Kinded for Foo { fn kind(self: &Foo) -> i64 { return 1i64; } }
+impl Kinded for Bar { fn kind(self: &Bar) -> i64 { return 2i64; } }
+
+fn show(k: &dyn Kinded) -> i64 { return k.describe(); }
+
+fn main() -> i32 {
+    let f = Foo {};
+    let b = Bar {};
+    if show(&f) == 101i64 && show(&b) == 102i64 { return 0i32; }
+    return 1i32;
+}

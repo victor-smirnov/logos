@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/auto-xc-2.rs (de-cross-crated)
+// Feature: a blanket impl `impl<T: Foo+Bar+Baz> Quux for T {}` lifts any type
+// implementing all three base traits into Quux; a `T: Quux` bound then reaches
+// all three base methods. isize->i64; aux-crate folded into one package.
+package blanket_three_supertraits_tr2;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar { fn g(self: &Self) -> i64; }
+trait Baz { fn h(self: &Self) -> i64; }
+
+struct A { x: i64 }
+impl Foo for A { fn f(self: &A) -> i64 { return 10i64; } }
+impl Bar for A { fn g(self: &A) -> i64 { return 20i64; } }
+impl Baz for A { fn h(self: &A) -> i64 { return 30i64; } }
+
+trait Quux: Foo + Bar + Baz {}
+impl<T: Foo + Bar + Baz> Quux for T {}
+
+fn f<T: Quux>(a: &T) -> i64 { return a.f() + a.g() + a.h(); }
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    if f(&a) == 60i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/multiple-inheritors.rs
+// Feature: a generic fn bounded by TWO subtraits (`T: B + C`) where both B and C
+// inherit from a common supertrait A — all three methods reachable via the bound.
+// isize->i64; `bogus: ()` -> `bogus: i64`; assert via dispatch.
+package multiple_inheritors_tr2;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait A { fn a(self: &Self) -> i64; }
+trait B: A { fn b(self: &Self) -> i64; }
+trait C: A { fn c(self: &Self) -> i64; }
+
+struct S { bogus: i64 }
+
+impl A for S { fn a(self: &S) -> i64 { return 10i64; } }
+impl B for S { fn b(self: &S) -> i64 { return 20i64; } }
+impl C for S { fn c(self: &S) -> i64 { return 30i64; } }
+
+fn f<T: B + C>(x: &T) {
+    assert_eq!(x.a(), 10i64);
+    assert_eq!(x.b(), 20i64);
+    assert_eq!(x.c(), 30i64);
+}
+
+fn main() -> i32 {
+    let value = S { bogus: 0i64 };
+    f(&value);
+    return 0;
+}

@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ associated-type patterns.
+// Feature: a trait with an associated type `Output` used as a method return type
+// (`fn produce(&self) -> Self::Output`); two impls bind Output differently.
+package assoc_type_method_tr2;
+
+trait Producer {
+    type Output;
+    fn produce(self: &Self) -> Self::Output;
+}
+
+struct IntMaker {}
+struct BoolMaker {}
+
+impl Producer for IntMaker {
+    type Output = i64;
+    fn produce(self: &IntMaker) -> i64 { return 5i64; }
+}
+
+impl Producer for BoolMaker {
+    type Output = bool;
+    fn produce(self: &BoolMaker) -> bool { return true; }
+}
+
+fn main() -> i32 {
+    let i = IntMaker {};
+    let b = BoolMaker {};
+    if i.produce() == 5i64 && b.produce() { return 0i32; }
+    return 1i32;
+}

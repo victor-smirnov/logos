@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/ufcs-object.rs (adapted to a non-object UFCS call)
+// Feature: calling a trait method via fully-qualified UFCS `Trait::method(recv)`
+// where the receiver type is selected by its concrete type.
+package ufcs_trait_method_tr2;
+
+trait Speak { fn say(self: &Self) -> i64; }
+
+struct Dog {}
+impl Speak for Dog { fn say(self: &Dog) -> i64 { return 5i64; } }
+
+fn main() -> i32 {
+    let d = Dog {};
+    if Speak::say(&d) == 5i64 { return 0i32; }
+    return 1i32;
+}

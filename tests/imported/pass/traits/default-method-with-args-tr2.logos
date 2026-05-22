@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/default-method/ patterns.
+// Feature: a default method that TAKES AN ARGUMENT and combines it with a required
+// method's result (`fn scaled(&self, k) { self.base() * k }`); impl supplies base only.
+package default_method_with_args_tr2;
+
+trait Scale {
+    fn base(self: &Self) -> i64;
+    fn scaled(self: &Self, k: i64) -> i64 { return self.base() * k; }
+}
+
+struct Q { b: i64 }
+impl Scale for Q { fn base(self: &Q) -> i64 { return (*self).b; } }
+
+fn main() -> i32 {
+    let q = Q { b: 6i64 };
+    if q.scaled(7i64) == 42i64 { return 0i32; }
+    return 1i32;
+}

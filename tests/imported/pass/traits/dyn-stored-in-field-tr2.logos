@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/mut-trait-in-struct-8249.rs (issue #8249, adapted)
+// Feature: a struct holding a trait-object reference field (`holder: &dyn A`),
+// dispatched dynamically through the stored handle. Box<dyn>->&dyn per convention.
+package dyn_stored_in_field_tr2;
+
+trait A { fn val(self: &Self) -> i64; }
+
+struct B { n: i64 }
+impl A for B { fn val(self: &B) -> i64 { return (*self).n; } }
+
+struct Holder { item: &dyn A }
+
+fn main() -> i32 {
+    let b = B { n: 9i64 };
+    let h = Holder { item: &b };
+    if h.item.val() == 9i64 { return 0i32; }
+    return 1i32;
+}

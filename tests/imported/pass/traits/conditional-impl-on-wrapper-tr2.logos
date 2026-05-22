@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ conditional-impl patterns.
+// Feature: a CONDITIONAL impl `impl<T: Val> Val for Wrap<T>` — the wrapper is
+// Val only when its element is Val; the method recurses through the element.
+package conditional_impl_on_wrapper_tr2;
+
+trait Val { fn v(self: &Self) -> i64; }
+
+struct Wrap<T> { inner: T }
+
+impl Val for i64 { fn v(self: &i64) -> i64 { return *self; } }
+impl<T: Val> Val for Wrap<T> {
+    fn v(self: &Wrap<T>) -> i64 { return (*self).inner.v() + 1i64; }
+}
+
+fn main() -> i32 {
+    let w = Wrap { inner: Wrap { inner: 40i64 } };
+    if w.v() == 42i64 { return 0i32; }
+    return 1i32;
+}

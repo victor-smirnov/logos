@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/parameterized-with-bounds.rs (adapted to a runnable form)
+// Feature: a trait parameterised by TWO type params `Pair<T, U>` whose method
+// returns a tuple `(T, U)`; dispatched on a concrete impl with distinct T,U.
+package multi_typaram_trait_tr2;
+
+trait Pair<T, U> { fn get(self: &Self) -> (T, U); }
+
+struct P {}
+
+impl Pair<i64, bool> for P {
+    fn get(self: &P) -> (i64, bool) { return (7i64, true); }
+}
+
+fn main() -> i32 {
+    let p = P {};
+    let (a, b) = p.get();
+    if a == 7i64 && b { return 0i32; }
+    return 1i32;
+}

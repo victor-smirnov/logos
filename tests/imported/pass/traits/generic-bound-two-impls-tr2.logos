@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-23825.rs
+// Feature: a generic fn `print<T: Stringify>(x: T)` dispatched over a value
+// parameter, with two distinct primitive impls (u32, f32) selected by inference.
+// String/format! result reduced to an i64 tag returned by the trait method
+// (Logos String formatting parity kept minimal); assert via dispatch over both.
+package generic_bound_two_impls_tr2;
+
+trait Stringify { fn kind(self: &Self) -> i64; }
+
+impl Stringify for u32 { fn kind(self: &u32) -> i64 { return 1i64; } }
+impl Stringify for f32 { fn kind(self: &f32) -> i64 { return 2i64; } }
+
+fn pr<T: Stringify>(x: T) -> i64 { return x.kind(); }
+
+fn main() -> i32 {
+    if pr(5u32) == 1i64 && pr(5.0f32) == 2i64 { return 0i32; }
+    return 1i32;
+}

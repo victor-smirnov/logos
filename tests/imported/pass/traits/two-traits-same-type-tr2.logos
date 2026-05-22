@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ multiple-traits-on-one-type patterns.
+// Feature: one struct implements TWO unrelated traits with DISTINCT method names;
+// both reachable on the same value, and each via its own generic bound.
+package two_traits_same_type_tr2;
+
+trait Width { fn width(self: &Self) -> i64; }
+trait Height { fn height(self: &Self) -> i64; }
+
+struct Rect { w: i64, h: i64 }
+
+impl Width for Rect { fn width(self: &Rect) -> i64 { return (*self).w; } }
+impl Height for Rect { fn height(self: &Rect) -> i64 { return (*self).h; } }
+
+fn area<T: Width + Height>(r: &T) -> i64 { return r.width() * r.height(); }
+
+fn main() -> i32 {
+    let r = Rect { w: 6i64, h: 7i64 };
+    if area(&r) == 42i64 { return 0i32; }
+    return 1i32;
+}

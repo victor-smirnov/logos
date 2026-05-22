@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/object/ multi-method trait-object patterns.
+// Feature: a `&dyn Tr` trait object whose trait declares MULTIPLE methods, all
+// dynamically dispatched on the same handle (vtable with >1 entry).
+package dyn_multi_method_tr2;
+
+trait Animal {
+    fn legs(self: &Self) -> i64;
+    fn tail(self: &Self) -> i64;
+}
+
+struct Cat {}
+impl Animal for Cat {
+    fn legs(self: &Cat) -> i64 { return 4i64; }
+    fn tail(self: &Cat) -> i64 { return 1i64; }
+}
+
+fn describe(a: &dyn Animal) -> i64 { return a.legs() * 10i64 + a.tail(); }
+
+fn main() -> i32 {
+    let c = Cat {};
+    if describe(&c) == 41i64 { return 0i32; }
+    return 1i32;
+}

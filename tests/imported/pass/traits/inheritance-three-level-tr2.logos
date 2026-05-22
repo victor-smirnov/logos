@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/call-bound-inherited2.rs
+// Feature: a THREE-level inheritance chain (Baz: Bar: Foo) — a `T: Baz` bound
+// reaches the grand-supertrait method `f` (Foo) transitively.
+// isize->i64; assert via dispatch.
+package inheritance_three_level_tr2;
+
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar: Foo { fn g(self: &Self) -> i64; }
+trait Baz: Bar { fn h(self: &Self) -> i64; }
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(self: &A) -> i64 { return 10i64; } }
+impl Bar for A { fn g(self: &A) -> i64 { return 20i64; } }
+impl Baz for A { fn h(self: &A) -> i64 { return 30i64; } }
+
+fn gg<T: Baz>(a: &T) -> i64 { return a.f(); }
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    assert_eq!(gg(&a), 10i64);
+    return 0;
+}

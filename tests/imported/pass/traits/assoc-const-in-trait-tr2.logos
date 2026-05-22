@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ associated-const patterns (associated consts in traits).
+// Feature: a trait declares an associated const `ID: i64`; two impls give different values;
+// read through the concrete type (`Alpha::ID`). NOTE: projecting the const through a generic
+// bound (`T::ID` / `Self::ID`) is NOT yet supported — see B121-ui-surfaced-gaps.md; this test
+// keeps the concrete-receiver form which is the supported subset.
+package assoc_const_in_trait_tr2;
+
+trait HasId {
+    const ID: i64;
+}
+
+struct Alpha {}
+struct Beta {}
+
+impl HasId for Alpha { const ID: i64 = 1i64; }
+impl HasId for Beta { const ID: i64 = 2i64; }
+
+fn main() -> i32 {
+    if Alpha::ID == 1i64 && Beta::ID == 2i64 { return 0i32; }
+    return 1i32;
+}

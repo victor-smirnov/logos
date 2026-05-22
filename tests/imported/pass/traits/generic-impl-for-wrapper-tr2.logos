@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/kindck-owned-contains-1.rs (adapted)
+// Feature: a GENERIC impl of a trait for a generic wrapper type
+// (`impl<A: Clone> Repeat<A> for Holder<A>`) — the impl is parameterised and the
+// method returns the wrapped value by clone. Box<A> -> a stack Holder<A> struct.
+package generic_impl_for_wrapper_tr2;
+
+trait Repeat<A> { fn get(self: &Self) -> A; }
+
+struct Holder<A> { item: A }
+
+impl<A: Clone> Repeat<A> for Holder<A> {
+    fn get(self: &Holder<A>) -> A { return (*self).item.clone(); }
+}
+
+fn repeater<A: Clone>(v: A) -> Holder<A> { return Holder { item: v }; }
+
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let y = repeater::<i64>(x);
+    if y.get() == 3i64 { return 0i32; }
+    return 1i32;
+}

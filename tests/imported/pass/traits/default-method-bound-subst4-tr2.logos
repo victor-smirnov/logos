@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst4.rs
+// Feature: a generic trait `A<T>` with a default method `g` (independent of T),
+// implemented empty for a primitive, dispatched through a nested generic bound
+// `f<T, V: A<T>>`. Tests default-method substitution under a type-param-carrying trait.
+// isize->i64; usize->u64; turbofish on the call retained; assert via dispatch.
+package default_method_bound_subst4_tr2;
+
+trait A<T> {
+    fn g(self: &Self, x: u64) -> u64 { return x; }
+}
+
+impl<T> A<T> for i64 {}
+
+fn f<T, V: A<T>>(i: V, j: u64) -> u64 { return i.g(j); }
+
+fn main() -> i32 {
+    if f::<f64, i64>(0i64, 2u64) == 2u64 { return 0i32; }
+    return 1i32;
+}

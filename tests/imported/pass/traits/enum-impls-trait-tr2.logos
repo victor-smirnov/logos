@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ trait-impl-on-enum patterns.
+// Feature: a user enum implements a trait; the method matches over the variants.
+// CamelCase variant names; assert via dispatch on two variants.
+package enum_impls_trait_tr2;
+
+enum Light { Red, Green, Yellow }
+
+trait Cost { fn cost(self: &Self) -> i64; }
+
+impl Cost for Light {
+    fn cost(self: &Light) -> i64 {
+        match *self {
+            Light::Red => { return 3i64; }
+            Light::Green => { return 1i64; }
+            Light::Yellow => { return 2i64; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let r = Light::Red;
+    let g = Light::Green;
+    if r.cost() == 3i64 && g.cost() == 1i64 { return 0i32; }
+    return 1i32;
+}

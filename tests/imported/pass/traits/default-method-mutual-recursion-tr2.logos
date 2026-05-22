@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/trivial.rs
+// Feature: a trait with a default method (`purr`) plus two required methods that
+// call each other and the default through `&self` on a primitive impl (`i64`).
+// Resolution chains meow->scratch->purr (default). isize->i64; assert via dispatch.
+package default_method_mutual_recursion_tr2;
+
+trait Cat {
+    fn meow(self: &Self) -> bool;
+    fn scratch(self: &Self) -> bool;
+    fn purr(self: &Self) -> bool { return true; }
+}
+
+impl Cat for i64 {
+    fn meow(self: &i64) -> bool { return self.scratch(); }
+    fn scratch(self: &i64) -> bool { return self.purr(); }
+}
+
+fn main() -> i32 {
+    let five: i64 = 5i64;
+    if five.meow() { return 0i32; }
+    return 1i32;
+}
