@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/multidispatch-infer-convert-target.rs
+// Feature: a generic trait `Convert<Target>` with two impls binding Target
+// differently; a generic fn `test<T, U>(_) where T: Convert<U>` dispatches the
+// conversion. (Upstream used `mem::size_of`; distilled to a value-returning convert.)
+package multidispatch_convert_target_tr3;
+
+trait Convert<Target> { fn convert(self: &Self) -> Target; }
+
+struct Small { v: i64 }
+struct Big { v: i64 }
+
+impl Convert<Big> for Small { fn convert(self: &Small) -> Big { return Big { v: (*self).v }; } }
+impl Convert<Small> for Big { fn convert(self: &Big) -> Small { return Small { v: (*self).v }; } }
+
+fn doit<T: Convert<U>, U>(t: &T) -> U { return t.convert(); }
+
+fn main() -> i32 {
+    let s = Small { v: 7i64 };
+    let b: Big = doit::<Small, Big>(&s);
+    if b.v == 7i64 { return 0i32; }
+    return 1i32;
+}

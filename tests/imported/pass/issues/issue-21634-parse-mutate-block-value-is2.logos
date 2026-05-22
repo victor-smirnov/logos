@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-21634.rs
+// Feature: float arithmetic + a mutate-then-yield block expression as a value
+// (`{ x += 5.0; x }`). (Upstream parsed a &str to f64 inside `if let Ok(...)`;
+// Logos has no f64 str-parse stdlib entry yet, so distilled to the float-mutate core.)
+package issue_21634_parse_mutate_block_value_is2;
+
+fn main() -> i32 {
+    let x: f64 = 3.1415f64;
+    if x <= 0.0f64 { return 1i32; }
+    let mut y: f64 = x;
+    let z: f64 = { y += 5.0f64; y };
+    if z == 8.1415f64 { return 0i32; }
+    return 2i32;
+}

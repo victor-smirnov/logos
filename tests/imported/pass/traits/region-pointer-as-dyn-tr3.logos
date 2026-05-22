@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/region-pointer-simple.rs
+// Feature: take a `&` reference to a stack value and explicitly cast it to a
+// trait object (`(&a) as &dyn Foo`), then dispatch a method through it.
+package region_pointer_as_dyn_tr3;
+
+trait Foo { fn f(self: &Self) -> i64; }
+
+struct A { x: i64 }
+impl Foo for A { fn f(self: &A) -> i64 { return (*self).x; } }
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    let b = (&a) as &dyn Foo;
+    if b.f() == 3i64 { return 0i32; }
+    return 1i32;
+}

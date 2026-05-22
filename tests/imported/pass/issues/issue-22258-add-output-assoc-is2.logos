@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-22258.rs
+// Feature: a generic fn bounded by the `Add` operator trait that adds its two
+// type-parameter arguments with `+` (`fn sum<T: Add>(a, b) -> T { a + b }`).
+// (Upstream used `<T as Add>::Output` over `f32`; Logos `Add::add` returns Self and
+// has no primitive impls, so distilled to a user struct impl + the `T: Add` bound.)
+package issue_22258_add_output_assoc_is2;
+
+use logos.lang.ops;
+
+struct P { v: i64 }
+impl Add for P { fn add(self: P, rhs: P) -> P { return P { v: self.v + rhs.v }; } }
+
+fn sum<T: Add>(a: T, b: T) -> T { return a + b; }
+
+fn main() -> i32 {
+    let r = sum::<P>(P { v: 10i64 }, P { v: 20i64 });
+    if r.v == 30i64 { return 0i32; }
+    return 1i32;
+}

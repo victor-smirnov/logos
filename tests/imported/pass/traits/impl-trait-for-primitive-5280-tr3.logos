@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-implementation-for-primitive-type-5280.rs
+// Feature: implementing a trait for a primitive integer type and calling the
+// method on a literal-bound value (`5u32.tag()`).
+package impl_trait_for_primitive_5280_tr3;
+
+trait Conv { fn tag(self: &Self) -> u32; }
+
+impl Conv for u32 { fn tag(self: &u32) -> u32 { return *self; } }
+
+fn main() -> i32 {
+    let x: u32 = 5u32;
+    if x.tag() == 5u32 { return 0i32; }
+    return 1i32;
+}

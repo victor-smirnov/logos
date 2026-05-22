@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/supervtable.rs
+// Feature: a default method on subtrait `Z: Y` calls a free fn bounded over the
+// supertrait `Y` (`fn require_y<T: Y>(x)`), passing `self`.
+package default_method_calls_supertrait_bounded_fn_tr3;
+
+trait Y { fn y(self: &Self) -> i64; }
+trait Z : Y {
+    fn x(self: &Self) -> i64 { return require_y(self); }
+}
+
+fn require_y<T: Y>(x: &T) -> i64 { return x.y(); }
+
+struct N { v: i64 }
+impl Y for N { fn y(self: &N) -> i64 { return (*self).v; } }
+impl Z for N {}
+
+fn main() -> i32 {
+    let n = N { v: 12i64 };
+    if n.x() == 12i64 { return 0i32; }
+    return 1i32;
+}

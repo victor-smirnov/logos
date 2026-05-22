@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/ associated-const patterns.
+// Feature: a trait associated const is READ FROM INSIDE the impl's own method body
+// via the concrete-type path (`fn show(&self) -> i64 { C::MAX }`), as well as
+// externally. (Distinct from assoc-const-in-trait-tr2 which only reads externally.)
+package assoc_const_read_in_method_body_tr3;
+
+trait HasMax {
+    const MAX: i64;
+    fn show(self: &Self) -> i64;
+}
+
+struct C {}
+impl HasMax for C {
+    const MAX: i64 = 99i64;
+    fn show(self: &C) -> i64 { return C::MAX; }
+}
+
+fn main() -> i32 {
+    let c = C {};
+    if c.show() == 99i64 && C::MAX == 99i64 { return 0i32; }
+    return 1i32;
+}

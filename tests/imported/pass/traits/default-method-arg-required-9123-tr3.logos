@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/issue-3683.rs.
+// Feature: default method `b` calls the required method `a` on self and adds a
+// constant (`fn b(&self) -> i64 { self.a() + 2 }`); impl on a struct supplies `a`.
+package default_method_arg_required_9123_tr3;
+
+trait Foo {
+    fn a(self: &Self) -> i64;
+    fn b(self: &Self) -> i64 { return self.a() + 2i64; }
+}
+
+struct N { v: i64 }
+impl Foo for N { fn a(self: &N) -> i64 { return (*self).v; } }
+
+fn main() -> i32 {
+    let n = N { v: 3i64 };
+    if n.b() == 5i64 { return 0i32; }
+    return 1i32;
+}

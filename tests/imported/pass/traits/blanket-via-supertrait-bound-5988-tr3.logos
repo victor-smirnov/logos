@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-implementation-restriction-5988.rs
+// Feature: a blanket impl `impl<U: T> B for U` provides B for every type that
+// implements supertrait T; a concrete type implements T (no methods) and is then
+// usable via `&dyn B`. Exercises blanket-impl-keyed-on-supertrait dispatch through dyn.
+package blanket_via_supertrait_bound_5988_tr3;
+
+trait B { fn f(self: &Self) -> i64; }
+trait T : B {}
+
+struct A {}
+impl<U: T> B for U { fn f(self: &U) -> i64 { return 9i64; } }
+impl T for A {}
+
+fn main() -> i32 {
+    let a = A {};
+    let br = (&a) as &dyn B;
+    if br.f() == 9i64 { return 0i32; }
+    return 1i32;
+}

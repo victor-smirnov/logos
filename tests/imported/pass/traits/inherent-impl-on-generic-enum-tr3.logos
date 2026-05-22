@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/impl-implicit-trait.rs
+// Feature: an inherent `impl<T> Opt<T>` block providing a method on a generic enum
+// (`fn is_present(&self) -> bool`), invoked on a concrete instantiation.
+package inherent_impl_on_generic_enum_tr3;
+
+enum Opt<T> { None, Some(T) }
+
+impl<T> Opt<T> {
+    fn is_present(self: &Self) -> bool {
+        match *self {
+            Opt::Some(_) => { return true; }
+            Opt::None => { return false; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let a: Opt<i64> = Opt::Some(3i64);
+    let b: Opt<i64> = Opt::None;
+    if a.is_present() && !b.is_present() { return 0i32; }
+    return 1i32;
+}

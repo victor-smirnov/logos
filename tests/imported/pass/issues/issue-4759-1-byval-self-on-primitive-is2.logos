@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4759-1.rs
+// Feature: a trait method that takes `self` BY VALUE implemented for a primitive
+// integer type, called via method syntax on a value (`4.f()`).
+package issue_4759_1_byval_self_on_primitive_is2;
+
+trait ByVal { fn f(self: Self) -> i64; }
+impl ByVal for i64 { fn f(self: i64) -> i64 { return self + 1i64; } }
+
+fn main() -> i32 {
+    let n: i64 = 4i64;
+    if n.f() == 5i64 { return 0i32; }
+    return 1i32;
+}

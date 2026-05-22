@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/parameterized-with-bounds.rs.
+// Feature: a trait parameterized by two type-params returning a tuple of them
+// (`trait B<T, U> { fn get(self) -> (T, U); }`); concrete impl binds both.
+package multi_typaram_trait_tuple_ret_tr3;
+
+trait B<T, U> { fn get(self: &Self) -> (T, U); }
+
+struct P { a: i64, b: bool }
+impl B<i64, bool> for P { fn get(self: &P) -> (i64, bool) { return ((*self).a, (*self).b); } }
+
+fn main() -> i32 {
+    let p = P { a: 5i64, b: true };
+    let t = p.get();
+    if t.0 == 5i64 && t.1 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/static-outlives-a-where-clause.rs.
+// Feature: an unconstrained blanket impl `impl<T> Foo for T` gives Foo to every
+// type; a generic fn `foo<T: Foo>(t)` then dispatches the blanket method.
+// (Upstream layered a HRTB where-clause `for<'a> T: Foo<'a>`; distilled to the
+// blanket-for-all-T + generic-bound-dispatch core. NOTE: a *primitive* receiver
+// through the generic fn still fails to emit — see B129 gaps; struct receiver works.)
+package blanket_impl_all_t_via_generic_fn_tr3;
+
+trait Foo { fn xyz(self: &Self) -> i64; }
+impl<T> Foo for T { fn xyz(self: &T) -> i64 { return 7i64; } }
+
+fn foo<T: Foo>(t: &T) -> i64 { return t.xyz(); }
+
+struct S { v: i64 }
+
+fn main() -> i32 {
+    let s = S { v: 1i64 };
+    if foo(&s) == 7i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/coercion-generic.rs
+// Feature: a generic trait `Trait<T>` implemented for a concrete struct with a
+// concrete type argument; method takes the trait's type-parameter as an arg and the
+// struct value is used as `&dyn Trait<i64>`.
+package coercion_generic_trait_arg_tr3;
+
+trait Trait<T> { fn f(self: &Self, x: T) -> T; }
+
+struct S { x: i64, y: i64 }
+impl Trait<i64> for S { fn f(self: &S, x: i64) -> i64 { return (*self).x + x; } }
+
+fn main() -> i32 {
+    let a = S { x: 1i64, y: 2i64 };
+    let c: &dyn Trait<i64> = &a;
+    if c.f(5i64) == 6i64 { return 0i32; }
+    return 1i32;
+}

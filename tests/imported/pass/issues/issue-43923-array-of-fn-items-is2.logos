@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-43923.rs
+// Feature: storing the same generic-fn item value into an array three times and
+// also calling it directly (`let a = foo; let b = [a, a, a]; a(...)`). Distilled
+// off the `?Sized` slice-field detail (Logos B2) to the fn-item-as-array-element core.
+package issue_43923_array_of_fn_items_is2;
+
+fn foo(x: i64) -> i64 { return x + 1i64; }
+
+fn main() -> i32 {
+    let a = foo;
+    let b = [a, a, a];
+    let r = b[1](41i64);
+    if r == 42i64 { return 0i32; }
+    return 1i32;
+}

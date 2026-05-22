@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-26709.rs
+// Feature: a struct holding a pointer to an outer cell whose `Drop` impl writes
+// through it; when the value goes out of scope at the end of an inner block the
+// outer variable is observed to change. (Upstream used `&mut i32` + a `?Sized`
+// Box-unsizing tail; Logos models the borrowed cell as a `*mut i64`.)
+package issue_26709_drop_writes_through_field_is2;
+
+struct Wrapper { cell: *mut i64 }
+
+impl Drop for Wrapper {
+    fn drop(self: &mut Wrapper) {
+        unsafe { *(*self).cell = 432i64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    {
+        let w = Wrapper { cell: (&mut x) as *mut i64 };
+    }
+    if x == 432i64 { return 0i32; }
+    return 1i32;
+}

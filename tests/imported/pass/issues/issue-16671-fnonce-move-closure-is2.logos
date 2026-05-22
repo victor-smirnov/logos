@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-16671.rs
+// Feature: passing a move-closure that captures and mutates an owned Vec to a
+// generic `FnOnce`-bounded fn (`fn foo<F: FnOnce()>(_f: F)`).
+package issue_16671_fnonce_move_closure_is2;
+
+use logos.mem.collections.vec;
+
+fn foo<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    let mut var: Vec<i64> = vec_new::<i64>();
+    foo(move || { var.push(1i64); });
+    return 0i32;
+}

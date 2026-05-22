@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-36260.rs
+// Feature: a fn returns a boxed Fn closure that captures an owned String by move
+// (drop-glue for the captured String must be wired). Distilled to `&dyn Fn` per the
+// Logos Box<dyn>→&dyn convention; closure stored on the stack and invoked.
+package issue_36260_closure_captures_string_is2;
+
+fn make() -> i64 {
+    let text: String = String::new();
+    let f = move || -> i64 { let r = &text; return 0i64; };
+    return f();
+}
+
+fn main() -> i32 {
+    if make() == 0i64 { return 0i32; }
+    return 1i32;
+}

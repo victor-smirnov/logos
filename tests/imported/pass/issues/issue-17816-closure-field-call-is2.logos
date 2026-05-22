@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-17816.rs
+// Feature: a struct whose field is a generic `F: Fn(...) -> ...` callable, then
+// invoking it through the field with the parenthesized form (`(sym.function)(x)`).
+package issue_17816_closure_field_call_is2;
+
+struct Symbol<F: Fn(i64) -> i64> { function: F }
+
+fn main() -> i32 {
+    let f = |x: i64| -> i64 { return x + 1i64; };
+    let sym = Symbol { function: f };
+    let r = (sym.function)(41i64);
+    if r == 42i64 { return 0i32; }
+    return 1i32;
+}

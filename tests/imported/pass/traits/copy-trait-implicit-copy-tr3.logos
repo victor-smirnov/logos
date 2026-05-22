@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/copy-trait-implicit-copy.rs
+// Feature: a type-parameter with a `Copy` bound is implicitly copyable —
+// `v: T` can be read by-value twice without a move error (`let _a = v; let _b = v;`).
+package copy_trait_implicit_copy_tr3;
+
+fn can_copy_copy<T: Copy>(v: T) -> T {
+    let a = v;
+    let b = v;
+    return b;
+}
+
+fn main() -> i32 {
+    let r = can_copy_copy::<i64>(7i64);
+    if r == 7i64 { return 0i32; }
+    return 1i32;
+}

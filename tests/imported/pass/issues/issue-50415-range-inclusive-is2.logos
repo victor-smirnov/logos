@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-50415.rs
+// Feature: an inclusive range `a..=b` iterated to a terminal value (upstream built
+// the range via closures returning `s..=t`; distilled to direct iteration summing
+// the inclusive endpoints).
+package issue_50415_range_inclusive_is2;
+
+fn main() -> i32 {
+    let mut s: i64 = 0i64;
+    for i in 0i64..=3i64 { s += i; }
+    if s == 6i64 { return 0i32; }
+    return 1i32;
+}

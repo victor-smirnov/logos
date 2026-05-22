@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/traits/issue-4107.rs.
+// Feature: a trait declares a static (no-self) associated fn returning `Self`
+// (`fn identity(t) -> Self`); the impl constructs Self, invoked via the
+// type-qualified path `Mat::identity(...)`.
+package supertrait_assoc_fn_returns_self_4107_tr3;
+
+struct Mat { x: i64 }
+
+trait Matrix {
+    fn identity(t: i64) -> Self;
+}
+
+impl Matrix for Mat {
+    fn identity(t: i64) -> Mat { return Mat { x: t }; }
+}
+
+fn main() -> i32 {
+    let m: Mat = Mat::identity(7i64);
+    if m.x == 7i64 { return 0i32; }
+    return 1i32;
+}
