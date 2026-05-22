@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums/small-enums-with-fields.rs (Either<T,U>).
+// Feature: a generic enum with TWO type params `Either<T, U>` (Left(T)/Right(U)), constructed at
+// both variants and matched to extract each payload, at distinct type instantiations. The original
+// uses size_of + Debug-format macros; here construction + match + payload-extract is the kept feature.
+// isize/u8/i8/i16->u8/i64; tuple-variant->named field; assert->return-code.
+package se_generic_enum_two_params;
+enum Either<T, U> { Left { v: T }, Right { v: U } }
+fn from_left(e: Either<u8, i64>) -> i64 {
+    match e {
+        Either::Left { v: a } => { return a as i64; }
+        Either::Right { v: b } => { return b; }
+    }
+}
+fn main() -> i32 {
+    let l: Either<u8, i64> = Either::Left { v: 132u8 };
+    if from_left(l) != 132i64 { return 1i32; }
+    let r: Either<u8, i64> = Either::Right { v: -20000i64 };
+    if from_left(r) != -20000i64 { return 2i32; }
+    return 0i32;
+}

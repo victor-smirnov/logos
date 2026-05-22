@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics + array shapes (generic element type in a fixed array).
+// Feature: a generic struct holding a fixed-size array of the type param `Triple<T> { items: [T; 3] }`,
+// read by index in a generic method. isize->i64; `[T; N]` field; `&self`->self:&Triple<T>;
+// assert->return-code.
+package type_param_array_element_g2;
+struct Triple<T> { items: [T; 3] }
+impl<T: Copy> Triple<T> {
+    fn nth(self: &Triple<T>, i: i64) -> T { return (*self).items[i]; }
+}
+fn main() -> i32 {
+    let t: Triple<i64> = Triple { items: [10i64, 20i64, 30i64] };
+    if t.nth(0i64) == 10i64 && t.nth(2i64) == 30i64 { return 0i32; }
+    return 1i32;
+}

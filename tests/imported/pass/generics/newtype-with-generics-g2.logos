@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/newtype-with-generics.rs
+// Feature: a generic newtype struct `MyVec<T>(payload)` destructured with `let MyVec { f0: inner } = w`
+// inside generic fns, then the inner value used. Tuple-struct->named field `f0`; isize->i64;
+// assert_eq->return-code. The original wraps a `Vec<T>` and clones it; here the payload is a plain `T`
+// so the destructure/move feature is exercised without the generic-newtype-of-Vec move double-free
+// (G-NVMOVE gap recorded). Two distinct instantiations (i64, u8).
+package newtype_with_generics_g2;
+struct MyVec<T> { f0: T }
+fn extract_inner<T>(wrapper: MyVec<T>) -> T {
+    let MyVec { f0: inner } = wrapper;
+    return inner;
+}
+fn main() -> i32 {
+    let a: MyVec<i64> = MyVec { f0: 42i64 };
+    if extract_inner::<i64>(a) != 42i64 { return 1i32; }
+    let b: MyVec<u8> = MyVec { f0: 9u8 };
+    let MyVec { f0: inner } = b;
+    if inner != 9u8 { return 2i32; }
+    return 0i32;
+}

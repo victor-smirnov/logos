@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums recursive-enum + generics/issue-32498 (nested generic) shape.
+// Feature: a recursive generic enum `List<T>` (cons-list) built via a `&`-reference link (Rust uses
+// Box; Logos heap-link via `&List<T>`), summed by a recursive fn pattern-matching the variants and
+// extracting the generic payload. isize->i64; Box<List<T>>->&List<T>; assert->return-code.
+package se_generic_recursive_list;
+enum List<T> { Cons { head: T, tail: &List<T> }, Nil }
+fn sum(l: &List<i64>) -> i64 {
+    match l {
+        List::Cons { head: h, tail: t } => { return *h + sum(t); }
+        List::Nil => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let n: List<i64> = List::Nil;
+    let c3: List<i64> = List::Cons { head: 3i64, tail: &n };
+    let c2: List<i64> = List::Cons { head: 2i64, tail: &c3 };
+    let c1: List<i64> = List::Cons { head: 1i64, tail: &c2 };
+    if sum(&c1) == 6i64 { return 0i32; }
+    return 1i32;
+}

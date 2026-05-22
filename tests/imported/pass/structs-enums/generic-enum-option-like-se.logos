@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums + generics generic-tag / option-like enum shapes.
+// Feature: a user-defined generic enum `MyOpt<T>` (Some/None) with an inherent generic method
+// `unwrap_or(self, T)->T` matching its own variants, monomorphized at two widths. isize->i64;
+// `Box`/turbofish-on-no-payload-variant kept simple; variant CamelCase; assert->return-code.
+package se_generic_enum_option_like;
+enum MyOpt<T> { MySome { v: T }, MyNone }
+impl<T: Copy> MyOpt<T> {
+    fn unwrap_or(self: MyOpt<T>, d: T) -> T {
+        match self {
+            MyOpt::MySome { v: x } => { return x; }
+            MyOpt::MyNone => { return d; }
+        }
+    }
+}
+fn main() -> i32 {
+    let a: MyOpt<i64> = MyOpt::MySome { v: 42i64 };
+    if a.unwrap_or(0i64) != 42i64 { return 1i32; }
+    let b: MyOpt<i64> = MyOpt::MyNone;
+    if b.unwrap_or(7i64) != 7i64 { return 2i32; }
+    let c: MyOpt<u8> = MyOpt::MyNone;
+    if c.unwrap_or(9u8) != 9u8 { return 3i32; }
+    return 0i32;
+}

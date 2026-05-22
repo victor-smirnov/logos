@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics generic-fn / where-clause patterns (issue-2936 shape).
+// Feature: a generic free fn with a where-clause trait bound `where U: GetBar<T>` returning the
+// trait's associated value via a `&self` method, with the impl on a concrete struct. isize->i64;
+// trait/struct names CamelCase; the assoc value returned by value; assert->return-code.
+package where_clause_return_bound_g2;
+trait GetBar<T> { fn get_bar(self: &Self) -> T; }
+struct CBar { x: i64 }
+impl GetBar<i64> for CBar { fn get_bar(self: &CBar) -> i64 { return (*self).x; } }
+fn foo<T, U>(b: U) -> T where U: GetBar<T> { return b.get_bar(); }
+fn main() -> i32 {
+    let c: CBar = CBar { x: 5i64 };
+    let r: i64 = foo::<i64, CBar>(c);
+    if r == 5i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics type-params-in-for-each (unused type param) + marker shapes.
+// Feature: a generic struct that does NOT store its type param in any field (phantom-style marker),
+// with a method whose return depends only on a non-generic field; monomorphized at two distinct types
+// must not ICE. isize->i64; `&self`->self:&Tagged<T>; assert->return-code.
+package phantom_marker_param_g2;
+struct Tagged<T> { count: i64 }
+impl<T> Tagged<T> {
+    fn new(c: i64) -> Tagged<T> { return Tagged { count: c }; }
+    fn count(self: &Tagged<T>) -> i64 { return (*self).count; }
+}
+fn main() -> i32 {
+    let a: Tagged<i64> = Tagged::new(3i64);
+    let b: Tagged<bool> = Tagged::new(5i64);
+    if a.count() + b.count() == 8i64 { return 0i32; }
+    return 1i32;
+}

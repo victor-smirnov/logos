@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums enum-vec + generic-tag shapes.
+// Feature: a generic enum value `Shape<T>` pushed into a `Vec<Shape<i64>>`, read back by index and
+// matched. Exercises generic-enum-as-Vec-element monomorphization shape. isize->i64;
+// vec!->vec_new+push; v[i]->v.get(i) (i64 index); variant CamelCase; assert->return-code.
+package se_generic_enum_in_vec;
+enum Shape<T> { Sq { side: T }, Pt }
+fn area(s: Shape<i64>) -> i64 {
+    match s {
+        Shape::Sq { side: x } => { return x * x; }
+        Shape::Pt => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    let mut v: Vec<Shape<i64>> = vec_new::<Shape<i64>>();
+    v.push(Shape::Sq { side: 3i64 });
+    v.push(Shape::Pt);
+    v.push(Shape::Sq { side: 4i64 });
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.length() {
+        total += area(v.get(i));
+        i += 1i64;
+    }
+    if total == 25i64 { return 0i32; }
+    return 1i32;
+}

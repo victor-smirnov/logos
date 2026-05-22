@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-derived-type.rs (the g::<Pair<T>> identity-on-generic part)
+// Feature: a generic identity fn `g<X>(X)->X` instantiated with a CONSTRUCTED generic type
+// `g::<Pair<T>>(...)`, called from another generic fn `f<T>(T)->Pair<T>`. The original derives Clone;
+// here T:Copy so the field-duplication needs no `.clone()`. isize->i64; assert->return-code.
+package generic_fn_returns_generic_struct_g2;
+fn g<X>(x: X) -> X { return x; }
+struct Pair<T> { a: T, b: T }
+fn f<T: Copy>(t: T) -> Pair<T> {
+    let x: Pair<T> = Pair { a: t, b: t };
+    return g::<Pair<T>>(x);
+}
+fn main() -> i32 {
+    let p: Pair<i64> = f::<i64>(10i64);
+    if p.a == 10i64 && p.b == 10i64 { return 0i32; }
+    return 1i32;
+}

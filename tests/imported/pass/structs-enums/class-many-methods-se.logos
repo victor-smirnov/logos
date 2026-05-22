@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums/class-impl-very-parameterized-trait.rs
+// Feature: a generic struct `Cat<T>` (T in scope for all methods) with a spread of `&self`/`&mut self`
+// methods: a mutating counter (`speak`/`meow`), a bool query (`contains_key`), a length, an inherent
+// constructor `new`, and a `find(&self,&i64)->Option<&T>` returning a borrow of a field. isize/usize->
+// i64/u64; `&self`->self:&Cat<T>, `&mut self`->self:&mut Cat<T>; println!/panic! dropped; String/
+// cat_type generic instantiated at i64; Option<&T> returned by value (Option<T>); assert->return-code.
+package se_class_many_methods;
+struct Cat<T> { meows: i64, how_hungry: i64, name: T }
+impl<T: Copy> Cat<T> {
+    fn new(in_x: i64, in_y: i64, in_name: T) -> Cat<T> {
+        return Cat { meows: in_x, how_hungry: in_y, name: in_name };
+    }
+    fn meow(self: &mut Cat<T>) {
+        self.meows += 1i64;
+        if self.meows % 5i64 == 0i64 { self.how_hungry += 1i64; }
+    }
+    fn speak(self: &mut Cat<T>) { self.meow(); }
+    fn len(self: &Cat<T>) -> i64 { return (*self).meows; }
+    fn contains_key(self: &Cat<T>, k: i64) -> bool { return k <= (*self).meows; }
+    fn find(self: &Cat<T>, k: i64) -> Option<T> {
+        if k <= (*self).meows { return Some((*self).name); }
+        return None;
+    }
+}
+fn main() -> i32 {
+    let mut spotty: Cat<i64> = Cat::new(2i64, 57i64, 100i64);
+    let mut i: i64 = 0i64;
+    while i < 6i64 { spotty.speak(); i += 1i64; }
+    if spotty.len() != 8i64 { return 1i32; }
+    if !spotty.contains_key(2i64) { return 2i32; }
+    match spotty.find(3i64) {
+        Some(v) => { if v != 100i64 { return 3i32; } }
+        None => { return 4i32; }
+    }
+    return 0i32;
+}

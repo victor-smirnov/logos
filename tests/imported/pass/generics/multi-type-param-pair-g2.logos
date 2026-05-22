@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics generic-pair / multiple-type-param shapes.
+// Feature: a struct with TWO distinct type params `Pair<A, B>` + a generic method `swap(self)->Pair<B,A>`
+// that reorders the type params, plus a generic free fn `first<A,B>(&Pair<A,B>)->A`. isize->i64;
+// `&self`->self:&Pair<A,B>, by-value self->self:Pair<A,B>; assert->return-code; A,B:Copy.
+package multi_type_param_pair_g2;
+struct Pair<A, B> { a: A, b: B }
+impl<A: Copy, B: Copy> Pair<A, B> {
+    fn swap(self: Pair<A, B>) -> Pair<B, A> { return Pair { a: self.b, b: self.a }; }
+    fn first(self: &Pair<A, B>) -> A { return (*self).a; }
+}
+fn main() -> i32 {
+    let p: Pair<i64, u8> = Pair { a: 7i64, b: 9u8 };
+    if p.first() != 7i64 { return 1i32; }
+    let q: Pair<u8, i64> = p.swap();
+    if q.a == 9u8 && q.b == 7i64 { return 0i32; }
+    return 2i32;
+}

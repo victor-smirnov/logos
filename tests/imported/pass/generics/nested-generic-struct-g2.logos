@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics/issue-32498.rs (nested generic instantiation, no-overflow).
+// Feature: a generic struct `L<T>` nested in itself `L<L<L<i64>>>` constructed + read through the
+// layers. The original uses size_of on deeply-nested type aliases; here we construct + read the
+// nested value (the monomorphization-shape point). isize/()->i64; assert->return-code.
+package nested_generic_struct_g2;
+struct L<T> { n: T }
+fn main() -> i32 {
+    let inner: L<i64> = L { n: 7i64 };
+    let mid: L<L<i64>> = L { n: inner };
+    let outer: L<L<L<i64>>> = L { n: mid };
+    if outer.n.n.n == 7i64 { return 0i32; }
+    return 1i32;
+}

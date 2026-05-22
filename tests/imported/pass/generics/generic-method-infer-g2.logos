@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics generic-method / mid-path-type-params shapes.
+// Feature: a method-generic method on a generic struct where the method's own type param `U` is
+// INFERRED from the argument (no turbofish), distinct from the struct's `T`. isize->i64;
+// `&self`->self:&Box<T>; assert->return-code.
+package generic_method_infer_g2;
+struct Holder<T> { v: T }
+impl<T: Copy> Holder<T> {
+    fn pair_with<U: Copy>(self: &Holder<T>, other: U) -> U { return other; }
+    fn value(self: &Holder<T>) -> T { return (*self).v; }
+}
+fn main() -> i32 {
+    let h: Holder<i64> = Holder { v: 100i64 };
+    if h.value() != 100i64 { return 1i32; }
+    if h.pair_with(7u8) != 7u8 { return 2i32; }
+    if h.pair_with(99i64) != 99i64 { return 3i32; }
+    return 0i32;
+}

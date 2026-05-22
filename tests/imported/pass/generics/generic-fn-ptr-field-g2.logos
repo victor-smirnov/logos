@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics generic-temporary / fn-ptr-as-field shapes.
+// Feature: a generic struct holding a function-pointer field `Apply<T> { f: fn(T)->T, v: T }` whose
+// stored fn is called through the field, monomorphized at two widths. isize->i64; assert->return-code.
+package generic_fn_ptr_field_g2;
+struct Apply<T> { f: fn(T) -> T, v: T }
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn dbl(x: u8) -> u8 { return x + x; }
+fn run<T>(a: Apply<T>) -> T { return (a.f)(a.v); }
+fn main() -> i32 {
+    let a: Apply<i64> = Apply { f: inc, v: 10i64 };
+    if run::<i64>(a) != 11i64 { return 1i32; }
+    let b: Apply<u8> = Apply { f: dbl, v: 6u8 };
+    if run::<u8>(b) != 12u8 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/type-params-in-for-each.rs
+// Feature: a generic struct `S<T>` used only inside a generic fn whose body builds a closure passed to
+// another `where F: FnMut(u64)` helper; monomorphization must not ICE on the unused type param.
+// isize/usize->i64/u64; `extern "C" fn`->plain fn-ptr; assert via a threaded counter return code.
+package type_params_in_for_each_g2;
+struct S<T> { a: T, b: u64 }
+fn range_<F: FnMut(u64)>(lo: u64, hi: u64, mut it: F) {
+    let mut lo_: u64 = lo;
+    while lo_ < hi { it(lo_); lo_ += 1u64; }
+}
+fn create_index<T>(_hash_fn: fn(T) -> u64) -> u64 {
+    let mut count: u64 = 0u64;
+    range_(0u64, 8u64, |_i: u64| { count += 1u64; });
+    return count;
+}
+fn ident(_x: i64) -> u64 { return 0u64; }
+fn main() -> i32 {
+    let n: u64 = create_index::<i64>(ident);
+    if n == 8u64 { return 0i32; }
+    return 1i32;
+}

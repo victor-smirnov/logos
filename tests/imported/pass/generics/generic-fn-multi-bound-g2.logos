@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/generics where-clause / multi-bound shapes.
+// Feature: a generic fn with TWO trait bounds on one param via a where-clause `where T: Foo + Bar`,
+// calling a method from each trait. isize->i64; trait/struct CamelCase; `&self`->self:&Self;
+// assert->return-code.
+package generic_fn_multi_bound_g2;
+trait Foo { fn foo(self: &Self) -> i64; }
+trait Bar { fn bar(self: &Self) -> i64; }
+struct S { a: i64 }
+impl Foo for S { fn foo(self: &S) -> i64 { return (*self).a; } }
+impl Bar for S { fn bar(self: &S) -> i64 { return (*self).a * 2i64; } }
+fn combine<T>(t: &T) -> i64 where T: Foo + Bar { return t.foo() + t.bar(); }
+fn main() -> i32 {
+    let s: S = S { a: 5i64 };
+    if combine(&s) == 15i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/structs-enums/class-typarams + issue-1112 (mixed generic + concrete fields).
+// Feature: a generic struct mixing a generic field with several concrete-typed fields of varying
+// width `X<T> { a: T, b: u8, c: bool, e: u16 }`, constructed and read through a generic fn taking
+// `X<T>` by value (interior-field offset/alignment correctness). isize->i64; assert->return-code.
+package se_mixed_generic_concrete_fields;
+struct X<T> { a: T, b: u8, c: bool, e: u16 }
+fn check<T>(x: X<T>) -> i64 {
+    if x.b != 9u8 { return 1i64; }
+    if !x.c { return 2i64; }
+    if x.e != 11u16 { return 3i64; }
+    return 0i64;
+}
+fn main() -> i32 {
+    let x: X<i64> = X { a: 12345678i64, b: 9u8, c: true, e: 11u16 };
+    if x.a != 12345678i64 { return 5i32; }
+    if check::<i64>(x) != 0i64 { return 6i32; }
+    return 0i32;
+}
