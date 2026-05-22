@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops (break family, distilled)
+// Modifications: synthesized loop using a plain `break` (no value), the
+//   simplest diverging loop-control expression. isize -> i32.
+// Tests that a value-less `break` exits a `loop` correctly.
+package plain_break_bnever;
+
+fn count_to(target: i32) -> i32 {
+    let mut i: i32 = 0i32;
+    loop {
+        if i >= target { break; }
+        i = i + 1i32;
+    }
+    return i;
+}
+
+fn main() -> i32 {
+    if count_to(5i32) != 5i32 { return 1i32; }
+    if count_to(0i32) != 0i32 { return 2i32; }
+    return 0i32;
+}

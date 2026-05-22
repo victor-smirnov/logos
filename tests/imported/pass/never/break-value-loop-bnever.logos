@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/loop-break-value.rs (distilled to run-pass core)
+// Modifications: the upstream file is compile-fail (mismatched types); we keep
+//   only the well-typed `break <value>` from a `loop` that Logos supports.
+// Tests `break e` from a `loop` yielding a value in expression position.
+package break_value_loop_bnever;
+
+fn first_even(start: i32) -> i32 {
+    let mut i: i32 = start;
+    let r: i32 = loop {
+        if i % 2i32 == 0i32 {
+            break i;
+        }
+        i = i + 1i32;
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    if first_even(3i32) != 4i32 { return 1i32; }
+    if first_even(8i32) != 8i32 { return 2i32; }
+    return 0i32;
+}

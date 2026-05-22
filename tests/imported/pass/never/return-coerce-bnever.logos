@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/never_type/basic/return-never-coerce.rs (distilled)
+// Modifications: run-fail panic version distilled to a run-pass that exercises
+//   the divergence-coerces-to-any-type core: a `-> !` fn used where i32/u32 are
+//   expected. We diverge via early return from main rather than panic so the
+//   program exits 0.
+// Tests that a diverging expression (return) coerces to the expected type.
+package return_coerce_bnever;
+
+fn pick(c: bool) -> i32 {
+    let x: i32 = if c { 7i32 } else { return 0i32 };
+    return x;
+}
+
+fn main() -> i32 {
+    if pick(true) != 7i32 { return 1i32; }
+    if pick(false) != 0i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/never_type/basic/never_coercions.rs (distilled)
+// Modifications: Vec<u32> match-LUB example rewritten over i64 since the point
+//   is the diverging match arm (`return`) coercing to the LUB of the other
+//   arms. usize->u64 / isize->i64.
+// Tests that a `return` arm in a match doesn't disturb the match's type and
+// coerces to the common type of the other arms.
+package never_coercions_match_bnever;
+
+fn classify(n: u32) -> i64 {
+    let r: i64 = match n {
+        0u32 => 10i64,
+        1u32 => return -1i64,
+        _ => 20i64,
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    if classify(0u32) != 10i64 { return 1i32; }
+    if classify(1u32) != -1i64 { return 2i32; }
+    if classify(9u32) != 20i64 { return 3i32; }
+    return 0i32;
+}

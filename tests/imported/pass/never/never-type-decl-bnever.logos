@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/never_type/basic/call-fn-never-arg.rs (distilled)
+// Modifications: panic-driven version distilled to a run-pass; a `-> !` fn
+//   `diverge` is declared and forwards a `!`-typed value; main never calls the
+//   diverging path so it exits 0.
+// Tests that `!` is a usable first-class type in fn signatures and that a
+// diverging fn (`loop {}`) typechecks against `-> !`.
+package never_type_decl_bnever;
+
+fn diverge() -> ! {
+    loop { }
+}
+
+fn maybe(c: bool) -> i32 {
+    if c {
+        return 5i32;
+    }
+    // calling diverge() here is a `!` that coerces to i32
+    return diverge();
+}
+
+fn main() -> i32 {
+    if maybe(true) != 5i32 { return 1i32; }
+    return 0i32;
+}

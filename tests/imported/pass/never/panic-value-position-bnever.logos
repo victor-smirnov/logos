@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/never_type/basic/adjust_never.rs (distilled)
+// Modifications: `let x: ! = panic!(); let y: u32 = x;` adapted — panic() is
+//   `-> !` in Logos and is usable in value position, coercing to the expected
+//   type. We guard it behind a branch that main never takes so it exits 0.
+// Tests `panic("...")` used as a value of an arbitrary type via coercion.
+package panic_value_position_bnever;
+
+fn get(c: bool) -> u32 {
+    let y: u32 = if c { 42u32 } else { panic("unreachable") };
+    return y;
+}
+
+fn main() -> i32 {
+    if get(true) != 42u32 { return 1i32; }
+    return 0i32;
+}

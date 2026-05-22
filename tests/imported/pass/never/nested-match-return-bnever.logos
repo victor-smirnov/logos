@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/never_type/basic/never_coercions.rs (extended, distilled)
+// Modifications: synthesized to exercise a `return` inside a NESTED match arm
+//   coercing to the LUB of the surrounding arms.
+// Tests divergence (`return`) in a deeply nested match-arm value position.
+package nested_match_return_bnever;
+
+fn eval(a: i32, b: i32) -> i32 {
+    let r: i32 = match a {
+        0i32 => match b {
+            0i32 => return 0i32,
+            _ => b,
+        },
+        _ => a + b,
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    if eval(0i32, 0i32) != 0i32 { return 1i32; }
+    if eval(0i32, 7i32) != 7i32 { return 2i32; }
+    if eval(3i32, 4i32) != 7i32 { return 3i32; }
+    return 0i32;
+}

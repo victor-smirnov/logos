@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/loop-break-value.rs (distilled to run-pass core)
+// Modifications: kept the well-typed labeled `break 'outer e` from a nested loop.
+// Tests labeled `break 'l e` carrying a value out of an outer loop.
+package labeled_break_value_bnever;
+
+fn find_pair(limit: i32) -> i32 {
+    let r: i32 = 'outer: loop {
+        let mut a: i32 = 0i32;
+        while a < limit {
+            let mut b: i32 = 0i32;
+            while b < limit {
+                if a + b == 5i32 {
+                    break 'outer a * 10i32 + b;
+                }
+                b = b + 1i32;
+            }
+            a = a + 1i32;
+        }
+        break 0i32;
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    // scanning a=0..,b=0..: first a+b==5 is a=0,b=5 -> 0*10+5 = 5
+    if find_pair(10i32) != 5i32 { return 1i32; }
+    // limit 3 (a,b in 0..2): max a+b=4, never reaches 5 -> fallthrough break 0
+    if find_pair(3i32) != 0i32 { return 2i32; }
+    return 0i32;
+}
