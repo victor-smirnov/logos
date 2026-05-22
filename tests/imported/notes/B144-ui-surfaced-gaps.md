@@ -22,8 +22,13 @@ per-file `Original path:` headers (B6/B100+/B107/B133–B143/Bnever).
 > `let-else` — SLetElse codegen now OR's the alt discriminants + extracts via
 > the first alt; also fixed a bonus pre-existing C-like-enum let-else soundness
 > bug where disc_val was null → unconditional match). 
-> **G144-1 — REMAINS (clean error, NOT a crash/miscompile): or-pattern with
-> BINDINGS nested as a tuple element** (`((true,y)|(y,true), z)`, `(A(x)|B(x),
+> **G144-1 — ✅ FIXED 2026-05-22 (7e7a06c2): recursive pattern matcher.** Added
+> pat_test (pure i1) + pat_bind (per-alt shared-alloca dispatch for or) +
+> collect_pat_bindings; wired into gen_match's tuple test/bind for nested
+> tuple / structural-or / variant elements; sema bind_pattern_ref recurses into
+> Or/Tuple subs. `((true,y)|(y,true),z)`, `((a,b),w)`, `(A(x)|B(x),k)`, and deep
+> combos all work. 4415/4415. (Original investigation below kept for the record.)
+> ~~REMAINS (clean error): or-pattern with BINDINGS nested as a tuple element~~ (`((true,y)|(y,true), z)`, `(A(x)|B(x),
 > k)`). Investigated 2026-05-22: the sema side is trivial (declare the alt
 > bindings), but doing so exposes that the tuple-match CODEGEN is FLAT — the
 > tuple-arm dispatch tests each element with a single scalar/variant/range
