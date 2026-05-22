@@ -1,0 +1,28 @@
+package stmt_expr_temp_drop;
+
+trait Drop { fn drop(self: &Self); }
+
+struct Noisy { cell: *mut i64 }
+impl Drop for Noisy {
+    fn drop(self: &Self) {
+        unsafe { *self.cell = *self.cell + 1i64; }
+    }
+}
+
+fn make(c: *mut i64) -> Noisy { return Noisy { cell: c }; }
+
+fn main() -> i32 {
+    let mut count: i64 = 0i64;
+    let p: *mut i64 = &mut count as *mut i64;
+    {
+        let _a = make(p);   // dropped at block end
+    }
+    let after_let: i64 = count;
+    {
+        make(p);            // G140-1: bare stmt-expr temporary — should drop here
+    }
+    let after_stmt: i64 = count;
+    if after_let != 1i64 { return 1i32; }
+    if after_stmt != 2i64 { return 2i32; }  // fails if stmt-expr temp not dropped
+    return 0i32;
+}

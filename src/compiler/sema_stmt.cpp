@@ -202,6 +202,34 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::LExprPtr e = stmt.has_key(la::VALUE)
             ? lower_expr(map_of(stmt.get(la::VALUE.code)))
             : error_expr();
+        // B140-G1: a discarded statement-expression that produces a FRESH owned
+        // droppable value (`make(p);`) must run its destructor — Rust drops the
+        // temporary at the end of the statement. Bind it to a synth local and
+        // emit the drop immediately. Restricted to rvalue-producing expr kinds
+        // (not place expressions like VarRef/FieldRead/Index/Deref), so a bare
+        // `existing_var;` move isn't double-dropped against its scope drop.
+        if (e && e->type && is_move_type(e->type)) {
+            namespace ec = lir_schema::expr;
+            auto ek = expr_ref_of(*e).kind();
+            bool is_place = ek == ec::Code::VarRef || ek == ec::Code::FieldRead ||
+                            ek == ec::Code::IndexRead || ek == ec::Code::Deref ||
+                            ek == ec::Code::TupleIndex || ek == ec::Code::SliceIndex ||
+                            ek == ec::Code::SlicePtr || ek == ec::Code::AddrOf ||
+                            ek == ec::Code::AddrOfTemp;
+            if (!is_place) {
+                std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
+                if (auto drop = make_drop_stmt(synth, VarInfo{e->type, false})) {
+                    auto blk = lir::alloc_block(*cur_prog_);
+                    lir::SLet sl;
+                    sl.name = synth; sl.type = e->type; sl.is_mut = false;
+                    sl.value = std::move(e);
+                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                    blk->stmts.push_back(std::move(*drop));
+                    lir::SBlock sb; sb.body = std::move(blk);
+                    return make_stmt_emit(node_line_, std::move(sb));
+                }
+            }
+        }
         return builder().stmt_expr(std::move(e), node_line_);
     }
     if (c == la::TAIL_EXPR) {
