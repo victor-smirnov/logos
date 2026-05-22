@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/move-self.rs
+// Modifications: String field uses the prelude String; `&self`/by-value-self →
+// `self: S`; println! dropped, the field read observed via a return code.
+// Tests a by-value-self method (`foo`) calling another by-value-self method (`bar`).
+package move_self_b135;
+
+struct S { x: String }
+
+impl S {
+    fn foo(self: S) -> i64 {
+        return self.bar();
+    }
+    fn bar(self: S) -> i64 {
+        return self.x.len();
+    }
+}
+
+fn main() -> i32 {
+    let x = S { x: "Hello!".to_string() };
+    if x.foo() != 6i64 { return 1i32; }
+    return 0i32;
+}

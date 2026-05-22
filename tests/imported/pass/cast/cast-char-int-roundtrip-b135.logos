@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast.rs
+// Modifications: isize→i64; assert_eq! → return-code checks; the `_`-inferred raw-pointer
+// tail (`x as *const _`) dropped (known-open). Tests char↔int casts in several widths
+// (char→i64/u32/u8, truncating, sign-reinterpreting i8, int→char, bool→u32).
+package cast_char_int_roundtrip_b135;
+
+fn main() -> i32 {
+    let i: i64 = 'Q' as i64;
+    if i != 0x51i64 { return 1i32; }
+    let u: u32 = i as u32;
+    if u != (0x51u32) { return 2i32; }
+    if u != ('Q' as u32) { return 3i32; }
+    if (i as u8) != ('Q' as u8) { return 4i32; }
+    if ((i as u8) as i8) != (('Q' as u8) as i8) { return 5i32; }
+    if (0x51i64 as char) != 'Q' { return 6i32; }
+    if (0i64 as u32) != (false as u32) { return 7i32; }
+    return 0i32;
+}

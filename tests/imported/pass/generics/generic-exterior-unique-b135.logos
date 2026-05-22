@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-exterior-unique.rs
+// Modifications: isize→i64; Box<T> field → plain T (stack); deref `*rbfoo.x` → field read;
+// assert_eq! → return-code check. Tests a generic struct built inside a generic fn,
+// instantiated at i64, with its field read back out.
+package generic_exterior_unique_b135;
+
+struct Recbox<T> { x: T }
+
+fn reclift<T>(t: T) -> Recbox<T> { return Recbox { x: t }; }
+
+fn main() -> i32 {
+    let foo: i64 = 17i64;
+    let rbfoo: Recbox<i64> = reclift::<i64>(foo);
+    if rbfoo.x != foo { return 1i32; }
+    return 0i32;
+}

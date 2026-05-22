@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-fn.rs
+// Modifications: isize→i64; assert_eq! → return-code check. Tests an item-fn nested
+// inside another fn body, bound to a local then called as a fn value.
+package block_fn_b135;
+
+fn test_fn() -> i64 {
+    fn ten() -> i64 { return 10i64; }
+    let rs = ten;
+    return rs();
+}
+
+fn main() -> i32 {
+    if test_fn() != 10i64 { return 1i32; }
+    return 0i32;
+}

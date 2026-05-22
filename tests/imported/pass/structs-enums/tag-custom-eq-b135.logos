@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag.rs
+// Modifications: isize→i64; `&self`/`&colour` → `self: &Colour`/`other: &Colour`;
+// `match *self`/`match *other` kept; the fieldless arm of the inner match uses a
+// catch-all `_`; assert! → return-code check. Tests a hand-written `PartialEq`-style
+// `eq`/`ne` on an enum with a tuple-payload variant and a fieldless variant.
+package tag_custom_eq_b135;
+
+enum Colour { Red(i64, i64), Green }
+
+impl Colour {
+    fn eq(self: &Colour, other: &Colour) -> bool {
+        match *self {
+            Colour::Red(a0, b0) => {
+                match *other {
+                    Colour::Red(a1, b1) => a0 == a1 && b0 == b1,
+                    _ => false,
+                }
+            }
+            Colour::Green => {
+                match *other {
+                    Colour::Red(_, _) => false,
+                    Colour::Green => true,
+                }
+            }
+        }
+    }
+    fn ne(self: &Colour, other: &Colour) -> bool { return !self.eq(other); }
+}
+
+fn main() -> i32 {
+    let x = Colour::Red(1i64, 2i64);
+    let y = Colour::Green;
+    if !x.ne(&y) { return 1i32; }
+    let z = Colour::Red(1i64, 2i64);
+    if !x.eq(&z) { return 2i32; }
+    return 0i32;
+}

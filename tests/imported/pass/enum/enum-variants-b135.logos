@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-variants.rs
+// Modifications: String fields use the prelude String; reassigning a mutable enum
+// local between a tuple-payload and a struct-payload variant; struct-variant field
+// permutation kept. Tests heterogeneous enum variants (tuple + struct payloads).
+package enum_variants_b135;
+
+enum Animal {
+    Dog(String, f64),
+    Cat { name: String, weight: f64 },
+}
+
+fn main() -> i32 {
+    let mut a: Animal = Animal::Dog("Cocoa".to_string(), 37.2f64);
+    a = Animal::Cat { name: "Spotty".to_string(), weight: 2.7f64 };
+    // permuting the struct-variant fields should work too
+    let _c = Animal::Cat { weight: 3.1f64, name: "Spreckles".to_string() };
+    return 0i32;
+}

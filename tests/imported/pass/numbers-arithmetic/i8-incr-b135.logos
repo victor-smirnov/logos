@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/i8-incr.rs
+// Modifications: assert_eq! → return-code check; negatives via `0 - n`; literals suffixed.
+// Tests i8 +1 then -1 round-trips back to the original negative value.
+package i8_incr_b135;
+
+fn main() -> i32 {
+    let mut x: i8 = (0i8 - 12i8);
+    let y: i8 = (0i8 - 12i8);
+    x = x + 1i8;
+    x = x - 1i8;
+    if x != y { return 1i32; }
+    return 0i32;
+}

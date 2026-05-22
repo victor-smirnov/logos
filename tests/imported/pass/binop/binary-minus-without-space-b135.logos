@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binary-minus-without-space.rs (issue #954)
+// Modifications: negative literal pattern written `0 - 1` for the match scrutinee;
+// panic! → return-code; `1-1` (no spaces) kept. Tests that `a-b` without surrounding
+// spaces lexes as subtraction (not a negative literal) and a literal match arm.
+package binary_minus_without_space_b135;
+
+fn main() -> i32 {
+    let n = 0i64 - 1i64;
+    match n {
+        -1 => {},
+        _ => { return 1i32; }
+    }
+    if 1i64-1i64 != 0i64 { return 2i32; }
+    return 0i32;
+}

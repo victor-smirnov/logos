@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses.rs
+// Modifications: isize→i64; the blanket `impl<T:Eq> Equal for T` + trait-method facet
+// dropped (kept the free-fn facet); `&T` params deref via `*x`; println! → return-code
+// checks. Tests a free generic fn with a `where T: Eq` bound comparing two `&T` via `==`.
+package where_clauses_eq_fn_b135;
+
+fn equal<T>(x: &T, y: &T) -> bool where T: Eq {
+    return *x == *y;
+}
+
+fn main() -> i32 {
+    if equal(&1i64, &2i64) { return 1i32; }
+    if !equal(&1i64, &1i64) { return 2i32; }
+    return 0i32;
+}

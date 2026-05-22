@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/u8-to-char-cast-9918.rs (issue #9918)
+// Modifications: assert_eq! → return-code check; literals suffixed.
+// Tests casting a (u8 + u8) sum to char and comparing it to the NUL char.
+package u8_to_char_cast_b135;
+
+fn main() -> i32 {
+    let c: char = (0u8 + 0u8) as char;
+    if c != '\0' { return 1i32; }
+    return 0i32;
+}

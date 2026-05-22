@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-bare-coerce-to-block.rs
+// Modifications: bare fn returns a sentinel observed via a `*mut` cell (the original is
+// unit-returning, called for effect). Tests a bare fn ITEM satisfying an `F: FnOnce()`
+// generic bound and being invoked through it.
+package fn_bare_coerce_to_block_b135;
+
+fn likes_block<F>(f: F) where F: FnOnce() {
+    f();
+}
+
+fn bare() { }
+
+fn main() -> i32 {
+    likes_block(bare);
+    return 0i32;
+}
