@@ -3232,16 +3232,20 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 continue;
                             }
                             auto sub = build_pattern(sub_node, ftype);
-                            // Other refutable field sub-patterns (nested variant
-                            // with bindings, ranges, …) aren't tested by codegen
-                            // yet — reject early. Irrefutable kinds pass through.
+                            // G148-1: refutable field sub-patterns (variant /
+                            // tuple / range / or) are tested+bound by the
+                            // recursive matcher (pat_test/pat_bind) in struct-arm
+                            // codegen. Exotic kinds (slice, hermes) still aren't.
+                            namespace ps2 = lir_schema::pat;
                             auto sk = pat_ref_of(sub).kind();
-                            bool sub_irrefutable =
-                                sk == lir_schema::pat::Code::Wild ||
-                                sk == lir_schema::pat::Code::RefBind ||
-                                sk == lir_schema::pat::Code::RefPat ||
-                                sk == lir_schema::pat::Code::At;
-                            if (!sub_irrefutable)
+                            bool sub_ok =
+                                sk == ps2::Code::Wild || sk == ps2::Code::RefBind ||
+                                sk == ps2::Code::RefPat || sk == ps2::Code::At ||
+                                sk == ps2::Code::Variant || sk == ps2::Code::VariantData ||
+                                sk == ps2::Code::Tuple || sk == ps2::Code::Or ||
+                                sk == ps2::Code::Range || sk == ps2::Code::Int ||
+                                sk == ps2::Code::Bool || sk == ps2::Code::Struct;
+                            if (!sub_ok)
                                 error("struct pattern: refutable field sub-pattern "
                                       "not yet supported");
                             pfb.sub.push_back(std::move(sub));
@@ -4003,13 +4007,14 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
     } else if (k == ps::Code::Struct) {
         lir_view::PatStructView v{pr};
         auto sname = std::string(v.struct_name());
-        const SemaStructInfo* sinfo = nullptr;
-        auto sit = structs_.find(sname);
-        if (sit != structs_.end()) sinfo = &sit->second;
-        else {
-            auto dit = datatypes_.find(sname);
-            if (dit != datatypes_.end()) sinfo = &dit->second;
-        }
+        // structs_/datatypes_ are keyed by package-qualified names; a bare
+        // `structs_.find(sname)` misses (returns null), leaving every field
+        // typed Error. The statement-form match masked this (the arm value
+        // type is unused), but match-as-EXPRESSION propagates the Error arm
+        // type to the whole match → `logos_to_mlir(Error)` is null → empty
+        // function body. Route through the package-aware lookups.
+        const SemaStructInfo* sinfo = find_struct_by_name(sname).second;
+        if (!sinfo) sinfo = find_datatype_by_name(sname).second;
         v.each_field([&](lir_view::PatFieldBindingView fv) {
             auto fname = fv.field_name();
             TypeRef ftype = error_t();

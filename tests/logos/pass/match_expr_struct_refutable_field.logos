@@ -1,0 +1,15 @@
+package match_expr_struct_refutable_field;
+enum Inner { A(i64), B(i64) }
+struct Wrap { x: Inner, y: i64 }
+fn f(w: Wrap) -> i64 {
+    let r = match w {
+        Wrap { x: Inner::A(v), y } => v + y,
+        Wrap { x: Inner::B(v), y } => v - y,
+    };
+    return r;
+}
+fn main() -> i64 {
+    let a = f(Wrap { x: Inner::A(10), y: 3 });
+    let b = f(Wrap { x: Inner::B(10), y: 3 });
+    return a + b * 100;
+}

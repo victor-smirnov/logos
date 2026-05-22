@@ -2046,6 +2046,38 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         });
         return cond;
     }
+    case pc::Code::Struct: {
+        // G148-1: struct pattern with refutable field sub-patterns
+        // (`Wrap { x: Inner::A(v), y }`). The slot holds a pointer to the
+        // struct value; GEP each named field and AND-chain the refutable
+        // sub-pattern tests. Irrefutable subs (bind / shorthand / wild)
+        // contribute nothing to the condition.
+        lir_view::PatStructView ps{pat};
+        std::string sname(ps.struct_name());
+        auto sit = struct_types_.find(sname);
+        if (sit == struct_types_.end()) return true_c();
+        const StructInfo& sinfo = sit->second;
+        auto sptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        const LStructDef* sd = nullptr;
+        if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
+            sd = di->second;
+        mlir::Value cond = true_c();
+        ps.each_field([&](lir_view::PatFieldBindingView pfb){
+            auto sub = pfb.sub();
+            if (!sub || sub.kind() == pc::Code::Wild ||
+                sub.kind() == pc::Code::RefBind)
+                return;
+            std::string fname(pfb.field_name());
+            auto fp = gep_field(sptr, sinfo, fname);
+            if (!fp) return;
+            TypeRef fty;
+            if (sd) for (auto& lf : sd->fields)
+                if (lf.name == fname) { fty = lf.type; break; }
+            auto sc = pat_test(sub, fp, fty);
+            cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
+        });
+        return cond;
+    }
     default:
         return true_c();
     }
@@ -2161,6 +2193,53 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             builder_.setInsertionPointToStart(next_blk);
         }
         // current block is `done` (last next_blk == done).
+        break;
+    }
+    case pc::Code::Struct: {
+        // G148-1: bind a struct pattern's fields. slot holds a pointer to the
+        // struct; GEP each named field and recurse. Shorthand `{x}` binds the
+        // field by its own name; `{x: a}` is a Wild-rename handled by recursion;
+        // refutable subs (`{x: Inner::A(v)}`) bind their inner names.
+        lir_view::PatStructView ps{pat};
+        std::string sname(ps.struct_name());
+        auto sit = struct_types_.find(sname);
+        if (sit == struct_types_.end()) return;
+        const StructInfo& sinfo = sit->second;
+        auto sptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        const LStructDef* sd = nullptr;
+        if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
+            sd = di->second;
+        ps.each_field([&](lir_view::PatFieldBindingView pfb){
+            std::string fname(pfb.field_name());
+            auto fp = gep_field(sptr, sinfo, fname);
+            if (!fp) return;
+            TypeRef fty;
+            if (sd) for (auto& lf : sd->fields)
+                if (lf.name == fname) { fty = lf.type; break; }
+            auto sub = pfb.sub();
+            if (!sub) {
+                // Shorthand `{x}` → bind field value to `x`. Mirror the Wild
+                // binding logic: aggregates bind the slot ptr, scalars load+store.
+                auto fmlir = fty ? logos_to_mlir(fty) : ptr_type();
+                if (!fmlir) fmlir = ptr_type();
+                bool aggregate = fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
+                    TypeRef(fty).kind() == LogosType::Kind::ZonedStruct ||
+                    TypeRef(fty).kind() == LogosType::Kind::Tuple);
+                if (aggregate) {
+                    scope_[fname] = fp; let_vars_.insert(fname);
+                } else {
+                    auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, fmlir, fp);
+                    mlir::Value target;
+                    if (shared) { auto it = shared->find(fname); if (it != shared->end()) target = it->second; }
+                    if (!target) target = create_entry_alloca(fmlir);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
+                    scope_[fname] = target; let_vars_.insert(fname);
+                    var_elem_types_[fname] = fmlir;
+                }
+                return;
+            }
+            pat_bind(sub, fp, fty, shared);
+        });
         break;
     }
     default: break;
@@ -2584,6 +2663,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                 sptr = a;
             }
+            const LStructDef* sd = nullptr;
+            if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
+                sd = di->second;
             ps.each_field([&](lir_view::PatFieldBindingView pfb) {
                 std::string field_name(pfb.field_name());
                 auto bind_struct_field = [&](const std::string& bind_name) {
@@ -2620,6 +2702,17 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
                         }
+                    }
+                } else {
+                    // G148-1: refutable field sub-pattern (variant / tuple /
+                    // or / nested struct) — bind its inner names via the
+                    // recursive matcher. fp is a pointer to the field slot.
+                    auto fp = gep_field(sptr, sinfo, field_name);
+                    if (fp) {
+                        TypeRef fty;
+                        if (sd) for (auto& lf : sd->fields)
+                            if (lf.name == field_name) { fty = lf.type; break; }
+                        pat_bind(sub, fp, fty);
                     }
                 }
             });
@@ -3158,6 +3251,30 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         loc_, mlir::arith::CmpIPredicate::eq, loaded, disc_val);
                     builder_.create<mlir::cf::CondBranchOp>(loc_, eq, arm_entry, else_block);
                 }
+            }
+            else_block = test_block;
+        } else if (arm_kind == pc::Code::Struct) {
+            // G148-1: struct arm with refutable field sub-patterns
+            // (`Wrap { x: Inner::A(v), y } => …`). is_irrefutable already
+            // routed fully-irrefutable struct patterns to is_wild; reaching
+            // here means at least one field sub is refutable. Spill the struct
+            // pointer into an alloca-of-ptr so pat_test's Struct case (which
+            // loads the struct ptr from its slot) applies uniformly.
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
+                if (sptr && sptr.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(sptr.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
+                    sptr = a;
+                }
+                auto slot = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, slot);
+                auto cond = pat_test(arm_pat, slot, scrut_le->type);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
         } else {

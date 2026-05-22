@@ -1,0 +1,7 @@
+package match_expr_struct_irref_field;
+struct Wrap { x: i64, y: i64 }
+fn f(w: Wrap) -> i64 {
+    let r = match w { Wrap { x, y } => x + y };
+    return r;
+}
+fn main() -> i64 { return f(Wrap { x: 10, y: 3 }); }

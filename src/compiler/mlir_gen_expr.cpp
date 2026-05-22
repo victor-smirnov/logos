@@ -2860,6 +2860,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                     sptr = a;
                 }
+                const LStructDef* sd = nullptr;
+                if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
+                    sd = di->second;
                 if (sptr) ps.each_field([&](lir_view::PatFieldBindingView pfb) {
                     std::string field_name(pfb.field_name());
                     auto bind_field = [&](const std::string& bind_name) {
@@ -2882,6 +2885,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     if (!sub) bind_field(field_name);
                     else if (sub.kind() == pc::Code::Wild)
                         bind_field(std::string(lir_view::PatWildView{sub}.name()));
+                    else if (sub.kind() != pc::Code::RefBind) {
+                        // G148-1: refutable field sub (variant / tuple / or /
+                        // nested struct) — bind its inner names via the
+                        // recursive matcher. Record them so the join sweep
+                        // cleans them up.
+                        auto fp = gep_field(sptr, sinfo, field_name);
+                        if (fp) {
+                            TypeRef fty;
+                            if (sd) for (auto& lf : sd->fields)
+                                if (lf.name == field_name) { fty = lf.type; break; }
+                            std::vector<std::pair<std::string, TypeRef>> binds;
+                            collect_pat_bindings(sub, fty, binds);
+                            pat_bind(sub, fp, fty);
+                            for (auto& [nm, bt] : binds) added.push_back(nm);
+                        }
+                    }
                 });
             }
         } else if (pat_ref.kind() == pc::Code::RefBind) {
@@ -3083,15 +3102,42 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         // guard decide. Without this it fell into the catch-all `else`
         // branch below and was dispatched as `scrut == 0` (get_disc default),
         // so `ref r if <guard>` only entered its guard when scrut == 0.
-        // A struct pattern (`A { .. }` / `A { f: x }`) is irrefutable in
-        // match-expression position — only binding/rest field sub-patterns are
-        // supported here (refutable struct-field literal tests aren't), so it
-        // always matches and binds. Without this it fell into the catch-all
-        // `else` and emitted a discriminant `cmpi` against the struct pointer
-        // → verify fail.
+        // A struct pattern (`A { .. }` / `A { f: x }`) is irrefutable only when
+        // every field sub-pattern is itself irrefutable — then it always matches
+        // and binds. With a refutable field sub (`A { f: Inner::B(v) }`, G148-1)
+        // it needs a real dispatch test (handled below).
+        std::function<bool(lir_view::PatRef)> pat_irref =
+            [&](lir_view::PatRef p) -> bool {
+            switch (p.kind()) {
+            case pc::Code::Wild: case pc::Code::RefBind: return true;
+            case pc::Code::RefPat: {
+                auto in = lir_view::PatRefPatView{p}.inner();
+                return !in || pat_irref(in);
+            }
+            case pc::Code::At: {
+                auto sub = lir_view::PatAtView{p}.sub();
+                return !sub || pat_irref(sub);
+            }
+            case pc::Code::Tuple: {
+                bool all = true;
+                lir_view::PatTupleView{p}.each_sub([&](lir_view::PatRef sp){
+                    if (all && sp && !pat_irref(sp)) all = false; });
+                return all;
+            }
+            case pc::Code::Struct: {
+                bool all = true;
+                lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView fb){
+                    auto sub = fb.sub();
+                    if (all && sub && !pat_irref(sub)) all = false; });
+                return all;
+            }
+            default: return false;
+            }
+        };
         bool is_wild = arm_pat_ref.kind() == pc::Code::Wild ||
                        arm_pat_ref.kind() == pc::Code::RefBind ||
-                       arm_pat_ref.kind() == pc::Code::Struct;
+                       (arm_pat_ref.kind() == pc::Code::Struct &&
+                        pat_irref(arm_pat_ref));
         auto get_disc = [](lir_view::PatRef p) -> int64_t {
             switch (p.kind()) {
             case pc::Code::Variant:     return lir_view::PatVariantView{p}.disc();
@@ -3303,6 +3349,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
                     cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
                 }
+                builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::Struct) {
+            // G148-1: struct arm with refutable field sub-patterns in
+            // match-expression position (`Wrap { x: Inner::A(v), y } => …`).
+            // pat_irref already routed fully-irrefutable structs to is_wild;
+            // reaching here means a refutable field sub. Spill the struct ptr
+            // into an alloca-of-ptr so pat_test's Struct case (which loads the
+            // struct ptr from its slot) applies uniformly.
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : scrut;
+                if (sptr && sptr.getType() != ptr_type()) {
+                    auto a = create_entry_alloca(sptr.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
+                    sptr = a;
+                }
+                auto slot = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, slot);
+                auto cond = pat_test(arm_pat_ref, slot, scrut_le->type);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
