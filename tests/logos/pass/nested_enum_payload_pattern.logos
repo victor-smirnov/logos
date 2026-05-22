@@ -1,0 +1,37 @@
+// Nested variant pattern inside an enum-variant payload: `Some(Color::Red)`,
+// `Ok(Status::Done)`. Bindingless inner variants gate the arm via a synthesized
+// `match payload { inner => true, _ => false }` guard. (A catch-all is required
+// for exhaustiveness — Logos doesn't yet prove finite-enum coverage.)
+package nested_enum_payload_pattern;
+
+enum Color { Red, Green, Blue }
+enum Status { Done, Pending }
+
+fn classify(o: Option<Color>) -> i64 {
+    match o {
+        Some(Color::Red) => { return 1i64; }
+        Some(Color::Green) => { return 2i64; }
+        None => { return 0i64; }
+        _ => { return 9i64; }
+    }
+}
+
+fn check(r: Result<Status, i64>) -> i64 {
+    match r {
+        Ok(Status::Done) => { return 100i64; }
+        Ok(Status::Pending) => { return 50i64; }
+        Err(e) => { return e; }
+        _ => { return -1i64; }   // catch-all (guarded Ok arms aren't proven exhaustive)
+    }
+}
+
+fn main() -> i32 {
+    if classify(Some(Color::Red)) != 1i64 { return 1i32; }
+    if classify(Some(Color::Green)) != 2i64 { return 2i32; }
+    if classify(Some(Color::Blue)) != 9i64 { return 3i32; }
+    if classify(None) != 0i64 { return 4i32; }
+    if check(Ok(Status::Done)) != 100i64 { return 5i32; }
+    if check(Ok(Status::Pending)) != 50i64 { return 6i32; }
+    if check(Err(7i64)) != 7i64 { return 7i32; }
+    return 0i32;
+}

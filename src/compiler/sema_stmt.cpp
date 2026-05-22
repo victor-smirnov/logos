@@ -2074,6 +2074,52 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         std::string synth = std::format(
             "__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++);
         int32_t sc = code_of(sub);
+        // Nested VARIANT inner pattern, e.g. `Some(Color::Red)` /
+        // `Ok(Status::Done)`. Bind the payload to `synth`, and gate the arm
+        // with a synthesized `match synth { <inner> => true, _ => false }`
+        // guard (reuses enum match dispatch). Only for inners that bind
+        // nothing (a payload-carrying inner like `Some(Inner(x))` would lose
+        // its inner bindings through the guard — left to the existing error).
+        if (sc == la::PAT_VARIANT ||
+            (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_)) {
+            // Reject payload-binding inners (PAT_VARIANT_DATA with any non-"_"
+            // binding) — they need the nested-guard binding-export scheme.
+            if (sc == la::PAT_VARIANT_DATA) {
+                bool has_binding = false;
+                if (sub.has_key(la::ARGS)) {
+                    auto av = sub.get(la::ARGS.code);
+                    if (!av.is_null() && av.is_pointer()) {
+                        auto al = map_of(av);
+                        if (al.has_key(la::ITEMS)) {
+                            auto items = arr_of(al.get(la::ITEMS.code));
+                            for (uint64_t i = 0; i < items.size(); ++i) {
+                                auto sn = map_of(items.get(i));
+                                if (code_of(sn) == la::PAT_WILD && sn.has_key(la::NAME) &&
+                                    str_of(sn.get(la::NAME.code)) != "_") { has_binding = true; break; }
+                            }
+                        }
+                    }
+                }
+                if (has_binding) return std::string();  // fall to error
+            }
+            if (!current_pat_refutable_guards_) return std::string();
+            TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                ? ftype : error_t();
+            define(synth, rt);
+            lir::EMatchArm a0;
+            a0.pat   = build_pattern(sub, rt);
+            a0.value = builder().lit_bool(true, bool_t());
+            lir::EMatchArm a1;
+            a1.pat   = make_pat_wild("_");
+            a1.value = builder().lit_bool(false, bool_t());
+            lir::EMatchExpr me;
+            me.scrut = builder().var_ref(synth, rt);
+            me.arms.push_back(std::move(a0));
+            me.arms.push_back(std::move(a1));
+            current_pat_refutable_guards_->push_back(
+                builder().match_expr_v(std::move(me), bool_t()));
+            return synth;
+        }
         lir::LExprPtr value;
         if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
             auto sv = str_of(sub.get(la::VALUE.code));
@@ -2275,7 +2321,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // binding + emit `__refut_… == <value>` as an arm
                     // guard.
                     if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
-                        bc == la::PAT_BOOL || bc == la::PAT_CHAR) {
+                        bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
+                        bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA) {
                         std::string synth = synth_refutable_inner(
                             bnode, pat_field_type(j),
                             std::format("{}", j));
