@@ -718,3 +718,33 @@ pub fn cmp_max_by_key<T: Copy, K: Ord>(a: T, b: T, key: fn(T) -> K) -> T {
         Ordering::Greater => { return a; }
     }
 }
+
+// ── 8/16-bit wrapping ops ──────────────────────────────────────────────────
+// The 32/64-bit blocks above carry the full int-method surface; the 8/16-bit
+// types previously had no method-form wrapping ops (only the free
+// `wrapping_add::<T>` intrinsic). Mirror the wrapping family so `a.wrapping_add(b)`
+// works for i8/u8/i16/u16 too (mlir-gen lowers `wrapping_add::<T>` per width).
+impl i8 {
+    pub fn wrapping_add(self: i8, other: i8) -> i8 { return wrapping_add::<i8>(self, other); }
+    pub fn wrapping_sub(self: i8, other: i8) -> i8 { return wrapping_sub::<i8>(self, other); }
+    pub fn wrapping_mul(self: i8, other: i8) -> i8 { return wrapping_mul::<i8>(self, other); }
+    pub fn wrapping_neg(self: i8) -> i8            { return wrapping_sub::<i8>(0i8, self); }
+}
+impl u8 {
+    pub fn wrapping_add(self: u8, other: u8) -> u8 { return wrapping_add::<u8>(self, other); }
+    pub fn wrapping_sub(self: u8, other: u8) -> u8 { return wrapping_sub::<u8>(self, other); }
+    pub fn wrapping_mul(self: u8, other: u8) -> u8 { return wrapping_mul::<u8>(self, other); }
+    pub fn wrapping_neg(self: u8) -> u8            { return wrapping_sub::<u8>(0u8, self); }
+}
+impl i16 {
+    pub fn wrapping_add(self: i16, other: i16) -> i16 { return wrapping_add::<i16>(self, other); }
+    pub fn wrapping_sub(self: i16, other: i16) -> i16 { return wrapping_sub::<i16>(self, other); }
+    pub fn wrapping_mul(self: i16, other: i16) -> i16 { return wrapping_mul::<i16>(self, other); }
+    pub fn wrapping_neg(self: i16) -> i16             { return wrapping_sub::<i16>(0i16, self); }
+}
+impl u16 {
+    pub fn wrapping_add(self: u16, other: u16) -> u16 { return wrapping_add::<u16>(self, other); }
+    pub fn wrapping_sub(self: u16, other: u16) -> u16 { return wrapping_sub::<u16>(self, other); }
+    pub fn wrapping_mul(self: u16, other: u16) -> u16 { return wrapping_mul::<u16>(self, other); }
+    pub fn wrapping_neg(self: u16) -> u16             { return wrapping_sub::<u16>(0u16, self); }
+}
