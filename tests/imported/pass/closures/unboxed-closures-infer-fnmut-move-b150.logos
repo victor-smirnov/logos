@@ -1,0 +1,13 @@
+package unboxed_closures_infer_fnmut_move_b150;
+// Faithful port of rustc tests/ui/unboxed-closures/unboxed-closures-infer-fnmut-move.rs.
+// G149-3: `move` closure copies the Copy capture; outer `counter` stays 0 while
+// the closure's own copy reaches 2. assert_eq! → exit-code checks.
+fn main() -> i64 {
+    let mut counter: i64 = 0;
+    let mut tick = move || -> i64 { counter = counter + 1; return counter; };
+    tick();
+    let v: i64 = tick();
+    if counter != 0 { return 1; }
+    if v != 2 { return 2; }
+    return 0;
+}

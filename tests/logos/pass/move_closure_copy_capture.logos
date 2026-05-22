@@ -1,0 +1,18 @@
+package move_closure_copy_capture;
+// G149-3: a `move` closure owns a COPY of a Copy capture — its mutation
+// persists across calls (FnMut state) but never touches the outer variable.
+fn main() -> i64 {
+    let mut counter: i64 = 0;
+    let mut tick = move || -> i64 { counter = counter + 1; return counter; };
+    let v1: i64 = tick();          // env copy 0→1
+    let v2: i64 = tick();          // env copy 1→2
+    if v1 != 1 { return 1; }       // state persists across calls
+    if v2 != 2 { return 2; }
+    if counter != 0 { return 3; }  // outer untouched by `move`
+    // A NON-move closure still borrows (mutates the outer):
+    let mut n: i64 = 0;
+    let mut bump = || { n = n + 1; };
+    bump(); bump();
+    if n != 2 { return 4; }
+    return 0;
+}

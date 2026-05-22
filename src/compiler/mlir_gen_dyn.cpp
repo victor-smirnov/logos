@@ -1331,6 +1331,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // scalar (alloca'd). The env field stores the outer alloca pointer
     // instead of a value copy, so mutations round-trip back.
     std::vector<bool> capture_is_mut_ref(captures.size(), false);
+    // G149-3: a `move` closure owns a COPY of each scalar capture. A mutated
+    // Copy capture must (a) NOT escape to the outer variable, and (b) persist
+    // its mutation across calls. So the env stores a value copy and the body
+    // reads/writes THROUGH the env field pointer (not the outer alloca, not a
+    // throwaway local copy). This `env_mut` mode achieves both.
+    std::vector<bool> capture_is_env_mut(captures.size(), false);
     for (size_t i = 0; i < captures.size(); ++i) {
         const auto& name = captures[i];
         if (!v.capture_is_mut(i)) continue;
@@ -1338,7 +1344,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         // pointer-repr categories (struct/class/etc.) already store a
         // pointer, so mutations propagate without extra plumbing.
         if (!let_vars_.count(name)) continue;
-        capture_is_mut_ref[i] = true;
+        if (v.is_move()) capture_is_env_mut[i] = true;  // own a mutable copy
+        else             capture_is_mut_ref[i] = true;  // borrow: escape to outer
     }
     for (size_t i = 0; i < captures.size(); ++i) {
         const auto& name = captures[i];
@@ -1454,6 +1461,14 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
                 var_tagged_enum_.insert(captures[i]);
             else if (is_dyn_cap && ct)
                 var_dyn_trait_[captures[i]] = std::string(TypeRef(ct).trait_name());
+        } else if (capture_is_env_mut[i]) {
+            // G149-3: `move` closure owns a mutable copy. Alias scope_[name] to
+            // the ENV FIELD pointer `fp` so reads/writes go through the env's
+            // own storage — the mutation persists across calls (FnMut state)
+            // and never touches the outer variable.
+            scope_[captures[i]] = fp;
+            let_vars_.insert(captures[i]);
+            var_elem_types_[captures[i]] = cap_fields[i];
         } else if (capture_is_mut_ref[i]) {
             // val is a pointer to the outer alloca. Alias scope_[name] to it
             // directly so reads/writes inside the body go through the same

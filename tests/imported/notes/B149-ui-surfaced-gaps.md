@@ -82,7 +82,9 @@ place/temporary allocation). This is the HIGHEST-priority item for the maintaine
 **silent wrong-answer + crash** with no diagnostic. `structs-enums/class-impl-very-parameterized-trait.rs`
 DROPPED on this (`spotty.contains_key(&2)` after the `speak()` loop is the exact shape).
 
-### G149-3 — DIVERGENCE/gap (moderate): a `move` closure does NOT isolate a captured Copy local from the original — it mutates the outer variable
+### G149-3 — ✅ FIXED (2026-05-22): a `move` closure does NOT isolate a captured Copy local from the original — it mutates the outer variable
+
+**Fix** (mlir_gen_dyn.cpp gen_closure): a mutated scalar capture in a NON-move closure is `capture_is_mut_ref` (env stores the outer alloca pointer → mutations escape to the outer var = FnMut borrow). A `move` closure must instead OWN a copy: new `capture_is_env_mut` mode — the env stores a value-copy snapshot and the body aliases the binding to the ENV FIELD pointer (GEP into the env), so the mutation (a) persists across calls (FnMut state) and (b) never touches the outer variable. Regression `move_closure_copy_capture` + re-import `unboxed-closures-infer-fnmut-move-b150`. 4551/4551. ORIGINAL REPORT below:
 
 ```
 let mut counter: i64 = 0;
@@ -138,7 +140,9 @@ dispatch through a bound DOES work — see the imported default-method tests.) T
 MODERATE (static-method resolution on a bound type-param + return-type-driven Self
 inference). `traits/inheritance/static.rs` (and num0/num1/num5) DROPPED on this.
 
-### G149-6 — DEFERRED (moderate): `impl Trait for fn(A, B) -> C` (implementing a trait for a function-pointer type) is a parse error near `impl`
+### G149-6 — DEFERRED (cascading, boundary-drawn 2026-05-22): `impl Trait for fn(A, B) -> C` is a parse error near `impl`
+
+**Investigated, then reverted to the clean parse error (anti-thrash).** A prototype landed: (1) grammar fn_ptr_type impl-target alts (generic + non-generic); (2) collect_impl FN_PTR_TYPE target → `$fnptr$N` key (mirrors `$tuple$N`); (3) check_type_bounds FnPtr satisfaction (arity key). Remaining cascade (≥3 more interlocking sites) — stopped here per the draw-the-boundary rule, niche feature: (a) `closure_params()` returns 0 for the resolved FnPtr target (wrong accessor → `$fnptr$0`; arity mangling needs the right FnPtr param accessor); (b) Self isn't bound for a fn-ptr impl target (`unknown type 'Self'` in the method body — a `!self_type && target_resolved` fallback was insufficient; needs the self_type computation block to handle FnPtr); (c) NOT YET REACHED: mono dispatch of `t.foo()` where `t: &T`, `T = fn(...)->R` must retarget to `$fnptr$N__foo`, plus binding the impl's generic A/B/C from the concrete fn-ptr signature, plus codegen of a method on a fn-pointer value. Niche (implementing a trait on a bare fn-pointer is rare); revisit as a focused multi-site task. ORIGINAL REPORT below:
 
 ```
 impl<A, B, C> MyTrait for fn(A, B) -> C { ... }   // syntax error near 'impl'
