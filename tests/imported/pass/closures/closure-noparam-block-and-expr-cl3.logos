@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/basic-closure-syntax.rs
+// Modifications: closures with a parameter that returns the same value, and
+// no-param closures in block form `|| {}` (the `|| ()` bare-expr form is a
+// known grammar gap — see B130 notes G-cl3-1), threaded through a generic
+// `F: FnOnce()` / `F: FnOnce(i64)->i64` fn. `assert_eq!`→return codes. isize→i64.
+package closure_noparam_block_and_expr_cl3;
+
+fn f<F>(i: i64, g: F) -> i64 where F: FnOnce(i64) -> i64 { return g(i); }
+
+fn g<G>(callback: G) where G: FnOnce() { callback(); }
+
+fn main() -> i32 {
+    if f(10i64, |a| { a }) != 10i64 { return 1i32; }
+    g(|| {});
+    if f(10i64, |a| { a }) != 10i64 { return 2i32; }
+    g(|| {});
+    return 0i32;
+}

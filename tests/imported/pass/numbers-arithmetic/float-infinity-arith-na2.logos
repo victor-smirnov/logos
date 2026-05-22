@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float-nan.rs (DISTILLED — infinity facet)
+// Modifications: the infinity-arithmetic facet distilled out (f64::INFINITY built
+// as `1.0/0.0` since there is no INFINITY const; negation; ordered comparisons;
+// `inf+1==inf`; `-inf` equals `-1.0/0.0`). The NaN-inequality facet is dropped —
+// `nan != nan` currently compiles to an ORDERED compare and yields false
+// (a known float-`!=` gap, see B130 notes G-na2-1). assert!→return codes.
+package float_infinity_arith_na2;
+
+fn main() -> i32 {
+    let zero: f64 = 0.0f64;
+    let inf: f64 = 1.0f64 / zero;
+    let neg_inf: f64 = -1.0f64 / zero;
+
+    if !(inf > 1.0e300f64) { return 1i32; }
+    if !(neg_inf < -1.0e300f64) { return 2i32; }
+    if inf + 1.0f64 != inf { return 3i32; }
+    if -inf != neg_inf { return 4i32; }
+    if !(inf == inf) { return 5i32; }
+    if neg_inf == inf { return 6i32; }
+    return 0i32;
+}

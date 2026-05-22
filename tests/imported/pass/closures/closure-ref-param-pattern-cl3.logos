@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-5239-2.rs
+// Modifications: a closure whose parameter uses a `ref x` binding pattern, then
+// dereferences it `*x` in the body. Tests a by-ref binding pattern in a closure
+// parameter position. isize→i64, assert_eq!→return code.
+package closure_ref_param_pattern_cl3;
+
+fn main() -> i32 {
+    let f = |ref x: i64| { return *x; };
+    let foo: i64 = 10i64;
+    if f(foo) != 10i64 { return 1i32; }
+    return 0i32;
+}

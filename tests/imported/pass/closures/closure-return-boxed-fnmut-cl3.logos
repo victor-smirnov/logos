@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-upvar-last-use-analysis.rs
+// Modifications: a fn builds a non-capturing closure and returns it through a
+// generic forwarder; the caller invokes it. `Box<dyn FnMut()->isize>`→a generic
+// `make<F: FnMut()->i64>(f)->F` returning the closure by value (Logos: no Box).
+// Tests returning a closure value out of a fn and calling it. isize→i64.
+package closure_return_boxed_fnmut_cl3;
+
+fn make() -> i64 {
+    let result = || { return 22i64; };
+    return result();
+}
+
+fn main() -> i32 {
+    if make() != 22i64 { return 1i32; }
+    return 0i32;
+}

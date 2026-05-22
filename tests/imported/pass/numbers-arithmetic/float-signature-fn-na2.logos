@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float-signature.rs
+// Modifications: a nested fn `foo(n: f64) -> f64` adding a constant, called and
+// the result checked (println!→return-code; the upstream value is not asserted,
+// so a tolerance check is added). Tests f64 in a fn parameter + return position.
+package float_signature_fn_na2;
+
+fn foo(n: f64) -> f64 { return n + 0.12345f64; }
+
+fn main() -> i32 {
+    let n: f64 = 0.1f64;
+    let m: f64 = foo(n);
+    let diff: f64 = m - 0.22345f64;
+    if diff < -0.0001f64 { return 1i32; }
+    if diff > 0.0001f64 { return 2i32; }
+    return 0i32;
+}

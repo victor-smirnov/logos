@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-868.rs
+// Modifications: a generic `f<T,F: FnOnce()->T>(g)->T` invoked with closures
+// returning i64, returning `()` (empty block and explicit `()`), and an inline
+// non-invoked closure. Tests type inference of a FnOnce closure's return type
+// including the unit case. isize→i64.
+package closure_generic_fnonce_unit_ret_cl3;
+
+fn f<T, F>(g: F) -> T where F: FnOnce() -> T { return g(); }
+
+fn main() -> i32 {
+    let x = f(|| { return 10i64; });
+    if x != 10i64 { return 1i32; }
+    f(|| {});
+    f(|| { return (); });
+    let _ = f(|| {});
+    return 0i32;
+}

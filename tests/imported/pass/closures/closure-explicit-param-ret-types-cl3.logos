@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-explicit-types.rs
+// Modifications: a `FnOnce(i64)->i64` consumer fed a closure with an EXPLICIT
+// parameter type AND explicit return type `|x: i64| -> i64 { ... }`. Tests fully
+// type-annotated closure literals. isize→i64, String arg→i64, println!→drop.
+package closure_explicit_param_ret_types_cl3;
+
+fn as_buf<F>(s: i64, f: F) -> i64 where F: FnOnce(i64) -> i64 { return f(s); }
+
+fn main() -> i32 {
+    let r = as_buf(7i64, |x: i64| -> i64 { return x + 1i64; });
+    if r != 8i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-fn-coerce.rs
+// Modifications: a `force(F: FnOnce()->i64)` applied to a plain fn `seven`, then
+// a closure `|| { force(seven) }` that itself calls `force(seven)`. Tests a
+// closure closing over a fn item and forwarding it to a generic FnOnce fn.
+// (The Rust source's block-wrapped `{ || force(f) }` form trims to the bare
+// closure — block-as-value-yielding-a-closure is a known-open facet.) isize→i64.
+package closure_block_wrapping_fnptr_cl3;
+
+fn force<F>(f: F) -> i64 where F: FnOnce() -> i64 { return f(); }
+
+fn seven() -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    if force(seven) != 7i64 { return 1i32; }
+    let g = || { force(seven) };
+    if g() != 7i64 { return 2i32; }
+    return 0i32;
+}

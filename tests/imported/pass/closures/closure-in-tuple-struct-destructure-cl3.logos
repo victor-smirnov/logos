@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-22864-1.rs
+// Modifications: a generic struct `Fun<F>` holding a closure field `F: Fn(i64)->i64`,
+// constructed with a closure, then the field extracted and invoked. (Rust's
+// tuple-struct `Fun(F)` + `let Fun(g) = f` destructure → a named-field struct +
+// field access, since tuple-struct destructure patterns are not used here.)
+// println!→return-code. isize→i64.
+package closure_in_tuple_struct_destructure_cl3;
+
+struct Fun<F> { f: F }
+
+fn main() -> i32 {
+    let wrapped = Fun { f: |x: i64| { 3i64 * x } };
+    let g = wrapped.f;
+    if g(4i64) != 12i64 { return 1i32; }
+    return 0i32;
+}

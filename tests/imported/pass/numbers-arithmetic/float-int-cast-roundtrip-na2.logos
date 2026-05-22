@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/saturating-float-casts-impl.rs (DISTILLED)
+// Modifications: the macro grid of float↔int `as` casts distilled to a handful
+// of RUNTIME (non-const) f64↔i64 conversions — truncation toward zero for
+// positive and negative values, and an int→float round trip. The saturating
+// boundary/NaN cases are dropped (NaN comparison is a known float gap). isize→i64.
+package float_int_cast_roundtrip_na2;
+
+fn main() -> i32 {
+    let n: f64 = 3.0f64;
+    let i: i64 = n as i64;
+    if i != 3i64 { return 1i32; }
+
+    let j: i64 = 7i64;
+    let f: f64 = j as f64;
+    if f != 7.0f64 { return 2i32; }
+
+    // truncation toward zero
+    if (3.9f64 as i64) != 3i64 { return 3i32; }
+    if (-2.7f64 as i64) != -2i64 { return 4i32; }
+    if (0.5f64 as i64) != 0i64 { return 5i32; }
+    return 0i32;
+}
