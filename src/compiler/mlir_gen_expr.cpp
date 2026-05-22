@@ -2726,19 +2726,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 size_t si = 0;
                 tv.each_sub([&](lir_view::PatRef sp){
                     size_t idx = si++;
-                    if (!sp || sp.kind() != pc::Code::VariantData) return;
-                    if (idx >= btypes.size() || !btypes[idx]) return;
-                    auto* te_sub = resolve_tagged_enum(
-                        std::string(lir_view::PatVariantDataView{sp}.enum_name()),
-                        btypes[idx]);
-                    if (!te_sub) return;
+                    if (!sp || idx >= btypes.size() || !btypes[idx]) return;
                     llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(idx)};
                     auto ep = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, ei);
-                    auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, ptr_type(), ep);
-                    bind_enum_payload(enum_ptr, te_sub,
-                                      lir_view::PatVariantDataView{sp}, added);
+                    if (sp.kind() == pc::Code::VariantData) {
+                        auto* te_sub = resolve_tagged_enum(
+                            std::string(lir_view::PatVariantDataView{sp}.enum_name()),
+                            btypes[idx]);
+                        if (!te_sub) return;
+                        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, ptr_type(), ep);
+                        bind_enum_payload(enum_ptr, te_sub,
+                                          lir_view::PatVariantDataView{sp}, added);
+                    } else if (sp.kind() == pc::Code::Tuple ||
+                               sp.kind() == pc::Code::Or) {
+                        // G144-1 / G146-1: nested tuple / or-pattern element —
+                        // recursive matcher (same as the stmt match path).
+                        pat_bind(sp, ep, btypes[idx]);
+                    }
                 });
             }
         } else if (pat_ref.kind() == pc::Code::Slice) {
@@ -3155,6 +3161,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(si)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, fi);
+                    // G144-1 / G146-1: a nested tuple / variant-with-binding /
+                    // or-pattern element needs the recursive matcher; route it
+                    // through pat_test and skip the flat scalar load.
+                    bool needs_recursive =
+                        sub.kind() == pc::Code::Tuple ||
+                        sub.kind() == pc::Code::VariantData;
+                    if (sub.kind() == pc::Code::Or) {
+                        lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef a){
+                            if (a && a.kind() != pc::Code::Int && a.kind() != pc::Code::Bool)
+                                needs_recursive = true;
+                        });
+                    }
+                    if (needs_recursive) {
+                        auto sc = pat_test(sub, fp, si < btypes.size() ? btypes[si] : TypeRef{});
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
+                        continue;
+                    }
                     auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                     if (sub.kind() == pc::Code::Range) {
                         lir_view::PatRangeView pr{sub};

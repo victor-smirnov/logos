@@ -1,0 +1,27 @@
+package match_expr_nested_tuple;
+enum E { A(i64), B(i64), C }
+// match-EXPRESSION (let = match) forms of the nested-pattern cases
+fn nested_lit(p: ((i64, i64), i64)) -> i64 {
+    let r: i64 = match p { ((1i64, 1i64), _) => 100i64, _ => 0i64 };
+    return r;
+}
+fn pos_dep(x: (bool, bool)) -> i64 {
+    let r: i64 = match x { (true, y) | (y, true) => if y { 1i64 } else { 2i64 }, };
+    return r;
+}
+fn variant_or(e: E, k: i64) -> i64 {
+    let r: i64 = match (e, k) { (E::A(x) | E::B(x), m) => x + m, _ => 99i64 };
+    return r;
+}
+fn main() -> i32 {
+    if nested_lit(((1i64, 1i64), 9i64)) != 100i64 { return 1i32; }
+    if nested_lit(((1i64, 2i64), 9i64)) != 0i64 { return 2i32; }
+    if nested_lit(((2i64, 1i64), 9i64)) != 0i64 { return 3i32; }
+    if pos_dep((true, true)) != 1i64 { return 4i32; }
+    if pos_dep((true, false)) != 2i64 { return 5i32; }
+    if pos_dep((false, true)) != 2i64 { return 6i32; }
+    if variant_or(E::A(10i64), 5i64) != 15i64 { return 7i32; }
+    if variant_or(E::B(20i64), 5i64) != 25i64 { return 8i32; }
+    if variant_or(E::C, 5i64) != 99i64 { return 9i32; }
+    return 0i32;
+}
