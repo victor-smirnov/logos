@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/usize-base.rs
+// Modifications: usize→u64; literals suffixed; `as usize`→`as u64`; assert_eq → return.
+// Tests basic u64 (was usize) literal / cast / inference forms.
+package usize_base_b145;
+
+fn return_val() -> u64 { return 42u64; }
+
+fn main() -> i32 {
+    let a: u64 = 42u64;
+    let b: u64 = 42u64 as u64;
+    let c: u64 = 42u64;
+    let d = 42u64;
+    let e = return_val();
+
+    if a != b { return 1i32; }
+    if a != c { return 2i32; }
+    if a != d { return 3i32; }
+    if a != e { return 4i32; }
+    return 0i32;
+}

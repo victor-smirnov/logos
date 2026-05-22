@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/issue-2216.rs
+// Modifications: println → dropped; assert_eq → nonzero return.
+// Tests nested labeled loops with `break 'foo`, `break 'bar`, `continue 'foo`
+//   threading control flow across three loop levels.
+package nested_labeled_loops_2216_b145;
+
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+
+    'foo: loop {
+        'bar: loop {
+            loop {
+                if 1i64 == 2i64 {
+                    break 'foo;
+                } else {
+                    break 'bar;
+                }
+            }
+            continue 'foo;
+        }
+        x = 42i64;
+        break;
+    }
+
+    if x != 42i64 { return 1i32; }
+    return 0i32;
+}

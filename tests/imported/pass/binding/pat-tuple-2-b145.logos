@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pat-tuple-2.rs
+// Modifications: 1-tuple `(1,)` → 2-tuple (trailing-comma 1-tuple is known-open,
+//   B139/B140); tuple-struct `S(u8)` → `struct S { v: u8 }` with field patterns;
+//   the `..` rest sub-pattern (which is rejected in MATCH position — see B145 gap)
+//   replaced with explicit `_` element patterns; panic → nonzero return.
+// Tests a tuple `(2, _)` pattern arm that does NOT match, falling through to the
+//   `(_, _)` catch-all; and the struct analog with explicit field patterns.
+package pat_tuple_2_b145;
+
+struct S { v: u8 }
+
+fn tuple() -> i32 {
+    let x = (1i64, 9i64);
+    match x {
+        (2i64, _) => { return 1i32; }
+        (_, _) => { return 0i32; }
+    }
+}
+
+fn structpat() -> i32 {
+    let x = S { v: 1u8 };
+    match x {
+        S { v: 2u8 } => { return 2i32; }
+        S { v: _ } => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    if tuple() != 0i32 { return 10i32; }
+    if structpat() != 0i32 { return 11i32; }
+    return 0i32;
+}

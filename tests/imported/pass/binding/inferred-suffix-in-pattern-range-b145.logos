@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/inferred-suffix-in-pattern-range.rs
+// Modifications: String message values → distinct i64 codes (String/format known-open);
+//   assert_eq → nonzero return; literals suffixed.
+// Tests an inclusive-range pattern arm `0 ..= 1` selecting vs the wildcard fallthrough,
+//   across i64 and u64 scrutinees.
+package inferred_suffix_in_pattern_range_b145;
+
+fn classify_i(n: i64) -> i64 {
+    match n {
+        0i64 ..= 1i64 => { return 10i64; }
+        _ => { return 20i64; }
+    }
+}
+
+fn classify_u(n: u64) -> i64 {
+    match n {
+        0u64 ..= 1u64 => { return 10i64; }
+        _ => { return 20i64; }
+    }
+}
+
+fn main() -> i32 {
+    if classify_i(2i64) != 20i64 { return 1i32; }
+    if classify_i(0i64) != 10i64 { return 2i32; }
+    if classify_u(1u64) != 10i64 { return 3i32; }
+    if classify_u(9u64) != 20i64 { return 4i32; }
+    return 0i32;
+}

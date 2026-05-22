@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/statics/static-methods-in-traits.rs
+// Modifications: in-language `mod a { .. }` flattened to module scope (B-mod
+//   known-open); isize/usize → i64/u64; the return-type-driven `Foo::foo()` form is
+//   known-open (return-type-driven static dispatch), so the static trait method is
+//   called via the concrete type (`A::foo()` / `B::foo()`), which dispatches fine;
+//   the trait + both impls are still declared/exercised. assert_eq → nonzero return.
+// Tests a static (no-self) trait method `fn foo() -> Self` implemented for two types
+//   and called through the concrete type.
+package static_methods_in_traits_b145;
+
+trait Foo { fn foo() -> Self; }
+
+struct A { v: i64 }
+struct B { v: u64 }
+
+impl Foo for A { fn foo() -> A { return A { v: 3i64 }; } }
+impl Foo for B { fn foo() -> B { return B { v: 5u64 }; } }
+
+fn main() -> i32 {
+    let x: A = A::foo();
+    let y: B = B::foo();
+    if x.v != 3i64 { return 1i32; }
+    if y.v != 5u64 { return 2i32; }
+    return 0i32;
+}

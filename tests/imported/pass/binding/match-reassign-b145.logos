@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-reassign.rs
+// Modifications: `Box::new(1)` → plain i64 (Box → value, B111 known-open); the bound
+//   `y` arm is matched and then `x` is reassigned + an extra `let _tmp` introduced;
+//   assert_eq → nonzero return.
+// Regression test for rust #23698: reassigning the scrutinee inside a bound match arm
+//   (with an intervening unrelated assignment) must not confuse the reassignment checker.
+package match_reassign_b145;
+
+fn check_eq(x: i64, y: i64) -> i32 {
+    if x != y { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    match x {
+        y => {
+            x = 2i64;
+            let _tmp: i64 = 1i64;
+            if check_eq(y, 1i64) != 0i32 { return 2i32; }
+        }
+    }
+    if x != 2i64 { return 3i32; }
+    return 0i32;
+}

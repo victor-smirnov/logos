@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-no-reinit-needed-post-bot.rs
+// Modifications: empty unit-struct `struct S;` → `struct S { _z: i64 }` (B107/B137
+//   known-open); `Drop`-impl kept (no-op); `i += 1` etc.; the diverging `my_panic()`
+//   call is on the unreachable `f==false` path (f is always true here) so it never
+//   runs — exercises the "no re-init needed after a bottom-typed call" flow analysis.
+// Tests that a moved-out local (`let _g = g;`) need not be re-initialized on the
+//   path that follows a `-> !` diverging call (continue re-inits only on the live path).
+package loop_no_reinit_needed_post_bot_b145;
+
+struct S { _z: i64 }
+
+impl Drop for S {
+    fn drop(self: &mut S) { }
+}
+
+fn my_panic() -> ! { loop {} }
+
+fn step(f: bool) {
+    let mut g = S { _z: 0i64 };
+    let mut i: i64 = 0i64;
+    loop {
+        if i > 10i64 { break; } else { i = i + 1i64; }
+
+        let _g = g;
+
+        if f {
+            g = S { _z: 0i64 };
+            continue;
+        }
+
+        my_panic();
+    }
+}
+
+fn main() -> i32 {
+    step(true);
+    return 0i32;
+}

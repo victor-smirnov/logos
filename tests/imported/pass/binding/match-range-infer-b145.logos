@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-range-infer.rs
+// Modifications: literals suffixed where the scrutinee/bound type is fixed; panic →
+//   nonzero return; the unsuffixed-bound bi-directional inference cases adapted to a
+//   typed scrutinee so the range bounds infer consistently.
+// Tests that an inclusive range pattern `1 ..= 3` matches and inference works for
+//   the range bounds (u16-typed scrutinee).
+package match_range_infer_b145;
+
+fn main() -> i32 {
+    match 1i64 {
+        1i64 ..= 3i64 => {}
+        _ => { return 1i32; }
+    }
+    match 1u16 {
+        1u16 ..= 3u16 => {}
+        _ => { return 2i32; }
+    }
+    match 2u32 {
+        1u32 ..= 3u32 => {}
+        _ => { return 3i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/use-uninit-match.rs
+// Modifications: isize→i64; the turbofish-in-pattern arms `myoption::none::<T>` /
+//   `myoption::some::<T>(_t)` (turbofish-in-pattern is known-open, B145) → the plain
+//   `MyOption::None` / `MyOption::Some(_t)`; println → value check + return.
+// Tests a generic fn `foo<T>(o: MyOption<T>) -> i64` matching a generic enum, with a
+//   payload-binding arm mutating a local accumulator.
+package use_uninit_match_b145;
+
+enum MyOption<T> { None, Some(T) }
+
+fn foo<T>(o: MyOption<T>) -> i64 {
+    let mut x: i64 = 5i64;
+    match o {
+        MyOption::None => { }
+        MyOption::Some(_t) => { x = x + 1i64; }
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    if foo::<i64>(MyOption::None::<i64>) != 5i64 { return 1i32; }
+    if foo::<i64>(MyOption::Some(7i64)) != 6i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/for-loop-has-unit-body.rs
+// Modifications: the `unsafe { std::mem::zeroed() }` tail-stmt facet dropped
+//   (transmute/zeroed out of scope); kept the `()` unit-tail body + added a
+//   side-effect counter so the loop is observable; main returns 0.
+// Tests that a for-loop body whose tail statement is `()` (unit) type-checks
+//   and runs over a range.
+package for_loop_has_unit_body_b145;
+
+fn main() -> i32 {
+    let mut count: i64 = 0i64;
+    for _ in 0i64..3i64 {
+        count = count + 1i64;
+        ()
+    }
+    if count != 3i64 { return 1i32; }
+    return 0i32;
+}

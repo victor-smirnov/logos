@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/statics/static-function-pointer.rs
+// Modifications: isize→i64; `static F: fn(..)=f` (a fn-ptr static) → a local
+//   `let F: fn(i64)->i64 = f;` (statics → returned/local per batch convention);
+//   the `static mut G`/reassign facet modeled with a mutable local rebinding.
+// Tests binding a fn item to a fn-pointer-typed variable and calling through it,
+//   incl. reassigning the slot to a different fn item.
+package static_function_pointer_b145;
+
+fn f(x: i64) -> i64 { return x; }
+fn g(x: i64) -> i64 { return 2i64 * x; }
+
+fn main() -> i32 {
+    let bigf: fn(i64) -> i64 = f;
+    if bigf(42i64) != 42i64 { return 1i32; }
+
+    let mut bigg: fn(i64) -> i64 = f;
+    if bigg(42i64) != 42i64 { return 2i32; }
+    bigg = g;
+    if bigg(42i64) != 84i64 { return 3i32; }
+
+    return 0i32;
+}

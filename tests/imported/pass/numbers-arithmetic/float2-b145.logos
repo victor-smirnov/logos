@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float2.rs
+// Modifications: assert/assert_eq → nonzero return; a no-decimal-mantissa
+//   exponent literal `1e6f64` is rejected (see B145 gap), so the integer-mantissa
+//   forms were written with an explicit `.0` (`1.0e6`); the `e+`/`e-` and 1.5e6/1.5E6
+//   forms are kept verbatim.
+// Tests float literal forms: 1.5e6, 1.5E6, 1.0e6, exponents +/-, f32 vs f64.
+package float2_b145;
+
+fn main() -> i32 {
+    let a = 1.5e6f64;
+    let b = 1.5E6f64;
+    let c = 1.0e6f64;
+    let d = 1.0E6f64;
+    let e = 3.0f32;
+    let f = 5.9f64;
+    let g = 1.0e6f32;
+    let h = 1.0e7f64;
+    let i = 1.0E7f64;
+    let j = 3.1e+9f64;
+    let k = 3.2e-10f64;
+    if a != b { return 1i32; }
+    if !(c < b) { return 2i32; }
+    if c != d { return 3i32; }
+    if !(e < g) { return 4i32; }
+    if !(f < h) { return 5i32; }
+    if g != 1000000.0f32 { return 6i32; }
+    if h != i { return 7i32; }
+    if !(j > k) { return 8i32; }
+    if !(k < a) { return 9i32; }
+    return 0i32;
+}

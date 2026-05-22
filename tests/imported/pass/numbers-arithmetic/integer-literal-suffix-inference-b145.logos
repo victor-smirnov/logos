@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/integer-literal-suffix-inference.rs
+// Modifications: usize→u64; literals suffixed; calls used in equality checks
+//   (upstream just discards). The original used each type's MIN as a negative
+//   literal (`-128` for i8 etc.); since a bare `128i8` overflows its suffix in
+//   Logos, the signed cases use in-range representative magnitudes instead — the
+//   test point (literal type inferred from the fn-param / let expected type) is
+//   preserved.
+// Tests that an unsuffixed integer literal infers its type from the fn-param /
+//   let-annotation expected type (id_i8, id_u16, etc.).
+package integer_literal_suffix_inference_b145;
+
+fn id_i8(n: i8) -> i8 { return n; }
+fn id_i16(n: i16) -> i16 { return n; }
+fn id_i32(n: i32) -> i32 { return n; }
+fn id_i64(n: i64) -> i64 { return n; }
+fn id_uint(n: u64) -> u64 { return n; }
+fn id_u8(n: u8) -> u8 { return n; }
+fn id_u16(n: u16) -> u16 { return n; }
+fn id_u32(n: u32) -> u32 { return n; }
+fn id_u64(n: u64) -> u64 { return n; }
+
+fn main() -> i32 {
+    let j8: i8 = 0i8 - 127i8;
+    if id_i8(j8) != 0i8 - 127i8 { return 1i32; }
+
+    let j16: i16 = 0i16 - 32767i16;
+    if id_i16(j16) != 0i16 - 32767i16 { return 2i32; }
+
+    let j32: i32 = 0i32 - 2147483647i32;
+    if id_i32(j32) != 0i32 - 2147483647i32 { return 3i32; }
+
+    let j64: i64 = 0i64 - 9223372036854775807i64;
+    if id_i64(j64) != 0i64 - 9223372036854775807i64 { return 4i32; }
+
+    let ju: u64 = 1u64;
+    if id_uint(ju) != 1u64 { return 5i32; }
+
+    let ju8: u8 = 255u8;
+    if id_u8(ju8) != 255u8 { return 6i32; }
+
+    let ju16: u16 = 65535u16;
+    if id_u16(ju16) != 65535u16 { return 7i32; }
+
+    let ju32: u32 = 4294967295u32;
+    if id_u32(ju32) != 4294967295u32 { return 8i32; }
+
+    let ju64: u64 = 18446744073709551615u64;
+    if id_u64(ju64) != 18446744073709551615u64 { return 9i32; }
+
+    return 0i32;
+}

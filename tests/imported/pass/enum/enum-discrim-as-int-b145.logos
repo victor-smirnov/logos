@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/enum-vec-initializer.rs
+// Modifications: the const-array-length facet (`[0; Flopsy::Bunny as usize]`) uses
+//   const-eval in type position, which is a Divergence (metacall replaces const-eval)
+//   — distilled to the actual run-pass core: an explicit-discriminant enum variant
+//   cast `Flopsy::Bunny as u64` evaluates to its discriminant value at runtime.
+//   usize→u64; assert → nonzero return.
+// Tests reading an explicit enum discriminant via `as u64`.
+package enum_discrim_as_int_b145;
+
+enum Flopsy {
+    Bunny = 2
+}
+
+fn main() -> i32 {
+    let bar: u64 = Flopsy::Bunny as u64;
+    if bar != 2u64 { return 1i32; }
+    return 0i32;
+}

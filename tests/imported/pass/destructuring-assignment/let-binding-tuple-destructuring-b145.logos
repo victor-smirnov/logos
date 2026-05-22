@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/destructuring-assignment/let-binding-tuple-destructuring.rs
+// Modifications: literals suffixed; assert_eq → nonzero return.
+// Tests basic multiple-variable declaration via tuple destructuring in a `let`.
+package let_binding_tuple_destructuring_b145;
+
+fn main() -> i32 {
+    let (x, y) = (10i64, 20i64);
+    let z = x + y;
+    if z != 30i64 { return 1i32; }
+    return 0i32;
+}

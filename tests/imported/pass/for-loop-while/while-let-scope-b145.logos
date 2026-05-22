@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-let-scope.rs
+// Modifications: check-pass → run-pass (added an observable counter + return);
+//   `Some(1)` literal used directly.
+// Regression test for rust #40235: a `while let Some(foo) = ...` binding `foo`
+//   does not leak its scope past the loop (a later free `foo()` call resolves to
+//   the outer fn, not the loop binding).
+package while_let_scope_b145;
+
+fn foo() -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    let mut hit: i64 = 0i64;
+    while let Option::Some(foo) = Option::Some(1i64) {
+        hit = hit + foo;
+        break;
+    }
+    if foo() != 7i64 { return 1i32; }
+    if hit != 1i64 { return 2i32; }
+    return 0i32;
+}

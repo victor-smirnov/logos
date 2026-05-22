@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn-unique.rs
+// Modifications: `Box<T>` → by-value `T` (Box → value, B111 known-open); println →
+//   value check + return.
+// Tests an identity generic fn `fn f<T>(x: T) -> T` instantiated at i64 and the
+//   result used.
+package generic_fn_unique_b145;
+
+fn f<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let x = f(3i64);
+    if x != 3i64 { return 1i32; }
+    return 0i32;
+}

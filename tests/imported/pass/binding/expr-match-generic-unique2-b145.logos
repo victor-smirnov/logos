@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-generic-unique2.rs
+// Modifications: `Box<isize>` → i64 (Box → value); `T: Clone` → `T: Copy` (so the
+//   value can be used in both match arms + the compare without a move error — i64 is
+//   Copy); assert/panic → nonzero return.
+// Tests a generic `fn test_generic<T: Copy, F: FnOnce(T,T)->bool>` whose body matches a
+//   bool scrutinee to produce a `T` value, then calls the FnOnce `eq` on the two values.
+package expr_match_generic_unique2_b145;
+
+fn test_generic<T: Copy, F>(expected: T, other: T, eq: F) -> bool where F: FnOnce(T, T) -> bool {
+    let actual: T = match true {
+        true => expected,
+        false => expected
+    };
+    return eq(actual, other);
+}
+
+fn compare(v1: i64, v2: i64) -> bool { return v1 == v2; }
+
+fn main() -> i32 {
+    if !test_generic(1i64, 1i64, compare) { return 1i32; }
+    return 0i32;
+}

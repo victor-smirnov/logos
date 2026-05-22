@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/simple-generic-match.rs
+// Modifications: isize→i64; the `clam::a::<isize>(_)` TURBOFISH-in-pattern form is
+//   rejected (see B145 gap), so the arm is the plain `Clam::A(_)`; the generic enum
+//   value is still constructed with the concrete `i64` payload.
+// Tests matching a generic enum value `Clam::A(2i64)` against a payload pattern.
+package simple_generic_match_b145;
+
+enum Clam<T> { A(T) }
+
+fn main() -> i32 {
+    let c = Clam::A(2i64);
+    match c {
+        Clam::A(_) => { return 0i32; }
+    }
+}

@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/multiple-refutable-patterns-13867.rs
+// Modifications: usize→u64; assert_eq → nonzero return. A LITERAL pattern inside an
+//   enum-variant payload (`FooUint(1u64)`) is silently NOT tested in Logos (see B145
+//   gap), so the discriminating arms use the variant-tag + char-range only
+//   (`FooUint(_)` / `FooNullary`); the test point — multiple refutable patterns over a
+//   tuple of (enum, char-range) and (char-range, enum) — is preserved.
+// Tests codegen with multiple refutable patterns in a match over tuples mixing an
+//   enum variant pattern with a char-range / char-literal pattern.
+package multiple_refutable_patterns_13867_b145;
+
+enum Foo {
+    FooUint(u64),
+    FooNullary
+}
+
+fn main() -> i32 {
+    // (FooNullary, 'a') should miss the FooUint arm and the ('x') arm → wildcard 0.
+    let r1 = match (Foo::FooNullary, 'a') {
+        (Foo::FooUint(_), 'a'..='z') => 1i64,
+        (Foo::FooNullary, 'x') => 2i64,
+        _ => 0i64
+    };
+    if r1 != 0i64 { return 1i32; }
+
+    // (FooNullary, 'a') hits the FooNullary-'a' arm → 3.
+    let r2 = match (Foo::FooNullary, 'a') {
+        (Foo::FooUint(_), 'x') => 2i64,
+        (Foo::FooNullary, 'a') => 3i64,
+        _ => 0i64
+    };
+    if r2 != 3i64 { return 2i32; }
+
+    // ('a', FooUint(_)) hits the first arm ('a'..='z', FooUint) → 1.
+    let r3 = match ('a', Foo::FooUint(0u64)) {
+        ('a'..='z', Foo::FooUint(_)) => 1i64,
+        ('a', Foo::FooNullary) => 3i64,
+        _ => 0i64
+    };
+    if r3 != 1i64 { return 3i32; }
+
+    // pure char-range tuple, no matching arm → wildcard 0.
+    let r4 = match ('a', 'a') {
+        ('a'..='z', 'b') => 1i64,
+        ('x', 'a'..='z') => 2i64,
+        _ => 0i64
+    };
+    if r4 != 0i64 { return 4i32; }
+
+    // exact ('a','a') arm wins over the earlier ranges → 3.
+    let r5 = match ('a', 'a') {
+        ('a'..='z', 'b') => 1i64,
+        ('x', 'a'..='z') => 2i64,
+        ('a', 'a') => 3i64,
+        _ => 0i64
+    };
+    if r5 != 3i64 { return 5i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-infer-fnmut-calling-fnmut.rs
+// Modifications: closures given block bodies; assert_eq → nonzero return.
+// Tests that a closure capturing `&mut counter` is inferred FnMut and a second
+//   closure that CALLS the first is in turn inferred FnMut.
+package unboxed_closures_infer_fnmut_calling_fnmut_b145;
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    {
+        let mut tick1 = || { counter = counter + 1i64; };
+        let mut tick2 = || { tick1(); tick1(); };
+        tick2();
+    }
+    if counter != 2i64 { return 1i32; }
+    return 0i32;
+}

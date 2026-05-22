@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/tup.rs
+// Modifications: isize→i64; type alias kept; assert_eq → nonzero return;
+//   tuples are Copy so the two `f(p,..)`/`f(p2,..)` calls keep the original point.
+// Tests a tuple type alias used as a fn-param type + `let (a,b) = p` destructuring
+//   of the aliased tuple, both at fn-entry and inside a callee.
+package tup_b145;
+
+type point = (i64, i64);
+
+fn f(p: point, x: i64, y: i64) -> i32 {
+    let (a, b) = p;
+    if a != x { return 1i32; }
+    if b != y { return 2i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let p: point = (10i64, 20i64);
+    let (a, b) = p;
+    if a != 10i64 { return 3i32; }
+    if b != 20i64 { return 4i32; }
+    let p2: point = p;
+    if f(p, 10i64, 20i64) != 0i32 { return 5i32; }
+    if f(p2, 10i64, 20i64) != 0i32 { return 6i32; }
+    return 0i32;
+}
