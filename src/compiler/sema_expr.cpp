@@ -5491,7 +5491,43 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     } else if (recv_inner && is_ref_like(TypeRef(recv_inner).kind()) && TypeRef(recv_inner).pointee()) {
         recv_inner = TypeRef(recv_inner).pointee();
     }
-    if (TypeRef(recv_inner).kind() == LogosType::Kind::TypeVar) {
+    // Gap-3: an associated-type projection `G::R` dispatches its methods via
+    // the assoc-type's declared bounds (`type R: HasId`), exactly like a
+    // bounded TypeVar. resolve_type_assoc_ref stashed those bounds in
+    // current_type_bounds_[type_str(projection)]. mono normalizes G::R to the
+    // concrete type and re-dispatches the method there.
+    bool recv_is_tv    = TypeRef(recv_inner).kind() == LogosType::Kind::TypeVar;
+    bool recv_is_assoc = TypeRef(recv_inner).kind() == LogosType::Kind::AssocType;
+    std::string recv_bound_key = recv_is_tv
+        ? std::string(TypeRef(recv_inner).type_var_name())
+        : type_str(recv_inner);
+    // Gap-3 gating: only intercept an AssocType receiver here when its declared
+    // bounds provide a NON-default method of this name (the concrete-impl case,
+    // e.g. `type R: HasId` + `impl HasId for Widget`). When the only provider is
+    // a *default* method (typically reached via a blanket `impl<T> Tr for T`),
+    // leave it to the pre-existing dispatch path below — intercepting it here
+    // built a call mono couldn't resolve for the projection (SIGSEGV).
+    if (recv_is_assoc) {
+        bool found_nondefault = false;
+        StrSet pv;
+        std::function<void(const std::string&)> probe = [&](const std::string& tn) {
+            if (!pv.insert(tn).second) return;
+            auto it = find_trait_iter_scoped(tn);
+            if (it == traits_.end()) return;
+            for (auto& m : it->second.methods)
+                if (m.name == method_name && !m.has_default) found_nondefault = true;
+            for (auto& s : it->second.supertraits) probe(s.trait_name);
+        };
+        auto tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+        if (tdef != traits_.end()) {
+            std::string an(TypeRef(recv_inner).assoc_type_name());
+            for (auto& at : tdef->second.assoc_types)
+                if (at.name == an)
+                    for (auto& b : at.bounds) probe(b.trait_name);
+        }
+        if (!found_nondefault) recv_is_assoc = false;  // defer to the old path
+    }
+    if (recv_is_tv || recv_is_assoc) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = arr_of(node.get(la::ARGS.code));
@@ -5499,7 +5535,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
 
-        auto bit = current_type_bounds_.find(TypeRef(recv_inner).type_var_name());
+        auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
 
@@ -5517,7 +5553,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (chosen_method && chosen_trait != tname)
                     error(std::format(
                         "method '{}' is ambiguous for type parameter '{}' (matches traits '{}' and '{}')",
-                        std::string(method_name), TypeRef(recv_inner).type_var_name(), chosen_trait, tname));
+                        std::string(method_name), recv_bound_key, chosen_trait, tname));
                 chosen_method = &m;
                 chosen_trait  = tname;
                 return;  // method found in this trait; don't recurse further
@@ -5530,6 +5566,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (bit != current_type_bounds_.end()) {
             for (auto& bound : bit->second)
                 search_trait(bound.trait_name);
+        }
+        // Gap-3: for an AssocType projection `G::R`, the bounds may not be in
+        // current_type_bounds_ (the projection came from method-return
+        // substitution, not resolve_type_assoc_ref). Pull the assoc-type's
+        // declared bounds (`type R: HasId`) straight from the trait decl.
+        if (recv_is_assoc) {
+            auto tdef = find_trait_iter_scoped(std::string(TypeRef(recv_inner).trait_name()));
+            if (tdef != traits_.end()) {
+                std::string an(TypeRef(recv_inner).assoc_type_name());
+                for (auto& at : tdef->second.assoc_types)
+                    if (at.name == an)
+                        for (auto& b : at.bounds) search_trait(b.trait_name);
+            }
         }
 
         // Blanket-derived bounds: if `impl<U: B> Ext for U {}` exists and `T: B`
@@ -5682,7 +5731,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             self_subst["Self"] = recv_inner;
             // Substitute trait type params from the bound: e.g. T: Into<i32> → Into::T = i32
             {
-                auto bit2 = current_type_bounds_.find(TypeRef(recv_inner).type_var_name());
+                auto bit2 = current_type_bounds_.find(recv_bound_key);
                 if (bit2 != current_type_bounds_.end()) {
                     for (auto& bound : bit2->second) {
                         if (bound.trait_name != chosen_trait) continue;

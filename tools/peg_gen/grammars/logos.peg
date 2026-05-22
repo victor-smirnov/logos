@@ -1184,7 +1184,7 @@
     // type_or_lt_arg's hermes_lit alt; at top-level naming, use
     // `pub const X: HermesStatic = @{...};` instead of legacy
     // `pub type X = @{...};` (the latter no longer parses).
-    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / paren_type / assoc_type_ref / simple_type
+    type_ref <- antiquot_type / typeof_type / cfg_slot_assoc_ref / cfg_slot_type / hermes_arr_type / hermes_map_type / ptr_type / arr_type / slice_type / tagged_type / dyn_type / ref_type / impl_type / unit_type / closure_type / fn_ptr_type / tuple_type / paren_type / qualified_assoc_type / assoc_type_ref / simple_type
 
     // (T) — paren-wrapped type. Distinct from `()` (unit), `(T,)` (1-tuple),
     // and `(T1, T2)` (n-tuple). Sema unwraps PAREN_TYPE.TYPE to its inner.
@@ -1237,6 +1237,13 @@
                     => { CODE: HERMES_MAP_TYPE, TYPE: $2, RET_TYPE: $4 }
                    / LT IDENT GT_TYPE LBRACE RBRACE
                     => { CODE: HERMES_MAP_TYPE, TYPE: $2 }
+
+    // <T as Trait>::Assoc — fully-qualified associated-type projection. The
+    // `as Trait` disambiguates which trait's assoc type; sema resolves it the
+    // same as the `T::Assoc` sugar (RECEIVER = T, FIELD = the assoc name), with
+    // the trait recorded in NAME for disambiguation when needed.
+    qualified_assoc_type <- LT type_ref KW_AS simple_type GT_TYPE COLONCOLON IDENT
+                         => { CODE: ASSOC_TYPE_REF, RECEIVER: $2, NAME: $4, FIELD: $7 }
 
     // T::Item / T::Item<A, B> — associated type reference (plain or GAT with type args)
     assoc_type_ref <- simple_type
@@ -1396,7 +1403,7 @@
     // (whitespace-tolerant) at type position. `&&T` (no whitespace) is
     // still handled by the DOUBLE_REF_TYPE alts above, which the lexer
     // routes through the AND token.
-    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / simple_type
+    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*

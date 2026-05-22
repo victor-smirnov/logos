@@ -1410,6 +1410,10 @@ private:
     }
 
     bool is_move_type(TypeRef t) const;
+    // Gap-4: normalize an associated-type projection `T::A` to a concrete type
+    // when T carries an equality bound `Trait<A = V>` in scope. Returns t
+    // unchanged if it isn't a normalizable projection. Non-recursive (one hop).
+    TypeRef normalize_assoc_eq(TypeRef t) const;
     // Auto-Copy pass — populates copy_types_ for structs whose every field
     // is a Copy type and which have no `impl Drop`. Called after
     // check_supertrait_impls so manual `impl Copy` entries are already in.

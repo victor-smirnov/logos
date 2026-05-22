@@ -1735,7 +1735,10 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                     impl_ret_type_inferred_ = val->type;
             } else if (ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                 TypeRef(val->type).kind() != LogosType::Kind::Error &&
-                !compat(val->type, ret_type_)) {
+                !compat(val->type, ret_type_) &&
+                // Gap-4: normalize a projection `T::A` via an equality bound
+                // `T: Trait<A = V>` before declaring a mismatch.
+                !compat(normalize_assoc_eq(val->type), ret_type_)) {
                 auto [es, gs] = type_str_pair(ret_type_, val->type);
                 error(std::format("return type mismatch — expected {}, got {}",
                       es, gs));

@@ -1,0 +1,26 @@
+// Associated-type projection grammar: `&Self::Value` (ref to a non-generic
+// projection) and `<T as Trait>::Assoc` (fully-qualified projection) now parse.
+package assoc_type_qualified_and_ref;
+
+trait Get { type Value; fn get(self: &Self) -> &Self::Value; }
+struct Holder { x: i64 }
+impl Get for Holder {
+    type Value = i64;
+    fn get(self: &Holder) -> &i64 { return &self.x; }
+}
+
+trait Foo { type A; fn make(self: &Self) -> Self::A; }
+struct S { }
+impl Foo for S { type A = i64; fn make(self: &S) -> i64 { return 7i64; } }
+fn use_it<T: Foo>(t: &T) -> <T as Foo>::A { return t.make(); }
+
+fn main() -> i32 {
+    let h: Holder = Holder { x: 42i64 };
+    let r: &i64 = h.get();               // &Self::Value
+    if *r != 42i64 { return 1i32; }
+
+    let s: S = S {};
+    if use_it(&s) != 7i64 { return 2i32; }  // <T as Foo>::A
+
+    return 0i32;
+}

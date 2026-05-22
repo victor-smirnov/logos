@@ -2207,6 +2207,23 @@ bool SemaChecker::is_move_type(TypeRef t) const {
     return !copy_types_.count(std::string(TypeRef(t).struct_name()));
 }
 
+TypeRef SemaChecker::normalize_assoc_eq(TypeRef t) const {
+    if (!t || TypeRef(t).kind() != LogosType::Kind::AssocType) return t;
+    TypeRef base = TypeRef(t).assoc_base();
+    if (!base || TypeRef(base).kind() != LogosType::Kind::TypeVar) return t;
+    auto bit = current_type_bounds_.find(std::string(TypeRef(base).type_var_name()));
+    if (bit == current_type_bounds_.end()) return t;
+    std::string an(TypeRef(t).assoc_type_name());
+    std::string tn(TypeRef(t).trait_name());
+    for (auto& b : bit->second) {
+        // Match the trait (when the projection records one) and the assoc name.
+        if (!tn.empty() && !b.trait_name.empty() && b.trait_name != tn) continue;
+        for (auto& [name, ty] : b.assoc_eqs)
+            if (name == an && ty) return ty;
+    }
+    return t;
+}
+
 std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (!t) return {};
     // TypeVar — a generic param. Whether the substituted concrete type has a
@@ -4020,6 +4037,10 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             }
         }
     }
+    // Gap-4: if the base type-param carries an equality bound `Trait<A = V>`,
+    // normalize `T::A` directly to V at resolution time (so annotations like
+    // `fn f<T: Foo<A=i64>>(…) -> T::A` see the concrete type).
+    if (auto norm = normalize_assoc_eq(result); norm != result) return norm;
     return result;
 }
 

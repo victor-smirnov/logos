@@ -1,0 +1,31 @@
+// Associated-type projection normalization:
+//  - method dispatch on a value of projected type `G::R` via the assoc-type's
+//    declared bound (`type R: HasId`)  [gap 3]
+//  - equality bound `T: Foo<A = i64>` normalizes the projection `T::A` to i64 [gap 4]
+package assoc_type_projection_dispatch;
+
+trait HasId { fn id(self: &Self) -> i64; }
+struct Widget { n: i64 }
+impl HasId for Widget { fn id(self: &Widget) -> i64 { return self.n; } }
+
+trait Make { type R: HasId; fn make(self: &Self) -> Self::R; }
+struct Factory { }
+impl Make for Factory { type R = Widget; fn make(self: &Factory) -> Widget { return Widget { n: 99i64 }; } }
+
+fn build_and_id<G: Make>(g: &G) -> i64 {
+    let r = g.make();   // r: G::R
+    return r.id();      // method via the assoc-type bound HasId
+}
+
+trait Foo { type A; fn get(self: &Self) -> Self::A; }
+struct S { }
+impl Foo for S { type A = i64; fn get(self: &S) -> i64 { return 5i64; } }
+fn use_eq<T: Foo<A = i64>>(t: &T) -> i64 { return t.get(); }   // T::A normalizes to i64
+
+fn main() -> i32 {
+    let f: Factory = Factory {};
+    if build_and_id(&f) != 99i64 { return 1i32; }
+    let s: S = S {};
+    if use_eq(&s) != 5i64 { return 2i32; }
+    return 0i32;
+}
