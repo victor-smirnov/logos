@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binops.rs (test_bool subset)
+// Modifications: assert! -> distinct nonzero rets; nil/ptr/char/dispatch
+//   subtests dropped (transmute / unit-relational facets). Kept bool
+//   relational + bitwise corner cases.
+// Tests bool relational (`<`,`<=`,`>`,`>=`) ordering (false < true) plus
+//   bitwise `&` `|` `^` on bools.
+package binop_bool_bitwise_b138;
+
+fn main() -> i32 {
+    if true < false { return 1i32; }
+    if true <= false { return 2i32; }
+    if !(true > false) { return 3i32; }
+    if !(true >= false) { return 4i32; }
+    if !(false < true) { return 5i32; }
+    if !(false <= true) { return 6i32; }
+    if false > true { return 7i32; }
+
+    if (false & false) != false { return 8i32; }
+    if (true & false) != false { return 9i32; }
+    if (true & true) != true { return 10i32; }
+    if (false | false) != false { return 11i32; }
+    if (true | false) != true { return 12i32; }
+    if (false ^ false) != false { return 13i32; }
+    if (true ^ false) != true { return 14i32; }
+    if (true ^ true) != false { return 15i32; }
+    return 0i32;
+}

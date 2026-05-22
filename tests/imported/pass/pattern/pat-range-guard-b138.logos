@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/match-ranges.rs (distilled)
+// Modifications: println! dropped; uses match-arm guards (`if`) over an i32
+//   since at-binding over inclusive ranges segfaults logosc (B107 known-open).
+// Tests guarded match arms classifying an integer into bands.
+package pat_range_guard_b138;
+
+fn band(n: i32) -> i32 {
+    match n {
+        x if x < 0i32 => { return 0i32; }
+        x if x < 10i32 => { return 1i32; }
+        x if x < 100i32 => { return 2i32; }
+        _ => { return 3i32; }
+    }
+}
+
+fn main() -> i32 {
+    if band(0 - 5i32) != 0i32 { return 1i32; }
+    if band(5i32) != 1i32 { return 2i32; }
+    if band(50i32) != 2i32 { return 3i32; }
+    if band(500i32) != 3i32 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/pat-tuple-1.rs (distilled)
+// Modifications: assert_eq! -> nonzero ret; literal patterns + wildcard in a
+//   match over a tuple of ints.
+// Tests matching over a 3-tuple with literal sub-patterns, wildcards, and a
+//   binding arm.
+package pat_tuple_nested_b138;
+
+fn classify(t: (i32, i32, i32)) -> i32 {
+    match t {
+        (0i32, _, _) => { return 1i32; }
+        (_, 0i32, _) => { return 2i32; }
+        (a, b, c) => { return a + b + c; }
+    }
+}
+
+fn main() -> i32 {
+    if classify((0i32, 9i32, 9i32)) != 1i32 { return 1i32; }
+    if classify((5i32, 0i32, 9i32)) != 2i32 { return 2i32; }
+    if classify((1i32, 2i32, 3i32)) != 6i32 { return 3i32; }
+    return 0i32;
+}

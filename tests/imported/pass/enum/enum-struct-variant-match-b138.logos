@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-struct-variant.rs (distilled)
+// Modifications: println! dropped; `match self` over `*self` (Logos deref);
+//   nonzero ret on miss. Box dropped (not used).
+// Tests an enum with a struct-like variant `Bar { x }` and a unit-like variant,
+//   matched with field-binding pattern.
+package enum_struct_variant_match_b138;
+
+enum E {
+    Bar { x: i32 },
+    Baz,
+}
+
+fn val(e: &E) -> i32 {
+    match *e {
+        E::Bar { x } => { return x; }
+        E::Baz => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let a: E = E::Bar { x: 42i32 };
+    let b: E = E::Baz;
+    if val(&a) != 42i32 { return 1i32; }
+    if val(&b) != 0i32 { return 2i32; }
+    return 0i32;
+}

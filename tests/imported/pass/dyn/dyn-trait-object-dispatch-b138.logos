@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/trait-object-vtable.rs (distilled)
+// Modifications: Box<dyn T> -> `&dyn T` (stack); println! dropped; nonzero ret.
+// Tests dynamic dispatch through a `&dyn Trait` over two distinct impls.
+package dyn_trait_object_dispatch_b138;
+
+trait Shape {
+    fn area(self: &Self) -> i32;
+}
+
+struct Square { side: i32 }
+struct Rect { w: i32, h: i32 }
+
+impl Shape for Square { fn area(self: &Self) -> i32 { return self.side * self.side; } }
+impl Shape for Rect { fn area(self: &Self) -> i32 { return self.w * self.h; } }
+
+fn total(s: &dyn Shape) -> i32 {
+    return s.area();
+}
+
+fn main() -> i32 {
+    let sq: Square = Square { side: 4i32 };
+    let rc: Rect = Rect { w: 3i32, h: 5i32 };
+    if total(&sq) != 16i32 { return 1i32; }
+    if total(&rc) != 15i32 { return 2i32; }
+    return 0i32;
+}

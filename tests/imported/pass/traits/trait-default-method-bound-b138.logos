@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-default-method-bound.rs (distilled)
+// Modifications: println! dropped; `&self` -> `self: &Self`; trait default
+//   method calls a required method on self.
+// Tests a trait with a required method and a default method that delegates to
+//   it; an impl on a struct supplies only the required method.
+package trait_default_method_bound_b138;
+
+trait Greet {
+    fn base(self: &Self) -> i32;
+    fn doubled(self: &Self) -> i32 {
+        return self.base() * 2i32;
+    }
+}
+
+struct Thing { v: i32 }
+
+impl Greet for Thing {
+    fn base(self: &Self) -> i32 {
+        return self.v;
+    }
+}
+
+fn main() -> i32 {
+    let t: Thing = Thing { v: 7i32 };
+    if t.base() != 7i32 { return 1i32; }
+    if t.doubled() != 14i32 { return 2i32; }
+    return 0i32;
+}

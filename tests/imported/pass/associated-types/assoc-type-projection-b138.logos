@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-basic.rs (distilled)
+// Modifications: println! dropped; assoc-type projection used through a method
+//   returning the associated type.
+// Tests a trait with an associated type `Output` and a method returning it; an
+//   impl binds Output=i32.
+package assoc_type_projection_b138;
+
+trait Producer {
+    type Output;
+    fn produce(self: &Self) -> Self::Output;
+}
+
+struct Const7 {}
+
+impl Producer for Const7 {
+    type Output = i32;
+    fn produce(self: &Self) -> i32 {
+        return 7i32;
+    }
+}
+
+fn main() -> i32 {
+    let c: Const7 = Const7 {};
+    if c.produce() != 7i32 { return 1i32; }
+    return 0i32;
+}

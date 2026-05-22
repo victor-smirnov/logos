@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-newtype-struct.rs (distilled)
+// Modifications: println! dropped; generic struct with an inherent method,
+//   instantiated at two element types.
+// Tests a generic struct `Wrap<T>` with an inherent `get` method, used at i32
+//   and bool.
+package generic_newtype_impl_b138;
+
+struct Wrap<T> { inner: T }
+
+impl<T> Wrap<T> {
+    fn get(self: Wrap<T>) -> T {
+        return self.inner;
+    }
+}
+
+fn main() -> i32 {
+    let a: Wrap<i32> = Wrap { inner: 99i32 };
+    if a.get() != 99i32 { return 1i32; }
+    let b: Wrap<bool> = Wrap { inner: true };
+    if b.get() != true { return 2i32; }
+    return 0i32;
+}

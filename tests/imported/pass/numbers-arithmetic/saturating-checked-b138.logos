@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/saturating-float-casts.rs +
+//   num/int_macros checked ops (distilled)
+// Modifications: assert_eq! -> nonzero ret; checked/saturating/wrapping methods
+//   on i32/u8. Option<i32> result matched (no Eq on Option<i32>).
+// Tests checked_add overflow -> None, wrapping_add wrap, saturating_add clamp.
+package saturating_checked_b138;
+
+fn main() -> i32 {
+    let m: i32 = 2147483647i32;
+    match m.checked_add(1i32) {
+        Some(_) => { return 1i32; }
+        None => {}
+    }
+    match 5i32.checked_add(3i32) {
+        Some(v) => { if v != 8i32 { return 2i32; } }
+        None => { return 3i32; }
+    }
+    if 250u8.wrapping_add(10u8) != 4u8 { return 4i32; }
+    if m.saturating_add(100i32) != m { return 5i32; }
+    return 0i32;
+}

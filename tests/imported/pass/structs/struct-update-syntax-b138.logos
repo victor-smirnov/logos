@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-base-wf.rs / FRU patterns (distilled)
+// Modifications: assert_eq! -> nonzero ret; functional-record-update `..base`.
+// Tests functional record update: build a new struct copying remaining fields
+//   from an existing one via `..base`.
+package struct_update_syntax_b138;
+
+struct Point3 { x: i32, y: i32, z: i32 }
+
+fn main() -> i32 {
+    let base: Point3 = Point3 { x: 1i32, y: 2i32, z: 3i32 };
+    let moved: Point3 = Point3 { x: 10i32, ..base };
+    if moved.x != 10i32 { return 1i32; }
+    if moved.y != 2i32 { return 2i32; }
+    if moved.z != 3i32 { return 3i32; }
+    return 0i32;
+}

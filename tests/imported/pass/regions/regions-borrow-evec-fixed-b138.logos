@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-borrow-evec-fixed.rs
+// Modifications: isize->i32; assert_eq! -> nonzero ret; explicit return.
+// Tests borrowing a fixed-size array as a `&[i32]` and indexing element 0
+//   through the borrowed slice.
+package regions_borrow_evec_fixed_b138;
+
+fn foo(x: &[i32]) -> i32 {
+    return x[0];
+}
+
+fn main() -> i32 {
+    let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
+    let p: &[i32] = &arr;
+    if foo(p) != 1i32 { return 1i32; }
+    return 0i32;
+}

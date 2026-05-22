@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-expect-unsized.rs (distilled)
+// Modifications: Box/Rc/RefCell/dyn facets dropped; kept the `&[T]` coercion
+//   from a `&[T; N]` array reference (array-ref -> slice-ref unsizing).
+// Tests coercing `&[i32; 3]` to `&[i32]` and reading the slice length/elements.
+package coerce_block_to_slice_ref_b138;
+
+fn sum(s: &[i32]) -> i32 {
+    let mut acc: i32 = 0i32;
+    let mut i: i64 = 0i64;
+    let n: i64 = s.len();
+    while i < n {
+        acc = acc + s[i];
+        i = i + 1i64;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    let a: [i32; 3] = [1i32, 2i32, 3i32];
+    let s: &[i32] = &a;
+    if sum(s) != 6i32 { return 1i32; }
+    return 0i32;
+}

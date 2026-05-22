@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn.rs + traits combine (distilled)
+// Modifications: println! dropped; generic free fn with a trait bound used to
+//   dispatch a trait method generically.
+// Tests a generic function `apply<T: Doubler>` calling the trait method on its
+//   generic argument, instantiated for two impls.
+package generic_default_method_b138;
+
+trait Doubler {
+    fn double(self: &Self) -> i32;
+}
+
+struct A { n: i32 }
+struct B { m: i32 }
+
+impl Doubler for A { fn double(self: &Self) -> i32 { return self.n + self.n; } }
+impl Doubler for B { fn double(self: &Self) -> i32 { return self.m * 2i32; } }
+
+fn apply<T: Doubler>(x: &T) -> i32 {
+    return x.double();
+}
+
+fn main() -> i32 {
+    let a: A = A { n: 4i32 };
+    let b: B = B { m: 5i32 };
+    if apply::<A>(&a) != 8i32 { return 1i32; }
+    if apply::<B>(&b) != 10i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-as-bool.rs / numeric casts (distilled)
+// Modifications: assert_eq! -> nonzero ret; int<->float and width casts.
+// Tests numeric casts: i32->f64->i32 roundtrip, u8<->i32, i64->u32 truncation.
+package cast_int_float_roundtrip_b138;
+
+fn main() -> i32 {
+    let x: i32 = 42i32;
+    let f: f64 = x as f64;
+    if (f as i32) != 42i32 { return 1i32; }
+
+    let b: u8 = 200u8;
+    let w: i32 = b as i32;
+    if w != 200i32 { return 2i32; }
+
+    let big: i64 = 4294967297i64;
+    let t: u32 = big as u32;
+    if t != 1u32 { return 3i32; }
+
+    let c: char = (65u32 as char);
+    if (c as u32) != 65u32 { return 4i32; }
+    return 0i32;
+}

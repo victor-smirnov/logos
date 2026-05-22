@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-immediate.rs (idea distilled)
+// Modifications: assert_eq! -> nonzero ret; closures pinned to typed local
+//   then called (immediate-call sugar `(|x|..)(y)` is a parse gap, see notes).
+// Tests a closure capturing an environment value, invoked via FnMut, plus a
+//   non-capturing closure called with an argument.
+package closure_immediate_call_b138;
+
+fn main() -> i32 {
+    let base: i32 = 10i32;
+    let add = |x: i32| -> i32 { return x + base; };
+    if add(5i32) != 15i32 { return 1i32; }
+
+    let dbl = |y: i32| -> i32 { return y * 2i32; };
+    if dbl(21i32) != 42i32 { return 2i32; }
+    return 0i32;
+}

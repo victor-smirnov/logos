@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/iterators/iter-sum.rs (distilled)
+// Modifications: closures -> named fn-ptr predicates (closure->fn-ptr at
+//   trait-default-method args isn't auto-coerced; free-fn adapters used).
+//   assert_eq! -> nonzero ret; iter_over_slice/iter_filter/iter_fold wrapped
+//   in `unsafe { .. }` (iter_over_slice is an unsafe free fn).
+// Tests an iterator pipeline over a slice: filter (even) then fold to a sum.
+package iter_map_filter_sum_b138;
+
+fn is_even(x: i32) -> bool {
+    return (x % 2i32) == 0i32;
+}
+
+fn add(acc: i32, x: i32) -> i32 {
+    return acc + x;
+}
+
+fn main() -> i32 {
+    let v: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    let mut total: i32 = 0i32;
+    unsafe {
+        let it = iter_filter(iter_over_slice(&v), is_even);
+        total = iter_fold(it, 0i32, add);
+    }
+    if total != 12i32 { return 1i32; }
+    return 0i32;
+}

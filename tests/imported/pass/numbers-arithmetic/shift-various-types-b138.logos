@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift-various-types.rs (distilled)
+// Modifications: assert_eq! -> nonzero ret; isize->i64; shift by an integer
+//   count over u8/i32/u64/i64; explicit suffixes.
+// Tests left/right shifts across several integer widths and signedness.
+package shift_various_types_b138;
+
+fn main() -> i32 {
+    if (1u8 << 3u32) != 8u8 { return 1i32; }
+    if (255u8 >> 4u32) != 15u8 { return 2i32; }
+    if (1i32 << 10u32) != 1024i32 { return 3i32; }
+    if (1024i32 >> 5u32) != 32i32 { return 4i32; }
+    if (1u64 << 40u32) != 1099511627776u64 { return 5i32; }
+    if ((0 - 8i64) >> 1u32) != (0 - 4i64) { return 6i32; }
+    return 0i32;
+}

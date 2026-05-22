@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-generic-method.rs (distilled)
+// Modifications: println! dropped; trait with a method generic over a bound,
+//   used to combine two values.
+// Tests a trait method with its own type parameter bound (`fn pair<U: Into...>`
+//   simplified to a same-type combine) dispatched on a struct receiver.
+package trait_generic_method_b138;
+
+trait Combine {
+    fn combine(self: &Self, other: i32) -> i32;
+}
+
+struct Adder { base: i32 }
+
+impl Combine for Adder {
+    fn combine(self: &Self, other: i32) -> i32 {
+        return self.base + other;
+    }
+}
+
+fn main() -> i32 {
+    let a: Adder = Adder { base: 100i32 };
+    if a.combine(23i32) != 123i32 { return 1i32; }
+    if a.combine(0 - 100i32) != 0i32 { return 2i32; }
+    return 0i32;
+}

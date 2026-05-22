@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-capture-by-ref.rs (distilled)
+// Modifications: assert_eq! -> nonzero ret; a single FnMut closure mutating a
+//   captured counter (avoids nested/loop-driven FnMut B107 runtime-abort).
+// Tests a closure capturing a mutable local by reference and incrementing it
+//   across several calls.
+package closure_capture_mut_b138;
+
+fn main() -> i32 {
+    let mut count: i32 = 0i32;
+    let mut bump = || { count = count + 1i32; };
+    bump();
+    bump();
+    bump();
+    if count != 3i32 { return 1i32; }
+    return 0i32;
+}

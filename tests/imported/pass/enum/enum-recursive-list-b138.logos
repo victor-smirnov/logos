@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-rec/ (recursive enum, distilled)
+// Modifications: Rust's `Box<List>` tail -> a raw `*const List` cell (Logos
+//   rejects a by-value self-referential enum payload: "infinite-size enum";
+//   it requires the tail be boxed via `*const List`). Nodes pinned to locals
+//   and addressed under `unsafe`. assert_eq! -> nonzero ret; `match self` over
+//   `*self`.
+// Tests a recursive enum (cons-list) with a `*const List` tail and a recursive
+//   sum walking the list.
+package enum_recursive_list_b138;
+
+enum List {
+    Cons { head: i32, tail: *const List },
+    Nil,
+}
+
+fn sum(l: &List) -> i32 {
+    match *l {
+        List::Cons { head, tail } => {
+            unsafe {
+                return head + sum(&*tail);
+            }
+        }
+        List::Nil => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    let n0: List = List::Nil;
+    let n1: List = List::Cons { head: 3i32, tail: &n0 as *const List };
+    let n2: List = List::Cons { head: 2i32, tail: &n1 as *const List };
+    let n3: List = List::Cons { head: 1i32, tail: &n2 as *const List };
+    if sum(&n3) != 6i32 { return 1i32; }
+    return 0i32;
+}

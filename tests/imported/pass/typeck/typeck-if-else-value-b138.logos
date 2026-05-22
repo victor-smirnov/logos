@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if/if-expr.rs (distilled)
+// Modifications: println! dropped; if/else used as an expression producing a
+//   value bound to a let.
+// Tests `if/else` as an expression yielding a value, and nested if-else chains.
+package typeck_if_else_value_b138;
+
+fn pick(n: i32) -> i32 {
+    let r: i32 = if n < 0i32 {
+        0i32 - 1i32
+    } else if n == 0i32 {
+        0i32
+    } else {
+        1i32
+    };
+    return r;
+}
+
+fn main() -> i32 {
+    if pick(0 - 5i32) != (0 - 1i32) { return 1i32; }
+    if pick(0i32) != 0i32 { return 2i32; }
+    if pick(9i32) != 1i32 { return 3i32; }
+    return 0i32;
+}
