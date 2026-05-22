@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/nested-closure-call.rs
+// Modifications: closures given block bodies; `42` suffixed; result checked via
+//   a ret guard instead of assert_eq!.
+// Tests immediately calling a closure that RETURNS a closure, then calling that:
+//   `(|| || 42)()()`.
+package nested_closure_call_b141;
+
+fn main() -> i32 {
+    let r: i64 = (|| { return || { return 42i64; }; })()();
+    if r != 42i64 { return 1i32; }
+    return 0i32;
+}

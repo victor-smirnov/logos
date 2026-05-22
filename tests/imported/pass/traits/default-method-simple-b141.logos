@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default_method_simple.rs
+// Modifications: bodyless unit struct `struct A;` → `struct A { tag: i32 }`;
+//   println! side effects → return values, with the default method `f`
+//   delegating to the required method `g` and the result checked via a ret guard.
+// Tests a trait default method `f` that calls the required method `g` on `self`,
+//   for a struct impl.
+package default_method_simple_b141;
+
+trait Foo {
+    fn f(self: &Self) -> i32 {
+        return self.g() + 1i32;
+    }
+    fn g(self: &Self) -> i32;
+}
+
+struct A { tag: i32 }
+
+impl Foo for A {
+    fn g(self: &Self) -> i32 {
+        return self.tag;
+    }
+}
+
+fn main() -> i32 {
+    let a: A = A { tag: 41i32 };
+    if a.f() != 42i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-range-char-const.rs
+// Modifications: the `const LOW_RANGE/HIGH_RANGE: char` bounds are inlined as
+//   char literals in the inclusive-range pattern (const→literal per §A); the
+//   bare `match ... ;` made observable via a returned classifier. assert→ret.
+// Tests an inclusive-range pattern over `char` (`'0'..='9'`) in a match arm.
+package match_range_char_const_b141;
+
+fn is_digit(c: char) -> bool {
+    return match c {
+        '0'..='9' => true,
+        _ => false,
+    };
+}
+
+fn main() -> i32 {
+    if !is_digit('5') { return 1i32; }
+    if is_digit('a') { return 2i32; }
+    if !is_digit('0') { return 3i32; }
+    if !is_digit('9') { return 4i32; }
+    return 0i32;
+}

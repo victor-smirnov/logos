@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/ufcs-explicit-self.rs
+// Modifications: `Box<Foo>` receiver dropped (Logos has no Box); only the
+//   by-value `self: Foo` and `self: &Foo` explicit-receiver forms kept, plus a
+//   generic `Bar<T>` with `self: Bar<T>` / `self: &Bar<T>`. isize→i64;
+//   println!→ret guards.
+// Tests explicit-self receiver annotations: `self: Type`, `self: &Type`, and
+//   the same on a generic struct `Bar<T>`.
+package ufcs_explicit_self_b141;
+
+struct Foo {
+    f: i64,
+}
+
+impl Foo {
+    fn foo(self: Foo, x: i64) -> i64 {
+        return self.f + x;
+    }
+    fn bar(self: &Foo, x: i64) -> i64 {
+        return self.f + x;
+    }
+}
+
+struct Bar<T> {
+    f: T,
+}
+
+impl<T> Bar<T> {
+    fn foo(self: Bar<T>, x: i64) -> i64 {
+        return x;
+    }
+    fn bar(self: &Bar<T>, x: i64) -> i64 {
+        return x;
+    }
+}
+
+fn main() -> i32 {
+    let foo1: Foo = Foo { f: 1i64 };
+    let foo2: Foo = Foo { f: 1i64 };
+    if foo2.bar(2i64) != 3i64 { return 2i32; }
+    if foo1.foo(2i64) != 3i64 { return 1i32; }
+
+    let bar1: Bar<i64> = Bar { f: 1i64 };
+    let bar2: Bar<i64> = Bar { f: 1i64 };
+    if bar2.bar(2i64) != 2i64 { return 4i32; }
+    if bar1.foo(2i64) != 2i64 { return 3i32; }
+    return 0i32;
+}

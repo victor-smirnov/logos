@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-with-break.rs
+// Modifications: the Vec-freed-by-break check dropped (no Vec); println!
+//   dropped; isize→i64; assert_eq!→ret guard.
+// Tests a `while` loop with a conditional `break` (early exit at i==95).
+package while_with_break_b141;
+
+fn main() -> i32 {
+    let mut i: i64 = 90i64;
+    while i < 100i64 {
+        i = i + 1i64;
+        if i == 95i64 {
+            break;
+        }
+    }
+    if i != 95i64 { return 1i32; }
+    return 0i32;
+}

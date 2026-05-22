@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-in-mut-slot-immediate-value.rs
+// Modifications: `mut self` → `mut self: Value`; `&self`-free; #[derive(Copy,Clone)]
+//   dropped; isize→i64; assert_eq!→ret guard.
+// Tests that `mut self` (by-value mutable receiver) mutates only the local copy,
+//   leaving the original unchanged (the Copy-receiver immediate-value case).
+package self_in_mut_slot_immediate_value_b141;
+
+struct Value {
+    n: i64
+}
+
+impl Value {
+    fn squared(mut self: Value) -> Value {
+        self.n = self.n * self.n;
+        return self;
+    }
+}
+
+fn main() -> i32 {
+    let x: Value = Value { n: 3i64 };
+    let y: Value = x.squared();
+    if x.n != 3i64 { return 1i32; }
+    if y.n != 9i64 { return 2i32; }
+    return 0i32;
+}

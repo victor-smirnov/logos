@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-on-negative-integer-ranges.rs
+// Modifications: the `if let` form rewritten to a `match` (semantically
+//   identical); bare negative literals `-128i8` used both in the range-pattern
+//   bounds and the test args (`0i8 - 128i8` would overflow i8); bool→ret guards.
+// Tests an inclusive-range pattern over NEGATIVE i8 bounds (`-128..=-101`) — a
+//   value outside the range (`-50`) takes the catch-all.
+package match_on_negative_integer_ranges_b141;
+
+fn in_low_band(x: i8) -> bool {
+    return match x {
+        -128i8..=-101i8 => true,
+        _ => false,
+    };
+}
+
+fn main() -> i32 {
+    if in_low_band(-50i8) { return 1i32; }
+    if !in_low_band(-128i8) { return 2i32; }
+    if !in_low_band(-110i8) { return 3i32; }
+    if in_low_band(-100i8) { return 4i32; }
+    return 0i32;
+}

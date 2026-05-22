@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self-generic.rs
+// Modifications: `Box`/`Vec`-payload dropped; the generic enum keeps a plain
+//   `LM` payload (the second `Vec<(K,V)>` field is incidental). `&mut self` →
+//   `self: &mut HashMap<K,V>`; `match *self`. isize/usize→i64/u64.
+// Tests a method on a generic enum `HashMap<K,V>` reading a struct field of the
+//   variant payload through `match *self` with a `ref` binding.
+package explicit_self_generic_b141;
+
+struct LM { resize_at: u64, size: u64 }
+
+enum HashMap<K,V> {
+    HashMap_(LM, V)
+}
+
+fn linear_map() -> HashMap<i64, i64> {
+    return HashMap::HashMap_(LM { resize_at: 32u64, size: 0u64 }, 0i64);
+}
+
+impl<K,V> HashMap<K,V> {
+    fn len(self: &mut HashMap<K,V>) -> u64 {
+        return match *self {
+            HashMap::HashMap_(ref l, _) => l.size,
+        };
+    }
+}
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = linear_map();
+    if m.len() != 0u64 { return 1i32; }
+    return 0i32;
+}

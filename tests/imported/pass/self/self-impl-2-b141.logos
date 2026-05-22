@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-impl-2.rs
+// Modifications: distilled to the inherent-impl `Self` uses (the trait-impl half
+//   uses `Box<Self>` + associated types on a boxed type, dropped). Unit struct
+//   `Foo` → `Foo { tag: i32 }` (bodyless unit struct is known-open). `Self` used
+//   as a param type, a `&Self` param type, and a `-> Self` return. The upstream
+//   static `Self::empty()` call does NOT resolve (`Self::method()` for a static
+//   inherent method, G141-2) — rewritten to `Foo::empty()`. isize→i64.
+// Tests `Self` resolving inside an inherent `impl Foo { .. }`: as a by-value
+//   param, a `&Self` param, and the return type.
+package self_impl_2_b141;
+
+struct Foo { tag: i32 }
+
+impl Foo {
+    fn make(x: Self, y: &Self) -> Self {
+        return Foo { tag: x.tag + y.tag };
+    }
+
+    fn empty() -> i32 {
+        return 7i32;
+    }
+
+    fn via_self_static() -> i32 {
+        return Foo::empty();
+    }
+}
+
+fn main() -> i32 {
+    let a: Foo = Foo { tag: 10i32 };
+    let b: Foo = Foo { tag: 5i32 };
+    let c: Foo = Foo::make(a, &b);
+    if c.tag != 15i32 { return 1i32; }
+    if Foo::via_self_static() != 7i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum_u8_variant.rs
+// Modifications: #[repr(u8)] dropped; the variant name reused-as-type `Foo::Foo`
+//   renamed to `Foo::V` (the upstream same-name variant is incidental); the bare
+//   match made observable by binding + returning the payload. assert→ret.
+// Tests pattern matching on a single-variant enum whose only variant carries an
+//   inner `u8` field (a `_` catch-all arm + a payload-binding arm).
+package enum_u8_variant_b141;
+
+enum Foo {
+    V(u8),
+}
+
+fn payload(f: Foo) -> u8 {
+    return match f {
+        Foo::V(x) => x,
+    };
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo::V(1u8);
+    match f {
+        _ => {},
+    }
+    if payload(Foo::V(7u8)) != 7u8 { return 1i32; }
+    return 0i32;
+}

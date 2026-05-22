@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/copy.rs
+// Modifications: #[derive(Copy,Clone)] dropped; isize→i64; assert_eq!→ret guard.
+// Tests that `let mut y = x;` copies a (Copy) struct value: mutating `y` via a
+//   `&mut A` fn leaves `x` unchanged.
+package copy_b141;
+
+struct A { a: i64 }
+
+fn f(arg: &mut A) {
+    arg.a = 100i64;
+}
+
+fn main() -> i32 {
+    let mut x: A = A { a: 10i64 };
+    f(&mut x);
+    if x.a != 100i64 { return 1i32; }
+    x.a = 20i64;
+    let mut y: A = x;
+    f(&mut y);
+    if x.a != 20i64 { return 2i32; }
+    if y.a != 100i64 { return 3i32; }
+    return 0i32;
+}

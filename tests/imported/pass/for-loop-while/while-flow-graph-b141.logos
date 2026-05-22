@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-flow-graph.rs
+// Modifications: isize/usize→i64/u64; the body kept (a never-taken `&&`-guarded
+//   while whose body never runs). main returns 0.
+// Tests a `while` loop whose condition `x == 10 && x == 11` is always false
+//   (short-circuit), so the body never executes.
+package while_flow_graph_b141;
+
+fn main() -> i32 {
+    let x: i64 = 10i64;
+    while x == 10i64 && x == 11i64 {
+        let _y: u64 = 3840u64;
+    }
+    return 0i32;
+}

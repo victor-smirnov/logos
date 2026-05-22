@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/safety-ok.rs
+// Modifications: `&self`→`self: &Self`; isize→i64; assert_eq!→ret guard.
+// Tests that an `unsafe trait` + `unsafe impl` compiles and that a generic
+//   bound (`F: Foo`) dispatches its method.
+package safety_ok_b141;
+
+unsafe trait Foo {
+    fn foo(self: &Self) -> i64;
+}
+
+unsafe impl Foo for i64 {
+    fn foo(self: &Self) -> i64 { return *self; }
+}
+
+fn take_foo<F: Foo>(f: &F) -> i64 { return f.foo(); }
+
+fn main() -> i32 {
+    let x: i64 = 22i64;
+    if take_foo(&x) != 22i64 { return 1i32; }
+    return 0i32;
+}

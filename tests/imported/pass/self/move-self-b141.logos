@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/move-self.rs
+// Modifications: `String` field → `i64`; `println!` (observing the field) →
+//   returning the field through the chained by-value-self calls + a ret guard.
+// Tests chaining a by-value `self` method that itself calls another by-value
+//   `self` method (`foo(self)` → `self.bar()`).
+package move_self_b141;
+
+struct S {
+    x: i64
+}
+
+impl S {
+    fn foo(self: S) -> i64 {
+        return self.bar();
+    }
+
+    fn bar(self: S) -> i64 {
+        return self.x;
+    }
+}
+
+fn main() -> i32 {
+    let x: S = S { x: 42i64 };
+    if x.foo() != 42i64 { return 1i32; }
+    return 0i32;
+}

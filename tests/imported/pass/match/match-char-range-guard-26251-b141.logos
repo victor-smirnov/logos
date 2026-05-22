@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-26251.rs
+// Modifications: string arm results → distinct i64 codes; `panic!` → a distinct
+//   code. The `'a'..='b' if false` GUARDED range arm falls through (guard false)
+//   to the later `'a'` literal arm.
+// Tests that a guarded inclusive-char-range arm whose guard is false is skipped,
+//   and a subsequent overlapping literal arm matches.
+package match_char_range_guard_26251_b141;
+
+fn classify(x: char) -> i64 {
+    return match x {
+        'a'..='b' if false => 1i64,
+        'a' => 2i64,
+        'a'..='b' => 3i64,
+        _ => 9i64,
+    };
+}
+
+fn main() -> i32 {
+    if classify('a') != 2i64 { return 1i32; }
+    if classify('b') != 3i64 { return 2i32; }
+    if classify('z') != 9i64 { return 3i32; }
+    return 0i32;
+}

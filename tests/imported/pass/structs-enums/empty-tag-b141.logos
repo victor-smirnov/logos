@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/empty-tag.rs
+// Modifications: #[derive] dropped; custom `PartialEq` → an inherent `eq` method
+//   comparing the C-like-enum discriminants via `as i64`; the captured closure
+//   `{|| wrapper3(chan_t)}` returns the equality result. usize→i64; assert→ret.
+// Tests a no-arg closure (block body) that calls a free fn comparing a C-like
+//   enum value to a constant via an `as`-cast discriminant comparison.
+package empty_tag_b141;
+
+enum Chan { ChanT }
+
+impl Chan {
+    fn eq(self: &Chan, other: &Chan) -> bool {
+        return (*self as i64) == (*other as i64);
+    }
+}
+
+fn wrapper3(i: Chan) -> bool {
+    return i.eq(&Chan::ChanT);
+}
+
+fn main() -> i32 {
+    let wrapped = || { return wrapper3(Chan::ChanT); };
+    if !wrapped() { return 1i32; }
+    return 0i32;
+}

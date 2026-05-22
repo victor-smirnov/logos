@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if-bot.rs
+// Modifications: the upstream `if false { panic!() } else { 5 }` relies on the
+//   never (`!`) type of the diverging branch unifying with `isize`. A diverging
+//   (`return`) branch is NOT yet accepted as never-typed in if-expr unification
+//   (G141-1) — so both arms here yield i64; the test keeps the if-as-expression
+//   bound-to-`let` shape. isize→i64; println!→ret guard.
+// Tests an `if/else` used as a value-expression bound to a `let`.
+package if_bot_b141;
+
+fn main() -> i32 {
+    let cond: bool = false;
+    let i: i64 = if cond { 99i64 } else { 5i64 };
+    if i != 5i64 { return 2i32; }
+    return 0i32;
+}

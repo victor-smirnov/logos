@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift-various-types.rs
+// Modifications: isize/usize→i64/u64; the struct keeps one field per remaining
+//   int width; literals suffixed; assert_eq!→ret guards. (The point is that the
+//   shift AMOUNT may be any integral type.)
+// Tests right/left shifts where the shift amount comes from a value of each
+//   integer width (i8/i16/i32/i64/u8/u16/u32/u64).
+package shift_various_types_b141;
+
+struct Panoply {
+    i8f: i8,
+    i16f: i16,
+    i32f: i32,
+    i64f: i64,
+    u8f: u8,
+    u16f: u16,
+    u32f: u32,
+    u64f: u64,
+}
+
+fn check(p: &Panoply) -> bool {
+    if (22i32 >> p.i8f) != 11i32 { return false; }
+    if (22i32 >> p.i16f) != 11i32 { return false; }
+    if (22i32 >> p.i32f) != 11i32 { return false; }
+    if (22i32 >> p.i64f) != 11i32 { return false; }
+    if (22i32 >> p.u8f) != 11i32 { return false; }
+    if (22i32 >> p.u16f) != 11i32 { return false; }
+    if (22i32 >> p.u32f) != 11i32 { return false; }
+    if (22i32 >> p.u64f) != 11i32 { return false; }
+
+    if (4i32 << p.i32f) != 8i32 { return false; }
+    if (4i32 << p.u64f) != 8i32 { return false; }
+    return true;
+}
+
+fn main() -> i32 {
+    let p: Panoply = Panoply {
+        i8f: 1i8, i16f: 1i16, i32f: 1i32, i64f: 1i64,
+        u8f: 1u8, u16f: 1u16, u32f: 1u32, u64f: 1u64,
+    };
+    if !check(&p) { return 1i32; }
+    return 0i32;
+}

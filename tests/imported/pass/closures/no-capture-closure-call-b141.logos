@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/no-capture-closure-call.rs
+// Modifications: `Box::new(1)` dropped (no Box); the empty closure is given a
+//   block body that returns a value so the call is observable. usize→i64.
+// Tests a no-capture closure that is bound to a `let` and then called.
+package no_capture_closure_call_b141;
+
+fn main() -> i32 {
+    let lam = || { return 5i64; };
+    if lam() != 5i64 { return 1i32; }
+    return 0i32;
+}

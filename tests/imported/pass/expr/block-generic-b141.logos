@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-generic.rs
+// Modifications: nested item fns hoisted to top level; `T: Clone` block-clone →
+//   the value is passed by copy (Copy types: bool / a 2-field struct compared
+//   field-wise); `FnOnce(T,T)->bool` comparator passed as a fn-ptr. isize→i64;
+//   assert!→ret guard.
+// Tests a generic fn whose body binds a `{ block }`-expression value of the
+//   type param and then invokes a `FnOnce(T,T)->bool` comparator on it.
+package block_generic_b141;
+
+struct Pair {
+    a: i64,
+    b: i64,
+}
+
+fn test_generic_bool(expected: bool, eq: fn(bool, bool) -> bool) -> bool {
+    let actual: bool = { expected };
+    return eq(expected, actual);
+}
+
+fn test_generic_pair(expected: Pair, eq: fn(Pair, Pair) -> bool) -> bool {
+    let actual: Pair = { expected };
+    return eq(expected, actual);
+}
+
+fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
+
+fn compare_rec(t1: Pair, t2: Pair) -> bool {
+    return t1.a == t2.a && t1.b == t2.b;
+}
+
+fn main() -> i32 {
+    if !test_generic_bool(true, compare_bool) { return 1i32; }
+    let p: Pair = Pair { a: 1i64, b: 2i64 };
+    if !test_generic_pair(p, compare_rec) { return 2i32; }
+    return 0i32;
+}

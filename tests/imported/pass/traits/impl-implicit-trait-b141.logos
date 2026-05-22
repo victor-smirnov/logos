@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/impl-implicit-trait.rs
+// Modifications: `&self`→`self: &Self`; the empty upstream `main` is given an
+//   observable body that constructs both enum kinds and calls each `foo`.
+//   isize→i64; assert→ret guard.
+// Tests inherent `impl` methods on BOTH a generic enum (`option_<T>`) and a
+//   concrete enum (`option__`), each providing a same-named method `foo`.
+package impl_implicit_trait_b141;
+
+enum option_<T> {
+    none_,
+    some_(T),
+}
+
+impl<T> option_<T> {
+    fn foo(self: &Self) -> bool { return true; }
+}
+
+enum option__ {
+    none__,
+    some__(i64)
+}
+
+impl option__ {
+    fn foo(self: &Self) -> bool { return true; }
+}
+
+fn main() -> i32 {
+    let a: option_<i64> = option_::some_(7i64);
+    let b: option__ = option__::some__(9i64);
+    if !a.foo() { return 1i32; }
+    if !b.foo() { return 2i32; }
+    return 0i32;
+}

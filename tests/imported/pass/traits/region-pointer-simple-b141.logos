@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/region-pointer-simple.rs
+// Modifications: `println!` dropped; isize→i64; assert_eq!→ret guard.
+// Tests coercing `&A` to a trait object `&dyn Foo` via an explicit `as` cast,
+//   then calling the trait method through the object.
+package region_pointer_simple_b141;
+
+trait Foo {
+    fn f(self: &Self) -> i64;
+}
+
+struct A {
+    x: i64
+}
+
+impl Foo for A {
+    fn f(self: &Self) -> i64 {
+        return self.x;
+    }
+}
+
+fn main() -> i32 {
+    let a: A = A { x: 3i64 };
+    let b: &dyn Foo = (&a) as &dyn Foo;
+    if b.f() != 3i64 { return 1i32; }
+    return 0i32;
+}

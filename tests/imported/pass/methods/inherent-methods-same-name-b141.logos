@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/inherent-methods-same-name.rs
+// Modifications: tuple struct `Foo<T>(T)` → named-field `Foo<T> { f: T }`
+//   (tuple-struct decl + `.0` numeric field access avoided); usize/isize→u64/i64;
+//   `Foo::<usize>(5)` ctor → `Foo { f: 5u64 }` with explicit type; `-(x as i32)`
+//   → `0i32 - (x as i32)`. assert_eq!→ret guard.
+// Tests two inherent `impl` blocks providing a same-named method `bar` on
+//   different instantiations of a generic type (`Foo<u64>` vs `Foo<i64>`).
+package inherent_methods_same_name_b141;
+
+struct Foo<T> { f: T }
+
+impl Foo<u64> {
+    fn bar(self: &Foo<u64>) -> i32 {
+        return self.f as i32;
+    }
+}
+
+impl Foo<i64> {
+    fn bar(self: &Foo<i64>) -> i32 {
+        return 0i32 - (self.f as i32);
+    }
+}
+
+fn main() -> i32 {
+    let foo_u: Foo<u64> = Foo { f: 5u64 };
+    if foo_u.bar() != 5i32 { return 1i32; }
+
+    let foo_i: Foo<i64> = Foo { f: 3i64 };
+    if foo_i.bar() != (0i32 - 3i32) { return 2i32; }
+    return 0i32;
+}

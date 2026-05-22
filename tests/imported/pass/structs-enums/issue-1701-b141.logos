@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/issue-1701.rs
+// Modifications: payloads collapsed to integer tags (String/name dropped);
+//   `Variant(..)` payload-ignore is known-open → named `_x` bindings; the
+//   `Option<String>` result → an i64 noise code (Option<String> eq is known-open).
+// Tests an exhaustive match over a multi-variant enum mixing payload variants
+//   (cat/dog/rabbit) and a fieldless variant (tiger), each arm in its own block.
+package issue_1701_b141;
+
+enum Pat { Tabby, Tortoiseshell, Calico }
+enum Breed { Beagle, Rottweiler, Pug }
+enum EarKind { Lop, Upright }
+
+enum Animal { Cat(Pat), Dog(Breed), Rabbit(EarKind), Tiger }
+
+fn noise(a: Animal) -> i64 {
+    return match a {
+        Animal::Cat(_x)    => { 1i64 }
+        Animal::Dog(_x)    => { 2i64 }
+        Animal::Rabbit(_x) => { 0i64 }
+        Animal::Tiger      => { 3i64 }
+    };
+}
+
+fn main() -> i32 {
+    if noise(Animal::Cat(Pat::Tabby)) != 1i64 { return 1i32; }
+    if noise(Animal::Dog(Breed::Pug)) != 2i64 { return 2i32; }
+    if noise(Animal::Rabbit(EarKind::Upright)) != 0i64 { return 3i32; }
+    if noise(Animal::Tiger) != 3i64 { return 4i32; }
+    return 0i32;
+}
