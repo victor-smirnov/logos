@@ -1275,6 +1275,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         else if (op == "*")  { trait_name = "Mul"; method_name = "mul"; }
         else if (op == "/")  { trait_name = "Div"; method_name = "div"; }
         else if (op == "%")  { trait_name = "Rem"; method_name = "rem"; }
+        // Bitwise / shift operator overloading on user structs (parallel to the
+        // arithmetic ops above) — was missing, so `a ^ b` on a struct errored
+        // "left must be integer or bool" despite a BitXor impl existing.
+        else if (op == "&")  { trait_name = "BitAnd"; method_name = "bitand"; }
+        else if (op == "|")  { trait_name = "BitOr";  method_name = "bitor"; }
+        else if (op == "^")  { trait_name = "BitXor"; method_name = "bitxor"; }
+        else if (op == "<<") { trait_name = "Shl";    method_name = "shl"; }
+        else if (op == ">>") { trait_name = "Shr";    method_name = "shr"; }
         else if (op == "==") { trait_name = "Eq";  method_name = "eq"; }
         else if (op == "!=") { trait_name = "Eq";  method_name = "ne"; }
         else if (op == "<")  { trait_name = "Ord"; method_name = "lt"; }
