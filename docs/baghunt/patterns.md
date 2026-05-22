@@ -177,6 +177,32 @@ fn todo() -> Empty { return todo(); }
 **Regression test**: `tests/logos/pass/or_pattern_binding.logos`
 **Tags**: codegen:missing-pattern-handler, fixed
 
+### B-pt-11: array/slice pattern in match-AS-EXPRESSION dropped its bindings — FIXED
+
+**Severity**: silent miscompile (arm read uninitialized scope slots → garbage result, no diagnostic)
+**Status**: FIXED (2026-05-21, 47413e65) — `let r = match arr { [x, y] => x + y }` returned garbage. The match-expression codegen (`gen_expr_kind(EMatchExprView)`) extracted arm bindings via `extract_arm_payload`, which handled VariantData/Wild/Tuple/Struct/RefBind/RefPat/At/Or but NOT Slice (only the statement form did). Added a Slice case mirroring the stmt-form `bind_elem`.
+**Regression test**: `tests/logos/pass/array_pattern_match_expr.logos`
+**Tags**: codegen:missing-pattern-handler, fixed
+
+### B-pt-12: dynamic-slice patterns over `&[T]` — FIXED (top-level + nested-in-tuple length)
+
+**Severity**: feature gap (codegen rejected/miscompiled)
+**Status**: FIXED (2026-05-22, 64be6e49) — `match s { [a, b] => …, [h, ..] => … }` over a runtime-length `&[T]` scrutinee, plus nested-in-tuple length discrimination `(2, [_, _])`. Implemented in the match-expression codegen (statement matches lower to `EMatchExpr` too). Slice value = ptr→{data_ptr, i64 len}; gate `len == N` / `len >= N`, GEP elements through data ptr. sema already accepted/checked these. **Remaining (B-pt-13)**: named element bindings nested inside a tuple (`(2, [a, b])`).
+**Regression test**: `tests/logos/pass/slice_pattern_dynamic.logos`, `tests/imported/pass/match/match-tuple-slice.logos`
+**Tags**: codegen:missing-pattern-handler, fixed
+
+### B-pt-13: named slice bindings nested inside a tuple pattern — OPEN (clean error)
+
+**Severity**: feature gap (clean "undefined variable" — NOT a miscompile)
+**Status**: OPEN (2026-05-22) — `match x { (2, [a, b]) => a + b }`. sema's tuple-element handler (sema_stmt.cpp:2740-2804) builds the slice sub via the PAT_OR fallback (so length dispatch works, B-pt-12) but declares only a top-level `_` binding, never the nested names → `undefined variable 'a'`. Fix = declare nested-slice prefix names in scope (bind_pattern_ref recursion into the Slice sub) + the nested-slice binding GEP in the tuple binding extractor (the latter was prototyped then reverted as dead until the sema side lands). Low priority (works via a `let [a,b] = …` after a length-only tuple match).
+**Tags**: sema:missing-binding-decl, open
+
+### B-st-NN: refutable array/slice NAMED-binding pattern in a unit-result STATEMENT match → stray `arith.constant` — OPEN
+
+**Severity**: LLVM-translate fail (was silent-miscompile before 47413e65; now errors)
+**Status**: OPEN (2026-05-22) — `match a { [x, y] => { out = …; } _ => {} }` (array/slice, named bindings, block arms yielding `()`) → "missing LLVMTranslationDialectInterface registration … arith.constant". Narrowing: LITERAL array pattern `[1,_]` same shape COMPILES; TUPLE `(x,y)` / ENUM `Some(v)` named bindings same shape COMPILE+run; array NAMED bindings in match-AS-EXPRESSION (non-unit) COMPILE+run. So it's the array/slice element-binding path × unit-result statement match. 9 arith.constants pre-lowering (`--emit-mlir` ok); exactly one survives the arith→llvm conversion. Adjacent to 47413e65 (added the array binding path). Repro: `docs/baghunt/repro/stmt-array-bind-arith-constant.logos`.
+**Tags**: codegen:arith-not-lowered, open
+
 ## Tag summary
 
 | Tag | Open | Fixed | N/A | Total | Bugs |

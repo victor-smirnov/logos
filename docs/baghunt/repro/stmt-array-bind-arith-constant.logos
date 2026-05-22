@@ -1,0 +1,23 @@
+// BAGHUNT REPRO (2026-05-22): refutable array/slice pattern with NAMED element
+// bindings in a STATEMENT-position match (unit-yielding block arms) leaves a
+// stray `arith.constant` that the arith→llvm conversion misses → LLVM-translate
+// fail ("missing LLVMTranslationDialectInterface registration ... arith.constant").
+//
+// Narrowing:
+//   - LITERAL array pattern `[1, _]` (no bindings) in the same shape: COMPILES.
+//   - TUPLE `(x, y)` or ENUM `Some(v)` named bindings, same unit-statement shape: COMPILE + run.
+//   - Array NAMED bindings in match-AS-EXPRESSION (non-unit, `let r = match …`): COMPILES + runs.
+//   => array/slice element-binding path × unit-result statement match only.
+// Adjacent to commit 47413e65 (added the array-pattern binding path in EMatchExprView);
+// before it, this shape compiled but silently read garbage. Now it errors.
+// 9 arith.constants exist pre-lowering (--emit-mlir ok); exactly one survives conversion.
+package stmt_array_bind_arith_constant;
+fn main() -> i32 {
+    let a: [i64; 2] = [3i64, 4i64];
+    let mut out: i64 = -1i64;
+    match a {
+        [x, y] => { out = x * 10i64 + y; }   // expect out = 34
+        _ => { out = -1i64; }
+    }
+    return out as i32;
+}
