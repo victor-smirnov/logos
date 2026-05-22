@@ -1,0 +1,9 @@
+package let_else_clike_enum;
+enum E { A, B, C }
+fn f(v: E) -> i64 { let E::A = v else { return 9i64; }; return 1i64; }
+fn main() -> i32 {
+    if f(E::A) != 1i64 { return 1i32; }
+    if f(E::B) != 9i64 { return 2i32; }
+    if f(E::C) != 9i64 { return 3i32; }
+    return 0i32;
+}

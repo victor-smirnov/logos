@@ -1191,16 +1191,13 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
                 if (n != "_")
                     define(std::string(n), scrut_type);
             } else if (pr.kind() == ps::Code::Or) {
-                // G144-3a: an or-pattern in `let-else` is not yet supported.
-                // SLetElse codegen dispatches on a SINGLE expected discriminant,
-                // so `let A | B = v else …` only ever matches the first alt
-                // (silent wrong result for the others), and a binding alt
-                // (`A(x) | B(x)`) additionally SIGSEGVs (no per-alt payload
-                // extract). Reject cleanly until the codegen does multi-alt
-                // dispatch + per-alt bind (shared facet with the nested-tuple
-                // or-binding, G144-1). Use a `match` with an else-arm meanwhile.
-                error("or-pattern in `let-else` is not yet supported "
-                      "(use a `match` with an else-arm)");
+                // G144-3a: `let A(x) | B(x) = v else …`. All alts bind the same
+                // names+types (build_pattern_or enforced this), so define from
+                // the first alt. SLetElse codegen now OR's the alt discriminant
+                // tests and extracts via the first alt's payload layout.
+                lir_view::PatRef first;
+                lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){ if (!first) first = a; });
+                if (first) define_bindings(first);
             }
             // PatVariant (no bindings) — nothing to define
         };

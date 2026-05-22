@@ -1,0 +1,14 @@
+package let_else_or_pattern;
+enum E { A(i64), B(i64), C }
+enum Tag { X, Y, Z }
+fn payload(v: E) -> i64 { let E::A(x) | E::B(x) = v else { return -1i64; }; return x; }
+fn clike(t: Tag) -> i64 { let Tag::X | Tag::Y = t else { return 9i64; }; return 1i64; }
+fn main() -> i32 {
+    if payload(E::A(10i64)) != 10i64 { return 1i32; }
+    if payload(E::B(20i64)) != 20i64 { return 2i32; }
+    if payload(E::C) != -1i64 { return 3i32; }
+    if clike(Tag::X) != 1i64 { return 4i32; }
+    if clike(Tag::Y) != 1i64 { return 5i32; }
+    if clike(Tag::Z) != 9i64 { return 6i32; }
+    return 0i32;
+}

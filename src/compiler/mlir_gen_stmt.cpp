@@ -2973,6 +2973,24 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     auto pat_kind = pat_ref ? pat_ref.kind() : pc::Code(-1);
     auto* region = builder_.getBlock()->getParent();
 
+    // G144-3a: or-pattern in let-else (`let A(x) | B(x) = v else …`). Collect
+    // each alt's discriminant for an OR'd tag test, and extract bindings using
+    // the FIRST alt's payload layout — all alts bind the same names+types at the
+    // same payload offset (sema enforces it), mirroring the match or-pattern
+    // path. Rebind pat_ref/pat_kind to the first alt for the extraction below.
+    std::vector<int32_t> or_discs;
+    if (pat_kind == pc::Code::Or) {
+        lir_view::PatRef first_alt;
+        lir_view::PatOrView{pat_ref}.each_alt([&](lir_view::PatRef a) {
+            if (!first_alt) first_alt = a;
+            if (a.kind() == pc::Code::Variant)
+                or_discs.push_back((int32_t)lir_view::PatVariantView{a}.disc());
+            else if (a.kind() == pc::Code::VariantData)
+                or_discs.push_back((int32_t)lir_view::PatVariantDataView{a}.disc());
+        });
+        if (first_alt) { pat_ref = first_alt; pat_kind = first_alt.kind(); }
+    }
+
     // ── Evaluate scrutinee ────────────────────────────────────────────────
     auto scrut_val = gen_expr(*scrut_le);
     if (!scrut_val) return;
@@ -3024,6 +3042,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                 loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
             disc_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
         }
+        // A C-like (all-nullary) enum has no TaggedEnumInfo and is passed as a
+        // bare i32 — the value IS the discriminant. Without this, disc_val
+        // stayed null and the let-else matched UNCONDITIONALLY (the else block
+        // became dead — a silent wrong result, even for a single pattern).
+        // Mirrors the match path, which uses the i32 scrutinee directly.
+        if (!disc_val && scrut_val &&
+            mlir::isa<mlir::IntegerType>(scrut_val.getType()))
+            disc_val = coerce_int(scrut_val, builder_.getI32Type());
     }
 
     // Determine expected discriminant
@@ -3042,11 +3068,23 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     region->push_back(cont_block);
 
     if (disc_val) {
-        // Conditional branch on discriminant match
-        auto expected = builder_.create<mlir::arith::ConstantIntOp>(
-            loc_, expected_disc, 32);
-        auto cond = builder_.create<mlir::arith::CmpIOp>(
-            loc_, mlir::arith::CmpIPredicate::eq, disc_val, expected);
+        // Conditional branch on discriminant match. For an or-pattern, the
+        // condition is the OR of each alt's discriminant test.
+        mlir::Value cond;
+        if (!or_discs.empty()) {
+            for (int32_t d : or_discs) {
+                auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, d, 32);
+                auto eq = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::eq, disc_val, dc);
+                cond = cond ? builder_.create<mlir::arith::OrIOp>(loc_, cond, eq).getResult()
+                            : eq.getResult();
+            }
+        } else {
+            auto expected = builder_.create<mlir::arith::ConstantIntOp>(
+                loc_, expected_disc, 32);
+            cond = builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::eq, disc_val, expected);
+        }
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, match_block, else_block);
     } else {
         // Non-enum scrutinee — always matches (fall into match_block)
