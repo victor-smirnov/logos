@@ -1917,8 +1917,49 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (node.has_key(la::ARGS)) {
         auto args = arr_of(node.get(la::ARGS.code));
         uint64_t start = antiquot_callee ? 1 : 0;
-        for (uint64_t i = start; i < args.size(); ++i)
+        // Closure-arg type hinting: an un-annotated closure literal (`|s| {…}`)
+        // needs its param/return types from the callee's formal. For a generic
+        // free fn `fn call_it<F>(f: F) where F: FnOnce(i64)->i64`, the formal is
+        // a TypeVar whose Fn-family BOUND carries the signature — synthesize a
+        // Closure type from it so the closure infers `s: i64` (mirrors the
+        // callee-side synth at the `is_fn_bound` block above, and the
+        // method-call lower_arg_with_hint path). A directly FnPtr/Closure-typed
+        // formal is used as-is. Without this the closure's params stay
+        // un-inferred and codegen reads garbage (bare fn items are unaffected —
+        // they already carry a concrete signature).
+        const SemaFuncInfo* hint_fi = find_generic_func(std::string(callee));
+        if (!hint_fi) {
+            auto cands = find_func_candidates(callee);
+            if (cands.size() == 1) hint_fi = cands[0];
+        }
+        auto closure_hint_for = [&](size_t formal_idx) -> TypeRef {
+            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
+            TypeRef pt = hint_fi->param_types[formal_idx];
+            if (!pt) return nullptr;
+            auto k = TypeRef(pt).kind();
+            if (k == LogosType::Kind::FnPtr || k == LogosType::Kind::Closure)
+                return pt;
+            if (k == LogosType::Kind::TypeVar) {
+                auto tvn = TypeRef(pt).type_var_name();
+                for (auto& tp : hint_fi->type_params) {
+                    if (tp.name != tvn) continue;
+                    for (auto& b : tp.bounds)
+                        if (b.is_fn_family) {
+                            std::vector<TypeRef> ps = b.fn_params;
+                            return make_closure_type(std::move(ps),
+                                                     b.fn_ret ? b.fn_ret : void_t());
+                        }
+                }
+            }
+            return nullptr;
+        };
+        for (uint64_t i = start; i < args.size(); ++i) {
+            TypeRef saved = hint_closure_formal_;
+            if (TypeRef h = closure_hint_for((size_t)(i - start)))
+                hint_closure_formal_ = h;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+            hint_closure_formal_ = saved;
+        }
     }
     uint64_t n_args = arg_exprs.size();
 
