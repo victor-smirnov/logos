@@ -10457,6 +10457,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         auto body_node = map_of(node.get(la::BODY.code));
         if (code_of(body_node) == la::BLOCK)
             body = lower_block(body_node);
+    } else if (node.has_key(la::VALUE)) {
+        // G147-4: expression-body closure `|y| expr` (no braces). The closure
+        // yields the expression — lower it and make the body `return <expr>`
+        // (closure ret-type inference reads the `return`).
+        auto val = lower_expr(map_of(node.get(la::VALUE.code)));
+        body.stmts.push_back(builder().stmt_return(std::move(val), node_line_));
     }
     // C5-cl-03: prepend `let user = &synth;` for each ref-bound param.
     // C5-cl-07: prepend `let user_k = __tup_param_*.k;` for each

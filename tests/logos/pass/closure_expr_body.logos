@@ -1,0 +1,12 @@
+package closure_expr_body;
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 { return f(x); }
+fn apply2(f: fn(i64, i64) -> i64, a: i64, b: i64) -> i64 { return f(a, b); }
+fn main() -> i32 {
+    let r: i64 = apply(|y| y + 1i64, 10i64);          // expr-body closure in arg
+    if r != 11i64 { return 1i32; }
+    let s: i64 = apply2(|a, b| a * b, 6i64, 7i64);
+    if s != 42i64 { return 2i32; }
+    let g: i64 = (|| 99i64)();                          // nullary expr-body closure
+    if g != 99i64 { return 3i32; }
+    return 0i32;
+}

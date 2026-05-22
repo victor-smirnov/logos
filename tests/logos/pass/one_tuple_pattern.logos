@@ -1,0 +1,7 @@
+package one_tuple_pattern;
+fn main() -> i32 {
+    let t: (i64,) = (5i64,);
+    let v: i64 = match t { (x,) => x };
+    if v != 5i64 { return 1i32; }
+    return 0i32;
+}

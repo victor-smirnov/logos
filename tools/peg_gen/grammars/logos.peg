@@ -1870,6 +1870,10 @@
         // (the `..` skip-marker) or a regular pat_single.
         / LPAREN pat_tuple_elem COMMA pat_tuple_elem (COMMA pat_tuple_elem)* RPAREN
         => { CODE: PAT_TUPLE, ITEMS: $... }
+        // G147-1: 1-tuple pattern `(x,)` — the trailing comma distinguishes it
+        // from a parenthesised pattern `(x)`. Must come before the bare IDENT.
+        / LPAREN pat_tuple_elem COMMA RPAREN
+        => { CODE: PAT_TUPLE, ITEMS: $... }
         / IDENT
         => { CODE: PAT_WILD, NAME: $1 }
 
@@ -2585,6 +2589,26 @@
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, BODY: $6 }
                   / PIPE closure_param_list? PIPE block
                  => { CODE: CLOSURE_EXPR, PARAMS: $2, BODY: $4 }
+                  // G147-4: expression-body closures `|x| expr` / `|| expr`
+                  // (no braces). Tried AFTER the block forms so `|x| { … }`
+                  // still parses as a block body. The expr stops at the
+                  // enclosing `,` / `)` (expr has no top-level comma).
+                  / KW_MOVE PIPE closure_param_list? PIPE ARROW type_ref expr
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, RET_TYPE: $6, VALUE: $7 }
+                  / KW_MOVE PIPE closure_param_list? PIPE expr
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, PARAMS: $3, VALUE: $5 }
+                  / KW_MOVE OR ARROW type_ref expr
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, RET_TYPE: $4, VALUE: $5 }
+                  / KW_MOVE OR expr
+                 => { CODE: CLOSURE_EXPR, IS_MOVE: 1, VALUE: $3 }
+                  / PIPE closure_param_list? PIPE ARROW type_ref expr
+                 => { CODE: CLOSURE_EXPR, PARAMS: $2, RET_TYPE: $5, VALUE: $6 }
+                  / PIPE closure_param_list? PIPE expr
+                 => { CODE: CLOSURE_EXPR, PARAMS: $2, VALUE: $4 }
+                  / OR ARROW type_ref expr
+                 => { CODE: CLOSURE_EXPR, RET_TYPE: $3, VALUE: $4 }
+                  / OR expr
+                 => { CODE: CLOSURE_EXPR, VALUE: $2 }
 
     // ── Parenthesised expression ──────────────────────────────────
     paren_expr <- LPAREN expr RPAREN
