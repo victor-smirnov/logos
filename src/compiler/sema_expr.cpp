@@ -5591,13 +5591,36 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
+        // G148-2: the substitution from the trait-where-the-method-lives formal
+        // type-params to the concrete dispatch type. Always carries Self →
+        // recv_inner; for a method inherited through a supertrait reference like
+        // `MyNum : MyAdd<Self, Self>`, it additionally maps the supertrait's
+        // formal params (RHS, Result) to the resolved args (T, T). Without this,
+        // the inherited method's `&RHS` / `Result` formals stayed unbound.
+        SemaSubst chosen_subst;
+
+        // Build the initial substitution for a directly-named bound: Self →
+        // recv_inner, plus the bound trait's own formal params ← the bound's
+        // type-args (`T: Foo<i32>` → Foo's first param ← i32).
+        auto init_bound_subst = [&](const std::string& tn,
+                                    const std::vector<TypeRef>& targs) -> SemaSubst {
+            SemaSubst s;
+            s["Self"] = recv_inner;
+            auto it = find_trait_iter_scoped(tn);
+            if (it != traits_.end())
+                for (size_t i = 0; i < it->second.type_params.size() && i < targs.size(); ++i)
+                    s[it->second.type_params[i].name] = targs[i];
+            return s;
+        };
 
         // Helper: depth-first search over the supertrait DAG for the method.
         // visited prevents infinite loops on circular supertrait definitions (Bug 2).
         // The !chosen_method guard is NOT used so all supertrait siblings are searched
         // for ambiguity detection (Bug 1 fix: e.g. trait Foo: A+B where both define m()).
+        // `subst` maps `tname`'s formal type-params (and Self) to concrete types.
         StrSet st_visited;
-        std::function<void(const std::string&)> search_trait = [&](const std::string& tname) {
+        std::function<void(const std::string&, const SemaSubst&)> search_trait =
+            [&](const std::string& tname, const SemaSubst& subst) {
             if (!st_visited.insert(tname).second) return;  // cycle / diamond guard (Bug 2)
             auto tit = find_trait_iter_scoped(tname);  // B-mv-02: user trait shadows same-name stdlib
             if (tit == traits_.end()) return;
@@ -5609,16 +5632,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         std::string(method_name), recv_bound_key, chosen_trait, tname));
                 chosen_method = &m;
                 chosen_trait  = tname;
+                chosen_subst  = subst;
                 return;  // method found in this trait; don't recurse further
             }
             // Not found directly — search all supertraits (no early-exit guard, Bug 1 fix).
-            for (auto& super : tit->second.supertraits)
-                search_trait(super.trait_name);
+            // Compose the substitution: the supertrait reference's type-args are
+            // written in `tname`'s namespace (incl. Self), so resolve them through
+            // `subst` and bind the supertrait's own formal params to the result.
+            for (auto& super : tit->second.supertraits) {
+                SemaSubst sub2;
+                sub2["Self"] = subst.count("Self") ? subst.at("Self") : recv_inner;
+                auto sit2 = find_trait_iter_scoped(super.trait_name);
+                if (sit2 != traits_.end())
+                    for (size_t i = 0; i < sit2->second.type_params.size() &&
+                                       i < super.type_args.size(); ++i)
+                        sub2[sit2->second.type_params[i].name] =
+                            subst_type_sema(super.type_args[i], subst);
+                search_trait(super.trait_name, sub2);
+            }
         };
 
         if (bit != current_type_bounds_.end()) {
             for (auto& bound : bit->second)
-                search_trait(bound.trait_name);
+                search_trait(bound.trait_name,
+                             init_bound_subst(bound.trait_name, bound.type_args));
         }
         // Gap-3: for an AssocType projection `G::R`, the bounds may not be in
         // current_type_bounds_ (the projection came from method-return
@@ -5630,7 +5667,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::string an(TypeRef(recv_inner).assoc_type_name());
                 for (auto& at : tdef->second.assoc_types)
                     if (at.name == an)
-                        for (auto& b : at.bounds) search_trait(b.trait_name);
+                        for (auto& b : at.bounds)
+                            search_trait(b.trait_name,
+                                         init_bound_subst(b.trait_name, b.type_args));
             }
         }
 
@@ -5657,7 +5696,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (auto& eb : bi.extra_bounds)
                     if (!t_bounds.count(eb)) { extras_ok = false; break; }
                 if (!extras_ok) continue;
-                search_trait(bi.trait_name);
+                search_trait(bi.trait_name, init_bound_subst(bi.trait_name, {}));
             }
         }
 
@@ -5672,7 +5711,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 error(std::format("method call '{}': expected {} args, got {}",
                                   std::string(method_name), expected_explicit, arg_exprs.size()));
             } else {
-                SemaSubst self_subst;
+                // G148-2: seed from chosen_subst (Self → recv_inner plus any
+                // supertrait formal-param → concrete bindings collected during
+                // the DAG walk), so an inherited method's `&RHS` / `Result`
+                // formals resolve to the dispatch type.
+                SemaSubst self_subst = chosen_subst;
                 self_subst["Self"] = recv_inner;
                 // Method-level type params: explicit turbofish wins; otherwise
                 // infer from arg types.
@@ -5780,7 +5823,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
 
-            SemaSubst self_subst;
+            // G148-2: seed from chosen_subst so a method inherited via a
+            // supertrait reference (`MyNum : MyAdd<Self, Self>`) gets its
+            // return-type formals (Result) substituted to the dispatch type.
+            // The direct-bound loop below still refines for `T: Into<i32>`.
+            SemaSubst self_subst = chosen_subst;
             self_subst["Self"] = recv_inner;
             // Substitute trait type params from the bound: e.g. T: Into<i32> → Into::T = i32
             {

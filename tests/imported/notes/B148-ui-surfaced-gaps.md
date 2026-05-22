@@ -40,7 +40,9 @@ is the struct-field counterpart of the now-fixed nested-tuple recursive matcher.
 `structs-enums/record-pat.rs` DROPPED on this (its sole point is the deeply nested
 `t3::c(T2 {x: t1::a(m), ..}, _)` struct-field-with-enum-subpattern match).
 
-### G148-2 — DEFERRED (moderate): a multi-type-param USER trait used as a supertrait at `Trait<Self, Self>` does not substitute the bound's type-args into the method signature when dispatched through the bound — `method 'add' arg 1: expected &RHS, got &T` / `return type mismatch — expected T, got Result`
+### G148-2 — ✅ FIXED (2026-05-22): a multi-type-param USER trait used as a supertrait at `Trait<Self, Self>` does not substitute the bound's type-args into the method signature when dispatched through the bound — `method 'add' arg 1: expected &RHS, got &T` / `return type mismatch — expected T, got Result`
+
+**Fix**: the TypeVar-bound method resolver (`sema_expr.cpp`, `recv_is_tv` path) walked the supertrait DAG (`search_trait`) tracking only the trait NAME, so the chosen method's substitution carried `Self` alone. Now `search_trait` threads a `SemaSubst`: at each supertrait edge it binds the supertrait's formal type-params to its reference's type-args resolved through the current subst (incl. `Self`) — descending `MyNum → MyAdd<Self,Self>` yields `{RHS: T, Result: T}`. Both the arg-check and return-type substitutions seed from this `chosen_subst`. `traits/inheritance/subst.rs` re-imported as `inheritance-subst-b149`. ORIGINAL REPORT below:
 
 A user trait with multiple type params, used as a supertrait that binds every position to
 `Self`:
