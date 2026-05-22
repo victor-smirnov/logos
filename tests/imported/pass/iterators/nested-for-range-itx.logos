@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: nested for-loops over two ranges accumulating a product-sum.
+package nested_for_range_itx;
+use logos.lang.iter;
+fn main() -> i32 {
+    let mut s: i32 = 0i32;
+    for i in 1i32..4i32 {
+        for j in 1i32..4i32 {
+            s = s + i * j;
+        }
+    }
+    if s != 36i32 { return 1i32; }
+    return 0i32;
+}

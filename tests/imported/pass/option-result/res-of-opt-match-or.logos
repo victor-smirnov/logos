@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: nested match over Result<Option<i32>, i32> (two-level enum payload).
+package res_of_opt_match_or;
+use logos.lang.option;
+use logos.lang.result;
+fn lookup(k: i32) -> Result<Option<i32>, i32> {
+    if k < 0i32 { return Result::Err(1i32); }
+    if k == 0i32 { return Result::Ok(Option::None); }
+    return Result::Ok(Option::Some(k * 2i32));
+}
+fn main() -> i32 {
+    match lookup(3i32) {
+        Result::Ok(o) => {
+            match o {
+                Option::Some(v) => { if v != 6i32 { return 1i32; } }
+                Option::None    => { return 2i32; }
+            }
+        }
+        Result::Err(_) => { return 3i32; }
+    }
+    match lookup(0i32) {
+        Result::Ok(o) => { if o.is_some() { return 4i32; } }
+        Result::Err(_) => { return 5i32; }
+    }
+    if lookup(-1i32).is_ok() { return 6i32; }
+    return 0i32;
+}

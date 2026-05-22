@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::and (replace Ok) and Result::or (replace Err).
+package res_and_or_comb_or;
+use logos.lang.result;
+fn main() -> i32 {
+    let a: Result<i32, i32> = Result::Ok(1i32);
+    let r1: Result<i32, i32> = a.and(Result::Ok(2i32));
+    match r1 { Result::Ok(v) => { if v != 2i32 { return 1i32; } } Result::Err(_) => { return 2i32; } }
+    let b: Result<i32, i32> = Result::Err(5i32);
+    let r2: Result<i32, i32> = b.or(Result::Ok(9i32));
+    match r2 { Result::Ok(v) => { if v != 9i32 { return 3i32; } } Result::Err(_) => { return 4i32; } }
+    return 0i32;
+}

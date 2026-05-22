@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::map (transform Ok) and Result::map_err (transform Err).
+package res_map_or;
+use logos.lang.result;
+fn main() -> i32 {
+    let a: Result<i32, i32> = Result::Ok(5i32);
+    let m: Result<i32, i32> = a.map(|x: i32| -> i32 { return x + 1i32; });
+    match m { Result::Ok(v) => { if v != 6i32 { return 1i32; } } Result::Err(_) => { return 2i32; } }
+    let b: Result<i32, i32> = Result::Err(5i32);
+    let e: Result<i32, i32> = b.map_err(|x: i32| -> i32 { return x * 10i32; });
+    match e { Result::Ok(_) => { return 3i32; } Result::Err(c) => { if c != 50i32 { return 4i32; } } }
+    return 0i32;
+}

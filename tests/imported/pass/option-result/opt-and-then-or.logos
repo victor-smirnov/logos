@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/option-result chaining shapes.
+// Feature: Option::and_then monadic chaining on the prelude Option type.
+package opt_and_then_or;
+use logos.lang.option;
+fn checked_half(x: i32) -> Option<i32> {
+    if (x % 2i32) == 0i32 { return Option::Some(x / 2i32); }
+    return Option::None;
+}
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(8i32);
+    let b: Option<i32> = a.and_then(|x: i32| -> Option<i32> { return checked_half(x); });
+    let c: Option<i32> = b.and_then(|x: i32| -> Option<i32> { return checked_half(x); });
+    match c {
+        Option::Some(v) => { if v != 2i32 { return 1i32; } }
+        Option::None    => { return 2i32; }
+    }
+    let n: Option<i32> = Option::Some(3i32).and_then(|x: i32| -> Option<i32> { return checked_half(x); });
+    if n.is_some() { return 3i32; }
+    return 0i32;
+}

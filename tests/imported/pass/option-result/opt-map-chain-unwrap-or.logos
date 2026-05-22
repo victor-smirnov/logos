@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: chained Option::map then unwrap_or — fluent combinator pipeline.
+package opt_map_chain_unwrap_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(3i32);
+    let v: i32 = a.map(|x: i32| -> i32 { return x + 1i32; }).map(|x: i32| -> i32 { return x * 2i32; }).unwrap_or(0i32);
+    if v != 8i32 { return 1i32; }
+    let b: Option<i32> = Option::None;
+    let w: i32 = b.map(|x: i32| -> i32 { return x + 1i32; }).unwrap_or(-5i32);
+    if w != -5i32 { return 2i32; }
+    return 0i32;
+}

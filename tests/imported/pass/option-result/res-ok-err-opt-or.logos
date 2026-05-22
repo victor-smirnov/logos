@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::ok and Result::err — convert a Result into an Option.
+package res_ok_err_opt_or;
+use logos.lang.result;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Result<i32, i32> = Result::Ok(5i32);
+    let o: Option<i32> = a.ok();
+    match o { Option::Some(v) => { if v != 5i32 { return 1i32; } } Option::None => { return 2i32; } }
+    let b: Result<i32, i32> = Result::Err(9i32);
+    let e: Option<i32> = b.err();
+    match e { Option::Some(v) => { if v != 9i32 { return 3i32; } } Option::None => { return 4i32; } }
+    if a.err().is_some() { return 5i32; }
+    return 0i32;
+}

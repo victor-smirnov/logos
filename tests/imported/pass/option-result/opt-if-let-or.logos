@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: if-let on the prelude Option used in expression position with an else arm.
+package opt_if_let_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(5i32);
+    let v: i32 = if let Option::Some(x) = a { x + 1i32 } else { 0i32 };
+    if v != 6i32 { return 1i32; }
+    let b: Option<i32> = Option::None;
+    let w: i32 = if let Option::Some(x) = b { x } else { -1i32 };
+    if w != -1i32 { return 2i32; }
+    return 0i32;
+}

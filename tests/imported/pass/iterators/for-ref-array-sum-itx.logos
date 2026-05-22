@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: for-loop over &[T;N] yielding &T; dereference the binding to read elements.
+package for_ref_array_sum_itx;
+use logos.lang.iter;
+fn main() -> i32 {
+    let xs: [i32; 5] = [2i32, 4i32, 6i32, 8i32, 10i32];
+    let mut s: i32 = 0i32;
+    for x in &xs { s = s + *x; }
+    if s != 30i32 { return 1i32; }
+    return 0i32;
+}

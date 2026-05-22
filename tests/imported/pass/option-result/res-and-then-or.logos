@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::and_then — chain a fallible step, short-circuiting on Err.
+package res_and_then_or;
+use logos.lang.result;
+fn safe_div(a: i32, b: i32) -> Result<i32, i32> {
+    if b == 0i32 { return Result::Err(1i32); }
+    return Result::Ok(a / b);
+}
+fn main() -> i32 {
+    let r: Result<i32, i32> = safe_div(20i32, 2i32).and_then(|x: i32| -> Result<i32, i32> { return safe_div(x, 5i32); });
+    match r { Result::Ok(v) => { if v != 2i32 { return 1i32; } } Result::Err(_) => { return 2i32; } }
+    let e: Result<i32, i32> = safe_div(20i32, 0i32).and_then(|x: i32| -> Result<i32, i32> { return safe_div(x, 5i32); });
+    if e.is_ok() { return 3i32; }
+    return 0i32;
+}

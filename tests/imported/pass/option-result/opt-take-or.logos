@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Option::take — moves the value out, leaving None behind.
+package opt_take_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let mut a: Option<i32> = Option::Some(8i32);
+    let t: Option<i32> = a.take();
+    if a.is_some() { return 1i32; }
+    match t { Option::Some(v) => { if v != 8i32 { return 2i32; } } Option::None => { return 3i32; } }
+    return 0i32;
+}

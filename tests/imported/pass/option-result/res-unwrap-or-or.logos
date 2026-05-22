@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::unwrap_or and unwrap_or_else fallbacks.
+package res_unwrap_or_or;
+use logos.lang.result;
+fn main() -> i32 {
+    let a: Result<i32, i32> = Result::Err(3i32);
+    let v: i32 = a.unwrap_or(0i32);
+    if v != 0i32 { return 1i32; }
+    let b: Result<i32, i32> = Result::Err(3i32);
+    let w: i32 = b.unwrap_or_else(|e: i32| -> i32 { return e + 100i32; });
+    if w != 103i32 { return 2i32; }
+    let c: Result<i32, i32> = Result::Ok(7i32);
+    if c.unwrap_or(0i32) != 7i32 { return 3i32; }
+    return 0i32;
+}

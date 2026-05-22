@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Option::and — replace Some with the second Option, propagate None.
+package opt_and_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(1i32);
+    let r1: Option<i32> = a.and(Option::Some(2i32));
+    match r1 { Option::Some(v) => { if v != 2i32 { return 1i32; } } Option::None => { return 2i32; } }
+    let b: Option<i32> = Option::None;
+    let r2: Option<i32> = b.and(Option::Some(2i32));
+    if r2.is_some() { return 3i32; }
+    return 0i32;
+}

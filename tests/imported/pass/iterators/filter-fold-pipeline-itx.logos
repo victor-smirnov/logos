@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: iter_filter free-fn adapter feeding iter_fold (filter-then-reduce pipeline).
+package filter_fold_pipeline_itx;
+use logos.lang.iter;
+fn main() -> i32 {
+    let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
+    unsafe {
+        let it = iter_filter::<SliceIter<i32>, i32>(iter_over_slice(&xs), |x: i32| -> bool { return (x % 2i32) == 0i32; });
+        let s: i32 = iter_fold::<FilterIter<SliceIter<i32>, i32>, i32, i32, |i32, i32| -> i32>(
+            it, 0i32, |a: i32, x: i32| -> i32 { return a + x; });
+        if s != 12i32 { return 1i32; }
+    }
+    return 0i32;
+}

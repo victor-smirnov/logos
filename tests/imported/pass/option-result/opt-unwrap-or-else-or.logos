@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Option::unwrap_or_else — lazily computed fallback.
+package opt_unwrap_or_else_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i32> = Option::None;
+    let v: i32 = a.unwrap_or_else(|| -> i32 { return 42i32; });
+    if v != 42i32 { return 1i32; }
+    let b: Option<i32> = Option::Some(5i32);
+    let w: i32 = b.unwrap_or_else(|| -> i32 { return 42i32; });
+    if w != 5i32 { return 2i32; }
+    return 0i32;
+}

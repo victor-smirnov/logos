@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Result::is_ok / is_err predicates and unwrap on Ok.
+package res_is_ok_unwrap_or;
+use logos.lang.result;
+fn main() -> i32 {
+    let a: Result<i32, i32> = Result::Ok(11i32);
+    if !a.is_ok() { return 1i32; }
+    if a.is_err() { return 2i32; }
+    let v: i32 = a.unwrap();
+    if v != 11i32 { return 3i32; }
+    let b: Result<i32, i32> = Result::Err(2i32);
+    if b.is_ok() { return 4i32; }
+    return 0i32;
+}

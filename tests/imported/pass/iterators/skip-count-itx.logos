@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: iter_skip adapter dropping a prefix, terminated by .count().
+package skip_count_itx;
+use logos.lang.iter;
+fn main() -> i32 {
+    let xs: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
+    unsafe {
+        let n: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 2i64, 0i32).count();
+        if n != 3i64 { return 1i32; }
+    }
+    return 0i32;
+}

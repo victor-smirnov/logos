@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Option::flatten — Option<Option<T>> -> Option<T>.
+package opt_flatten_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<Option<i32>> = Option::Some(Option::Some(9i32));
+    let f: Option<i32> = a.flatten();
+    match f { Option::Some(v) => { if v != 9i32 { return 1i32; } } Option::None => { return 2i32; } }
+    let b: Option<Option<i32>> = Option::Some(Option::None);
+    if b.flatten().is_some() { return 3i32; }
+    return 0i32;
+}

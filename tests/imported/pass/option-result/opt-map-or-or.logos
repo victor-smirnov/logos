@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Feature: Option::map_or — apply a fn to Some or return a default for None.
+package opt_map_or_or;
+use logos.lang.option;
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(10i32);
+    let r1: i32 = a.map_or(0i32, |x: i32| -> i32 { return x + 5i32; });
+    if r1 != 15i32 { return 1i32; }
+    let b: Option<i32> = Option::None;
+    let r2: i32 = b.map_or(99i32, |x: i32| -> i32 { return x + 5i32; });
+    if r2 != 99i32 { return 2i32; }
+    return 0i32;
+}
