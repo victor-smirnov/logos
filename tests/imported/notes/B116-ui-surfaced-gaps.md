@@ -152,3 +152,17 @@ bindings-after-at-struct, bindings-after-at-enum, array-fixed-pattern,
 struct-destructure-let, tuple-destructure-let, nested-struct-destructure,
 tuple-wildcard-mid, ref-binding-in-struct, if-let-binding, while-let-pop,
 mut-binding, wildcard-let.
+
+## Triage (2026-05-22, post-import gap-fixing session)
+
+Tractable sema-feature gates (clean diagnostics — being fixed in priority order):
+- **B116-G6** nested-tuple destructure-let `let (a,(b,c)) = t` ("supports struct patterns only") — extend let-pattern lowering to tuples. HIGH frequency.
+- **B116-G3** nested pattern in enum-variant payload `Some(Color::Red)` — common.
+- **B116-G4** refutable struct-field sub-pattern `A { v: 1 }` — common.
+
+Deep codegen bugs → recorded as baghunts (scheduled, not deferred indefinitely):
+- **B116-G5 / match-expr-struct**: `let r = match s { Point{x:a} => a }` SIGSEGVs. PRECISELY: match-AS-EXPRESSION over a struct, binding a field AND *referencing* that binding in the arm value, collapses the whole match to a bare `unreachable` in the entry block (no dispatch emitted). Narrowing: stmt form works; no-binding (`Point{..}=>5`) works; **binding fields but returning a constant (`Point{x:a}=>5`) ALSO works** — only *using* the bound name in the arm value triggers it. So binding-extraction is fine; gen_expr of the bound var in the arm-value block somehow aborts dispatch emission. mlir-gen gen_expr_kind(EMatchExprView). Owned + &struct both. Repro: /tmp/ms5 shape.
+- **B116-G2 / dynamic-slice-as-value**: `let r = match s:&[T] { [a,b]=>… }` → stray arith.constant / func.return-parent verify fail (same family as B-st-NN). 
+- **B116-G1** slice named-rest `[h, rest @ ..]` (grammar; B5 family).
+- **RB115-G3** method on projection value `<G as Tr>::R` — sema half closed; mlir-gen `unsupported receiver kind` SIGSEGV (codegen half).
+- **RB115-G1** qualified path in impl-self-type position; **RB115-G2** concrete-self projection `i64::T` not normalized.
