@@ -1,5 +1,13 @@
 # Core Port — Logos Divergences from Rust
 
+> **Canonical, language-wide register: [`docs/DIVERGENCES.md`](../../docs/DIVERGENCES.md).**
+> That doc defines the rule (only explicitly-replaced / deliberate-design /
+> Logos-addition deltas are *blessed*; everything else is a catch-up TODO
+> marked "не откладывать", never "deferred indefinitely"). This file is the
+> coretest/alloc/std per-module ledger; keep its architectural rows in sync
+> with §A there. The Custom-DST and `Box<?Sized>` rows are reclassified there
+> as catch-up TODOs (§B2/§B3) — no longer "deferred".
+
 This file lists every place where the Logos port of Rust core/alloc/std semantically deviates from the upstream. Each entry has:
 
 - **Location** — package + symbol where divergence appears (or "global" for cross-cutting decisions)
