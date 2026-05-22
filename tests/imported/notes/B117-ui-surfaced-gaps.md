@@ -99,3 +99,17 @@ B114/B115/B116). Each is classified §A (blessed divergence) vs §B
 - method-normalize-bounds-issue-20604 — assoc-projection winnowing in method resolution (RB115-G3 area).
 - trait-object-arrays-11205, coerce-trait-object-removes-send-bound — `Box<[dyn]>`/`Arc<dyn>` + `Send`-bound erasure (B3).
 - issue-39823 — aux-build cross-crate.
+
+## G5 follow-up (2026-05-22 investigation)
+Attempted fix: extend the trait-aware-mangling clash detection
+(sema_collect.cpp ~3700) to also fire for inherent-vs-1-trait (existing method
+has empty trait_name), re-keying ONLY the new trait method to
+`<S>__<Trait>__name` and leaving the inherent on the plain base. Result:
+concrete `s.name()` correctly resolves to the inherent (Rust priority) AND
+compiles — BUT a generic `fn f<T: Tr>(t)->{ t.name() }` then SILENTLY calls the
+inherent instead of the trait method (the bound dispatch / mono trait-threading
+`tag_trait` only kicks in when ≥2 *traits* declare the name, not inherent+1).
+REVERTED to avoid the silent miscompile. To land safely: thread the chosen
+trait through the TypeVar-bound dispatch + mono resolution for the inherent+1-
+trait collision case too (so `t.name()` under `T: Tr` → `S__Tr__name`). Deeper
+change in the delicate trait-aware-mangling path — focused follow-up.
