@@ -1,0 +1,16 @@
+package never_type_if_branch;
+fn pick(c: bool) -> i64 {
+    let i: i64 = if c { return 99i64; } else { 5i64 };
+    return i + 1i64;
+}
+fn pick_else(c: bool) -> i64 {
+    let i: i64 = if c { 7i64 } else { return 88i64; };
+    return i + 1i64;
+}
+fn main() -> i32 {
+    if pick(false) != 6i64 { return 1i32; }
+    if pick(true) != 99i64 { return 2i32; }
+    if pick_else(true) != 8i64 { return 3i32; }
+    if pick_else(false) != 88i64 { return 4i32; }
+    return 0i32;
+}

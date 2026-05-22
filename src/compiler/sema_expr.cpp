@@ -10178,6 +10178,17 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                     result = lower_expr(s);
                 } else {
                     block->stmts.push_back(lower_stmt(s));
+                    // G141-1: a branch whose last statement is a `return` never
+                    // yields a value — it is the never type `!`. Mark it
+                    // divergent (Error) so the if-expression unifier adopts the
+                    // OTHER arm's type instead of failing on `void vs i64`
+                    // (parallels the tail-`panic` case above). NOTE: only
+                    // `return` here — `break`/`continue` in an if-expr-as-value
+                    // branch are NOT yet wired in codegen (the loop jump isn't
+                    // emitted, so the value-form would hang); leaving them as a
+                    // clean type error is sounder than a silent hang.
+                    if (lc == la::RETURN)
+                        divergent_t = error_t();
                 }
             } else {
                 block->stmts.push_back(lower_stmt(s));
