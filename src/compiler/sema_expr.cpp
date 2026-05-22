@@ -985,8 +985,17 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
 
+    case la::LABELED_LOOP:
     case la::LOOP: {
         // loop { ... } used as an expression — only valid when all break paths carry a value.
+        // For the labeled form `'a: loop { ... }` (a LABELED_LOOP node whose
+        // BODY is the loop block + a LABEL field), seed pending_loop_label_ so
+        // lower_loop records the label — otherwise a `break 'a v` inside loses
+        // its target/value wiring (label dropped → break-slot never set → the
+        // loop-as-expr reads an uninitialised slot). The statement path sets
+        // this in the LABELED_LOOP stmt handler; the expr path must too.
+        if (c == la::LABELED_LOOP && expr.has_key(la::LABEL))
+            pending_loop_label_ = std::string(str_of(expr.get(la::LABEL.code)));
         auto loop_stmt = lower_loop(expr);
         TypeRef result_type = nullptr;
         std::string break_slot;

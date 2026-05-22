@@ -263,27 +263,6 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     }
     if (c == la::BREAK) {
         if (loop_depth_ == 0) error("'break' outside loop");
-        lir::LExprPtr bval = nullptr;
-        if (stmt.has_key(la::VALUE)) {
-            bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
-            if (break_without_value_) {
-                error("loop break mixes value and no-value breaks");
-            } else if (bval && bval->type && TypeRef(bval->type).kind() != LogosType::Kind::Error) {
-                if (!break_value_type_) {
-                    break_value_type_ = bval->type;
-                } else if (!types_compatible(bval->type, break_value_type_) &&
-                           !types_compatible(break_value_type_, bval->type)) {
-                    error(std::format("loop break values have incompatible types: {} vs {}",
-                          type_str(break_value_type_), type_str(bval->type)));
-                } else {
-                    break_value_type_ = unify_numeric(break_value_type_, bval->type);
-                }
-            }
-        } else {
-            if (break_value_type_)
-                error("loop break mixes value and no-value breaks");
-            break_without_value_ = true;
-        }
         std::string break_label;
         if (stmt.has_key(la::LABEL))
             break_label = std::string(str_of(stmt.get(la::LABEL.code)));
@@ -291,6 +270,42 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
             std::find(active_loop_labels_.begin(), active_loop_labels_.end(),
                       break_label) == active_loop_labels_.end()) {
             error(std::format("'break {}': label not in scope", break_label));
+        }
+        // Resolve the target frame: the matching label (search innermost-out)
+        // or the innermost loop for an unlabeled break. The break value
+        // attributes to the TARGET, so a value breaking to an outer labeled
+        // `loop` isn't consumed by an inner `loop`.
+        LoopBreakFrame* target = nullptr;
+        if (!loop_break_frames_.empty()) {
+            if (break_label.empty()) {
+                target = &loop_break_frames_.back();
+            } else {
+                for (auto it = loop_break_frames_.rbegin();
+                     it != loop_break_frames_.rend(); ++it)
+                    if (it->label == break_label) { target = &*it; break; }
+            }
+        }
+        lir::LExprPtr bval = nullptr;
+        if (stmt.has_key(la::VALUE)) {
+            bval = lower_expr(map_of(stmt.get(la::VALUE.code)));
+            if (target && target->without_value) {
+                error("loop break mixes value and no-value breaks");
+            } else if (target && bval && bval->type &&
+                       TypeRef(bval->type).kind() != LogosType::Kind::Error) {
+                if (!target->value_type) {
+                    target->value_type = bval->type;
+                } else if (!types_compatible(bval->type, target->value_type) &&
+                           !types_compatible(target->value_type, bval->type)) {
+                    error(std::format("loop break values have incompatible types: {} vs {}",
+                          type_str(target->value_type), type_str(bval->type)));
+                } else {
+                    target->value_type = unify_numeric(target->value_type, bval->type);
+                }
+            }
+        } else {
+            if (target && target->value_type)
+                error("loop break mixes value and no-value breaks");
+            if (target) target->without_value = true;
         }
         return builder().stmt_break(std::move(bval), std::move(break_label), node_line_);
     }
@@ -4039,7 +4054,9 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
+            loop_break_frames_.push_back({"", nullptr, false});
             *then_body = lower_block(map_of(node.get(la::BODY.code)));
+            loop_break_frames_.pop_back();
             --loop_depth_;
         }
         pop_scope();
@@ -4076,7 +4093,9 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+        loop_break_frames_.push_back({my_label, nullptr, false});
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
@@ -4148,7 +4167,9 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+        loop_break_frames_.push_back({my_label, nullptr, false});
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
@@ -4182,7 +4203,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
+            loop_break_frames_.push_back({"", nullptr, false});
             *body = lower_block(map_of(node.get(la::BODY.code)));
+            loop_break_frames_.pop_back();
             --loop_depth_;
         }
         pop_scope();
@@ -4208,7 +4231,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
+            loop_break_frames_.push_back({"", nullptr, false});
             *body = lower_block(map_of(node.get(la::BODY.code)));
+            loop_break_frames_.pop_back();
             --loop_depth_;
         }
         pop_scope();
@@ -4255,7 +4280,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             auto body = lir::alloc_block(*cur_prog_);
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
+                loop_break_frames_.push_back({"", nullptr, false});
                 *body = lower_block(map_of(node.get(la::BODY.code)));
+                loop_break_frames_.pop_back();
                 --loop_depth_;
             }
             pop_scope();
@@ -4498,7 +4525,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         auto then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
+            loop_break_frames_.push_back({"", nullptr, false});
             *then_body = lower_block(map_of(node.get(la::BODY.code)));
+            loop_break_frames_.pop_back();
             --loop_depth_;
         }
         pop_scope();
@@ -4535,26 +4564,24 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     pending_loop_label_.clear();
 
     auto body = lir::alloc_block(*cur_prog_);
-    TypeRef saved_break_type = break_value_type_;
-    bool saved_break_without_value = break_without_value_;
-    break_value_type_ = nullptr;
-    break_without_value_ = false;
+    TypeRef frame_value_type = nullptr;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+        loop_break_frames_.push_back({my_label, nullptr, false});
         *body = lower_block(map_of(node.get(la::BODY.code)));
+        frame_value_type = loop_break_frames_.back().value_type;
+        loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
     lir::SLoop sl;
     sl.body  = std::move(body);
     sl.label = std::move(my_label);
-    if (break_value_type_) {
-        sl.result_type = break_value_type_;
+    if (frame_value_type) {
+        sl.result_type = frame_value_type;
         sl.break_slot  = "__loop_val_" + std::to_string(tmp_var_count_++);
     }
-    break_value_type_ = saved_break_type;  // restore for outer loops
-    break_without_value_ = saved_break_without_value;
     return make_stmt_emit(node_line_, std::move(sl));
 }
 

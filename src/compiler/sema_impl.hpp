@@ -2583,6 +2583,18 @@ private:
     DefVarianceTable variance_table_;
     TypeRef break_value_type_ = nullptr;  // type yielded by break <expr>
     bool break_without_value_ = false;
+    // Per-active-loop break-value attribution frame. A `break 'label v`
+    // attributes its value-type to the frame matching the label (an unlabeled
+    // break targets the innermost frame), so a value breaking to an OUTER
+    // labeled loop is no longer stolen by an inner `loop`. One frame is pushed
+    // per active loop of any kind (for / while / loop). Only `loop` reads its
+    // frame's value_type to become a value-yielding expression.
+    struct LoopBreakFrame {
+        std::string label;
+        TypeRef value_type = nullptr;
+        bool without_value = false;
+    };
+    std::vector<LoopBreakFrame> loop_break_frames_;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
     bool match_in_tail_position_ = false;
     // B-fn-06: when true, TAIL_EXPR statements act as implicit returns.

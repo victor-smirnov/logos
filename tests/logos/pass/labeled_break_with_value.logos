@@ -1,0 +1,29 @@
+package labeled_break_with_value;
+
+fn main() -> i32 {
+    let v: i64 = 'a: loop { break 'a 42i64; };
+    if v != 42i64 { return 1i32; }
+
+    let w: i64 = loop { break 7i64; };
+    if w != 7i64 { return 2i32; }
+
+    // nested: inner loop breaks to outer label with value
+    let z: i64 = 'outer: loop {
+        let mut i: i64 = 0i64;
+        loop {
+            i = i + 1i64;
+            if i == 3i64 { break 'outer i * 10i64; }
+        }
+    };
+    if z != 30i64 { return 3i32; }
+
+    // labeled break with no value (control flow only)
+    let mut count: i64 = 0i64;
+    'b: loop {
+        count = count + 1i64;
+        if count == 5i64 { break 'b; }
+    }
+    if count != 5i64 { return 4i32; }
+
+    return 0i32;
+}
