@@ -1,0 +1,17 @@
+// §B1: a `T: Copy` bound makes T auto-copy — by-value use does not move it.
+package generic_copy_bound;
+
+fn consume<T>(x: T) {}
+
+fn triple<T: Copy>(x: T) -> T {
+    consume(x); consume(x); consume(x);   // multiple by-value uses
+    return x;                              // and return — all valid (T: Copy)
+}
+
+fn main() -> i32 {
+    let v: i64 = 9i64;
+    if triple(v) != 9i64 { return 1i32; }
+    let b: bool = true;
+    if triple(b) != true { return 2i32; }
+    return 0i32;
+}

@@ -2187,7 +2187,20 @@ bool SemaChecker::is_move_type(TypeRef t) const {
     // bitwise-share the value (Vec.push / Vec.remove / let val: T =
     // *ptr / etc.). Cross-arm move pollution that this could cause is
     // handled by lower_match / lower_if's per-arm save/restore.
-    if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return true;
+    if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
+        // §B1: a `T: Copy` bound makes T provably Copy (Copy and Drop are
+        // mutually exclusive), so a by-value use of `x: T` does NOT move it —
+        // the value stays valid for later use. Without this, generic code
+        // like `fn dup<T: Copy>(x: T) -> T { consume(x); x }` spuriously
+        // reports "use of moved variable". Only an explicit Copy bound counts
+        // (matches Rust); anything else stays conservative-move.
+        auto nm = std::string(TypeRef(t).type_var_name());
+        auto it = current_type_bounds_.find(nm);
+        if (it != current_type_bounds_.end())
+            for (auto& b : it->second)
+                if (b.trait_name == "Copy") return false;
+        return true;
+    }
     // Struct types are move types unless they implement Copy.
     if (TypeRef(t).kind() != LogosType::Kind::Struct)
         return false;
