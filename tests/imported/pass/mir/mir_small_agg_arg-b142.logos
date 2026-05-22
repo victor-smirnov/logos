@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_small_agg_arg.rs
+// Modifications: added a `-> i8` body returning `x + y` + a ret-guard (upstream
+//   body is empty / unused-var).
+// Tests a tuple-destructuring fn PARAMETER `fn foo((x, y): (i8, i8))`.
+package mir_small_agg_arg_b142;
+
+fn foo((x, y): (i8, i8)) -> i8 { return x + y; }
+
+fn main() -> i32 {
+    if foo((2i8, 3i8)) != 5i8 { return 1i32; }
+    return 0i32;
+}

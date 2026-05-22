@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-4.rs
+// Modifications: isize→i64; `Box<Triple>` → stack `Triple` (Box dropped, B111);
+//   assert_eq!→ret-guard.
+// Tests a chain of move-rebinds (foo→bar→baz→quux) of a struct value through a fn.
+package move_4_b142;
+
+struct Triple { a: i64, b: i64, c: i64 }
+
+fn test(foo: Triple) -> Triple {
+    let foo2: Triple = foo;
+    let bar: Triple = foo2;
+    let baz: Triple = bar;
+    let quux: Triple = baz;
+    return quux;
+}
+
+fn main() -> i32 {
+    let x: Triple = Triple { a: 1i64, b: 2i64, c: 3i64 };
+    let y: Triple = test(x);
+    if y.c != 3i64 { return 1i32; }
+    return 0i32;
+}

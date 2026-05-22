@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-creating-enums5.rs
+// Modifications: usize→u64; constructed an `ast` value + a ret-guard reading the
+//   `num` payload through the built `add` node.
+// Tests a self-referential lifetime-parametric enum `ast<'a>` whose `add`
+//   variant holds two `&'a ast<'a>` references, built through a constructor fn.
+package regions_creating_enums5_b142;
+
+enum Ast<'a> {
+    Num(u64),
+    Add(&'a Ast<'a>, &'a Ast<'a>)
+}
+
+fn mk_add_ok<'a>(x: &'a Ast<'a>, y: &'a Ast<'a>, _z: &Ast) -> Ast<'a> {
+    return Ast::Add(x, y);
+}
+
+fn main() -> i32 {
+    let a: Ast = Ast::Num(3u64);
+    let b: Ast = Ast::Num(4u64);
+    let s: Ast = mk_add_ok(&a, &b, &a);
+    match s {
+        Ast::Add(l, _r) => {
+            match *l {
+                Ast::Num(n) => { if n != 3u64 { return 1i32; } }
+                Ast::Add(_, _) => { return 2i32; }
+            }
+        }
+        Ast::Num(_) => { return 3i32; }
+    }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-calls-object-one-arg.rs
+// Modifications: isize→i64; closure block body; assert_eq!→ret-guard.
+// Tests calling a 1-arg `&mut dyn FnMut(i64) -> i64` trait-object through a fn param.
+package overloaded_calls_object_one_arg_b142;
+
+fn foo(f: &mut dyn FnMut(i64) -> i64) -> i64 {
+    return f(22i64);
+}
+
+fn main() -> i32 {
+    let mut c = |x: i64| { return x * 100i64; };
+    let z: i64 = foo(&mut c);
+    if z != 2200i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-direct-sugary-call.rs
+// Modifications: pub fn main → ret-guard; closure given a block body that returns
+//   a value so the call result can be checked.
+// Tests a `mut`-bound no-arg closure declared then called by sugary `()` syntax.
+package unboxed_closures_direct_sugary_call_b142;
+
+fn main() -> i32 {
+    let mut unboxed = || { return 7i64; };
+    if unboxed() != 7i64 { return 1i32; }
+    return 0i32;
+}

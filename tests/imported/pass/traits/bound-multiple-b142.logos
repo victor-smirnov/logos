@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/bound/multiple.rs
+// Modifications: literal `3` → `3i64`; pub fn main → ret-guard.
+// Tests a fn generic over a param with TWO bounds `T: PartialEq + PartialOrd`,
+//   instantiated at i64.
+package bound_multiple_b142;
+
+fn f<T: PartialEq + PartialOrd>(_x: T) {
+}
+
+fn main() -> i32 {
+    f(3i64);
+    return 0i32;
+}

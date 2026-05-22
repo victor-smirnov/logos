@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-nullable-simplifycfg-misopt.rs
+// Modifications: recursive `Cons(X, Box<List<X>>)` → a flat `Cons(i64)` (the
+//   Box-recursion / nullable-pointer layout is incidental — B111); the test's
+//   point is the switch over a payload-variant with a LITERAL-payload arm + a
+//   `Nil` arm + a catch-all; panic!()→ret-guard.
+package enum_nullable_simplifycfg_misopt_b142;
+
+enum List { Nil, Cons(i64) }
+
+fn main() -> i32 {
+    match List::Cons(10i64) {
+        List::Cons(10i64) => {}
+        List::Nil => { return 1i32; }
+        _ => { return 2i32; }
+    }
+    return 0i32;
+}

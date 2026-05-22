@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/ufcs-type-params.rs
+// NOTE: a `ufcs-type-params` basename exists from an earlier batch; this is the
+//   DISTINCT typeck-dir source (trait `Foo<T>` impl for i32). The upstream UFCS
+//   turbofish call `Foo::<i32>::get(&x)` errors ("call to undefined static method
+//   'Foo::get'") — see B142 gap note (UFCS trait-method-by-path); the equivalent
+//   method-call form `x.get()` works and is used here.
+package ufcs_type_params_b142;
+
+trait Foo<T> {
+    fn get(self: &Self) -> T;
+}
+
+impl Foo<i32> for i32 {
+    fn get(self: &Self) -> i32 { return *self; }
+}
+
+fn main() -> i32 {
+    let x: i32 = 1i32;
+    let v: i32 = x.get();
+    if v != 1i32 { return 1i32; }
+    return 0i32;
+}

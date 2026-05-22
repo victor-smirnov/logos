@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/issue-50731.rs
+// Modifications: the upstream `Result<(Void,u32),(Void,String)>` tuple/String
+//   payload is incidental (Box/String/Result heavy) — distilled to the test's
+//   point: an UNINHABITED enum `Void {}` declared + present, plus a coercion of
+//   a fn ITEM to a `fn(i64)` pointer type binding (the original `let _: fn(_) = foo`).
+package issue_50731_b142;
+
+enum Void {}
+
+fn foo(_x: i64) {}
+
+fn main() -> i32 {
+    let f: fn(i64) = foo;
+    f(7i64);
+    return 0i32;
+}

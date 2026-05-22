@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-dependent-autoslice.rs
+// Modifications: usize→u64; `vec![1,2,3]` → fixed `[u64;3]` borrowed as `&[u64]`
+//   (Vec dropped, B111); added a ret-guard over the returned slice's first elem.
+// Tests lifetimes linked through nested slice-passthrough fns over `&[u64]`.
+package regions_dependent_autoslice_b142;
+
+fn subslice1<'r>(v: &'r [u64]) -> &'r [u64] { return v; }
+
+fn both<'r>(v: &'r [u64]) -> &'r [u64] {
+    return subslice1(subslice1(v));
+}
+
+fn main() -> i32 {
+    let v: [u64; 3] = [1u64, 2u64, 3u64];
+    let s: &[u64] = both(&v);
+    if s[0] != 1u64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_coercion_casts.rs
+// Modifications: `&'a ()` param → `i64` (unit-ref incidental); the test's point
+//   — a fn-item reified via `as fn(..)` cast — kept + the resulting ptr invoked
+//   with a ret-guard.
+// Tests the coercion cast of a fn item to a `fn(i64)` pointer (`f as fn(i64)`).
+package mir_coercion_casts_b142;
+
+fn f(_x: i64) {}
+
+fn main() -> i32 {
+    let g = f as fn(i64);
+    g(3i64);
+    return 0i32;
+}

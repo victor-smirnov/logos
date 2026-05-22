@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_ascription_coercion.rs
+// Modifications: the upstream `type_ascribe!(&x, &[i32;3])` ascription macro is
+//   dropped (ascription macro not on the surface); the test's point — `&[i32;N]`
+//   coercing to `&[i32]` — is kept directly via `let y: &[i32] = &x;` + index.
+// Tests `&[i32; 3]` → `&[i32]` slice coercion in a `let` with an explicit type.
+package mir_ascription_coercion_b142;
+
+fn main() -> i32 {
+    let x: [i32; 3] = [1i32, 2i32, 3i32];
+    let y: &[i32] = &x;
+    if y[1] != 2i32 { return 1i32; }
+    return 0i32;
+}

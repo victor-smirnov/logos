@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-borrow-uniq.rs
+// Modifications: usize→u64; `Box::new(3)` → stack `3u64` (Box dropped, B111);
+//   borrow `&*p` → `&p`; assert_eq!→ret-guard.
+// Tests passing a `&u64` derived from a local into a deref-reading fn.
+package regions_borrow_uniq_b142;
+
+fn foo(x: &u64) -> u64 {
+    return *x;
+}
+
+fn main() -> i32 {
+    let p: u64 = 3u64;
+    let r: u64 = foo(&p);
+    if r != 3u64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-issue-21422.rs
+// Modifications: lifetime-parametric `P<'a>` with a `*const &'a u8` field →
+//   `P { v: i64 }`; the upstream custom `PartialEq` `eq` → an inherent `eq_ptr`
+//   method (custom-trait-impl-on-lifetime-type incidental); assert via ret-guards.
+// Tests an identity-comparison via `(self as *const P) == (other as *const P)`
+//   — the outlives constraint on the operands of a `==` over raw pointers.
+package regions_issue_21422_b142;
+
+struct P { v: i64 }
+
+impl P {
+    fn eq_ptr(self: &P, other: &P) -> bool {
+        return (self as *const P) == (other as *const P);
+    }
+}
+
+fn main() -> i32 {
+    let a: P = P { v: 1i64 };
+    let b: P = P { v: 1i64 };
+    if !a.eq_ptr(&a) { return 1i32; }
+    if a.eq_ptr(&b) { return 2i32; }
+    return 0i32;
+}

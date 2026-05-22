@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-link-fn-args.rs
+// Modifications: `&'a Vec<isize>` → `&'a [i64]` (Vec dropped, B111); the upstream
+//   `|&ref ints| ints` closure-pattern (ref-deref binding) → a plain `ints: &[i64]`
+//   param (the test's point is region-linking through the FnOnce arg's borrow).
+// Tests region inference linking the borrow inside a `FnOnce(&'a [i64]) -> &'a [i64]`
+//   closure argument passed to a higher-order fn.
+package regions_link_fn_args_b142;
+
+fn with<'a, F>(_f: F) where F: FnOnce(&'a [i64]) -> &'a [i64] {}
+
+fn foo() {
+    with(|ints: &[i64]| { return ints; });
+}
+
+fn main() -> i32 {
+    foo();
+    return 0i32;
+}

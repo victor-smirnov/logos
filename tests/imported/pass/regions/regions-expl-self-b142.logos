@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-expl-self.rs
+// Modifications: usize→u64; `&'a self` → `self: &'a Foo`; added a ret-guard
+//   exercising the method (upstream main is empty).
+// Tests an explicit lifetime on the self-receiver: `fn foo<'a>(self: &'a Foo)`.
+package regions_expl_self_b142;
+
+struct Foo {
+    f: u64
+}
+
+impl Foo {
+    fn foo<'a>(self: &'a Foo) -> u64 { return self.f; }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo { f: 7u64 };
+    if x.foo() != 7u64 { return 1i32; }
+    return 0i32;
+}

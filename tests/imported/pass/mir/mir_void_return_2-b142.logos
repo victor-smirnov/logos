@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_void_return_2.rs
+// Modifications: pub fn main → ret-guard.
+// Tests a void (unit-returning) fn `nil()` tail-called from another void fn `mir()`,
+//   called from main.
+package mir_void_return_2_b142;
+
+fn nil() {}
+
+fn mir() { nil() }
+
+fn main() -> i32 {
+    mir();
+    return 0i32;
+}

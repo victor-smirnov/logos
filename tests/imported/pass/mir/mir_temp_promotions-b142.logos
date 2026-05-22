@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_temp_promotions.rs
+// Modifications: `f.is_nan() || f.is_infinite()` → `f != f` (NaN self-inequality)
+//   — float `is_nan`/`is_infinite` methods are not yet on the surface (B142 gap
+//   note); assert_eq!→ret-guard.
+// Tests a fn whose tail is a negated boolean disjunction over an f32 parameter.
+package mir_temp_promotions_b142;
+
+fn test1(f: f32) -> bool {
+    return !(f != f);
+}
+
+fn main() -> i32 {
+    if test1(0.0f32) { return 0i32; }
+    return 1i32;
+}

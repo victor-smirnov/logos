@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-usize-min-max-pattern.rs
+// Modifications: usize::MIN/MAX literal bounds → explicit u64 literals
+//   (0u64 / 18446744073709551615u64); pub fn main → ret-guard.
+// Tests a 2-tuple match arm with the extreme u64 corner-values as element
+//   patterns + a catch-all.
+package match_usize_min_max_pattern_b142;
+
+fn main() -> i32 {
+    let v: u64 = 0u64;
+    match (v, v) {
+        (0u64, 18446744073709551615u64) => { return 1i32; }
+        _ => {}
+    }
+    return 0i32;
+}

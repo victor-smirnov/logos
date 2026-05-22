@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-infer-call.rs
+// Modifications: isize→i64; assert_eq!→ret-guard.
+// Tests region inference linking two distinct-lifetime `&i64` args through a call.
+package regions_infer_call_b142;
+
+fn takes_two(x: &i64, y: &i64) -> i64 { return *x + *y; }
+
+fn has_two<'a, 'b>(x: &'a i64, y: &'b i64) -> i64 {
+    return takes_two(x, y);
+}
+
+fn main() -> i32 {
+    if has_two(&20i64, &2i64) != 22i64 { return 1i32; }
+    return 0i32;
+}

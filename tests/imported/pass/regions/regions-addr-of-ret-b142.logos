@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-addr-of-ret.rs
+// Modifications: isize→i64; `println!` → ret-guard.
+// Tests returning a reborrow `&*x` of a `&i64` parameter.
+package regions_addr_of_ret_b142;
+
+fn f(x: &i64) -> &i64 {
+    return &*x;
+}
+
+fn main() -> i32 {
+    let three: &i64 = &3i64;
+    if *f(three) != 3i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-calls-object-zero-args.rs
+// Modifications: isize→i64; closure given a block body; assert_eq!→ret-guard.
+// Tests calling a `&mut dyn FnMut() -> i64` trait-object (zero-arg) through a fn
+//   parameter (`fn foo(f: &mut dyn FnMut()->i64) -> i64 { f() }`).
+package overloaded_calls_object_zero_args_b142;
+
+fn foo(f: &mut dyn FnMut() -> i64) -> i64 {
+    return f();
+}
+
+fn main() -> i32 {
+    let mut c = || { return 22i64; };
+    let z: i64 = foo(&mut c);
+    if z != 22i64 { return 1i32; }
+    return 0i32;
+}

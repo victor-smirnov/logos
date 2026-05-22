@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tuple-struct-constructor-pointer.rs
+// Modifications: tuple-structs `Foo(isize)`/`Bar(isize,isize)` → named-field
+//   structs (tuple-struct surface is known-open, B107); the variant constructor
+//   AS a fn-pointer (`let f: fn(isize)->Foo = Foo`) is the test's point — kept
+//   via a free constructor fn `mk_foo` bound to a `fn`-ptr; assert_eq!→ret-guard.
+package tuple_struct_constructor_pointer_b142;
+
+struct Foo { a: i64 }
+struct Bar { a: i64, b: i64 }
+
+fn mk_foo(x: i64) -> Foo { return Foo { a: x }; }
+fn mk_bar(x: i64, y: i64) -> Bar { return Bar { a: x, b: y }; }
+
+fn main() -> i32 {
+    let f: fn(i64) -> Foo = mk_foo;
+    let g: fn(i64, i64) -> Bar = mk_bar;
+    let r1: Foo = f(42i64);
+    let r2: Bar = g(4i64, 7i64);
+    if r1.a != 42i64 { return 1i32; }
+    if r2.a != 4i64 { return 2i32; }
+    if r2.b != 7i64 { return 3i32; }
+    return 0i32;
+}
