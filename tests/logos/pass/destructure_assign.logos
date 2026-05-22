@@ -1,0 +1,29 @@
+package destructure_assign;
+// G149-7 (RFC 2909): destructuring assignment into existing places —
+// tuple (incl. swap, `_`, nested), array (incl. middle `..` rest), struct
+// (shorthand, rename, `_`, `..`).
+struct P { x: i64, y: i64 }
+fn main() -> i64 {
+    let mut a: i64 = 0; let mut b: i64 = 0; let mut c: i64 = 0;
+    (a, b) = (3, 4);
+    if a != 3 || b != 4 { return 1; }
+    (a, b) = (b, a);                 // swap
+    if a != 4 || b != 3 { return 2; }
+    (a, _, c) = (10, 99, 30);
+    if a != 10 || c != 30 { return 3; }
+    let mut p: i64 = 0; let mut q: i64 = 0; let mut r: i64 = 0;
+    (p, (q, r)) = (5, (6, 7));       // nested
+    if p != 5 || q != 6 || r != 7 { return 4; }
+    [a, b] = [1, 2];
+    if a != 1 || b != 2 { return 5; }
+    [a, .., b, c] = [11, 12, 13, 14, 15];   // middle rest
+    if a != 11 || b != 14 || c != 15 { return 6; }
+    let mut sx: i64 = 0; let mut sy: i64 = 0;
+    P { x: sx, y: sy } = P { x: 100, y: 200 };
+    if sx != 100 || sy != 200 { return 7; }
+    P { x: sy, y: sx } = P { x: 1, y: 2 };   // rename/cross
+    if sx != 2 || sy != 1 { return 8; }
+    P { x: sx, .. } = P { x: 42, y: 0 };     // rest
+    if sx != 42 { return 9; }
+    return 0;
+}

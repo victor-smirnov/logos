@@ -2916,6 +2916,7 @@ private:
     lir::LStmt lower_nested_fn(hermes::TinyMapView node);
     lir::LStmt lower_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_assign(hermes::TinyMapView node);
+    lir::LStmt lower_destructure_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
     lir::Pattern build_pattern(hermes::TinyMapView pnode, TypeRef scrut_type);
     // Internal: build_pattern's body without eager mirror emit. Recurses via

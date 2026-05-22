@@ -181,6 +181,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::LET_PAT)      return lower_let_pat(stmt);
     if (c == la::NESTED_FN)    return lower_nested_fn(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
+    if (c == la::DESTRUCTURE_ASSIGN) return lower_destructure_assign(stmt);
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
     if (c == la::IF)           return lower_if(stmt);
@@ -674,6 +675,167 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     check_unique_names(all_names,
                        [](auto& n) -> std::string_view { return n; },
                        "binding", "let (...) destructure");
+
+    lir::SBlock sb;
+    sb.body = std::move(blk);
+    return make_stmt_emit(node_line_, std::move(sb));
+}
+
+// G149-7 (RFC 2909): destructuring assignment into EXISTING places.
+//   (a, b) = e;          →  let __da = e; a = __da.0; b = __da.1;
+//   [a, b] = e;          →  let __da = e; a = __da[0]; b = __da[1];
+//   S { x: a, y } = e;   →  let __da = e; a = __da.x; y = __da.y;
+// `_` places discard (evaluate the accessor for effect). Nested tuple places
+// (`(a, (b, c)) = …`) recurse. Each place must be an existing mutable local
+// (reuses lower_assign's mutability/undefined checks via stmt_assign).
+lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
+    int op = 0;
+    if (node.has_key(la::OP)) {
+        AnyVal av = node.get(la::OP.code);
+        if (!av.is_null() && av.is_value()) op = (int)av.as_value<int32_t>();
+    }
+    lir::LExprPtr rhs = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        : error_expr();
+    TypeRef rhs_type = rhs->type;
+    auto blk = lir::alloc_block(*cur_prog_);
+    std::string tmp = std::format("__da_{}", destruct_counter_++);
+    define(tmp, rhs_type);
+    {
+        lir::SLet sl;
+        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.value = std::move(rhs);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+    }
+    // Assign an accessor expr into a place name (or discard for `_`).
+    auto assign_place = [&](const std::string& nm, lir::LExprPtr acc) {
+        if (nm == "_" || nm.empty()) {
+            blk->stmts.push_back(builder().stmt_expr(std::move(acc), node_line_));
+            return;
+        }
+        auto vt = lookup(nm);
+        if (!vt) { error(std::format(
+            "destructuring assignment to undefined variable '{}'", nm)); return; }
+        if (!lookup_is_mut(nm))
+            error(std::format("assignment to immutable variable '{}'", nm));
+        blk->stmts.push_back(builder().stmt_assign(nm, std::move(acc), node_line_));
+    };
+
+    if (op == 2) {
+        // Struct form. FIELDS is a pat_field_list { ITEMS: [PAT_FIELD…] }.
+        if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
+            TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
+            if (TypeRef(rhs_type).kind() != LogosType::Kind::Error)
+                error(std::format("destructuring assignment: right-hand side "
+                                  "must be a struct, got {}", type_str(rhs_type)));
+        } else if (node.has_key(la::FIELDS)) {
+            std::string sname(TypeRef(rhs_type).struct_name());
+            auto sinfo = find_struct_by_name(sname).second;
+            if (!sinfo) sinfo = find_datatype_by_name(sname).second;
+            auto flist = map_of(node.get(la::FIELDS.code));
+            if (flist.has_key(la::ITEMS)) {
+                auto items = arr_of(flist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    auto fnode = map_of(items.get(i));
+                    if (code_of(fnode) == la::PAT_REST) continue;
+                    if (!fnode.has_key(la::NAME)) continue;
+                    std::string fname(str_of(fnode.get(la::NAME.code)));
+                    std::string place = fname;  // shorthand `{ x }`
+                    if (fnode.has_key(la::VALUE)) {
+                        auto sub = map_of(fnode.get(la::VALUE.code));
+                        if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME))
+                            place = std::string(str_of(sub.get(la::NAME.code)));
+                    }
+                    TypeRef ftype = error_t();
+                    if (sinfo) for (auto& sf : sinfo->fields)
+                        if (sf.name == fname) { ftype = sf.type; break; }
+                    auto acc = builder().field_read(
+                        builder().var_ref(tmp, rhs_type), fname, ftype);
+                    assign_place(place, std::move(acc));
+                }
+            }
+        }
+    } else {
+        // Tuple (op 0) / array (op 1). NAMES is a pat_binding_list { ITEMS:[…] }.
+        bool is_array = (op == 1);
+        std::function<void(TinyMapView, lir::LExprPtr, TypeRef)> bind_list =
+            [&](TinyMapView nlist, lir::LExprPtr src, TypeRef src_ty) {
+            if (!nlist.has_key(la::ITEMS)) return;
+            auto arr = arr_of(nlist.get(la::ITEMS.code));
+            bool src_is_tuple = TypeRef(src_ty).kind() == LogosType::Kind::Tuple;
+            bool src_is_array = TypeRef(src_ty).kind() == LogosType::Kind::Array;
+            size_t arity = src_is_tuple ? TypeRef(src_ty).tuple_elems().size()
+                         : src_is_array ? (size_t)TypeRef(src_ty).arr_size() : 0;
+            // A single `..` rest absorbs the unmatched middle positions; places
+            // before it map to low positions, places after it to the tail.
+            int rest_idx = -1;
+            size_t n_named = 0;
+            for (uint64_t i = 0; i < arr.size(); ++i) {
+                if (code_of(map_of(arr.get(i))) == la::PAT_REST) {
+                    if (rest_idx >= 0)
+                        error("destructuring assignment: at most one `..` rest allowed");
+                    rest_idx = (int)i;
+                } else ++n_named;
+            }
+            if (rest_idx < 0) {
+                if (arity && arr.size() != arity)
+                    error(std::format("destructuring assignment: expected {} places, got {}",
+                          arity, arr.size()));
+            } else if (arity && n_named > arity) {
+                error(std::format("destructuring assignment: {} places exceed arity {}",
+                      n_named, arity));
+            }
+            size_t trailing = rest_idx < 0 ? 0 : (arr.size() - 1 - (size_t)rest_idx);
+            // Spill the source once.
+            std::string src_tmp = std::format("__da_{}", destruct_counter_++);
+            define(src_tmp, src_ty);
+            {
+                lir::SLet sl;
+                sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
+                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            }
+            for (uint64_t i = 0; i < arr.size(); ++i) {
+                auto bnode = map_of(arr.get(i));
+                if (code_of(bnode) == la::PAT_REST) continue;  // rest skip
+                size_t pos;
+                if (rest_idx < 0 || (int)i < rest_idx) pos = i;
+                else pos = arity - trailing + (i - (size_t)rest_idx - 1);
+                if (arity && pos >= arity) continue;
+                TypeRef elem_t = error_t();
+                lir::LExprPtr acc;
+                if (src_is_array && TypeRef(src_ty).elem()) {
+                    elem_t = TypeRef(src_ty).elem();
+                    acc = builder().index_read(
+                        builder().var_ref(src_tmp, src_ty),
+                        builder().lit_int((int64_t)pos, prim(LogosType::Kind::I64)), elem_t);
+                } else if (src_is_tuple && pos < TypeRef(src_ty).tuple_elems().size()) {
+                    elem_t = TypeRef(src_ty).tuple_elems()[pos];
+                    acc = builder().tuple_index(
+                        builder().var_ref(src_tmp, src_ty), (uint32_t)pos, elem_t);
+                } else {
+                    continue;
+                }
+                if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
+                    bind_list(map_of(bnode.get(la::NAMES.code)), std::move(acc), elem_t);
+                } else {
+                    std::string nm(bnode.has_key(la::NAME)
+                                   ? std::string(str_of(bnode.get(la::NAME.code))) : "_");
+                    assign_place(nm, std::move(acc));
+                }
+            }
+        };
+        if (node.has_key(la::NAMES)) {
+            if (is_array && TypeRef(rhs_type).kind() != LogosType::Kind::Array &&
+                TypeRef(rhs_type).kind() != LogosType::Kind::Error)
+                error(std::format("destructuring assignment: right-hand side "
+                                  "must be an array, got {}", type_str(rhs_type)));
+            if (!is_array && TypeRef(rhs_type).kind() != LogosType::Kind::Tuple &&
+                TypeRef(rhs_type).kind() != LogosType::Kind::Error)
+                error(std::format("destructuring assignment: right-hand side "
+                                  "must be a tuple, got {}", type_str(rhs_type)));
+            bind_list(map_of(node.get(la::NAMES.code)),
+                      builder().var_ref(tmp, rhs_type), rhs_type);
+        }
+    }
 
     lir::SBlock sb;
     sb.body = std::move(blk);

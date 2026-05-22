@@ -300,6 +300,7 @@
     INNER_DOC_BLOCK_LIT         = 240   // `/*! ... */` inner block doc-comment (module-level summary, block form). VALUE = raw token text; sema accumulates into module_inner_doc_ like INNER_DOC_LIT.
     USE_VARIANTS                = 241   // CP-cm-02 + GR-gp-02: `use pkg.Path.X.{V1, V2, …};`. Same shape as USE but with extra TYPE_NAME (last dotted segment, either enum Type when uppercase or pkg sub-name when lowercase) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema disambiguates by TYPE_NAME's first-character case: uppercase → enum-variant bare-name shorthand; lowercase → grouped sub-package import (`use std.lang.{option, result};`).
     INNER_ANNOTATION            = 242   // Three-layer split Phase 3.2: `#![name]` / `#![name(args)]` / `#![name=val]` — file/module-level inner attribute. Currently used only for `#![no_implicit_prelude]`. Payload shape identical to ANNOTATION; differing CODE lets sema pick out module-level attrs from per-item attrs.
+    DESTRUCTURE_ASSIGN          = 243   // G149-7 (RFC 2909): destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` into EXISTING places. OP=0 tuple (NAMES=pat_binding_list), 1 array (NAMES), 2 struct (NAME=struct, FIELDS=pat_field_list); VALUE=rhs. Sema desugars to `let __da=rhs;` + per-place assigns.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1578,6 +1579,7 @@
           / index_compound_assign_stmt
           / index_write_stmt
           / compound_assign_stmt
+          / destructure_assign_stmt
           / assign_stmt
           / unsafe_block
           / block
@@ -1929,6 +1931,17 @@
 
     assign_stmt <- IDENT ASSIGN expr SEMI
                 => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
+
+    // G149-7 (RFC 2909): destructuring assignment into EXISTING places.
+    // Reuses pat_binding_list (tuple/array) and pat_field_list (struct).
+    // Placed before expr-stmt so a parenthesised/bracketed LHS followed by
+    // `=` is recognised; PEG backtracks to expr-stmt when there is no `=`.
+    destructure_assign_stmt <- LPAREN pat_binding_list RPAREN ASSIGN expr SEMI
+                            => { CODE: DESTRUCTURE_ASSIGN, OP: 0, NAMES: $2, VALUE: $5 }
+                             / LBRACKET pat_binding_list RBRACKET ASSIGN expr SEMI
+                            => { CODE: DESTRUCTURE_ASSIGN, OP: 1, NAMES: $2, VALUE: $5 }
+                             / IDENT LBRACE pat_field_list RBRACE ASSIGN expr SEMI
+                            => { CODE: DESTRUCTURE_ASSIGN, OP: 2, NAME: $1, FIELDS: $3, VALUE: $6 }
 
     // Compound assignment: x += expr → x = x + expr
     compound_assign_op <- PLUS_EQ / MINUS_EQ / STAR_EQ / SLASH_EQ / PERCENT_EQ

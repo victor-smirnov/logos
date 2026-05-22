@@ -1,0 +1,18 @@
+package struct_destructure_b150;
+// Faithful port of rustc tests/ui/destructuring-assignment/struct_destructure.rs.
+// G149-7. Generic struct → monomorphic i64 fields; uninit-tuple-decl → mut locals;
+// assert_eq! → exit checks.
+struct Struct { a: i64, b: i64 }
+fn main() -> i64 {
+    let mut a: i64 = 0; let mut b: i64 = 0;
+    Struct { a, b } = Struct { a: 0, b: 1 };
+    if a != 0 || b != 1 { return 1; }
+    Struct { a: b, b: a } = Struct { a: 1, b: 2 };
+    if a != 2 || b != 1 { return 2; }
+    Struct { a: _, b } = Struct { a: 9, b: 2 };
+    if b != 2 { return 3; }
+    Struct { a, .. } = Struct { a: 7, b: 3 };
+    if a != 7 { return 4; }
+    Struct { .. } = Struct { a: 1, b: 4 };
+    return 0;
+}

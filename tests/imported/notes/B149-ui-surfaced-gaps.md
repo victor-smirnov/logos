@@ -148,7 +148,9 @@ Implementing a trait on a bare fn-pointer type isn't accepted by the grammar.
 Tractability: MODERATE (grammar: allow a fn-ptr type in impl target position + the
 corresponding coherence/dispatch). `traits/fn-type-trait-impl-15444.rs` DROPPED.
 
-### G149-7 — DEFERRED (moderate, broad): DESTRUCTURING ASSIGNMENT (`[a, b] = …`, `Struct { a, b } = …`) is unsupported — syntax error
+### G149-7 — ✅ FIXED (2026-05-22): DESTRUCTURING ASSIGNMENT (`(a,b)=e`, `[a,b]=e`, `Struct{a,b}=e`) is unsupported — syntax error
+
+**Fix** (RFC 2909): grammar `destructure_assign_stmt` (3 forms: tuple/array reuse `pat_binding_list`, struct reuses `pat_field_list`) placed before `assign_stmt`; new AST code DESTRUCTURE_ASSIGN. Sema `lower_destructure_assign` desugars to `let __da = rhs;` + per-place assignments (reusing `stmt_assign`'s mutability/undefined checks). Supports `_` discard, nested tuple places `(a,(b,c))`, and a single middle/trailing `..` rest with correct index remapping. Re-imports `slice_destructure-b150` + `struct_destructure-b150`; regression `destructure_assign`. 4549/4549. NOT-yet: `let (mut a, mut b);` uninit-tuple-decl (separate feature); nested array/struct places. ORIGINAL REPORT below:
 
 Both the slice form and the struct form of destructuring ASSIGNMENT (assigning into
 already-declared bindings, distinct from a `let` pattern) are parse errors:

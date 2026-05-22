@@ -306,6 +306,7 @@ inline constexpr Code INNER_DOC_LIT        {"INNER_DOC_LIT",      238}; // `//! 
 inline constexpr Code DOC_BLOCK_LIT        {"DOC_BLOCK_LIT",      239}; // `/** ... */` outer block doc-comment. Phase A.4.
 inline constexpr Code INNER_DOC_BLOCK_LIT  {"INNER_DOC_BLOCK_LIT",240}; // `/*! ... */` inner block doc-comment. Phase A.4.
 inline constexpr Code INNER_ANNOTATION     {"INNER_ANNOTATION",   242}; // Three-layer split Phase 3.2: `#![name]` / `#![name(args)]` / `#![name=val]` — file/module-level inner attribute. Currently used only for `#![no_implicit_prelude]`. NAME = ident; ARGS / VALUE optional, same shape as ANNOTATION.
+inline constexpr Code DESTRUCTURE_ASSIGN   {"DESTRUCTURE_ASSIGN", 243}; // G149-7 (RFC 2909): destructuring assignment into existing places. OP=0 tuple / 1 array (NAMES=pat_binding_list), 2 struct (NAME=struct, FIELDS=pat_field_list); VALUE=rhs. Sema desugars to a temp let + per-place assigns.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

@@ -1,0 +1,16 @@
+package slice_destructure_b150;
+// Faithful port of rustc tests/ui/destructuring-assignment/slice_destructure.rs.
+// G149-7. `let (mut a, mut b);` uninit-tuple-decl → separate mut locals;
+// assert_eq! → exit-code checks.
+fn main() -> i64 {
+    let mut a: i64 = 0; let mut b: i64 = 0; let mut c: i64 = 0;
+    [a, b] = [0, 1];
+    if a != 0 || b != 1 { return 1; }
+    [a, .., b, c] = [1, 2, 3, 4, 5];
+    if a != 1 || b != 4 || c != 5 { return 2; }
+    [_, a, _] = [1, 2, 3];
+    if a != 2 || b != 4 { return 3; }
+    [c, ..] = [5, 6, 6];
+    if c != 5 { return 4; }
+    return 0;
+}
