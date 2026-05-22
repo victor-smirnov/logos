@@ -105,3 +105,16 @@ new §A blessed divergences. Pinned commit
 - UFCS trait-method call `Speak::say(&d)`.
 - Conditional/recursive impl `impl<T: Val> Val for Wrap<T>` (nested wrapper recursion).
 - `&dyn Tr` calling a vtable DEFAULT method (`describe` -> dyn `kind`).
+
+## G121-3 follow-up (2026-05-22 investigation)
+`match self` where `self: &Enum` → cmpi-on-ptr. Root: TWO interacting issues —
+(a) `resolve_tagged_enum("E")` returns nil in the method's codegen context
+(mono didn't register E as a tagged-enum there; even `match *self` has te_info=nil
+but works via the fallback disc-dispatch), and (b) a `&E` PARAMETER is ONE
+pointer level (the enum heap-ptr directly), whereas `&local_enum` is TWO levels
+(ptr-to-slot-holding-ptr) — so the `via_ref` deref in gen_match (gated on
+te_info) is calibrated for locals, not params. An unconditional via_ref deref
+over-derefs the param → still cmpi-on-ptr. Proper fix needs param-vs-local enum
+ref-level reconciliation + te_info availability. Reverted the attempt.
+Workaround in imports: `match *self`. Delicate (enum pointer-level convention) —
+focused follow-up. See [[ref_enum_two_level_convention]].
