@@ -1914,6 +1914,260 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
 }
 
 // ---------------------------------------------------------------------------
+// Recursive pattern matcher (nested tuple / variant / or as a sub-pattern).
+// `slot_ptr` is a pointer to the value's storage. For an enum value the slot
+// holds the heap pointer to the enum struct (the two-level convention), so the
+// enum cases load it first.
+// ---------------------------------------------------------------------------
+
+void MLIRGenImpl::collect_pat_bindings(
+    lir_view::PatRef pat, TypeRef ty,
+    std::vector<std::pair<std::string, TypeRef>>& out) {
+    namespace pc = lir_schema::pat;
+    if (!pat) return;
+    switch (pat.kind()) {
+    case pc::Code::Wild: {
+        auto n = lir_view::PatWildView{pat}.name();
+        if (!n.empty() && n != "_") out.emplace_back(std::string(n), ty);
+        break;
+    }
+    case pc::Code::Tuple: {
+        auto elems = ty ? TypeRef(ty).tuple_elems() : std::vector<TypeRef>{};
+        size_t i = 0;
+        lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
+            TypeRef et = i < elems.size() ? elems[i] : TypeRef{};
+            collect_pat_bindings(sp, et, out);
+            ++i;
+        });
+        break;
+    }
+    case pc::Code::VariantData: {
+        lir_view::PatVariantDataView pvd{pat};
+        auto* te = resolve_tagged_enum(std::string(pvd.enum_name()), ty);
+        std::vector<std::string> names;
+        pvd.each_binding([&](std::string_view n){ names.emplace_back(n); });
+        std::vector<TypeRef> btypes;
+        pvd.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
+        for (size_t i = 0; i < names.size(); ++i)
+            if (names[i] != "_")
+                out.emplace_back(names[i], i < btypes.size() ? btypes[i] : TypeRef{});
+        (void)te;
+        break;
+    }
+    case pc::Code::Or: {
+        lir_view::PatRef first;
+        lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a){ if (!first) first = a; });
+        if (first) collect_pat_bindings(first, ty, out);
+        break;
+    }
+    default: break;
+    }
+}
+
+mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty) {
+    namespace pc = lir_schema::pat;
+    auto true_c = [&]{ return builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1).getResult(); };
+    if (!pat || !slot_ptr) return true_c();
+    auto elem_mlir = ty ? logos_to_mlir(ty) : mlir::Type();
+    bool unsign = ty && (TypeRef(ty).kind() == LogosType::Kind::U8 ||
+        TypeRef(ty).kind() == LogosType::Kind::U16 || TypeRef(ty).kind() == LogosType::Kind::U32 ||
+        TypeRef(ty).kind() == LogosType::Kind::U64 || TypeRef(ty).kind() == LogosType::Kind::Usize ||
+        TypeRef(ty).kind() == LogosType::Kind::Char || TypeRef(ty).kind() == LogosType::Kind::Bool);
+    switch (pat.kind()) {
+    case pc::Code::Wild:
+    case pc::Code::RefBind:
+        return true_c();
+    case pc::Code::Int: case pc::Code::Bool: {
+        if (!elem_mlir) return true_c();
+        int64_t cval = pat.kind() == pc::Code::Bool
+            ? (lir_view::PatBoolView{pat}.value() ? 1 : 0)
+            : lir_view::PatIntView{pat}.value();
+        auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, slot_ptr);
+        auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, cval, 64), elem_mlir);
+        return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+    }
+    case pc::Code::Range: {
+        if (!elem_mlir) return true_c();
+        lir_view::PatRangeView pr{pat};
+        auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, slot_ptr);
+        auto lo = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), elem_mlir);
+        auto hi = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), elem_mlir);
+        auto ge = builder_.create<mlir::arith::CmpIOp>(loc_,
+            unsign ? mlir::arith::CmpIPredicate::uge : mlir::arith::CmpIPredicate::sge, ev, lo);
+        auto le = builder_.create<mlir::arith::CmpIOp>(loc_,
+            unsign ? mlir::arith::CmpIPredicate::ule : mlir::arith::CmpIPredicate::sle, ev, hi);
+        return builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+    }
+    case pc::Code::Tuple: {
+        auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
+        if (!ttype) return true_c();
+        auto elems = TypeRef(ty).tuple_elems();
+        // A tuple value is stored by-pointer: the slot holds a pointer to the
+        // tuple struct. Load it before GEPing into the elements.
+        auto tptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        mlir::Value cond = true_c();
+        size_t i = 0;
+        lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
+            size_t idx = i++;
+            if (!sp || idx >= elems.size()) return;
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            auto sc = pat_test(sp, fp, elems[idx]);
+            cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
+        });
+        return cond;
+    }
+    case pc::Code::Variant:
+    case pc::Code::VariantData: {
+        std::string ename = pat.kind() == pc::Code::Variant
+            ? std::string(lir_view::PatVariantView{pat}.enum_name())
+            : std::string(lir_view::PatVariantDataView{pat}.enum_name());
+        auto* te = resolve_tagged_enum(ename, ty);
+        if (!te) return true_c();
+        int64_t disc = pat.kind() == pc::Code::Variant
+            ? lir_view::PatVariantView{pat}.disc()
+            : lir_view::PatVariantDataView{pat}.disc();
+        // slot holds the heap ptr to the enum struct.
+        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
+        auto dv = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+        auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+        // Payload sub-patterns are stored as bindings (names) only; refutable
+        // inners (Some(1)) are handled by the sema guard channel, so the disc
+        // test alone is the constraint here.
+        return builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
+    }
+    case pc::Code::Or: {
+        mlir::Value cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+        lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef alt){
+            auto sc = pat_test(alt, slot_ptr, ty);
+            cond = builder_.create<mlir::arith::OrIOp>(loc_, cond, sc);
+        });
+        return cond;
+    }
+    default:
+        return true_c();
+    }
+}
+
+void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
+                           const std::unordered_map<std::string, mlir::Value>* shared) {
+    namespace pc = lir_schema::pat;
+    if (!pat || !slot_ptr) return;
+    switch (pat.kind()) {
+    case pc::Code::Wild: {
+        auto n = lir_view::PatWildView{pat}.name();
+        if (n.empty() || n == "_") return;
+        std::string name(n);
+        auto elem_mlir = ty ? logos_to_mlir(ty) : ptr_type();
+        if (!elem_mlir) elem_mlir = ptr_type();
+        // Aggregate (struct/tuple/enum lowers to a struct/ptr): bind the slot
+        // pointer directly. Scalars: load + store into a fresh/shared alloca.
+        bool aggregate = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+            TypeRef(ty).kind() == LogosType::Kind::ZonedStruct ||
+            TypeRef(ty).kind() == LogosType::Kind::Tuple);
+        if (aggregate) {
+            scope_[name] = slot_ptr;
+            let_vars_.insert(name);
+            return;
+        }
+        auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, slot_ptr);
+        mlir::Value target;
+        if (shared) { auto it = shared->find(name); if (it != shared->end()) target = it->second; }
+        if (!target) target = create_entry_alloca(elem_mlir);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
+        scope_[name] = target;
+        let_vars_.insert(name);
+        var_elem_types_[name] = elem_mlir;
+        break;
+    }
+    case pc::Code::Tuple: {
+        auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
+        if (!ttype) return;
+        auto elems = TypeRef(ty).tuple_elems();
+        // By-pointer: load the inner tuple struct pointer before GEPing.
+        auto tptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        size_t i = 0;
+        lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
+            size_t idx = i++;
+            if (!sp || idx >= elems.size()) return;
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
+            pat_bind(sp, fp, elems[idx], shared);
+        });
+        break;
+    }
+    case pc::Code::VariantData: {
+        lir_view::PatVariantDataView pvd{pat};
+        auto* te = resolve_tagged_enum(std::string(pvd.enum_name()), ty);
+        if (!te) return;
+        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        const TaggedEnumInfo::VariantPayload* vp = nullptr;
+        for (auto& vi : te->variants) if (vi.disc == (int32_t)pvd.disc()) { vp = &vi; break; }
+        if (!vp) return;
+        auto pay_struct = variant_payload_struct(*vp);
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
+        std::vector<std::string> names;
+        pvd.each_binding([&](std::string_view n){ names.emplace_back(n); });
+        for (size_t bi = 0; bi < names.size() && bi < vp->field_types.size(); ++bi) {
+            if (names[bi] == "_") continue;
+            llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pay_struct, pay_ptr, fi);
+            auto em = vp->field_types[bi];
+            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, em, fp);
+            mlir::Value target;
+            if (shared) { auto it = shared->find(names[bi]); if (it != shared->end()) target = it->second; }
+            if (!target) target = create_entry_alloca(em);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
+            scope_[names[bi]] = target;
+            let_vars_.insert(names[bi]);
+            var_elem_types_[names[bi]] = em;
+        }
+        break;
+    }
+    case pc::Code::Or: {
+        // Pre-create shared allocas for the bindings (all alts bind the same
+        // names+types), dispatch per-alt, and bind each alt into the shared
+        // slots so the join sees one storage per name.
+        std::vector<std::pair<std::string, TypeRef>> binds;
+        lir_view::PatRef first;
+        lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a){ if (!first) first = a; });
+        if (first) collect_pat_bindings(first, ty, binds);
+        std::unordered_map<std::string, mlir::Value> shared_map;
+        for (auto& [nm, bty] : binds) {
+            auto em = bty ? logos_to_mlir(bty) : ptr_type();
+            if (!em) em = ptr_type();
+            auto a = create_entry_alloca(em);
+            shared_map[nm] = a;
+            scope_[nm] = a; let_vars_.insert(nm); var_elem_types_[nm] = em;
+        }
+        std::vector<lir_view::PatRef> alts;
+        lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
+        auto* region = builder_.getBlock()->getParent();
+        auto* done = new mlir::Block();
+        region->push_back(done);
+        for (size_t ai = 0; ai < alts.size(); ++ai) {
+            auto* bind_blk = new mlir::Block();
+            auto* next_blk = (ai + 1 < alts.size()) ? new mlir::Block() : done;
+            region->push_back(bind_blk);
+            if (next_blk != done) region->push_back(next_blk);
+            auto cond = pat_test(alts[ai], slot_ptr, ty);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, cond, bind_blk, next_blk);
+            builder_.setInsertionPointToStart(bind_blk);
+            pat_bind(alts[ai], slot_ptr, ty, &shared_map);
+            builder_.create<mlir::cf::BranchOp>(loc_, done);
+            builder_.setInsertionPointToStart(next_blk);
+        }
+        // current block is `done` (last next_blk == done).
+        break;
+    }
+    default: break;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // gen_match
 // ---------------------------------------------------------------------------
 
@@ -2151,19 +2405,25 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 std::vector<std::string> nested_added;
                 tv.each_sub([&](lir_view::PatRef sp){
                     size_t idx = si++;
-                    if (!sp || sp.kind() != pc::Code::VariantData) return;
-                    if (idx >= btypes.size() || !btypes[idx]) return;
-                    auto* te_sub = resolve_tagged_enum(
-                        std::string(lir_view::PatVariantDataView{sp}.enum_name()),
-                        btypes[idx]);
-                    if (!te_sub) return;
+                    if (!sp || idx >= btypes.size() || !btypes[idx]) return;
                     llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(idx)};
                     auto ep = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, ei);
-                    auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, ptr_type(), ep);
-                    bind_enum_payload(enum_ptr, te_sub,
-                                      lir_view::PatVariantDataView{sp}, nested_added);
+                    if (sp.kind() == pc::Code::VariantData) {
+                        auto* te_sub = resolve_tagged_enum(
+                            std::string(lir_view::PatVariantDataView{sp}.enum_name()),
+                            btypes[idx]);
+                        if (!te_sub) return;
+                        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, ptr_type(), ep);
+                        bind_enum_payload(enum_ptr, te_sub,
+                                          lir_view::PatVariantDataView{sp}, nested_added);
+                    } else if (sp.kind() == pc::Code::Tuple ||
+                               sp.kind() == pc::Code::Or) {
+                        // G144-1: a nested tuple / or-pattern element binds via
+                        // the recursive matcher (per-alt control flow for or).
+                        pat_bind(sp, ep, btypes[idx]);
+                    }
                 });
             }
             return;
@@ -2717,6 +2977,24 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(si)};
                     auto fp = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, fi);
+                    // G144-1: a nested tuple / variant-with-payload-binding /
+                    // or-pattern element needs the recursive matcher (the flat
+                    // load+scalar-eq below can't express it). Route those through
+                    // pat_test and skip the scalar load.
+                    bool needs_recursive =
+                        sub.kind() == pc::Code::Tuple ||
+                        sub.kind() == pc::Code::VariantData;
+                    if (sub.kind() == pc::Code::Or) {
+                        lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef a){
+                            if (a && a.kind() != pc::Code::Int && a.kind() != pc::Code::Bool)
+                                needs_recursive = true;
+                        });
+                    }
+                    if (needs_recursive) {
+                        auto sc = pat_test(sub, fp, si < btypes.size() ? btypes[si] : TypeRef{});
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
+                        continue;
+                    }
                     auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                     if (sub.kind() == pc::Code::Range) {
                         lir_view::PatRangeView pr{sub};

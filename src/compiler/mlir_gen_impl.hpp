@@ -653,6 +653,21 @@ private:
                            lir_view::PatVariantDataView pvd,
                            std::vector<std::string>& added);
 
+    // Recursive pattern matcher for arbitrarily nested patterns (a tuple
+    // element that is itself a tuple / variant / or-pattern). `slot_ptr` points
+    // to the value's storage (for an enum value the slot holds the heap ptr;
+    // pat_test/pat_bind load it). pat_test returns a pure i1 (no control flow —
+    // an or-pattern is the OR of its alts' tests). pat_bind binds names into
+    // scope_; for an or-pattern it dispatches per-alt and binds into the
+    // pre-created `shared` allocas (name→alloca) so the join sees one slot.
+    mlir::Value pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty);
+    void        pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
+                         const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
+    // Collect (name,type) pairs a pattern binds (first-alt for or). Used to
+    // pre-create shared allocas for an or-pattern's bindings.
+    void collect_pat_bindings(lir_view::PatRef pat, TypeRef ty,
+                              std::vector<std::pair<std::string, TypeRef>>& out);
+
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);
     mlir::Type subscript_elem_type(const std::string& name);

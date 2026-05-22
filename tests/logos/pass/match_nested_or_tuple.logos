@@ -1,0 +1,39 @@
+package match_nested_or_tuple;
+enum E { A(i64), B(i64), C }
+
+// position-dependent or-pattern as a tuple element
+fn pos_dep(x: (bool, bool), z: i64) -> i64 {
+    match (x, z) {
+        ((true, y) | (y, true), w) => { if y { return w; } return 0i64; }
+        _ => { return 99i64; }
+    }
+}
+// nested tuple element
+fn nested(x: (bool, bool), z: i64) -> i64 {
+    match (x, z) { ((true, b), w) => { if b { return w; } return 0i64; } _ => { return 99i64; } }
+}
+// variant-or as a tuple element (payload binding)
+fn variant_or(e: E, k: i64) -> i64 {
+    match (e, k) { (E::A(x) | E::B(x), m) => { return x + m; } _ => { return 99i64; } }
+}
+// two or-elements + nested tuple, all binding
+fn combo(p: ((bool, i64), E)) -> i64 {
+    match p { ((true, n) | (false, n), E::A(x) | E::B(x)) => { return n + x; } _ => { return 99i64; } }
+}
+
+fn main() -> i32 {
+    if pos_dep((true, true), 5i64) != 5i64 { return 1i32; }
+    if pos_dep((true, false), 5i64) != 0i64 { return 2i32; }
+    if pos_dep((false, true), 5i64) != 0i64 { return 3i32; }
+    if pos_dep((false, false), 5i64) != 99i64 { return 4i32; }
+    if nested((true, true), 7i64) != 7i64 { return 5i32; }
+    if nested((true, false), 7i64) != 0i64 { return 6i32; }
+    if nested((false, true), 7i64) != 99i64 { return 7i32; }
+    if variant_or(E::A(10i64), 5i64) != 15i64 { return 8i32; }
+    if variant_or(E::B(20i64), 5i64) != 25i64 { return 9i32; }
+    if variant_or(E::C, 5i64) != 99i64 { return 10i32; }
+    if combo(((true, 3i64), E::A(10i64))) != 13i64 { return 11i32; }
+    if combo(((false, 4i64), E::B(20i64))) != 24i64 { return 12i32; }
+    if combo(((true, 1i64), E::C)) != 99i64 { return 13i32; }
+    return 0i32;
+}

@@ -3954,17 +3954,26 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
             if (names[i] != "_")
                 define(std::string(names[i]), types[i]);
-        // P4-pm-24: recurse into refutable variant sub-patterns so any
-        // payload bindings inside (`(E::Foo { x }, _)`) reach the outer
-        // arm scope.
+        // P4-pm-24 / G144-1: recurse into refutable sub-patterns so any nested
+        // bindings (`(E::Foo { x }, _)`, `((true,y)|(y,true), z)`, `((a,b), w)`)
+        // reach the outer arm scope. Codegen (pat_test/pat_bind) extracts them.
         size_t idx = 0;
         v.each_sub([&](lir_view::PatRef sp) {
-            if (sp && sp.kind() == ps::Code::VariantData) {
+            if (sp && (sp.kind() == ps::Code::VariantData ||
+                       sp.kind() == ps::Code::Or ||
+                       sp.kind() == ps::Code::Tuple)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);
             }
             ++idx;
         });
+    } else if (k == ps::Code::Or) {
+        // G144-1: an or-pattern (possibly nested as a tuple element). All alts
+        // bind the same names+types (build_pattern_or enforced this); declare
+        // from the first alt. Codegen dispatches per-alt + extracts.
+        lir_view::PatRef first;
+        lir_view::PatOrView{pr}.each_alt([&](lir_view::PatRef a){ if (!first) first = a; });
+        if (first) bind_pattern_ref(first, scrut_type);
     } else if (k == ps::Code::Wild) {
         lir_view::PatWildView v{pr};
         auto n = v.name();
