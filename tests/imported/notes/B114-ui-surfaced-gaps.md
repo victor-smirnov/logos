@@ -87,3 +87,17 @@ struct functional-update, range/or patterns — all worked prelude-only.)
   theme); `tests/ui/match/match-tuple-slice.rs` str arm and
   `tests/ui/match/issue-46920-byte-array-patterns.rs`, `tests/ui/binding/match-byte-array-patterns.rs`
   left for a future string-focused batch.
+
+## RESOLVED (2026-05-21, follow-up compiler fixes)
+- **FIXED** closure-literal through generic `where F: FnOnce/FnMut(T)->U` returns
+  garbage → sema now hints un-annotated closure-arg types from the Fn-family
+  bound (commit 6c28d185). closure-reform now portable.
+- **FIXED** match an owned Vec to a binding pattern → SIGSEGV (double-free):
+  mlir-gen whole-value struct binding aliased a pointer-as-struct + sema didn't
+  mark the by-value-match scrutinee moved (commit 181aba3f). match-vec-rvalue
+  now portable.
+- **FIXED** `where F: FnOnce(T, T) -> bool` (Fn-sugar bound with type-param args)
+  → "unknown type 'T'": where-clause bounds now resolve with sibling type-params
+  in scope (commit da3d71f5). Unblocks the ref-typed/type-param Fn-sugar bounds
+  in where clauses (old-closure-iter-1, capture-clauses, expr-match-generic-unique1
+  — re-check on re-import).
