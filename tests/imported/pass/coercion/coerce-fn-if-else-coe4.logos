@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-many-with-ty-var.rs
+// Modifications: distilled to the fn-item-to-fn-ptr coercion facet: two bare
+// fn items `foo`/`bar` of the same signature are unified by an if/else and a
+// match into a single `fn()->i64` value, then called. Tests least-upper-bound
+// coercion of two distinct fn ITEMS to a common fn-pointer type.
+package coerce_fn_if_else_coe4;
+
+fn foo() -> i64 { return 1i64; }
+fn bar() -> i64 { return 2i64; }
+
+fn main() -> i32 {
+    let g: fn() -> i64 = if false { foo } else { bar };
+    if g() != 2i64 { return 1i32; }
+
+    let h: fn() -> i64 = match false {
+        true => foo,
+        false => bar,
+    };
+    if h() != 2i64 { return 2i32; }
+
+    let arr: [fn() -> i64; 2] = [foo, bar];
+    let f0 = arr[0];
+    let f1 = arr[1];
+    if f0() != 1i64 { return 3i32; }
+    if f1() != 2i64 { return 4i32; }
+    return 0i32;
+}

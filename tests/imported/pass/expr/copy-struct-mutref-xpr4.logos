@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/copy.rs
+// Modifications: isize->i64; #[derive(Copy,Clone)] dropped (derive not ported)
+// — the struct is a plain-data struct so `let mut y = x` makes an independent
+// copy; `&mut self` arg uses `arg: &mut A`; asserts -> return codes. Tests that
+// copying a small POD struct (`let mut y = x`) leaves the source unaffected
+// when the copy is mutated through a `&mut` function arg.
+package copy_struct_mutref_xpr4;
+
+struct A { a: i64 }
+
+fn f(arg: &mut A) {
+    (*arg).a = 100i64;
+}
+
+fn main() -> i32 {
+    let mut x = A { a: 10i64 };
+    f(&mut x);
+    if x.a != 100i64 { return 1i32; }
+    x.a = 20i64;
+    let mut y = x;
+    f(&mut y);
+    if x.a != 20i64 { return 2i32; }
+    if y.a != 100i64 { return 3i32; }
+    return 0i32;
+}

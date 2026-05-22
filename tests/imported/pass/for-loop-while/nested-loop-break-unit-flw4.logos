@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/nested-loop-break-unit.rs (issue #2642)
+// Modifications: usize->u64; pub fn main -> fn main()->i32; the unit-typed
+// `loop{loop{break;}}` value bound to a `_x` (Logos: typed `()`). Tests that a
+// `loop { loop { break; } }` evaluates to `()` and can be bound.
+package nested_loop_break_unit_flw4;
+
+fn f() {
+    let _x: () = loop { loop { break; } };
+}
+
+fn main() -> i32 {
+    // f() is intentionally NOT called (the outer loop is infinite by design,
+    // matching upstream where main() has an empty body). This test exercises
+    // that `loop { loop { break; } }` type-checks + lowers as a bound value.
+    return 0i32;
+}

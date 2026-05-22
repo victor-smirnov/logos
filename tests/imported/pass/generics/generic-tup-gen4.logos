@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tup.rs
+// Modifications: println! dropped; literals suffixed; asserts -> return codes.
+// Tests a generic fn that destructures a homogeneous 3-tuple `(T,T,T)` and
+// returns the third element, instantiated at i64 and u8.
+package generic_tup_gen4;
+
+fn get_third<T>(t: (T, T, T)) -> T { let (_, _, x) = t; return x; }
+
+fn main() -> i32 {
+    if get_third::<i64>((1i64, 2i64, 3i64)) != 3i64 { return 1i32; }
+    if get_third::<u8>((5u8, 6u8, 7u8)) != 7u8 { return 2i32; }
+    return 0i32;
+}

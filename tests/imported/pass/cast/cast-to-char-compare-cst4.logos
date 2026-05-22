@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-to-char-compare.rs (issue #41998)
+// Modifications: print! dropped; the branch outcome observed via a return code;
+// `'x' as char` kept (identity char-cast) plus a char `<` ordering compare.
+// Tests `char as char` casts and `<` ordering between two char values.
+package cast_to_char_compare_cst4;
+
+fn main() -> i32 {
+    let lo = 'x' as char;
+    let hi = 'y' as char;
+    if !(lo < hi) { return 1i32; }
+    if hi < lo { return 2i32; }
+    return 0i32;
+}

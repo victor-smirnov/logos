@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses-method.rs
+// Modifications: `Eq` trait bound kept (Logos's Eq); `&self`->`self:&Foo<T>`;
+// println! dropped; asserts -> return codes; instantiated at i64. Tests a
+// method-level `where T: Eq` clause on a generic struct `Foo<T>` adding a bound
+// out of the impl's scope, then comparing `self.value == u.value`.
+package where_clauses_method_wc4;
+
+struct Foo<T> {
+    value: T,
+}
+
+impl<T> Foo<T> {
+    fn equals(self: &Foo<T>, u: &Foo<T>) -> bool where T: Eq {
+        return self.value == (*u).value;
+    }
+}
+
+fn main() -> i32 {
+    let x = Foo { value: 1i64 };
+    let y = Foo { value: 2i64 };
+    if !x.equals(&x) { return 1i32; }
+    if x.equals(&y) { return 2i32; }
+    return 0i32;
+}

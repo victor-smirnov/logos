@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/empty-tag.rs
+// Modifications: distilled to the closure facet (the enum PartialEq machinery
+// dropped): a zero-arg closure literal `{ || wrapper3(v) }` bound to a local
+// then invoked, where `wrapper3` checks its arg. Tests binding a closure that
+// captures a value and forwards it to a free fn, then calling it.
+package closure_calls_fn_fc4;
+
+fn wrapper3(i: i64) -> bool {
+    return i == 7i64;
+}
+
+fn main() -> i32 {
+    let v = 7i64;
+    let wrapped = || -> bool { return wrapper3(v); };
+    if !wrapped() { return 1i32; }
+    return 0i32;
+}

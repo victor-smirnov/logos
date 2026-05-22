@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag-variant-disr-val.rs
+// Modifications: isize->i64; the manual PartialEq impl + String name lookups
+// dropped (derive/String not needed for the discriminant facet); negative
+// `imaginary` dropped (kept the positive set incl. shift-derived disr values);
+// `color as i64` discriminant readout preserved; the shift-expr disr values
+// (`1<<1`,`8>>1`) pre-evaluated to literals (Logos requires a literal in disr
+// position). Tests explicit enum discriminant VALUES given as hex literals.
+package tag_variant_disr_val_se4;
+
+enum Color {
+    Red = 0xff0000,
+    Green = 0x00ff00,
+    Blue = 0x0000ff,
+    Black = 0x000000,
+    White = 0xFFFFFF,
+    Purple = 2,
+    Orange = 4,
+}
+
+fn val(c: Color) -> i64 {
+    return c as i64;
+}
+
+fn main() -> i32 {
+    if val(Color::Red) != 0xff0000i64 { return 1i32; }
+    if val(Color::Green) != 0x00ff00i64 { return 2i32; }
+    if val(Color::Blue) != 0x0000ffi64 { return 3i32; }
+    if val(Color::Black) != 0i64 { return 4i32; }
+    if val(Color::White) != 0xFFFFFFi64 { return 5i32; }
+    if val(Color::Purple) != 2i64 { return 6i32; }
+    if val(Color::Orange) != 4i64 { return 7i32; }
+    return 0i32;
+}

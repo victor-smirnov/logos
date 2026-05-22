@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/labeled-break.rs
+// Modifications: pub fn main -> fn main()->i32; ranges 0..100 kept; added a
+// post-loop counter to observe each labeled break fired. Tests labeled `break`
+// targeting an OUTER loop from an inner `loop`, across loop / for / while.
+package labeled_break_flw4;
+
+fn main() -> i32 {
+    let mut hits = 0i64;
+    'foo: loop {
+        loop {
+            break 'foo;
+        }
+    }
+    hits = hits + 1i64;
+
+    'bar: for _ in 0i64..100i64 {
+        loop {
+            break 'bar;
+        }
+    }
+    hits = hits + 1i64;
+
+    'foobar: while 1i64 + 1i64 == 2i64 {
+        loop {
+            break 'foobar;
+        }
+    }
+    hits = hits + 1i64;
+
+    if hits != 3i64 { return 1i32; }
+    return 0i32;
+}

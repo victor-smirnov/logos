@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/move-self.rs
+// Modifications: pub fn main -> fn main()->i32; &self/self -> self:Self;
+// String field via logos.mem.string; println! dropped (not ported); asserts
+// -> return codes. Tests a by-value self method (`foo(self)`) calling another
+// by-value self method (`bar(self)`) on the moved receiver.
+package move_self_slf4;
+
+use logos.mem.string;
+
+struct S {
+    x: String,
+}
+
+impl S {
+    fn foo(self: Self) -> i64 {
+        return self.bar();
+    }
+    fn bar(self: Self) -> i64 {
+        return self.x.len();
+    }
+}
+
+fn main() -> i32 {
+    let x = S { x: "Hello!".to_string() };
+    let n = x.foo();
+    if n != 6i64 { return 1i32; }
+    return 0i32;
+}

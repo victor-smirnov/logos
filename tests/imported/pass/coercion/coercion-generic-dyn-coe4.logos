@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/coercion-generic.rs
+// Modifications: isize->i64; `&'static str` type-param replaced by i64 (str
+// borrow lifetimes distilled out); println! body replaced by an additive
+// side-effect through a returned value; Box<dyn> dropped (kept the `&dyn`
+// coercion); `&self`->`self:&Self`. Tests coercing a concrete `&Struct` to a
+// `&dyn Trait<i64>` and dispatching a generic-parameterised trait method.
+package coercion_generic_dyn_coe4;
+
+trait Trait {
+    fn f(self: &Self, x: i64) -> i64;
+}
+
+struct Struct {
+    x: i64,
+    y: i64,
+}
+
+impl Trait for Struct {
+    fn f(self: &Struct, x: i64) -> i64 {
+        return self.x + self.y + x;
+    }
+}
+
+fn main() -> i32 {
+    let a = Struct { x: 1i64, y: 2i64 };
+    let c: &dyn Trait = &a;
+    if c.f(10i64) != 13i64 { return 1i32; }
+    return 0i32;
+}

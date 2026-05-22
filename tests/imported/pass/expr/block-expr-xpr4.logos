@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block.rs
+// Modifications: isize->i64; asserts -> return codes; the basic/rec/stuff
+// sub-tests preserved. Tests standalone `{ .. }` blocks used as VALUE
+// expressions: a bare bool block, a struct-literal block, and a block whose
+// tail is the result of a `while`-mutated local.
+package block_expr_xpr4;
+
+struct RS { v1: i64, v2: i64 }
+
+fn test_basic() -> bool { let rs: bool = { true }; return rs; }
+
+fn test_rec() -> i64 { let rs = { RS { v1: 10i64, v2: 20i64 } }; return rs.v2; }
+
+fn test_filled() -> i64 {
+    let rs = { let mut a = 0i64; while a < 10i64 { a += 1i64; } a };
+    return rs;
+}
+
+fn main() -> i32 {
+    if !test_basic() { return 1i32; }
+    if test_rec() != 20i64 { return 2i32; }
+    if test_filled() != 10i64 { return 3i32; }
+    return 0i32;
+}

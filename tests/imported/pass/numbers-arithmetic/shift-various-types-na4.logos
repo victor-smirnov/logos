@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift-various-types.rs
+// Modifications: isize/usize->i64/u64; literals suffixed; asserts -> return
+// codes; `22 >> p.field` preserved across the integer-width struct fields. Tests
+// that a right-shift accepts a shift-amount of ANY integer width (i8..u64).
+package shift_various_types_na4;
+
+struct Panoply {
+    f_i8: i8,
+    f_i16: i16,
+    f_i32: i32,
+    f_i64: i64,
+    f_u8: u8,
+    f_u16: u16,
+    f_u32: u32,
+    f_u64: u64,
+}
+
+fn foo(p: &Panoply) -> i32 {
+    if 22i32 >> (*p).f_i8 != 11i32 { return 1i32; }
+    if 22i32 >> (*p).f_i16 != 11i32 { return 2i32; }
+    if 22i32 >> (*p).f_i32 != 11i32 { return 3i32; }
+    if 22i32 >> (*p).f_i64 != 11i32 { return 4i32; }
+    if 22i32 >> (*p).f_u8 != 11i32 { return 5i32; }
+    if 22i32 >> (*p).f_u16 != 11i32 { return 6i32; }
+    if 22i32 >> (*p).f_u32 != 11i32 { return 7i32; }
+    if 22i32 >> (*p).f_u64 != 11i32 { return 8i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let p = Panoply {
+        f_i8: 1i8, f_i16: 1i16, f_i32: 1i32, f_i64: 1i64,
+        f_u8: 1u8, f_u16: 1u16, f_u32: 1u32, f_u64: 1u64,
+    };
+    return foo(&p);
+}

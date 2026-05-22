@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-two-trait-defer-resolution-1.rs
+// Modifications: trait `foo`->`MyFoo` (CamelCase); two impls on Vec<u32> /
+// Vec<i32>; the inference-of-element-type-from-later-push facet replaced by
+// constructing the Vec with an explicit element type up front (Logos infers the
+// method from the concrete Vec<T>); asserts -> return codes. Tests selecting
+// between two trait impls keyed on the Vec's element type (u32 vs i32).
+package method_two_trait_defer_mth4;
+
+use logos.mem.collections.vec;
+
+trait MyFoo {
+    fn my_foo(self: &Self) -> i32;
+}
+
+impl MyFoo for Vec<u32> {
+    fn my_foo(self: &Vec<u32>) -> i32 { return 1i32; }
+}
+
+impl MyFoo for Vec<i32> {
+    fn my_foo(self: &Vec<i32>) -> i32 { return 2i32; }
+}
+
+fn call_foo_uint() -> i32 {
+    let mut x: Vec<u32> = vec_new::<u32>();
+    let y = x.my_foo();
+    x.push(0u32);
+    return y;
+}
+
+fn call_foo_int() -> i32 {
+    let mut x: Vec<i32> = vec_new::<i32>();
+    let y = x.my_foo();
+    x.push(0i32);
+    return y;
+}
+
+fn main() -> i32 {
+    if call_foo_uint() != 1i32 { return 10i32; }
+    if call_foo_int() != 2i32 { return 11i32; }
+    return 0i32;
+}

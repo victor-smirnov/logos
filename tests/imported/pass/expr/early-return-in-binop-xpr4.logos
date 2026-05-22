@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/early-return-in-binop.rs
+// Modifications: generic `T: Add` distilled to a concrete i64 fn (Logos ops are
+// single-type); the `{ return n }` block as the RIGHT operand of `+` preserved.
+// Tests that a `return` inside a block used as a binary-operator operand
+// short-circuits the whole expression.
+package early_return_in_binop_xpr4;
+
+fn add_with_early_return(n: i64) -> i64 {
+    return n + { return n; };
+}
+
+fn main() -> i32 {
+    let r = add_with_early_return(42i64);
+    if r != 42i64 { return 1i32; }
+    return 0i32;
+}

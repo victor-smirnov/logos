@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-newtype-struct.rs (de-genericized)
+// Modifications: the GENERIC `S<T>(T)` is not yet supported in Logos, so this
+// distills the tuple-struct facet to a CONCRETE multi-field tuple struct
+// `Pair(i64, i64)` constructed positionally and projected via `.0`/`.1`.
+// Tests positional construction + `.N` projection of a tuple struct.
+package tuple_struct_fields_se4;
+
+struct Pair(i64, i64);
+
+fn main() -> i32 {
+    let p = Pair(2i64, 9i64);
+    if p.0 != 2i64 { return 1i32; }
+    if p.1 != 9i64 { return 2i32; }
+    return 0i32;
+}

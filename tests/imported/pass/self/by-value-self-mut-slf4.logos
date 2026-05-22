@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/by-value-self-in-mut-slot.rs
+// Modifications: isize->i64; trait kept; `mut self` -> `mut self: Self`;
+// asserts -> return codes. Tests a by-value `mut self` method that mutates a
+// field of the moved receiver and returns it.
+package by_value_self_mut_slf4;
+
+struct X {
+    a: i64,
+}
+
+trait Changer {
+    fn change(mut self: Self) -> Self;
+}
+
+impl Changer for X {
+    fn change(mut self: Self) -> X {
+        self.a = 55i64;
+        return self;
+    }
+}
+
+fn main() -> i32 {
+    let x = X { a: 32i64 };
+    let new_x = x.change();
+    if new_x.a != 55i64 { return 1i32; }
+    return 0i32;
+}
