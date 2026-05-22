@@ -1,0 +1,20 @@
+// Synthesized for B131 from the functions run-pass family (single-fn
+// recursion: factorial + a tail-style accumulator sum).
+package fc_recursion_factorial;
+
+fn fact(n: i64) -> i64 {
+    if n <= 1i64 { return 1i64; }
+    return n * fact(n - 1i64);
+}
+
+fn sum_to(n: i64, acc: i64) -> i64 {
+    if n == 0i64 { return acc; }
+    return sum_to(n - 1i64, acc + n);
+}
+
+fn main() -> i32 {
+    if fact(5i64) != 120i64 { return 1i32; }
+    if fact(0i64) != 1i64 { return 2i32; }
+    if sum_to(10i64, 0i64) != 55i64 { return 3i32; }
+    return 0i32;
+}

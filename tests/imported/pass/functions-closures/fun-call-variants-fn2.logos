@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/fun-call-variants.rs
+// Modifications: isize→i64; the `F: FnOnce(isize)->isize` bound → a plain
+// `fn(i64)->i64` pointer param (a bare fn item coerces to it); `pub fn main()`
+// →`fn main()->i32`; assert_eq!→return-code check. Exercises a higher-order
+// fn taking a fn pointer, called both directly and indirectly.
+package fc_fun_call_variants;
+
+fn ho(f: fn(i64) -> i64) -> i64 {
+    let n: i64 = f(3i64);
+    return n;
+}
+
+fn direct(x: i64) -> i64 { return x + 1i64; }
+
+fn main() -> i32 {
+    let a: i64 = direct(3i64);
+    let b: i64 = ho(direct);
+    if a != b { return 1i32; }
+    if a != 4i64 { return 2i32; }
+    return 0i32;
+}

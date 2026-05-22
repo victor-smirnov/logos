@@ -1,0 +1,23 @@
+// Synthesized for B131 from the functions run-pass family (mutual recursion
+// facet — not present in the existing functions-closures corpus, which is
+// closure-heavy).
+// Two free functions call each other (is_even/is_odd) to a base case.
+package fc_mutual_recursion;
+
+fn is_even(n: i64) -> bool {
+    if n == 0i64 { return true; }
+    return is_odd(n - 1i64);
+}
+
+fn is_odd(n: i64) -> bool {
+    if n == 0i64 { return false; }
+    return is_even(n - 1i64);
+}
+
+fn main() -> i32 {
+    if !is_even(10i64) { return 1i32; }
+    if is_even(7i64) { return 2i32; }
+    if !is_odd(3i64) { return 3i32; }
+    if is_odd(8i64) { return 4i32; }
+    return 0i32;
+}

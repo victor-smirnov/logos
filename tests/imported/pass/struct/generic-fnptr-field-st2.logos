@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-coerce-field.rs (extended)
+// Modifications: the `F: FnOnce()` bound → a concrete generic param holding a
+// `fn()->i64` pointer field (`R<F> { field: F }` with `F = fn()->i64`); a bare
+// fn item coerces into the field, then the stored pointer is called back.
+// `pub fn main()`→`fn main`. Exercises a GENERIC struct whose field is a
+// fn-pointer type argument, constructed + invoked.
+package se_generic_fnptr_field;
+
+struct R<F> { field: F }
+
+fn f() -> i64 { return 99i64; }
+
+fn main() -> i32 {
+    let i: R<fn() -> i64> = R { field: f };
+    let g = i.field;
+    if g() != 99i64 { return 1i32; }
+    return 0i32;
+}

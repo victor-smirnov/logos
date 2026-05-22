@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-bare-assign.rs
+// Modifications: isize→i64; `&mut bool` out-param→`*mut bool` cell written via
+// the fn pointer (Logos has no `&mut` fn-arg-as-out-param sugar through a fn
+// pointer here); `assert_eq!`→return-code checks; `pub fn main()`→`fn main`.
+// Exercises binding a bare fn item to a local, passing it as a `fn(i64,*mut
+// bool)` pointer, and the callee writing through the out-param.
+package fc_fnptr_mut_outparam;
+
+fn f(i: i64, called: *mut bool) {
+    unsafe { *called = (i == 10i64); }
+}
+
+fn g(fp: fn(i64, *mut bool), called: *mut bool) {
+    fp(10i64, called);
+}
+
+fn main() -> i32 {
+    let mut called = false;
+    let h = f;
+    g(h, &mut called as *mut bool);
+    if !called { return 1i32; }
+    return 0i32;
+}

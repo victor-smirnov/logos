@@ -1,0 +1,21 @@
+// Synthesized for B131 from the functions run-pass family (fn-pointer values
+// stored in a fixed-size array `[fn(i64)->i64; 3]` and dispatched by index;
+// cf. the spirit of tests/ui/issues/issue-43923 without the ?Sized tail).
+// NOTE: the chained postfix form `table[i](args)` is a parser gap (G131-2);
+// the index is let-pinned to a local fn-pointer before the call.
+package fc_fnptr_in_array;
+
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn dec(x: i64) -> i64 { return x - 1i64; }
+fn sq(x: i64) -> i64 { return x * x; }
+
+fn main() -> i32 {
+    let table: [fn(i64) -> i64; 3] = [inc, dec, sq];
+    let f0 = table[0];
+    let f1 = table[1];
+    let f2 = table[2];
+    if f0(10i64) != 11i64 { return 1i32; }
+    if f1(10i64) != 9i64 { return 2i32; }
+    if f2(10i64) != 100i64 { return 3i32; }
+    return 0i32;
+}

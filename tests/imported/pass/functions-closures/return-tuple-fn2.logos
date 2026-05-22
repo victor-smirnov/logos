@@ -1,0 +1,18 @@
+// Synthesized for B131 from the functions run-pass family (returning a tuple
+// + destructuring at the call site).
+package fc_return_tuple;
+
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    return (a / b, a % b);
+}
+
+fn main() -> i32 {
+    let (q, r) = divmod(17i64, 5i64);
+    if q != 3i64 { return 1i32; }
+    if r != 2i64 { return 2i32; }
+
+    let pair = divmod(20i64, 6i64);
+    if pair.0 != 3i64 { return 3i32; }
+    if pair.1 != 2i64 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,17 @@
+// Synthesized for B131 from the structs run-pass family (field-access +
+// direct field update facet): write distinct fields of a `mut` struct local
+// directly (no method), then read them back; covers mixed-type fields.
+package se_struct_field_update;
+
+struct Mixed { a: i64, b: bool, c: u8 }
+
+fn main() -> i32 {
+    let mut m = Mixed { a: 1i64, b: false, c: 0u8 };
+    m.a = m.a + 41i64;
+    m.b = true;
+    m.c = 255u8;
+    if m.a != 42i64 { return 1i32; }
+    if !m.b { return 2i32; }
+    if m.c != 255u8 { return 3i32; }
+    return 0i32;
+}

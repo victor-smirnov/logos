@@ -1,0 +1,21 @@
+// Synthesized for B131 from the functions run-pass family (a fn returning a
+// freshly-built struct value, then read by the caller).
+package fc_return_struct;
+
+struct Point { x: i64, y: i64 }
+
+fn make_point(x: i64, y: i64) -> Point {
+    return Point { x: x, y: y };
+}
+
+fn translate(p: Point, dx: i64, dy: i64) -> Point {
+    return Point { x: p.x + dx, y: p.y + dy };
+}
+
+fn main() -> i32 {
+    let p = make_point(3i64, 4i64);
+    let q = translate(p, 10i64, 20i64);
+    if q.x != 13i64 { return 1i32; }
+    if q.y != 24i64 { return 2i32; }
+    return 0i32;
+}

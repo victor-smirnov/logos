@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/numeric-fields.rs
+// Modifications: tuple struct `S(u8,u16)` → named-field struct (Logos has no
+// positional tuple-struct field syntax `S{0:..,1:..}`); the out-of-order
+// literal + the `..`-rest field pattern are preserved on the named fields.
+// `pub fn main()`→`fn main()->i32`; assert_eq!→return-code checks.
+package se_numeric_fields;
+
+struct S { a: u8, b: u16 }
+
+fn main() -> i32 {
+    let s = S { b: 10u16, a: 11u8 };
+    match s {
+        S { a: a, b: b, .. } => {
+            if a != 11u8 { return 1i32; }
+            if b != 10u16 { return 2i32; }
+        }
+    }
+    return 0i32;
+}

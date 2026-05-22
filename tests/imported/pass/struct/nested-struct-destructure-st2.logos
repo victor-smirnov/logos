@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/destructuring-struct-type-inference-8783.rs (distilled)
+// Modifications: the `Default::default()`-driven inference dropped (Default is
+// trait-resolved in rustc); usize→u64; built explicitly. Exercises a struct
+// whose field is ANOTHER struct (`Y { y: X }`), constructed by nested literal
+// and destructured by nested field-binding pattern `let Y { y: X { x } } = ..`.
+package se_nested_struct;
+
+struct X { x: u64 }
+struct Y { y: X }
+
+fn main() -> i32 {
+    let outer = Y { y: X { x: 42u64 } };
+    let Y { y: X { x } } = outer;
+    if x != 42u64 { return 1i32; }
+    return 0i32;
+}

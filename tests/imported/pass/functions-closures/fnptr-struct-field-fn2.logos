@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/issue-1451.rs
+// Modifications: `extern "Rust" fn()` → plain `fn()->i64` (ABI annotation
+// dropped; a return type added so the call is observable); `pub fn main()`→
+// `fn main()->i32`. Exercises storing a bare fn item OR a fn-pointer local
+// into a struct's fn-pointer field and calling it back.
+package fc_fnptr_struct_field;
+
+struct T { f: fn() -> i64 }
+struct S { f: fn() -> i64 }
+
+fn bar() -> i64 { return 7i64; }
+
+fn fooS(t: S) -> i64 { return (t.f)(); }
+fn fooT(t: T) -> i64 { return (t.f)(); }
+
+fn main() -> i32 {
+    let x: fn() -> i64 = bar;
+    if fooS(S { f: x }) != 7i64 { return 1i32; }
+    if fooS(S { f: bar }) != 7i64 { return 2i32; }
+
+    let y: fn() -> i64 = bar;
+    if fooT(T { f: y }) != 7i64 { return 3i32; }
+    if fooT(T { f: bar }) != 7i64 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/basic-newtype-pattern.rs
+// Modifications: tuple struct `Counter(CounterData)` → named-field struct
+// `Counter { data: CounterData }`; the `let Counter(data) = ..` destructure →
+// field access; isize→i64; #[derive(Copy,Clone)] dropped (Counter is plain
+// data here, passed by value into the stored fn pointer). The struct field
+// holding a `fn(Counter)->i64` pointer is called via `(c.data.compute)(c)`.
+package se_newtype_fnptr_field;
+
+struct CounterData { compute: fn(Counter) -> i64, val: i64 }
+struct Counter { data: CounterData }
+
+fn compute_value(counter: Counter) -> i64 {
+    return counter.data.val + 20i64;
+}
+
+fn main() -> i32 {
+    let my_counter = Counter { data: CounterData { compute: compute_value, val: 30i64 } };
+    let r = (my_counter.data.compute)(my_counter);
+    if r != 50i64 { return 1i32; }
+    return 0i32;
+}
