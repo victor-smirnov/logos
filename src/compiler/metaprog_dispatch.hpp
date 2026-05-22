@@ -73,6 +73,11 @@ struct MetaprogDispatchOpts {
     // compile session (metaprog iters + metacall iters + final). Caller
     // owns it; outlives all sema_lower invocations.
     SemaCache* sema_cache = nullptr;
+    // Implicit prelude package injected into every non-binary user file that
+    // doesn't carry `#![no_implicit_prelude]` (empty disables). Threaded into
+    // the metaprog-mode sema_lower calls so unqualified prelude names resolve
+    // during discovery the same way they do in the final pass.
+    std::string implicit_prelude;
 };
 
 // Run the metaprog discovery loop:

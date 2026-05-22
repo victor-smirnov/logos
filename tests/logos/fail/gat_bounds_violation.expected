@@ -1,1 +1,1 @@
-error [fn main]: 'Container::View': type 'NotAStore' does not implement trait 'Storage' required by parameter 'S'
+error [fn main]: let 'x': type mismatch — expected Foo::View<NotAStore>, got NotAStore

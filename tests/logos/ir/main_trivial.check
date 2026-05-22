@@ -1,8 +1,14 @@
 ; FileCheck spec for main_trivial.logos.
 ;
-; Asserts the IR contains exactly one user-defined function (main); no
-; mono'd `__g__` specializations, no trait dispatch tables, no stdlib
-; symbol leaks for an arithmetic-only program.
+; Asserts an arithmetic-only program lowers to exactly one DEFINED function
+; (main) with no monomorphised/stdlib code emitted — i.e. no `define` for any
+; `Type__method` or `__g__` specialization. Under the default-on implicit
+; prelude every program imports the stdlib surface, which appears as unused
+; `declare`s (extern, no body — harmless: gc-sections drops them at link).
+; The canary therefore checks for leaked DEFINITIONS (real code bloat), not
+; declarations. (Follow-up: prune unreferenced forward-declares once the
+; externally-referenced tag-dispatch init fns are retained — plain SymbolDCE
+; over-prunes them.)
 
 ; CHECK-LABEL: define i32 @main()
 ; B-ex-01: integer + lowers to llvm.sadd.with.overflow + trap on overflow.
@@ -10,5 +16,6 @@
 ; CHECK: trunc i64
 ; CHECK: ret i32
 
-; CHECK-NOT: __g__
+; No monomorphised specialization or stdlib method is DEFINED (declares are OK).
+; CHECK-NOT: define {{.*}}__g__
 ; CHECK-NOT: define {{.*}} @{{[A-Za-z_][A-Za-z0-9_]*}}__

@@ -2198,6 +2198,10 @@ int run_metaprog_dispatch(
     meta_opts.cache     = opts.sema_cache;
     // Skeleton-skip gate: from_binary fns already in a linked archive .o.
     meta_opts.binary_symbols = opts.binary_symbols;
+    // Default-on implicit prelude: discovery-pass sema must resolve unqualified
+    // prelude names too (the final pass below does the real type resolution,
+    // but metaprog handlers may reference Option/Result/String/etc.).
+    meta_opts.implicit_prelude = opts.implicit_prelude;
 
     // M6.1: enable incremental dispatch. Cache preserves user-AST state
     // across iters; each iter's sema_lower is given a delta_start_idx so
@@ -2814,9 +2818,20 @@ int main(int argc, char** argv) {
         if (trace) std::fprintf(stderr, "[trace %6lldms] %s\n", (long long)ms, label);
         t_start = now;
     };
+    // Default-on implicit prelude. A normal compile injects `use
+    // logos.std.prelude;` (transitively re-exporting the lang + mem preludes:
+    // Option/Result/Some/None/Box/String/Vec + the core traits) into every
+    // non-binary user file that doesn't opt out with `#![no_implicit_prelude]`.
+    // `--no-system` (freestanding, no stdlib on the search path) disables it,
+    // since the prelude package wouldn't be resolvable. Per-tier prelude
+    // selection (lang/mem vs std) via a module manifest is a follow-up; the
+    // stdlib's own library build runs through emit_module, which never sets
+    // this, so it stays opted out and free of import cycles.
+    std::string implicit_prelude_pkg = no_system ? std::string{} : "logos.std.prelude";
+
     // ── Step 1-2: Load and parse all modules ────────────────────
     bool loader_had_error = false;
-    auto modules = logos::compiler::load_modules(input_path, search_paths, &loader_had_error, explicit_lib_files);
+    auto modules = logos::compiler::load_modules(input_path, search_paths, &loader_had_error, explicit_lib_files, implicit_prelude_pkg);
     report("load+parse");
     if (modules.empty()) {
         std::fprintf(stderr, "logosc: no modules loaded\n");
@@ -3159,6 +3174,7 @@ int main(int argc, char** argv) {
         mopts.binary_symbols = binary_symbols;
         mopts.stats_out      = stats_flag ? &top_stats : nullptr;
         mopts.sema_cache     = &sema_cache;
+        mopts.implicit_prelude = implicit_prelude_pkg;
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -3326,6 +3342,7 @@ int main(int argc, char** argv) {
     default_opts.cfg_flags      = cfg_flags;
     default_opts.cache          = &sema_cache;  // M5
     default_opts.binary_symbols = binary_symbols;  // skeleton-skip gate
+    default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
