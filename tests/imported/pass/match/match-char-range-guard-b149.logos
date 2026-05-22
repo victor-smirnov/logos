@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-26251.rs
+// Modifications: the `&str` arm values ("one"/"two"/"three") → distinct i64 codes (1/2/3)
+//   since str-literal match-arm BODIES are fine but the test asserts on the chosen value;
+//   `panic!("what?")` → `9`; `assert_eq!(y, "two")` → return `y - 2`.
+// Tests overlapping inclusive CHAR-range patterns with a guard: arm 1 (`'a'..='b' if false`)
+//   is skipped because the guard is false, so the literal arm `'a'` (arm 2) wins over the
+//   later overlapping range arm `'a'..='b'` (arm 3) — exercising match-arm order + guards
+//   over `char` ranges.
+package match_char_range_guard;
+
+fn main() -> i64 {
+    let x: char = 'a';
+    let y: i64 = match x {
+        'a'..='b' if false => 1,
+        'a' => 2,
+        'a'..='b' => 3,
+        _ => 9,
+    };
+    return y - 2;
+}

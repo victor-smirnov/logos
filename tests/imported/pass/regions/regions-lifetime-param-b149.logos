@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/issue-5243.rs
+// Modifications: isize → i64; `pub fn main()` → `fn main() -> i64 { …; return 0; }`;
+//   the call's effect verified by reading the borrowed field back through `f` and
+//   subtracting (assert-via-return). Tests that merely having lifetime parameters on
+//   a struct (`S<'a>`) and a fn (`f<'lt>(&'lt S<'lt>)`) does not make codegen treat the
+//   item as non-monomorphic — a borrowed `&'a i64` field is read through the lifetime-
+//   parameterized reference.
+package regions_lifetime_param;
+
+struct S<'a> {
+    v: &'a i64
+}
+
+fn f<'lt>(s: &'lt S<'lt>) -> i64 {
+    return *(s.v);
+}
+
+fn main() -> i64 {
+    let n: i64 = 42;
+    let s = S { v: &n };
+    return f(&s) - 42;
+}

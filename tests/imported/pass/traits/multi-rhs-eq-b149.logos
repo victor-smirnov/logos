@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-26339.rs
+// Modifications: the `dyn A` trait-object upcast (`&Aimpl as &dyn A`, and the supertrait
+//   `A: PartialEq<Foo> + PartialEq<Bar>`) dropped — the kept ESSENCE is two impls of the SAME
+//   generic trait with DIFFERENT type-args on ONE type, dispatched by argument type. The std
+//   `PartialEq` is renamed to a user trait `MyEq<RHS>` (the stdlib `Eq`/`PartialEq` auto-derive
+//   `ne`, which collided); structs given a dummy field-less brace form; `assert!` → return codes.
+// Tests `impl MyEq<Foo> for Aimpl` and `impl MyEq<Bar> for Aimpl` coexisting (same trait, two
+//   distinct type-args on the same Self) and the right one being selected by the call's arg type.
+package multi_rhs_eq;
+
+struct Foo { }
+struct Bar { }
+struct Aimpl { }
+
+trait MyEq<RHS> {
+    fn myeq(self: &Self, rhs: &RHS) -> bool;
+}
+
+impl MyEq<Foo> for Aimpl {
+    fn myeq(self: &Aimpl, rhs: &Foo) -> bool { return true; }
+}
+impl MyEq<Bar> for Aimpl {
+    fn myeq(self: &Aimpl, rhs: &Bar) -> bool { return false; }
+}
+
+fn main() -> i64 {
+    let a = Aimpl { };
+    let f = Foo { };
+    let b = Bar { };
+    if !(a.myeq(&f)) { return 1; }
+    if a.myeq(&b) { return 2; }
+    return 0;
+}

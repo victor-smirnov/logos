@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst.rs
+// Modifications: i32 → i64; `&self` → `self: &Self`; the `impl<T> A<T> for u32 {}` blanket
+//   not needed for the i64 dispatch path so dropped; `assert_eq!` → nonzero return on mismatch.
+// Tests a default trait method `g<U>(&self, x: T, y: U) -> (T, U)` that has its OWN type-param
+//   `U` on top of the trait's `T`, dispatched through a generic fn `f<T, U, V: A<T>>` — the
+//   default method's body `(x, y)` runs with both the trait type-arg and the method type-arg
+//   substituted.
+package default_method_bound_subst;
+
+trait A<T> {
+    fn g<U>(self: &Self, x: T, y: U) -> (T, U) { return (x, y); }
+}
+
+impl A<i64> for i64 { }
+
+fn f<T, U, V: A<T>>(i: V, j: T, k: U) -> (T, U) {
+    return i.g(j, k);
+}
+
+fn main() -> i64 {
+    let r: (i64, i64) = f(0i64, 1i64, 2i64);
+    if r.0 != 1 { return 1; }
+    if r.1 != 2 { return 2; }
+    return 0;
+}

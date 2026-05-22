@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-discrim-range-overflow.rs
+// Modifications: upstream is `check-pass`; promoted to run-pass by exercising the `f` matcher
+//   and asserting via return. The 64-bit `E64` kept (H64 = 0x7FFF_FFFF_FFFF_FFFF, the i64 max);
+//   `L64` set to `0` (Logos enum discriminants are i64-typed, so the upstream `0x8000…0000`
+//   wrap-to-min isn't representable as a positive literal — the distinct discriminant value is
+//   what the match needs, not the exact bit pattern). The 32-bit `E32` half dropped. `_` removed
+//   from underscores in the literal (`0x7FFFFFFFFFFFFFFF`).
+// Tests an enum with a very large explicit discriminant and matching its two variants.
+package enum_discrim_large;
+
+enum E64 {
+    H64 = 0x7FFFFFFFFFFFFFFF,
+    L64 = 0
+}
+
+fn f(e64: E64) -> bool {
+    return match e64 {
+        E64::H64 => true,
+        E64::L64 => false
+    };
+}
+
+fn main() -> i64 {
+    if f(E64::H64) && !(f(E64::L64)) { return 0; }
+    return 1;
+}

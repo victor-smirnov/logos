@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/supervtable.rs
+// Modifications: isize → i64; `self` by-value methods kept (`self: Self`); the `Sized`
+//   supertrait bound dropped (implicit in Logos); `assert_eq!(12.x(), 12)` → return 0
+//   when `v.x() == 12` else nonzero (subtraction).
+// Tests calling a free fn `require_y<T: Y>` bounded over a SUPERTRAIT `Y` from inside a
+//   default method `Z::x` (where `Z: Y`), dispatched on a primitive `i64`.
+package default_method_supervtable;
+
+fn require_y<T: Y>(x: T) -> i64 { return x.y(); }
+
+trait Y { fn y(self: Self) -> i64; }
+
+trait Z: Y { fn x(self: Self) -> i64 { return require_y(self); } }
+
+impl Y for i64 { fn y(self: Self) -> i64 { return self; } }
+impl Z for i64 {}
+
+fn main() -> i64 {
+    let v: i64 = 12;
+    return v.x() - 12;
+}

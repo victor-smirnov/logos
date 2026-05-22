@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses-method.rs
+// Modifications: `&self` → `self: &Foo<T>`; `T: Eq` kept (Logos's Eq); `println!` dropped;
+//   the two boolean results asserted via return; `value: 1` → `1i64`.
+// Tests a method-level WHERE CLAUSE adding a constraint (`where T: Eq`) on the generic struct's
+//   type-param out of the impl's scope, then using `==` on the constrained field.
+package where_clauses_method;
+
+struct Foo<T> {
+    value: T
+}
+
+impl<T> Foo<T> {
+    fn equals(self: &Foo<T>, u: &Foo<T>) -> bool where T: Eq {
+        return self.value == u.value;
+    }
+}
+
+fn main() -> i64 {
+    let x = Foo { value: 1i64 };
+    let y = Foo { value: 2i64 };
+    if !(x.equals(&x)) { return 1; }
+    if x.equals(&y) { return 2; }
+    return 0;
+}

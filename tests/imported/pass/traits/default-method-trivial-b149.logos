@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/trivial.rs
+// Modifications: isize → i64; `&self` → `self: &Self`; `assert!(5.meow())` → return 0 on true
+//   else 1; receiver `5` written `5i64`.
+// Tests a default method (`purr` returns true) reached transitively: the impl's `meow`
+//   calls `self.scratch`, which calls the default `self.purr`, all on a primitive `i64`.
+package default_method_trivial;
+
+trait Cat {
+    fn meow(self: &Self) -> bool;
+    fn scratch(self: &Self) -> bool;
+    fn purr(self: &Self) -> bool { return true; }
+}
+
+impl Cat for i64 {
+    fn meow(self: &Self) -> bool { return self.scratch(); }
+    fn scratch(self: &Self) -> bool { return self.purr(); }
+}
+
+fn main() -> i64 {
+    let x: i64 = 5;
+    if x.meow() { return 0; }
+    return 1;
+}

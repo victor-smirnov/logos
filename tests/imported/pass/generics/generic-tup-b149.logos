@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tup.rs
+// Modifications: `pub fn main()` → `fn main() -> i64 { …; return 0; }`; `println!` dropped;
+//   `assert_eq!` → nonzero return on mismatch; literals suffixed (`1i64`, `5u8`).
+// Tests a generic fn `get_third<T>((T,T,T)) -> T` destructuring a homogeneous 3-tuple
+//   with a `let (_, _, x)` pattern and returning the bound element, instantiated at i64
+//   and u8.
+package generic_tup;
+
+fn get_third<T>(t: (T, T, T)) -> T { let (_, _, x) = t; return x; }
+
+fn main() -> i64 {
+    let a: i64 = get_third((1i64, 2i64, 3i64));
+    if a != 3 { return 1; }
+    let b: u8 = get_third((5u8, 6u8, 7u8));
+    if b != 7u8 { return 2; }
+    return 0;
+}

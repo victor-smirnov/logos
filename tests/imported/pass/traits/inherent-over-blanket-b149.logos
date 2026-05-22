@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/multidispatch-conditional-impl-not-considered.rs
+// Modifications: `&self` → `self: &Self`; the `RefCell::new(Bar)` / `.borrow()` wrapper dropped
+//   (Bar is used directly); the blanket `impl<T> Foo for T where T: Clone {}` kept but given a
+//   distinguishing default body returning 1, and the inherent `Bar::foo` returns 2 so the test
+//   can ASSERT (via return) that the inherent method — not the blanket trait method — is called.
+// Tests that an inherent method is preferred over a blanket trait method, and that the blanket
+//   `impl<T: Clone> Foo for T` is correctly NOT applied to `Bar` (Bar isn't Clone) — calling
+//   `b.foo()` resolves to the inherent `2`, never the trait default.
+package inherent_over_blanket;
+
+trait Foo {
+    fn foo(self: &Self) -> i64 { return 1; }
+}
+
+impl<T: Clone> Foo for T { }
+
+struct Bar { }
+
+impl Bar {
+    fn foo(self: &Bar) -> i64 { return 2; }
+}
+
+fn main() -> i64 {
+    let b = Bar { };
+    return b.foo() - 2;
+}

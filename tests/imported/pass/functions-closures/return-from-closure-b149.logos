@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/return-from-closure.rs
+// Modifications: isize → i64; `static mut calls` (unsupported) → a local `mut calls`
+//   captured by the (non-`move`) closure by reference; `panic!()` on the never-taken
+//   negative branch replaced by a sentinel `calls += 100` (would corrupt the count if
+//   the early `return` failed to exit the closure); `assert_eq!(calls, 3)` → return
+//   `calls - 3`. (The `move` form of the duplicate closure was dropped — a `move`
+//   closure does not currently isolate a Copy capture, see B149 gaps; the borrowing
+//   form proves the point: `return` exits only the closure, not `main`.)
+// Tests that `return` inside a closure returns from the CLOSURE, not the surrounding fn:
+//   three calls each take the early `return`, leaving the captured counter at exactly 3.
+package return_from_closure;
+
+fn main() -> i64 {
+    let mut calls: i64 = 0;
+    let mut bump = |n: i64| {
+        calls = calls + 1;
+        if n >= 0 { return; }
+        calls = calls + 100;
+    };
+    bump(10);
+    bump(20);
+    bump(30);
+    return calls - 3;
+}

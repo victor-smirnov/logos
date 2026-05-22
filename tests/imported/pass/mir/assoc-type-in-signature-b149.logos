@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_call_with_associated_type.rs
+// Modifications: the lifetime-parameterized impl `impl<'a> Trait for &'a ()` rewritten to a
+//   primitive carrier `impl Trait for u8` (Logos has no `()` unit-impl-receiver here), so the
+//   projected type is `u32`; `<&'a () as Trait>::Type` written `<u8 as Trait>::Type`;
+//   `assert_eq!(foo(4), 4)` → return `r - 4`.
+// Tests using a fully-qualified associated-type PROJECTION `<u8 as Trait>::Type` in both the
+//   parameter and return position of a fn, and round-tripping a value through it.
+package assoc_type_in_signature;
+
+trait Trait { type Type; }
+
+impl Trait for u8 { type Type = u32; }
+
+fn foo(t: <u8 as Trait>::Type) -> <u8 as Trait>::Type { return t; }
+
+fn main() -> i64 {
+    let r: u32 = foo(4u32);
+    return (r as i64) - 4;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-11577.rs
+// Modifications: isize → i64; `pub fn main()` → `fn main() -> i64 { …; return 0; }`;
+//   `assert_eq!(num, 1)` → nonzero return on mismatch; the second `let SBar { num }`
+//   re-binding renamed `num: n2` since Logos let-pattern fields bind by the field name
+//   (no implicit shadow-rebind of the same identifier in one scope).
+// Tests irrefutable `let`-destructuring of a STRUCT-LIKE ENUM VARIANT (`Foo::VBar { num }`)
+//   and of a plain struct (`SBar { num }`) — the case that historically ICE'd in rustc.
+package destructure_struct_variant;
+
+enum Foo {
+    VBar { num: i64 }
+}
+
+struct SBar { num: i64 }
+
+fn main() -> i64 {
+    let vbar = Foo::VBar { num: 1 };
+    let Foo::VBar { num } = vbar;
+    if num != 1 { return 1; }
+    let sbar = SBar { num: 2 };
+    let SBar { num: n2 } = sbar;
+    if n2 != 2 { return 2; }
+    return 0;
+}

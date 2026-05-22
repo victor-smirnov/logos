@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/issue-18655.rs
+// Modifications: `&self` → `self: &Self`; `<Self as Factory>::Product` written `Self::Product`
+//   and `<A as Factory>::Product` written `A::Product`; the recursive tuple impl reads its
+//   fields via `self.0` / `self.1` instead of `let (ref a, ref b) = *self` (Logos tuple-field
+//   access form); `assert_eq!` over the f64 result → nonzero return on mismatch.
+// Tests an associated type `type Product` with a method returning `Self::Product`, an impl on
+//   a primitive (`f64`), and a generic tuple impl `impl<A: Factory, B: Factory> Factory for (A, B)`
+//   whose `Product` is itself a tuple of the two inner projected products — recursively `create`d.
+package factory_assoc_type;
+
+trait Factory {
+    type Product;
+    fn create(self: &Self) -> Self::Product;
+}
+
+impl Factory for f64 {
+    type Product = f64;
+    fn create(self: &Self) -> f64 { return (*self) * (*self); }
+}
+
+impl<A: Factory, B: Factory> Factory for (A, B) {
+    type Product = (A::Product, B::Product);
+    fn create(self: &Self) -> (A::Product, B::Product) {
+        return (self.0.create(), self.1.create());
+    }
+}
+
+fn main() -> i64 {
+    let t: (f64, f64) = (4.0, 5.0);
+    let p = t.create();
+    if p.0 != 16.0 { return 1; }
+    if p.1 != 25.0 { return 2; }
+    return 0;
+}
