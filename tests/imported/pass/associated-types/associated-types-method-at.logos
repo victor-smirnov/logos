@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-method.rs
+// A trait impl whose impl-trait-ref self type contains a projection: impl<D:Device> Tr for Foo<D, D::Resources>. Method dispatched through the projected impl. Tuple struct -> named; unit structs -> {}; present() returns a sentinel instead of () for the assert.
+package associated_types_method_at;
+trait Device { type Resources; }
+struct Foo<D, R> { d: D, r: R }
+struct Res {}
+struct Dev {}
+impl Device for Dev { type Resources = Res; }
+trait Tr { fn present(self: &Self) -> i64 { return 0i64; } }
+impl<D: Device> Tr for Foo<D, D::Resources> { fn present(self: &Self) -> i64 { return 1i64; } }
+fn main() -> i32 { let foo: Foo<Dev, Res> = Foo { d: Dev {}, r: Res {} }; if foo.present() == 1i64 { return 0i32; } return 1i32; }

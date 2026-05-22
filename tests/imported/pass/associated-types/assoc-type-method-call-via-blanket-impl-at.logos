@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/assoc-type-method-call-via-blanket-impl.rs
+// Regression #23336: a method (doit) reached via a blanket impl<T> Data for T, on a value whose type is the associated type T::D (bounded D:Data). unit struct -> Unit{}; turbofish ::<Unit> kept; assert via return-code.
+package assoc_type_method_call_via_blanket_impl_at;
+trait Data { fn doit(self: &Self) -> i64 { return 7i64; } }
+impl<T> Data for T {}
+trait UnaryLogic { type D: Data; }
+struct Unit {}
+impl UnaryLogic for Unit { type D = i64; }
+fn crashes<T: UnaryLogic>(t: T::D) -> i64 { return t.doit(); }
+fn main() -> i32 { if crashes::<Unit>(0i64) == 7i64 { return 0i32; } return 1i32; }

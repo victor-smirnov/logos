@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-project-from-type-param-via-bound-in-where.rs
+// Issue #20300: T::Item used as a fn parameter type where the bound supplying Item comes from the where-clause (here the inline T:Trait bound), not the param's own decl. The AtomicUsize/many-call accumulation is reduced to a single free-fn call; turbofish ::<Struct> kept. The param is passed-through unused (arithmetic on a projected value does not normalize — see notes). isize/usize->i64; assert via return-code.
+package associated_types_project_from_type_param_via_bound_in_where_at;
+trait Trait { type Item; }
+struct Struct {}
+impl Trait for Struct { type Item = i64; }
+fn c<T: Trait>(_x: T::Item) -> i64 { return 100i64; }
+fn main() -> i32 { if c::<Struct>(22i64) == 100i64 { return 0i32; } return 1i32; }

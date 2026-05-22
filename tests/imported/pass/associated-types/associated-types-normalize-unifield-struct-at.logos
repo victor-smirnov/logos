@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-normalize-unifield-struct.rs
+// Issue #21010: normalize an associated type Off::State used as the single field of a one-field struct DateTime<Off>, produced by a generic factory from_utc. Bound type State:OffsetState. Names made multi-char; turbofish ::<Xx> kept.
+package associated_types_normalize_unifield_struct_at;
+trait OffsetState {}
+trait Offset { type State: OffsetState; }
+struct Xx {}
+struct Yy {}
+impl Offset for Xx { type State = Yy; }
+impl OffsetState for Yy {}
+struct DateTime<Off: Offset> { offset: Off::State }
+fn from_utc<Off: Offset>(offset: Off::State) -> DateTime<Off> { return DateTime { offset: offset }; }
+fn nowf() -> DateTime<Xx> { return from_utc::<Xx>(Yy {}); }
+fn main() -> i32 { let _x: DateTime<Xx> = nowf(); return 0i32; }

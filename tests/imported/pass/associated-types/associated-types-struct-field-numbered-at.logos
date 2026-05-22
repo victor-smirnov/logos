@@ -1,0 +1,9 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-struct-field-numbered.rs
+// Struct field with an associated type, read through a generic fn returning K::Value. Tuple-struct fields -> named; Value=Option<V> retyped to plain i64 (projected .clone() receiver is a gap). isize/usize->i64.
+package associated_types_struct_field_numbered_at;
+trait UnifyKey { type Value; }
+struct Node<K: UnifyKey> { f0: K, f1: K::Value }
+impl UnifyKey for i64 { type Value = i64; }
+fn getval<K: UnifyKey>(node: &Node<K>) -> K::Value { return (*node).f1; }
+fn main() -> i32 { let node: Node<i64> = Node { f0: 1i64, f1: 22i64 }; if getval(&node) == 22i64 { return 0i32; } return 1i32; }

@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/same-name-assoc-type-and-method.rs
+// Regression #35600: a trait declares both an associated type and a method with the same name (here type Bar / fn bar). Renamed Bar->Bar for the type and bar() for the method to keep both. unit -> Unit{}; the type body () -> i64 with a sentinel return; the let x: <() as Foo>::bar = () (qualified-path local) is dropped (qualified path does not parse). Static method called as Unit::bar().
+package same_name_assoc_type_and_method_at;
+trait Foo { type Bar; fn bar() -> i64; }
+struct Unit {}
+impl Foo for Unit { type Bar = i64; fn bar() -> i64 { return 7i64; } }
+fn main() -> i32 { if Unit::bar() == 7i64 { return 0i32; } return 1i32; }

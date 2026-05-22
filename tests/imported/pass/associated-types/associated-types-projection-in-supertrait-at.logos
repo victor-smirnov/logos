@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-projection-in-supertrait.rs
+// Issue #20559: a projection TC::TA appears in a supertrait bound (trait Cc<TC:Aa>: Bb<TC::TA>). Trait/struct names made multi-char (A/B/C collide with stdlib generic params); format!/String result -> arithmetic sentinel via the Bb method; assert via return-code.
+package associated_types_projection_in_supertrait_at;
+trait Aa { type TA; }
+trait Bb<TB> { fn foo(self: &Self, t: TB) -> i64; }
+trait Cc<TC: Aa>: Bb<TC::TA> {}
+struct X {}
+impl Aa for X { type TA = i64; }
+struct Y {}
+impl Cc<X> for Y {}
+impl Bb<i64> for Y { fn foo(self: &Y, t: i64) -> i64 { return t + 1i64; } }
+fn main() -> i32 { let y: Y = Y {}; if y.foo(5i64) == 6i64 { return 0i32; } return 1i32; }

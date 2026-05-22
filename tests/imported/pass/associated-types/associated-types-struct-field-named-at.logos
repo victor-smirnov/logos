@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-struct-field-named.rs
+// Normalize the type of a struct field K::Value that is an associated type. The Value=Option<V> equality-bound generic foo is dropped (equality bound + .clone() on a projected receiver are gaps); direct field read kept. isize/usize->i64.
+package associated_types_struct_field_named_at;
+trait UnifyKey { type Value; }
+struct Node<K: UnifyKey> { key: K, value: K::Value }
+impl UnifyKey for i64 { type Value = Option<i64>; }
+fn main() -> i32 {
+  let node: Node<i64> = Node { key: 1i64, value: Some(22i64) };
+  match node.value { Some(x) => { if x == 22i64 { return 0i32; } return 1i32; } None => { return 2i32; } }
+}

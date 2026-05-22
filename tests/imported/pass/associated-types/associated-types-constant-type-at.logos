@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-constant-type.rs
+// By-value self method convert(self)->Self::Opposite returning the associated type; isize/usize->i64/u64; assert via return-code. The free fn get() with the qualified <isize as SignedUnsigned>::Opposite return is dropped (qualified-path projection does not parse) — covered by the inherent method.
+package associated_types_constant_type_at;
+trait SignedUnsigned { type Opposite; fn convert(self: Self) -> Self::Opposite; }
+impl SignedUnsigned for i64 { type Opposite = u64; fn convert(self: i64) -> u64 { return self as u64; } }
+impl SignedUnsigned for u64 { type Opposite = i64; fn convert(self: u64) -> i64 { return self as i64; } }
+fn main() -> i32 { let x: i64 = 22i64; if x.convert() == 22u64 { return 0i32; } return 1i32; }

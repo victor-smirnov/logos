@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/method-on-impl-with-assoc-type-projection.rs
+// An inherent method on impl<D:Device> Foo<D, D::Resources> — the impl self type carries a projection D::Resources in a type-arg position. Tuple struct -> named fields; unit structs -> {}. Returns 1 on success.
+package method_on_impl_with_assoc_type_projection_at;
+trait Device { type Resources; }
+struct Foo<D, R> { d: D, r: R }
+struct Res {}
+struct Dev {}
+impl Device for Dev { type Resources = Res; }
+impl<D: Device> Foo<D, D::Resources> { fn present(self: &Self) -> i64 { return 1i64; } }
+fn main() -> i32 { let foo: Foo<Dev, Res> = Foo { d: Dev {}, r: Res {} }; if foo.present() == 1i64 { return 0i32; } return 1i32; }

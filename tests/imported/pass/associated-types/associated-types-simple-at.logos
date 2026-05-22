@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-simple.rs
+// Get::get returns the associated type by value (Rust returns &Self::Value; ref-to-non-generic-projection in a signature does not parse in Logos, so the return is by value Self::Value). assert_eq -> return-code; isize->i64.
+package associated_types_simple_at;
+trait Get { type Value; fn get(self: &Self) -> Self::Value; }
+struct Struct { x: i64 }
+impl Get for Struct { type Value = i64; fn get(self: &Struct) -> i64 { return (*self).x; } }
+fn main() -> i32 { let s: Struct = Struct { x: 100i64 }; if s.get() == 100i64 { return 0i32; } return 1i32; }

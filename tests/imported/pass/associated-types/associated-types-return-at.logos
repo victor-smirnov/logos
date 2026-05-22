@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-return.rs
+// foo2<I:Foo>(x)-> I::A projects the assoc type; one impl returns i64, another returns a struct Bar. The Foo<A=Bar> equality-bound foo1 is dropped (equality bound does not normalize the projection yet). PartialEq compared via field. isize->i64.
+package associated_types_return_at;
+struct Bar { v: i64 }
+trait Foo { type A; fn boo(self: &Self) -> Self::A; }
+impl Foo for i64 { type A = i64; fn boo(self: &i64) -> i64 { return 43i64; } }
+impl Foo for Bar { type A = Bar; fn boo(self: &Bar) -> Bar { return Bar { v: 99i64 }; } }
+fn foo2<I: Foo>(x: I) -> I::A { return x.boo(); }
+fn main() -> i32 {
+  let a: i64 = 7i64;
+  if foo2(a) != 43i64 { return 1i32; }
+  let b: Bar = Bar { v: 0i64 };
+  let r: Bar = foo2(b);
+  if r.v != 99i64 { return 2i32; }
+  return 0i32;
+}

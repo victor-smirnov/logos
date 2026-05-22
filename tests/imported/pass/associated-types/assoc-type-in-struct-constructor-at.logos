@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/assoc-type-in-struct-constructor.rs
+// Regression #26127: construct a generic struct Sw<I:Tr> whose field type is the projection I::T, inside a generic fn foo<I:Tr>(i: I::T). Tuple struct -> named field f0; unit struct Unit{}; turbofish ::<Unit> kept.
+package assoc_type_in_struct_constructor_at;
+trait Tr { type T; }
+struct Unit {}
+impl Tr for Unit { type T = i64; }
+struct Sw<I: Tr> { f0: I::T }
+fn foo<I: Tr>(i: I::T) -> i64 { let _s: Sw<I> = Sw { f0: i }; return 0i64; }
+fn main() -> i32 { return foo::<Unit>(5i64) as i32; }

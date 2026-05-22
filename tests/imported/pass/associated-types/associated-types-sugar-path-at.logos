@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-sugar-path.rs
+// Type-parameter-only sugar T::A used for a generic fn return + a local annotation. Self::A return by value; isize/usize->i64; assert via return-code.
+package associated_types_sugar_path_at;
+trait Foo { type A; fn boo(self: &Self) -> Self::A; }
+impl Foo for i64 { type A = i64; fn boo(self: &i64) -> i64 { return 5i64; } }
+fn bar<T: Foo>(a: T, x: T::A) -> T::A { let _y: T::A = a.boo(); return x; }
+fn main() -> i32 { let z: i64 = bar(2i64, 4i64); if z == 4i64 { return 0i32; } return 1i32; }

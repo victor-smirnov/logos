@@ -1,0 +1,8 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-in-default-method.rs
+// A trait default method (grab) calls another method (get) whose return is the associated type Self::Value. By-value Self::Value return; isize->i64; assert via return-code.
+package associated_types_in_default_method_at;
+trait Get { type Value; fn get(self: &Self) -> Self::Value; fn grab(self: &Self) -> Self::Value { return self.get(); } }
+struct Struct { x: i64 }
+impl Get for Struct { type Value = i64; fn get(self: &Struct) -> i64 { return (*self).x; } }
+fn main() -> i32 { let s: Struct = Struct { x: 100i64 }; if s.grab() == 100i64 { return 0i32; } return 1i32; }

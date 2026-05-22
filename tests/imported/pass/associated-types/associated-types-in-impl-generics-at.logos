@@ -1,0 +1,10 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-in-impl-generics.rs
+// A blanket impl<T:Get> Grab for T defines its assoc type U = T::Value and forwards grab() to get(). Exercises an associated type whose definition is itself a projection through the impl type-param. By-value returns; isize->i64.
+package associated_types_in_impl_generics_at;
+trait Get { type Value; fn get(self: &Self) -> Self::Value; }
+struct Struct { x: i64 }
+impl Get for Struct { type Value = i64; fn get(self: &Struct) -> i64 { return (*self).x; } }
+trait Grab { type U; fn grab(self: &Self) -> Self::U; }
+impl<T: Get> Grab for T { type U = T::Value; fn grab(self: &T) -> T::Value { return self.get(); } }
+fn main() -> i32 { let s: Struct = Struct { x: 100i64 }; if s.grab() == 100i64 { return 0i32; } return 1i32; }

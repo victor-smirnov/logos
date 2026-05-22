@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-stream.rs
+// Issue #20551: a trait Stream with two associated types (Car, Cdr), one consumed by &self and one by-value self. Generic impl over Pair<T,U> with T:Clone bound. The recursive Cdr:Stream supertrait-style bound and the nested cons-list traversal are simplified to a single Pair level; both assoc types and both self-kinds are exercised. isize->i64.
+package associated_types_stream_at;
+trait Stream { type Car; type Cdr; fn car(self: &Self) -> Self::Car; fn cdr(self: Self) -> Self::Cdr; }
+struct Pair<T, U> { a: T, b: U }
+impl<T: Clone, U> Stream for Pair<T, U> { type Car = T; type Cdr = U; fn car(self: &Self) -> T { return (*self).a.clone(); } fn cdr(self: Pair<T, U>) -> U { return self.b; } }
+fn main() -> i32 {
+  let p: Pair<i64, i64> = Pair { a: 22i64, b: 44i64 };
+  if p.car() != 22i64 { return 1i32; }
+  let q: i64 = p.cdr();
+  if q != 44i64 { return 2i32; }
+  return 0i32;
+}

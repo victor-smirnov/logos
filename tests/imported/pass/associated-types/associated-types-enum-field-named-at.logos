@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-enum-field-named.rs
+// Associated type K::Value appearing in a struct-like enum variant field. The recursive Vec table + ref-return get() is dropped (ref-to-projection + Vec-of-enum recursion); kept the core: construct a Root variant whose payload field type is the normalized projection. isize/usize->i64.
+package associated_types_enum_field_named_at;
+trait UnifyKey { type Value; }
+enum VarValue<K: UnifyKey> { Redirect { to: K }, Root { value: K::Value, rank: i64 } }
+impl UnifyKey for i64 { type Value = i64; }
+fn main() -> i32 {
+  let v: VarValue<i64> = VarValue::Root { value: 5i64, rank: 0i64 };
+  match v { VarValue::Root { value: x, rank: _ } => { if x == 5i64 { return 0i32; } return 1i32; } VarValue::Redirect { to: _ } => { return 2i32; } }
+}
