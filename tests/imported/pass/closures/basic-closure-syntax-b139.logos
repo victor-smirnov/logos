@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/basic-closure-syntax.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; closures given BLOCK
+//   bodies (`|a| { a }`, `|| { }`) since the bare-expr closure form `|a| a` is
+//   a parse error; the empty-tuple-returning closure `|| ()` -> `|| { }`.
+// Tests closures with a param + return value, and a zero-arg closure, each
+//   passed into a generic fn under an `F: FnOnce(..)` / `G: FnOnce()` bound.
+package basic_closure_syntax_b139;
+
+fn f<F>(i: i64, fc: F) -> i64 where F: FnOnce(i64) -> i64 {
+    fc(i)
+}
+
+fn g<G>(gc: G) where G: FnOnce() {
+    gc();
+}
+
+fn main() -> i32 {
+    if f(10i64, |a| { a }) != 10i64 { return 1i32; }
+    g(|| { });
+    if f(7i64, |a| { a + 1i64 }) != 8i64 { return 2i32; }
+    return 0i32;
+}

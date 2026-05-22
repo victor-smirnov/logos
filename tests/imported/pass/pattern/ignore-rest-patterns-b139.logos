@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/ignore-all-the-things.rs (named-struct + array
+//   + struct-rest facets)
+// Modifications: isize -> i64; the tuple-STRUCT `Foo(isize,..)` halves dropped
+//   (positional tuple-struct ctor known-open); the anonymous-tuple `(.., c, d)`
+//   destructure half also dropped (focus kept on named-struct rest + array rest);
+//   bindings asserted instead of ignored to confirm runtime values.
+// Tests `..` rest patterns: whole-struct `Bar{..}`, named-field-plus-rest
+//   `Bar{b, ..}`, and slice/array rest in match arms ([a,..], [..,b], [a,..,b]).
+package ignore_rest_patterns_b139;
+
+struct Bar { a: i64, b: i64, c: i64, d: i64 }
+
+fn main() -> i32 {
+    let Bar { .. } = Bar { a: 5i64, b: 5i64, c: 5i64, d: 5i64 };
+
+    let Bar { b: b, .. } = Bar { a: 1i64, b: 2i64, c: 3i64, d: 4i64 };
+    if b != 2i64 { return 1i32; }
+
+    match [5i64, 5i64, 5i64, 5i64] {
+        [..] => { }
+    }
+    match [10i64, 20i64, 30i64, 40i64] {
+        [first, ..] => { if first != 10i64 { return 2i32; } }
+    }
+    match [10i64, 20i64, 30i64] {
+        [.., last] => { if last != 30i64 { return 3i32; } }
+    }
+    match [10i64, 20i64, 30i64, 40i64] {
+        [a, .., d] => {
+            if a != 10i64 { return 4i32; }
+            if d != 40i64 { return 5i32; }
+        }
+    }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-1.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; the `String` field
+//   `f0` replaced by an i64 (the point is FRU from a struct-literal base, not
+//   String); the f1 field added to the runtime check.
+// Tests functional-record-update where the `..base` is itself a struct LITERAL
+//   expression: the explicit `f0` overrides the base's `f0`, while `f1` is taken
+//   from the base.
+package struct_fru_from_literal_base_b139;
+
+struct S { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let s = S {
+        f0: 100i64,
+        ..S {
+            f0: 7i64,
+            f1: 23i64,
+        }
+    };
+    if s.f0 != 100i64 { return 1i32; }
+    if s.f1 != 23i64 { return 2i32; }
+    return 0i32;
+}

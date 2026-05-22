@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binops.rs (bool + integer corner cases)
+// Modifications: assert!/assert_eq! -> nonzero ret; nil/ptr/class halves dropped
+//   (unit comparisons + raw-ptr ordering not the focus); bool ordering+bitwise
+//   and integer relational/bitwise kept.
+// Tests bool relational ordering, bool bitwise &|^, and integer comparison.
+package binops_corner_b139;
+
+fn main() -> i32 {
+    // bool ordering: false < true
+    if true < false { return 1i32; }
+    if !(false < true) { return 2i32; }
+    if !(true > false) { return 3i32; }
+    if !(false <= true) { return 4i32; }
+    if !(true >= false) { return 5i32; }
+
+    // bool bitwise
+    if (false & false) != false { return 6i32; }
+    if (true & false) != false { return 7i32; }
+    if (true & true) != true { return 8i32; }
+    if (false | false) != false { return 9i32; }
+    if (true | false) != true { return 10i32; }
+    if (false ^ false) != false { return 11i32; }
+    if (true ^ false) != true { return 12i32; }
+    if (true ^ true) != false { return 13i32; }
+
+    // integer relational
+    let a: i32 = 5i32;
+    let b: i32 = 7i32;
+    if !(a < b) { return 14i32; }
+    if !(b > a) { return 15i32; }
+    if !(a <= a) { return 16i32; }
+    if !(b >= b) { return 17i32; }
+    if a == b { return 18i32; }
+    if !(a != b) { return 19i32; }
+    return 0i32;
+}

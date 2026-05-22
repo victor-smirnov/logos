@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/basic-newtype-pattern.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; the tuple-struct
+//   newtype `Counter(CounterData)` -> a named-field struct `Counter{data:..}`
+//   (positional tuple-struct ctor is known-open); the `let Counter(data) = ..`
+//   destructure -> field access `counter.data`; the fn-ptr field call
+//   `(data.compute)(c)` written by first binding the fn-ptr to a local (chained
+//   postfix-call on a field is the known `f()(args)` family); `#[derive]`
+//   dropped; a second Counter built to pass by value (Counter is moved into the
+//   fn-ptr call).
+// Tests a struct carrying a function-pointer field (`fn(Counter)->i64`), with a
+//   forward reference to the `Counter` type, called through the field.
+package basic_newtype_pattern_b139;
+
+struct CounterData { compute: fn(Counter) -> i64, val: i64 }
+struct Counter { data: CounterData }
+
+fn compute_value(counter: Counter) -> i64 {
+    counter.data.val + 20i64
+}
+
+fn main() -> i32 {
+    let my_counter = Counter { data: CounterData { compute: compute_value, val: 30i64 } };
+    let f = my_counter.data.compute;
+    let arg = Counter { data: CounterData { compute: compute_value, val: 30i64 } };
+    if f(arg) != 50i64 { return 1i32; }
+    return 0i32;
+}

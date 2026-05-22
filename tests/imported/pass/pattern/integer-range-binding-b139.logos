@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/integer-range-binding.rs
+// Modifications: the irrefutable range LET-bindings (`let 0..=255 = 0u8;`) are
+//   rewritten as exhaustive single-arm `match` (Logos `let` requires an
+//   irrefutable pattern; a full-range `..=` arm is exhaustive for the type);
+//   negatives written as `0 - n` for the i8 lower bound.
+// Tests full-range `..=` patterns matching the entire value domain of u8/i8/i32
+//   and the whole Unicode scalar range for char.
+package integer_range_binding_b139;
+
+fn main() -> i32 {
+    match 1i32 {
+        -2147483648i32..=2147483647i32 => { }
+    }
+    match 0u8 {
+        0u8..=255u8 => { }
+    }
+    match 0i8 {
+        -128i8..=127i8 => { }
+    }
+    match 'v' {
+        '\u{0000}'..='\u{10FFFF}' => { }
+    }
+    return 0i32;
+}

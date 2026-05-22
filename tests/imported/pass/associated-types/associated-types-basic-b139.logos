@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-basic.rs (extended)
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; the qualified-path
+//   type-annotation `<i32 as Foo>::T` (a known-open qualified path) replaced by
+//   a trait method `make(&self) -> Self::T` returning the assoc type; a second
+//   impl (assoc type = u32) added plus a GENERIC fn returning the projection
+//   `F::T` to exercise associated-type projection in a generic return position.
+// Tests an associated type used as a method return (`Self::T`), at two impls
+//   with distinct assoc types, and as a generic-fn return projection (`F::T`).
+package associated_types_basic_b139;
+
+trait Foo {
+    type T;
+    fn make(self: &Self) -> Self::T;
+}
+
+struct A { }
+impl Foo for A { type T = i64; fn make(self: &A) -> i64 { 22i64 } }
+
+struct B { }
+impl Foo for B { type T = u32; fn make(self: &B) -> u32 { 7u32 } }
+
+fn twice<F: Foo>(f: &F) -> F::T { f.make() }
+
+fn main() -> i32 {
+    let a = A {};
+    let x: i64 = a.make();
+    if x * 2i64 != 44i64 { return 1i32; }
+
+    let b = B {};
+    if b.make() != 7u32 { return 2i32; }
+
+    if twice(&a) != 22i64 { return 3i32; }
+    return 0i32;
+}

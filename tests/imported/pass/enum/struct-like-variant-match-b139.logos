@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/struct-like-variant-match.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; `match *x` over a
+//   `&Foo` receiver; field permutation `{ y: y, x: x }` in one arm exercised.
+// Tests struct-like enum variants matched through a reference, with the binding
+//   fields named in a different order than declared in one arm.
+package struct_like_variant_match_b139;
+
+enum Foo {
+    Bar { x: i64, y: i64 },
+    Baz { x: f64, y: f64 },
+}
+
+fn f(p: &Foo) -> i32 {
+    match *p {
+        Foo::Baz { x: x, y: y } => {
+            if x != 1.0f64 { return 1i32; }
+            if y != 2.0f64 { return 2i32; }
+        }
+        Foo::Bar { y: y, x: x } => {
+            if x != 1i64 { return 3i32; }
+            if y != 2i64 { return 4i32; }
+        }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let x = Foo::Bar { x: 1i64, y: 2i64 };
+    let r1 = f(&x);
+    if r1 != 0i32 { return r1; }
+    let y = Foo::Baz { x: 1.0f64, y: 2.0f64 };
+    let r2 = f(&y);
+    if r2 != 0i32 { return r2; }
+    return 0i32;
+}

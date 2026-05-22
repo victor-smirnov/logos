@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/tuple-index.rs (plain-tuple half)
+// Modifications: assert_eq! -> nonzero ret; the positional tuple-STRUCT half
+//   (Point(isize,isize)) dropped (tuple-struct ctor is a known-open); the
+//   plain anonymous-tuple half kept; `&mut x.1` writeback through a tuple field.
+// Tests in-place mutation of tuple fields incl. a `&mut` borrow of one field
+//   while reading/incrementing another.
+package tuple_index_mut_b139;
+
+fn main() -> i32 {
+    let mut x: (i64, i64) = (3i64, 2i64);
+    if x.0 != 3i64 { return 1i32; }
+    if x.1 != 2i64 { return 2i32; }
+    x.0 = x.0 + 5i64;
+    if x.0 != 8i64 { return 3i32; }
+    {
+        let ry: &mut i64 = &mut x.1;
+        *ry = *ry - 2i64;
+        x.0 = x.0 + 3i64;
+        if x.0 != 11i64 { return 4i32; }
+    }
+    if x.1 != 0i64 { return 5i32; }
+    return 0i32;
+}

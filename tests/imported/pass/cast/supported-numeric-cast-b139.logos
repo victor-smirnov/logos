@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/supported-cast.rs (numeric grid only)
+// Modifications: println! -> value asserts (-> nonzero ret); isize/usize ->
+//   i64/u64; the raw-pointer casts (`1_usize as *const String`, `f as i8`, ...)
+//   dropped (the int<->int<->float numeric grid is the runnable part); literals
+//   suffixed.
+// Tests the supported numeric cast grid: an i64 and a u64 cast to every narrower
+//   integer width and to f32/f64, value-preserving for the value 1.
+package supported_numeric_cast_b139;
+
+fn main() -> i32 {
+    let n: i64 = 1i64;
+    if (n as i8) != 1i8 { return 1i32; }
+    if (n as i16) != 1i16 { return 2i32; }
+    if (n as i32) != 1i32 { return 3i32; }
+    if (n as u8) != 1u8 { return 4i32; }
+    if (n as u16) != 1u16 { return 5i32; }
+    if (n as u32) != 1u32 { return 6i32; }
+    if (n as u64) != 1u64 { return 7i32; }
+    if (n as f32) != 1.0f32 { return 8i32; }
+    if (n as f64) != 1.0f64 { return 9i32; }
+
+    let u: u64 = 1u64;
+    if (u as i64) != 1i64 { return 10i32; }
+    if (u as f64) != 1.0f64 { return 11i32; }
+    return 0i32;
+}

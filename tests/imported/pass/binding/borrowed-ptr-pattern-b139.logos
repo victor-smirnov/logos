@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/borrowed-ptr-pattern.rs
+// Modifications: assert_eq! -> nonzero ret; the `'a'` (char) instantiation
+//   replaced by u32 (`char` is not `Copy`/cloneable through this path here);
+//   instantiated at i64 + u32.
+// Tests a `&ref a` match pattern (binding through a reference by re-borrowing)
+//   in a generic fn over `T: Clone`, returning `(*a).clone()`.
+package borrowed_ptr_pattern_b139;
+
+fn foo<T: Clone>(x: &T) -> T {
+    match x {
+        &ref a => (*a).clone()
+    }
+}
+
+fn main() -> i32 {
+    if foo(&3i64) != 3i64 { return 1i32; }
+    if foo(&7u32) != 7u32 { return 2i32; }
+    return 0i32;
+}

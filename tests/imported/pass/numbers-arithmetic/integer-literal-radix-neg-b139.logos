@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/integer-literal-radix.rs (distinct
+//   facet: the existing import covers basic radix; here NEGATIVE radix literals
+//   via `0 - lit` and a width-suffixed cross-check)
+// Modifications: assert_eq! -> nonzero ret; `_` digit-group separators dropped
+//   (no `0xBEEF_isize`; use `0xBEEFi64`); negatives as `0 - n`; isize -> i64.
+// Tests hex/octal/binary literal values and their negations.
+package integer_literal_radix_neg_b139;
+
+fn main() -> i32 {
+    let a: i64 = 0xBEEFi64;
+    let b: i64 = 0o755i64;
+    let c: i64 = 0b10101i64;
+    let d: i64 = 0i64 - 0xBEEFi64;
+    let e: i64 = 0i64 - 0o755i64;
+    let f: i64 = 0i64 - 0b10101i64;
+
+    if a != 48879i64 { return 1i32; }
+    if b != 493i64 { return 2i32; }
+    if c != 21i64 { return 3i32; }
+    if d != 0i64 - 48879i64 { return 4i32; }
+    if e != 0i64 - 493i64 { return 5i32; }
+    if f != 0i64 - 21i64 { return 6i32; }
+    return 0i32;
+}

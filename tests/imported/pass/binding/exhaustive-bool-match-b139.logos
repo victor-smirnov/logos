@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/exhaustive-bool-match-sanity.rs (issue #33540)
+// Modifications: assert_eq! -> nonzero ret.
+// Tests a `match` on a `(bool, bool)` tuple with wildcard arms producing the
+//   correct if-else-chain results across all four input combinations.
+package exhaustive_bool_match_b139;
+
+fn foo(x: bool, y: bool) -> u32 {
+    match (x, y) {
+        (false, _) => 0u32,
+        (_, false) => 1u32,
+        (true, true) => 2u32,
+    }
+}
+
+fn main() -> i32 {
+    if foo(false, true) != 0u32 { return 1i32; }
+    if foo(false, false) != 0u32 { return 2i32; }
+    if foo(true, false) != 1u32 { return 3i32; }
+    if foo(true, true) != 2u32 { return 4i32; }
+    return 0i32;
+}

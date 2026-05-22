@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/coercion-generic.rs
+// Modifications: `Box<dyn Trait<&'static str>>` -> `&dyn Trait<i64>` (stack dyn);
+//   the `&'static str` type-arg replaced by `i64` (no string formatting needed,
+//   the point is the GENERIC trait type-param on a trait object); println! body
+//   replaced by an arithmetic result the caller checks; `#[derive]` dropped.
+// Tests coercing a `&Struct` to a `&dyn Trait<i64>` (a trait object over a
+//   trait with a type parameter) and dispatching its method through the object.
+package coercion_generic_dyn_param_b139;
+
+trait Trait<T> {
+    fn f(self: &Self, x: T) -> T;
+}
+
+struct Struct { x: i64, y: i64 }
+
+impl Trait<i64> for Struct {
+    fn f(self: &Struct, x: i64) -> i64 {
+        self.x + self.y + x
+    }
+}
+
+fn main() -> i32 {
+    let a = Struct { x: 1i64, y: 2i64 };
+    let c: &dyn Trait<i64> = &a;
+    if c.f(10i64) != 13i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mutability-inherits-through-fixed-length-vec.rs
+//   (distilled to non-iterator core; the existing import covers the `for i in
+//   &mut ints` half — here we test the indexed in-place `+=` mutation directly,
+//   plus a `[v; N]` repeat-init array)
+// Modifications: assert_eq! -> nonzero ret; `+=` written as explicit add.
+// Tests that a `mut` fixed-length array supports in-place element mutation
+//   through indexing and that `[0; 32]` repeat-init produces all-zero elements.
+package array_mut_inherit_b139;
+
+fn main() -> i32 {
+    let mut ints: [i64; 32] = [0i64; 32];
+    ints[0] = ints[0] + 1i64;
+    if ints[0] != 1i64 { return 1i32; }
+    if ints[31] != 0i64 { return 2i32; }
+    ints[31] = ints[31] + 5i64;
+    if ints[31] != 5i64 { return 3i32; }
+    return 0i32;
+}

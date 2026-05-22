@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/basic-switch.rs
+// Modifications: assert! -> nonzero ret; the or-pattern was NESTED inside an
+//   `Option` payload (`Some(Test::Bar | Test::Qux)`), which is a parse error in
+//   Logos (or-pattern inside a variant payload — see B139 notes); distilled to a
+//   TOP-LEVEL or-pattern arm `Test::Bar | Test::Qux => ..` over the enum
+//   directly; `#[derive(Debug)]` dropped.
+// Tests a top-level or-pattern arm over an enum lowered to a switch.
+package basic_switch_b139;
+
+enum Test { Foo, Bar, Baz, Qux }
+
+fn test(x: Test) -> bool {
+    match x {
+        Test::Bar | Test::Qux => true,
+        _ => false
+    }
+}
+
+fn main() -> i32 {
+    if test(Test::Foo) { return 1i32; }
+    if !test(Test::Bar) { return 2i32; }
+    if test(Test::Baz) { return 3i32; }
+    if !test(Test::Qux) { return 4i32; }
+    return 0i32;
+}

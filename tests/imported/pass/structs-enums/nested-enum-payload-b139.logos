@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/issue-1701.rs
+// Modifications: assert_eq! over `Option<String>` -> the `noise` fn returns an
+//   i64 code matched directly (no String/`Option<String>` Eq needed); the
+//   two-payload `Rabbit(name, ear_kind)` variant reduced to a single `EarKind`
+//   payload (the point is an enum-typed payload, not the String field);
+//   variant `..` payload-ignore pattern -> a named `_x` binding (`Variant(..)`
+//   in a match arm is a parse error); CamelCase names.
+// Tests enum variants whose payloads are themselves enums, matched by variant.
+package nested_enum_payload_b139;
+
+enum Pattern { Tabby, Tortoiseshell, Calico }
+enum Breed { Beagle, Rottweiler, Pug }
+enum EarKind { Lop, Upright }
+enum Animal { Cat(Pattern), Dog(Breed), Rabbit(EarKind), Tiger }
+
+fn noise(a: Animal) -> i64 {
+    match a {
+        Animal::Cat(_p) => { 1i64 }
+        Animal::Dog(_b) => { 2i64 }
+        Animal::Rabbit(_e) => { 0i64 }
+        Animal::Tiger => { 3i64 }
+    }
+}
+
+fn main() -> i32 {
+    if noise(Animal::Cat(Pattern::Tabby)) != 1i64 { return 1i32; }
+    if noise(Animal::Dog(Breed::Pug)) != 2i64 { return 2i32; }
+    if noise(Animal::Rabbit(EarKind::Upright)) != 0i64 { return 3i32; }
+    if noise(Animal::Tiger) != 3i64 { return 4i32; }
+    return 0i32;
+}

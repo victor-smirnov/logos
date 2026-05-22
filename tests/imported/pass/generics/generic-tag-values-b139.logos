@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-values.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; println! dropped;
+//   turbofish-in-pattern (`noption::some::<isize>(n)`) -> bare pattern (turbofish
+//   in patterns is dropped per port conventions); CamelCase names.
+// Tests a single-payload generic enum `Noption<T>` constructed + matched at both
+//   a scalar payload (i64) and a struct payload (Pair), reading both fields.
+package generic_tag_values_b139;
+
+enum Noption<T> { Some(T) }
+struct Pair { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let nop: Noption<i64> = Noption::Some(5i64);
+    match nop {
+        Noption::Some(n) => { if n != 5i64 { return 1i32; } }
+    }
+
+    let nop2: Noption<Pair> = Noption::Some(Pair { x: 17i64, y: 42i64 });
+    match nop2 {
+        Noption::Some(t) => {
+            if t.x != 17i64 { return 2i32; }
+            if t.y != 42i64 { return 3i32; }
+        }
+    }
+    return 0i32;
+}

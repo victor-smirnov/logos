@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/struct-aliases.rs
+// Modifications: assert_eq! -> nonzero ret; isize -> i64; mem/size_of dropped;
+//   the generic `type S4<U> = S3<U,char>` half + the `S4::<u8>{..}` pattern
+//   dropped (turbofish-on-alias + alias-name in pattern are known-open per
+//   B137); construction THROUGH the alias `S2{..}` kept, matched via the base
+//   struct name `S` (alias-name-in-pattern is the known-open part).
+// Tests that a `type` alias of a struct can be used as a struct-literal
+//   constructor and the value matched/read field-by-field.
+package struct_aliases_b139;
+
+struct S { x: i64, y: i64 }
+type S2 = S;
+
+fn main() -> i32 {
+    let s = S2 { x: 1i64, y: 2i64 };
+    match s {
+        S { x: x, y: y } => {
+            if x != 1i64 { return 1i32; }
+            if y != 2i64 { return 2i32; }
+        }
+    }
+    return 0i32;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-poly-methods.rs
+// Modifications: assert_eq! -> nonzero ret; isize/usize -> i64/u64; the
+//   `Vec<U>`/`Vec<T>` fields/params reduced to a scalar `val: U` field + a
+//   by-value method-generic `n: T` param (the upstream `stuff.len()` count is
+//   replaced by a fixed +3 so no Vec import is needed); `&mut self` ->
+//   `self: &mut Cat<U>`; the free `cat<U>(..)` ctor fn inlined to a struct lit;
+//   method-generic `T` carries a `T: Copy` bound to instantiate by value.
+// Tests a GENERIC struct `Cat<U>` with a METHOD-GENERIC method `speak<T>` plus a
+//   plain `&mut self` accessor, instantiated at `Cat<i64>`.
+package class_poly_methods_b139;
+
+struct Cat<U> { val: U, meows: u64, how_hungry: i64 }
+
+impl<U> Cat<U> {
+    fn speak<T>(self: &mut Cat<U>, _n: T) where T: Copy {
+        self.meows = self.meows + 3u64;
+    }
+    fn meow_count(self: &mut Cat<U>) -> u64 { self.meows }
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat<i64> = Cat { val: 9i64, meows: 52u64, how_hungry: 99i64 };
+    if nyan.how_hungry != 99i64 { return 1i32; }
+    nyan.speak(7i64);
+    if nyan.meow_count() != 55u64 { return 2i32; }
+    return 0i32;
+}
