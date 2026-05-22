@@ -4093,7 +4093,11 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
         TypeRef elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
         push_scope();
-        define(var_name, elem_type, false);
+        // Rust parity: iterating a slice (`for x in &arr` / `&slice`) yields
+        // `&T`, NOT `T` by value (you cannot move out of a borrow). The body
+        // binding is a reference; codegen binds the element address. The raw
+        // `elem_type` still flows to sfe.elem_type for the GEP stride.
+        define(var_name, make_ref(false, elem_type), false);
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
@@ -4109,6 +4113,54 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sfe.is_slice  = true;
         sfe.body      = std::move(body);
         return make_stmt_emit(node_line_, std::move(sfe));
+    }
+
+    // ── &Vec<T> path: Rust parity — `for x in &vec` borrows the Vec as a
+    // slice and yields `&T` (NOT `T` by value via Vec::iter, which would move
+    // out of a borrow). Desugar `&vec` → `vec.as_slice()` and reuse the by-ref
+    // slice path. (By-value `for x in vec` keeps the consuming VecIter path.)
+    if ((TypeRef(iter_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(iter_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(iter_type).pointee() &&
+        TypeRef(TypeRef(iter_type).pointee()).struct_name() == "Vec") {
+        TypeRef vec_ty = TypeRef(iter_type).pointee();
+        if (auto fit = find_func_candidates("Vec__as_slice"); fit.size() == 1) {
+            const SemaFuncInfo* as_slice_fn = fit[0];
+            TypeRef elem_t = !TypeRef(vec_ty).type_args().empty()
+                                 ? TypeRef(vec_ty).type_args()[0] : i32_t();
+            TypeRef slice_ty = make_slice_type(elem_t);
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(iter));
+            lir::LExprPtr slice_call;
+            if (!as_slice_fn->type_params.empty())
+                slice_call = finish_generic_call(
+                    as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
+                                                     : as_slice_fn->symbol_name,
+                    *as_slice_fn, {elem_t}, std::move(pargs));
+            else
+                slice_call = builder().call(
+                    as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
+                                                     : as_slice_fn->symbol_name,
+                    {}, std::move(pargs), slice_ty);
+
+            push_scope();
+            define(var_name, make_ref(false, elem_t), false);  // yields &T
+            auto body = lir::alloc_block(*cur_prog_);
+            if (node.has_key(la::BODY)) {
+                ++loop_depth_;
+                *body = lower_block(map_of(node.get(la::BODY.code)));
+                --loop_depth_;
+            }
+            pop_scope();
+            lir::SForEach sfe;
+            sfe.var       = std::string(var_name);
+            sfe.iter      = std::move(slice_call);
+            sfe.elem_type = elem_t;
+            sfe.arr_size  = 0;
+            sfe.is_slice  = true;
+            sfe.body      = std::move(body);
+            return make_stmt_emit(node_line_, std::move(sfe));
+        }
     }
 
     // ── iterator path: desugar to while-let loop ─────────────────

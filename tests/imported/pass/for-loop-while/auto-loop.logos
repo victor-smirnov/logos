@@ -18,7 +18,7 @@ fn main() -> i32 {
     let mut sum: i64 = 0i64;
     let xs: Vec<i64> = vec_from_arr([1i64, 2i64, 3i64, 4i64, 5i64]);
     for x in &xs {
-        sum = sum + x;
+        sum = sum + *x;  // x is &i64 (for x in &vec yields &T)
     }
     assert_eq!(sum, 15i64);
     return 0;

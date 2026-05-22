@@ -1,17 +1,17 @@
 package slice_for_in;
-// for-in over &[T] slice: iterate by index using dynamic length from fat pointer.
+// for-in over &[T] slice: yields &T (Rust parity), so elements are deref'd (*x).
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printii(fmt: str, a: i32, b: i32) { unsafe { printf(fmt.as_ptr(), a, b); } }
 
 fn sum_slice(s: &[i32]) -> i32 {
     let mut total = 0;
-    for x in s { total = total + x; }
+    for x in s { total = total + *x; }
     return total;
 }
 
 fn count_positive(s: &[i32]) -> i32 {
     let mut n = 0;
-    for x in s { if x > 0 { n = n + 1; } }
+    for x in s { if *x > 0 { n = n + 1; } }
     return n;
 }
 

@@ -41,9 +41,12 @@ struct functional-update, range/or patterns — all worked prelude-only.)
   skipped** — it hits a *different* bug: `for x in &v` over a generic `Vec<T>` binds
   `x` as `T` not `&T`, so `f(x)` fails "closure call arg 1: expected &T, got T"
   (generic-Vec-iterate-by-ref — see new note below).
-- **compiler-bug (genuine)** — `for x in &v` over a **generic** `Vec<T>` binds the
-  loop var as `T` instead of `&T` (`closure call arg: expected &T, got T`). Concrete
-  `&[i64]` index-iteration works. Blocks old-closure-iter-1. Flagged for attention.
+- ~~**compiler-bug** — `for x in &v` over a generic `Vec<T>` binds the loop var as
+  `T` instead of `&T`~~ **FIXED 2026-05-22.** Was a deeper uniform divergence: `for x
+  in &coll` yielded `T` by value for slices/arrays/Vec (soundness gap — moving out of
+  a borrow). Now yields `&T` (Rust parity): slice path binds the element address;
+  `&Vec` routes via new `Vec::as_slice`. **old-closure-iter-1 now imported + passing**
+  (completes the trio). See docs/DIVERGENCES.md "Recently caught up".
 
 - **unsupported-syntax** — empty-paren Fn sugar `FnMut()` / `FnOnce()` (no args)
   fails to parse. Skipped: `tests/ui/functions-closures/bare-fn-implements-fn-mut.rs`

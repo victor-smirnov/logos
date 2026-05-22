@@ -1,0 +1,29 @@
+// Rust parity: `for x in &coll` yields `&T` (not T by value) for slices,
+// arrays (via slice coercion), and Vec (via as_slice). Element is a reference
+// into the original buffer — deref with `*x`, or pass to a `&T` callee.
+package for_in_ref_yields_ref;
+
+fn take_ref(p: &i64) -> i64 { return *p; }
+
+fn main() -> i32 {
+    // slice
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let mut s1: i64 = 0i64;
+    let sl: &[i64] = &arr;
+    for x in sl { s1 = s1 + take_ref(x); }   // x: &i64
+    if s1 != 6i64 { return 1i32; }
+
+    // array borrow (coerces to slice)
+    let mut s2: i64 = 0i64;
+    for x in &arr { s2 = s2 + *x; }
+    if s2 != 6i64 { return 2i32; }
+
+    // Vec borrow (as_slice)
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(10i64); v.push(20i64); v.push(30i64);
+    let mut s3: i64 = 0i64;
+    for x in &v { s3 = s3 + take_ref(x); }   // x: &i64
+    if s3 != 60i64 { return 3i32; }
+
+    return 0i32;
+}

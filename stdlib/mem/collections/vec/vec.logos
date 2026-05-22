@@ -6,6 +6,7 @@
 package logos.mem.collections.vec;
 
 use logos.lang.mem;
+use logos.lang.slice;
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.ops;
@@ -175,6 +176,13 @@ impl<T> Vec<T> {
     // Clear all elements — len reset to 0, capacity preserved.
     pub fn clear(&mut self) {
         self.len = 0i64;
+    }
+
+    // Borrow the whole Vec as a slice `&[T]` (Rust's `Vec::as_slice` /
+    // `Deref<Target=[T]>`). Used to give `for x in &vec` Rust-correct
+    // by-reference iteration (yields `&T`).
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { return slice_from_raw::<T>(self.ptr as *const T, self.len); }
     }
 
     // Return a read-only iterator over elements.

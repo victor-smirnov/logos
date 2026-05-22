@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-iter-1.rs
+// `iter_vec<T, F: FnMut(&T)>(v: Vec<T>, mut f: F)` driving `for x in &v` and
+// applying a capturing closure. Exercises: `mut f: F` params, `for x in &Vec`
+// yielding `&T` (Rust parity), and a closure capturing+mutating an outer mut.
+// Modifications: isize→i64; `println!`→return-code; `assert_eq!`→check.
+// Vec/FnMut/None resolve via the prelude (no `use`).
+package old_closure_iter_1;
+
+fn iter_vec<T, F>(v: Vec<T>, mut f: F) where F: FnMut(&T) {
+    for x in &v { f(x); }
+}
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(1i64); v.push(2i64); v.push(3i64); v.push(4i64);
+    v.push(5i64); v.push(6i64); v.push(7i64);
+    let mut odds: i64 = 0i64;
+    iter_vec(v, |i: &i64| { if *i % 2i64 == 1i64 { odds = odds + 1i64; } });
+    if odds == 4i64 { return 0i32; }
+    return 1i32;
+}

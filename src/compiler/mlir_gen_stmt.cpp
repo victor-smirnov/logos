@@ -1222,12 +1222,15 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), elem_mlir, data_ptr, arr_idx);
 
-        auto elem_alloca = create_entry_alloca(elem_mlir);
-        auto elem_val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, elem_ptr);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, elem_val, elem_alloca);
-        scope_[s.var]          = elem_alloca;
+        // Rust parity: slice iteration yields `&T` — bind the element ADDRESS
+        // (a reference into the original buffer), not a copied value. scope_
+        // holds the pointer and the var is recorded in ref_param_names_ so
+        // `*x` / passing `x` to a `&T` param deref correctly (mirrors a
+        // `&T`-typed parameter binding).
+        scope_[s.var]          = elem_ptr;
         var_elem_types_[s.var] = elem_mlir;
-        let_vars_.insert(s.var);
+        var_subscript_[s.var]  = elem_mlir;
+        ref_param_names_.insert(s.var);
 
         loop_stack_.push_back({incr_block, exit_block, {}, {}});
         gen_block(s.body);
@@ -1252,6 +1255,8 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         scope_.erase(s.var);
         let_vars_.erase(s.var);
         var_elem_types_.erase(s.var);
+        var_subscript_.erase(s.var);
+        ref_param_names_.erase(s.var);
         return;
     }
 

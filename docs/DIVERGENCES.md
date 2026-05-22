@@ -64,6 +64,7 @@ that converges to Rust behaviour. They are NOT to be parked as "divergence".
 - `&[T; N]` → `&[T]` **unsized coercion** — `&named_arr`, `&[lit, …]`, and structurally inside tuple/struct fields (`(i64, &[i64;2])` unifies with `(i64, &[i64])`) all coerce at let/arg/return. ✅ verified 2026-05-21. (Was the headline of B5; only dynamic-slice *patterns* remain — see B5.)
 - array pattern `[x, y]` in **match-as-expression** position — was a silent miscompile (bindings read garbage; the expr-form match codegen had no Slice arm-binding case, only the stmt form). Fixed 47413e65. ✅ 2026-05-21. (Fixed-size arrays; dynamic Slice scrutinees are B5.)
 - **dynamic-slice patterns** `match s { [a, b] => …, [h, ..] => … }` over a `&[T]` scrutinee + nested-in-tuple length discrimination (`(2, [_, _])`) — ✅ 2026-05-22. Only named-nested-in-tuple bindings remain (see B5).
+- **`for x in &coll` yields `&T`** (not `T` by value) — was a soundness divergence (moving out of a borrow; only sound for Copy types). Now Rust-correct for slices, arrays (via slice coercion), and `&Vec` (via new `Vec::as_slice`). ✅ 2026-05-22. By-value `for x in coll` (owned array / `Vec` via VecIter) still consumes/yields `T` — also Rust-correct. `&mut` iteration yielding `&mut T` not yet wired (for-each `&mut` path is separate).
 
 ---
 
