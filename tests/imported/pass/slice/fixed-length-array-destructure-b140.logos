@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/fixed-length-vector-pattern-matching-7784.rs
+// Modifications: the generic `foo([x,y,z]: [T;3])` array-PARAM destructure is
+//   kept but instantiated at i64 (Add via field arithmetic, not the Add bound,
+//   since the point here is the array pattern); the `&'static str` fixed-array
+//   half is kept; `[a, xs @ .., d]` subslice-bind is DROPPED (named slice-bind
+//   in a fixed-array pattern is the rest-binding family). assert_eq!→ret guards.
+// Tests `let [a,b,c,d] = arr` and `let [a,_,_,d] = arr` fixed-array destructure
+//   plus a function PARAMETER whose pattern is `[x,y,z]`.
+package fixed_length_array_destructure_b140;
+
+fn foo(arr: [i64; 3]) -> (i64, i64, i64) {
+    let [x, y, z] = arr;
+    return (x, x + y, x + y + z);
+}
+
+fn main() -> i32 {
+    let r: (i64, i64, i64) = foo([1i64, 2i64, 3i64]);
+    if r.0 != 1i64 { return 1i32; }
+    if r.1 != 3i64 { return 2i32; }
+    if r.2 != 6i64 { return 3i32; }
+
+    let arr: [i64; 4] = [10i64, 20i64, 20i64, 10i64];
+    let [a, b, c, d] = arr;
+    if a != 10i64 { return 4i32; }
+    if b != 20i64 { return 5i32; }
+    if c != 20i64 { return 6i32; }
+    if d != 10i64 { return 7i32; }
+
+    let [e, _, _, h] = arr;
+    if e != 10i64 { return 8i32; }
+    if h != 10i64 { return 9i32; }
+    return 0i32;
+}

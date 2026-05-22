@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-12582.rs
+// Modifications: only the first (anonymous 2-tuple) half is kept — the second
+//   half uses a 1-tuple `((x,y),)` whose trailing comma is a known-open parse
+//   error, so it is dropped. `1..=2` inclusive-range tuple-element pattern kept.
+//   isize→i64; assert_eq!→ret guard.
+// Tests matching a 2-tuple with literal-element arms and an inclusive-range
+//   element arm (`(1..=2, 2)`).
+package match_tuple_ranges_12582_b140;
+
+fn classify(x: i64, y: i64) -> i64 {
+    return match (x, y) {
+        (1i64, 1i64) => 1i64,
+        (2i64, 2i64) => 2i64,
+        (1i64..=2i64, 2i64) => 3i64,
+        _ => 4i64,
+    };
+}
+
+fn main() -> i32 {
+    if classify(1i64, 2i64) != 3i64 { return 1i32; }
+    if classify(1i64, 1i64) != 1i64 { return 2i32; }
+    if classify(2i64, 2i64) != 2i64 { return 3i32; }
+    if classify(9i64, 9i64) != 4i64 { return 4i32; }
+    return 0i32;
+}

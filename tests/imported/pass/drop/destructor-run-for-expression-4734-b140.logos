@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/destructor-run-for-expression-4734.rs
+// Modifications: local `trait Drop { fn drop(self: Self) }` distilled-drop
+//   convention (as across pass/drop/); `static mut NUM_DROPS` → a `*mut i64`
+//   cell; assert_eq!→return codes. The empty unit struct `B`→`struct B {}` with
+//   a `c` cell field so its drop is observable (Logos has no zero-field drop
+//   counter cell). isize→i64.
+// NOTE: the bare statement-expression form `E;` (a temporary struct value
+//   dropped at the end of the statement) does NOT run Drop in Logos — see
+//   B140-ui-surfaced-gaps.md (G140-1). So only the `let _a = E;` binding form
+//   (which DOES drop at end of block) is kept here.
+// Tests that destructors run for a `let _a = E;` binding at end of its block
+//   (issue #4734), for two distinct types A and B.
+package destructor_run_for_expression_4734_b140;
+
+trait Drop { fn drop(self: Self); }
+
+struct A { n: i64, c: *mut i64 }
+impl Drop for A { fn drop(self: A) { unsafe { *self.c = *self.c + 1i64; } } }
+
+struct B { c: *mut i64 }
+impl Drop for B { fn drop(self: B) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    unsafe {
+        if *c != 0i64 { return 1i32; }
+        { let _a = A { n: 1i64, c: c }; }
+        if *c != 1i64 { return 2i32; }
+
+        { let _b = B { c: c }; }
+        if *c != 2i64 { return 3i32; }
+    }
+    return 0i32;
+}

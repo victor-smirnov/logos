@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-5530.rs
+// Modifications: matching a TUPLE of two struct-variant enum values. The
+//   upstream `&Enum` ref-patterns are matched on the DEREFERENCED values
+//   `(*e1, *e2)` because matching a tuple of REFERENCES `(e1, e2)` against
+//   enum-variant subpatterns silently mis-dispatches in Logos — see
+//   B140-ui-surfaced-gaps.md (G140-2). usize→i64; assert_eq!→ret guards.
+// Tests a 2-tuple match over two struct-variant enum values, dispatching on
+//   the (variant, variant) combination.
+package match_tuple_of_refs_b140;
+
+enum Enum {
+    Foo { foo: i64 },
+    Bar { bar: i64 },
+}
+
+fn fun1(e1: &Enum, e2: &Enum) -> i64 {
+    match (*e1, *e2) {
+        (Enum::Foo { .. }, Enum::Foo { .. }) => { return 0i64; }
+        (Enum::Foo { .. }, Enum::Bar { .. }) => { return 1i64; }
+        (Enum::Bar { .. }, Enum::Bar { .. }) => { return 2i64; }
+        (Enum::Bar { .. }, Enum::Foo { .. }) => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    let foo: Enum = Enum::Foo { foo: 1i64 };
+    let bar: Enum = Enum::Bar { bar: 1i64 };
+    if fun1(&foo, &foo) != 0i64 { return 1i32; }
+    if fun1(&foo, &bar) != 1i64 { return 2i32; }
+    if fun1(&bar, &bar) != 2i64 { return 3i32; }
+    if fun1(&bar, &foo) != 3i64 { return 4i32; }
+    return 0i32;
+}

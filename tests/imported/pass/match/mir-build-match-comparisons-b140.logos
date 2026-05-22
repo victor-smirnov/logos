@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_build_match_comparisons.rs
+// Modifications: kept test1 (i8 inclusive-range arm `1..=10`) and test4 (a
+//   generic struct-variant `Opt::Some { v: 10 }` literal-field arm). test2/test3
+//   match a `const`-pattern (Option/&str const) — that is const-as-pattern which
+//   is not on the Logos surface, so dropped. i8 range kept; assert_eq!→ret guard.
+// Tests range-comparison match lowering: an inclusive integer range arm and a
+//   struct-variant arm whose field is a literal (`Opt::Some { v: 10 }`).
+package mir_build_match_comparisons_b140;
+
+fn test1(x: i8) -> i32 {
+    match x {
+        1i8..=10i8 => { return 0i32; }
+        _ => { return 1i32; }
+    }
+}
+
+enum Opt<T> {
+    Some { v: T },
+    None,
+}
+
+fn test4(x: u64) -> i32 {
+    let opt: Opt<u64> = Opt::Some { v: x };
+    match opt {
+        Opt::Some { v: 10u64 } => { return 0i32; }
+        _ => { return 1i32; }
+    }
+}
+
+fn main() -> i32 {
+    if test1(0i8) != 1i32 { return 1i32; }
+    if test1(1i8) != 0i32 { return 2i32; }
+    if test1(10i8) != 0i32 { return 3i32; }
+    if test1(11i8) != 1i32 { return 4i32; }
+    if test4(10u64) != 0i32 { return 5i32; }
+    if test4(11u64) != 1i32 { return 6i32; }
+    return 0i32;
+}

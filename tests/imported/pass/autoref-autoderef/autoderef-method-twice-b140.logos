@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/autoderef-method-twice.rs
+// Modifications: `Box<Self>`/`Box::new` receiver → plain `self:&Self`; method
+//   `double` returns 2*x; the upstream double-auto-deref through Box is the
+//   feature, mapped to a single auto-ref through `&self` (Logos has no Box).
+// Tests method-call auto-ref over a `&self` receiver returning a derived value.
+package autoderef_method_twice_b140;
+
+trait Doubler {
+    fn double(self: &Self) -> u64;
+}
+
+impl Doubler for u64 {
+    fn double(self: &Self) -> u64 { return *self * 2u64; }
+}
+
+fn main() -> i32 {
+    let x: u64 = 3u64;
+    if x.double() != 6u64 { return 1i32; }
+    return 0i32;
+}

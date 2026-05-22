@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/auto-ref-bounded-ty-param.rs
+// Modifications: `&self`→`self: &Self`; the blanket `impl<T: Baz> Foo for T`
+//   forwards `f` to `self.g()`; `g` returns the field value (instead of
+//   println!) so the dispatch is observable. isize→i64; assert via ret.
+// Tests a blanket impl `impl<T: Baz> Foo for T` whose method calls a method of
+//   the bounding trait `Baz` on `self` (auto-ref of the receiver).
+package auto_ref_bounded_ty_param_b140;
+
+trait Foo {
+    fn f(self: &Self) -> i64;
+}
+
+struct Bar {
+    x: i64,
+}
+
+trait Baz {
+    fn g(self: &Self) -> i64;
+}
+
+impl<T: Baz> Foo for T {
+    fn f(self: &T) -> i64 {
+        return self.g();
+    }
+}
+
+impl Baz for Bar {
+    fn g(self: &Self) -> i64 {
+        return self.x;
+    }
+}
+
+fn main() -> i32 {
+    let y: Bar = Bar { x: 42i64 };
+    if y.f() != 42i64 { return 1i32; }
+    return 0i32;
+}

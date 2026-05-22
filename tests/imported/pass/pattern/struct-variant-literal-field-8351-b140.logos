@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/issue-8351-1.rs
+// Modifications: isize→i64; `panic!()`→distinct nonzero ret; the literal
+//   field sub-pattern `E::Foo { f: 1 }` is refutable, a known-open, so it is
+//   reformulated as a guard-on-the-bound-field arm `E::Foo { f: f } if f == 1`,
+//   then the catch-all `E::Foo { .. }` matches the value (f == 0).
+// Tests struct-variant patterns: a field-bound arm with a guard, then a
+//   field-ignore `E::Foo { .. }` arm, then a fallthrough.
+package struct_variant_literal_field_8351_b140;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e: E = E::Foo { f: 0i64 };
+    let r: i32 = match e {
+        E::Foo { f: f } if f == 1i64 => 1i32,
+        E::Foo { .. } => 0i32,
+        E::Bar => 2i32,
+    };
+    return r;
+}

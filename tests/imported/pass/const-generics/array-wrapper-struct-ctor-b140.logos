@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/const-generics/array-wrapper-struct-ctor.rs
+// Modifications: the tuple-struct half `ArrayTuple<T,const N>([T;N])` dropped
+//   (generic tuple-struct is a known-open, G134); the named-field
+//   `ArrayStruct { data: [T; N] }` kept and the array observed by indexing.
+//   usize literals suffixed.
+// Tests a struct generic over a TYPE param and a CONST param `<T, const N: usize>`
+//   whose field is a `[T; N]` array, constructed with a repeat-init array.
+package array_wrapper_struct_ctor_b140;
+
+struct ArrayStruct<T, const N: usize> {
+    data: [T; N],
+}
+
+fn main() -> i32 {
+    let s: ArrayStruct<u32, 8> = ArrayStruct { data: [0u32; 8] };
+    if s.data[0] != 0u32 { return 1i32; }
+    if s.data[7] != 0u32 { return 2i32; }
+    return 0i32;
+}

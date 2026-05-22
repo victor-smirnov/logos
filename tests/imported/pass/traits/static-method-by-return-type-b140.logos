@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/static-method-overwriting.rs
+// Modifications: in-language `mod base { .. }` dropped (known-open) — items
+//   hoisted to top level; unit field `dummy: ()` → an i64 field (Logos has no
+//   unit-typed fields). NOTE: return-type-driven `HasNew::new()` dispatch is
+//   NOT supported (G140-3); the static method is called via the concrete impl
+//   type path `Foo::new()` / `Bar::new()`. println! dropped.
+// Tests a trait STATIC method `fn new() -> Self` implemented per-type and
+//   called through the concrete type path.
+package static_method_by_return_type_b140;
+
+trait HasNew {
+    fn new() -> Self;
+}
+
+struct Foo { tag: i64 }
+struct Bar { tag: i64 }
+
+impl HasNew for Foo {
+    fn new() -> Foo { return Foo { tag: 1i64 }; }
+}
+
+impl HasNew for Bar {
+    fn new() -> Bar { return Bar { tag: 2i64 }; }
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo::new();
+    let b: Bar = Bar::new();
+    if f.tag != 1i64 { return 1i32; }
+    if b.tag != 2i64 { return 2i32; }
+    return 0i32;
+}

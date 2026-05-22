@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/const-generics/concrete-const-impl-method.rs
+// Modifications: bodyless unit struct `A<const N: u32>;` → a struct with a body
+//   `A<const N: u32> { _x: i32 }` (Logos requires a body). `&self`→`self:&Self`;
+//   assert_eq!→ret guards. The associated non-method is called via
+//   `A::<2>::associated_non_method()`.
+// Tests that a method + an associated (static) fn within an impl block of a
+//   CONCRETE const type `A<2>` are callable.
+package concrete_const_impl_method_b140;
+
+struct A<const N: u32> { _x: i32 }
+
+impl A<2> {
+    fn impl_method(self: &A<2>) -> u32 {
+        return 17u32;
+    }
+    fn associated_non_method() -> u32 {
+        return 17u32;
+    }
+}
+
+fn main() -> i32 {
+    let val: A<2> = A { _x: 0i32 };
+    if val.impl_method() != 17u32 { return 1i32; }
+    if A::<2>::associated_non_method() != 17u32 { return 2i32; }
+    return 0i32;
+}

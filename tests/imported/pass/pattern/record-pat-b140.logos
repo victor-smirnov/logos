@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/record-pat.rs
+// Modifications: nested enum/struct/enum match. The upstream refutable struct
+//   field sub-pattern `T2 { x: T1::A(m), .. }` is a known-open (refutable
+//   struct-field sub-pattern), so the inner enum is matched in a SECOND match
+//   after binding the struct field by name (`x`). isize/usize→i64;
+//   `((m + z) as isize) + y`→i64 arithmetic; assert_eq!→ret guards.
+// Tests nested patterns: enum-of-(struct-with-enum-field) destructure (the
+//   struct field bound by name, then the inner enum matched separately).
+package record_pat_b140;
+
+enum T1 { A(i64), B(i64) }
+struct T2 { x: T1, y: i64 }
+enum T3 { C(T2, i64) }
+
+fn m(input: T3) -> i64 {
+    match input {
+        T3::C(t2, z) => {
+            let yy: i64 = t2.y;
+            match t2.x {
+                T1::A(a) => { return a; }
+                T1::B(b) => { return (b + z) + yy; }
+            }
+        }
+    }
+}
+
+fn main() -> i32 {
+    if m(T3::C(T2 { x: T1::A(10i64), y: 5i64 }, 4i64)) != 10i64 { return 1i32; }
+    if m(T3::C(T2 { x: T1::B(10i64), y: 5i64 }, 4i64)) != 19i64 { return 2i32; }
+    return 0i32;
+}

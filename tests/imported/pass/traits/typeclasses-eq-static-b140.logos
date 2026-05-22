@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/typeclasses-eq-example-static.rs
+// Modifications: only the `Color` half is kept — the recursive `ColorTree`
+//   variant needs Box + Clone (dropped). `use Color::{..}` glob dropped (Logos
+//   qualifies variants). The static trait method `isEq(a: &Self, b: &Self)`
+//   keeps both params explicit (no `self`); called via the impl type path
+//   `Color::is_eq`. NOTE: the upstream single `match (*a, *b)` over a TUPLE of
+//   two C-like enum values mis-dispatches (G140-2), so each value is matched in
+//   a NESTED per-scrutinee match instead. assert!→ret guards.
+// Tests a trait with a STATIC method `fn isEq(a: &Self, b: &Self) -> bool` (no
+//   `self`), implemented on a C-like enum and compared via nested matches.
+package typeclasses_eq_static_b140;
+
+trait Equal {
+    fn is_eq(a: &Self, b: &Self) -> bool;
+}
+
+enum Color { Cyan, Magenta, Yellow, Black }
+
+impl Equal for Color {
+    fn is_eq(a: &Color, b: &Color) -> bool {
+        match *a {
+            Color::Cyan    => { match *b { Color::Cyan    => { return true; } _ => { return false; } } }
+            Color::Magenta => { match *b { Color::Magenta => { return true; } _ => { return false; } } }
+            Color::Yellow  => { match *b { Color::Yellow  => { return true; } _ => { return false; } } }
+            Color::Black   => { match *b { Color::Black   => { return true; } _ => { return false; } } }
+        }
+    }
+}
+
+fn main() -> i32 {
+    if !Color::is_eq(&Color::Cyan, &Color::Cyan) { return 1i32; }
+    if !Color::is_eq(&Color::Magenta, &Color::Magenta) { return 2i32; }
+    if Color::is_eq(&Color::Cyan, &Color::Yellow) { return 3i32; }
+    return 0i32;
+}
