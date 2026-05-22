@@ -145,3 +145,19 @@ pub fn f64_is_normal(x: f64) -> bool {
         _                  => { return false; }
     }
 }
+
+// Inherent method surface on the float primitives (Rust parity:
+// `x.is_nan()` etc.), delegating to the free-function classifiers above.
+impl f64 {
+    pub fn is_nan(self: f64) -> bool      { return f64_is_nan(self); }
+    pub fn is_infinite(self: f64) -> bool { return f64_is_infinite(self); }
+    pub fn is_finite(self: f64) -> bool   { return f64_is_finite(self); }
+    pub fn is_normal(self: f64) -> bool   { return f64_is_normal(self); }
+}
+
+impl f32 {
+    pub fn is_nan(self: f32) -> bool      { return f32_is_nan(self); }
+    pub fn is_infinite(self: f32) -> bool { return f32_is_infinite(self); }
+    pub fn is_finite(self: f32) -> bool   { return f32_is_finite(self); }
+    pub fn is_normal(self: f32) -> bool   { return f32_is_normal(self); }
+}

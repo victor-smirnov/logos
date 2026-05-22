@@ -1,0 +1,16 @@
+package float_classify_methods;
+fn main() -> i32 {
+    let x: f64 = 1.0f64;
+    let z: f64 = 0.0f64;
+    let nan: f64 = z / z;
+    let inf: f64 = 1.0f64 / z;
+    if x.is_nan() { return 1i32; }
+    if !x.is_finite() { return 2i32; }
+    if !nan.is_nan() { return 3i32; }
+    if !inf.is_infinite() { return 4i32; }
+    if inf.is_finite() { return 5i32; }
+    if !x.is_normal() { return 6i32; }
+    let f: f32 = 2.0f32;
+    if !f.is_finite() { return 7i32; }
+    return 0i32;
+}
