@@ -110,3 +110,17 @@ dropped; single-level block-as-value is exercised and works).
 - **Lifetime turbofish `f::<'_>(…)`** — `unexpected type node code 131`. Per the
   standing convention, lifetime/`_` turbofish is dropped; elided/inferred calls
   work. Not counted as a gap.
+
+## G124-1 follow-up (2026-05-22 investigation)
+Block-EXPRESSION inner `let` shadow leaks to the outer scope at CODEGEN:
+sema's lower_block_expr push/pop-scopes correctly, but mlir-gen's
+`gen_expr_kind(EBlockExprView)` calls gen_block WITHOUT the scope_ save/restore
+that the SBlock statement handler does (mlir_gen_stmt.cpp ~205) → an inner
+`let x` rebinds `scope_["x"]` permanently, so the outer `x` reads the inner
+alloca. Attempted fix: add the same save/restore (even narrowed to just scope_)
+in EBlockExprView. REGRESSED `test_harness_coretest_batch_b50` (SIGSEGV) —
+EBlockExpr is also emitted for many SYNTHESIZED blocks (match-arm values, FRU,
+pattern-binding desugars, …) whose scope_ updates MUST persist into surrounding
+lowering, and EBlockExpr carries no user-vs-synthesized provenance bit to
+distinguish. Reverted. Proper fix: mark user `{ }`-block-expressions distinctly
+(provenance flag on EBlockExpr) and restore scope_ only for those. Moderate.
