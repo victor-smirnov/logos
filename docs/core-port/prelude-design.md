@@ -5,9 +5,13 @@ and `logos.std.prelude`. Companion to
 [three-layer-split.md](three-layer-split.md) and
 [layer-assignment.md](layer-assignment.md).
 
-Status: **modules landed + R1/R2/R3 default-on blockers fixed (2026-05-21);
-prelude-on regression 99→10; remaining 10 are unrelated to the prelude
-(mono method-emission, Eq/PartialEq, .expected drift).**
+Status: **DEFAULT-ON LIVE (2026-05-21, commit eef3c834).** Implicit
+`logos.std.prelude` injected into every non-binary user file
+(`#![no_implicit_prelude]` / `--no-system` opt out). Full suite 3587/3587
+with default-on. The 99-test regression was driven to 0 across the R1/R2/R3
++ G2/G1+G3/G4 fixes. Follow-ups (non-blocking): prune unused forward-declares
+in trivial-program IR, per-tier prelude selection via manifest, and the two
+niche package-qual gaps (free-fn same-name mangle; method-symbol pkg-qual).
 
 Implementation progress:
 - ✅ Injection mechanism (manifest `prelude` directive, `#![no_implicit_prelude]`
