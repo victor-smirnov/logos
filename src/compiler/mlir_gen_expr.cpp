@@ -2642,6 +2642,59 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                                       lir_view::PatVariantDataView{sp}, added);
                 });
             }
+        } else if (pat_ref.kind() == pc::Code::Slice) {
+            // Slice/array pattern element bindings (`[x, y]`, `[a, _, c]`,
+            // `[h, ..]`) in match-as-expression. The Slice *test* is emitted
+            // separately (the literal-element AND-chain below); this binds the
+            // named elements into scope so the arm body can read them. Without
+            // this the bindings were never created and the arm read garbage.
+            // Mirrors the match-statement extract_payload Slice case.
+            TypeRef atype(scrut_le->type);
+            if (atype && atype.kind() == LogosType::Kind::Array && atype.elem()) {
+                auto elem_mlir = logos_to_mlir(atype.elem());
+                auto arr_mlir  = logos_to_mlir(atype);
+                mlir::Value aptr = scrut_ptr ? scrut_ptr : scrut;
+                if (aptr && aptr.getType() != ptr_type() && arr_mlir) {
+                    auto a = create_entry_alloca(arr_mlir);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, aptr, a);
+                    aptr = a;
+                }
+                if (aptr && elem_mlir && arr_mlir) {
+                    auto bind_elem = [&](lir_view::PatRef sp, int32_t idx) {
+                        if (!sp) return;
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+                        auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), arr_mlir, aptr, gi);
+                        if (sp.kind() == pc::Code::Wild) {
+                            std::string pwn(lir_view::PatWildView{sp}.name());
+                            if (pwn == "_" || pwn.empty()) return;
+                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
+                            auto alloca = create_entry_alloca(elem_mlir);
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            scope_[pwn] = alloca;
+                            let_vars_.insert(pwn);
+                            var_elem_types_[pwn] = elem_mlir;
+                            added.push_back(pwn);
+                        } else if (sp.kind() == pc::Code::RefBind) {
+                            std::string prbn(lir_view::PatRefBindView{sp}.name());
+                            if (prbn == "_" || prbn.empty()) return;
+                            auto alloca = create_entry_alloca(ptr_type());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            scope_[prbn] = alloca;
+                            let_vars_.insert(prbn);
+                            var_elem_types_[prbn] = ptr_type();
+                            added.push_back(prbn);
+                        }
+                    };
+                    lir_view::PatSliceView psl{pat_ref};
+                    int32_t idx = 0;
+                    psl.each_prefix([&](lir_view::PatRef sp){ bind_elem(sp, idx++); });
+                    size_t total = (size_t)atype.arr_size();
+                    size_t suf_n = psl.suffix_count();
+                    int32_t sidx = (int32_t)(total - suf_n);
+                    psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
+                }
+            }
         } else if (pat_ref.kind() == pc::Code::Struct) {
             // Struct pattern field bindings (`A { f0: x }`, shorthand `A { x }`,
             // `A { .. }`). Mirrors the match-statement extract_payload Struct

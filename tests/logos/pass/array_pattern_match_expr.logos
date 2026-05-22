@@ -1,0 +1,24 @@
+// Regression: array pattern `[x, y]` in match-AS-EXPRESSION position bound
+// garbage (the expr-form match codegen had no Slice case in its arm-binding
+// extraction — only the statement form did). The bindings now GEP-extract
+// the array elements correctly.
+package array_pattern_match_expr;
+
+fn main() -> i32 {
+    let a: [i64; 3] = [5i64, 6i64, 7i64];
+
+    // sum of two-elem pattern via match-expr
+    let two: [i64; 2] = [10i64, 20i64];
+    let s: i64 = match two {
+        [x, y] => x + y,
+    };
+    if s != 30i64 { return 1i32; }
+
+    // first/last with a wildcard in the middle, value used in the arm
+    let r: i64 = match a {
+        [first, _, last] => first * 100i64 + last,
+    };
+    if r != 507i64 { return 2i32; }
+
+    return 0i32;
+}
