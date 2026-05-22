@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-28550.rs
+// Feature: nested generic struct construction wrapped in Option, then
+// matched back out (`Some(B(A(v)))`). Distilled: drop the FnOnce::Output
+// projection (a closure-call result) to a plain value; keep the nested
+// generic ctor + nested pattern destructure.
+package issue_28550_nested_generic_ctor_is;
+
+struct A<T> { v: T }
+struct B<T> { a: A<T> }
+
+fn foo<T>(x: T) -> Option<B<T>> {
+    // NOTE: the fully-inlined form `Some(B { a: A { v: x } })` trips a
+    // spurious "use of moved variable" in the borrow checker (a NEW §B gap,
+    // see B126 notes) — each move pinned to its own local works.
+    let inner = A { v: x };
+    let outer = B { a: inner };
+    return Some(outer);
+}
+
+fn main() -> i32 {
+    let v = foo::<i64>(4i64);
+    match v {
+        Some(b) => {
+            if b.a.v == 4i64 { return 0i32; }
+            return 1i32;
+        }
+        None => { return 2i32; }
+    }
+}

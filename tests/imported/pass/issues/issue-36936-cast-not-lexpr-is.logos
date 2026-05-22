@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-36936.rs
+// Feature: a cast `(a as i32)` produces an rvalue (not an lvalue) — taking
+// `&(a as i32)` borrows a fresh temporary, so a later write to `a` does not
+// change the borrowed value. Distilled to the integer-cast core.
+package issue_36936_cast_not_lexpr_is;
+
+fn main() -> i32 {
+    let mut a: i32 = 0i32;
+    let b: i32 = (a as i32);
+    a = 1i32;
+    if b != 0i32 { return 1i32; }
+    if a != 1i32 { return 2i32; }
+    return 0i32;
+}

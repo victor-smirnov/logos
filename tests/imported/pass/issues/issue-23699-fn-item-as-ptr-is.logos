@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-23699.rs
+// Feature: coercing a fn ITEM to a fn-POINTER value via an `as fn(T)` cast,
+// then invoking it. (The `&() as *const _` raw-pointer half uses `as *const
+// _` inference, a known-open form, so it is dropped.)
+package issue_23699_fn_item_as_ptr_is;
+
+fn test(t: i32) -> i32 { return t + 1i32; }
+
+fn main() -> i32 {
+    let t = test as fn(i32) -> i32;
+    if t(0i32) == 1i32 { return 0i32; }
+    return 1i32;
+}

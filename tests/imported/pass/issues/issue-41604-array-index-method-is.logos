@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41604.rs
+// Feature: a `&mut self` method called on an array element accessed by a
+// computed index (`b[1-1].init()`) — receiver is an indexed place.
+package issue_41604_array_index_method_is;
+
+struct B { hit: i64 }
+
+impl B {
+    fn init(self: &mut B) { self.hit = 1i64; }
+}
+
+fn main() -> i32 {
+    let mut b = [B { hit: 0i64 }];
+    b[1i64 - 1i64].init();
+    if b[0i64].hit == 1i64 { return 0i32; }
+    return 1i32;
+}

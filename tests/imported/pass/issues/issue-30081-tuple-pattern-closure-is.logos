@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-30081.rs
+// Feature: a closure whose single parameter is a TUPLE PATTERN that
+// destructures the argument (`|(a, b)| ...`), invoked over a tuple value.
+// (Upstream chained iterator adapters over `Option<(u8, Box<_>)>`; distilled
+// to the tuple-destructuring-closure-param core, called directly.)
+package issue_30081_tuple_pattern_closure_is;
+
+fn apply<F: Fn((i64, i64)) -> i64>(f: F, t: (i64, i64)) -> i64 {
+    return f(t);
+}
+
+fn main() -> i32 {
+    let sum = apply(|(a, b): (i64, i64)| -> i64 { return a + b; }, (3i64, 4i64));
+    if sum == 7i64 { return 0i32; }
+    return 1i32;
+}

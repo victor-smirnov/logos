@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-35423.rs
+// Feature: `match` arms combining a `ref r if *r < 0` guarded binding, an
+// `@`-binding over an inclusive range `e @ 1..=100`, and a wildcard.
+// Distilled to return-code observation (println! dropped).
+package issue_35423_binding_range_guard_is;
+
+fn classify(x: i64) -> i32 {
+    match x {
+        ref r if *r < 0i64 => { return 1i32; }
+        e @ 1i64 ..= 100i64 => { let _ = e; return 2i32; }
+        _ => { return 3i32; }
+    }
+}
+
+fn main() -> i32 {
+    if classify(-5i64) != 1i32 { return 1i32; }
+    if classify(4i64) != 2i32 { return 2i32; }
+    if classify(500i64) != 3i32 { return 3i32; }
+    return 0i32;
+}

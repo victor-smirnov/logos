@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3220.rs
+// Feature: an inherent method that consumes `self` by value (`fn f(self)`)
+// on a struct that also has Drop; a parenthesized receiver `(z).f()`.
+// Drop observed via a `*mut i64` counter (stdlib by-value `trait Drop`
+// idiom, since `&mut self` Drop fires no glue).
+package issue_3220_consume_self_drop_is;
+
+trait Drop { fn drop(self: Self); }
+
+struct Thing { x: i64, ctr: *mut i64 }
+
+impl Drop for Thing {
+    fn drop(self: Thing) {
+        unsafe { *self.ctr = *self.ctr + 1i64; }
+    }
+}
+
+impl Thing {
+    fn f(self: Thing) {
+        self.drop();
+    }
+}
+
+fn make(c: *mut i64) -> Thing {
+    return Thing { x: 0i64, ctr: c };
+}
+
+fn main() -> i32 {
+    let mut count: i64 = 0i64;
+    let z = make(&mut count);
+    (z).f();
+    if count == 1i64 { return 0i32; }
+    return 1i32;
+}

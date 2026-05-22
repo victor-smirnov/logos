@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-26468.rs
+// Feature: enums with explicit (hex) discriminant values, payload-carrying
+// outer enum whose variants wrap those discriminant enums, and `if let`
+// matching a NESTED fieldless variant pattern (`Mode::Bar(BarMode::Check)`).
+// (Upstream used `if let` for the nested-variant arms; nested fieldless
+// variant patterns work in `match` but not yet in `if let` — a §B gap, see
+// B126 notes — so a `match` with a catch-all is used.)
+package issue_26468_enum_discr_nested_iflet_is;
+
+enum FooMode { Check = 0x1001 }
+enum BarMode { Check = 0x2001 }
+enum Mode { Foo(FooMode), Bar(BarMode) }
+
+fn broken(mode: &Mode) -> u32 {
+    match *mode {
+        Mode::Foo(FooMode::Check) => { return 17u32; }
+        Mode::Bar(BarMode::Check) => { return 19u32; }
+        _ => { return 42u32; }
+    }
+}
+
+fn main() -> i32 {
+    let mode = Mode::Bar(BarMode::Check);
+    if broken(&mode) == 19u32 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41479.rs
+// Feature: a generic fn taking a tuple `(A, B)` and reading both fields by
+// index (`pair.0`, `pair.1`) where the components are themselves tuples.
+package issue_41479_generic_tuple_fields_is;
+
+fn split<A, B>(pair: (A, B)) -> i32 {
+    let _a = pair.0;
+    let _b = pair.1;
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return split::<i64, (i64, i64)>((7i64, (8i64, 9i64)));
+}

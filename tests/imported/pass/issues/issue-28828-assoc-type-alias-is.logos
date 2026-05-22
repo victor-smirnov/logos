@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-28828.rs
+// Feature: a trait with an associated type, an impl that fixes it to a
+// concrete type, and a value typed via the projection `<() as Foo>::Out`.
+// Distilled: use a unit-struct as the impl carrier (Logos has no `()` impl
+// target) and read the associated type through the bound at runtime.
+package issue_28828_assoc_type_alias_is;
+
+trait Foo {
+    type Out;
+    fn make(self: &Self) -> Self::Out;
+}
+
+struct Unit {}
+
+impl Foo for Unit {
+    type Out = bool;
+    fn make(self: &Unit) -> bool {
+        return true;
+    }
+}
+
+fn main() -> i32 {
+    let u = Unit {};
+    let x: bool = u.make();
+    if x { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-38942.rs
+// Feature: a `#[repr(u64)]`-style enum cast to u64 read through a fn.
+// (Upstream put the cast in a `const` item; const-eval is §A2 → the value
+// is computed at runtime in a fn instead.) repr attr stripped (§A5).
+package issue_38942_repr_enum_cast_is;
+
+enum NSEventType { NSEventTypePressure }
+
+fn banana() -> u64 {
+    return NSEventType::NSEventTypePressure as u64;
+}
+
+fn main() -> i32 {
+    if banana() == 0u64 { return 0i32; }
+    return 1i32;
+}

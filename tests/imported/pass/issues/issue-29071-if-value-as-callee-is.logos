@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-29071-2.rs
+// Feature: an `if/else` used as a value expression whose result is then
+// CALLED in place (`if c { f1 as Fp } else { f2 as Fp }()`). The fn-pointer
+// type alias is renamed `Fp` (a top-level alias named `F` collides with the
+// stdlib generic iterator type-param `F` — a §B gap, see B126 notes).
+// The companion `... }[0]` (indexing an if-value) form crashes mlir-gen
+// (also a §B gap, see B126 notes), so only the called form is kept.
+package issue_29071_if_value_as_callee_is;
+
+type Fp = fn() -> i64;
+fn i1() -> i64 { return 1i64; }
+fn i2() -> i64 { return 2i64; }
+
+fn t3() -> i64 {
+    let x: i64 = if true { i1 as Fp } else { i2 as Fp }();
+    return x;
+}
+
+fn main() -> i32 {
+    if t3() != 1i64 { return 1i32; }
+    return 0i32;
+}

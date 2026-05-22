@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-23898.rs
+// Feature: a fieldless enum cast to an integer (`Variant as i64`), used as a
+// runtime value. (Upstream used it as an array repeat-count; that is a
+// const-eval position → §A1 metacall, so distilled to a runtime cast.)
+package issue_23898_enum_as_int_is;
+
+enum St { Null, Whitespace }
+
+fn main() -> i32 {
+    let a: i64 = St::Null as i64;
+    let b: i64 = St::Whitespace as i64;
+    if a == 0i64 && b == 1i64 { return 0i32; }
+    return 1i32;
+}

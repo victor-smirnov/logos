@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3895.rs
+// Feature: a `match` over an enum where the FIRST arm is a wildcard guarded
+// by `if true` (so it always wins) and a later arm is an or-pattern over the
+// variants. Tests guard-before-or-pattern arm ordering.
+package issue_3895_guard_or_pattern_is;
+
+enum State { BadChar, BadSyntax }
+
+fn run() -> i32 {
+    match State::BadChar {
+        _ if true => { return 0i32; }
+        State::BadChar | State::BadSyntax => { return 1i32; }
+    }
+}
+
+fn main() -> i32 {
+    return run();
+}

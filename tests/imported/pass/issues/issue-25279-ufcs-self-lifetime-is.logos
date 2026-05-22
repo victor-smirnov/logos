@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-25279.rs
+// Feature: a method on a lifetime-parametric struct calls a sibling method
+// via the UFCS `<Self>::bar(self)` form, returning a borrow tied to the
+// struct's lifetime.
+package issue_25279_ufcs_self_lifetime_is;
+
+struct S<'a> { r: &'a i64 }
+
+impl<'a> S<'a> {
+    fn foo(self: S<'a>) -> &'a i64 {
+        return S::bar(self);
+    }
+    fn bar(self: S<'a>) -> &'a i64 {
+        return self.r;
+    }
+}
+
+fn main() -> i32 {
+    let v: i64 = 42i64;
+    let s = S { r: &v };
+    let out = s.foo();
+    if *out == 42i64 { return 0i32; }
+    return 1i32;
+}

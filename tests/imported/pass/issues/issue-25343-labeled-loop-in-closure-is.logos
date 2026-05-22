@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-25343.rs
+// Feature: a labeled `'label: loop { ... break; }` and the same construct
+// nested inside a closure body. Distilled to an observable counter (the
+// upstream version had empty infinite loops; a guarded break is used so the
+// program terminates).
+package issue_25343_labeled_loop_in_closure_is;
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    'label2: loop {
+        n = n + 1i64;
+        break;
+    }
+
+    let closure = || -> i64 {
+        let mut m: i64 = 0i64;
+        'inner: loop {
+            m = m + 10i64;
+            break 'inner;
+        }
+        return m;
+    };
+
+    let c = closure();
+    if n == 1i64 && c == 10i64 { return 0i32; }
+    return 1i32;
+}

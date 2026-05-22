@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-26802.rs
+// Feature: a lifetime-parametric trait with a DEFAULT method taking a borrow
+// arg and computing a result (`fn bar(&self, x: &u8) -> u8 { *x + 7 }`); an
+// empty impl inherits the default; called statically. (Upstream returned a
+// `Box<dyn Foo>`; here the default method is called on a concrete value.)
+package issue_26802_default_method_lifetime_arg_is;
+
+trait Foo<'a> {
+    fn bar(self: &Self, x: &u8) -> u8 { return *x + 7u8; }
+}
+
+struct FooBar {}
+impl Foo<'static> for FooBar {}
+
+fn main() -> i32 {
+    let fb = FooBar {};
+    let four: u8 = 4u8;
+    if fb.bar(&four) == 11u8 { return 0i32; }
+    return 1i32;
+}

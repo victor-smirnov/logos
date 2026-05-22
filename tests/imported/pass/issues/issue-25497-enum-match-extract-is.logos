@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-25497.rs
+// Feature: an enum with a payload-carrying variant matched and its payload
+// extracted, plus a catch-all arm returning a fieldless variant.
+// (Upstream's recursive `Add(Box<Expression>)` self-reference + `.clone()`
+// distilled to a single-level payload enum; Box→by-value.)
+package issue_25497_enum_match_extract_is;
+
+enum Expr { Dummy, Wrap(i64) }
+
+fn simplify(e: Expr) -> i64 {
+    match e {
+        Expr::Wrap(n) => { return n; }
+        _ => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    if simplify(Expr::Wrap(7i64)) != 7i64 { return 1i32; }
+    if simplify(Expr::Dummy) != -1i64 { return 2i32; }
+    return 0i32;
+}

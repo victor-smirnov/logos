@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-17905.rs
+// Feature: an inherent `impl` on a generic struct specialized to CONCRETE
+// type arguments (`impl Pair<i64, i64>`), providing a method only for that
+// instantiation. (Upstream used `Pair<&str, isize>` + Debug-print; distilled
+// to i64 fields + a value-returning method.)
+package issue_17905_impl_concrete_typeargs_is;
+
+struct Pair<T, V> { a: T, b: V }
+
+impl Pair<i64, i64> {
+    fn sum(self: &Pair<i64, i64>) -> i64 { return self.a + self.b; }
+}
+
+fn main() -> i32 {
+    let p = Pair { a: 3i64, b: 4i64 };
+    if p.sum() == 7i64 { return 0i32; }
+    return 1i32;
+}

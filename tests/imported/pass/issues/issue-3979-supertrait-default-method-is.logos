@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3979.rs
+// Feature: a supertrait relationship (`Movable: Positioned`) where the
+// subtrait's DEFAULT method calls the SUPERTRAIT's required methods on
+// `self` (`self.X()`, `self.SetX(..)`), dispatched statically on a concrete
+// type whose impl provides the supertrait methods + an empty subtrait impl.
+package issue_3979_supertrait_default_method_is;
+
+trait Positioned {
+    fn set_x(self: &mut Self, v: i64);
+    fn x(self: &Self) -> i64;
+}
+
+trait Movable: Positioned {
+    fn translate(self: &mut Self, dx: i64) {
+        let cur = self.x();
+        self.set_x(cur + dx);
+    }
+}
+
+struct Point { x: i64, y: i64 }
+
+impl Positioned for Point {
+    fn set_x(self: &mut Point, v: i64) { self.x = v; }
+    fn x(self: &Point) -> i64 { return self.x; }
+}
+
+impl Movable for Point {}
+
+fn main() -> i32 {
+    let mut p = Point { x: 1i64, y: 2i64 };
+    p.translate(3i64);
+    if p.x() == 4i64 { return 0i32; }
+    return 1i32;
+}

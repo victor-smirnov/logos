@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-43692.rs
+// Feature: high-codepoint `'\u{...}'` char-literal escapes compare equal to
+// their canonical form. (Upstream additionally used digit-group underscores
+// inside the escape `'\u{10__FFFF}'`; that underscore form is a parser gap —
+// see B126 notes — so the plain escape is used.)
+package issue_43692_unicode_escape_char_is;
+
+fn main() -> i32 {
+    let a: char = '\u{10FFFF}';
+    let b: char = '\u{10FFFF}';
+    if a != b { return 1i32; }
+    let lf: char = '\u{A}';
+    if lf != '\n' { return 2i32; }
+    return 0i32;
+}

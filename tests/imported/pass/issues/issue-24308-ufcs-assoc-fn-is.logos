@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-24308.rs
+// Feature: a trait with associated (no-self) fns where one default-bodied
+// fn calls a sibling provided fn via `Self`; trait fns called as
+// associated fns. Distilled to observable return values.
+package issue_24308_ufcs_assoc_fn_is;
+
+trait Foo {
+    fn method1() -> i64 { return 10i64; }
+    fn method2() -> i64;
+}
+
+struct Holder {}
+
+impl Foo for Holder {
+    fn method2() -> i64 {
+        return Holder::method1() + 5i64;
+    }
+}
+
+fn main() -> i32 {
+    if Holder::method2() == 15i64 { return 0i32; }
+    return 1i32;
+}

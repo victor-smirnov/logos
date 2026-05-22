@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4228.rs
+// Feature: a single struct with TWO separate inherent `impl` blocks, each
+// contributing a distinct associated fn.
+package issue_4228_two_impl_blocks_is;
+
+struct Foo {}
+
+impl Foo {
+    fn first() -> i64 { return 1i64; }
+}
+impl Foo {
+    fn second() -> i64 { return 2i64; }
+}
+
+fn main() -> i32 {
+    if Foo::first() == 1i64 && Foo::second() == 2i64 { return 0i32; }
+    return 1i32;
+}

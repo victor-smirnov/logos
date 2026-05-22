@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-29522.rs
+// Feature: a non-capturing closure passed to a generic fn; a local name
+// (`scope`) that also appears as a path segment of an unrelated call inside
+// the closure body must NOT be captured as an upvar.
+package issue_29522_closure_path_name_is;
+
+fn run_it<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+
+fn scope_fn() -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    let scope: i64 = 99i64;
+    let r = run_it(|| -> i64 { return scope_fn(); });
+    if r == 7i64 && scope == 99i64 { return 0i32; }
+    return 1i32;
+}
