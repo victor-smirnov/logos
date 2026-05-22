@@ -32,13 +32,18 @@ struct functional-update, range/or patterns — all worked prelude-only.)
   → SIGSEGV (exit 139) at runtime. Likely a move/drop interaction on the
   match-bound Vec. **Flagged for compiler attention.**
 
-- **unsupported-syntax** — reference-typed argument in the parenthesized Fn-trait
-  sugar (`FnMut(&T) -> ()`, `FnOnce(T, T) -> bool` with a type-param arg) fails to
-  parse (`syntax error near 'fn'` at the line after the where-clause / `unknown
-  type 'T'`). Concrete non-ref arg + explicit return type works (`FnMut(i64)->i32`).
-  Skipped: `tests/ui/closures/old-closure-iter-1.rs`,
-  `tests/ui/functions-closures/capture-clauses-unboxed-closures.rs`,
-  `tests/ui/binding/expr-match-generic-unique1.rs`.
+- ~~**unsupported-syntax** — reference-typed argument in the parenthesized Fn-trait
+  sugar~~ **DIAGNOSED + MOSTLY RESOLVED 2026-05-22.** The real root was NOT the
+  `FnMut(&T)` sugar (that parses fine) but the **`mut f: F` parameter** — `mut x: T`
+  params didn't parse at all (`syntax error near 'fn'`). Fixed in 966c589e (grammar
+  + sema desugar). **expr-match-generic-unique1** and **capture-clauses-unboxed-closures**
+  are now imported + passing (tests/imported/pass/). **old-closure-iter-1 still
+  skipped** — it hits a *different* bug: `for x in &v` over a generic `Vec<T>` binds
+  `x` as `T` not `&T`, so `f(x)` fails "closure call arg 1: expected &T, got T"
+  (generic-Vec-iterate-by-ref — see new note below).
+- **compiler-bug (genuine)** — `for x in &v` over a **generic** `Vec<T>` binds the
+  loop var as `T` instead of `&T` (`closure call arg: expected &T, got T`). Concrete
+  `&[i64]` index-iteration works. Blocks old-closure-iter-1. Flagged for attention.
 
 - **unsupported-syntax** — empty-paren Fn sugar `FnMut()` / `FnOnce()` (no args)
   fails to parse. Skipped: `tests/ui/functions-closures/bare-fn-implements-fn-mut.rs`

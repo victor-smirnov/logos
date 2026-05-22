@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-generic-unique1.rs
+// Generic fn with a `where F: FnOnce(T, T) -> bool` callback, exercising a
+// match-as-expression bound to a generic `T: Clone` local. Modifications:
+// `Box<T>`→plain `T` (Box is incidental); `mut f`-style not needed here;
+// turbofish `::<bool, _>` dropped (the `_` placeholder for the inferred F
+// isn't on the surface — inference resolves both T and F); `panic!` arm →
+// a clone (the arm is unreachable). Unblocked by `mut x:T` params + the
+// closure-arg-from-Fn-bound type hint. Clone/FnOnce resolve via the prelude.
+package expr_match_generic_unique1;
+
+fn test_generic<T: Clone, F>(expected: T, eq: F) -> i64 where F: FnOnce(T, T) -> bool {
+    let actual: T = match true {
+        true => expected.clone(),
+        _ => expected.clone(),
+    };
+    if eq(expected, actual) { return 0i64; }
+    return 1i64;
+}
+
+fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
+
+fn main() -> i32 {
+    return test_generic(true, compare_bool) as i32;
+}

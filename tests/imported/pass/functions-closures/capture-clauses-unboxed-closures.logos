@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/capture-clauses-unboxed-closures.rs
+// A generic `each<T, F: FnMut(&T)>(x: &[T], mut f: F)` applied to a closure
+// that captures + mutates an outer `mut sum`. Modifications: usize→i64;
+// `&[T]` iterated via index (no generic for-by-ref yet); `assert_eq!`→return
+// code. Unblocked by `mut f: F` params + capturing-closure-mutate-outer.
+// FnMut resolves via the prelude (no `use`).
+package capture_clauses_unboxed_closures;
+
+fn each<T, F>(x: &[T], mut f: F) where F: FnMut(&T) {
+    let mut i: i64 = 0i64;
+    let n: i64 = x.len();
+    while i < n {
+        f(&x[i]);
+        i = i + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    let elems: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    each(&elems, |val: &i64| { sum = sum + *val; });
+    if sum == 15i64 { return 0i32; }
+    return 1i32;
+}
