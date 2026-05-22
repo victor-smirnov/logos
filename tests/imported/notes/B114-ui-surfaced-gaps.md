@@ -83,8 +83,11 @@ struct functional-update, range/or patterns — all worked prelude-only.)
   `&[T]` scrutinee) — a codegen gap with 3 distinct symptoms (match-expr →
   `arith.cmpi`-on-ptr; match-stmt → stray `arith.constant`; `&[_,_]` ref-pattern →
   sema "reference pattern requires reference scrutinee"). See docs/DIVERGENCES.md §B5
-  for the full repro + fix-location. match-tuple-slice STAYS skipped (it discriminates
-  by slice length, so a fixed-array port would be degenerate).
+  for the full repro + fix-location. **UPDATE 2026-05-22: dynamic-slice patterns
+  IMPLEMENTED** (top-level `[a,b]`/`[h,..]` + nested-in-tuple length discrimination)
+  — `match-tuple-slice` is now imported + passing (tests/imported/pass/match/). Only
+  named slice bindings nested inside a tuple pattern (`(2, [a,b])`) remain (clean
+  error, see §B5).
 - **FIXED 2026-05-21 (47413e65)** — array pattern `[x, y]` in match-AS-EXPRESSION
   was a silent miscompile (bindings read garbage). Now correct for fixed-size arrays.
 

@@ -2694,6 +2694,51 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     int32_t sidx = (int32_t)(total - suf_n);
                     psl.each_suffix([&](lir_view::PatRef sp){ bind_elem(sp, sidx++); });
                 }
+            } else if (atype && atype.kind() == LogosType::Kind::Slice && atype.elem()) {
+                // Dynamic-slice bindings: GEP through the data pointer (field 0
+                // of the {ptr,len} descriptor). Only prefix elements bind
+                // (suffix-after-`..` rejected by sema for dynamic slices).
+                auto elem_mlir = logos_to_mlir(atype.elem());
+                auto stype     = slice_llvm_type();
+                mlir::Value sptr = scrut_ptr ? scrut_ptr : scrut;
+                if (sptr && sptr.getType() != ptr_type() && stype) {
+                    auto a = create_entry_alloca(stype);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
+                    sptr = a;
+                }
+                if (sptr && elem_mlir) {
+                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, di);
+                    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+                    auto bind_slice_elem = [&](lir_view::PatRef sp, int32_t idx) {
+                        if (!sp) return;
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
+                        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
+                        if (sp.kind() == pc::Code::Wild) {
+                            std::string pwn(lir_view::PatWildView{sp}.name());
+                            if (pwn == "_" || pwn.empty()) return;
+                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
+                            auto alloca = create_entry_alloca(elem_mlir);
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
+                            scope_[pwn] = alloca;
+                            let_vars_.insert(pwn);
+                            var_elem_types_[pwn] = elem_mlir;
+                            added.push_back(pwn);
+                        } else if (sp.kind() == pc::Code::RefBind) {
+                            std::string prbn(lir_view::PatRefBindView{sp}.name());
+                            if (prbn == "_" || prbn.empty()) return;
+                            auto alloca = create_entry_alloca(ptr_type());
+                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, alloca);
+                            scope_[prbn] = alloca;
+                            let_vars_.insert(prbn);
+                            var_elem_types_[prbn] = ptr_type();
+                            added.push_back(prbn);
+                        }
+                    };
+                    lir_view::PatSliceView psl{pat_ref};
+                    int32_t idx = 0;
+                    psl.each_prefix([&](lir_view::PatRef sp){ bind_slice_elem(sp, idx++); });
+                }
             }
         } else if (pat_ref.kind() == pc::Code::Struct) {
             // Struct pattern field bindings (`A { f0: x }`, shorthand `A { x }`,
@@ -3052,6 +3097,54 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
                         continue;
                     }
+                    if (sub.kind() == pc::Code::Slice && si < btypes.size() && btypes[si] &&
+                        TypeRef(btypes[si]).kind() == LogosType::Kind::Slice &&
+                        TypeRef(btypes[si]).elem()) {
+                        // Nested dynamic-slice pattern at a tuple element
+                        // (`(2, [_, _])`). `ev` is the slice value loaded from
+                        // the tuple slot — a ptr to {data_ptr, i64 len}. Gate on
+                        // the length (== N, or >= N with trailing `..`) and
+                        // AND-chain any literal-element checks through the data
+                        // pointer. Bindings are emitted by the tuple binding
+                        // extractor's nested-slice case.
+                        lir_view::PatSliceView ssv{sub};
+                        auto s_elem = logos_to_mlir(TypeRef(btypes[si]).elem());
+                        auto sdtype = slice_llvm_type();
+                        std::vector<lir_view::PatRef> spref;
+                        ssv.each_prefix([&](lir_view::PatRef sp){ spref.push_back(sp); });
+                        bool s_rest = (bool)ssv.rest();
+                        llvm::SmallVector<mlir::LLVM::GEPArg> sli{int32_t(0), int32_t(1)};
+                        auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, ev, sli);
+                        auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), slp);
+                        auto sn = builder_.create<mlir::arith::ConstantIntOp>(
+                            loc_, (int64_t)spref.size(), 64);
+                        auto spred = s_rest ? mlir::arith::CmpIPredicate::sge
+                                            : mlir::arith::CmpIPredicate::eq;
+                        auto lcmp = builder_.create<mlir::arith::CmpIOp>(loc_, spred, slen, sn);
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, lcmp);
+                        if (s_elem) {
+                            llvm::SmallVector<mlir::LLVM::GEPArg> sdi{int32_t(0), int32_t(0)};
+                            auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, ev, sdi);
+                            auto sdata = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sdp);
+                            for (size_t pi = 0; pi < spref.size(); ++pi) {
+                                auto sp = spref[pi];
+                                if (!sp || sp.kind() == pc::Code::Wild) continue;
+                                int64_t sv2 = 0;
+                                if      (sp.kind() == pc::Code::Int)  sv2 = lir_view::PatIntView{sp}.value();
+                                else if (sp.kind() == pc::Code::Bool) sv2 = lir_view::PatBoolView{sp}.value() ? 1 : 0;
+                                else continue;
+                                llvm::SmallVector<mlir::LLVM::GEPArg> sgi{int32_t(pi)};
+                                auto sep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), s_elem, sdata, sgi);
+                                auto sev = builder_.create<mlir::LLVM::LoadOp>(loc_, s_elem, sep);
+                                auto scv = coerce_int(
+                                    builder_.create<mlir::arith::ConstantIntOp>(loc_, sv2, 64), s_elem);
+                                auto seq = builder_.create<mlir::arith::CmpIOp>(
+                                    loc_, mlir::arith::CmpIPredicate::eq, sev, scv);
+                                cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, seq);
+                            }
+                        }
+                        continue;
+                    }
                     if (sub.kind() == pc::Code::Or) {
                         // P4-pm-03 (expr form): or-pattern at tuple element.
                         mlir::Value alt_or =
@@ -3185,6 +3278,69 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 int32_t sidx = (int32_t)(total - suf_n);
                 sv.each_suffix([&](lir_view::PatRef sp){ chk_at(sp, sidx++); });
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+            }
+            else_block = test_block;
+        } else if (arm_pat_ref.kind() == pc::Code::Slice &&
+                   scrut_le->type &&
+                   TypeRef(scrut_le->type).kind() == LogosType::Kind::Slice &&
+                   TypeRef(scrut_le->type).elem()) {
+            // Dynamic-slice refutable pattern (`[a, b]`, `[a, ..]`) over a
+            // runtime-length `&[T]` scrutinee. The slice value is a ptr to
+            // {data_ptr, i64 len}. A fixed-length pattern is refutable: gate
+            // on `len == N` (no rest) or `len >= N` (trailing `..`), then
+            // AND-chain literal-element equality through the data pointer.
+            // Suffix-after-`..` is rejected by sema for dynamic slices, so
+            // only the prefix carries element constraints. Bindings are
+            // emitted separately by extract_arm_payload's Slice case.
+            lir_view::PatSliceView sv{arm_pat_ref};
+            auto elem_mlir = logos_to_mlir(TypeRef(scrut_le->type).elem());
+            auto stype     = slice_llvm_type();
+            std::vector<lir_view::PatRef> prefix;
+            sv.each_prefix([&](lir_view::PatRef sp){ prefix.push_back(sp); });
+            bool has_rest = (bool)sv.rest();
+            auto* test_block = new mlir::Block();
+            region->push_back(test_block);
+            {
+                mlir::OpBuilder::InsertionGuard ig(builder_);
+                builder_.setInsertionPointToStart(test_block);
+                mlir::Value sptr = scrut.getType() == ptr_type() ? scrut : nullptr;
+                if (!sptr && stype) {
+                    auto a = create_entry_alloca(stype);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, a);
+                    sptr = a;
+                }
+                if (sptr) {
+                    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+                    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, li);
+                    auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+                    auto nconst = builder_.create<mlir::arith::ConstantIntOp>(
+                        loc_, (int64_t)prefix.size(), 64);
+                    auto pred = has_rest ? mlir::arith::CmpIPredicate::sge
+                                         : mlir::arith::CmpIPredicate::eq;
+                    mlir::Value cond = builder_.create<mlir::arith::CmpIOp>(loc_, pred, len, nconst);
+                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, di);
+                    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+                    if (elem_mlir) for (size_t i = 0; i < prefix.size(); ++i) {
+                        auto sp = prefix[i];
+                        if (!sp || sp.kind() == pc::Code::Wild) continue;
+                        int64_t sub_val = 0;
+                        if      (sp.kind() == pc::Code::Int)  sub_val = lir_view::PatIntView{sp}.value();
+                        else if (sp.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sp}.value() ? 1 : 0;
+                        else continue;
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(i)};
+                        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
+                        auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
+                        auto cv = coerce_int(
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64), elem_mlir);
+                        auto eq = builder_.create<mlir::arith::CmpIOp>(
+                            loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
+                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                    }
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
+                } else {
+                    builder_.create<mlir::cf::BranchOp>(loc_, else_block);
+                }
             }
             else_block = test_block;
         } else if (arm_pat_ref.kind() == pc::Code::RefPat &&

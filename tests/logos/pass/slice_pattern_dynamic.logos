@@ -1,0 +1,43 @@
+// Dynamic-slice patterns over a runtime-length `&[T]` scrutinee in
+// match-as-expression: `[a, b]` (exact length), `[h, ..]` (length >= 1 with
+// trailing rest). Refutable on length; binds named elements through the
+// slice data pointer. Also exercised nested inside a tuple pattern.
+package slice_pattern_dynamic;
+
+fn f(s: &[i64]) -> i64 {
+    return match s {
+        [a, b] => a * 100i64 + b,   // exactly two elements
+        [h, ..] => h,                // one-or-more, bind the head
+        _ => -1i64,                  // empty
+    };
+}
+
+// nested slice pattern inside a tuple pattern; discriminates by slice length
+fn g(x: (i64, &[i64])) -> i64 {
+    return match x {
+        (0i64, [_, _]) => 0i64,
+        (1i64, _) => 1i64,
+        (2i64, [_, _]) => 2i64,
+        (2i64, _) => 3i64,
+        _ => 4i64,
+    };
+}
+
+fn main() -> i32 {
+    let two: [i64; 2] = [3i64, 7i64];
+    let four: [i64; 4] = [9i64, 1i64, 1i64, 1i64];
+    let zero: [i64; 0] = [];
+
+    if f(&two) != 307i64 { return 1i32; }
+    if f(&four) != 9i64 { return 2i32; }
+    if f(&zero) != -1i64 { return 3i32; }
+
+    let three: [i64; 3] = [1i64, 2i64, 3i64];
+    if g((2i64, &two)) != 2i64 { return 4i32; }    // len 2 → arm 3
+    if g((2i64, &three)) != 3i64 { return 5i32; }  // len 3 → falls to (2,_)
+    if g((0i64, &two)) != 0i64 { return 6i32; }
+    if g((1i64, &three)) != 1i64 { return 7i32; }
+    if g((5i64, &two)) != 4i64 { return 8i32; }
+
+    return 0i32;
+}

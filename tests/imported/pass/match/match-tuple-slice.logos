@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-tuple-slice.rs
+// Regression test for rust-lang/rust#16648: a slice pattern nested inside a
+// tuple pattern must discriminate by the slice's runtime length.
+// Modifications: isize→i64; the Rust `&[_, _]` reference-slice pattern is
+// written `[_, _]` here because in Logos `&[T]` is a single slice type (no
+// separate deref step in the pattern); `assert_eq!(…, 2)` → return-code check.
+// `(i64, &[i64])` and the slice literals resolve without `use` (prelude).
+package match_tuple_slice;
+
+fn main() -> i32 {
+    let x: (i64, &[i64]) = (2i64, &[1i64, 2i64]);
+    let r = match x {
+        (0i64, [_, _]) => 0i64,
+        (1i64, _) => 1i64,
+        (2i64, [_, _]) => 2i64,
+        (2i64, _) => 3i64,
+        _ => 4i64,
+    };
+    if r == 2i64 { return 0i32; }
+    return 1i32;
+}
