@@ -1,0 +1,30 @@
+package enum_eq_impl_operator;
+// G150-2: `==`/`!=` on a payload-carrying enum routes to its Eq impl
+// (was a silent pointer/discriminant miscompile). C-like enums keep the
+// correct discriminant fast-path.
+enum MyOpt { MNone, MSome(i64) }
+impl Eq for MyOpt {
+    fn eq(self: &Self, other: &Self) -> bool {
+        match self {
+            MyOpt::MSome(a) => { match other { MyOpt::MSome(b) => { return *a == *b; } MyOpt::MNone => { return false; } } }
+            MyOpt::MNone => { match other { MyOpt::MSome(b) => { return false; } MyOpt::MNone => { return true; } } }
+        }
+    }
+}
+enum Color { Red, Green, Blue }
+fn main() -> i64 {
+    let a: MyOpt = MyOpt::MSome(3);
+    let b: MyOpt = MyOpt::MSome(3);
+    let c: MyOpt = MyOpt::MSome(4);
+    let n: MyOpt = MyOpt::MNone;
+    if !(a == b) { return 1; }
+    if a == c { return 2; }
+    if a == n { return 3; }
+    if !(a != c) { return 4; }
+    // C-like discriminant compare still works:
+    let r: Color = Color::Red;
+    let g: Color = Color::Green;
+    if r == g { return 5; }
+    if !(r == Color::Red) { return 6; }
+    return 0;
+}

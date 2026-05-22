@@ -1,0 +1,8 @@
+package enum_eq_no_impl;
+enum E { A(i64), B }
+fn main() -> i64 {
+    let x: E = E::A(1);
+    let y: E = E::A(1);
+    if x == y { return 0; }
+    return 1;
+}

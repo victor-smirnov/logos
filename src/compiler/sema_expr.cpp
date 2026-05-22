@@ -1341,6 +1341,59 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
     }
 
+    // G150-2: `==` / `!=` on an enum. A payload-carrying enum needs a
+    // structural Eq/PartialEq impl; the historic fall-through compared the
+    // enum's heap pointer (or bare discriminant), silently returning the
+    // wrong answer (`Some(3) == Some(3)` → false). Route to the enum's `eq`
+    // impl when one exists. For a C-like (all-fieldless) enum the bare
+    // discriminant compare is correct, so fall through. For a payload enum
+    // with no Eq impl, error instead of miscompiling.
+    if ((op == "==" || op == "!=") &&
+        TypeRef(lt).kind() == LogosType::Kind::Enum &&
+        TypeRef(rt).kind() == LogosType::Kind::Enum &&
+        TypeRef(lt).enum_name() == TypeRef(rt).enum_name()) {
+        std::string method_name = (op == "==") ? "eq" : "ne";
+        std::string base_name(TypeRef(lt).enum_name());
+        std::string bare = base_name + "__" + method_name;
+        auto lty = make_ref(false, lt);
+        auto rty = make_ref(false, rt);
+        // Find the `eq` impl: prefer a candidate keyed on the enum name with
+        // 2 params (covers both concrete `impl Eq for E` and generic
+        // `impl<T> Eq for Option<T>` template forms — the dot-qualified
+        // pkg key is matched by find_func_candidates' suffix logic).
+        const SemaFuncInfo* chosen = nullptr;
+        for (auto* c : find_func_candidates(bare))
+            if (c && c->param_types.size() == 2) { chosen = c; break; }
+        if (chosen) {
+            auto lref = builder().addr_of_temp(std::move(lhs), false, lty);
+            auto rref = builder().addr_of_temp(std::move(rhs), false, rty);
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(lref));
+            args.push_back(std::move(rref));
+            std::string sym = chosen->symbol_name.empty() ? bare : chosen->symbol_name;
+            if (!chosen->type_params.empty()) {
+                std::vector<TypeRef> m_type_args;
+                for (auto ta : TypeRef(lt).type_args()) m_type_args.push_back(ta);
+                return finish_generic_call(sym, *chosen, std::move(m_type_args), std::move(args));
+            }
+            return builder().call(sym, {}, std::move(args), bool_t());
+        }
+        // No Eq impl. C-like enums compare correctly by discriminant — allow
+        // the fall-through. Payload enums would silently miscompile — error.
+        bool c_like = true;
+        auto [epkg, einfo] = find_enum_by_name(TypeRef(lt).enum_name());
+        (void)epkg;
+        if (einfo)
+            for (auto& v : einfo->variants)
+                if (!v.payload_types.empty()) { c_like = false; break; }
+        if (!c_like)
+            error(std::format(
+                "operator '{}' on enum '{}' requires an Eq/PartialEq impl "
+                "(no structural comparison is generated automatically)",
+                op, type_str(lt)));
+        // else: fall through to the discriminant compare below.
+    }
+
     // CP-cm-11: `str == str` / `str != str` route to stdlib `str_eq`.
     // Without this, the LLVM-level ICmpOp compares the slice-descriptor
     // pointers, returning false for two distinct literals with equal

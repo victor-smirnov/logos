@@ -18,7 +18,13 @@ with prior batches).
 
 ## ⚠️ SILENT MISCOMPILE — highest priority
 
-### G150-2 — ⚠️ SILENT MISCOMPILE: `Option<T> == Option<T>` compiles + runs but returns a WRONG answer (always false)
+### G150-2 — ✅ PARTIAL (2026-05-22): silent-miscompile CLOSED; full Option/Result `==` blocked on a pre-existing generic-enum-method mono bug
+
+**Done**: sema `lower_binop` now routes `==`/`!=` on an enum to the enum's `eq` Eq impl when present (NON-generic enums work end-to-end). A C-like (all-fieldless) enum keeps the correct discriminant compare. A PAYLOAD-carrying enum with NO Eq impl now ERRORS (`operator '==' on enum 'E' requires an Eq/PartialEq impl`) instead of silently comparing the heap pointer — the dangerous silent miscompile is gone. Tests: pass/enum_eq_impl_operator, fail/enum_eq_no_impl.
+
+**Remaining (deep, pre-existing — NOT the silent-miscompile)**: a GENERIC enum Eq impl (`impl<T:Eq> Eq for Option<T>`) miscompiles at the call site — generic-enum-METHOD instantiation mangles the call as `Opt__eq__g__ref_Opt__ref_Opt__i32` (Self params unsubstituted + wrong type-arg) vs the emitted instantiation name → "does not reference a valid function". Reproduces with a direct `.eq()` call too (independent of the operator routing). This blocks stdlib `impl Eq for Option<T>/Result<T,E>`, so `Option == Option` currently produces the clean error above rather than working. Same family as the generic-enum-method-mono baghunts. Next focused step.
+
+ORIGINAL REPORT below:
 
 `Option` has **no `PartialEq` impl** in the Logos stdlib
 (`stdlib/lang/option/option.logos` defines no `fn eq` / `impl PartialEq`). Yet
