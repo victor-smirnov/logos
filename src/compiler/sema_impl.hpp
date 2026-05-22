@@ -2633,6 +2633,7 @@ private:
     // lower_expr literal/cast sub-handlers, factored out of its switch so every
     // case delegates uniformly. Each lowers one expr kind from `expr` + members.
     lir::LExprPtr lower_int_lit(hermes::TinyMapView expr);
+    lir::LExprPtr lit_int_from_text(std::string_view sv, bool negate);
     lir::LExprPtr lower_char_lit(hermes::TinyMapView expr);
     lir::LExprPtr lower_bytes_lit(hermes::TinyMapView expr);
     lir::LExprPtr lower_var_ref(hermes::TinyMapView expr);

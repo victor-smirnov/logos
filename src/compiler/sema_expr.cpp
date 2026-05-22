@@ -37,8 +37,13 @@ using hermes::MemHolder;
 // Expression lowering methods
 
 lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
-    int32_t c = code_of(expr); (void)c;
-    auto sv = str_of(expr.get(la::VALUE.code));
+    return lit_int_from_text(str_of(expr.get(la::VALUE.code)), /*negate=*/false);
+}
+
+// Shared integer-literal builder. `negate` folds a leading unary minus into
+// the literal (so `-128i8` is the i8 minimum, not neg-of-out-of-range-128i8):
+// the range check then bounds the magnitude by |min| instead of max.
+lir::LExprPtr SemaChecker::lit_int_from_text(std::string_view sv, bool negate) {
     if (!valid_int_literal_format(sv)) {
         error(std::format("malformed integer literal '{}'", sv));
         return error_expr();
@@ -49,14 +54,16 @@ lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
         return error_expr();
     }
     int64_t v = parse_int_literal(sv);
+    if (negate) v = -v;
     auto suf = int_suffix_kind(sv);
     // If the literal carries an explicit suffix, also bound-check against
     // the suffix-implied type's range.  Without a suffix the literal stays
     // IntLit and the destination-type coercion handles range later.
     if (suf != LogosType::Kind::Error) {
         // Source-text sign matters for bound checking (the int64_t bit
-        // pattern wraps for unsigned literals at 2^63 and above).
-        bool src_negative = !sv.empty() && sv[0] == '-';
+        // pattern wraps for unsigned literals at 2^63 and above). A folded
+        // unary minus (`negate`) counts as negative for the |min| edge.
+        bool src_negative = negate || (!sv.empty() && sv[0] == '-');
         uint64_t mag = src_negative ? (uint64_t)(-(int64_t)((uint64_t)v))
                                     : (uint64_t)v;
         uint64_t max_mag = 0; bool signed_t = false;
@@ -69,7 +76,12 @@ lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
             case LogosType::Kind::U16: max_mag = 65535ull;               break;
             case LogosType::Kind::U32: max_mag = 4294967295ull;          break;
             case LogosType::Kind::U64: max_mag = UINT64_MAX;             break;
-            default: max_mag = UINT64_MAX;  // I24/I56/U24/U56/I128 — skip strict check
+            // Wide/pointer-width signed types: mark signed (so a negative
+            // literal is allowed), skip the strict magnitude bound.
+            case LogosType::Kind::I24: case LogosType::Kind::I56:
+            case LogosType::Kind::I128: case LogosType::Kind::Isize:
+                max_mag = UINT64_MAX; signed_t = true; break;
+            default: max_mag = UINT64_MAX;  // U24/U56/U128/Usize — unsigned, no strict check
         }
         if (!signed_t && src_negative) {
             error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
@@ -1593,6 +1605,15 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         auto __ty_inner = make_ref(false, inner->type);
 
         return builder().addr_of_temp(std::move(inner), false, __ty_inner);
+    }
+
+    // Negative integer literal: fold the sign into the literal so a
+    // suffix-edge value like `-128i8` (the i8 minimum) is accepted — lowering
+    // the bare `128i8` first would reject it as out-of-range for i8.
+    if (op == "-") {
+        auto child = map_of(node.get(la::VALUE.code));
+        if (code_of(child) == la::LIT_INT)
+            return lit_int_from_text(str_of(child.get(la::VALUE.code)), /*negate=*/true);
     }
 
     auto operand = lower_expr(map_of(node.get(la::VALUE.code)));
