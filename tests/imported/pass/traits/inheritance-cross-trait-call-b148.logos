@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/cross-trait-call.rs
+// Modifications: isize→i64; `&self`→`self: &A`; assert_eq!→distinct nonzero return.
+// Tests that the impl of a subtrait method `Bar::g` can call the impl of a supertrait method `Foo::f`
+//   on `self` (`self.f()` inside `Bar for A`).
+package inheritance_cross_trait_call_b148;
+
+trait Foo { fn f(self: &Self) -> i64; }
+trait Bar : Foo { fn g(self: &Self) -> i64; }
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(self: &A) -> i64 { 10i64 } }
+
+impl Bar for A {
+    fn g(self: &A) -> i64 { self.f() }
+}
+
+fn main() -> i32 {
+    let a = &A { x: 3i64 };
+    if a.g() != 10i64 { return 1i32; }
+    return 0i32;
+}

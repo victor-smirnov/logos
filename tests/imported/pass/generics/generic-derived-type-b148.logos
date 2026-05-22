@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-derived-type.rs
+// Modifications: isize→i64; #[derive(Clone)] + `.clone()` dropped — `T: Clone` bound → `T: Copy` so
+//   `Pair { a: t, b: t }` uses the §B1 auto-copy; println!→removed; assert_eq!→distinct nonzero return.
+// Tests a generic fn `f<T>` building a generic struct `Pair<T>` and forwarding it through a NESTED
+//   turbofish call `g::<Pair<T>>(x)` — generic-over-generic instantiation.
+package generic_derived_type_b148;
+
+fn g<X>(x: X) -> X { return x; }
+
+struct Pair<T> { a: T, b: T }
+
+fn f<T: Copy>(t: T) -> Pair<T> {
+    let x: Pair<T> = Pair { a: t, b: t };
+    return g::<Pair<T>>(x);
+}
+
+fn main() -> i32 {
+    let b = f::<i64>(10i64);
+    if b.a != 10i64 { return 1i32; }
+    if b.b != 10i64 { return 2i32; }
+    return 0i32;
+}

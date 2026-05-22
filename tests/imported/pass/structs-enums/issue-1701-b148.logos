@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/issue-1701.rs
+// Modifications: String→i64 codes (String facet out of scope); the `name = String` alias dropped;
+//   `cat(..)`/`dog(..)`/`rabbit(..)` tuple-variant rest patterns → `Cat(_)`/`Dog(_)`/`Rabbit(_, _)`
+//   (`..` in a tuple-VARIANT pattern is a known-open parse gap, B147); assert_eq!→distinct nonzero return.
+// Tests a `match` over a multi-shape enum (`Cat(P)`, `Dog(B)`, `Rabbit(i64, EarKind)`, nullary `Tiger`)
+//   whose arms return an `Option<i64>` (Some/None), plus three other plain enums used as payloads.
+package issue_1701_b148;
+
+enum Pattern { Tabby, Tortoiseshell, Calico }
+enum Breed { Beagle, Rottweiler, Pug }
+enum EarKind { Lop, Upright }
+enum Animal { Cat(Pattern), Dog(Breed), Rabbit(i64, EarKind), Tiger }
+
+fn noise(a: Animal) -> Option<i64> {
+    match a {
+        Animal::Cat(_)       => { Some(1i64) }
+        Animal::Dog(_)       => { Some(2i64) }
+        Animal::Rabbit(_, _) => { None }
+        Animal::Tiger        => { Some(3i64) }
+    }
+}
+
+fn main() -> i32 {
+    match noise(Animal::Cat(Pattern::Tabby)) {
+        Some(v) => { if v != 1i64 { return 1i32; } }
+        None => { return 2i32; }
+    }
+    match noise(Animal::Dog(Breed::Pug)) {
+        Some(v) => { if v != 2i64 { return 3i32; } }
+        None => { return 4i32; }
+    }
+    match noise(Animal::Rabbit(7i64, EarKind::Upright)) {
+        Some(_) => { return 5i32; }
+        None => {}
+    }
+    match noise(Animal::Tiger) {
+        Some(v) => { if v != 3i64 { return 6i32; } }
+        None => { return 7i32; }
+    }
+    return 0i32;
+}

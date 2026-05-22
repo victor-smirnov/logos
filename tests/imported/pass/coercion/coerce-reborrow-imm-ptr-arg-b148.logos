@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-ptr-arg.rs
+// Modifications: isize→i64; `-*x`→`0i64 - *x`; empty main → calls the fns and asserts (distinct nonzero
+//   return) so the test exercises the coercion at runtime.
+// Tests reborrowing a `&mut i64` as a `&i64` when passed to a fn taking `&i64` (negate_mut forwards its
+//   `&mut` argument to negate which wants `&`).
+package coerce_reborrow_imm_ptr_arg_b148;
+
+fn negate(x: &i64) -> i64 { 0i64 - *x }
+fn negate_mut(y: &mut i64) -> i64 { negate(y) }
+fn negate_imm(y: &i64) -> i64 { negate(y) }
+
+fn main() -> i32 {
+    let mut a = 5i64;
+    if negate_mut(&mut a) != (0i64 - 5i64) { return 1i32; }
+    let b = 7i64;
+    if negate_imm(&b) != (0i64 - 7i64) { return 2i32; }
+    return 0i32;
+}

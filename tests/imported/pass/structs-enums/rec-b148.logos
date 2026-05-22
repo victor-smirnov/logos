@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/rec.rs
+// Modifications: isize→i64; #[derive(Copy,Clone)] dropped; copies kept (struct is Copy via field types);
+//   assert_eq! → distinct nonzero return; `&self`-free.
+// Tests a plain struct: construct, read fields, copy to a second binding, pass by value twice.
+package rec_b148;
+
+struct Rect { x: i64, y: i64, w: i64, h: i64 }
+
+fn f(r: Rect, x: i64, y: i64, w: i64, h: i64) -> i32 {
+    if r.x != x { return 1i32; }
+    if r.y != y { return 2i32; }
+    if r.w != w { return 3i32; }
+    if r.h != h { return 4i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r: Rect = Rect { x: 10i64, y: 20i64, w: 100i64, h: 200i64 };
+    if r.x != 10i64 { return 5i32; }
+    if r.y != 20i64 { return 6i32; }
+    if r.w != 100i64 { return 7i32; }
+    if r.h != 200i64 { return 8i32; }
+    let r2: Rect = Rect { x: 10i64, y: 20i64, w: 100i64, h: 200i64 };
+    let x: i64 = r2.x;
+    if x != 10i64 { return 9i32; }
+    let a = f(r, 10i64, 20i64, 100i64, 200i64);
+    if a != 0i32 { return 10i32; }
+    let b = f(r2, 10i64, 20i64, 100i64, 200i64);
+    if b != 0i32 { return 11i32; }
+    return 0i32;
+}

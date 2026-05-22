@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/deref/deref-newtype-method-call.rs (#22992)
+// Modifications: empty structs given a field; `Box`-free newtype; `&self`→`self: &T`; the foo() body
+//   returns the inner value so the test asserts a result; assert→distinct nonzero return.
+// Tests a user `impl Deref` (with `type Target`) on a newtype `A(B)` so that a method defined on the
+//   target `B` is reachable via autoderef on an `A` value (`A(B).foo()`).
+package deref_newtype_method_call_b148;
+
+struct B { v: i64 }
+struct A { inner: B }
+
+impl Deref for A {
+    type Target = B;
+    fn deref(self: &A) -> &B { &self.inner }
+}
+
+impl B {
+    fn foo(self: &B) -> i64 { self.v }
+}
+
+fn main() -> i32 {
+    let a = A { inner: B { v: 42i64 } };
+    if a.foo() != 42i64 { return 1i32; }
+    return 0i32;
+}

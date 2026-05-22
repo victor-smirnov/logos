@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/expr-if-struct.rs
+// Modifications: isize→i64, usize→u64; #[derive] dropped; PartialEq hand-impl kept (`self:&Self`, `match *self`);
+//   assert_eq!→distinct nonzero return.
+// Tests `if` as an expression that yields a nominal struct value, and `if` yielding a C-like enum
+//   compared via a hand-written PartialEq (cast-to-int equality).
+package expr_if_struct_b148;
+
+struct I { i: i64 }
+
+enum Mood { Happy, Sad }
+
+impl PartialEq for Mood {
+    fn eq(self: &Mood, other: &Mood) -> bool {
+        ((*self) as u64) == ((*other) as u64)
+    }
+    fn ne(self: &Mood, other: &Mood) -> bool { !(*self).eq(other) }
+}
+
+fn main() -> i32 {
+    let rs = if true { I { i: 100i64 } } else { I { i: 101i64 } };
+    if rs.i != 100i64 { return 1i32; }
+
+    let rt = if true { Mood::Happy } else { Mood::Sad };
+    if rt != Mood::Happy { return 2i32; }
+    return 0i32;
+}

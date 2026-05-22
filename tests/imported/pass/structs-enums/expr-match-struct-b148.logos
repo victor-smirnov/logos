@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/expr-match-struct.rs
+// Modifications: isize→i64, usize→u64; #[derive] dropped; PartialEq hand-impl kept; panic!→nonzero return;
+//   assert_eq!→distinct nonzero return.
+// Tests `match` as an expression yielding a struct, and `match` yielding a C-like enum.
+package expr_match_struct_b148;
+
+struct R { i: i64 }
+
+enum Mood { Happy, Sad }
+
+impl PartialEq for Mood {
+    fn eq(self: &Mood, other: &Mood) -> bool {
+        ((*self) as u64) == ((*other) as u64)
+    }
+    fn ne(self: &Mood, other: &Mood) -> bool { !(*self).eq(other) }
+}
+
+fn main() -> i32 {
+    let rs = match true { true => R { i: 100i64 }, _ => R { i: 0i64 } };
+    if rs.i != 100i64 { return 1i32; }
+
+    let rt = match true { true => { Mood::Happy } false => { Mood::Sad } };
+    if rt != Mood::Happy { return 2i32; }
+    return 0i32;
+}

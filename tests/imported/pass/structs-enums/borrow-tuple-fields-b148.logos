@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/borrow-tuple-fields.rs
+// Modifications: isize→i64; assert_eq!→distinct nonzero return; literals suffixed.
+// Tests shared+exclusive borrows of disjoint tuple fields and tuple-struct fields:
+//   `&x.0` twice; `&x.0` shared while `&mut x.1` writes the OTHER field.
+package borrow_tuple_fields_b148;
+
+struct Foo(i64, i64);
+
+fn main() -> i32 {
+    let x = (1i64, 2i64);
+    let a = &x.0;
+    let b = &x.0;
+    if *a != 1i64 { return 1i32; }
+    if *b != 1i64 { return 2i32; }
+
+    let mut x = (1i64, 2i64);
+    {
+        let a = &x.0;
+        let b = &mut x.1;
+        *b = 5i64;
+        if *a != 1i64 { return 3i32; }
+    }
+    if x.0 != 1i64 { return 4i32; }
+    if x.1 != 5i64 { return 5i32; }
+
+    let y = Foo(1i64, 2i64);
+    let c = &y.0;
+    let d = &y.0;
+    if *c != 1i64 { return 6i32; }
+    if *d != 1i64 { return 7i32; }
+
+    let mut z = Foo(1i64, 2i64);
+    {
+        let e = &z.0;
+        let g = &mut z.1;
+        *g = 5i64;
+        if *e != 1i64 { return 8i32; }
+    }
+    if z.0 != 1i64 { return 9i32; }
+    if z.1 != 5i64 { return 10i32; }
+    return 0i32;
+}

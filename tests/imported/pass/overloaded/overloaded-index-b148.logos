@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index.rs
+// Modifications: isize→i64; `&self`/`&mut self`→`self: &Foo`/`self: &mut Foo`; assert_eq!→distinct nonzero
+//   return; the `f[1].inc()` / `f[1].get()` trait-method-on-indexed-lvalue facet dropped (kept Index read,
+//   IndexMut assign, and `&f[1]` / `&mut f[1]` borrows).
+// Tests user `impl Index`/`impl IndexMut` operator overloading: indexed read `f[1]`, indexed assign
+//   `f[0] = 3`, and shared/exclusive borrows of an indexed place `&f[1]` / `&mut f[1]`.
+package overloaded_index_b148;
+
+struct Foo { x: i64, y: i64 }
+
+impl Index<i64> for Foo {
+    type Output = i64;
+    fn index(self: &Foo, z: i64) -> &i64 {
+        if z == 0i64 { &self.x } else { &self.y }
+    }
+}
+
+impl IndexMut<i64> for Foo {
+    fn index_mut(self: &mut Foo, z: i64) -> &mut i64 {
+        if z == 0i64 { &mut self.x } else { &mut self.y }
+    }
+}
+
+fn main() -> i32 {
+    let mut f = Foo { x: 1i64, y: 2i64 };
+    if f[1i64] != 2i64 { return 1i32; }
+    f[0i64] = 3i64;
+    if f[0i64] != 3i64 { return 2i32; }
+    {
+        let p = &mut f[1i64];
+        *p = 4i64;
+    }
+    {
+        let p = &f[1i64];
+        if *p != 4i64 { return 3i32; }
+    }
+    return 0i32;
+}
