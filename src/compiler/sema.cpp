@@ -2208,6 +2208,19 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
     if (TypeRef(t).kind() == LogosType::Kind::Enum) type_name = std::string(TypeRef(t).enum_name());
     if (type_name.empty()) return {};
     std::string mangled = type_name + "__drop";
+    // B-mv-02: a candidate Drop impl must belong to the SAME package as `t`.
+    // A user `struct Vec<T>` and the stdlib `Vec<T>` share the bare concrete
+    // name `Vec$G1$i32` (struct TYPES are package-qualified at the MLIR level,
+    // but the `Type__drop` method symbol is not), so without this guard the
+    // user's drop-less Vec picks up the stdlib Vec's Drop and gets dropped via
+    // a heap-freeing `Vec$G1$i32__drop` (SIGSEGV). Treat an empty package on
+    // either side as a wildcard (intrinsics / pre-pkg-tracking paths).
+    auto t_pkg = TypeRef(t).pkg_name();
+    auto pkg_matches = [&](TypeRef cand_struct) -> bool {
+        if (!cand_struct) return false;
+        auto cp = TypeRef(cand_struct).pkg_name();
+        return cp.empty() || t_pkg.empty() || cp == t_pkg;
+    };
     std::vector<TypeRef> sig{t};
     if (auto* fi = find_func_by_base_and_signature(mangled, sig, false))
         return fi->symbol_name.empty() ? mangled : fi->symbol_name;
@@ -2229,7 +2242,8 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         if (!pt) continue;
         auto pk = TypeRef(pt).kind();
         if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-            TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), t))
+            TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), t) &&
+            pkg_matches(TypeRef(pt).pointee()))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
     // Generic Drop impl: `impl<T> Drop for Foo<T>` registers Foo__drop with
@@ -2252,7 +2266,7 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
             pk = TypeRef(pt).kind();
         }
         if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
-        if (TypeRef(pt).struct_name() == TypeRef(t).struct_name())
+        if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
             return cand->symbol_name.empty() ? mangled : cand->symbol_name;
     }
     return {};
