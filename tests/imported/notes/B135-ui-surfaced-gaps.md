@@ -46,3 +46,18 @@ the candidate fix point.
   reported gap — this is the documented `<digits>.<digits>e<exp>` lexer shape).
 - cross-crate `aux-build` tests (`methods/method-self-arg-aux{1,2}.rs`) — not portable
   (separate-crate harness), dropped.
+
+## G135-1 follow-up (2026-05-22 investigation) — NOT just routing
+`a == b` on `Option<i64>` → `llvm.icmp` mismatched-operands verify-fail. `a.eq(b)`
+ALSO fails ("receiver is not a struct (got Option)"). Root: there is NO
+`impl PartialEq/Eq for Option` (or Result) in stdlib (grep: none), so there is
+nothing for `==` to route to — AND the operator-overload dispatch (sema_expr.cpp
+~1269) only fires for `lt.kind()==Struct`, not Enum. Two-part fix:
+(1) stdlib: add `impl<T: PartialEq> PartialEq for Option<T>` (+ Result) written
+   with NESTED match (`match self { Some(a)=>match o {Some(b)=>a==b,...},...}`),
+   NOT a tuple-of-enum match (that segfaults — see B132-N1), and using by-value
+   or `*self` receiver (the `&Enum`-param match caveat, B121-G3).
+(2) sema: extend the `==`/`!=` operator dispatch to ENUM operands → the enum's
+   eq method (mirror the Struct branch). Generic-eq instantiation must follow.
+Moderate-deep (stdlib + sema + generic eq); common (Option comparison). This is
+the B111 root surfacing as a runtime/verify failure. Focused session.
