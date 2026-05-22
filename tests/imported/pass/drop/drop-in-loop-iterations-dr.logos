@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-struct-as-object.rs shape (distilled)
+// Feature: a value created fresh each loop iteration drops at the end of EACH
+// iteration's block — N iterations ⇒ N drops. Observable via a `*mut i64` counter.
+package m_drop_in_loop_iterations;
+
+trait Drop { fn drop(self: Self); }
+
+struct Tmp { c: *mut i64 }
+impl Drop for Tmp { fn drop(self: Tmp) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    let mut i: i64 = 0i64;
+    while i < 5i64 {
+        let _t = Tmp { c: c };
+        i = i + 1i64;
+    }
+    unsafe { if *c == 5i64 { return 0i32; } }
+    return 1i32;
+}

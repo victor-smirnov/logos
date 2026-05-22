@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/ — default method via trait object.
+// Feature: a `&dyn Trait` where the called method is a DEFAULT (provided) method
+// that internally dispatches to a required method on `self` — vtable thunk path.
+package dyn_default_method_only;
+
+trait Greeter {
+    fn id(self: &Self) -> i64;
+    fn greet(self: &Self) -> i64 { return self.id() * 1000i64 + 1i64; }
+}
+
+struct G { k: i64 }
+impl Greeter for G { fn id(self: &G) -> i64 { return (*self).k; } }
+
+fn run(g: &dyn Greeter) -> i64 { return g.greet(); }
+
+fn main() -> i32 {
+    let g = G { k: 5i64 };
+    if run(&g) == 5001i64 { return 0i32; }
+    return 1i32;
+}

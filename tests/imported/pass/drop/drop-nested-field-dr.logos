@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-struct-with-dtor-field.rs shape (distilled)
+// Feature: when an outer struct with a Drop impl drops, its Drop runs AND each
+// owned field with its own Drop impl runs too (outer first, then field). Observed
+// via a shared `*mut i64`: outer adds 100, inner adds 1 ⇒ 101. By-value Drop idiom.
+package m_drop_nested_field;
+
+trait Drop { fn drop(self: Self); }
+
+struct Inner { c: *mut i64 }
+impl Drop for Inner { fn drop(self: Inner) { unsafe { *self.c = *self.c + 1i64; } } }
+
+struct Outer { inner: Inner }
+impl Drop for Outer { fn drop(self: Outer) { unsafe { *self.inner.c = *self.inner.c + 100i64; } } }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    { let _o = Outer { inner: Inner { c: c } }; }
+    unsafe { if *c == 101i64 { return 0i32; } }
+    return 1i32;
+}

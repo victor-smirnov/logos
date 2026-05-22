@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-on-ret.rs (extended to observable count)
+// Feature: a live local with a Drop impl is dropped on an EARLY return out of a
+// conditional branch (not just at the natural end of the fn). Observed via counter.
+package m_drop_on_early_return;
+
+trait Drop { fn drop(self: Self); }
+
+struct G { c: *mut i64 }
+impl Drop for G { fn drop(self: G) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn early(c: *mut i64, flag: bool) -> i64 {
+    let _g = G { c: c };
+    if flag { return 5i64; }
+    return 9i64;
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    let r = early(c, true);
+    unsafe { if r == 5i64 && *c == 1i64 { return 0i32; } }
+    return 1i32;
+}

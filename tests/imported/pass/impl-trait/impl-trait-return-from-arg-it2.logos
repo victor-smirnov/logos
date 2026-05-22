@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/impl-trait/universal_in_adt_in_parameters.rs shape (distilled)
+// Feature: an `-> impl Trait` fn that builds the returned value from a runtime
+// argument; called twice with different inputs, each opaque result dispatched.
+package impl_trait_return_from_arg_it2;
+
+trait Doubler { fn dd(self: &Self) -> i64; }
+
+struct W { v: i64 }
+impl Doubler for W { fn dd(self: &W) -> i64 { return (*self).v * 2i64; } }
+
+fn wrap(n: i64) -> impl Doubler { return W { v: n }; }
+
+fn main() -> i32 {
+    let a = wrap(7i64);
+    let b = wrap(3i64);
+    if a.dd() + b.dd() == 20i64 { return 0i32; }
+    return 1i32;
+}

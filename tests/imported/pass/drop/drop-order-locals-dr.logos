@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-order.rs shape (distilled)
+// Feature: observable drop ORDER — multiple locals in one scope drop in REVERSE
+// declaration order at scope end. Each Foo records (counter, slot) on drop so the
+// sequence is observable. `static mut`→`*mut i64` counter idiom; by-value Drop.
+package m_drop_order_locals;
+
+trait Drop { fn drop(self: Self); }
+
+// `tick` is a shared monotonically-increasing clock; each drop stamps its `out`
+// slot with the current tick so we can read back the order.
+struct Foo { tick: *mut i64, out: *mut i64 }
+
+impl Drop for Foo {
+    fn drop(self: Foo) {
+        unsafe {
+            *self.tick = *self.tick + 1i64;
+            *self.out = *self.tick;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut tick: i64 = 0i64;
+    let mut o1: i64 = 0i64;
+    let mut o2: i64 = 0i64;
+    let mut o3: i64 = 0i64;
+    let tp = &mut tick as *mut i64;
+    {
+        let _a = Foo { tick: tp, out: &mut o1 as *mut i64 };
+        let _b = Foo { tick: tp, out: &mut o2 as *mut i64 };
+        let _c = Foo { tick: tp, out: &mut o3 as *mut i64 };
+    }
+    // reverse order: _c drops first (tick 1), then _b (2), then _a (3)
+    if o3 == 1i64 && o2 == 2i64 && o1 == 3i64 { return 0i32; }
+    return 1i32;
+}

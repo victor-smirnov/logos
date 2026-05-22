@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/enum-vtable.rs shape (distilled)
+// Feature: the result of a dynamically-dispatched `&dyn Trait` method is fed into a
+// `match` expression with literal arms + catch-all; two distinct impls drive
+// distinct arms. Exercises dyn dispatch composed with match-as-expression.
+package dyn_method_result_in_match;
+
+trait Tag { fn code(self: &Self) -> i64; }
+
+struct X {}
+struct Y {}
+impl Tag for X { fn code(self: &X) -> i64 { return 1i64; } }
+impl Tag for Y { fn code(self: &Y) -> i64 { return 2i64; } }
+
+fn classify(t: &dyn Tag) -> i64 {
+    let c = t.code();
+    return match c {
+        1i64 => 100i64,
+        2i64 => 200i64,
+        _ => 0i64,
+    };
+}
+
+fn main() -> i32 {
+    let x = X {};
+    let y = Y {};
+    if classify(&x) == 100i64 && classify(&y) == 200i64 { return 0i32; }
+    return 1i32;
+}

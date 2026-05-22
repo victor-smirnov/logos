@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/issue-33140.rs shape (distilled)
+// Feature: a `&dyn Trait` rebound to a local of `&dyn Trait` type from a concrete
+// reference (`let h: &dyn Trait = &x;`) then dispatched — the coercion site is the
+// `let` binding (not an `as` cast), and the same trait has multiple methods.
+package dyn_arg_and_local_handle;
+
+trait Meter {
+    fn lo(self: &Self) -> i64;
+    fn hi(self: &Self) -> i64;
+}
+
+struct M { a: i64, b: i64 }
+impl Meter for M {
+    fn lo(self: &M) -> i64 { return (*self).a; }
+    fn hi(self: &M) -> i64 { return (*self).b; }
+}
+
+fn span(m: &dyn Meter) -> i64 { return m.hi() - m.lo(); }
+
+fn main() -> i32 {
+    let m = M { a: 3i64, b: 10i64 };
+    let h: &dyn Meter = &m;
+    if span(h) == 7i64 && h.lo() == 3i64 { return 0i32; }
+    return 1i32;
+}

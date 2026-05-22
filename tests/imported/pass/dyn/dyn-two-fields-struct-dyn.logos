@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/object-lifetime.rs shape (distilled)
+// Feature: a struct holding TWO distinct `&dyn Trait` fields, each pointing at a
+// different concrete impl, both dispatched dynamically through the stored handles.
+package dyn_two_fields_struct;
+
+trait Val { fn v(self: &Self) -> i64; }
+
+struct A { a: i64 }
+struct B { b: i64 }
+impl Val for A { fn v(self: &A) -> i64 { return (*self).a; } }
+impl Val for B { fn v(self: &B) -> i64 { return (*self).b; } }
+
+struct Pair { first: &dyn Val, second: &dyn Val }
+
+fn main() -> i32 {
+    let a = A { a: 3i64 };
+    let b = B { b: 4i64 };
+    let p = Pair { first: &a, second: &b };
+    if p.first.v() + p.second.v() == 7i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/ — `&mut dyn Trait` mutating dispatch.
+// Feature: a `&mut dyn Trait` handle whose method takes `self: &mut Self` and
+// mutates the underlying concrete value through the trait object.
+package dyn_mut_self_method;
+
+trait Counter {
+    fn bump(self: &mut Self);
+    fn get(self: &Self) -> i64;
+}
+
+struct C { n: i64 }
+impl Counter for C {
+    fn bump(self: &mut C) { (*self).n = (*self).n + 1i64; }
+    fn get(self: &C) -> i64 { return (*self).n; }
+}
+
+fn bump_twice(c: &mut dyn Counter) {
+    c.bump();
+    c.bump();
+}
+
+fn main() -> i32 {
+    let mut c = C { n: 10i64 };
+    bump_twice(&mut c);
+    if c.get() == 12i64 { return 0i32; }
+    return 1i32;
+}

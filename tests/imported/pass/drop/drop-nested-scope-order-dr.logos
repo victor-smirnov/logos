@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-order.rs nested-scope shape (distilled)
+// Feature: nested scopes — an inner-block local drops at the end of the INNER
+// block (before the outer local), and the outer local drops at the end of the
+// outer block. A shared `tick` clock stamps each drop's slot so the order is
+// observable: inner = tick 1, outer = tick 2. By-value Drop idiom.
+package m_drop_nested_scope_order;
+
+trait Drop { fn drop(self: Self); }
+
+struct G { tick: *mut i64, out: *mut i64 }
+impl Drop for G {
+    fn drop(self: G) {
+        unsafe {
+            *self.tick = *self.tick + 1i64;
+            *self.out = *self.tick;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut tick: i64 = 0i64;
+    let mut o_in: i64 = 0i64;
+    let mut o_out: i64 = 0i64;
+    let tp = &mut tick as *mut i64;
+    {
+        let _outer = G { tick: tp, out: &mut o_out as *mut i64 };
+        {
+            let _inner = G { tick: tp, out: &mut o_in as *mut i64 };
+        }
+        unsafe { if *tp != 1i64 { return 2i32; } }
+    }
+    if o_in == 1i64 && o_out == 2i64 { return 0i32; }
+    return 1i32;
+}

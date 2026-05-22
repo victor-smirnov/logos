@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/impl-trait/impl-fn-predefined-lifetimes.rs shape (distilled)
+// Feature: an inherent METHOD with an `-> impl Trait` return type builds the
+// returned value from the receiver's field; caller dispatches on the opaque result.
+package impl_trait_return_from_method_it2;
+
+trait Doubler { fn dd(self: &Self) -> i64; }
+
+struct W { v: i64 }
+impl Doubler for W { fn dd(self: &W) -> i64 { return (*self).v * 2i64; } }
+
+struct Factory { base: i64 }
+impl Factory {
+    fn build(self: &Factory) -> impl Doubler { return W { v: (*self).base }; }
+}
+
+fn main() -> i32 {
+    let fac = Factory { base: 6i64 };
+    let w = fac.build();
+    if w.dd() == 12i64 { return 0i32; }
+    return 1i32;
+}

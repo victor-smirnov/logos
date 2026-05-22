@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-uninhabited-enum.rs / move-semantics shape
+// Feature: a value MOVED into a fn by value drops exactly ONCE — at the end of the
+// callee, not again in the caller (no double-drop). Counter ends at 1. By-value Drop.
+package m_drop_move_into_fn_once;
+
+trait Drop { fn drop(self: Self); }
+
+struct R { c: *mut i64 }
+impl Drop for R { fn drop(self: R) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn consume(r: R) { let _x = r; }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    let r = R { c: c };
+    consume(r);
+    unsafe { if *c == 1i64 { return 0i32; } }
+    return 1i32;
+}

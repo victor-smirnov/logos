@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/ — returning a trait object reference.
+// Feature: a fn parameterized over a runtime flag returns a `&dyn Trait`
+// pointing at one of two distinct concrete impls; caller dispatches.
+package dyn_returned_from_fn;
+
+trait Speak { fn say(self: &Self) -> i64; }
+
+struct Dog {}
+struct Cow {}
+impl Speak for Dog { fn say(self: &Dog) -> i64 { return 7i64; } }
+impl Speak for Cow { fn say(self: &Cow) -> i64 { return 9i64; } }
+
+fn pick(flag: bool, d: &dyn Speak, c: &dyn Speak) -> i64 {
+    if flag { return d.say(); }
+    return c.say();
+}
+
+fn main() -> i32 {
+    let d = Dog {};
+    let c = Cow {};
+    if pick(true, &d, &c) == 7i64 && pick(false, &d, &c) == 9i64 { return 0i32; }
+    return 1i32;
+}

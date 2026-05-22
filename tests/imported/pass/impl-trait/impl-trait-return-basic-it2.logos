@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/impl-trait/example-st.rs shape (distilled)
+// Feature: a fn with `-> impl Trait` return type returns a concrete value; the
+// caller binds it to an opaque local and dispatches the trait method on it.
+package impl_trait_return_basic_it2;
+
+trait Animal { fn legs(self: &Self) -> i64; }
+
+struct Dog {}
+impl Animal for Dog { fn legs(self: &Dog) -> i64 { return 4i64; } }
+
+fn make() -> impl Animal { return Dog {}; }
+
+fn main() -> i32 {
+    let d = make();
+    if d.legs() == 4i64 { return 0i32; }
+    return 1i32;
+}
