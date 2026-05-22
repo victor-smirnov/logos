@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (tuple as fn arg + return, composed).
+// Modifications: isize->i64; assert->if-return. Tests a fn taking and
+// returning a 3-tuple, composed with itself (`shift(shift(t))`) — a
+// rotate applied twice — then reading the result fields.
+package tuple_arg_ret_chain_tp2;
+
+fn shift(t: (i64, i64, i64)) -> (i64, i64, i64) {
+    return (t.2, t.0, t.1);
+}
+
+fn main() -> i32 {
+    let r = shift(shift((1i64, 2i64, 3i64)));
+    if r.0 != 2i64 { return 1i32; }
+    if r.1 != 3i64 { return 2i32; }
+    if r.2 != 1i64 { return 3i32; }
+    return 0i32;
+}

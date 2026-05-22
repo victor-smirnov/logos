@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pattern-in-closure.rs
+// Modifications: isize->i64; println! side effect replaced by a returned
+// computed value checked via if-return. Tests closures whose single
+// parameter is a destructuring PATTERN: a tuple pattern `|(x, _)|` and a
+// struct pattern `|Foo { x: x, y: _y }|`.
+package pattern_in_closure_bn2;
+
+struct Foo { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let f = |p: (i64, i64)| -> i64 {
+        let (x, _) = p;
+        return x + 1i64;
+    };
+    let g = |foo: Foo| -> i64 {
+        let Foo { x: x, y: _y } = foo;
+        return x + 1i64;
+    };
+    if f((2i64, 3i64)) != 3i64 { return 1i32; }
+    if g(Foo { x: 1i64, y: 2i64 }) != 2i64 { return 2i32; }
+    return 0i32;
+}

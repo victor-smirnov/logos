@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/nested-index.rs (deep variant).
+// Modifications: isize->i64; assert->if-return. Tests chained tuple
+// projection through a tuple nested four levels in the second slot,
+// reading `.1.1.0` and `.1.1.1`.
+package tuple_deep_nested_field_tp2;
+
+fn main() -> i32 {
+    let t: (i64, (i64, (i64, i64))) = (1i64, (2i64, (3i64, 4i64)));
+    if t.0 != 1i64 { return 1i32; }
+    if t.1.0 != 2i64 { return 2i32; }
+    if t.1.1.0 != 3i64 { return 3i32; }
+    if t.1.1.1 != 4i64 { return 4i32; }
+    return 0i32;
+}

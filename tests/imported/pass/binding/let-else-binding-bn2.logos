@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/ (let-else refutable-binding facet).
+// Modifications: isize->i64; the diverging else block returns an error
+// code. Tests the `let <refutable-pattern> = <expr> else { .. };` form:
+// when the Some-pattern matches, `x` is bound for the rest of the scope;
+// the else arm (which must diverge) is exercised by a separate call.
+package let_else_binding_bn2;
+
+fn get(b: bool) -> Option<i64> {
+    if b { return Option::Some(9i64); }
+    return Option::None;
+}
+
+fn unwrap_or_99(b: bool) -> i64 {
+    let Option::Some(x) = get(b) else { return 99i64; };
+    return x;
+}
+
+fn main() -> i32 {
+    if unwrap_or_99(true) != 9i64 { return 1i32; }
+    if unwrap_or_99(false) != 99i64 { return 2i32; }
+    return 0i32;
+}

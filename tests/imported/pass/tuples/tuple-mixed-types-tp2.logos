@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (heterogeneous-tuple facet).
+// Modifications: isize->i64; assert->if-return. Tests a tuple mixing
+// three distinct element types `(i64, bool, char)`, constructed and read
+// back field-by-field.
+package tuple_mixed_types_tp2;
+
+fn main() -> i32 {
+    let t: (i64, bool, char) = (5i64, true, 'q');
+    if t.0 != 5i64 { return 1i32; }
+    if !t.1 { return 2i32; }
+    if t.2 != 'q' { return 3i32; }
+    return 0i32;
+}

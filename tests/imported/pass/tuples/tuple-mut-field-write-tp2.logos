@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (tuple field assignment facet).
+// Modifications: isize->i64; assert->if-return. Tests writing through a
+// tuple field place on a `mut` local (`t.0 = ..`, `t.1 = t.1 + t.0`) and
+// reading the updated fields back.
+package tuple_mut_field_write_tp2;
+
+fn main() -> i32 {
+    let mut t: (i64, i64) = (1i64, 2i64);
+    t.0 = 10i64;
+    t.1 = t.1 + t.0;
+    if t.0 != 10i64 { return 1i32; }
+    if t.1 != 12i64 { return 2i32; }
+    return 0i32;
+}

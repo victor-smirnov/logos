@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-tag.rs
+// Modifications: isize->i64; rustc tuple-payload enum variants
+// (`rgb(isize,isize,isize)`) kept as multi-field tuple payloads;
+// assert_eq!->if-return. Tests a `match` over an enum with THREE
+// variants each carrying a different-arity tuple payload, binding a
+// distinct positional field per arm (`r`, `a`, `s`) with `_` for the
+// rest.
+package match_tag_multi_payload_bn2;
+
+enum Color {
+    Rgb(i64, i64, i64),
+    Rgba(i64, i64, i64, i64),
+    Hsl(i64, i64, i64)
+}
+
+fn process(c: Color) -> i64 {
+    match c {
+        Color::Rgb(r, _, _) => r,
+        Color::Rgba(_, _, _, a) => a,
+        Color::Hsl(_, s, _) => s
+    }
+}
+
+fn main() -> i32 {
+    let gray: Color = Color::Rgb(127i64, 127i64, 127i64);
+    let clear: Color = Color::Rgba(50i64, 150i64, 250i64, 0i64);
+    let red: Color = Color::Hsl(0i64, 255i64, 255i64);
+    if process(gray) != 127i64 { return 1i32; }
+    if process(clear) != 0i64 { return 2i32; }
+    if process(red) != 255i64 { return 3i32; }
+    return 0i32;
+}

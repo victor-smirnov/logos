@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-ref-binding-in-guard-3256.rs
+// Modifications: the `Mutex<bool>` + `lock().unwrap()` is distilled to a
+// bare `Option<bool>` (no Mutex port); the `Some(ref z) if *z` guard +
+// `ref`-binding read inside the arm body are kept faithful. Tests a
+// `ref`-binding in a `match` arm GUARD: the guard dereferences the
+// `ref`-bound payload, and the same binding is re-read in the body.
+package match_ref_binding_in_guard_bn2;
+
+fn main() -> i32 {
+    let x: Option<bool> = Option::Some(true);
+    match x {
+        Option::Some(ref z) if *z => {
+            if *z { return 0i32; }
+            return 5i32;
+        }
+        _ => { return 1i32; }
+    }
+}

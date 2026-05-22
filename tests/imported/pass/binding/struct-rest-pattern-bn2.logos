@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/ (struct rest-pattern `..` facet).
+// Modifications: isize->i64; assert->if-return. Tests struct-pattern
+// rest `..` in both a destructuring `let` (`let Foo { x, .. } = f`) and
+// a `match` arm (`Foo { z, .. }`): a single named field is bound while
+// the remaining fields are elided.
+package struct_rest_pattern_bn2;
+
+struct Foo { x: i64, y: i64, z: i64 }
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 1i64, y: 2i64, z: 3i64 };
+    let Foo { x, .. } = f;
+    if x != 1i64 { return 1i32; }
+    match f {
+        Foo { z, .. } => { if z != 3i64 { return 2i32; } }
+    }
+    return 0i32;
+}

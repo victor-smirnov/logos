@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-pattern-bindings.rs
+// Modifications: the original's `ref a @ Some(_)` reference-equality
+// shape is distilled to value `@`-bindings over inclusive RANGE
+// subpatterns plus a catch-all `@`-binding (reference patterns + ref
+// equality are a separate known-open). Tests `name @ subpattern`
+// at-bindings: the bound name captures the whole scrutinee while the
+// subpattern still constrains the arm. isize->i64; assert->if-return.
+package match_at_binding_range_bn2;
+
+fn classify(v: i64) -> i64 {
+    match v {
+        x @ 0i64..=10i64 => x + 1000i64,
+        y @ 11i64..=100i64 => y + 2000i64,
+        z => z
+    }
+}
+
+fn main() -> i32 {
+    if classify(5i64) != 1005i64 { return 1i32; }
+    if classify(50i64) != 2050i64 { return 2i32; }
+    if classify(500i64) != 500i64 { return 3i32; }
+    return 0i32;
+}

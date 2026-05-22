@@ -4,7 +4,7 @@
 // positional tuple-struct field syntax `S{0:..,1:..}`); the out-of-order
 // literal + the `..`-rest field pattern are preserved on the named fields.
 // `pub fn main()`→`fn main()->i32`; assert_eq!→return-code checks.
-package se_numeric_fields;
+package se_numeric_fields_named_st2;
 
 struct S { a: u8, b: u16 }
 

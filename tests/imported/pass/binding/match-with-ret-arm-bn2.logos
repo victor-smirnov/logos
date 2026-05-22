@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-with-ret-arm.rs
+// Modifications: the `"1234".parse::<usize>().ok()` source distilled to
+// a bare `Option<u32>` value (no str-parse port); the early-`return ()`
+// arm becomes an early `return <code>` from main. Tests that a `match`
+// expression whose first arm diverges (returns) still unifies the
+// non-diverging arm's type as the match value (bot-vs-T unification).
+package match_with_ret_arm_bn2;
+
+fn main() -> i32 {
+    let src: Option<u32> = Some(1234u32);
+    let f: u32 = match src {
+        None => { return 7i32; }
+        Some(num) => num
+    };
+    if f != 1234u32 { return 1i32; }
+    return 0i32;
+}

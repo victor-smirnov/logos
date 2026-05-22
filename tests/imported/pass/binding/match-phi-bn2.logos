@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-phi.rs
+// Modifications: isize->i64; the `FnOnce` higher-order helper is
+// distilled to a closure called directly inside the arm; the mutated
+// `x` is observed via return. Tests a fieldless-enum `match` where each
+// arm assigns a different value to a variable defined before the match
+// (the "phi" join), with one arm additionally invoking a closure.
+package match_phi_bn2;
+
+enum Thing { A, B, C }
+
+fn main() -> i32 {
+    let mut x: i64 = 0i64;
+    let t: Thing = Thing::A;
+    match t {
+        Thing::A => { x = 1i64; let f = |i: i64| -> i64 { return i + 1i64; }; x = f(x); }
+        Thing::B => { x = 2i64; }
+        Thing::C => { x = 3i64; }
+    }
+    if x != 2i64 { return 1i32; }
+    return 0i32;
+}

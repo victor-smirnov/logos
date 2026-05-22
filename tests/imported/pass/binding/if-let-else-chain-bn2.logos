@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/ (if-let / else-if-let chain facet).
+// Modifications: isize->i64; assert->if-return. Tests an `if let .. {}
+// else if let .. {} else {}` chain: the first pattern fails (None), the
+// second `else if let Some(y) = ..` matches and binds `y` for its block.
+package if_let_else_chain_bn2;
+
+fn main() -> i32 {
+    let a: Option<i64> = Option::None;
+    let b: Option<i64> = Option::Some(8i64);
+    let mut r: i64 = 0i64;
+    if let Option::Some(x) = a {
+        r = x;
+    } else if let Option::Some(y) = b {
+        r = y * 2i64;
+    } else {
+        r = 0i64 - 1i64;
+    }
+    if r != 16i64 { return 1i32; }
+    return 0i32;
+}

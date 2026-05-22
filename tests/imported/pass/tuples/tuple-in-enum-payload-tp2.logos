@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (tuple-as-enum-payload facet).
+// Modifications: isize->i64; the payload tuple is bound WHOLE in the
+// match arm (`E::Pair(p)`) then projected with `p.0`/`p.1` — the inner
+// tuple-DESTRUCTURING sub-pattern `E::Pair((a, b))` is a separate
+// known-open (recorded in notes). Tests carrying a tuple `(i64, i64)`
+// as an enum-variant payload, constructed and matched out.
+package tuple_in_enum_payload_tp2;
+
+enum E { Pair((i64, i64)), Single(i64) }
+
+fn main() -> i32 {
+    let e: E = E::Pair((10i64, 20i64));
+    let r: i64 = match e {
+        E::Pair(p) => p.0 + p.1,
+        E::Single(x) => x
+    };
+    if r != 30i64 { return 1i32; }
+    let e2: E = E::Single(42i64);
+    let r2: i64 = match e2 {
+        E::Pair(p) => p.0 + p.1,
+        E::Single(x) => x
+    };
+    if r2 != 42i64 { return 2i32; }
+    return 0i32;
+}

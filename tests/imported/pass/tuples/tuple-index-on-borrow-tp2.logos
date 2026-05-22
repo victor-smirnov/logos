@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (tuple field access through a borrow).
+// Modifications: isize->i64. Tests `.0`/`.1` projection on a `&(i64,i64)`
+// reference parameter (auto-deref of a tuple borrow at the index site).
+package tuple_index_on_borrow_tp2;
+
+fn first(t: &(i64, i64)) -> i64 { return t.0; }
+fn second(t: &(i64, i64)) -> i64 { return t.1; }
+
+fn main() -> i32 {
+    let p: (i64, i64) = (11i64, 22i64);
+    if first(&p) != 11i64 { return 1i32; }
+    if second(&p) != 22i64 { return 2i32; }
+    return 0i32;
+}

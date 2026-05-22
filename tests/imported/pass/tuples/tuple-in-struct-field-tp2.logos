@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ (tuple-as-struct-field facet).
+// Modifications: isize->i64. Tests a struct whose field type is a tuple
+// `(i64, i64)`: construct via a tuple field literal and read it back
+// through chained projection `s.field.0` / `s.field.1`.
+package tuple_in_struct_field_tp2;
+
+struct P { pos: (i64, i64), name: i64 }
+
+fn main() -> i32 {
+    let p: P = P { pos: (3i64, 4i64), name: 7i64 };
+    if p.pos.0 != 3i64 { return 1i32; }
+    if p.pos.1 != 4i64 { return 2i32; }
+    if p.pos.0 + p.pos.1 + p.name != 14i64 { return 3i32; }
+    return 0i32;
+}

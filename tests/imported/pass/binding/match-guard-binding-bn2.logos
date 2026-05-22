@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/ (match guard + binding facet).
+// Modifications: isize->i64; negatives written as `0 - n` (no unary
+// literal needed); assert->if-return. Tests `match` arms with a binding
+// plus a boolean GUARD (`x if x < 0`), a literal arm, a second guarded
+// binding, and a final catch-all binding — guards select among
+// overlapping value ranges.
+package match_guard_binding_bn2;
+
+fn classify(n: i64) -> i64 {
+    match n {
+        x if x < 0i64 => 0i64 - 1i64,
+        0i64 => 0i64,
+        x if x > 100i64 => 100i64,
+        x => x
+    }
+}
+
+fn main() -> i32 {
+    if classify(0i64 - 5i64) != (0i64 - 1i64) { return 1i32; }
+    if classify(0i64) != 0i64 { return 2i32; }
+    if classify(500i64) != 100i64 { return 3i32; }
+    if classify(42i64) != 42i64 { return 4i32; }
+    return 0i32;
+}
