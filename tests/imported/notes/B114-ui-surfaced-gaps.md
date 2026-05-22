@@ -75,10 +75,18 @@ struct functional-update, range/or patterns — all worked prelude-only.)
 - **unsupported-syntax** — empty struct-variant `enum Foo { A {} }` (empty braces)
   fails to parse. Worked around in issue-38002.logos by using a unit variant `A`.
 
-- **divergence** — typed reference-to-array `&[T; N]` does not unify with `&[T]`
-  (`type mismatch — expected (i64, &[i64; 2]), got (i64, &[i64])`); slice patterns
-  with rest (`&[_, ..]`, `&[]`) have no precedent and were not exercised. Affected
-  `tests/ui/match/match-tuple-slice.rs` (tuple element retyped to drop the slice ref).
+- ~~**divergence** — typed reference-to-array `&[T; N]` does not unify with `&[T]`~~
+  **RECLASSIFIED 2026-05-21 → §B5 catch-up + part CAUGHT UP.** The `&[T;N]`→`&[T]`
+  *coercion* now WORKS (verified: `&named_arr`, `&[lit,…]`, and inside tuple/struct
+  fields — `(i64, &[i64;2])` unifies with `(i64, &[i64])`). What actually blocks
+  `match-tuple-slice` is **dynamic-slice PATTERNS** (`[a, b]` / `[a, ..]` over a
+  `&[T]` scrutinee) — a codegen gap with 3 distinct symptoms (match-expr →
+  `arith.cmpi`-on-ptr; match-stmt → stray `arith.constant`; `&[_,_]` ref-pattern →
+  sema "reference pattern requires reference scrutinee"). See docs/DIVERGENCES.md §B5
+  for the full repro + fix-location. match-tuple-slice STAYS skipped (it discriminates
+  by slice length, so a fixed-array port would be degenerate).
+- **FIXED 2026-05-21 (47413e65)** — array pattern `[x, y]` in match-AS-EXPRESSION
+  was a silent miscompile (bindings read garbage). Now correct for fixed-size arrays.
 
 - **divergence (literal)** — negative integer literal at suffix-edge `-128i8` is
   parsed as `neg(128i8)` and `128i8` is out-of-range for i8. Worked around in
