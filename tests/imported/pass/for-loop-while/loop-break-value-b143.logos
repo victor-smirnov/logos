@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-break-value.rs
+// Modifications: distilled to the value-yielding `break` forms that are on the surface
+// (the Default::default()/never-type/String facets dropped); assert→ret-guards.
+// Tests `let v = loop { break N; }`, labeled `break 'outer V`, and `break <bool>`.
+package loop_break_value_b143;
+
+fn main() -> i32 {
+    let value: i64 = 'outer: loop {
+        if 1i64 == 1i64 {
+            break 13i64;
+        } else {
+            break 'outer 0i64;
+        }
+    };
+    if value != 13i64 { return 1i32; }
+
+    let nested: i64 = 'outer2: loop {
+        let _a: u32 = 'inner: loop {
+            if true {
+                break 'outer2 99i64;
+            } else {
+                break 'inner 17u32;
+            }
+        };
+        return 2i32;
+    };
+    if nested != 99i64 { return 3i32; }
+
+    let rust: bool = true;
+    let v2: bool = loop {
+        break rust;
+    };
+    if !v2 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/superdefault-generics.rs
+// Modifications: generic param S→concrete i64 (the Add/Clone bounds are S-driven and incidental);
+// `&mut self`→`self: &mut Point`; assert→ret-guard.
+// Tests a supertrait default method `Movable::translate` calling the subtrait's required
+// `Positioned::{x,set_x}` methods on `self`.
+package superdefault_generics_b143;
+
+trait Positioned {
+    fn set_x(self: &mut Self, v: i64);
+    fn x(self: &Self) -> i64;
+}
+
+trait Movable: Positioned {
+    fn translate(self: &mut Self, dx: i64) {
+        let nx: i64 = self.x() + dx;
+        self.set_x(nx);
+    }
+}
+
+struct Point { x: i64, y: i64 }
+
+impl Positioned for Point {
+    fn set_x(self: &mut Point, v: i64) { self.x = v; }
+    fn x(self: &Point) -> i64 { return self.x; }
+}
+
+impl Movable for Point {}
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 1i64, y: 2i64 };
+    p.translate(3i64);
+    if p.x() != 4i64 { return 1i32; }
+    return 0i32;
+}

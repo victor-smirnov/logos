@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/multidispatch2.rs
+// Modifications: `Default`→a self-contained `Zeroish` trait (impl for u64); usize→u64;
+// `&self`→`self: &T`/`self: &MyType`; assert→ret-guards.
+// Tests a blanket `impl<T: Zeroish> MyTrait<T> for T` coexisting with a concrete
+// `impl MyTrait<u64> for MyType`; dispatch picks the concrete impl over the blanket.
+package multidispatch2_b143;
+
+trait Zeroish { fn zero() -> Self; }
+impl Zeroish for u64 { fn zero() -> u64 { return 0u64; } }
+
+trait MyTrait<T> { fn get(self: &Self) -> T; }
+
+impl<T: Zeroish> MyTrait<T> for T {
+    fn get(self: &T) -> T { return T::zero(); }
+}
+
+struct MyType { dummy: u64 }
+
+impl MyTrait<u64> for MyType {
+    fn get(self: &MyType) -> u64 { return self.dummy; }
+}
+
+fn main() -> i32 {
+    let a: u64 = 22u64;
+    if a.get() != 0u64 { return 1i32; }
+    let value: MyType = MyType { dummy: 278u64 };
+    if value.get() != 278u64 { return 2i32; }
+    return 0i32;
+}

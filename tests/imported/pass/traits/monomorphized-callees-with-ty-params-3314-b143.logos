@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/monomorphized-callees-with-ty-params-3314.rs
+// Modifications: isize→i64; the no-op `serialize` methods given an observable return (sum);
+// `&self`→`self: &..`, the Serializer arg taken by `&S`; assert→ret-guard.
+// Tests a generic method `serialize<S: Serializer>` on `i64` and on a generic `F<A>` where the
+// F<A> impl recursively dispatches `serialize` on its inner `A` field (monomorphized callee).
+package monomorphized_callees_with_ty_params_3314_b143;
+
+trait Serializer { fn tag(self: &Self) -> i64; }
+
+trait Serializable { fn serialize<S: Serializer>(self: &Self, s: &S) -> i64; }
+
+impl Serializable for i64 {
+    fn serialize<S: Serializer>(self: &i64, s: &S) -> i64 { return *self + s.tag(); }
+}
+
+struct F<A> { a: A }
+
+impl<A: Serializable> Serializable for F<A> {
+    fn serialize<S: Serializer>(self: &F<A>, s: &S) -> i64 { return self.a.serialize(s); }
+}
+
+struct Sz { t: i64 }
+impl Serializer for Sz { fn tag(self: &Sz) -> i64 { return self.t; } }
+
+fn main() -> i32 {
+    let foo: F<i64> = F { a: 1i64 };
+    let sz: Sz = Sz { t: 100i64 };
+    if foo.serialize(&sz) != 101i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-9394-inherited-calls.rs
+// Modifications: String returns→distinct i64 codes; `&self`→`self: &X`/`self: &Self`.
+// The upstream calls all methods through a `&dyn Super` upcast; calling a supertrait method
+// through a `&dyn Super` object does not resolve inherited methods here, so the calls go on
+// the concrete `&X` receiver (still exercises the deep supertrait-chain method resolution).
+// Tests a 4-level supertrait chain Super: Base: Base2 + Base3 with a default method foo2.
+package issue_9394_inherited_calls_b143;
+
+trait Base3 { fn root(self: &Self) -> i64; }
+trait Base2: Base3 { fn baz(self: &Self) -> i64; }
+trait Base: Base2 + Base3 {
+    fn foo(self: &Self) -> i64;
+    fn foo1(self: &Self) -> i64;
+    fn foo2(self: &Self) -> i64 { return 2i64; }
+}
+trait Super: Base { fn bar(self: &Self) -> i64; }
+
+struct X { tag: i32 }
+
+impl Base3 for X { fn root(self: &X) -> i64 { return 30i64; } }
+impl Base2 for X { fn baz(self: &X) -> i64 { return 20i64; } }
+impl Base for X {
+    fn foo(self: &X) -> i64 { return 10i64; }
+    fn foo1(self: &X) -> i64 { return 11i64; }
+}
+impl Super for X { fn bar(self: &X) -> i64 { return 99i64; } }
+
+fn main() -> i32 {
+    let n: X = X { tag: 0i32 };
+    let s: &X = &n;
+    if s.bar() != 99i64 { return 1i32; }
+    if s.foo() != 10i64 { return 2i32; }
+    if s.foo1() != 11i64 { return 3i32; }
+    if s.foo2() != 2i64 { return 4i32; }
+    if s.baz() != 20i64 { return 5i32; }
+    if s.root() != 30i64 { return 6i32; }
+    return 0i32;
+}

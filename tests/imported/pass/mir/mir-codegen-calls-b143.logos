@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_calls.rs
+// Modifications: isize→i64; the `&[i32]` fat-pointer element dropped (kept the i64 + tuple
+// args/returns); nested fns hoisted to top level; assert→ret-guards.
+// Tests passing a number value + a tuple through a call and returning a (i64, tuple) out value,
+// plus a single-arg passthrough call (test2).
+package mir_codegen_calls_b143;
+
+fn callee1(a: i64, b: (i32, i32)) -> (i64, (i32, i32)) {
+    return (a, b);
+}
+
+fn test1(a: i64, b: (i32, i32)) -> (i64, (i32, i32)) {
+    return callee1(a, b);
+}
+
+fn test2(a: i64) -> i64 {
+    return a;
+}
+
+fn main() -> i32 {
+    let r: (i64, (i32, i32)) = test1(5i64, (10i32, 20i32));
+    let (x, bb) = r;
+    let (b0, b1) = bb;
+    if x != 5i64 { return 1i32; }
+    if b0 != 10i32 { return 2i32; }
+    if b1 != 20i32 { return 3i32; }
+    if test2(99i64) != 99i64 { return 4i32; }
+    return 0i32;
+}

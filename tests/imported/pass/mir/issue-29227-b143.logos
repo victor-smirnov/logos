@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/issue-29227.rs
+// Modifications: CharExt-on-char→a `CharExt`-on-struct trait with 3 default predicate methods +
+// one combinator default `any3` that ORs them; the ~30-method giant-match facet (the perf point)
+// distilled to 3 methods; `self`(Copy char receiver)→`self: &Self`; assert→ret-guards.
+// Tests a trait default method `any3` calling several other (default or overridden) `&self`
+// predicate methods on self via the `||` short-circuit operator.
+package issue_29227_b143;
+
+trait CharExt {
+    fn a(self: &Self) -> bool { return false; }
+    fn b(self: &Self) -> bool { return false; }
+    fn c(self: &Self) -> bool { return false; }
+    fn any3(self: &Self) -> bool {
+        return self.a() || self.b() || self.c();
+    }
+}
+
+struct W { v: i64 }
+
+impl CharExt for W {
+    fn b(self: &W) -> bool { return self.v == 2i64; }
+}
+
+fn main() -> i32 {
+    let w1: W = W { v: 2i64 };
+    let w2: W = W { v: 5i64 };
+    if !w1.any3() { return 1i32; }
+    if w2.any3() { return 2i32; }
+    return 0i32;
+}

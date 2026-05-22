@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-in-mut-slot-default-method.rs
+// Modifications: isize→i64; `Sized` supertrait + the `Box<Self>` `change_again` facet dropped;
+// `mut self`→`mut self: Self`, `&mut self`→`self: &mut Self`/`self: &mut X`; assert→ret-guard.
+// Tests a trait default method `change(mut self)` that mutates self by calling the required
+// `set_to(&mut self)` and then returns the by-value self.
+package self_in_mut_slot_default_method_b143;
+
+struct X { a: i64 }
+
+trait Changer {
+    fn change(mut self: Self) -> Self {
+        self.set_to(55i64);
+        return self;
+    }
+    fn set_to(self: &mut Self, a: i64);
+}
+
+impl Changer for X {
+    fn set_to(self: &mut X, a: i64) { self.a = a; }
+}
+
+fn main() -> i32 {
+    let x: X = X { a: 32i64 };
+    let new_x: X = x.change();
+    if new_x.a != 55i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_misc_casts.rs
+// Modifications: isize/usize→i64/u64; ptr/String/byte-string casts dropped; assert→ret-guards.
+// Tests an integer literal cast to every integer width + f32/f64 round-trips through values.
+package mir_misc_casts_b143;
+
+fn from_1() -> i64 {
+    let c1: i64 = 1i32 as i64;
+    let c2: u64 = 1i32 as u64;
+    let c3: i8 = 1i32 as i8;
+    let c4: i16 = 1i32 as i16;
+    let c5: i32 = 1i32 as i32;
+    let c6: i64 = 1i32 as i64;
+    let c7: u8 = 1i32 as u8;
+    let c8: u16 = 1i32 as u16;
+    let c9: u32 = 1i32 as u32;
+    let c10: u64 = 1i32 as u64;
+    let c11: f32 = 1i32 as f32;
+    let c12: f64 = 1i32 as f64;
+    return c1
+        + (c2 as i64)
+        + (c3 as i64)
+        + (c4 as i64)
+        + (c5 as i64)
+        + c6
+        + (c7 as i64)
+        + (c8 as i64)
+        + (c9 as i64)
+        + (c10 as i64)
+        + (c11 as i64)
+        + (c12 as i64);
+}
+
+fn main() -> i32 {
+    // 12 ones summed up = 12
+    if from_1() != 12i64 { return 1i32; }
+    return 0i32;
+}

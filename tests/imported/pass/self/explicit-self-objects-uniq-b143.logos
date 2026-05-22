@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self-objects-uniq.rs
+// Modifications: isize→i64; `self: Box<Self>` receiver→`self: &Self` (Box→stack); the
+// `x as Box<dyn Foo>` upcast→a `&dyn Foo` coercion; assert→ret-guard.
+// Tests coercing `&S` to a `&dyn Foo` trait object and dispatching its method, reading a field.
+package explicit_self_objects_uniq_b143;
+
+trait Foo { fn f(self: &Self) -> i64; }
+
+struct S { x: i64 }
+
+impl Foo for S {
+    fn f(self: &S) -> i64 { return self.x; }
+}
+
+fn main() -> i32 {
+    let x: S = S { x: 3i64 };
+    let y: &dyn Foo = &x;
+    if y.f() != 3i64 { return 1i32; }
+    return 0i32;
+}

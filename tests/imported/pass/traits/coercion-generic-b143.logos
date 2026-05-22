@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/coercion-generic.rs
+// Modifications: isize→i64; trait param T→i64; Box<dyn Trait<T>>→`&dyn Trait<T>`;
+// println→accumulate the arg via a `*mut i64` so dispatch is observable; assert→ret-guard.
+// Tests dispatch through a `&dyn Trait<i64>` trait object of a parameterized trait.
+package coercion_generic_b143;
+
+trait Trait {
+    fn f(self: &Self, x: i64, out: *mut i64);
+}
+
+struct Struct { x: i64, y: i64 }
+
+impl Trait for Struct {
+    fn f(self: &Struct, x: i64, out: *mut i64) {
+        unsafe { *out = self.x + self.y + x; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Struct = Struct { x: 1i64, y: 2i64 };
+    let mut got: i64 = 0i64;
+    let c: &dyn Trait = &a;
+    c.f(10i64, &mut got);
+    if got != 13i64 { return 1i32; }
+    return 0i32;
+}

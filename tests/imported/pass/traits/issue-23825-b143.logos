@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-23825.rs
+// Modifications: `to_string`→`code` returning a distinct i64 per impl (String/format! dropped);
+// `&self`→`self: &<prim>`; assert→ret-guards.
+// Tests a generic fn `pr<T: Stringify>(x: T)` dispatching to the right primitive impl (u32 vs f32).
+package issue_23825_b143;
+
+trait Stringify { fn code(self: &Self) -> i64; }
+
+impl Stringify for u32 { fn code(self: &u32) -> i64 { return 1i64; } }
+impl Stringify for f32 { fn code(self: &f32) -> i64 { return 2i64; } }
+
+fn pr<T: Stringify>(x: T) -> i64 { return x.code(); }
+
+fn main() -> i32 {
+    if pr(5u32) != 1i64 { return 1i32; }
+    if pr(5.0f32) != 2i64 { return 2i32; }
+    return 0i32;
+}

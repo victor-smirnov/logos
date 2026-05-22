@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/while-let.rs
+// Modifications: BinaryHeap::pop()→a hand-rolled `pop(n)->Option<i64>` source; isize→i64;
+// assert→ret-guards. A LABELED `'a: while let` rejects the label (`break 'a` errors
+// "label not in scope" — the label scope is not established for the while-let desugar), so the
+// labeled-break arm uses a plain `break`.
+// Tests `while let Some(x) = ...` loop accumulation and a conditional `break` out of one.
+package while_let_b143;
+
+fn pop(n: i64) -> Option<i64> {
+    if n > 0i64 { return Option::Some(n); }
+    return Option::None;
+}
+
+fn main() -> i32 {
+    let mut i: i64 = 3i64;
+    let mut sum: i64 = 0i64;
+    while let Option::Some(x) = pop(i) {
+        sum = sum + x;
+        i = i - 1i64;
+    }
+    if sum != 6i64 { return 1i32; }
+
+    let mut j: i64 = 3i64;
+    let mut s2: i64 = 0i64;
+    while let Option::Some(x) = pop(j) {
+        s2 = s2 + x;
+        if x == 2i64 { break; }
+        j = j - 1i64;
+    }
+    if s2 != 5i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index-autoderef.rs
+// Modifications: isize→i64; `&self`→`self: &Foo`; IndexMut + the Int-trait autoderef facets
+// dropped; distilled to the read-side `Index` overload; assert→ret-guards.
+// Tests an `impl Index<i64> for Foo` so that `f[z]` dispatches to the overloaded `index`.
+package overloaded_index_autoderef_b143;
+
+struct Foo { x: i64, y: i64 }
+
+impl Index<i64> for Foo {
+    type Output = i64;
+    fn index(self: &Foo, z: i64) -> &i64 {
+        if z == 0i64 { return &self.x; } else { return &self.y; }
+    }
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 7i64, y: 9i64 };
+    if f[0i64] != 7i64 { return 1i32; }
+    if f[1i64] != 9i64 { return 2i32; }
+    return 0i32;
+}

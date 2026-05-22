@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-on-empty-block-exit.rs
+// Modifications: Box<isize>→stack i64 payload; assert via reaching the matched arm.
+// Tests an enum-payload value matched with an ignored binding `t::foo(_z)` then exiting the block.
+package drop_on_empty_block_exit_b143;
+
+enum T { Foo(i64) }
+
+fn main() -> i32 {
+    let tt: T = T::Foo(10i64);
+    match tt {
+        T::Foo(_z) => { }
+    }
+    return 0i32;
+}

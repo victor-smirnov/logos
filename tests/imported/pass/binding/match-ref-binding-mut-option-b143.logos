@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-ref-binding-mut-option.rs
+// Modifications: i32→i64; `==`-on-Option→a second match (Option equality avoided); assert→ret-guards.
+// Tests a `Some(ref mut p)` match binding that mutates the payload in place through the ref.
+package match_ref_binding_mut_option_b143;
+
+fn main() -> i32 {
+    let mut v: Option<i64> = Option::Some(22i64);
+    match v {
+        Option::None => {}
+        Option::Some(ref mut p) => { *p = *p + 1i64; }
+    }
+    match v {
+        Option::Some(n) => { if n != 23i64 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    return 0i32;
+}

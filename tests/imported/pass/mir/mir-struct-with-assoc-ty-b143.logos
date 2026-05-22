@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_struct_with_assoc_ty.rs
+// Modifications: PhantomData→a dummy field; the projected field type
+// `<Global<[u32;2]> as DataBind>::Data` (assoc-type projection in field position is §B)
+// distilled to the concrete `[u32; 2]` it resolves to; assert→ret-guards.
+// Tests a struct with an associated-type-bearing trait present + an array field write.
+package mir_struct_with_assoc_ty_b143;
+
+trait DataBind { type Data; }
+struct Global<T> { _p: i32 }
+impl<T> DataBind for Global<T> { type Data = T; }
+
+struct Data { offsets: [u32; 2] }
+
+fn create_data() -> Data {
+    let mut d: Data = Data { offsets: [1u32, 2u32] };
+    d.offsets[0u64] = 3u32;
+    return d;
+}
+
+fn main() -> i32 {
+    let d: Data = create_data();
+    if d.offsets[0u64] != 3u32 { return 1i32; }
+    if d.offsets[1u64] != 2u32 { return 2i32; }
+    return 0i32;
+}

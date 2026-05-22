@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/enum-discrim-autosizing.rs
+// Modifications: the upstream only asserts size_of of each enum (dropped per conventions);
+// instead the discriminant values (incl. a negative `-1` and a large `0x8000`/`0x40000`) are
+// read back via `as i64` casts; assert→ret-guards.
+// Tests explicit enum discriminants (negative and large) and their `as` integer cast values.
+package enum_discrim_autosizing_b143;
+
+enum Ei8 { Ai8 = -1, Bi8 = 0 }
+enum Eu16 { Au16 = 0, Bu16 = 0x8000 }
+enum Ei32 { Ai32 = -1, Bi32 = 0x40000 }
+
+fn main() -> i32 {
+    if (Ei8::Ai8 as i64) != 0i64 - 1i64 { return 1i32; }
+    if (Ei8::Bi8 as i64) != 0i64 { return 2i32; }
+    if (Eu16::Bu16 as i64) != 32768i64 { return 3i32; }
+    if (Ei32::Ai32 as i64) != 0i64 - 1i64 { return 4i32; }
+    if (Ei32::Bi32 as i64) != 262144i64 { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,44 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/label_break_value.rs
+// Modifications: u32 kept; assert→ret-guards. Labeled BLOCKS `'b: { .. }` are not on
+// the surface (syntax error), so the labeled-block control flow is modeled with a
+// single-pass labeled loop `'b: loop { ..; break 'b }` and value-yielding `break 'b v`.
+// Tests labeled break with and without a value from a loop.
+package label_break_value_b143;
+
+fn label_break(a: bool, b: bool) -> u32 {
+    let mut v: u32 = 0u32;
+    'b: loop {
+        v = 1u32;
+        if a {
+            break 'b;
+        }
+        v = 2u32;
+        if b {
+            break 'b;
+        }
+        v = 3u32;
+        break 'b;
+    }
+    return v;
+}
+
+fn break_value(a: bool, b: bool) -> u32 {
+    let result: u32 = 'block: loop {
+        if a { break 'block 1u32; }
+        if b { break 'block 2u32; }
+        break 'block 3u32;
+    };
+    return result;
+}
+
+fn main() -> i32 {
+    if label_break(true, false) != 1u32 { return 1i32; }
+    if label_break(false, true) != 2u32 { return 2i32; }
+    if label_break(false, false) != 3u32 { return 3i32; }
+
+    if break_value(true, false) != 1u32 { return 4i32; }
+    if break_value(false, true) != 2u32 { return 5i32; }
+    if break_value(false, false) != 3u32 { return 6i32; }
+    return 0i32;
+}
