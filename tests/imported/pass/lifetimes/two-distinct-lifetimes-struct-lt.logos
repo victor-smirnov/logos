@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/* two-lifetime-parameter facets (DISTILLED)
+// A struct parametric in TWO distinct lifetimes `'a`, `'b`, each field
+// borrowing from a different scope; methods read each borrowed value at
+// runtime. usize→i64; `&self`→`self: &T`; lifetime turbofish dropped.
+package two_distinct_lifetimes_struct_lt;
+
+struct Pair<'a, 'b> { x: &'a i64, y: &'b i64 }
+
+impl<'a, 'b> Pair<'a, 'b> {
+    fn fst(self: &Pair<'a, 'b>) -> i64 { return *self.x; }
+    fn snd(self: &Pair<'a, 'b>) -> i64 { return *self.y; }
+    fn sum(self: &Pair<'a, 'b>) -> i64 { return *self.x + *self.y; }
+}
+
+fn main() -> i32 {
+    let a: i64 = 11i64;
+    let b: i64 = 22i64;
+    let p: Pair = Pair { x: &a, y: &b };
+    if p.fst() != 11i64 { return 1i32; }
+    if p.snd() != 22i64 { return 2i32; }
+    if p.sum() != 33i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/* array-of-references facets (DISTILLED,
+// distinct from regions/array-of-refs-shorten which only tests variance typing
+// and never reads). A fixed array of `&i64` is iterated with `for r in &arr`
+// (yields `&&i64`) and the values are summed via double-deref `**r`.
+package array_of_refs_read_lt;
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    let c: i64 = 3i64;
+    let arr: [&i64; 3] = [&a, &b, &c];
+    let mut sum: i64 = 0i64;
+    for r in &arr {
+        sum = sum + **r;
+    }
+    if sum != 6i64 { return 1i32; }
+    return 0i32;
+}

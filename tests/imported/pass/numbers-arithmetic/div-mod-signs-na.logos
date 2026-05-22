@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/div-mod.rs facets (DISTILLED,
+// distinct from the existing div-mod import). Signed division truncates toward
+// zero; the `%` remainder sign follows the DIVIDEND (Rust/C semantics, not
+// Euclidean). Unsigned div/rem too.
+package div_mod_signs_na;
+
+fn main() -> i32 {
+    if (-7i32 / 2i32) != -3i32 { return 1i32; }   // trunc toward zero
+    if (-7i32 % 2i32) != -1i32 { return 2i32; }   // sign of dividend
+    if (7i32 % -2i32) != 1i32 { return 3i32; }
+    if (-7i32 % -2i32) != -1i32 { return 4i32; }
+    if (17u32 / 5u32) != 3u32 { return 5i32; }
+    if (17u32 % 5u32) != 2u32 { return 6i32; }
+    if (100i64 / 7i64) != 14i64 { return 7i32; }
+    if (100i64 % 7i64) != 2i64 { return 8i32; }
+    return 0i32;
+}

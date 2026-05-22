@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/enum-lifetime-container-10228.rs facets
+// (DISTILLED). A lifetime-parametric enum whose variant carries `&'a T`; the
+// borrowed payload is bound in a `match *r` arm and dereferenced at runtime
+// (distinct from the existing enum-lt construct/shorten tests, which never read
+// the payload). `match *self`-style explicit deref of the `&Enum` scrutinee.
+package enum_ref_variant_match_lt;
+
+enum Ref<'a> { Borrowed(&'a i64), Empty }
+
+fn get<'a>(r: &Ref<'a>) -> i64 {
+    match *r {
+        Ref::Borrowed(v) => { return *v; }
+        Ref::Empty => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let n: i64 = 99i64;
+    let r: Ref = Ref::Borrowed(&n);
+    if get(&r) != 99i64 { return 1i32; }
+    let e: Ref = Ref::Empty;
+    if get(&e) != -1i64 { return 2i32; }
+    return 0i32;
+}

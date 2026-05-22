@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/num-wrapping.rs (DISTILLED)
+// Modifications: Rust's `Wrapping<T>` newtype + macro grid distilled to the
+// `logos.lang.arith` free-fn wrapping ops (the named replacement for silent
+// two's-complement overflow — `+`/`-`/`*` trap at runtime in Logos). i32/u32
+// receivers only (narrow widths i8/i16/u8 are a known method-resolution gap,
+// see B124 notes). usize/isize→u64/i64.
+package wrapping_overflow_na;
+
+use logos.lang.arith;
+
+fn main() -> i32 {
+    // i32 MAX + 1 wraps to MIN
+    let imax: i32 = 2147483647i32;
+    let imin: i32 = -2147483648i32;
+    if wrapping_add::<i32>(imax, 1i32) != imin { return 1i32; }
+    // i32 MIN - 1 wraps to MAX
+    if wrapping_sub::<i32>(imin, 1i32) != imax { return 2i32; }
+    // i32 MAX * 2 == -2
+    if wrapping_mul::<i32>(imax, 2i32) != -2i32 { return 3i32; }
+    // u32 0 - 1 wraps to u32::MAX
+    let umax: u32 = 4294967295u32;
+    if wrapping_sub::<u32>(0u32, 1u32) != umax { return 4i32; }
+    // u32 MAX + 1 wraps to 0
+    if wrapping_add::<u32>(umax, 1u32) != 0u32 { return 5i32; }
+    // wrapping negation of MIN is MIN (0 - MIN overflows back to MIN)
+    if wrapping_sub::<i32>(0i32, imin) != imin { return 6i32; }
+    return 0i32;
+}

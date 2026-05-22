@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/struct-with-lifetime-parameters-9259.rs
+// facets (DISTILLED). A fn takes `&'a T`, builds a lifetime-parametric struct
+// `Wrap<'a>` carrying that borrow, and RETURNS it; a second fn reads the borrow
+// back out. Exercises the output-lifetime threading through a constructor + the
+// runtime read of the stored ref.
+package return_lifetime_struct_lt;
+
+struct Wrap<'a> { r: &'a i64 }
+
+fn wrap<'a>(x: &'a i64) -> Wrap<'a> { return Wrap { r: x }; }
+fn unwrap<'a>(w: &Wrap<'a>) -> i64 { return *w.r; }
+
+fn main() -> i32 {
+    let n: i64 = 77i64;
+    let w: Wrap = wrap(&n);
+    if unwrap(&w) != 77i64 { return 1i32; }
+    return 0i32;
+}

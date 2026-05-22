@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if-bot.rs + if-generic.rs facets (DISTILLED)
+// if / else-if / else as a value-producing expression; nested if in else arm;
+// block expr as the last value of a branch.
+package if_else_chain_ex;
+
+fn classify(x: i32) -> i32 {
+    return if x < 0i32 {
+        -1i32
+    } else if x == 0i32 {
+        0i32
+    } else if x < 100i32 {
+        1i32
+    } else {
+        2i32
+    };
+}
+
+fn main() -> i32 {
+    if classify(-5i32) != -1i32 { return 1i32; }
+    if classify(0i32) != 0i32 { return 2i32; }
+    if classify(42i32) != 1i32 { return 3i32; }
+    if classify(1000i32) != 2i32 { return 4i32; }
+
+    // if-expr whose branch is a block with intermediate lets
+    let v: i32 = if classify(5i32) == 1i32 {
+        let a: i32 = 3i32;
+        let b: i32 = 4i32;
+        a * b
+    } else {
+        0i32
+    };
+    if v != 12i32 { return 5i32; }
+    return 0i32;
+}

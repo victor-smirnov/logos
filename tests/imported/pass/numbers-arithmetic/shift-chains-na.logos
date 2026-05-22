@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift.rs (DISTILLED)
+// Left-associative shift chains, shift-by-variable, mixed shift result types.
+// usize→u64; `static` const items folded to locals (§A1); assert_eq!→return
+// codes (the macro needs fmt/string/str imports — value checks suffice here).
+package shift_chains_na;
+
+fn main() -> i32 {
+    // 1 << 1 << 1 << 1 << 1 << 1 == 32 (left-associative)
+    if (1i32 << 1i32 << 1i32 << 1i32 << 1i32 << 1i32) != 32i32 { return 1i32; }
+
+    let v10: u64 = 10u64;
+    let v2: u64 = 2u64;
+    if (v10 >> v2) != 2u64 { return 2i32; }
+    let v4: u64 = 4u64;
+    if (v10 << v4) != 160u64 { return 3i32; }
+
+    let w10: i32 = 10i32;
+    if (w10 >> 2u64) != 2i32 { return 4i32; }
+    if (w10 << 4u64) != 160i32 { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/num-wrapping.rs facets (DISTILLED)
+// checked_* integer methods returning Option<T> on overflow. i32/i64
+// receivers (narrow-width receivers are a known method-resolution gap).
+package checked_arith_na;
+
+fn main() -> i32 {
+    // checked_add succeeds in-range
+    match 100i32.checked_add(1i32) {
+        Option::Some(v) => { if v != 101i32 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    // checked_add overflows -> None
+    match 2147483647i32.checked_add(1i32) {
+        Option::Some(_) => { return 3i32; }
+        Option::None => { }
+    }
+    // checked_sub underflows -> None
+    match (-2147483648i32).checked_sub(1i32) {
+        Option::Some(_) => { return 4i32; }
+        Option::None => { }
+    }
+    // checked_mul in-range
+    match 1000i64.checked_mul(1000i64) {
+        Option::Some(v) => { if v != 1000000i64 { return 5i32; } }
+        Option::None => { return 6i32; }
+    }
+    // checked_div by valid divisor
+    match 100i32.checked_div(4i32) {
+        Option::Some(v) => { if v != 25i32 { return 7i32; } }
+        Option::None => { return 8i32; }
+    }
+    return 0i32;
+}

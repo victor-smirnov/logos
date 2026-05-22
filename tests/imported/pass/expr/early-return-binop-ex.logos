@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/early-return-in-binop.rs (DISTILLED, distinct
+// from the existing early-return-in-binop import which covers `n + {return n}`).
+// Here `return` lives inside a BLOCK sub-expression in call-argument and
+// comparison-rhs positions: `{ if flag { return v; } tail }`.
+// NOTE: the bare `if flag { return v; } else { e }` USED AS a sub-expression
+// (no enclosing block) fails — Logos types the return-only branch as `void`
+// instead of coercing it to the other branch's type (gap G124-2, never-type
+// coercion at if-branch level). Wrapping the if in a block (so the block's tail
+// supplies the value type) is the working form.
+package early_return_binop_ex;
+
+fn add(a: i32, b: i32) -> i32 { return a + b; }
+
+fn maybe(flag: bool) -> i32 {
+    return add(1i32, { if flag { return 7i32; } 2i32 });
+}
+
+fn cmp_ret(flag: bool, x: i32) -> i32 {
+    let b: bool = x < { if flag { return 50i32; } 10i32 };
+    if b { return 1i32; } else { return 0i32; }
+}
+
+fn main() -> i32 {
+    if maybe(true) != 7i32 { return 1i32; }
+    if maybe(false) != 3i32 { return 2i32; }
+    if cmp_ret(true, 5i32) != 50i32 { return 3i32; }
+    if cmp_ret(false, 5i32) != 1i32 { return 4i32; }
+    return 0i32;
+}

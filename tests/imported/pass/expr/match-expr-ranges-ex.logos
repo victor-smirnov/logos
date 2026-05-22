@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/* match-as-expression facets (DISTILLED)
+// `match` in expression position with inclusive range patterns, an
+// or-pattern arm, a guard arm, and a binding catch-all.
+package match_expr_ranges_ex;
+
+fn grade(score: i32) -> i32 {
+    return match score {
+        0i32..=59i32 => 0i32,
+        60i32..=69i32 => 1i32,
+        70i32 | 71i32 | 72i32 => 2i32,
+        n if n >= 90i32 => 4i32,
+        _ => 3i32,
+    };
+}
+
+fn main() -> i32 {
+    if grade(50i32) != 0i32 { return 1i32; }
+    if grade(65i32) != 1i32 { return 2i32; }
+    if grade(71i32) != 2i32 { return 3i32; }
+    if grade(95i32) != 4i32 { return 4i32; }
+    if grade(80i32) != 3i32 { return 5i32; }
+    return 0i32;
+}

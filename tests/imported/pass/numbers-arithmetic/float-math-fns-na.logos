@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float_math.rs + float2.rs (DISTILLED)
+// Float arithmetic + rounding via the `logos.lang.math` free fns. (Rust's
+// float_math.rs uses unstable `fadd_fast`/etc. intrinsics asserting equality
+// with `+`/`-`/`*`/`/`/`%`; the f64.sqrt()/.floor() METHOD form is a known gap,
+// so this routes through the named free-fn forms sqrt_f64/floor_f64/...)
+package float_math_fns_na;
+
+use logos.lang.math;
+
+fn main() -> i32 {
+    let a: f64 = 10.0f64;
+    let b: f64 = 5.0f64;
+    // basic operators map correctly
+    if (a + b) != 15.0f64 { return 1i32; }
+    if (a - b) != 5.0f64 { return 2i32; }
+    if (a * b) != 50.0f64 { return 3i32; }
+    if (a / b) != 2.0f64 { return 4i32; }
+    if fmod_f64(a, 3.0f64) != 1.0f64 { return 5i32; }
+    // rounding family
+    if floor_f64(3.7f64) != 3.0f64 { return 6i32; }
+    if ceil_f64(3.2f64) != 4.0f64 { return 7i32; }
+    if round_f64(2.5f64) != 3.0f64 { return 8i32; }
+    if trunc_f64(3.9f64) != 3.0f64 { return 9i32; }
+    // sqrt / abs / pow
+    if sqrt_f64(144.0f64) != 12.0f64 { return 10i32; }
+    if abs_f64(-2.5f64) != 2.5f64 { return 11i32; }
+    if pow_f64(2.0f64, 8.0f64) != 256.0f64 { return 12i32; }
+    return 0i32;
+}

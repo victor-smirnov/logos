@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/* `&mut self` method facets (DISTILLED)
+// A method taking `self: &mut T` mutates the receiver in place across repeated
+// calls; a `self: &T` reader observes the result. usize→i64.
+package mut_self_method_lt;
+
+struct Counter { n: i64 }
+
+impl Counter {
+    fn inc(self: &mut Counter) { self.n = self.n + 1i64; }
+    fn add(self: &mut Counter, k: i64) { self.n = self.n + k; }
+    fn get(self: &Counter) -> i64 { return self.n; }
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter { n: 0i64 };
+    c.inc();
+    c.inc();
+    c.inc();
+    if c.get() != 3i64 { return 1i32; }
+    c.add(10i64);
+    if c.get() != 13i64 { return 2i32; }
+    return 0i32;
+}

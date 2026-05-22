@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/unary-minus-suffix-inference.rs +
+// integer-literal-radix.rs facets (DISTILLED). Unary minus binding tighter than
+// binary ops; hex/octal/binary radix literals; INT_MIN written as -MAX-1.
+package unary_minus_precedence_na;
+
+fn main() -> i32 {
+    // -a * b parses as (-a) * b
+    let a: i32 = 5i32;
+    let b: i32 = 3i32;
+    if (-a * b) != -15i32 { return 1i32; }
+    // unary minus then subtraction
+    if (-a - b) != -8i32 { return 2i32; }
+    // double negation
+    if (- -a) != 5i32 { return 3i32; }
+    // radix literals: hex / octal / binary all equal 255
+    if 0xFFi32 != 255i32 { return 4i32; }
+    if 0o377i32 != 255i32 { return 5i32; }
+    if 0b11111111i32 != 255i32 { return 6i32; }
+    // i32::MIN written as -MAX-1 (most-negative literal isn't directly writable)
+    let imin: i32 = -2147483647i32 - 1i32;
+    if imin != -2147483648i32 { return 7i32; }
+    return 0i32;
+}

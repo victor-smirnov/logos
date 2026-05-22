@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/for-loop-region-links.rs facets (DISTILLED)
+// A borrow threaded through a chain of identity-on-lifetime fns: `id(id(x))`,
+// each `fn id<'a>(&'a T) -> &'a T`. The output lifetime must flow back through
+// the nested calls to the original borrow. Reads the value at runtime.
+package chained_borrow_fns_lt;
+
+fn id<'a>(x: &'a i64) -> &'a i64 { return x; }
+fn twice<'a>(x: &'a i64) -> &'a i64 { return id(id(x)); }
+
+fn main() -> i32 {
+    let n: i64 = 13i64;
+    let r: &i64 = twice(&n);
+    if *r != 13i64 { return 1i32; }
+    // a second, longer chain
+    let m: i64 = 8i64;
+    let s: &i64 = id(twice(&m));
+    if *s != 8i64 { return 2i32; }
+    return 0i32;
+}

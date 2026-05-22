@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/* function-pointer-as-value facets (DISTILLED)
+// A `fn(i32) -> i32` value bound to a local and called; a fn taking another fn
+// by `fn(..) -> ..` pointer parameter and invoking it.
+package fn_pointer_value_ex;
+
+fn add1(x: i32) -> i32 { return x + 1i32; }
+fn mul2(x: i32) -> i32 { return x * 2i32; }
+fn apply(f: fn(i32) -> i32, v: i32) -> i32 { return f(v); }
+
+fn main() -> i32 {
+    let f: fn(i32) -> i32 = add1;
+    if f(10i32) != 11i32 { return 1i32; }
+    if apply(mul2, 21i32) != 42i32 { return 2i32; }
+    if apply(add1, 5i32) != 6i32 { return 3i32; }
+    return 0i32;
+}

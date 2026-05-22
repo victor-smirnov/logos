@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/* mutable-borrow facets (DISTILLED)
+// `&mut T` parameters: a fn mutates the caller's value through the borrow; a
+// two-`&mut` swap. usize→i64.
+package mut_borrow_modify_lt;
+
+fn bump(p: &mut i64) { *p = *p + 1i64; }
+fn swap2(a: &mut i64, b: &mut i64) { let t: i64 = *a; *a = *b; *b = t; }
+
+fn main() -> i32 {
+    let mut x: i64 = 10i64;
+    bump(&mut x);
+    bump(&mut x);
+    if x != 12i64 { return 1i32; }
+
+    let mut a: i64 = 1i64;
+    let mut b: i64 = 2i64;
+    swap2(&mut a, &mut b);
+    if a != 2i64 { return 2i32; }
+    if b != 1i64 { return 3i32; }
+    return 0i32;
+}

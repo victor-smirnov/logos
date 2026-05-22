@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/num-wrapping.rs facets (DISTILLED)
+// saturating_* integer methods clamp to T::MIN / T::MAX instead of wrapping.
+// i32/i64 receivers (narrow-width receivers are a known method-resolution gap).
+package saturating_arith_na;
+
+fn main() -> i32 {
+    // saturating_add clamps at i32::MAX
+    if 2147483647i32.saturating_add(1i32) != 2147483647i32 { return 1i32; }
+    // saturating_sub clamps at i32::MIN
+    if (-2147483648i32).saturating_sub(1i32) != -2147483648i32 { return 2i32; }
+    // saturating_mul clamps at MAX
+    if 2000000000i32.saturating_mul(2i32) != 2147483647i32 { return 3i32; }
+    // in-range saturating ops behave normally
+    if 100i32.saturating_add(23i32) != 123i32 { return 4i32; }
+    if 100i64.saturating_sub(40i64) != 60i64 { return 5i32; }
+    return 0i32;
+}

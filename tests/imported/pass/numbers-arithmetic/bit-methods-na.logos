@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/* bit-counting facets (DISTILLED)
+// count_ones / leading_zeros / trailing_zeros / rotate_left / rotate_right /
+// swap_bytes on i32/u32/u64. (narrow-width receivers are a known gap.)
+package bit_methods_na;
+
+fn main() -> i32 {
+    // 100 = 0b1100100 -> 3 set bits
+    if 100i32.count_ones() != 3u32 { return 1i32; }
+    // 100 in i32: 32 - 7 = 25 leading zeros, 2 trailing
+    if 100i32.leading_zeros() != 25u32 { return 2i32; }
+    if 100i32.trailing_zeros() != 2u32 { return 3i32; }
+    // rotate within u32
+    if 0x12u32.rotate_left(4u32) != 0x120u32 { return 4i32; }
+    if 0x120u32.rotate_right(4u32) != 0x12u32 { return 5i32; }
+    // byte swap on u32
+    if 0x12345678u32.swap_bytes() != 0x78563412u32 { return 6i32; }
+    // count_ones on a full u64 nibble
+    if 0xFFu64.count_ones() != 8u32 { return 7i32; }
+    return 0i32;
+}

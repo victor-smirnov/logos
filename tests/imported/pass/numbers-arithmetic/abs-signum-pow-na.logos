@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/int-abs-overflow.rs facets (DISTILLED)
+// abs / signum / pow / min / max on i32/i64. (Rust's int-abs-overflow.rs tests
+// the OVERFLOW-panic of i32::MIN.abs() via thread::spawn().join().is_err();
+// that needs unwinding+threads, so this DISTILLS the in-range value semantics.)
+package abs_signum_pow_na;
+
+fn main() -> i32 {
+    if (-5i32).abs() != 5i32 { return 1i32; }
+    if 5i32.abs() != 5i32 { return 2i32; }
+    if (-7i64).abs() != 7i64 { return 3i32; }
+    // signum: -1 / 0 / +1
+    if (-3i32).signum() != -1i32 { return 4i32; }
+    if 0i32.signum() != 0i32 { return 5i32; }
+    if 9i32.signum() != 1i32 { return 6i32; }
+    // pow
+    if 2i32.pow(10u32) != 1024i32 { return 7i32; }
+    if 3i64.pow(4u32) != 81i64 { return 8i32; }
+    // min / max
+    if 3i32.min(7i32) != 3i32 { return 9i32; }
+    if 3i32.max(7i32) != 7i32 { return 10i32; }
+    return 0i32;
+}

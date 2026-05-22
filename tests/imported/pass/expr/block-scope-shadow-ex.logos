@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/scope.rs + block.rs facets (DISTILLED)
+// Block expression producing a value; a `while` loop inside a block expr
+// accumulating into the result. NOTE: two facets were dropped — (1) an
+// inner-block `let` SHADOW leaks into the enclosing scope (gap G124-1); (2) a
+// block nested as another block's tail `{ { 7 } }` loses its value (gap G124-3).
+// See B124 notes. Single-level block-as-value + distinct-named inner lets work.
+package block_scope_shadow_ex;
+
+fn main() -> i32 {
+    let x: i32 = 10i32;
+    // inner block introduces a fresh name (no shadow); outer x unaffected
+    let y: i32 = {
+        let inner: i32 = 100i32;
+        inner + 1i32
+    };
+    if y != 101i32 { return 1i32; }
+    if x != 10i32 { return 2i32; }
+
+    // block expr that runs a loop and yields the last expression
+    let total: i32 = {
+        let mut a: i32 = 0i32;
+        let mut n: i32 = 1i32;
+        while n <= 5i32 {
+            a = a + n;
+            n = n + 1i32;
+        }
+        a
+    };
+    if total != 15i32 { return 3i32; }
+    return 0i32;
+}

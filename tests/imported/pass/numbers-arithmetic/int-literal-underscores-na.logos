@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/integer-literal-radix.rs facets
+// (DISTILLED, distinct from the existing integer-literal-radix import).
+// Digit-group underscore separators across decimal / hex / binary radixes.
+package int_literal_underscores_na;
+
+fn main() -> i32 {
+    let m: i64 = 1_000_000i64;
+    if m != 1000000i64 { return 1i32; }
+    let h: u32 = 0xDEAD_BEEFu32;
+    if h != 3735928559u32 { return 2i32; }
+    let b: u8 = 0b1010_1010u8;
+    if b != 170u8 { return 3i32; }
+    let o: u32 = 0o7_5_5u32;
+    if o != 493u32 { return 4i32; }
+    return 0i32;
+}

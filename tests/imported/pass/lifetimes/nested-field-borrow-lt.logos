@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/* nested-field-borrow facets (DISTILLED)
+// A fn returns `&'a i64` borrowing a field of a NESTED struct (`&o.inner.val`);
+// the output lifetime is tied to the `&'a Outer` input. Value read at runtime.
+package nested_field_borrow_lt;
+
+struct Inner { val: i64 }
+struct Outer { inner: Inner }
+
+fn peek<'a>(o: &'a Outer) -> &'a i64 { return &o.inner.val; }
+
+fn main() -> i32 {
+    let o: Outer = Outer { inner: Inner { val: 88i64 } };
+    let r: &i64 = peek(&o);
+    if *r != 88i64 { return 1i32; }
+    return 0i32;
+}

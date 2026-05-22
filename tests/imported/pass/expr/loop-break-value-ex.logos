@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/* loop-as-expression facets (DISTILLED)
+// `loop { ... break v; }` as a value-producing expression (unlabeled break
+// carrying a value). Value-carrying LABELED break stays a known gap.
+package loop_break_value_ex;
+
+fn main() -> i32 {
+    let mut i: i32 = 0i32;
+    let r: i32 = loop {
+        i = i + 1i32;
+        if i == 5i32 { break i * 2i32; }
+    };
+    if r != 10i32 { return 1i32; }
+
+    // nested loop, inner break value
+    let mut acc: i32 = 0i32;
+    let mut j: i32 = 0i32;
+    while j < 3i32 {
+        let step: i32 = loop {
+            break 7i32;
+        };
+        acc = acc + step;
+        j = j + 1i32;
+    }
+    if acc != 21i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/* tuple-expression facets (DISTILLED)
+// Tuple let-destructure (incl. nested), arithmetic over the bound elements,
+// and `.0`/`.1.1` field-index access.
+package tuple_destructure_arith_ex;
+
+fn main() -> i32 {
+    let t: (i32, i32, i32) = (3i32, 4i32, 5i32);
+    let (a, b, c) = t;
+    // Pythagorean triple
+    if a * a + b * b != c * c { return 1i32; }
+
+    // nested tuple destructure
+    let n: (i32, (i32, i32)) = (1i32, (2i32, 3i32));
+    let (x, (y, z)) = n;
+    if x + y + z != 6i32 { return 2i32; }
+
+    // tuple field-index access
+    if t.0 != 3i32 { return 3i32; }
+    if t.2 != 5i32 { return 4i32; }
+    if n.1.1 != 3i32 { return 5i32; }
+    return 0i32;
+}

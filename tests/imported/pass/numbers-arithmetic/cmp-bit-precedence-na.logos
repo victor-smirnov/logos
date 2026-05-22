@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/bitwise-ops-platform.rs +
+// operator-precedence facets (DISTILLED). Full comparison-operator set on int +
+// float; bitwise `&`/`|`/`^`/`!` with `&` binding tighter than `|`.
+package cmp_bit_precedence_na;
+
+fn main() -> i32 {
+    // comparison operators (i32)
+    if !(1i32 < 2i32) { return 1i32; }
+    if !(2i32 <= 2i32) { return 2i32; }
+    if !(3i32 > 2i32) { return 3i32; }
+    if !(2i32 >= 2i32) { return 4i32; }
+    if !(2i32 == 2i32) { return 5i32; }
+    if !(2i32 != 3i32) { return 6i32; }
+    // float comparisons
+    if !(1.5f64 < 2.5f64) { return 7i32; }
+    if !(2.5f64 >= 2.5f64) { return 8i32; }
+    // & binds tighter than |  => (1100 & 1010) | 0001 == 1000 | 0001 == 1001
+    if (0b1100i32 & 0b1010i32 | 0b0001i32) != 0b1001i32 { return 9i32; }
+    // xor
+    if (0b1100i32 ^ 0b1010i32) != 0b0110i32 { return 10i32; }
+    // bitwise not on u32
+    if (!0u32) != 4294967295u32 { return 11i32; }
+    return 0i32;
+}
