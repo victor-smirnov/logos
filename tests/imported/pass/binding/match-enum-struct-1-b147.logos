@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-enum-struct-1.rs
+// Modifications: isize→i64; panic! → distinct nonzero return.
+// Tests struct-like enum-variant patterns: the `..` rest form `E::Foo{..}` and the
+//   named-bind form `E::Foo{f: _f}` both selecting the Foo variant.
+package match_enum_struct_1_b147;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e = E::Foo { f: 1i64 };
+    match e {
+        E::Foo { .. } => {}
+        _ => { return 1i32; }
+    }
+    let e2 = E::Foo { f: 1i64 };
+    match e2 {
+        E::Foo { f: _f } => {}
+        _ => { return 2i32; }
+    }
+    return 0i32;
+}

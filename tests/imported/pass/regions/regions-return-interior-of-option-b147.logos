@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-return-interior-of-option.rs
+// Modifications: panic! → distinct nonzero return via a helper bool; match *opt → kept;
+//   the `Some(ref v) => v` borrow-of-payload arm returns the borrow; assert_eq! → ret.
+// Tests returning a borrow of an Option's payload `&T` from `get<T>(&Option<T>)` via a
+//   `Some(ref v) => v` pattern, across two reassignments of the Option.
+package regions_return_interior_of_option_b147;
+
+fn get(opt: &Option<i64>) -> i64 {
+    match *opt {
+        Some(ref v) => { return *v; }
+        None => { return 0i64 - 1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut x = Some(23i64);
+    if get(&x) != 23i64 { return 1i32; }
+    x = Some(24i64);
+    if get(&x) != 24i64 { return 2i32; }
+    return 0i32;
+}

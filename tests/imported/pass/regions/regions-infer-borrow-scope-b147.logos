@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-infer-borrow-scope.rs
+// Modifications: isize→i64; Box<_> → stack value (B111); &*p → &p; assert_eq! → ret.
+// Tests returning a borrow of a struct field `&p.x` from a fn.
+package regions_infer_borrow_scope_b147;
+
+struct Point { x: i64, y: i64 }
+
+fn x_coord(p: &Point) -> &i64 {
+    return &p.x;
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 3i64, y: 4i64 };
+    let xc = x_coord(&p);
+    if *xc != 3i64 { return 1i32; }
+    return 0i32;
+}

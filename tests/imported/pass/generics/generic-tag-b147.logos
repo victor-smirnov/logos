@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag.rs
+// Modifications: isize→i64; Box<T> payload → plain T (B111); turbofish on construction
+//   kept (`option::some::<i64>(..)`, `option::none::<i64>`); reassign the local.
+// Tests a generic enum `option<T>` with a turbofish-qualified payload variant and a
+//   turbofish-qualified nullary variant, then reassigning the variable to the nullary.
+package generic_tag_b147;
+
+enum option<T> { some(T), none }
+
+fn main() -> i32 {
+    let mut a: option<i64> = option::some::<i64>(10i64);
+    a = option::none::<i64>;
+    match a {
+        option::some(_) => { return 1i32; }
+        option::none => {}
+    }
+    return 0i32;
+}

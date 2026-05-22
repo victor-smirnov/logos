@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-struct-0.rs
+// Modifications: isize→i64; panic! → distinct nonzero return.
+// Tests struct patterns: a literal field pattern `Foo{f: 0}` that misses, then the
+//   `Foo{..}` rest form, the `Foo{f: _f}` named-bind form, and a wildcard arm.
+package match_struct_0_b147;
+
+struct Foo {
+    f: i64,
+}
+
+fn main() -> i32 {
+    let f = Foo { f: 1i64 };
+    match f {
+        Foo { f: 0i64 } => { return 1i32; }
+        Foo { .. } => {}
+    }
+    let g = Foo { f: 1i64 };
+    match g {
+        Foo { f: 0i64 } => { return 2i32; }
+        Foo { f: _f } => {}
+    }
+    let h = Foo { f: 1i64 };
+    match h {
+        Foo { f: 0i64 } => { return 3i32; }
+        _ => {}
+    }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-36401.rs
+// Modifications: #[derive(Debug)] dropped; the `static XTERM_SINGLE_BYTES: [(u8,Event);1]`
+//   table → a local tuple (statics → locals per batch convention); the Unknown(u16)
+//   payload variant → a unit variant (u16 payload not needed); panic! → nonzero ret.
+// Tests matching a tuple element pattern mixing an integer literal with an enum-variant
+//   pattern `(1, Event::Resize)` (#36401).
+package tuple_int_enum_static_36401_b147;
+
+enum Event { Key, Resize, Unknown }
+
+fn main() -> i32 {
+    let entry = (1u8, Event::Resize);
+    match entry {
+        (1u8, Event::Resize) => {}
+        _ => { return 1i32; }
+    }
+    return 0i32;
+}

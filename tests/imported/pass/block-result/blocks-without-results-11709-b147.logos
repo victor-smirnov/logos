@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/block-result/blocks-without-results-11709.rs
+// Modifications: distilled to the run-pass core. The closure/Box<dyn FnMut> machinery
+//   and the panic! arm dropped. The `()`-typed struct FIELD is rejected at codegen
+//   ("unknown field type" — B146 unit-field area), so the field-init-by-block facet is
+//   replaced by an i64 field initialized by a block whose tail-statement is a call:
+//   `S { x: { touch(); 9i64 } }`. Kept: a unit-typed `let _r: () = {};` (empty block)
+//   and a `not(bool)` fn whose branches each yield a value.
+package blocks_without_results_11709_b147;
+
+struct S { x: i64 }
+
+fn touch() -> i64 { return 5i64; }
+
+fn not(b: bool) -> bool {
+    if b {
+        return !b;
+    } else {
+        return true;
+    }
+}
+
+fn main() -> i32 {
+    let _r: () = {};
+    let s: S = S { x: { touch(); 9i64 } };
+    if s.x != 9i64 { return 3i32; }
+    let b = not(true);
+    if b { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-trait-generic.rs
+// Modifications: println! in drop → a no-op body; the generic struct `S<T>` with a
+//   `Drop` impl is constructed and dropped at scope exit.
+// Tests `impl<T> Drop for S<T>` on a generic struct: dropping `S { x: 1i64 }` runs the
+//   monomorphized Drop without error.
+package drop_trait_generic_b147;
+
+struct S<T> {
+    x: T,
+}
+
+impl<T> Drop for S<T> {
+    fn drop(self: &mut S<T>) {}
+}
+
+fn main() -> i32 {
+    let _x = S { x: 1i64 };
+    return 0i32;
+}

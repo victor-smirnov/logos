@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/recursive-enum-box.rs
+// Modifications: isize→i64; Box<List> → *const List raw-pointer payload (B111); the
+//   linked-list nodes are stack locals whose addresses are stored in the Cons payload.
+// Tests a recursive enum (linked-list) built via raw-pointer payloads.
+package recursive_enum_box_b147;
+
+enum List {
+    Cons(i64, *const List),
+    Nil,
+}
+
+fn main() -> i32 {
+    let nil = List::Nil;
+    let n2 = List::Cons(12i64, &nil as *const List);
+    let n1 = List::Cons(11i64, &n2 as *const List);
+    let head = List::Cons(10i64, &n1 as *const List);
+    match head {
+        List::Cons(v, _) => { if v != 10i64 { return 1i32; } }
+        List::Nil => { return 2i32; }
+    }
+    return 0i32;
+}

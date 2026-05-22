@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias/type-param.rs
+// Modifications: the `extern "C" fn(T)->bool` alias dropped (extern ABI out of scope);
+//   the `fn(T)->bool` alias kept and EXERCISED: a fn item is bound to a `Bar<i64>`
+//   typed local and called (upstream is compile-only).
+// Tests a type alias with a type parameter `type Bar<T> = fn(T) -> bool` whose
+//   parameter is resolved in the aliased fn-pointer type.
+package type_param_b147;
+
+type Bar<T> = fn(T) -> bool;
+
+fn is_pos(x: i64) -> bool { return x > 0i64; }
+
+fn main() -> i32 {
+    let f: Bar<i64> = is_pos;
+    if !f(5i64) { return 1i32; }
+    if f(0i64 - 1i64) { return 2i32; }
+    return 0i32;
+}

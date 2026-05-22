@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-bot.rs
+// Modifications: usize→u64; panic!() body → a diverging `loop {}` (the fn is never
+//   called); `&'static T` return + a generic `foo<T>(&T)->&u64` that calls it.
+// Tests the "bottom"/diverging region: a never-returning generic fn returning a
+//   borrow, used as the body of another generic fn (neither is called at runtime).
+package regions_bot_b147;
+
+fn produce_static<T>() -> &'static u64 { loop {} }
+
+fn foo<T>(x: &T) -> &u64 { return produce_static::<T>(); }
+
+fn main() -> i32 {
+    return 0i32;
+}

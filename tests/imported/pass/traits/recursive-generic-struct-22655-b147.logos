@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-22655.rs
+// Modifications: `unsafe impl<T:Send+?Sized> Send for Unique<T>` dropped (Send is an
+//   auto-trait, no in-language analogue); `?Sized` dropped; `*const T` raw-pointer
+//   field kept; `is_send::<Node<&'static ()>>()` → `is_it::<Node<i64>>()`.
+// Tests a self-recursive generic struct `Node<V>` whose recursion goes through a
+//   raw-pointer wrapper `Unique<Node<V>>`, then instantiating a generic fn over it
+//   without infinite type-resolution recursion (#22655).
+package recursive_generic_struct_22655_b147;
+
+struct Unique<T> { pointer: *const T }
+
+struct Node<V> { vals: V, edges: Unique<Node<V>> }
+
+fn is_it<T>() {}
+
+fn main() -> i32 {
+    is_it::<Node<i64>>();
+    return 0i32;
+}

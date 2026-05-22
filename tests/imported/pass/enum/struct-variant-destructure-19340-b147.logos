@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/issue-19340-2.rs
+// Modifications: String→i64, u32→u32 field; match → check the bound fields; ret.
+// Tests constructing and match-destructuring a STRUCT-LIKE enum variant
+//   `Homura::Madoka { name, age }` (#19340).
+package struct_variant_destructure_19340_b147;
+
+enum Homura {
+    Madoka { name: i64, age: u32 },
+}
+
+fn main() -> i32 {
+    let homura = Homura::Madoka { name: 7i64, age: 14u32 };
+    match homura {
+        Homura::Madoka { name, age } => {
+            if name != 7i64 { return 1i32; }
+            if age != 14u32 { return 2i32; }
+        }
+    }
+    return 0i32;
+}

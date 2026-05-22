@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/enum-drop-impl-15063.rs
+// Modifications: println! in drop → no-op body (#15063).
+// Tests `impl Drop` for a C-like enum: a value `Two::A` is dropped at scope exit.
+package enum_drop_impl_15063_b147;
+
+enum Two { A, B }
+
+impl Drop for Two {
+    fn drop(self: &mut Two) {}
+}
+
+fn main() -> i32 {
+    let _k = Two::A;
+    return 0i32;
+}

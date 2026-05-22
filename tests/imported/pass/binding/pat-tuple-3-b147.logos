@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pat-tuple-3.rs
+// Modifications: literals suffixed; assert_eq! → ret. The tuple-STRUCT facet
+//   `S(1,2,..)` is a syntax error (the `..` rest is accepted only in a plain tuple
+//   pattern, not a tuple-struct pattern — see B147 gaps), so it is dropped; the plain
+//   tuple form is kept. (The `..` rest in a MATCH tuple pattern, a B145 known-open,
+//   now works.)
+// Tests trailing `..` rest sub-patterns in a MATCH tuple pattern with overlapping
+//   prefix-literal arms; the first fully-matching arm is selected.
+package pat_tuple_3_b147;
+
+fn tuple() -> i64 {
+    let x = (1i64, 2i64, 3i64);
+    let branch = match x {
+        (1i64, 1i64, ..) => 0i64,
+        (1i64, 2i64, 3i64, ..) => 1i64,
+        (1i64, 2i64, ..) => 2i64,
+        _ => 3i64
+    };
+    return branch;
+}
+
+fn main() -> i32 {
+    if tuple() != 1i64 { return 1i32; }
+    return 0i32;
+}

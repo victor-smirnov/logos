@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-object-mut-to-shared-coercion.rs
+// Modifications: usize→u64; `impl Foo for usize` → a wrapper struct Slot (a primitive
+//   can't carry the in-place &mut self mutation here; `Cell` would shadow stdlib's
+//   prelude Cell and crash); &self→self:&Slot, &mut self→self:&mut Slot; `&mut x as
+//   &mut dyn Foo` coercion kept; assert_eq! → ret.
+// Tests coercing `&mut dyn Foo` to `&dyn Foo` (passing a &mut trait object where a &dyn
+//   is expected) and dispatching both &self and &mut self trait methods.
+package trait_object_mut_to_shared_b147;
+
+struct Slot { v: u64 }
+
+trait Foo {
+    fn foo(self: &Slot) -> u64;
+    fn bar(self: &mut Slot) -> u64;
+}
+
+impl Foo for Slot {
+    fn foo(self: &Slot) -> u64 { return self.v; }
+    fn bar(self: &mut Slot) -> u64 {
+        self.v = self.v + 1u64;
+        return self.v;
+    }
+}
+
+fn do_it_imm(obj: &dyn Foo, v: u64) -> bool {
+    let y = obj.foo();
+    return v == y;
+}
+
+fn do_it_mut(obj: &mut dyn Foo) -> bool {
+    let x = obj.bar();
+    let y = obj.foo();
+    if x != y { return false; }
+    return do_it_imm(obj, y);
+}
+
+fn main() -> i32 {
+    let mut x: Slot = Slot { v: 22u64 };
+    let obj = &mut x as &mut dyn Foo;
+    if !do_it_mut(obj) { return 1i32; }
+    if !do_it_imm(obj, 23u64) { return 2i32; }
+    if !do_it_mut(obj) { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-15155.rs
+// Modifications: the builtin `Send` supertrait → a user base trait `Base` carrying an
+//   actual method; `Box<dyn ...>` struct fields dropped (B111); `test_trait::<dyn ...>`
+//   → a generic `use_top<T: Top>(&T)` calling the base method through the 2-level
+//   supertrait chain `Top: Mid: Base`.
+// Tests a 2-level-deep supertrait chain (Top: Mid: Base) where a generic fn bounded by
+//   the leaf trait dispatches a method declared on the root trait (#15155).
+package indirect_supertrait_chain_15155_b147;
+
+trait Base { fn id(self: &Self) -> i64; }
+trait Mid: Base {}
+trait Top: Mid {}
+
+struct W { v: i64 }
+
+impl Base for W { fn id(self: &W) -> i64 { return self.v; } }
+impl Mid for W {}
+impl Top for W {}
+
+fn use_top<T: Top>(t: &T) -> i64 { return t.id(); }
+
+fn main() -> i32 {
+    let w = W { v: 7i64 };
+    if use_top(&w) != 7i64 { return 1i32; }
+    return 0i32;
+}

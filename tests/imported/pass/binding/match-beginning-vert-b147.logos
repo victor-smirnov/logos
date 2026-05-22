@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-beginning-vert.rs
+// Modifications: `use Foo::*` + array-iter + println! dropped; the `if let` guard arm
+//   dropped (labeled-block / let-guard not needed for the leading-vert point); arms
+//   rewritten to return distinct codes; a guard `if 1 < 2` kept on the B|C arm.
+// Tests a LEADING vertical bar `|` before each match arm pattern, including a guarded
+//   multi-alternative arm `| B | C if ...`.
+package match_beginning_vert_b147;
+
+enum Foo { A, B, C, D, E }
+
+fn classify(f: Foo) -> i64 {
+    match f {
+        | Foo::A => 1i64,
+        | Foo::B | Foo::C if 1i64 < 2i64 => 2i64,
+        | Foo::D => 4i64,
+        | _ => 9i64,
+    }
+}
+
+fn main() -> i32 {
+    if classify(Foo::A) != 1i64 { return 1i32; }
+    if classify(Foo::B) != 2i64 { return 2i32; }
+    if classify(Foo::C) != 2i64 { return 3i32; }
+    if classify(Foo::D) != 4i64 { return 4i32; }
+    if classify(Foo::E) != 9i64 { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/nll/issue-50461-used-mut-from-moves.rs
+// Modifications: i32 field kept; println! dropped; `mut foo` parameter + self-assign
+//   `foo = foo;` kept; assert via reading the field.
+// Tests a `mut foo: Foo` parameter that is self-assigned (`foo = foo;`) and then read
+//   (the mut binding counts as used; #50461).
+package used_mut_from_moves_50461_b147;
+
+struct Foo { value: i32 }
+
+fn use_foo_mut(mut foo: Foo) -> i32 {
+    foo = foo;
+    return foo.value;
+}
+
+fn main() -> i32 {
+    if use_foo_mut(Foo { value: 413i32 }) != 413i32 { return 1i32; }
+    return 0i32;
+}

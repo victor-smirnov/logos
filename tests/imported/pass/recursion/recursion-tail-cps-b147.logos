@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/recursion-tail-cps.rs
+// Modifications: isize→i64; println! dropped; assert! → propagated bool; the fn-pointer
+//   continuation `k: fn(bool)->bool` bound to a fn item is kept.
+// Tests mutually-recursive functions (evenk/oddk) threading a continuation function
+//   pointer `k: fn(bool)->bool` and tail-recursing without stack overflow.
+package recursion_tail_cps_b147;
+
+fn checktrue(rs: bool) -> bool {
+    return rs;
+}
+
+fn evenk(n: i64, k: fn(bool) -> bool) -> bool {
+    if n == 0i64 {
+        return k(true);
+    } else {
+        return oddk(n - 1i64, k);
+    }
+}
+
+fn oddk(n: i64, k: fn(bool) -> bool) -> bool {
+    if n == 0i64 {
+        return k(false);
+    } else {
+        return evenk(n - 1i64, k);
+    }
+}
+
+fn main() -> i32 {
+    let k = checktrue;
+    // Both calls bottom out at evenk(0) -> k(true) (the parity of the start
+    // determines which fn hits n==0, and here both reach evenk at n==0).
+    if !evenk(42i64, k) { return 1i32; }
+    if !oddk(45i64, k) { return 2i32; }
+    return 0i32;
+}

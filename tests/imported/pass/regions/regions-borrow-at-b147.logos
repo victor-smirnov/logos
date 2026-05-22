@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-borrow-at.rs
+// Modifications: usize→u64; Box<_> → stack value (B111); &*p → &p; println!/assert_eq!
+//   → distinct nonzero returns.
+// Tests passing a borrow `&u64` to a fn that dereferences it.
+package regions_borrow_at_b147;
+
+fn foo(x: &u64) -> u64 {
+    return *x;
+}
+
+fn main() -> i32 {
+    let p: u64 = 22u64;
+    let r = foo(&p);
+    if r != 22u64 { return 1i32; }
+    return 0i32;
+}

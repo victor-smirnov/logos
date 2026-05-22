@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-labeled-break-value.rs
+// Modifications: the upstream `let _: i32 = loop { break 'outer }` relies on the inner
+//   loop (whose only exit is a NON-LOCAL `break 'outer`) being typed `!` and coercing
+//   to i32 — Logos types such a loop as void (see B147 gaps), so the `let _: i32`
+//   wrapper is dropped; the labeled break-from-nested-loop structure is preserved, both
+//   singly- and doubly-nested. A counter observes both breaks fire.
+package loop_labeled_break_value_b147;
+
+fn main() -> i32 {
+    let mut hits = 0i32;
+    'outer: loop {
+        loop { break 'outer; }
+    }
+    hits = hits + 1i32;
+    'outer2: loop {
+        loop { loop { break 'outer2; } }
+    }
+    hits = hits + 1i32;
+    if hits != 2i32 { return 1i32; }
+    return 0i32;
+}

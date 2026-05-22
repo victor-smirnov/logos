@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-2.rs
+// Modifications: String/to_string → i64 fields; assert_eq! → ret. The point preserved:
+//   struct-literal field initializers given OUT OF declaration order (f1 before f0)
+//   still bind to the right fields.
+package struct_order_of_eval_2_b147;
+
+struct S { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let a = 100i64;
+    let s = S {
+        f1: a + 1i64,
+        f0: a,
+    };
+    if s.f0 != 100i64 { return 1i32; }
+    if s.f1 != 101i64 { return 2i32; }
+    return 0i32;
+}

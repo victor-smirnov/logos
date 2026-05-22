@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/fn/issue-3904.rs
+// Modifications: &str args → i64; println! dropped; the FnOnce-bound field stores a fn
+//   item; method consumes self and forwards the field to a higher-order fn (#3904).
+// Tests a generic struct `X<F> where F: FnOnce(i64,i64)` holding a fn-item in its field,
+//   a method that moves `self` and passes the field to `exit<F:FnOnce(i64,i64)>`.
+package fnonce_field_in_generic_struct_3904_b147;
+
+fn example_err(prog: i64, arg: i64) {}
+
+fn exit<F>(print: F, prog: i64, arg: i64) where F: FnOnce(i64, i64) {
+    print(prog, arg);
+}
+
+struct X<F> where F: FnOnce(i64, i64) {
+    err: F,
+}
+
+impl<F> X<F> where F: FnOnce(i64, i64) {
+    fn boom(self: X<F>) {
+        exit(self.err, 1i64, 2i64);
+    }
+}
+
+fn main() -> i32 {
+    let val = X { err: example_err };
+    val.boom();
+    return 0i32;
+}

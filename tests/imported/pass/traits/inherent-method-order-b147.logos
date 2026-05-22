@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inherent-method-order.rs
+// Modifications: empty unit struct → `Foo { z: i64 }`; the by-value inherent `foo(self)`
+//   (which panics in upstream — the "wrong method") → `val(self:Foo)` returning a
+//   sentinel; the trait impl is for `&Foo` (one ref level, not the upstream `&&&Foo`)
+//   with `val(self:&Foo)`; the `&f` receiver selects the trait (by-ref) method, not
+//   the inherent (by-value) one. assert via nonzero ret.
+// Tests method-resolution order: a same-named inherent (by-value) method and a trait
+//   (by-ref) method coexist; calling through a reference picks the trait method.
+package inherent_method_order_b147;
+
+struct Foo { z: i64 }
+
+impl Foo {
+    fn val(self: Foo) -> i64 { return 100i64; }
+}
+
+trait Trait {
+    fn val(self: &Foo) -> i64;
+}
+
+impl Trait for Foo {
+    fn val(self: &Foo) -> i64 { return self.z; }
+}
+
+fn main() -> i32 {
+    let f = Foo { z: 9i64 };
+    let r = &f;
+    if r.val() != 9i64 { return 1i32; }
+    return 0i32;
+}

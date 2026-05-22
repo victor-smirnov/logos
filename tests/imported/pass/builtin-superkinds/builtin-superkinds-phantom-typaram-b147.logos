@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/builtin-superkinds/builtin-superkinds-phantom-typaram.rs
+// Modifications: PhantomData<T> field → a plain `_marker: i64` (no PhantomData in
+//   prelude); the Send supertrait kept as a user trait `Foo` with a bound `T` impl.
+// Tests that a generic type can implement a trait whose type-param is constrained by a
+//   supertrait-like bound even when the param appears only in a marker field.
+package builtin_superkinds_phantom_typaram_b147;
+
+trait Send2 {}
+trait Foo: Send2 {}
+
+struct X<T> { _marker: i64, _t: T }
+
+impl<T: Send2> Send2 for X<T> {}
+impl<T: Send2> Foo for X<T> {}
+
+impl Send2 for i64 {}
+
+fn use_foo<F: Foo>(_f: F) {}
+
+fn main() -> i32 {
+    let x = X { _marker: 0i64, _t: 5i64 };
+    use_foo(x);
+    return 0i32;
+}
