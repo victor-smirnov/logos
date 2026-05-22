@@ -784,6 +784,24 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
 void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
     auto val_er = v.value();
     const LExpr* val_le = val_er ? lexpr_of(val_er) : nullptr;
+    // A function whose return type is the never type `!` has a void (0-result)
+    // MLIR signature (logos_to_mlir(Never)=nullptr). A `return <e>` in such a
+    // fn — e.g. a monomorphized `Option<!>::unwrap` whose payload type is `!`,
+    // or `fn f() -> ! { return diverging() }` — must emit an OPERAND-LESS
+    // return (returning a value would mismatch the 0-result signature).
+    // Evaluate <e> for side effects (it may itself be a diverging call that
+    // terminates the block); only emit the void return if the block survives.
+    if (cur_fn_ret_logos_type_ &&
+        TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::Never) {
+        if (val_le) gen_expr(*val_le);
+        if (!is_terminated(builder_.getBlock())) {
+            if (in_llvm_func_)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
+        }
+        return;
+    }
     if (val_le) {
         const LExpr& s_value = *val_le;
         // Box<dyn Trait> / &dyn Trait return: coerce concrete type to heap fat pointer.

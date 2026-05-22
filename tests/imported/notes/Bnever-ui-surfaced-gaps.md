@@ -28,11 +28,22 @@ tests were imported; `library/core` never tests were intentionally skipped.
 
 ## NEW gaps surfaced (all impact the never-type feature — FIX candidates)
 
-> **STATUS 2026-05-22:** Gnever-3 ✅ FIXED; Gnever-2 ✅ now a clean error (no
-> longer a crash); the minor bare-block-tail observation partially addressed;
-> Gnever-1 DEFERRED (deep — uninhabited-type field layout).
+> **STATUS 2026-05-22:** Gnever-1 ✅ FIXED, Gnever-3 ✅ FIXED, Gnever-2 ✅ now a
+> clean error; bare-block-tail observation partially addressed. All four never
+> gaps resolved (Gnever-2 = clean diagnostic for the degenerate `!`-param case).
 
-### Gnever-1 — `!` as a generic type ARGUMENT to a stdlib enum crashes mlir-gen — DEFERRED
+### Gnever-1 — `!` as a generic type ARGUMENT to a stdlib enum — ✅ FIXED 2026-05-22
+**FIXED:** two mlir-gen changes give `!` a zero-size uninhabited representation:
+(1) a `!`-typed struct FIELD lowers to `array<0 x i8>` (was nullptr → "unknown
+field type") + logos_abi_byte_size(Never)=0; (2) a function whose RETURN type is
+`!` (a monomorphized `Option<!>::unwrap` etc. returning the `!` payload) emits an
+OPERAND-LESS return — its MLIR signature is void (logos_to_mlir(Never)=nullptr),
+so `return <payload>` would mismatch the 0-result signature. `Result<u32,!>`,
+`Option<!>`, and the infallible-Result idiom (construct Ok, match, unwrap path)
+now compile + run. Regression: never_type_generic_arg. `logos_to_mlir(Never)`
+stays nullptr in value/result contexts (if/match diverging-branch paths rely on
+it) — the zero-size repr is applied only at field/payload + return-signature
+sites. (original diagnosis below)
 - Repro: `fn f(r: Result<u32, !>) -> u32 { return 0u32; }` (just the type in a
   signature is enough — no use of the value needed).
 - Error: `mlir_gen: unknown field type in 'StepByIter$G2$OptionIter$G1$!$!'` →

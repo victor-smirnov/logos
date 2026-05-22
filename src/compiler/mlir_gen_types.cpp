@@ -230,6 +230,18 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                                    /*is_pointer=*/true});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::Never) {
+            // A `!`-typed field (e.g. the Err payload of an infallible
+            // `Result<T, !>`, or a never type-arg flowing into stdlib iterator
+            // machinery) is uninhabited — no value ever exists, so the field is
+            // never read. Give it a genuinely zero-size representation
+            // (`array<0 x i8>`) so the layout is valid; logos_to_mlir(Never)
+            // stays nullptr for value/result contexts (if/match diverging
+            // branches rely on that).
+            ft = mlir::LLVM::LLVMArrayType::get(builder_.getI8Type(), 0);
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {
@@ -265,6 +277,7 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
     TypeRef tv{t};
     switch (tv.kind()) {
     case LogosType::Kind::Void:    return 0;
+    case LogosType::Kind::Never:   return 0;  // uninhabited — zero-size
     case LogosType::Kind::Bool:    return 1;
     case LogosType::Kind::U8:
     case LogosType::Kind::I8:      return 1;

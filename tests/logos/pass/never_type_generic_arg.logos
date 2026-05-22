@@ -1,0 +1,23 @@
+package never_type_generic_arg;
+
+// infallible Result used through a fn signature + value
+fn parse_ok(n: u32) -> Result<u32, !> { return Result::Ok(n); }
+
+fn unwrap_inf(r: Result<u32, !>) -> u32 {
+    match r {
+        Result::Ok(v) => { return v; }
+        Result::Err(_) => { return 0u32; }
+    }
+}
+
+fn main() -> i32 {
+    let r: Result<u32, !> = parse_ok(7u32);
+    if unwrap_inf(r) != 7u32 { return 1i32; }
+    // Option<!> too
+    let o: Option<!> = Option::None;
+    match o {
+        Some(_) => { return 2i32; }
+        None => { }
+    }
+    return 0i32;
+}
