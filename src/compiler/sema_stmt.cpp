@@ -3069,11 +3069,43 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         lir::PatFieldBinding pfb;
                         pfb.field_name = fname;
                         if (fnode.has_key(la::VALUE)) {
-                            auto sub = build_pattern(map_of(fnode.get(la::VALUE.code)), ftype);
-                            // Struct field sub-patterns must currently be irrefutable:
-                            // only _ / name bindings, references, or @-bindings. Literals
-                            // and other refutable kinds aren't tested by codegen yet and
-                            // would silently match — reject early.
+                            auto sub_node = map_of(fnode.get(la::VALUE.code));
+                            int32_t sknode = code_of(sub_node);
+                            // Refutable LITERAL field sub-pattern (`A { v: 1 }`,
+                            // `S { ok: true }`): bind the field to a synth name +
+                            // gate the arm with a `synth == <literal>` guard
+                            // (mirrors the tuple-element / variant-payload idiom).
+                            bool is_lit = sknode == la::PAT_INT || sknode == la::PAT_NEG_INT ||
+                                          sknode == la::PAT_BOOL || sknode == la::PAT_CHAR;
+                            if (is_lit && current_pat_refutable_guards_) {
+                                std::string syn = std::format("__sfld_{}_{}", fname, tmp_var_count_++);
+                                TypeRef ft = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                                    ? ftype : prim(LogosType::Kind::I64);
+                                define(syn, ft);
+                                lir::LExprPtr value;
+                                if (sknode == la::PAT_INT && sub_node.has_key(la::VALUE))
+                                    value = builder().lit_int(parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
+                                else if (sknode == la::PAT_NEG_INT && sub_node.has_key(la::VALUE))
+                                    value = builder().lit_int(-parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
+                                else if (sknode == la::PAT_BOOL && sub_node.has_key(la::VALUE))
+                                    value = builder().lit_bool(sub_node.get(la::VALUE.code).as_value<int32_t>() != 0, bool_t());
+                                else if (sknode == la::PAT_CHAR && sub_node.has_key(la::VALUE)) {
+                                    auto sv = str_of(sub_node.get(la::VALUE.code));
+                                    value = builder().lit_int(sv.empty() ? 0 : (int64_t)(uint8_t)sv[0], prim(LogosType::Kind::Char));
+                                }
+                                if (value) {
+                                    auto guard = builder().bin_op("==",
+                                        builder().var_ref(syn, ft), std::move(value), bool_t());
+                                    current_pat_refutable_guards_->push_back(std::move(guard));
+                                }
+                                pfb.sub.push_back(make_pat_wild(syn));
+                                ps.fields.push_back(std::move(pfb));
+                                continue;
+                            }
+                            auto sub = build_pattern(sub_node, ftype);
+                            // Other refutable field sub-patterns (nested variant
+                            // with bindings, ranges, …) aren't tested by codegen
+                            // yet — reject early. Irrefutable kinds pass through.
                             auto sk = pat_ref_of(sub).kind();
                             bool sub_irrefutable =
                                 sk == lir_schema::pat::Code::Wild ||

@@ -1,0 +1,30 @@
+// Refutable LITERAL struct-field sub-pattern `A { v: 1 }` / `S { ok: true }`:
+// the field is bound to a synth name and the arm is gated by a `synth == lit`
+// guard. (A following irrefutable arm provides exhaustiveness.)
+package refutable_struct_field_pattern;
+
+struct A { v: i64, w: i64 }
+struct Flag { ok: bool, n: i64 }
+
+fn f(a: A) -> i64 {
+    match a {
+        A { v: 1i64, w: x } => { return 100i64 + x; }
+        A { v: 2i64, w: x } => { return 200i64 + x; }
+        A { v: vv, w: ww } => { return vv + ww; }
+    }
+}
+fn g(f: Flag) -> i64 {
+    match f {
+        Flag { ok: true, n: n } => { return n; }
+        Flag { ok: false, n: n } => { return -n; }
+    }
+}
+
+fn main() -> i32 {
+    if f(A { v: 1i64, w: 5i64 }) != 105i64 { return 1i32; }
+    if f(A { v: 2i64, w: 5i64 }) != 205i64 { return 2i32; }
+    if f(A { v: 9i64, w: 3i64 }) != 12i64 { return 3i32; }
+    if g(Flag { ok: true, n: 7i64 }) != 7i64 { return 4i32; }
+    if g(Flag { ok: false, n: 7i64 }) != -7i64 { return 5i32; }
+    return 0i32;
+}
