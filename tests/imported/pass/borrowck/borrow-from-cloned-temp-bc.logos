@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-borrow-from-expr-block.rs
+// Distilled facet: borrow a reference INTO a fresh temporary (the result of
+// an expression) and pass it into a higher-order fn; the temporary's address
+// is distinct from the original's. `Box<isize>` source → plain i64; the
+// FnOnce closure modelled by a fn-pointer param; `unsafe`/raw-ptr identity
+// check kept as value comparison.
+package borrow_from_cloned_temp_bc;
+
+fn use_ref(p: &i64) -> i64 { return *p; }
+
+fn borrow(x: &i64, f: fn(&i64) -> i64) -> i64 {
+    return f(x);
+}
+
+fn main() -> i32 {
+    let original: i64 = 22i64;
+    // a fresh temporary equal in value but a different storage location
+    let temp: i64 = original + 0i64;
+    let r: i64 = borrow(&temp, use_ref);
+    if r != 22i64 { return 1; }
+    return 0;
+}

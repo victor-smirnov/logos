@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-ref-option-pattern.rs (issue #3500)
+// Facet: matching a borrowed `&Option<T>` by dereferencing the borrow in the
+// scrutinee (`match *x`) and pattern-matching the variants. (The Rust source
+// uses a `&Some(_)` reference-PATTERN; that arm-position `&Pat` form is a gap,
+// see G128-1 — the canonical Logos `match *x` deref form is used here.)
+package ref_some_pattern_m2;
+
+fn classify(x: &Option<i64>) -> i64 {
+    match *x {
+        Option::Some(_) => { return 1i64; }
+        Option::None => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let s: Option<i64> = Option::Some(1i64);
+    let n: Option<i64> = Option::None;
+    if classify(&s) != 1i64 { return 1; }
+    if classify(&n) != 0i64 { return 2; }
+    return 0;
+}

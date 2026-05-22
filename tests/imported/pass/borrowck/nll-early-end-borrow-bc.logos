@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/two-phase-control-flow-split-before-activation.rs
+//   (NLL early-end-of-borrow facet, distilled)
+// Facet: a shared borrow ends at its last use (NLL), so a subsequent mutable
+// access of the same local is allowed without a separate scope. No Vec needed.
+package nll_early_end_borrow_bc;
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let p: &i64 = &x;           // shared borrow begins
+    let read: i64 = *p;         // ...and ends here (last use of p)
+    x = read + 41i64;           // mutable use after the borrow ended — OK under NLL
+    if x != 42i64 { return 1; }
+    return 0;
+}

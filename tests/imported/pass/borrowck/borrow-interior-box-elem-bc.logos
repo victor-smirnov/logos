@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrow-box-in-map-3026.rs (issue #3026)
+// Facet: a heap value held by a local, with a shared reference into its
+// interior stored elsewhere and read back. `Box<usize>`/HashMap → a stack
+// i64 and a `&i64` interior borrow (the borrow-of-interior facet is the point).
+package borrow_interior_box_elem_bc;
+
+struct Holder { ptr: *const i64 }
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let h: Holder = Holder { ptr: &x };
+    unsafe {
+        if *(h.ptr) != 1i64 { return 1; }
+    }
+    return 0;
+}

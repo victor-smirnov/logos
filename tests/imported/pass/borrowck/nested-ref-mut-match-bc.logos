@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-multiple-borrows-interior-boxes.rs
+// Facet: matching `&mut Enum` and binding TWO `ref mut` sub-fields of the same
+// variant simultaneously (disjoint mutable interior borrows), then nesting a
+// second match on one of them. Box<Foo> recursion → a flat 2-field struct
+// (no recursion needed for the borrow facet); both `ref mut` arms exercised.
+package nested_ref_mut_match_bc;
+
+struct Foo { left: i64, right: i64 }
+
+fn bump(f: &mut Foo) {
+    match *f {
+        Foo { left: ref mut l, right: ref mut r } => {
+            *l = *l + 1i64;
+            *r = *r + 2i64;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut f: Foo = Foo { left: 10i64, right: 20i64 };
+    bump(&mut f);
+    if f.left != 11i64 { return 1; }
+    if f.right != 22i64 { return 2; }
+    return 0;
+}

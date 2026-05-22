@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/two-phase-multiple-activations.rs (distilled)
+// Facet: a `&mut self` method whose argument is computed by reading `self`
+// (or another shared use) — the mutable receiver borrow is conceptually only
+// active after the argument is evaluated (two-phase borrow). FakeRead/Vec/
+// Result trimmed to a plain accumulator method.
+package two_phase_method_receiver_bc;
+
+struct Acc { total: i64 }
+
+impl Acc {
+    fn add(self: &mut Acc, v: i64) { (*self).total = (*self).total + v; }
+    fn cur(self: &Acc) -> i64 { return (*self).total; }
+}
+
+fn main() -> i32 {
+    let mut a: Acc = Acc { total: 5i64 };
+    // two-phase: `&mut a` for `add` activates only after `a.cur()` is read
+    a.add(a.cur());
+    if a.total != 10i64 { return 1; }
+    return 0;
+}

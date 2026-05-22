@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-field-sensitivity-rpass.rs
+// Distilled to the disjoint-field-borrow facet: two distinct fields of one
+// struct may be borrowed mutably at the same time (field sensitivity).
+// Box<isize> field → plain i64 field (stack value). FRU/move grid trimmed
+// (FRU on a Box-holding struct is a Box concern); core facet kept.
+package disjoint_field_borrows_bc;
+
+struct A { a: i64, b: i64 }
+
+fn mut_borrow_two_fields() -> i64 {
+    let mut x: A = A { a: 1i64, b: 2i64 };
+    let p: &mut i64 = &mut x.a;
+    let q: &mut i64 = &mut x.b;
+    *p = 10i64;
+    *q = 20i64;
+    return *p + *q;
+}
+
+fn imm_then_mut_disjoint() -> i64 {
+    let mut x: A = A { a: 1i64, b: 2i64 };
+    let p: &i64 = &x.a;
+    let q: &mut i64 = &mut x.b;
+    *q = 5i64;
+    return *p + *q;
+}
+
+fn main() -> i32 {
+    if mut_borrow_two_fields() != 30i64 { return 1; }
+    if imm_then_mut_disjoint() != 6i64 { return 2; }
+    return 0;
+}

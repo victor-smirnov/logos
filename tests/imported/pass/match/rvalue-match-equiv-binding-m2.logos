@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/rvalue-lifetime-match-equivalence-7660.rs (issue #7660)
+// Facet: a `let` destructuring of a tuple-struct via `ref` bindings, and the
+// equivalent `match { TupleStruct(ref _a, ref _b) => (_a, _b) }` form, both
+// borrowing the interior of a value. HashMap source → a stack-built struct.
+package rvalue_match_equiv_m2;
+
+struct A { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let v: A = A { x: 7i64, y: 9i64 };
+    // match-equivalent form: borrow both interior fields via `ref`, read them.
+    // (statement-position match — match-AS-EXPRESSION with struct field bindings
+    //  is a separate gap, see G128-2.)
+    match v {
+        A { x: ref a, y: ref b } => {
+            if *a != 7i64 { return 1; }
+            if *b != 9i64 { return 2; }
+        }
+    }
+    return 0;
+}

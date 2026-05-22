@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/issue-51348-multi-ref-mut-in-guard.rs
+// Facet: a single match arm with an OR-pattern whose alternatives bind the
+// SAME name via `ref mut` to DIFFERENT parts of the input, with a guard that
+// reads through that binding — and the right part fires per alternative.
+// `Result<(u32,u32),(u32,u32)>` → an enum carrying two i64 payload fields.
+package or_pattern_ref_mut_m2;
+
+enum E {
+    Ok(i64, i64),
+    Err(i64, i64),
+}
+
+fn foo(x: &mut E) -> i64 {
+    match *x {
+        E::Ok(ref mut v, _) | E::Err(_, ref mut v) => {
+            if *v > 0i64 { return *v; }
+            return 0i64;
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut a: E = E::Ok(3i64, 4i64);
+    if foo(&mut a) != 3i64 { return 1; }
+    let mut b: E = E::Err(3i64, 4i64);
+    if foo(&mut b) != 4i64 { return 2; }
+    return 0;
+}

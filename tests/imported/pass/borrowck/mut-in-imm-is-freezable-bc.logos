@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-freeze-frozen-mut.rs
+// Facet: a `&mut` held inside a struct accessed through `&` is "frozen" —
+// multiple shared borrows of its interior coexist. `&mut [T]` slice → a
+// struct carrying a `&mut i64` pointer to one element (slice-as-value is
+// KNOWN-OPEN); the multiple-`get` shared-borrow facet preserved.
+package mut_in_imm_freezable_bc;
+
+struct MutCell { data: *mut i64 }
+
+fn get(ms: &MutCell) -> i64 {
+    unsafe { return *(*ms).data; }
+}
+
+fn main() -> i32 {
+    let mut value: i64 = 1i64;
+    let cell: MutCell = MutCell { data: &mut value };
+    // mutate through the &mut inside, then take several shared reads
+    unsafe { *(cell.data) = (*(cell.data)) + 4i64; }
+    let r: &MutCell = &cell;
+    let a: i64 = get(r);
+    let b: i64 = get(r);
+    let c: i64 = get(r);
+    if a != 5i64 { return 1; }
+    if b != 5i64 { return 2; }
+    if c != 5i64 { return 3; }
+    if value != 5i64 { return 4; }
+    return 0;
+}

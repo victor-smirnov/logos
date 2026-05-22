@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-field-sensitivity-rpass.rs
+//   (copy_after_assign_after_move / move_after_field_assign_after_move facets)
+// Facet: move a value out, then re-initialize the whole binding (or its field)
+// and use it again — the post-reinit use is valid. Box→i64; String→i64.
+package move_then_reinit_bc;
+
+struct A { a: i64, b: i64 }
+
+fn whole_reinit() -> i64 {
+    let mut x: A = A { a: 1i64, b: 2i64 };
+    let _y: A = x;            // move whole struct out
+    x = A { a: 3i64, b: 4i64 };  // re-initialize
+    return x.a + x.b;
+}
+
+fn field_reinit() -> i64 {
+    let mut x: A = A { a: 1i64, b: 2i64 };
+    let _moved: i64 = x.b;    // move field out (copy here, scalar)
+    x.b = 9i64;               // re-init the field
+    return x.b;
+}
+
+fn main() -> i32 {
+    if whole_reinit() != 7i64 { return 1; }
+    if field_reinit() != 9i64 { return 2; }
+    return 0;
+}

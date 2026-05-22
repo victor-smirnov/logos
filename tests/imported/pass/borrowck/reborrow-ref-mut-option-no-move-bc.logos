@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/reborrow-in-match-ref-mut-option.rs (issue #28839)
+// Facet: matching `&mut Option<&mut T>` and binding the inner `ref mut x`,
+// returning `*x` is a REBORROW, not a move. `&mut Foo` payload modelled as
+// `&mut i64`; the None arm panics-as-return.
+package reborrow_ref_mut_option_bc;
+
+fn get_inner(opt: &mut Option<i64>) -> i64 {
+    match *opt {
+        Option::Some(ref mut x) => { *x = *x + 1i64; return *x; }
+        Option::None => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut o: Option<i64> = Option::Some(5i64);
+    let v: i64 = get_inner(&mut o);
+    if v != 6i64 { return 1; }
+    // o was reborrowed, not moved — still usable and mutated
+    match o {
+        Option::Some(n) => { if n != 6i64 { return 2; } }
+        Option::None => { return 3; }
+    }
+    return 0;
+}

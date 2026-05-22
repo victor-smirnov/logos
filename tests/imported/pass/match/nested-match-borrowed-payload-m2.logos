@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-multiple-borrows-interior-boxes.rs (#39963, distilled)
+// Facet: nested `match` — match `&mut Enum`, bind a `ref mut` payload, then
+// match again on the dereffed inner enum. Box recursion → a two-level enum.
+package nested_match_borrowed_payload_m2;
+
+enum Inner { Leaf(i64), Empty }
+enum Outer { Node(i64), Wrap(i64) }
+
+fn eval(o: &Outer) -> i64 {
+    match *o {
+        Outer::Node(n) => {
+            // build an inner from n, then nested-match it
+            let inner: Inner = if n > 0i64 { Inner::Leaf(n) } else { Inner::Empty };
+            match inner {
+                Inner::Leaf(v) => { return v * 10i64; }
+                Inner::Empty => { return -1i64; }
+            }
+        }
+        Outer::Wrap(w) => { return w; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Outer = Outer::Node(3i64);
+    if eval(&a) != 30i64 { return 1; }
+    let b: Outer = Outer::Wrap(7i64);
+    if eval(&b) != 7i64 { return 2; }
+    let c: Outer = Outer::Node(-5i64);
+    if eval(&c) != -1i64 { return 3; }
+    return 0;
+}

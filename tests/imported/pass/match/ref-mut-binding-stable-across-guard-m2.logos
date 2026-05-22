@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-ref-mut-stability.rs
+// Facet: a `ref mut z` binding refers to the SAME storage in the guard and in
+// the arm body — taking its address in the guard and re-taking it in the arm
+// yields the same pointer. Scrutinee `0` → an i64 local; `*const _` identity
+// kept as raw-pointer equality.
+package ref_mut_binding_stable_m2;
+
+fn referent_stability() -> i64 {
+    let scrut: i64 = 0i64;
+    let mut p: *const i64 = &scrut;
+    match scrut {
+        ref mut z if { p = (z as *const i64); true } => {
+            let q: *const i64 = (z as *const i64);
+            if (p as u64) == (q as u64) { return 0i64; }
+            return 1i64;
+        }
+        _ => { return 2i64; }
+    }
+}
+
+fn main() -> i32 {
+    if referent_stability() != 0i64 { return 1; }
+    return 0;
+}
