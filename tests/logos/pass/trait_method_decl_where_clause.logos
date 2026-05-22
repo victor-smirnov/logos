@@ -1,0 +1,20 @@
+// `where` clause on a trait-method DECLARATION (ends in `;`) now parses (it
+// already worked on the impl-side definition). The bound is discharged on impl.
+package trait_method_decl_where_clause;
+
+trait Pr {
+    fn show<T>(self: &Self, x: T) -> i64 where T: Clone;   // decl with where
+    fn tag(self: &Self) -> i64 where Self: Clone;          // where on non-generic decl
+}
+struct S { n: i64 }
+impl Clone for S { fn clone(self: &S) -> S { return S { n: self.n }; } }
+impl Pr for S {
+    fn show<T>(self: &S, x: T) -> i64 where T: Clone { return self.n + 1i64; }
+    fn tag(self: &S) -> i64 where Self: Clone { return self.n * 10i64; }
+}
+fn main() -> i32 {
+    let s: S = S { n: 4i64 };
+    if s.show::<i64>(9i64) != 5i64 { return 1i32; }
+    if s.tag() != 40i64 { return 2i32; }
+    return 0i32;
+}
