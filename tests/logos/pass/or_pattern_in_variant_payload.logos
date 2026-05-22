@@ -1,0 +1,23 @@
+package or_pattern_in_variant_payload;
+
+// G139-2: or-pattern nested inside a variant payload `Some(A | B)`.
+enum Test { Bar, Qux, Other }
+
+fn opt_classify(o: Option<Test>) -> i64 {
+    match o {
+        Some(Test::Bar | Test::Qux) => { return 10i64; }
+        Some(Test::Other) => { return 20i64; }
+        None => { return 0i64; }
+        // Guarded payload arms don't yet count toward exhaustiveness
+        // (shared limitation with nested-variant-in-payload) — catch-all.
+        _ => { return 99i64; }
+    }
+}
+
+fn main() -> i32 {
+    if opt_classify(Some(Test::Bar)) != 10i64 { return 1i32; }
+    if opt_classify(Some(Test::Qux)) != 10i64 { return 2i32; }
+    if opt_classify(Some(Test::Other)) != 20i64 { return 3i32; }
+    if opt_classify(None) != 0i64 { return 4i32; }
+    return 0i32;
+}

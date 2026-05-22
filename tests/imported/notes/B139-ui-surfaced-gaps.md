@@ -44,6 +44,16 @@ production inside `Variant(...)` doesn't recurse into the or-pattern rule).
 Parallel-mapping to the top-level arm rule. basic-switch distilled to the
 top-level or-pattern form.
 
+**✅ FIXED 2026-05-22.** Grammar: new `pat_variant_arg` wraps a payload arg in
+`PAT_OR` only when a PIPE is present (single-arg cases unchanged). Sema:
+`synth_refutable_inner` now routes a bindingless `PAT_OR` inner through the same
+`match synth { A | B => true, _ => false }` guard it already builds for a
+bindingless inner variant (each alt must bind nothing). Regression:
+or_pattern_in_variant_payload. NOTE: guarded payload arms still don't count
+toward exhaustiveness (shared limitation with nested-variant-in-payload — needs
+the catch-all), so the regression keeps a `_` arm; the or-pattern lowering
+itself is correct (values route right).
+
 ### G139-3 — empty struct-like enum variant `Variant {}` is a parse error (TRACTABLE)
 
 An empty-braces struct VARIANT in a declaration — `enum E { Empty4 {}, .. }`
@@ -56,6 +66,12 @@ struct-variant body production rejects an empty field list, while the
 struct-item production accepts it — parallel-mapping to the struct-item rule).
 The empty-struct-braces candidate was DROPPED on this.
 
+**✅ FIXED 2026-05-22.** Grammar: `variant_def` += `IDENT LBRACE RBRACE`
+(struct-shape, zero payload). Sema: the construction-side struct-shape check
+(`sema_expr.cpp`) gated on `payload_field_names.empty()`, conflating "no fields"
+with "not struct-shape" — now gates on the declared `is_struct_shape` flag, so
+`E::Empty {}` constructs + matches. Regression: empty_struct_enum_variant.
+
 ### G139-4 — `char` does not implement `Copy` (catch-up, §B)
 
 `fn f<T: Copy>(v: T)` instantiated at `char` errors: *"type 'char' does not
@@ -66,6 +82,10 @@ i64/u32/bool instead.
 Tractability: TRACTABLE — missing `impl Copy for char` (or the auto-Copy
 classification for the char primitive) in the stdlib/prelude. Same family as
 the §B1 T:Copy auto-copy work; a one-impl add, not a deep gap.
+
+**✅ FIXED 2026-05-22.** Added `impl Clone for char` + `impl Copy for char` to
+stdlib/lang/clone/clone.logos (char was the lone missing primitive).
+Regression: char_copy_bound.
 
 ## Re-confirmed known-open / blessed-divergence (NOT re-reported)
 

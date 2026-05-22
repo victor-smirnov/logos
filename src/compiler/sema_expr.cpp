@@ -8967,7 +8967,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // FIELD_INIT / FIELD_SHORTHAND. Resolve names → variant
         // payload positions via the variant's payload_field_names,
         // produce positional `payload` in declaration order.
-        if (vinfo->payload_field_names.empty()) {
+        // An empty struct-shape variant (`E::Empty {}`) legitimately has no
+        // fields — gate on the declared shape, not on field-count, so the
+        // empty case is accepted (produces an empty payload).
+        if (!vinfo->is_struct_shape && vinfo->payload_field_names.empty()) {
             error(std::format(
                 "{}::{} is not a struct-shape variant — use `{}::{}({{args...}})` or no payload",
                 ename, vname, ename, vname));

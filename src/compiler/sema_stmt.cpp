@@ -2080,27 +2080,45 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // guard (reuses enum match dispatch). Only for inners that bind
         // nothing (a payload-carrying inner like `Some(Inner(x))` would lose
         // its inner bindings through the guard — left to the existing error).
+        // A bindingless variant inner check, reused for plain PAT_VARIANT_DATA
+        // and for each alternative of a PAT_OR.
+        auto data_has_binding = [&](TinyMapView dn) -> bool {
+            if (!dn.has_key(la::ARGS)) return false;
+            auto av = dn.get(la::ARGS.code);
+            if (av.is_null() || !av.is_pointer()) return false;
+            auto al = map_of(av);
+            if (!al.has_key(la::ITEMS)) return false;
+            auto items = arr_of(al.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto sn = map_of(items.get(i));
+                if (code_of(sn) == la::PAT_WILD && sn.has_key(la::NAME) &&
+                    str_of(sn.get(la::NAME.code)) != "_") return true;
+            }
+            return false;
+        };
         if (sc == la::PAT_VARIANT ||
-            (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_)) {
+            (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_) ||
+            (sc == la::PAT_OR && current_pat_refutable_guards_)) {
             // Reject payload-binding inners (PAT_VARIANT_DATA with any non-"_"
             // binding) — they need the nested-guard binding-export scheme.
             if (sc == la::PAT_VARIANT_DATA) {
-                bool has_binding = false;
-                if (sub.has_key(la::ARGS)) {
-                    auto av = sub.get(la::ARGS.code);
-                    if (!av.is_null() && av.is_pointer()) {
-                        auto al = map_of(av);
-                        if (al.has_key(la::ITEMS)) {
-                            auto items = arr_of(al.get(la::ITEMS.code));
-                            for (uint64_t i = 0; i < items.size(); ++i) {
-                                auto sn = map_of(items.get(i));
-                                if (code_of(sn) == la::PAT_WILD && sn.has_key(la::NAME) &&
-                                    str_of(sn.get(la::NAME.code)) != "_") { has_binding = true; break; }
-                            }
-                        }
-                    }
+                if (data_has_binding(sub)) return std::string();  // fall to error
+            }
+            // G139-2: or-pattern inner `Some(A | B)`. Build the same
+            // `match synth { A | B => true, _ => false }` guard. Each alt must
+            // bind nothing (the guard returns bool — bindings would be lost).
+            if (sc == la::PAT_OR) {
+                if (!sub.has_key(la::ITEMS)) return std::string();
+                auto alts = arr_of(sub.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < alts.size(); ++i) {
+                    auto an = map_of(alts.get(i));
+                    int32_t ac = code_of(an);
+                    if (ac == la::PAT_VARIANT) continue;
+                    if (ac == la::PAT_VARIANT_DATA && !data_has_binding(an)) continue;
+                    if (ac == la::PAT_INT || ac == la::PAT_NEG_INT ||
+                        ac == la::PAT_BOOL || ac == la::PAT_CHAR) continue;
+                    return std::string();  // binding/unsupported alt → fall to error
                 }
-                if (has_binding) return std::string();  // fall to error
             }
             if (!current_pat_refutable_guards_) return std::string();
             TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
@@ -2322,7 +2340,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // guard.
                     if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
                         bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
-                        bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA) {
+                        bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
+                        bc == la::PAT_OR) {
                         std::string synth = synth_refutable_inner(
                             bnode, pat_field_type(j),
                             std::format("{}", j));

@@ -30,6 +30,7 @@ impl Clone for isize { fn clone(&self) -> isize { return *self; } }
 impl Clone for f32   { fn clone(&self) -> f32   { return *self; } }
 impl Clone for f64   { fn clone(&self) -> f64   { return *self; } }
 impl Clone for bool  { fn clone(&self) -> bool  { return *self; } }
+impl Clone for char  { fn clone(&self) -> char  { return *self; } }
 
 impl Copy for i8    {}
 impl Copy for i16   {}
@@ -44,3 +45,4 @@ impl Copy for isize {}
 impl Copy for f32   {}
 impl Copy for f64   {}
 impl Copy for bool  {}
+impl Copy for char  {}

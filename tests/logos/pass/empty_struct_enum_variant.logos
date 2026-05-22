@@ -1,0 +1,17 @@
+package empty_struct_enum_variant;
+
+// G139-3: empty struct-like enum variant `V {}` (parallels empty struct item).
+enum E { Empty {}, Val(i64) }
+
+fn main() -> i32 {
+    let e: E = E::Empty {};
+    let r: i64 = match e {
+        E::Empty {} => 5i64,
+        E::Val(n) => n,
+    };
+    if r != 5i64 { return 1i32; }
+    let v: E = E::Val(42i64);
+    let r2: i64 = match v { E::Empty {} => 0i64, E::Val(n) => n };
+    if r2 != 42i64 { return 2i32; }
+    return 0i32;
+}

@@ -725,6 +725,10 @@
                 => { CODE: VARIANT_DEF, NAME: $1, ITEMS: $3 }
                  / IDENT LBRACE variant_struct_field_list RBRACE
                 => { CODE: VARIANT_DEF, NAME: $1, IS_STRUCT_SHAPE: 1, ITEMS: $3 }
+                 // G139-3: empty struct-like variant `Empty {}` (parallels the
+                 // empty struct-item `struct S {}`). Zero payload, struct-shape.
+                 / IDENT LBRACE RBRACE
+                => { CODE: VARIANT_DEF, NAME: $1, IS_STRUCT_SHAPE: 1 }
                  / IDENT ASSIGN MINUS INTEGER
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $4, LO_NEG: true }
                  / IDENT ASSIGN INTEGER
@@ -1662,7 +1666,14 @@
     // Variant-payload pattern args: full nested patterns (closes B-pt-04).
     // Distinct from pat_binding_list because LET_DESTRUCT positions are
     // bindings, not refutable matches.
-    pat_variant_args <- pat_single (COMMA pat_single)* COMMA?
+    // G139-2: each payload arg may itself be an or-pattern `Some(A | B)`.
+    // Emit PAT_OR only when a PIPE is actually present, so single-pattern
+    // args pass through unchanged (sema's variant-payload arg lowering
+    // recurses via build_pattern, which already handles PAT_OR).
+    pat_variant_arg <- pat_single PIPE pat_single (PIPE pat_single)*
+                    => { CODE: PAT_OR, ITEMS: $... }
+                     / pat_single
+    pat_variant_args <- pat_variant_arg (COMMA pat_variant_arg)* COMMA?
                      => { ITEMS: $... }
 
     pattern <- PIPE? pat_single (PIPE pat_single)*
