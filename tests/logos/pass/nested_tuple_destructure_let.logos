@@ -1,0 +1,18 @@
+// Nested tuple destructure in `let`: `let (a, (b, c)) = …` (was "supports
+// struct patterns only"). Recurses through nested tuple bindings.
+package nested_tuple_destructure_let;
+fn main() -> i32 {
+    let t: (i64, (i64, i64)) = (1i64, (2i64, 3i64));
+    let (a, (b, c)) = t;
+    if a + b + c != 6i64 { return 1i32; }
+
+    // deeper nesting + flat still works
+    let u: ((i64, i64), i64) = ((10i64, 20i64), 30i64);
+    let ((p, q), r) = u;
+    if p + q + r != 60i64 { return 2i32; }
+
+    let flat: (i64, i64) = (4i64, 5i64);
+    let (x, y) = flat;
+    if x + y != 9i64 { return 3i32; }
+    return 0i32;
+}

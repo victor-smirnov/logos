@@ -1648,6 +1648,11 @@
 
     pat_binding <- LPAREN RPAREN
                 => { CODE: PAT_UNIT }
+               // Nested tuple binding: `let (a, (b, c)) = …`. The sub-list is
+               // stored under NAMES (same shape as LET_DESTRUCT) so the sema
+               // let-destructure lowering recurses into it.
+               / LPAREN pat_binding_list RPAREN
+                => { CODE: PAT_TUPLE, NAMES: $2 }
                / IDENT
                 => { CODE: PAT_WILD, NAME: $1 }
 

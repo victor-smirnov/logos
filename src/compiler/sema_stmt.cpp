@@ -527,33 +527,10 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
         return builder().stmt_expr(std::move(rhs), node_line_);
     }
 
-    // Collect binding names
-    std::vector<std::string> names;
-    if (node.has_key(la::NAMES)) {
-        auto nlist = map_of(node.get(la::NAMES.code));
-        if (nlist.has_key(la::ITEMS)) {
-            auto arr = arr_of(nlist.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < arr.size(); ++i) {
-                auto bnode = map_of(arr.get(i));
-                names.push_back(std::string(str_of(bnode.get(la::NAME.code))));
-            }
-        }
-    }
-    if (names.size() != TypeRef(rhs_type).tuple_elems().size()) {
-        error(std::format("let (...) = ...: expected {} bindings, got {}",
-              TypeRef(rhs_type).tuple_elems().size(), names.size()));
-    }
-    // Tuple-pattern binding-name uniqueness (closes B-pt-01)
-    check_unique_names(names,
-                       [](auto& n) -> std::string_view { return n; },
-                       "binding", "let (...) destructure");
-
-    // Build SBlock: let __destruct_N = rhs; let a = __destruct_N.0; ...
-    std::string tmp = std::format("__destruct_{}", destruct_counter_++);
-
     auto blk = lir::alloc_block(*cur_prog_);
 
     // let __destruct_N = rhs
+    std::string tmp = std::format("__destruct_{}", destruct_counter_++);
     define(tmp, rhs_type);
     lir::SLet tmp_let;
     tmp_let.name    = tmp;
@@ -562,21 +539,50 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
     tmp_let.value   = std::move(rhs);
     blk->stmts.push_back(make_stmt_emit(node_line_, std::move(tmp_let)));
 
-    // let name_i = __destruct_N.i
-    for (size_t i = 0; i < names.size() && i < TypeRef(rhs_type).tuple_elems().size(); ++i) {
-        auto elem_t = TypeRef(rhs_type).tuple_elems()[i];
-        define(names[i], elem_t);
-
-        auto tmp_ref = builder().var_ref(tmp, rhs_type);
-        auto elem_expr = builder().tuple_index(std::move(tmp_ref), (uint32_t)i, elem_t);
-
-        lir::SLet elem_let;
-        elem_let.name   = names[i];
-        elem_let.type   = elem_t;
-        elem_let.is_mut = false;
-        elem_let.value  = std::move(elem_expr);
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(elem_let)));
-    }
+    // Recursively bind a tuple-binding list against a source expr of tuple type.
+    // Each element is either a PAT_WILD (leaf name binding) or a PAT_TUPLE
+    // (nested `(b, c)`), stored under NAMES — closes nested `let (a,(b,c)) = …`.
+    std::vector<std::string> all_names;  // for uniqueness check
+    std::function<void(TinyMapView, lir::LExprPtr, TypeRef)> bind_list =
+        [&](TinyMapView nlist, lir::LExprPtr src, TypeRef src_ty) {
+        if (!nlist.has_key(la::ITEMS)) return;
+        auto arr = arr_of(nlist.get(la::ITEMS.code));
+        size_t arity = TypeRef(src_ty).kind() == LogosType::Kind::Tuple
+                           ? TypeRef(src_ty).tuple_elems().size() : 0;
+        if (arr.size() != arity)
+            error(std::format("let (...) = ...: expected {} bindings, got {}",
+                  arity, arr.size()));
+        // Spill the source to a temp so each element read references it once.
+        std::string src_tmp = std::format("__destruct_{}", destruct_counter_++);
+        define(src_tmp, src_ty);
+        lir::SLet sl;
+        sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        for (uint64_t i = 0; i < arr.size() && i < arity; ++i) {
+            auto bnode = map_of(arr.get(i));
+            auto elem_t = TypeRef(src_ty).tuple_elems()[i];
+            auto elem_expr = builder().tuple_index(
+                builder().var_ref(src_tmp, src_ty), (uint32_t)i, elem_t);
+            if (code_of(bnode) == la::PAT_TUPLE && bnode.has_key(la::NAMES)) {
+                // Nested tuple — recurse.
+                bind_list(map_of(bnode.get(la::NAMES.code)), std::move(elem_expr), elem_t);
+            } else {
+                std::string nm(str_of(bnode.get(la::NAME.code)));
+                all_names.push_back(nm);
+                define(nm, elem_t);
+                lir::SLet el;
+                el.name = nm; el.type = elem_t; el.is_mut = false; el.value = std::move(elem_expr);
+                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
+            }
+        }
+    };
+    if (node.has_key(la::NAMES))
+        bind_list(map_of(node.get(la::NAMES.code)),
+                  builder().var_ref(tmp, rhs_type), rhs_type);
+    // Tuple-pattern binding-name uniqueness (closes B-pt-01)
+    check_unique_names(all_names,
+                       [](auto& n) -> std::string_view { return n; },
+                       "binding", "let (...) destructure");
 
     lir::SBlock sb;
     sb.body = std::move(blk);
