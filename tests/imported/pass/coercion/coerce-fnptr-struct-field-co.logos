@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion/ fn-item -> fn-ptr coercion stored in a struct field.
+// Feature: a bare fn item coerces to a fn-ptr-typed struct field, then is called through the field.
+// assert via field call.
+package coerce_fnptr_struct_field_co;
+fn double(x: i64) -> i64 { return x * 2i64; }
+struct Op { f: fn(i64) -> i64 }
+fn main() -> i32 {
+    let o: Op = Op { f: double };
+    let g: fn(i64) -> i64 = o.f;
+    if g(21i64) == 42i64 { return 0i32; }
+    return 1i32;
+}

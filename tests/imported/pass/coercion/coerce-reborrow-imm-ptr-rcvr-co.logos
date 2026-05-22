@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-ptr-rcvr.rs
+// `&self` inherent method called on a `&Struct` param (implicit reborrow of an immutable ref receiver).
+// usize->u64; pub fn main->fn main->i32; assert_eq->return-code; &self->self:&SpeechMaker.
+package coerce_reborrow_imm_ptr_rcvr_co;
+struct SpeechMaker { speeches: u64 }
+impl SpeechMaker { fn how_many(self: &SpeechMaker) -> u64 { return (*self).speeches; } }
+fn foo(speaker: &SpeechMaker) -> u64 { return speaker.how_many() + 33u64; }
+fn main() -> i32 {
+    let lincoln: SpeechMaker = SpeechMaker { speeches: 22u64 };
+    if foo(&lincoln) == 55u64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-many-with-ty-var.rs
+// Least-upper-bound coercion of two distinct fn items in if/else and match arms to a common fn-ptr type.
+// The two fn items unify to `fn()->i32`. Macro-driven array/infer cases dropped (macro = §A). assert via call.
+package coerce_many_with_ty_var_co;
+fn foo() -> i32 { return 1i32; }
+fn bar() -> i32 { return 2i32; }
+fn main() -> i32 {
+    let a: fn() -> i32 = if false { foo } else { bar };
+    let b: fn() -> i32 = match false { true => foo, false => bar };
+    if a() == 2i32 && b() == 2i32 { return 0i32; }
+    return 1i32;
+}

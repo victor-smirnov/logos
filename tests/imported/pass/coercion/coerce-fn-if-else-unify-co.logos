@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion/coerce-many-with-ty-var.rs (if-else fn-item LUB subset, no macros).
+// Feature: two distinct fn items in the arms of an if-else unify to a common fn-pointer, bound and called.
+// assert via call of the selected pointer.
+package coerce_fn_if_else_unify_co;
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn dec(x: i64) -> i64 { return x - 1i64; }
+fn choose(up: bool) -> fn(i64) -> i64 {
+    let f: fn(i64) -> i64 = if up { inc } else { dec };
+    return f;
+}
+fn main() -> i32 {
+    let up: fn(i64) -> i64 = choose(true);
+    let dn: fn(i64) -> i64 = choose(false);
+    if up(10i64) == 11i64 && dn(10i64) == 9i64 { return 0i32; }
+    return 1i32;
+}

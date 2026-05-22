@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ trait-default-method-override patterns.
+// Feature: a trait default method calls another (possibly overridden) trait method on self; impl overrides one.
+// &self->self:&T; assert via two impls — one overriding, one using the default.
+package method_default_overridden_m;
+trait Greeter {
+    fn base(self: &Self) -> i64;
+    fn doubled(self: &Self) -> i64 { return self.base() * 2i64; }
+}
+struct A {}
+struct B {}
+impl Greeter for A { fn base(self: &A) -> i64 { return 3i64; } }
+impl Greeter for B {
+    fn base(self: &B) -> i64 { return 5i64; }
+    fn doubled(self: &B) -> i64 { return 100i64; }
+}
+fn main() -> i32 {
+    let a: A = A {};
+    let b: B = B {};
+    if a.doubled() == 6i64 && b.doubled() == 100i64 { return 0i32; }
+    return 1i32;
+}

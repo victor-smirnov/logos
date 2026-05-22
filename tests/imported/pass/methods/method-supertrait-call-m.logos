@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/supertrait-shadowing/ (supertrait method-call subset, no shadowing/unstable).
+// Feature: a subtrait's default method calls a supertrait method on self (`self.base()` reachable via `B: A`).
+// `()` receiver + `#![feature(...)]` dropped; concrete struct used; assert via dispatch.
+package method_supertrait_call_m;
+trait A { fn base(self: &Self) -> i64; }
+trait B: A { fn doubled(self: &Self) -> i64 { return self.base() + self.base(); } }
+struct T {}
+impl A for T { fn base(self: &T) -> i64 { return 21i64; } }
+impl B for T {}
+fn main() -> i32 {
+    let t: T = T {};
+    if t.doubled() == 42i64 { return 0i32; }
+    return 1i32;
+}

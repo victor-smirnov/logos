@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion trait-object method-dispatch patterns.
+// Feature: a fn taking `&dyn Tr` dispatches a method dynamically; called with two different impls.
+// Box<dyn>->&dyn per convention; assert via dispatch over both.
+package method_dyn_trait_object_dispatch_m;
+trait Shape { fn sides(self: &Self) -> i64; }
+struct Tri {}
+struct Quad {}
+impl Shape for Tri { fn sides(self: &Tri) -> i64 { return 3i64; } }
+impl Shape for Quad { fn sides(self: &Quad) -> i64 { return 4i64; } }
+fn count(s: &dyn Shape) -> i64 { return s.sides(); }
+fn main() -> i32 {
+    let t: Tri = Tri {};
+    let q: Quad = Quad {};
+    if count(&t) == 3i64 && count(&q) == 4i64 { return 0i32; }
+    return 1i32;
+}

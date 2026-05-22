@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion/coerce-many-with-ty-var.rs (array element LUB-coercion subset).
+// Feature: distinct fn items as array elements coerce to a common fn-pointer element type `[fn()->i32; 2]`.
+// Macro-driven permutations dropped. assert via indexed call.
+package coerce_fn_to_fnptr_array_co;
+fn foo() -> i32 { return 10i32; }
+fn bar() -> i32 { return 20i32; }
+fn main() -> i32 {
+    let arr: [fn() -> i32; 2] = [foo, bar];
+    let f0: fn() -> i32 = arr[0i64];
+    let f1: fn() -> i32 = arr[1i64];
+    if f0() == 10i32 && f1() == 20i32 { return 0i32; }
+    return 1i32;
+}

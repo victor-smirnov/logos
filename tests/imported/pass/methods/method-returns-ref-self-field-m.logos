@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ method-returning-ref-into-self patterns.
+// Feature: a `&self` method returns `&Field`; the caller then calls a method on the borrowed field (chained autoref).
+// &self->self:&T; assert via chained call.
+package method_returns_ref_self_field_m;
+struct Inner { n: i64 }
+impl Inner { fn get(self: &Inner) -> i64 { return (*self).n; } }
+struct Outer { inner: Inner }
+impl Outer { fn borrow_inner(self: &Outer) -> &Inner { return &(*self).inner; } }
+fn main() -> i32 {
+    let o: Outer = Outer { inner: Inner { n: 8i64 } };
+    if o.borrow_inner().get() == 8i64 { return 0i32; }
+    return 1i32;
+}

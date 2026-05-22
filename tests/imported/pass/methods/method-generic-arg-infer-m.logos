@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/method-argument-inference-associated-type.rs (concept: arg type inferred at call).
+// Feature: a method-generic method `fn wrap<U>(self,&Self,x:U)->U` infers U from the argument at the call.
+// Box<dyn Fn>/assoc-type forms dropped (other gaps); the inference-at-call core is kept. assert via two types.
+package method_generic_arg_infer_m;
+struct Holder {}
+impl Holder { fn echo<U>(self: &Holder, x: U) -> U { return x; } }
+fn main() -> i32 {
+    let h: Holder = Holder {};
+    let a: i64 = h.echo(7i64);
+    let b: u8 = h.echo(9u8);
+    if a == 7i64 && b == 9u8 { return 0i32; }
+    return 1i32;
+}

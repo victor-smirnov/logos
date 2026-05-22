@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-unify-return.rs
+// Coercion unifies the expected return type of a polymorphic call: `Foo.foo(main)` infers T=fn()->i32.
+// fn ptr to a named fn carried through Option<fn()->i32>; by-value self->self:Foo; assert via call.
+package coerce_unify_return_co;
+struct Foo {}
+impl Foo { fn foo<T>(self: Foo, x: T) -> Option<T> { return Some(x); } }
+fn target() -> i32 { return 7i32; }
+fn main() -> i32 {
+    let a: Option<fn() -> i32> = Some(target);
+    let f: Foo = Foo {};
+    let b: Option<fn() -> i32> = f.foo(target);
+    match a { Some(g) => { if g() != 7i32 { return 1i32; } }, None => { return 2i32; } }
+    match b { Some(g) => { if g() != 7i32 { return 3i32; } }, None => { return 4i32; } }
+    return 0i32;
+}

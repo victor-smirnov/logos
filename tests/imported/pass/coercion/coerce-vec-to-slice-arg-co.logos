@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-vec-rcvr.rs (immutable-slice reborrow subset).
+// Feature: `&Vec<T>` reborrows to a `&[T]` slice argument; the fn reads the slice via index.
+// usize->u64; to_vec/clone dropped (the reborrow-to-slice-arg core kept); assert via element reads.
+package coerce_vec_to_slice_arg_co;
+fn second(v: &[u64]) -> u64 { return v[1u64]; }
+fn main() -> i32 {
+    let mut the_vec: Vec<u64> = vec_new();
+    the_vec.push(1u64); the_vec.push(2u64); the_vec.push(3u64);
+    if second(&the_vec) == 2u64 { return 0i32; }
+    return 1i32;
+}

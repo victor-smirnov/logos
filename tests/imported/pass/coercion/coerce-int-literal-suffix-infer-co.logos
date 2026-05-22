@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion numeric-coercion / integer-inference patterns.
+// Feature: an unsuffixed-shape integer flows through a typed binding and arithmetic stays in that type.
+// All literals suffixed per Logos convention; the point retained = a value used at two widths via explicit casts.
+package coerce_int_literal_suffix_infer_co;
+fn main() -> i32 {
+    let a: i64 = 100i64;
+    let b: i32 = a as i32;
+    let c: u8 = (a as u8) + 5u8;
+    if b == 100i32 && c == 105u8 { return 0i32; }
+    return 1i32;
+}

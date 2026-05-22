@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion/method-return-trait-object-14399.rs (issue #14399).
+// Feature: a method-call return value coerces to a trait object at the binding site (here through &dyn).
+// Box<dyn A> -> &dyn A per convention; #[derive(Clone)] -> a hand clone that returns a fresh value.
+package coerce_block_tail_to_trait_object_co;
+trait A { fn id(self: &Self) -> i64; }
+struct B1 { tag: i64 }
+impl B1 { fn dup(self: &B1) -> B1 { return B1 { tag: (*self).tag }; } }
+impl A for B1 { fn id(self: &B1) -> i64 { return (*self).tag; } }
+fn main() -> i32 {
+    let v: B1 = B1 { tag: 5i64 };
+    let w: B1 = v.dup();
+    let c: &dyn A = &w;
+    if c.id() == 5i64 { return 0i32; }
+    return 1i32;
+}

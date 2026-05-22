@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ generic-fn calling a trait method then combining results.
+// Feature: a generic fn `sum_areas<T: Area>(a:&T, b:&T)` calls the bound method twice and combines.
+// &self->self:&T; assert via combined value.
+package method_generic_bound_returns_value_m;
+trait Area { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Area for Sq { fn area(self: &Sq) -> i64 { return (*self).s * (*self).s; } }
+fn sum_areas<T: Area>(a: &T, b: &T) -> i64 { return a.area() + b.area(); }
+fn main() -> i32 {
+    let x: Sq = Sq { s: 2i64 };
+    let y: Sq = Sq { s: 3i64 };
+    if sum_areas(&x, &y) == 13i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-mut-ptr-rcvr.rs
+// `&mut self` inherent method invoked repeatedly on a `&mut Struct` param (implicit reborrow each call).
+// usize->u64; &mut self->self:&mut SpeechMaker; pub fn main->fn main->i32.
+package coerce_reborrow_mut_ptr_rcvr_co;
+struct SpeechMaker { speeches: u64 }
+impl SpeechMaker { fn talk(self: &mut SpeechMaker) { (*self).speeches = (*self).speeches + 1u64; } }
+fn give_a_few_speeches(speaker: &mut SpeechMaker) {
+    speaker.talk();
+    speaker.talk();
+    speaker.talk();
+}
+fn main() -> i32 {
+    let mut lincoln: SpeechMaker = SpeechMaker { speeches: 22u64 };
+    give_a_few_speeches(&mut lincoln);
+    if lincoln.speeches == 25u64 { return 0i32; }
+    return 1i32;
+}

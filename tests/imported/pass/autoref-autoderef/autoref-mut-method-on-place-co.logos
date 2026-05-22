@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-mut-self-modifies-mut-slice-lvalue.rs (issue #19147, core concept).
+// Feature: an `&mut self` method invoked on a place (a `mut` local) auto-refs to `&mut self` and mutates in place.
+// slice/raw-ptr/unsafe machinery dropped; the place-modification-via-autoref-mut core is kept. assert via field.
+package autoref_mut_method_on_place_co;
+struct Acc { total: i64 }
+impl Acc { fn add(self: &mut Acc, n: i64) { (*self).total = (*self).total + n; } }
+fn main() -> i32 {
+    let mut a: Acc = Acc { total: 0i64 };
+    a.add(2i64);
+    a.add(3i64);
+    a.add(5i64);
+    if a.total == 10i64 { return 0i32; }
+    return 1i32;
+}

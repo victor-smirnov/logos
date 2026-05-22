@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/autoref-autoderef/ nested-receiver autoref patterns.
+// Feature: auto-ref of a nested struct field as a method receiver — `outer.inner.get()` auto-refs `inner` to `&Inner`.
+// &self->self:&T; assert via value.
+package autoderef_nested_field_method_co;
+struct Inner { n: i64 }
+impl Inner { fn get(self: &Inner) -> i64 { return (*self).n; } }
+struct Outer { inner: Inner }
+fn main() -> i32 {
+    let o: Outer = Outer { inner: Inner { n: 42i64 } };
+    if o.inner.get() == 42i64 { return 0i32; }
+    return 1i32;
+}

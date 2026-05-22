@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/coercion reborrow-of-shared-ref patterns (RFC 241 single-level subset).
+// Feature: a `&T` value reborrows freely when passed to multiple fns expecting `&T` (no move on shared ref).
+// Multi-`&&&&` deref chains + Rc/Box dropped (other gaps). assert via two reads of the same borrow.
+package coerce_ref_to_ref_arg_co;
+struct Data { n: i64 }
+fn read1(d: &Data) -> i64 { return (*d).n; }
+fn read2(d: &Data) -> i64 { return (*d).n + 1i64; }
+fn main() -> i32 {
+    let d: Data = Data { n: 5i64 };
+    let r: &Data = &d;
+    if read1(r) == 5i64 && read2(r) == 6i64 { return 0i32; }
+    return 1i32;
+}

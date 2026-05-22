@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/trait-method-resolution-7575.rs (issue #7575)
+// Feature: a user trait with a `&self` method implemented (empty) on a primitive type (`isize`),
+// resolving `value.method()` via auto-ref of the primitive. `1.new()` (no-arg trait default) -> a &self method.
+// isize->i64; `1.new()` bool default -> a value-returning &self method; assert via dispatch.
+package method_on_primitive_trait_m;
+trait Bar { fn flag(self: &Self) -> bool { return true; } }
+impl Bar for i64 {}
+fn main() -> i32 {
+    let one: i64 = 1i64;
+    if one.flag() { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ method-chaining patterns (builder-style chained `&mut self`-returning calls).
+// Feature: method chaining where each call returns the receiver by value to continue the chain.
+// by-value self returning Self; assert via final field.
+package method_chain_builder_m;
+struct Builder { a: i64, b: i64 }
+impl Builder {
+    fn new() -> Builder { return Builder { a: 0i64, b: 0i64 }; }
+    fn set_a(self: Builder, v: i64) -> Builder { return Builder { a: v, b: self.b }; }
+    fn set_b(self: Builder, v: i64) -> Builder { return Builder { a: self.a, b: v }; }
+    fn sum(self: &Builder) -> i64 { return (*self).a + (*self).b; }
+}
+fn main() -> i32 {
+    let r: i64 = Builder::new().set_a(3i64).set_b(4i64).sum();
+    if r == 7i64 { return 0i32; }
+    return 1i32;
+}

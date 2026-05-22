@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-self-arg.rs (UFCS subset)
+// Self passed as an explicit argument via UFCS: `Foo::bar(&self)` / `Foo::baz(self)` from inside a method.
+// static-mut COUNT -> threaded accumulator returned; Box<Foo> qux dropped (Box-by-value); #[derive] dropped.
+package method_self_arg_ufcs_m;
+struct Foo { acc: i64 }
+impl Foo {
+    fn drive(self: Foo) -> i64 {
+        let a: i64 = Foo::bar(&self);
+        let b: i64 = Foo::baz(self);
+        return a * 10i64 + b;
+    }
+    fn bar(self: &Foo) -> i64 { return (*self).acc + 3i64; }
+    fn baz(self: Foo) -> i64 { return self.acc + 5i64; }
+}
+fn main() -> i32 {
+    let f: Foo = Foo { acc: 1i64 };
+    if f.drive() == 46i64 { return 0i32; }
+    return 1i32;
+}

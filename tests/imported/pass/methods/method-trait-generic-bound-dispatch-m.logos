@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ trait-bound method dispatch in a generic fn.
+// Feature: `t.method()` in a generic fn `fn f<T: Tr>(t:&T)` dispatches through the trait bound to the impl.
+// &self->self:&T; assert via two impls.
+package method_trait_generic_bound_dispatch_m;
+trait Area { fn area(self: &Self) -> i64; }
+struct Square { side: i64 }
+struct Rect { w: i64, h: i64 }
+impl Area for Square { fn area(self: &Square) -> i64 { return (*self).side * (*self).side; } }
+impl Area for Rect { fn area(self: &Rect) -> i64 { return (*self).w * (*self).h; } }
+fn total<T: Area>(t: &T) -> i64 { return t.area(); }
+fn main() -> i32 {
+    let s: Square = Square { side: 4i64 };
+    let r: Rect = Rect { w: 2i64, h: 3i64 };
+    if total(&s) == 16i64 && total(&r) == 6i64 { return 0i32; }
+    return 1i32;
+}

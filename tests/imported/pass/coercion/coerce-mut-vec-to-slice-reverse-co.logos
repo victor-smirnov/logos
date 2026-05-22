@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-mut-vec-arg.rs
+// Feature: `&mut Vec<T>` reborrows to `&mut [T]`, threaded through a helper that calls `.reverse()` repeatedly.
+// usize->u64; assert_eq on whole array -> per-element checks; `&mut [usize]` param -> `&mut Vec<u64>` (Logos slice form).
+package coerce_mut_vec_to_slice_reverse_co;
+fn reverse(v: &mut Vec<u64>) { (*v).reverse(); }
+fn bar(v: &mut Vec<u64>) {
+    reverse(v);
+    reverse(v);
+    reverse(v);
+}
+fn main() -> i32 {
+    let mut the_vec: Vec<u64> = vec_new();
+    the_vec.push(1u64); the_vec.push(2u64); the_vec.push(3u64); the_vec.push(100u64);
+    bar(&mut the_vec);
+    if the_vec.get(0u64) == 100u64 && the_vec.get(1u64) == 3u64
+       && the_vec.get(2u64) == 2u64 && the_vec.get(3u64) == 1u64 { return 0i32; }
+    return 1i32;
+}

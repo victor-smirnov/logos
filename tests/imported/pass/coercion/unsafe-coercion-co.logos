@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/unsafe-coercion.rs
+// A safe fn item coerced to a fn-pointer and passed/returned through a fn parameter, then called.
+// Logos has no `unsafe fn` distinction; the coercion under test is fn-item -> fn-ptr. assert_eq->return-code.
+package unsafe_coercion_co;
+fn foo(x: i32) -> i32 { return x * 22i32; }
+fn bar(x: fn(i32) -> i32) -> fn(i32) -> i32 { return x; }
+fn main() -> i32 {
+    let f: fn(i32) -> i32 = bar(foo);
+    let x: i32 = f(2i32);
+    if x == 44i32 { return 0i32; }
+    return 1i32;
+}

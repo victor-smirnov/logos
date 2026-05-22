@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ associated (no-self) function on a generic struct.
+// Feature: a no-`self` associated function `Pair::<T>::make(x,y)` called via turbofish on a generic struct.
+// assert via field reads after construction.
+package static_method_on_generic_m;
+struct Pair<T> { a: T, b: T }
+impl<T: Copy> Pair<T> { fn make(a: T, b: T) -> Pair<T> { return Pair { a: a, b: b }; } }
+fn main() -> i32 {
+    let p: Pair<i64> = Pair::<i64>::make(3i64, 4i64);
+    if p.a == 3i64 && p.b == 4i64 { return 0i32; }
+    return 1i32;
+}

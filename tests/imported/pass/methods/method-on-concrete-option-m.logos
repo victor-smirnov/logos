@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-where-clause.rs (concrete-instantiation subset).
+// Feature: a user-trait method implemented on a concrete generic instantiation `Option<i32>` and called
+// via method notation on both `Some(..)` and `None` values. The `where Option<T>: Foo` generic indirection
+// is dropped (still unparsed — see B117 gaps); only the concrete-instantiation dispatch is kept.
+// unwrap_or kept; isize->i32; assert_eq->return-code.
+package method_on_concrete_option_m;
+trait Foo { fn foo(self: &Self) -> i32; }
+impl Foo for Option<i32> { fn foo(self: &Option<i32>) -> i32 { return (*self).unwrap_or(22i32); } }
+fn main() -> i32 {
+    let a: Option<i32> = Some(23i32);
+    let an: Option<i32> = None;
+    if a.foo() == 23i32 && an.foo() == 22i32 { return 0i32; }
+    return 1i32;
+}

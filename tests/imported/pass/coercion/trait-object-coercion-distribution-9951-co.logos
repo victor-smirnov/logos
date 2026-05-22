@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/trait-object-coercion-distribution-9951.rs (issue #9951)
+// Coercion to `&dyn Bar` (trait object) then redistribution through further `&dyn Bar` bindings; method
+// dispatch through each. Original impls `Bar for u8`; Logos `&u8 as &dyn Bar` does not coerce yet (B117-G1),
+// so a one-field struct wrapper is used (struct->&dyn coercion works). Box<dyn> variants -> &dyn. assert via dispatch.
+package trait_object_coercion_distribution_9951_co;
+trait Bar { fn val(self: &Self) -> u8; }
+struct N { v: u8 }
+impl Bar for N { fn val(self: &N) -> u8 { return (*self).v; } }
+fn main() -> i32 {
+    let five: N = N { v: 5u8 };
+    let nine: N = N { v: 9u8 };
+    let a: &dyn Bar = &five;
+    let b: &dyn Bar = &nine;
+    let c: &dyn Bar = a;
+    let d: &dyn Bar = b;
+    if c.val() == 5u8 && d.val() == 9u8 { return 0i32; }
+    return 1i32;
+}

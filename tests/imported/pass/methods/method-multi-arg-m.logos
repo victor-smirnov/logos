@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Distilled from tests/ui/methods/ multi-argument method-call patterns.
+// Feature: a `&self` method with multiple value arguments; resolved + called with positional args.
+// &self->self:&T; assert via computed result.
+package method_multi_arg_m;
+struct Calc { base: i64 }
+impl Calc { fn combine(self: &Calc, a: i64, b: i64) -> i64 { return (*self).base + a * b; } }
+fn main() -> i32 {
+    let c: Calc = Calc { base: 1i64 };
+    if c.combine(3i64, 4i64) == 13i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-mut-vec-rcvr.rs
+// A `Vec` reborrowed as `&mut [T]` slice receiver for repeated mutating method calls.
+// Logos: `&mut Vec<u64>` slice method receiver; reverse() mutates in place; usize->u64; assert_eq->return-code.
+package coerce_reborrow_mut_vec_rcvr_co;
+fn bar(v: &mut Vec<u64>) {
+    (*v).reverse();
+    (*v).reverse();
+    (*v).reverse();
+}
+fn main() -> i32 {
+    let mut the_vec: Vec<u64> = vec_new();
+    the_vec.push(1u64); the_vec.push(2u64); the_vec.push(3u64); the_vec.push(100u64);
+    bar(&mut the_vec);
+    if the_vec.get(0u64) == 100u64 && the_vec.get(1u64) == 3u64
+       && the_vec.get(2u64) == 2u64 && the_vec.get(3u64) == 1u64 { return 0i32; }
+    return 1i32;
+}
