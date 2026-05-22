@@ -14,7 +14,7 @@ re-checked file-by-file and skipped where already imported.
 
 ## NEW gaps surfaced (distinct from B136–B146 / Bnever known-open)
 
-### G147-1 — a 1-tuple pattern `(x,)` (trailing comma) is a parse error (TRACTABLE)
+### G147-1 — ✅ FIXED 2026-05-22 (4c01c1bc): 1-tuple pattern `(x,)` grammar
 
 A one-element tuple pattern with the mandatory trailing comma — `(x,)` — is a syntax
 error (`syntax error near ','`), in BOTH a `let` destructure and a `match` arm:
@@ -31,7 +31,7 @@ missing-case in the tuple-pattern production: accept a single sub-pattern follow
 trailing comma `( <pat> , )` as a 1-tuple pattern (it currently rejects the comma after
 one element). `tuple/one-tuple.rs` DROPPED (its whole point is 1-tuples).
 
-### G147-2 — same-named method on two `impl Trait<T>` blocks for one type collides (TRACTABLE)
+### G147-2 — DEFERRED (moderate): same-named method on two `impl Trait<A>`/`impl Trait<B>` for one type collides — the method-mangling key omits the trait's type-args; needs trait-type-arg-aware mangling (clean duplicate-function error today).
 
 Implementing the same trait at two different type-arguments for one receiver type —
 `impl MyTrait<u64> for MyType { fn get(..) }` + `impl MyTrait<u8> for MyType { fn get(..) }`
@@ -45,7 +45,7 @@ detected `Trait<A>` vs `Trait<B>` collision). Distinct from the B-mv-02 cross-pk
 same-NAME-different-trait collision (that's two different traits; this is one trait at
 two type-args). `traits/multidispatch1.rs` DROPPED.
 
-### G147-3 — `where <Type-with-args>: Bound` (non-type-param where-LHS) is a parse error (TRACTABLE)
+### G147-3 — DEFERRED (moderate): `where <Type-with-args>: Bound` — grammar add is easy but sema mis-collects the constructed-type predicate as a phantom empty-named type-param (breaks type-arg inference); proper fix = record the constraint + verify at mono. Attempted+reverted; stays a clean parse error.
 
 A where-clause whose left-hand side is a TYPE with arguments rather than a bare
 type-parameter — `where Option<K>: Sized`, `where fn(&A): for<'a> Foo<..>`,
@@ -58,7 +58,7 @@ fn-pointer type) and the HRTB `for<'a>` quantifier on the predicate. Moderate sc
 those are typically trivially-satisfied / redundant). `traits/false-ambiguity-where-clause-builtin-bound.rs`
 and `traits/static-outlives-a-where-clause.rs` DROPPED on this.
 
-### G147-4 — a closure literal directly in argument position is a parse error (TRACTABLE; narrow facet)
+### G147-4 — ✅ FIXED 2026-05-22 (4c01c1bc): expression-body closure `|x| expr` grammar + sema
 
 A closure literal passed DIRECTLY as a call argument — `apply(x, |y| region_identity(y))`
 — is a syntax error (`syntax error near '|'`). A closure bound to a `let` first, then
