@@ -1403,9 +1403,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();
     } else if (op == "&&" || op == "||") {
-        if (TypeRef(lt).kind() != LogosType::Kind::Bool)
+        // A diverging operand (`c || return false`) is the never type `!` and
+        // satisfies the bool requirement (it never produces a non-bool value).
+        if (TypeRef(lt).kind() != LogosType::Kind::Bool &&
+            TypeRef(lt).kind() != LogosType::Kind::Never)
             error(std::format("operator '{}': left must be bool, got {}", op, type_str(lt)));
-        if (TypeRef(rt).kind() != LogosType::Kind::Bool)
+        if (TypeRef(rt).kind() != LogosType::Kind::Bool &&
+            TypeRef(rt).kind() != LogosType::Kind::Never)
             error(std::format("operator '{}': right must be bool, got {}", op, type_str(rt)));
         result_type = bool_t();
     } else if (op == "==" || op == "!=" ||

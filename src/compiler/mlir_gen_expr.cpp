@@ -486,13 +486,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, sc_val, result_alloca);
         builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
 
-        // RHS block: evaluate RHS, store its value.
+        // RHS block: evaluate RHS, store its value. A diverging RHS
+        // (`c || return false`) already emitted its terminator — skip the
+        // store + merge-branch so we don't append after the block terminator.
         builder_.setInsertionPointToStart(rhs_block);
         auto rhs_val = gen_expr(*rhs_l);
-        if (!rhs_val)
-            rhs_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, rhs_val, result_alloca);
-        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        if (!is_terminated(builder_.getBlock())) {
+            if (!rhs_val)
+                rhs_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, rhs_val, result_alloca);
+            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        }
 
         builder_.setInsertionPointToStart(merge_block);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, i1, result_alloca);

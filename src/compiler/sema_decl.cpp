@@ -477,6 +477,18 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     auto ptype = (i < fi_ptr->param_types.size())
                         ? fi_ptr->param_types[i] : error_t();
                     TypeRef pt = subst_type_sema(ptype, {});
+                    // The never type `!` has no values, so a `!`-typed parameter
+                    // is uninhabited — the fn can never be called. Reject it
+                    // with a diagnostic (it has no MLIR representation, so
+                    // letting it through SIGSEGVs codegen). `!` stays valid in
+                    // RETURN position (a diverging fn).
+                    if (pt && TypeRef(pt).kind() == LogosType::Kind::Never) {
+                        error(std::format(
+                            "parameter '{}': the never type `!` is uninhabited and "
+                            "cannot be a parameter type",
+                            p.has_key(la::NAME) ? std::string(str_of(p.get(la::NAME.code))) : std::string("_")));
+                        pt = error_t();
+                    }
 
                     // P4-pm-19: tuple-destructure form
                     // `(a, b): (T1, T2)` — synth a name + register the

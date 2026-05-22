@@ -28,7 +28,11 @@ tests were imported; `library/core` never tests were intentionally skipped.
 
 ## NEW gaps surfaced (all impact the never-type feature — FIX candidates)
 
-### Gnever-1 — `!` as a generic type ARGUMENT to a stdlib enum crashes mlir-gen
+> **STATUS 2026-05-22:** Gnever-3 ✅ FIXED; Gnever-2 ✅ now a clean error (no
+> longer a crash); the minor bare-block-tail observation partially addressed;
+> Gnever-1 DEFERRED (deep — uninhabited-type field layout).
+
+### Gnever-1 — `!` as a generic type ARGUMENT to a stdlib enum crashes mlir-gen — DEFERRED
 - Repro: `fn f(r: Result<u32, !>) -> u32 { return 0u32; }` (just the type in a
   signature is enough — no use of the value needed).
 - Error: `mlir_gen: unknown field type in 'StepByIter$G2$OptionIter$G1$!$!'` →
@@ -43,7 +47,15 @@ tests were imported; `library/core` never tests were intentionally skipped.
 - Test DROPPED because of this: `basic/never-result.rs` (`Result<u32, !>` match).
   This is the Rust idiom for "infallible Result"; worth fixing.
 
-### Gnever-2 — `!` as a function PARAMETER type segfaults the compiler
+### Gnever-2 — `!` as a function PARAMETER type segfaults the compiler — ✅ HARDENED (clean error)
+**FIXED 2026-05-22:** a `!`-typed parameter is now rejected in sema with a clear
+diagnostic ("the never type `!` is uninhabited and cannot be a parameter type")
+instead of SIGSEGV-ing codegen. Full support (zero-size uninhabited param slot,
+so `fn foo(x: !) -> ! { x }` compiles) is deferred with Gnever-1 — both need the
+never type to have a real (zero-size) value representation. Fail-test:
+never_param_rejected.
+
+### (original Gnever-2 diagnosis below)
 - Repro: `fn f(x: !) -> i32 { return x; }` → compiler exits rc=139 (SIGSEGV)
   during emit.
 - Diagnosis: a `!`-typed parameter slot has no representation; the prologue /
@@ -53,7 +65,13 @@ tests were imported; `library/core` never tests were intentionally skipped.
   is partially covered. Tractable — give `!` a zero-size param representation
   (the body is necessarily unreachable, so it never actually reads the slot).
 
-### Gnever-3 — diverging RHS in `||` / `&&` rejected
+### Gnever-3 — diverging RHS in `||` / `&&` rejected — ✅ FIXED 2026-05-22
+The binop bool-operand check now accepts a Never operand; the `&&`/`||`
+short-circuit codegen guards the RHS block with is_terminated (a diverging RHS
+emits its terminator, no store/merge appended). Regression:
+never_type_bool_operand.
+
+### (original Gnever-3 diagnosis below)
 - Repro: `let x: bool = c || (return false);`
 - Error: `operator '||': right must be bool, got !`.
 - Diagnosis: the boolean short-circuit operators typecheck operands as exactly

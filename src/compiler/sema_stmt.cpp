@@ -54,6 +54,13 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && stmt.has_key(la::VALUE)) {
         auto e = map_of(stmt.get(la::VALUE.code));
         if (is_divergent_call(e)) return true;
+        // A bare block / if / match in expression-statement position diverges
+        // if its body does — `{ return X; }` as a fn-body tail, etc.
+        int32_t ec = code_of(e);
+        if (ec == la::BLOCK) return block_always_returns(e);
+        if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
+        if (ec == la::RETURN_EXPR || ec == la::BREAK_EXPR || ec == la::CONTINUE_EXPR)
+            return true;
     }
     // B-fn-06: TAIL_EXPR (no-SEMI trailing expression) is treated as an
     // implicit return ONLY at fn-body context, signalled by tail_as_return_.
@@ -64,6 +71,8 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         return stmt.has_key(la::BODY) &&
                block_always_returns(map_of(stmt.get(la::BODY.code)));
     }
+    // A bare nested block `{ … return X; }` diverges if its body does.
+    if (c == la::BLOCK) return block_always_returns(stmt);
     if (c == la::LOOP) {
         // `loop {}` is an infinite loop — it never falls through to the next statement.
         return true;

@@ -1,0 +1,9 @@
+package never_type_bool_operand;
+fn check(c: bool) -> bool {
+    return c || (return false);
+}
+fn main() -> i32 {
+    if check(true) != true { return 1i32; }
+    if check(false) != false { return 2i32; }
+    return 0i32;
+}
