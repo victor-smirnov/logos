@@ -18,15 +18,24 @@ per-file `Original path:` headers (B6/B100+/B107/B133–B143/Bnever).
 > **STATUS 2026-05-22:** G144-2 ✅ FIXED (or-pattern wildcard alt — dispatch +
 > dead-block sweep), G144-5 ✅ FIXED (tuple ordering), G144-6 ✅ FIXED
 > (tuple-index on call result), G144-3 facet-B ✅ FIXED (let-else continue/break
-> else codegen — same dead-block root). DEFERRED (shared "or-pattern binding
-> EXTRACTION in non-top-level position" facet, both now a CLEAN error — no
-> crash/miscompile): G144-1 (or-pattern binding nested in an enclosing tuple →
-> "undefined variable"), G144-3 facet-A (or-pattern in `let-else` → explicit
-> "not yet supported"; previously bindingless = SILENT wrong-result, binding =
-> SIGSEGV — both now rejected). The deferred facet needs match/let-else codegen
-> to do multi-alt dispatch + per-alt payload binding from whichever alt matched
-> (top-level match or-patterns already do this; replicating for tuple-element +
-> let-else positions is the focused-session work).
+> else codegen — dead-block sweep), G144-3 facet-A ✅ FIXED (or-pattern in
+> `let-else` — SLetElse codegen now OR's the alt discriminants + extracts via
+> the first alt; also fixed a bonus pre-existing C-like-enum let-else soundness
+> bug where disc_val was null → unconditional match). 
+> **G144-1 — REMAINS (clean error, NOT a crash/miscompile): or-pattern with
+> BINDINGS nested as a tuple element** (`((true,y)|(y,true), z)`, `(A(x)|B(x),
+> k)`). Investigated 2026-05-22: the sema side is trivial (declare the alt
+> bindings), but doing so exposes that the tuple-match CODEGEN is FLAT — the
+> tuple-arm dispatch tests each element with a single scalar/variant/range
+> comparison and has no machinery to (a) dispatch an or-pattern element's alts
+> nor (b) extract a binding from whichever alt matched at its (possibly
+> per-alt-different) position. Even the same-position form `(A(x)|B(x), k)`
+> SIGSEGVs if sema is allowed through; the position-dependent `(true,y)|(y,true)`
+> miscomputes. This needs a RECURSIVE pattern-test+bind codegen for tuple
+> elements (the flat dispatch can't express nested or-of-tuples) — a real
+> feature, not a localized fix. Left as the clean "undefined variable" error
+> (sema rejects) until that codegen lands; top-level or-patterns (incl.
+> position-dependent `(true,y)|(y,true)` as the WHOLE scrutinee) already work.
 
 ### G144-1 — an or-pattern nested INSIDE another tuple position drops its binding (TRACTABLE)
 
