@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_switch.rs
+// Modifications: literals suffixed; negative payload `-100` → `0 - 100`; `assert_eq!`
+//   → nonzero return codes. The enum mixes payload (A(u8)/B(i8)) and unit (C/D)
+//   variants; the match arms are deliberately OUT OF ORDER vs the declaration.
+// Tests the enum switch-codegen with mixed payload/unit variants and reordered arms.
+package mir_codegen_switch_b144;
+
+enum Abc { A(u8), B(i8), C, D }
+
+fn foo(x: Abc) -> i32 {
+    match x {
+        Abc::C => { return 3i32; }
+        Abc::D => { return 4i32; }
+        Abc::B(_) => { return 2i32; }
+        Abc::A(_) => { return 1i32; }
+    }
+}
+
+fn foo2(x: Abc) -> bool {
+    match x {
+        Abc::D => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    if foo(Abc::A(42u8)) != 1i32 { return 1i32; }
+    if foo(Abc::B(0i8 - 100i8)) != 2i32 { return 2i32; }
+    if foo(Abc::C) != 3i32 { return 3i32; }
+    if foo(Abc::D) != 4i32 { return 4i32; }
+
+    if foo2(Abc::A(1u8)) { return 5i32; }
+    if foo2(Abc::C) { return 6i32; }
+    if !foo2(Abc::D) { return 7i32; }
+    return 0i32;
+}

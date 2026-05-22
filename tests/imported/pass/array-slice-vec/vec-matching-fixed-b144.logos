@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/vec-matching-fixed.rs
+// Modifications: isize→i64; literals suffixed; `unreachable!`/`assert_eq!` → nonzero
+//   return codes; distilled to the fixed-array match forms that exercise leading/
+//   trailing `..` rest patterns + element bindings.
+// Tests fixed-array `match` patterns: exact tuples, leading `[0, ..]` / trailing
+//   `[0, .., 3]` rest patterns, and full element binding `[a, b, c]`.
+package vec_matching_fixed_b144;
+
+fn check() -> i32 {
+    let x: [i64; 3] = [1i64, 2i64, 3i64];
+    match x {
+        [1i64, 2i64, 4i64] => { return 1i32; }
+        [0i64, 2i64, 3i64, ..] => { return 2i32; }
+        [0i64, .., 3i64] => { return 3i32; }
+        [0i64, ..] => { return 4i32; }
+        [1i64, 2i64, 3i64] => { /* expected */ }
+        [_, _, _] => { return 5i32; }
+    }
+
+    match x {
+        [_, _, _, ..] => { /* matches */ }
+    }
+
+    match x {
+        [a, b, c] => {
+            if a != 1i64 { return 6i32; }
+            if b != 2i64 { return 7i32; }
+            if c != 3i64 { return 8i32; }
+        }
+    }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return check();
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/expr-match-panic-fn.rs
+// Modifications: isize→i64; the `true` arm calling `f() -> !` is taken only when the
+//   scrutinee selects the live `false`-arm value, so the program exits 0; the kept
+//   point is that a `-> !` diverging match-arm coerces to the OTHER arm's type.
+// Tests a match expression where one arm is a `-> !` diverging call and the value-arm
+//   determines the result type (`match cond { true => f(), false => 10 }`).
+package expr_match_panic_fn_b144;
+
+fn f() -> ! {
+    panic("boom");
+}
+
+fn g(cond: bool) -> i64 {
+    let x: i64 = match cond {
+        true => { f() }
+        false => { 10i64 }
+    };
+    return x;
+}
+
+fn main() -> i32 {
+    if g(false) != 10i64 { return 1i32; }
+    return 0i32;
+}

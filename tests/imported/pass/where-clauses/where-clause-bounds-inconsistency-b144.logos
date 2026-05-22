@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clause-bounds-inconsistency.rs
+// Modifications: added method bodies + a driving call; `bool` receiver → a struct.
+//   The point is that an inline bound `<T: Bound>` and a `where T: Bound` clause are
+//   interchangeable between a trait method decl and its impl.
+// Tests that a trait method declared with a `where T: Bound` clause may be implemented
+//   with an inline `<T: Bound>` bound (and vice versa) — consistently dispatched.
+package where_clause_bounds_inconsistency_b144;
+
+trait Bound { fn val(self: &Self) -> i64; }
+
+trait Trait {
+    fn a<T>(self: &Self, x: T) -> i64 where T: Bound;
+    fn c<T: Bound>(self: &Self, x: T) -> i64;
+}
+
+struct Holder { _z: i64 }
+
+impl Trait for Holder {
+    // decl uses where-clause; impl uses inline bound
+    fn a<T: Bound>(self: &Holder, x: T) -> i64 { return x.val() + 1i64; }
+    // decl uses inline bound; impl uses where-clause
+    fn c<T>(self: &Holder, x: T) -> i64 where T: Bound { return x.val() + 2i64; }
+}
+
+struct N { v: i64 }
+impl Bound for N { fn val(self: &N) -> i64 { return self.v; } }
+
+fn main() -> i32 {
+    let h: Holder = Holder { _z: 0i64 };
+    if h.a(N { v: 10i64 }) != 11i64 { return 1i32; }
+    if h.c(N { v: 20i64 }) != 22i64 { return 2i32; }
+    return 0i32;
+}

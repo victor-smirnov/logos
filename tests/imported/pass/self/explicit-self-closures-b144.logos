@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self-closures.rs
+// Modifications: usize→i64; struct renamed off `Box`; `&mut self`→`self: &mut Bin`;
+//   added a driving check on the mutated field.
+// Tests a `&mut self` method iterating a borrowed slice parameter `&[i64]` with a
+//   for-loop (`for x in xs`), mutating a field of self each iteration.
+package explicit_self_closures_b144;
+
+struct Bin { x: i64 }
+
+impl Bin {
+    fn set_many(self: &mut Bin, xs: &[i64]) {
+        for x in xs { self.x = *x; }
+    }
+}
+
+fn main() -> i32 {
+    let mut b: Bin = Bin { x: 0i64 };
+    let data: [i64; 3] = [10i64, 20i64, 30i64];
+    b.set_many(&data);
+    // last element wins
+    if b.x != 30i64 { return 1i32; }
+    return 0i32;
+}

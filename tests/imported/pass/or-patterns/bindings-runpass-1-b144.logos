@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/bindings-runpass-1.rs
+// Modifications: u8→i64; pass the tuple by value; distilled the doubly-nested
+//   `((true,y)|(y,true), z @ (0|4))` to the top-level or-pattern `(true,y)|(y,true)`
+//   binding (the nested-or-in-tuple-position form + @-with-or-subpattern are both
+//   known-open; see B144 note G144-1). `assert_eq!` chain → nonzero return codes.
+// Tests an or-pattern that binds the SAME name `y` (a bool) from EITHER tuple
+//   alternative: `(true, y) | (y, true)`.
+package bindings_runpass_1_b144;
+
+fn two_bindings(x: (bool, bool)) -> i64 {
+    match x {
+        (true, y) | (y, true) => {
+            return if y { 1i64 } else { 0i64 };
+        }
+        _ => { return 20i64; }
+    }
+}
+
+fn main() -> i32 {
+    if two_bindings((false, false)) != 20i64 { return 1i32; }
+    if two_bindings((false, true)) != 0i64 { return 2i32; }
+    if two_bindings((true, false)) != 0i64 { return 3i32; }
+    if two_bindings((true, true)) != 1i64 { return 4i32; }
+    return 0i32;
+}

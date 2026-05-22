@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/if-let-while-let.rs
+// Modifications: usize→i64; the `ref mut val @ (3|4|6)` at-binding-with-or-subpattern
+//   forms are known-open, so distilled to: a `while let Some(...)` accumulator and an
+//   `if let Some(x)` over an or-pattern payload `Some(4 | 5 | 6)` (literal-or arm).
+// Tests `while let` accumulation with a conditional break + an `if let` whose payload
+//   is a literal or-pattern `Some(4 | 5 | 6)`.
+package if_let_payload_or_b144;
+
+fn main() -> i32 {
+    let mut opt: Option<i64> = Option::Some(3i64);
+    let mut sum: i64 = 0i64;
+    while let Option::Some(val) = opt {
+        sum = sum + val;
+        if val >= 4i64 {
+            opt = Option::None;
+        } else {
+            opt = Option::Some(val + 1i64);
+        }
+    }
+    // 3 + 4 = 7
+    if sum != 7i64 { return 1i32; }
+
+    // `if let Some(4|5|6)` (payload literal-or in if-let position) is known-open;
+    // the literal-or payload arm works in `match` position:
+    let o2: Option<i64> = Option::Some(5i64);
+    match o2 {
+        Option::Some(4i64 | 5i64 | 6i64) => { return 0i32; }
+        _ => { return 2i32; }
+    }
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/bindings-runpass-2.rs
+// Modifications: u32→i64; `Result<u32,u32>` kept (prelude Result); distilled the
+//   `@`-with-or-subpattern arms (`x @ (6|8)`, `x @ 1 | x @ 2`) into plain payload
+//   bindings + literal range arms with guards. `assert_eq!` → nonzero return codes.
+// Tests payload-binding through an or-pattern over enum variants `Ok(x) | Err(x)`,
+//   inclusive-range payload arms `0..=10`, and a match guard on the bound payload.
+package bindings_runpass_2_b144;
+
+fn or_at(x: Result<i64, i64>) -> i64 {
+    match x {
+        Result::Ok(x) | Result::Err(x) if x >= 0i64 && x <= 10i64 => {
+            if x % 2i64 == 0i64 { return x + 100i64; }
+            return x + 200i64;
+        }
+        Result::Ok(x) | Result::Err(x) => { return x; }
+    }
+}
+
+fn main() -> i32 {
+    if or_at(Result::Ok(2i64)) != 102i64 { return 1i32; }
+    if or_at(Result::Ok(3i64)) != 203i64 { return 2i32; }
+    if or_at(Result::Err(4i64)) != 104i64 { return 3i32; }
+    if or_at(Result::Err(5i64)) != 205i64 { return 4i32; }
+    if or_at(Result::Ok(50i64)) != 50i64 { return 5i32; }
+    if or_at(Result::Err(99i64)) != 99i64 { return 6i32; }
+    return 0i32;
+}

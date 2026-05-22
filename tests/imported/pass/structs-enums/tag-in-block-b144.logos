@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag-in-block.rs
+// Modifications: enum declared at module scope (in-fn `enum`/`fn` items are an
+//   in-language `mod`-like nesting, known-open) but the nested-fn calling chain is
+//   kept as free fns; added a driving `main` returning a check.
+// Tests an enum used as a fn parameter, threaded through a small call chain.
+package tag_in_block_b144;
+
+enum Bar { Nil }
+
+fn zed(z: Bar) -> i64 {
+    match z {
+        Bar::Nil => { return 7i64; }
+    }
+}
+
+fn baz() -> i64 { return zed(Bar::Nil); }
+
+fn main() -> i32 {
+    if baz() != 7i64 { return 1i32; }
+    return 0i32;
+}

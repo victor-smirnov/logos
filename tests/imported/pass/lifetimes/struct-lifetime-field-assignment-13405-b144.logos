@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/lifetimes/struct-lifetime-field-assignment-13405.rs
+// Modifications: isize→i64; `&mut self`→`self: &mut Foo<'a>`; added a driving check
+//   reading the rebuilt struct's field.
+// Tests a lifetime-parametric struct `Foo<'a>` whose fields are references
+//   (`i: &'a bool`, `j: Option<&'a i64>`), with a method building a NEW `Foo` from the
+//   receiver's borrowed field + a freshly borrowed argument.
+package struct_lifetime_field_assignment_13405_b144;
+
+struct Foo<'a> {
+    i: &'a bool,
+    j: Option<&'a i64>,
+}
+
+impl<'a> Foo<'a> {
+    fn bar(self: &mut Foo<'a>, j: &'a i64) -> i64 {
+        let child: Foo<'a> = Foo {
+            i: self.i,
+            j: Option::Some(j),
+        };
+        match child.j {
+            Option::Some(v) => { return *v; }
+            Option::None => { return 0i64; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let b: bool = true;
+    let n: i64 = 99i64;
+    let mut f: Foo = Foo { i: &b, j: Option::None };
+    if f.bar(&n) != 99i64 { return 1i32; }
+    return 0i32;
+}

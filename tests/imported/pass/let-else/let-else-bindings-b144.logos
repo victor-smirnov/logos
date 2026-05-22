@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/let-else-bindings.rs
+// Modifications: `&'static str`/`String` payloads dropped; `Result<(),&str>`→
+//   `Result<i64,i64>`; `panic!` → distinct nonzero return; closure-with-let-else
+//   tail dropped. `assert!` → return codes.
+// Tests `let <pat> = <expr> else { <diverge> };` — the irrefutable-success path
+//   binds, the refutable-failure path runs the diverging `else` block.
+package let_else_bindings_b144;
+
+fn none() -> bool {
+    // matching None against Some(..) fails → else runs
+    let Option::None = Option::Some(5i64) else {
+        return true;
+    };
+    return false;
+}
+
+fn make_err() -> Result<i64, i64> { return Result::Err(7i64); }
+
+fn ok() -> bool {
+    let Result::Ok(_v) = make_err() else {
+        return true;
+    };
+    return false;
+}
+
+fn main() -> i32 {
+    let x: Option<i64> = Option::Some(3i64);
+    let Option::Some(y) = x else {
+        return 1i32;
+    };
+    if y != 3i64 { return 2i32; }
+
+    if !none() { return 3i32; }
+    if !ok() { return 4i32; }
+    return 0i32;
+}

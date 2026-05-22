@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/structured-compare.rs
+// Modifications: isize→i64; the tuple ORDERING comparisons (`<`/`<=`/`>`/`>=`) +
+//   the C-like-enum `(*self as i64)` PartialEq are both known-open (B144 G144-5 /
+//   enum-ref-as-int cast), so distilled to tuple structural `==`/`!=` (which works,
+//   incl. nested tuples) plus a user `PartialEq` on a struct comparing its fields.
+// Tests structural `==`/`!=` over (nested) tuples + a hand-written struct `PartialEq`.
+package structured_compare_b144;
+
+struct P { x: i64, y: i64 }
+
+impl PartialEq for P {
+    fn eq(self: &P, other: &P) -> bool {
+        return self.x == other.x && self.y == other.y;
+    }
+    fn ne(self: &P, other: &P) -> bool {
+        return !(*self).eq(other);
+    }
+}
+
+fn main() -> i32 {
+    let a: (i64, i64, i64) = (1i64, 2i64, 3i64);
+    let b: (i64, i64, i64) = (1i64, 2i64, 3i64);
+    if a != b { return 1i32; }
+    if a == (1i64, 2i64, 4i64) { return 2i32; }
+
+    // nested tuple structural equality
+    let n1: (i64, (i64, i64)) = (1i64, (2i64, 3i64));
+    let n2: (i64, (i64, i64)) = (1i64, (2i64, 3i64));
+    if n1 != n2 { return 3i32; }
+    if n1 == (1i64, (2i64, 9i64)) { return 4i32; }
+
+    let p1: P = P { x: 1i64, y: 2i64 };
+    let p2: P = P { x: 1i64, y: 2i64 };
+    let p3: P = P { x: 1i64, y: 9i64 };
+    if !(p1 == p2) { return 5i32; }
+    if !(p1 != p3) { return 6i32; }
+    return 0i32;
+}

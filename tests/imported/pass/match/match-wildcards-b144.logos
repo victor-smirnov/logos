@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-wildcards.rs
+// Modifications: char→i64; `panic!`→distinct return codes; the upstream always-panics
+//   to check arm selection — here each arm returns a distinct value and we assert
+//   which arm fired for several inputs.
+// Tests wildcard arm selection over a tuple of `Option`s: `(Some(_), _)` /
+//   `(_, Some(_))` / `_`.
+package match_wildcards_b144;
+
+fn cmp(a: Option<i64>, b: Option<i64>) -> i64 {
+    match (a, b) {
+        (Option::Some(_), _) => { return 1i64; }
+        (_, Option::Some(_)) => { return 2i64; }
+        _ => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    if cmp(Option::Some(7i64), Option::None) != 1i64 { return 1i32; }
+    if cmp(Option::Some(7i64), Option::Some(8i64)) != 1i64 { return 2i32; }
+    if cmp(Option::None, Option::Some(8i64)) != 2i64 { return 3i32; }
+    if cmp(Option::None, Option::None) != 3i64 { return 4i32; }
+    return 0i32;
+}

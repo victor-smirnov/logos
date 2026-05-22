@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/issue-89935.rs
+// Modifications: the `Box<dyn Foo>` receiver → a concrete struct receiver (Box +
+//   supertrait-via-&dyn are known-open); added a struct + driving check on the value.
+// Tests a supertrait chain `Foo: Baz`, `Baz: Bar` with blanket impls
+//   `impl<T:Foo> Bar for T` and `impl<T:Foo> Baz for T`, where the `Baz::bar` method is
+//   called on a concrete `Foo` type.
+package issue_89935_b144;
+
+trait Bar {}
+trait Baz: Bar { fn bar(self: &Self) -> i64; }
+trait Foo: Baz {}
+
+struct S { n: i64 }
+
+impl<T: Foo> Bar for T {}
+impl<T: Foo> Baz for T {
+    fn bar(self: &T) -> i64 { return 7i64; }
+}
+impl Foo for S {}
+
+fn accept_foo<T: Foo>(x: &T) -> i64 {
+    return x.bar();
+}
+
+fn main() -> i32 {
+    let s: S = S { n: 1i64 };
+    if accept_foo(&s) != 7i64 { return 1i32; }
+    return 0i32;
+}

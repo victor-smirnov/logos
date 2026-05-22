@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_calls_diverging.rs
+// Modifications: the diverging fn is called only on a NOT-taken branch (so the
+//   process exits 0); upstream is a run-fail that asserts the panic. The kept point
+//   is codegen of a call to a `-> !` diverging fn from another fn.
+// Tests calling a `-> !` (never-returning) fn; the call site is on a dead branch so
+//   the program exits cleanly.
+package mir_codegen_calls_diverging_b144;
+
+fn diverging_fn() -> ! {
+    panic("diverging_fn called");
+}
+
+fn mir(take_it: bool) -> i64 {
+    if take_it {
+        diverging_fn();
+    }
+    return 7i64;
+}
+
+fn main() -> i32 {
+    if mir(false) != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/conditional-dispatch.rs
+// Modifications: dropped the `Box<i32>` concrete `Get` impl (Box known-open); `&self`→
+//   `self:&Self`/`self:&T`; `assert_eq!` → nonzero return codes.
+// Tests a CONDITIONAL blanket impl: `impl<T: MyCopy> Get for T` provides `get` for
+//   any `MyCopy` type, dispatched through a generic `get_it<T:Get>(t:&T)->T`.
+package conditional_dispatch_b144;
+
+trait Get { fn get(self: &Self) -> Self; }
+
+trait MyCopy { fn copy(self: &Self) -> Self; }
+
+impl MyCopy for u16 { fn copy(self: &u16) -> u16 { return *self; } }
+impl MyCopy for u32 { fn copy(self: &u32) -> u32 { return *self; } }
+impl MyCopy for i32 { fn copy(self: &i32) -> i32 { return *self; } }
+
+impl<T: MyCopy> Get for T {
+    fn get(self: &T) -> T { return self.copy(); }
+}
+
+fn get_it<T: Get>(t: &T) -> T {
+    return (*t).get();
+}
+
+fn main() -> i32 {
+    if get_it(&1u32) != 1u32 { return 1i32; }
+    if get_it(&7u16) != 7u16 { return 2i32; }
+    if get_it(&(0i32 - 9i32)) != (0i32 - 9i32) { return 3i32; }
+    return 0i32;
+}

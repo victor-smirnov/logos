@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/destructure-array-1.rs
+// Modifications: dropped the no-op `Drop` impl; usize→u64; `panic!`→nonzero return;
+//   `assert_eq!` → return codes. The array-destructuring FN PARAMETER `[a,b,c,d]:[D;4]`
+//   selecting an element by index is the kept core.
+// Tests destructuring a fixed `[D; 4]` array via a `let [a, b, c, e] = arr;` pattern
+//   (array-pattern-as-fn-PARAMETER is a parse error — known-open; moved into the
+//   body), then returning one bound element by value.
+package destructure_array_1_b144;
+
+struct D { x: u8 }
+
+fn d(x: u8) -> D { return D { x: x }; }
+
+fn foo(arr: [D; 4], i: u64) -> D {
+    let [a, b, c, e] = arr;
+    match i {
+        0u64 => { return a; }
+        1u64 => { return b; }
+        2u64 => { return c; }
+        3u64 => { return e; }
+        _ => { return D { x: 0u8 }; }
+    }
+}
+
+fn main() -> i32 {
+    let d1: D = foo([d(1u8), d(2u8), d(3u8), d(4u8)], 1u64);
+    let d3: D = foo([d(5u8), d(6u8), d(7u8), d(8u8)], 3u64);
+    if d1.x != 2u8 { return 1i32; }
+    if d3.x != 8u8 { return 2i32; }
+    return 0i32;
+}

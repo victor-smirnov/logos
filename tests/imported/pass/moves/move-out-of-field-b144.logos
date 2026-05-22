@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-out-of-field.rs
+// Modifications: `String`/`push_str` → an i64-accumulator field + an `append` method
+//   (`self: &mut Self`); `to_string` consumes the buffer by value and moves the inner
+//   field out. `assert_eq!` → return codes.
+// Tests a `&mut self` mutating method, then a by-value consumer that MOVES a field out
+//   of the struct (`fn consume(b: Buf) -> Inner { b.inner }`).
+package move_out_of_field_b144;
+
+struct Inner { v: i64 }
+
+struct Buf { inner: Inner }
+
+impl Buf {
+    fn append(self: &mut Buf, n: i64) {
+        self.inner.v = self.inner.v + n;
+    }
+}
+
+fn consume(b: Buf) -> Inner {
+    return b.inner;
+}
+
+fn main() -> i32 {
+    let mut sb: Buf = Buf { inner: Inner { v: 0i64 } };
+    sb.append(7i64);
+    sb.append(35i64);
+    let got: Inner = consume(sb);
+    if got.v != 42i64 { return 1i32; }
+    return 0i32;
+}

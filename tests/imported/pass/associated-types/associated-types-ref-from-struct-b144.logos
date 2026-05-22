@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-ref-from-struct.rs
+// Modifications: tuple-struct `EqU32(u32)` → named-field struct; `&self`→`self:&Self`;
+//   only the u32 instance kept; added a driving check on the boolean result.
+// Tests an associated type `Test::V` used (a) as a struct field type `value: T::V`
+//   and (b) as a `&Self::V` method parameter, dispatched through a generic
+//   `TesterPair<T:Test>`.
+package associated_types_ref_from_struct_b144;
+
+trait Test {
+    type V;
+    fn test(self: &Self, value: &Self::V) -> bool;
+}
+
+struct TesterPair<T: Test> {
+    tester: T,
+    value: T::V,
+}
+
+impl<T: Test> TesterPair<T> {
+    fn new(tester: T, value: T::V) -> TesterPair<T> {
+        return TesterPair { tester: tester, value: value };
+    }
+    fn run(self: &TesterPair<T>) -> bool {
+        return self.tester.test(&self.value);
+    }
+}
+
+struct EqU32 { n: u32 }
+impl Test for EqU32 {
+    type V = u32;
+    fn test(self: &EqU32, value: &u32) -> bool {
+        return self.n == *value;
+    }
+}
+
+fn main() -> i32 {
+    let t1: TesterPair<EqU32> = TesterPair::new(EqU32 { n: 22u32 }, 23u32);
+    if t1.run() { return 1i32; }
+    let t2: TesterPair<EqU32> = TesterPair::new(EqU32 { n: 42u32 }, 42u32);
+    if !t2.run() { return 2i32; }
+    return 0i32;
+}

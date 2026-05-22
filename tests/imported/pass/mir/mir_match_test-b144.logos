@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_match_test.rs
+// Modifications: closures → plain fns; `assert_eq!` → nonzero return codes; integer
+//   literals suffixed. Both inclusive (`0..=5`) and exclusive (`0..5`) range arms
+//   with boolean match guards kept.
+// Tests range-pattern match arms (inclusive `..=` and exclusive `..`) combined with
+//   guards, exercising the switch-on-range lowering.
+package mir_match_test_b144;
+
+fn incl_range(x: i64, b: bool) -> i64 {
+    match x {
+        0i64..=5i64 if b => { return 0i64; }
+        5i64..=10i64 if b => { return 1i64; }
+        1i64..=4i64 if !b => { return 2i64; }
+        _ => { return 3i64; }
+    }
+}
+
+fn excl_range(x: i64, b: bool) -> i64 {
+    match x {
+        0i64..5i64 if b => { return 0i64; }
+        5i64..10i64 if b => { return 1i64; }
+        1i64..4i64 if !b => { return 2i64; }
+        _ => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    if incl_range(3i64, false) != 2i64 { return 1i32; }
+    if incl_range(3i64, true) != 0i64 { return 2i32; }
+    if incl_range(5i64, false) != 3i64 { return 3i32; }
+    if incl_range(5i64, true) != 0i64 { return 4i32; }
+
+    if excl_range(3i64, false) != 2i64 { return 5i32; }
+    if excl_range(5i64, false) != 3i64 { return 6i32; }
+    if excl_range(5i64, true) != 1i64 { return 7i32; }
+    return 0i32;
+}

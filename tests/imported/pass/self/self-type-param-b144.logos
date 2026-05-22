@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-type-param.rs
+// Modifications: isize→i64; `&self`→`self: &Self`/`self: &S`; added a driving check
+//   reading the returned struct's field.
+// Tests a trait method that returns `Self` (`fn f(&self) -> Self`), with the impl on a
+//   concrete struct returning a new instance of itself.
+package self_type_param_b144;
+
+trait MyTrait {
+    fn f(self: &Self) -> Self;
+}
+
+struct S { x: i64 }
+
+impl MyTrait for S {
+    fn f(self: &S) -> S {
+        return S { x: 3i64 };
+    }
+}
+
+fn main() -> i32 {
+    let a: S = S { x: 7i64 };
+    let b: S = a.f();
+    if b.x != 3i64 { return 1i32; }
+    return 0i32;
+}

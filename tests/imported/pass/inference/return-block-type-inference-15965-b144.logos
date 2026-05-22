@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/return-block-type-inference-15965.rs
+// Modifications: the inner `{ return () }` block-yielding-unit form is wrapped behind a
+//   dead branch + an explicit i64 return so the program runs; the kept point is that a
+//   `return` whose operand is itself a `{ return ... }` block typechecks (nested
+//   return / unit inference).
+// Tests a `return { ... return ...; ... }`-style nested return where the inner block
+//   diverges, exercising never/unit propagation through a returned block expression.
+package return_block_type_inference_15965_b144;
+
+fn inner(cond: bool) -> i64 {
+    if cond {
+        return { return 3i64; };
+    }
+    return 7i64;
+}
+
+fn main() -> i32 {
+    if inner(true) != 3i64 { return 1i32; }
+    if inner(false) != 7i64 { return 2i32; }
+    return 0i32;
+}

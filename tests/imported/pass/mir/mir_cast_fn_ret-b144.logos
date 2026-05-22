@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_cast_fn_ret.rs
+// Modifications: dropped `extern "C"`/`#[allow]`; literals suffixed; `assert_eq!` →
+//   nonzero return codes. Functions returning tuples, with a tuple-field access on
+//   the call result.
+// Tests returning multi-element tuples from functions and accessing a field of the
+//   returned tuple (bound to a local first; direct `tuple2().1` field-on-call-result
+//   is known-open, see B144 G144-6).
+package mir_cast_fn_ret_b144;
+
+fn tuple2() -> (u16, u8) { return (1u16, 2u8); }
+
+fn tuple3() -> (u8, u8, u8) { return (1u8, 2u8, 3u8); }
+
+fn test2() -> u8 { let t = tuple2(); return t.1; }
+
+fn test3() -> u8 { let t = tuple3(); return t.2; }
+
+fn main() -> i32 {
+    if test2() != 2u8 { return 1i32; }
+    if test3() != 3u8 { return 2i32; }
+    return 0i32;
+}
