@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clause-method-substituion-rpass.rs
+// Modifications: `&self`→`self:&T`; the empty marker methods given a trivial
+//   i32 body + return-code observation; turbofish on the method call kept;
+//   the trait-DECLARATION where clause `fn method<B>(..) where A: Foo<B>;`
+//   dropped (a `where` on a trait method declaration ending in `;` is a parse
+//   error — see notes/B136-ui-surfaced-gaps.md G136-1); the IMPL-side
+//   `where X: Foo<U>` is kept and DOES parse + discharge.
+// Tests a method-level `where` clause on an impl that constrains an
+// out-of-scope param: `impl Bar<X> for i32 { fn method<U>(self) where
+// X: Foo<U> }` invoked as `(1i32).method::<S>()`, requiring the where-bound
+// `X: Foo<S>` to be discharged from the existing `impl Foo<S> for X`.
+package where_clause_method_substituion_b136;
+
+struct S {}
+struct X {}
+
+trait Foo<T> {
+    fn dummy(self: &X) -> i32 { return 0i32; }
+}
+
+trait Bar<A> {
+    fn method<B>(self: &i32) -> i32;
+}
+
+impl Foo<S> for X {}
+
+impl Bar<X> for i32 {
+    fn method<U>(self: &i32) -> i32 where X: Foo<U> {
+        return 7i32;
+    }
+}
+
+fn main() -> i32 {
+    let n: i32 = 1i32;
+    if n.method::<S>() != 7i32 { return 1i32; }
+    return 0i32;
+}

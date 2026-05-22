@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-returning-closure.rs
+// Modifications: the upstream `|_| |x,y| x+y` (a closure literal RETURNING a
+//   closure literal) distilled to a zero-arg closure returning a two-arg
+//   fn-pointer (`adder`); the chained postfix call `g()(1,2)` is a parse
+//   error (known-open chained-postfix gap) so the returned callable is
+//   let-pinned first; isize→i64; assert_eq!→return code.
+package closure_returning_closure_b136;
+
+fn adder(x: i64, y: i64) -> i64 { return x + y; }
+
+fn main() -> i32 {
+    let g = || -> fn(i64, i64) -> i64 { return adder; };
+    let h = g();
+    if h(1i64, 2i64) != 3i64 { return 1i32; }
+    return 0i32;
+}

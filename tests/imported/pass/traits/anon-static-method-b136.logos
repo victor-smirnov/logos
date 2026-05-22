@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/anon-static-method.rs
+// Modifications: isize→i64; println! → field readback; pub fn main()→i32.
+// Tests an inherent associated function (no self) `Foo::new() -> Foo`
+// used as a constructor, then reading the constructed struct's field.
+package anon_static_method_b136;
+
+struct Foo {
+    x: i64
+}
+
+impl Foo {
+    fn new() -> Foo {
+        return Foo { x: 3i64 };
+    }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo::new();
+    if x.x != 3i64 { return 1i32; }
+    return 0i32;
+}

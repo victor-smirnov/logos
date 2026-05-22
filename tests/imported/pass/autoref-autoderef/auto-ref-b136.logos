@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/auto-ref.rs
+// Modifications: isize→i64; `&self`→`self:&Foo`; println! → return-code
+//   observation reading the field through the &self receiver.
+// Tests automatic referencing of a by-VALUE receiver `x` when calling a
+// `&self` trait method `x.printme()` (the `.` operator auto-takes `&x`).
+package auto_ref_b136;
+
+struct Foo {
+    x: i64,
+}
+
+trait Stuff {
+    fn getme(self: &Foo) -> i64;
+}
+
+impl Stuff for Foo {
+    fn getme(self: &Foo) -> i64 {
+        return self.x;
+    }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo { x: 3i64 };
+    if x.getme() != 3i64 { return 1i32; }
+    return 0i32;
+}

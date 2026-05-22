@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/isize-base.rs
+// Modifications: isize→i64; literals suffixed; assert_eq!→return codes.
+// Tests basic i64 forms: literal-matches-annotation, literal cast `as i64`,
+// inference from the annotation, inference from a suffixed literal, and a
+// fn return-value's type inference — all four compared equal.
+package isize_base_b136;
+
+fn return_val() -> i64 {
+    return 42i64;
+}
+
+fn main() -> i32 {
+    let a: i64 = 42i64;
+    let b: i64 = 42i64 as i64;
+    let c: i64 = 42i64;
+    let d = 42i64;
+    let e = return_val();
+
+    if a != b { return 1i32; }
+    if a != c { return 2i32; }
+    if a != d { return 3i32; }
+    if a != e { return 4i32; }
+    return 0i32;
+}

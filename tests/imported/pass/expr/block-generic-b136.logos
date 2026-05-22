@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/block-generic.rs
+// Modifications: Clone→Copy (block copies the value); the FnOnce(T,T)->bool
+//   comparator passed as a `fn(T,T)->bool` pointer; #[derive] dropped;
+//   the struct (Pair) instantiation re-targeted to a scalar i64 because
+//   struct `T: Copy` auto-copy is a known divergence (MEMORY B1); assert!→codes.
+// Tests a block `{ expr }` used as the VALUE for a generic-typed local
+// `let actual: T = { expected };` inside a GENERIC fn test_generic<T: Copy>,
+// instantiated at two distinct scalar types (bool, i64).
+package block_generic_b136;
+
+fn test_generic<T: Copy>(expected: T, eq: fn(T, T) -> bool) -> bool {
+    let actual: T = { expected };
+    return eq(expected, actual);
+}
+
+fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
+
+fn compare_int(a: i64, b: i64) -> bool { return a == b; }
+
+fn main() -> i32 {
+    if !test_generic::<bool>(true, compare_bool) { return 1i32; }
+    if !test_generic::<i64>(42i64, compare_int) { return 2i32; }
+    return 0i32;
+}

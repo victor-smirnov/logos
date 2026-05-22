@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/enum-to-numeric-cast.rs
+// Modifications: isize/usize→i64/u64; the error-case enum (a payload-carrying
+//   variant that cannot cast) dropped (run-pass facet only); the discarded
+//   `let _ =` casts turned into value checks against the variant's ordinal.
+// Tests that `as` casts from a UNIT-ONLY enum to several numeric types
+// succeed and yield the variant's discriminant ordinal.
+package enum_to_numeric_cast_b136;
+
+enum UnitOnly {
+    Foo,
+    Bar,
+    Baz,
+}
+
+fn main() -> i32 {
+    let unit_only: UnitOnly = UnitOnly::Bar;
+
+    if (unit_only as i64) != 1i64 { return 1i32; }
+    if (unit_only as i32) != 1i32 { return 2i32; }
+    if (unit_only as u64) != 1u64 { return 3i32; }
+    if (unit_only as u32) != 1u32 { return 4i32; }
+
+    let baz: UnitOnly = UnitOnly::Baz;
+    if (baz as i64) != 2i64 { return 5i32; }
+    return 0i32;
+}

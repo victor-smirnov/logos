@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/inherent-methods-same-name.rs
+// Modifications: tuple-struct Foo<T>(T) → named struct Foo<T>{ f0: T };
+//   usize/isize → u64/i64; assert_eq! → return-code checks; turbofish
+//   on the constructor dropped (concrete instantiation via field type).
+// Tests that two inherent impls of a generic struct at DIFFERENT type
+// arguments (Foo<u64> and Foo<i64>) may each define a `bar` method with
+// the same name, dispatched by the receiver's precise type.
+package inherent_methods_same_name_b136;
+
+struct Foo<T> { f0: T }
+
+impl Foo<u64> {
+    fn bar(self: &Foo<u64>) -> i32 {
+        return self.f0 as i32;
+    }
+}
+
+impl Foo<i64> {
+    fn bar(self: &Foo<i64>) -> i32 {
+        return 0i32 - (self.f0 as i32);
+    }
+}
+
+fn main() -> i32 {
+    let foo_u: Foo<u64> = Foo { f0: 5u64 };
+    if foo_u.bar() != 5i32 { return 1i32; }
+
+    let foo_i: Foo<i64> = Foo { f0: 3i64 };
+    if foo_i.bar() != (0i32 - 3i32) { return 2i32; }
+    return 0i32;
+}

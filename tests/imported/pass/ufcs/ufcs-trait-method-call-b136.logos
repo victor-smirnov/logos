@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ufcs/ufcs-explicit-self.rs (distilled shape)
+// Modifications: isize→i64; `&self`→`self:&Foo`; the Box receiver form and the
+//   polymorphic-paths machinery dropped; both method-syntax `f.hi()` and
+//   UFCS `Greet::hi(&f)` reach the same impl; assert!→return codes.
+// Tests UFCS trait-method dispatch on a struct receiver: `Greet::hi(&f)`
+// resolves to `impl Greet for Foo` exactly as the method-call form `f.hi()`.
+package ufcs_trait_method_call_b136;
+
+struct Foo { x: i64 }
+
+trait Greet {
+    fn hi(self: &Foo) -> i64;
+}
+
+impl Greet for Foo {
+    fn hi(self: &Foo) -> i64 {
+        return self.x + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let f: Foo = Foo { x: 41i64 };
+    if Greet::hi(&f) != 42i64 { return 1i32; }
+    if f.hi() != 42i64 { return 2i32; }
+    return 0i32;
+}

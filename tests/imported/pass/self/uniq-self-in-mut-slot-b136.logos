@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/uniq-self-in-mut-slot.rs
+// Modifications: isize→i64; `Box<Self>`/`Box<X>` receiver+return → by-value
+//   `mut self: X` / `-> X` (Box → stack); assert_eq!→return code.
+// Tests a `mut self: X` trait method that mutates a field of the moved
+// (owning) receiver and returns it, dispatched through a `Changer` trait.
+package uniq_self_in_mut_slot_b136;
+
+struct X {
+    a: i64
+}
+
+trait Changer {
+    fn change(mut self: X) -> X;
+}
+
+impl Changer for X {
+    fn change(mut self: X) -> X {
+        self.a = 55i64;
+        return self;
+    }
+}
+
+fn main() -> i32 {
+    let x: X = X { a: 32i64 };
+    let new_x: X = x.change();
+    if new_x.a != 55i64 { return 1i32; }
+    return 0i32;
+}

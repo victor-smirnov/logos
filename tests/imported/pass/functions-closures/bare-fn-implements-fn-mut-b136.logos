@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/bare-fn-implements-fn-mut.rs
+// Modifications: the String two-arg `g` distilled to two i64 args summed
+//   (avoids String push_str; the facet is bare-fn→FnMut bound); println!
+//   dropped; isize→i64; assert_eq!→return code.
+// Tests that a BARE fn item satisfies an `F: FnMut()` bound (call_f) and a
+// `G: FnMut(i64,i64)->i64` bound (call_g) — bare fn → FnMut coercion.
+package bare_fn_implements_fn_mut_b136;
+
+fn call_f<F: FnMut()>(mut f: F) {
+    f();
+}
+
+fn f() {
+    let _x: i64 = 1i64;
+}
+
+fn call_g<G: FnMut(i64, i64) -> i64>(mut g: G, x: i64, y: i64) -> i64 {
+    return g(x, y);
+}
+
+fn g(x: i64, y: i64) -> i64 {
+    return x + y;
+}
+
+fn main() -> i32 {
+    call_f(f);
+    if call_g(g, 17i64, 25i64) != 42i64 { return 1i32; }
+    return 0i32;
+}

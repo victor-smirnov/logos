@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-tag-match.rs
+// Modifications: isize→i64; CamelCase enum/variant; println! dropped;
+//   assert!→return code; the constructor & match-arm turbofish kept.
+// Tests matching a single-payload GENERIC enum `Foo<T>` inside a generic fn
+// `altfoo<T>`, binding the payload and confirming the arm was taken; the
+// enum is constructed with explicit turbofish `Foo::Arm::<i64>(10)`.
+package generic_tag_match_b136;
+
+enum Foo<T> { Arm(T) }
+
+fn altfoo<T>(f: Foo<T>) -> bool {
+    let mut hit: bool = false;
+    match f {
+        Foo::Arm(_x) => { hit = true; }
+    }
+    return hit;
+}
+
+fn main() -> i32 {
+    if !altfoo::<i64>(Foo::Arm::<i64>(10i64)) { return 1i32; }
+    return 0i32;
+}
