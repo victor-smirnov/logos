@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/issue-38002.rs
+// Modifications: `const LIST` dropped (no const-eval) — the array is built at runtime
+// and matched element-by-element instead of as a fixed-length slice pattern (slice
+// patterns with fully-literal tuple elements aren't exercised here); `usize`→`u64`;
+// the empty struct-variant `A {}`→unit variant `A` (empty-brace variant is unsupported);
+// CamelCase names; `panic!`→return-code checks; `pub fn main()`→`fn main()->i32`.
+// Exercises matching struct-variant enums carrying a nested enum field.
+package se_issue_38002;
+
+enum Bar { C }
+enum Foo { A, B { y: u64, z: Bar } }
+
+fn check(tag: u64, f: Foo) -> i32 {
+    match f {
+        Foo::B { y: yv, z: zv } => {
+            match zv {
+                Bar::C => {
+                    if tag == 51u64 && yv != 42u64 { return 1i32; }
+                    if tag == 52u64 && yv != 45u64 { return 2i32; }
+                    return 0i32;
+                }
+            }
+        }
+        Foo::A => { return 3i32; }
+    }
+}
+
+fn main() -> i32 {
+    let r1 = check(51u64, Foo::B { y: 42u64, z: Bar::C });
+    if r1 != 0i32 { return r1; }
+    let r2 = check(52u64, Foo::B { y: 45u64, z: Bar::C });
+    if r2 != 0i32 { return r2; }
+    return 0i32;
+}

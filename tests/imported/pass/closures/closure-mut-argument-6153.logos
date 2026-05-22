@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-mut-argument-6153.rs
+// Modifications: `isize`→`i64`; `Vec`/`vec![1,2,3]`→`vec_new`+push (free-fn
+// factory); a `mut` closure param rebinds into a local; equality of the two Vecs
+// checked element-wise via a helper; `assert_eq!`→return-code check. Vec from the
+// implicit prelude (no `use`). Exercises a FnOnce closure taking + returning a Vec.
+package closures_closure_mut_argument_6153;
+
+fn swap(f: fn(Vec<i64>) -> Vec<i64>) -> Vec<i64> {
+    let mut x: Vec<i64> = vec_new::<i64>();
+    x.push(1i64);
+    x.push(2i64);
+    x.push(3i64);
+    return f(x);
+}
+
+fn add4(arg: Vec<i64>) -> Vec<i64> {
+    let mut x = arg;
+    x.push(4i64);
+    return x;
+}
+
+fn main() -> i32 {
+    let v = swap(add4);
+    let w = swap(add4);
+    if v.length() != w.length() { return 1i32; }
+    let mut i: i64 = 0i64;
+    while i < v.length() {
+        if v.get(i) != w.get(i) { return 2i32; }
+        i = i + 1i64;
+    }
+    if v.length() != 4i64 { return 3i32; }
+    return 0i32;
+}

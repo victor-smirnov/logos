@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/local-enums-in-closure-2074.rs
+// Modifications: the two enums declared inside closure bodies hoisted to module
+// scope (local item declarations inside closures are not supported) with distinct
+// CamelCase names; `usize`→`u64`; `pub fn main()`→`fn main()->i32`. Exercises two
+// closures each casting an enum variant to an integer.
+package closures_local_enums_in_closure_2074;
+
+enum R1 { A }
+enum R2 { A }
+
+fn main() -> i32 {
+    let one = || { return R1::A as u64; };
+    let two = || { return R2::A as u64; };
+    let _a = one();
+    let _b = two();
+    return 0i32;
+}

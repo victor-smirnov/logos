@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-poly-methods.rs
+// Modifications: `usize`/`isize`→`u64`/`i64`; CamelCase struct name `Cat`; the
+// String-Vec `kitty` case dropped (String is fiddly), keeping the generic-struct +
+// method-generic `speak<T>` point with i64 Vecs; `vec![..]`→`vec_new`+push;
+// `&mut self`→`self: &mut Cat<U>`; `assert_eq!`→return-code checks.
+package se_class_poly_methods;
+
+struct Cat<U> {
+    info: Vec<U>,
+    meows: u64,
+    how_hungry: i64,
+}
+
+impl<U> Cat<U> {
+    fn speak<T>(self: &mut Cat<U>, stuff: Vec<T>) {
+        self.meows += stuff.length() as u64;
+    }
+    fn meow_count(self: &mut Cat<U>) -> u64 { return self.meows; }
+}
+
+fn make_cat<U>(in_x: u64, in_y: i64, in_info: Vec<U>) -> Cat<U> {
+    return Cat { meows: in_x, how_hungry: in_y, info: in_info };
+}
+
+fn main() -> i32 {
+    let mut info: Vec<i64> = vec_new::<i64>();
+    info.push(9i64);
+    let mut nyan: Cat<i64> = make_cat::<i64>(52u64, 99i64, info);
+    if nyan.how_hungry != 99i64 { return 1i32; }
+
+    let mut stuff: Vec<i64> = vec_new::<i64>();
+    stuff.push(1i64);
+    stuff.push(2i64);
+    stuff.push(3i64);
+    nyan.speak::<i64>(stuff);
+    if nyan.meow_count() != 55u64 { return 2i32; }
+    return 0i32;
+}

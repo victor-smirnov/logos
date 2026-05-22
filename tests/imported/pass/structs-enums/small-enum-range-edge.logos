@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/small-enum-range-edge.rs
+// Modifications: `#[repr]`/`#[derive]`/`static` items dropped; explicit enum
+// discriminants kept; the `wrapping_add` checks dropped (not a method on u8/i8 here)
+// and negative i8 literal avoided — the regression point (reading discriminants at
+// the u8/i8 wraparound edges) is preserved via direct discriminant reads;
+// `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`.
+package se_small_enum_range_edge;
+
+enum Eu { Lu = 0, Hu = 255 }
+enum Es { Ls = -128, Hs = 127 }
+
+fn main() -> i32 {
+    if (Eu::Lu as u8) != 0u8 { return 1i32; }
+    if (Eu::Hu as u8) != 255u8 { return 2i32; }
+    if (Es::Hs as i8) != 127i8 { return 3i32; }
+    if (Es::Ls as i64) != (0i64 - 128i64) { return 4i32; }
+    return 0i32;
+}

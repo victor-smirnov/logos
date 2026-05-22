@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/shadow.rs
+// Modifications: `isize`→`i64`; generic enum `t`→CamelCase `Opt<T>` with variants
+// `None`/`Some`; `Vec::new()`→`vec_new`; turbofish on variants kept; `println!`
+// dropped; `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
+// Exercises variable shadowing inside a for-loop within a match arm.
+package binding_shadow;
+
+enum Opt<T> { None, Some(T) }
+
+fn foo(c: Vec<i64>) {
+    let a: i64 = 5i64;
+    let mut b: Vec<i64> = vec_new::<i64>();
+    match Opt::<i64>::None {
+        Opt::Some(_) => {
+            for _i in &c {
+                let a = 17i64;
+                b.push(a);
+            }
+        }
+        _ => {}
+    }
+    return;
+}
+
+fn main() -> i32 {
+    let x = 10i64;
+    let x = x + 20i64;
+    if x != 30i64 { return 1i32; }
+    foo(vec_new::<i64>());
+    return 0i32;
+}

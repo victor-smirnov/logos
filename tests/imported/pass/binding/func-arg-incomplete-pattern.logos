@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/func-arg-incomplete-pattern.rs
+// Modifications: `Box<usize>`→plain `u64` (Box fields→stack values); the raw-pointer
+// address comparison replaced with a value check (the test's drop-no-leak point is
+// about the dropped `y` field — preserved structurally by destructuring `{ x, .. }`);
+// `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`. Exercises a struct
+// destructuring pattern with `..` in a function argument position.
+package binding_func_arg_incomplete_pattern;
+
+struct Foo { x: u64, y: u64 }
+
+fn foo(arg: Foo) -> u64 {
+    let Foo { x, .. } = arg;
+    return x;
+}
+
+fn main() -> i32 {
+    let f = Foo { x: 1u64, y: 2u64 };
+    if foo(f) != 1u64 { return 1i32; }
+    return 0i32;
+}

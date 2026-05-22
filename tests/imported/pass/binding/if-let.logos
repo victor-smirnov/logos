@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/if-let.rs
+// Modifications: `usize`/`isize`→`u64`/`i64`; the String-bearing `Foo::Three` arm
+// dropped (String compare is fiddly); the deferred-init `let clause; if let .. {}`
+// chain rewritten to initialize at decl; literal-pattern `if let 1 = 2` and the
+// nested `a@` binding dropped (incidental); `panic!`/`assert!`→return-code checks.
+// Option/Some/None/Ok/Err from the implicit prelude (no `use`).
+package binding_if_let;
+
+enum Foo { One, Two { v: u64 } }
+
+fn main() -> i32 {
+    let x = Some(3i64);
+    if let Some(y) = x {
+        if y != 3i64 { return 1i32; }
+    } else {
+        return 2i32;
+    }
+
+    let mut worked = false;
+    if let Some(_) = x {
+        worked = true;
+    }
+    if !worked { return 3i32; }
+
+    let mut clause: u64 = 0u64;
+    if let None = Some("test") {
+        clause = 1u64;
+    } else if 4u64 > 5u64 {
+        clause = 2u64;
+    } else {
+        clause = 4u64;
+    }
+    if clause != 4u64 { return 4i32; }
+
+    let foo = Foo::Two { v: 42u64 };
+    if let Foo::One = foo {
+        return 5i32;
+    } else if let Foo::Two { v: b } = foo {
+        if b != 42u64 { return 6i32; }
+    } else {
+        return 7i32;
+    }
+
+    return 0i32;
+}

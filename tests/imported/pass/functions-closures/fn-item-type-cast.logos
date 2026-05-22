@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-item-type-cast.rs
+// Modifications: `isize`→`i64`; `static TEST` item + the generic `eq` no-op call
+// dropped (incidental); `as IntMap` fn-item→fn-pointer coercions kept; `assert_eq!`→
+// return-code check; `pub fn main()`→`fn main()->i32`. Exercises fn-item→fn-pointer
+// coercion and a fn-pointer-typed `if/else` unification.
+package fc_fn_item_type_cast;
+
+fn foo(x: i64) -> i64 { return x * 2i64; }
+fn bar(x: i64) -> i64 { return x * 4i64; }
+
+fn main() -> i32 {
+    let f: fn(i64) -> i64 = foo;
+    let g: fn(i64) -> i64 = if true { foo } else { bar };
+    if g(4i64) != 8i64 { return 1i32; }
+    if f(4i64) != 8i64 { return 2i32; }
+    return 0i32;
+}

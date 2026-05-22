@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-nested-enum-box-3121.rs
+// Modifications: `Box<meal>`→plain `Meal` (Box receiver→stack value); CamelCase
+// enum/variant names; tuple-variant payloads given named fields; nested refutable
+// inner patterns in a struct-shape variant rewritten as bind-then-inner-match
+// (refutable inner patterns aren't supported in struct-shape variant patterns);
+// `pub fn main()`→`fn main()->i32`. Exercises matching nested enums + a guard arm.
+package match_nested_enum_box_3121;
+
+enum Side { Mayo, Catsup, Vinegar }
+enum Order { Hamburger, Fries { s: Side }, Shake }
+enum Meal { ToGo { o: Order }, ForHere { o: Order } }
+
+fn foo(m: Meal, cond: bool) -> i32 {
+    match m {
+        Meal::ToGo { .. } => { return 0i32; }
+        Meal::ForHere { o: inner } if cond => { return 1i32; }
+        Meal::ForHere { o: inner } => {
+            match inner {
+                Order::Hamburger => { return 2i32; }
+                Order::Fries { .. } => { return 3i32; }
+                Order::Shake => { return 4i32; }
+            }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let r = foo(Meal::ForHere { o: Order::Hamburger }, true);
+    if r != 1i32 { return 10i32; }
+    return 0i32;
+}

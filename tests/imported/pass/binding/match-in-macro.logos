@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-in-macro.rs
+// Modifications: `isize`→`i64`; the macro wrapper dropped (its only purpose was
+// to test hygiene of a match in expansion — inlined here); `assert_eq!`→return-code
+// check; `pub fn main()`→`fn main()->i32`. Exercises matching a struct-variant enum.
+package binding_match_in_macro;
+
+enum Foo { B { b1: i64, bb1: i64 } }
+
+fn main() -> i32 {
+    let r = match (Foo::B { b1: 29i64, bb1: 100i64 }) {
+        Foo::B { b1: b2, bb1: bb2 } => b2 + bb2,
+    };
+    if r != 129i64 { return 1i32; }
+    return 0i32;
+}

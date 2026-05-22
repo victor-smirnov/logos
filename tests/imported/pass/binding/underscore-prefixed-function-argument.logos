@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/underscore-prefixed-function-argument.rs
+// Modifications: `isize`→`i64`; the generic FnOnce-bounded `called` rewritten to
+// take a plain fn pointer; `pub fn main()`→`fn main()->i32`. Exercises argument
+// names that start with `_`.
+package binding_underscore_prefixed_function_argument;
+
+fn good(_a: &i64) {}
+
+fn called(_f: fn(&i64)) {}
+
+fn main() -> i32 {
+    called(good);
+    return 0i32;
+}

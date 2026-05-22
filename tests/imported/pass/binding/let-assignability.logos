@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/let-assignability.rs
+// Modifications: `Box<_>`→plain `i64` (Box value→stack value); `isize`→`i64`;
+// `println!` replaced with a return-code check on the deref; `pub fn main()`→
+// `fn main()->i32`. Exercises taking a `&i64` reference to a local and reading it.
+package binding_let_assignability;
+
+fn f() -> i32 {
+    let a: i64 = 1i64;
+    let b: &i64 = &a;
+    if *b != 1i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return f();
+}

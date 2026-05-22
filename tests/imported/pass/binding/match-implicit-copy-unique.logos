@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-implicit-copy-unique.rs
+// Modifications: `Box<isize>`→plain `i64` (Box values→stack values); the outer Box +
+// `&mut *x` deref dropped (match directly on the struct via a mutable local);
+// `assert_eq!`→return-code checks; `pub fn main()`→`fn main()->i32`. Exercises a
+// struct pattern with `ref mut` field bindings + mutation through the binding.
+package binding_match_implicit_copy_unique;
+
+struct Pair { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let mut x = Pair { a: 10i64, b: 20i64 };
+    match x {
+        Pair { a: ref mut a, b: ref mut _b } => {
+            if *a != 10i64 { return 1i32; }
+            *a = 30i64;
+            if *a != 30i64 { return 2i32; }
+        }
+    }
+    return 0i32;
+}

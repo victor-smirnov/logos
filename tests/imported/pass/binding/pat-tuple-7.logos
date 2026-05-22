@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pat-tuple-7.rs
+// Modifications: parenthesized single pattern `(pat)`→`pat`; `assert_eq!`→
+// return-code check; `pub fn main()`→`fn main()->i32`.
+package binding_pat_tuple_7;
+
+fn main() -> i32 {
+    match 0i64 {
+        pat => { if pat != 0i64 { return 1i32; } }
+    }
+    return 0i32;
+}

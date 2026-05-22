@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/empty-tag.rs
+// Modifications: `#[derive]` dropped; `usize`→`u64`; CamelCase enum name `Chan`/
+// variant `ChanT`; `&self`→`self: &Chan`; `assert_eq!`→return-code check;
+// `pub fn main()`→`fn main()->i32`. Exercises a hand-written PartialEq impl whose
+// eq compares the discriminant-as-int, called through a closure.
+package se_empty_tag;
+
+enum Chan { ChanT }
+
+impl PartialEq for Chan {
+    fn eq(self: &Chan, other: &Chan) -> bool {
+        return ((*self) as u64) == ((*other) as u64);
+    }
+    fn ne(self: &Chan, other: &Chan) -> bool { return !(*self).eq(other); }
+}
+
+fn wrapper3(i: Chan) -> i32 {
+    if i != Chan::ChanT { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let wrapped = || { return wrapper3(Chan::ChanT); };
+    return wrapped();
+}

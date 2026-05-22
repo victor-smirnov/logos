@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/for-loop-into-iterator.rs
+// Modifications: `vec![1]`→`vec_new`+push (free-fn factory); the `&mut v` loop
+// dropped (mutable-borrow for-loop is fiddly); the by-value `for x in v` loop kept
+// after the `&v` loop (v re-built); `assert_eq!`→return-code checks. Vec from the
+// implicit prelude (no `use`). Exercises for-over-&Vec and for-over-Vec (IntoIterator).
+package fl_for_loop_into_iterator;
+
+fn main() -> i32 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(1i64);
+
+    for x in &v {
+        if *x != 1i64 { return 1i32; }
+    }
+
+    let mut w: Vec<i64> = vec_new::<i64>();
+    w.push(1i64);
+    for x in w {
+        if x != 1i64 { return 2i32; }
+    }
+    return 0i32;
+}

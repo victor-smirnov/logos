@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/range-inclusive-pattern-precedence.rs
+// Modifications: the `&`-ref and `box` pattern wrappers + the `const VALUE` arms
+// dropped (matching by value here; no const-eval); `usize`→`i64`; `unreachable!()`→
+// return-code checks; `pub fn main()`→`fn main()->i32`. Exercises inclusive-range
+// patterns `18..=18` and `21..=21` in match arms.
+package binding_range_inclusive_pattern_precedence;
+
+fn main() -> i32 {
+    match 18i64 {
+        18i64..=18i64 => {}
+        _ => { return 1i32; }
+    }
+    match 21i64 {
+        21i64..=21i64 => {}
+        _ => { return 2i32; }
+    }
+    return 0i32;
+}

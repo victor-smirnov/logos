@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/tuple-usize-pattern-14393.rs
+// Modifications: `usize`→`u64`; the str-literal tuple element replaced with an
+// i64 element (matching a str-literal in a tuple pattern is unsupported) so the
+// regression intent — matching a multi-element tuple with literal arms — is kept;
+// `pub fn main()`→`fn main()->i32`.
+package match_tuple_usize_pattern_14393;
+
+fn main() -> i32 {
+    match (7i64, 1u64) {
+        (_, 42u64) => { return 1i32; }
+        (7i64, _) => { return 0i32; }
+        _ => { return 2i32; }
+    }
+}
