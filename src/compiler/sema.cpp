@@ -3186,10 +3186,12 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
         // merge below, so a `where T: ?Sized` clause is also honored.
         result.push_back(std::move(tp));
     }
-    // Remove temp typevars added in pre-pass.
-    for (auto& name : temp_params)
-        current_type_params_.erase(name);
-    // Merge bounds from `where T: Trait, U: Trait2` clause.
+    // Merge bounds from `where T: Trait, U: Trait2` clause. The pre-pass
+    // typevars are still in scope here (erased AFTER the merge below) so a
+    // where-clause bound whose args reference a sibling type-param — e.g.
+    // `where F: FnOnce(T, T) -> bool` — resolves `T` instead of failing with
+    // "unknown type 'T'" (matches the inline `<T, F: FnOnce(T,T)->bool>` form,
+    // which already worked because its bounds resolve during the loop above).
     if (node.has_key(la::WHERE)) {
         AnyVal wav = node.get(la::WHERE.code);
         if (!wav.is_null()) {
@@ -3226,6 +3228,11 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
             }
         }
     }
+    // Remove temp typevars added in the pre-pass (now that both the inline
+    // bounds AND the where-clause bounds have been resolved with the sibling
+    // type-params in scope). push_type_params re-adds them properly later.
+    for (auto& name : temp_params)
+        current_type_params_.erase(name);
     // Phase 1: finalize relaxed bounds (`?Sized`) after all bounds —
     // including those from `where` clauses — have been merged. This is
     // the canonical post-parse point for type-param invariants.
