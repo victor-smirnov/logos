@@ -9867,8 +9867,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // rewrites "DT__method" → "ConcreteType__method" once DT is substituted).
         auto bit = current_type_bounds_.find(cname_str);
         if (bit != current_type_bounds_.end()) {
-            for (auto& bound : bit->second) {
-                auto tit = traits_.find(bound.trait_name);
+            // G149-5: the static method may be inherited from a SUPERTRAIT of a
+            // bound (`T: NumExt` where `NumExt: MyNum` and `from_int` lives in
+            // MyNum). Collect the bound traits transitively closed over their
+            // supertrait DAG before searching for the method.
+            std::vector<std::string> search_traits;
+            {
+                logos::compiler::StrSet seen;
+                std::function<void(const std::string&)> add_t =
+                    [&](const std::string& tn) {
+                        if (!seen.insert(tn).second) return;
+                        search_traits.push_back(tn);
+                        auto it = find_trait_iter_scoped(tn);
+                        if (it != traits_.end())
+                            for (auto& s : it->second.supertraits) add_t(s.trait_name);
+                    };
+                for (auto& bound : bit->second) add_t(bound.trait_name);
+            }
+            for (auto& tn : search_traits) {
+                auto tit = find_trait_iter_scoped(tn);
                 if (tit == traits_.end()) continue;
                 for (auto& m : tit->second.methods) {
                     if (m.name != mname_str) continue;
@@ -9909,6 +9926,66 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     return builder().call(mfi && !mfi->symbol_name.empty()
                                 ? mfi->symbol_name
                                 : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t);
+                }
+            }
+        }
+        // G149-5 (trait-qualified form): `Trait::static_method(args)` inside a
+        // generic fn, where the impl is selected by the receiver-Self type.
+        // When `cname_str` names a trait that declares (or inherits) the static
+        // method, find the in-scope type-param whose bound-closure includes that
+        // trait; if exactly one, bind Self → that type-param and emit
+        // `<param>__<method>` (mono retargets to the concrete impl). This is the
+        // `MyNum::from_int(1)` shape where `T: NumExt`, `NumExt: MyNum`.
+        if (find_trait_by_name(cname_str).second) {
+            // Does cname (or a supertrait of it) declare a static `mname`?
+            const SemaTraitMethodInfo* tm = nullptr;
+            {
+                logos::compiler::StrSet seen;
+                std::function<void(const std::string&)> probe = [&](const std::string& tn) {
+                    if (tm || !seen.insert(tn).second) return;
+                    auto it = find_trait_iter_scoped(tn);
+                    if (it == traits_.end()) return;
+                    for (auto& m : it->second.methods)
+                        if (m.name == mname_str) {
+                            bool is_static = m.param_types.empty() ||
+                                !(m.param_types[0] &&
+                                  TypeRef(m.param_types[0]).kind() == LogosType::Kind::TypeVar &&
+                                  TypeRef(m.param_types[0]).type_var_name() == "Self");
+                            if (is_static) { tm = &m; return; }
+                        }
+                    for (auto& s : it->second.supertraits) probe(s.trait_name);
+                };
+                probe(cname_str);
+            }
+            if (tm) {
+                // Find type-params whose transitive bound-closure includes cname.
+                std::vector<std::string> candidates;
+                for (auto& [tpname, bounds] : current_type_bounds_) {
+                    logos::compiler::StrSet seen;
+                    std::function<bool(const std::string&)> reaches =
+                        [&](const std::string& tn) -> bool {
+                            if (!seen.insert(tn).second) return false;
+                            if (tn == cname_str) return true;
+                            auto it = find_trait_iter_scoped(tn);
+                            if (it == traits_.end()) return false;
+                            for (auto& s : it->second.supertraits)
+                                if (reaches(s.trait_name)) return true;
+                            return false;
+                        };
+                    for (auto& b : bounds)
+                        if (reaches(b.trait_name)) { candidates.push_back(tpname); break; }
+                }
+                if (candidates.size() == 1) {
+                    const std::string& tp = candidates[0];
+                    SemaSubst self_subst;
+                    self_subst["Self"] = current_type_params_.count(tp)
+                        ? current_type_params_[tp] : make_typevar(tp);
+                    TypeRef ret_t = subst_type_sema(tm->ret_type, self_subst);
+                    if (arg_exprs.size() != tm->param_types.size())
+                        error(std::format("method call '{}::{}': expected {} args, got {}",
+                              cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
+                    return builder().call(tp + "__" + mname_str, {},
+                                          std::move(arg_exprs), ret_t);
                 }
             }
         }

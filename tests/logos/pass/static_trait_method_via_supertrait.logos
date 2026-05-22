@@ -1,0 +1,15 @@
+package static_trait_method_via_supertrait;
+// G149-5: static trait method inherited from a supertrait, called on a
+// generic type-param both as `T::from_int(..)` and `Trait::from_int(..)`.
+trait MyNum { fn from_int(i: i64) -> Self; }
+trait NumExt : MyNum { }
+struct Wrap { v: i64 }
+impl MyNum for Wrap { fn from_int(i: i64) -> Wrap { return Wrap { v: i }; } }
+impl NumExt for Wrap { }
+fn via_param<T: NumExt>(n: i64) -> T { return T::from_int(n); }
+fn via_trait<T: NumExt>(n: i64) -> T { return MyNum::from_int(n); }
+fn main() -> i64 {
+    let a: Wrap = via_param::<Wrap>(3);
+    let b: Wrap = via_trait::<Wrap>(4);
+    return a.v + b.v;
+}

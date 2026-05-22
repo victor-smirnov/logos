@@ -1,0 +1,17 @@
+package inheritance_static_b149;
+// Faithful port of rustc tests/ui/traits/inheritance/static.rs.
+// G149-5 regression: a static trait method inherited via a supertrait bound,
+// called in the trait-qualified form `MyNum::from_int(1)` inside a generic fn
+// `greater_than_one<T: NumExt>() -> T` (NumExt: MyNum). Self resolves to the
+// in-scope type-param T whose bound-closure includes MyNum. isize→i64;
+// assert_eq! → exit code (v.v == 1 → exit 1).
+trait MyNum { fn from_int(i: i64) -> Self; }
+trait NumExt : MyNum { }
+struct S { v: i64 }
+impl MyNum for S { fn from_int(i: i64) -> S { return S { v: i }; } }
+impl NumExt for S { }
+fn greater_than_one<T: NumExt>() -> T { return MyNum::from_int(1); }
+fn main() -> i64 {
+    let v: S = greater_than_one::<S>();
+    return v.v;
+}

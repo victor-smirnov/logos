@@ -118,7 +118,9 @@ tuple"). Tractability: MODERATE (grammar + a binding for the rest sub-slice, whi
 `&[T]` patterns already length-track per B-pt-12). `pattern/slice-pattern-recursion-15104.rs`
 DROPPED on this (its whole point is the recursive `[_, ref xs @ ..]` tail-bind).
 
-### G149-5 — DEFERRED (moderate): a STATIC trait method called on a generic type-param (`T::from_int(..)` or `Trait::from_int(..)`) whose result type drives selection is unresolved — "call to undefined static method 'T::from_int'"
+### G149-5 — ✅ FIXED (2026-05-22): a STATIC trait method called on a generic type-param (`T::from_int(..)` or `Trait::from_int(..)`) whose result type drives selection is unresolved — "call to undefined static method 'T::from_int'"
+
+**Fix** (sema_expr.cpp lower_static_call): (1) `T::method()` — the generic-static-dispatch loop only searched each bound's trait directly; it now closes over the supertrait DAG so an inherited static method (`NumExt: MyNum`) is found. (2) `Trait::method()` trait-qualified form — added a fallback: when cname names a trait that declares/inherits the static method, find the in-scope type-param whose bound-closure includes that trait; if exactly one, bind Self→that param and emit `<param>__method` (mono retargets). Re-import `inheritance-static-b149`; regression `static_trait_method_via_supertrait`. 4517/4517. ORIGINAL REPORT below:
 
 ```
 trait MyNum { fn from_int(i: i64) -> Self; }
