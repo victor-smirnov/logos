@@ -2855,7 +2855,30 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                TypeRef(orig_inner).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(orig_inner).pointee())
                 orig_inner = TypeRef(orig_inner).pointee();
-            if (orig_inner && TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar &&
+            // G149-1: an associated-type projection (`G::R`) receiver — e.g.
+            // `let r = g.get(); r.method()` where `get(): Self::R` — needs the
+            // same EMethodCall→concrete-symbol retargeting as a TypeVar
+            // receiver once subst has normalized the projection to a concrete
+            // type (assoc_impls_ lookup in subst_type). Without it the method
+            // stays unresolved on an unrecognised receiver kind → mlir-gen
+            // "unsupported receiver kind" → truncated body. Only retarget when
+            // the substituted receiver is actually concrete (not still a
+            // TypeVar/AssocType): an unresolved projection is left as-is.
+            bool orig_retargetable =
+                orig_inner &&
+                (TypeRef(orig_inner).kind() == LogosType::Kind::TypeVar ||
+                 TypeRef(orig_inner).kind() == LogosType::Kind::AssocType);
+            bool new_concrete = false;
+            if (new_recv && new_recv->type) {
+                TypeRef nrt{new_recv->type};
+                if ((nrt.kind() == LogosType::Kind::Ptr ||
+                     nrt.kind() == LogosType::Kind::Ref ||
+                     nrt.kind() == LogosType::Kind::MutRef) && nrt.pointee())
+                    nrt = TypeRef(nrt.pointee());
+                new_concrete = nrt.kind() != LogosType::Kind::TypeVar &&
+                               nrt.kind() != LogosType::Kind::AssocType;
+            }
+            if (orig_retargetable && new_concrete &&
                 new_recv && new_recv->type) {
                 std::string cname;
                 auto rt = new_recv->type;

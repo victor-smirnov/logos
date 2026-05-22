@@ -1,0 +1,22 @@
+package associated_types_bound_b149;
+// Faithful port of rustc tests/ui/associated-types/associated-types-bound.rs.
+// G149-1 regression: a generic fn dispatching a method on an ASSOCIATED-TYPE
+// PROJECTION return value (`let r = g.get(); r.to_i32()` where get(): Self::R,
+// R: ToI32). Mono now retargets the projection-typed receiver to the concrete
+// impl method once subst normalizes G::R to the concrete type.
+// `ToI32::to_i32(&g.get())` UFCS → method form; assert_eq! → exit-code checks.
+trait ToI32 { fn to_i32(self: &Self) -> i32; }
+impl ToI32 for i32 { fn to_i32(self: &Self) -> i32 { return *self; } }
+impl ToI32 for u32 { fn to_i32(self: &Self) -> i32 { return *self as i32; } }
+trait GetToI32 { type R: ToI32; fn get(self: &Self) -> Self::R; }
+impl GetToI32 for i32 { type R = i32; fn get(self: &Self) -> i32 { return *self; } }
+impl GetToI32 for u32 { type R = u32; fn get(self: &Self) -> u32 { return *self; } }
+fn foo<G: GetToI32>(g: G) -> i32 {
+    let r = g.get();
+    return r.to_i32();
+}
+fn main() -> i64 {
+    if foo(22i32) != 22 { return 1; }
+    if foo(22u32) != 22 { return 2; }
+    return 0;
+}

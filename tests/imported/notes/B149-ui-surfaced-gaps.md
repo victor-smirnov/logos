@@ -14,7 +14,9 @@ prior batches).
 
 ## NEW gaps surfaced
 
-### G149-1 — ⚠️ CRASH (moderate): generic fn dispatching a method on an ASSOCIATED-TYPE PROJECTION return value crashes mlir-gen — "mlir_gen: unsupported receiver kind for struct/class access" → runtime SIGSEGV
+### G149-1 — ✅ FIXED (2026-05-22): generic fn dispatching a method on an ASSOCIATED-TYPE PROJECTION return value crashes mlir-gen — "mlir_gen: unsupported receiver kind for struct/class access" → runtime SIGSEGV
+
+**Fix**: mono's EMethodCall retargeting (mono_clone.cpp) — which rewrites a method call on a generic receiver to the concrete `<cname>__<method>` symbol — was gated on the ORIGINAL receiver being a TypeVar. An associated-type-projection receiver (`r: G::R`) was skipped, so the method stayed unresolved and codegen hit gen_recv_struct with an AssocType receiver. `subst_type` already normalizes `G::R`→concrete via assoc_impls_; the gate now also fires for an AssocType orig receiver, but only when the SUBSTITUTED receiver is concrete (not still TypeVar/AssocType — an unresolved projection is left as-is). Re-import `associated-types-bound-b149` (both i32+u32 instantiations). 4515/4515. ORIGINAL REPORT below:
 
 A generic fn whose body calls a method on the result of another method that returns an
 associated-type projection (`Self::R`, with `R: Bound`):
