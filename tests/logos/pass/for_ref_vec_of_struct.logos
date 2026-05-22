@@ -1,0 +1,27 @@
+// `for x in &v` over a Vec<MultiFieldStruct> (and &[Struct]) yields each
+// successive element by reference with the CORRECT per-index stride (was a
+// silent miscompile: the slice GEP strided by ptr-size, reading the wrong
+// element for multi-word structs).
+package for_ref_vec_of_struct;
+
+struct P3 { a: i64, b: i64, c: i64 }
+
+fn main() -> i32 {
+    let mut v: Vec<P3> = vec_new::<P3>();
+    v.push(P3 { a: 1i64, b: 10i64, c: 100i64 });
+    v.push(P3 { a: 2i64, b: 20i64, c: 200i64 });
+    v.push(P3 { a: 4i64, b: 40i64, c: 400i64 });
+    let mut acc: i64 = 0i64;
+    for elt in &v { acc = acc * 10i64 + (*elt).a; }   // 124
+    if acc != 124i64 { return 1i32; }
+    let mut bsum: i64 = 0i64;
+    for elt in &v { bsum = bsum + (*elt).b; }          // 70
+    if bsum != 70i64 { return 2i32; }
+
+    // array of structs (slice coercion)
+    let arr: [P3; 2] = [P3{a:5i64,b:0i64,c:0i64}, P3{a:6i64,b:0i64,c:0i64}];
+    let mut s: i64 = 0i64;
+    for e in &arr { s = s * 10i64 + (*e).a; }          // 56
+    if s != 56i64 { return 3i32; }
+    return 0i32;
+}

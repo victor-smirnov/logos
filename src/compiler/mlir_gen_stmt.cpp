@@ -1175,6 +1175,19 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     // Evaluate the iter (array/slice) expression.
     mlir::Type elem_mlir = logos_to_mlir(s.elem_type);
     if (!elem_mlir) return;
+    // GEP stride type: for a STRUCT element, logos_to_mlir collapses to
+    // ptr_type (8 bytes), but the buffer holds the struct INLINE — striding by
+    // 8 reads the wrong element for any multi-word struct. Use the struct's
+    // full LLVM type so the per-index GEP strides by sizeof(struct).
+    mlir::Type gep_elem_mlir = elem_mlir;
+    if (s.elem_type) {
+        TypeRef et(s.elem_type);
+        if (et.kind() == LogosType::Kind::Struct ||
+            et.kind() == LogosType::Kind::ZonedStruct) {
+            auto sit = struct_types_.find(mlir_struct_key(et));
+            if (sit != struct_types_.end()) gep_elem_mlir = sit->second.llvm_type;
+        }
+    }
 
     auto arr_alloca = gen_expr(*s.iter);
     if (!arr_alloca) return;
@@ -1220,7 +1233,7 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         llvm::SmallVector<mlir::LLVM::GEPArg> arr_idx;
         arr_idx.push_back(mlir::LLVM::GEPArg(i_cur));
         auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), elem_mlir, data_ptr, arr_idx);
+            loc_, ptr_type(), gep_elem_mlir, data_ptr, arr_idx);
 
         // Rust parity: slice iteration yields `&T` — bind the element ADDRESS
         // (a reference into the original buffer), not a copied value. scope_
