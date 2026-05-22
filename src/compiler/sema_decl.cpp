@@ -455,6 +455,15 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     };
     std::vector<TupleFnParam> fn_tuple_params;
 
+    // `fn f(mut x: T)` — {user_name, synth_param_name, type}. Prologue emits
+    // `let mut user = synth;` so the body sees a mutable, alloca-backed local.
+    struct MutFnParam {
+        std::string user;
+        std::string synth;
+        TypeRef     ty;
+    };
+    std::vector<MutFnParam> fn_mut_params;
+
     // Parameters
     if (node.has_key(la::PARAMS)) {
         auto params_av = node.get(la::PARAMS.code);
@@ -531,6 +540,34 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                                 "base pointer. Use DataRef<{}> instead.",
                                 pname, dn, dn));
                         }
+                    }
+                    // `fn f(mut x: T)` — the parameter is a mutable local
+                    // binding (Rust-style; caller-invisible: it just lets the
+                    // body reassign / take `&mut` of the param). IS_MUT on a
+                    // TYPED param means binding-mutability (distinct from the
+                    // self-param IS_MUT, which is reference-mutability handled
+                    // at signature collection — those have no TYPE).
+                    // Desugar via the same synth-param + prologue-let mechanism
+                    // as tuple-destructure params: the parameter takes a synth
+                    // name (immutable SSA), and a prologue `let mut x = synth;`
+                    // materializes a mutable, alloca-backed local the body sees.
+                    bool p_is_mut = false;
+                    if (p.has_key(la::TYPE) && p.has_key(la::IS_MUT)) {
+                        AnyVal mv = p.get(la::IS_MUT.code);
+                        p_is_mut = !mv.is_null() && mv.is_value() && mv.as_value<uint8_t>() != 0;
+                    }
+                    if (p_is_mut && !p_variadic) {
+                        std::string synth = std::format("__mutparam_{}__{}", mangled, i);
+                        // NOTE: deliberately do NOT define(synth) in sema scope.
+                        // The prologue `let mut user = synth;` MOVES the param
+                        // value into the user local; if synth were a tracked
+                        // scope var it would also get drop glue → double-free on
+                        // move types. mlir-gen still binds scope_[synth] from
+                        // fn.params, so the prologue's var_ref(synth) resolves.
+                        define(std::string(pname), pt, /*is_mut=*/true);  // body sees mutable local
+                        fn_mut_params.push_back({std::string(pname), synth, pt});
+                        fn.params.push_back({synth, pt, false});
+                        continue;
                     }
                     define(pname, pt);
                     fn.params.push_back({std::string(pname), pt, p_variadic});
@@ -669,6 +706,23 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         (uint32_t)k, elems[k]);
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
+            }
+            prologue.insert(prologue.end(),
+                            std::make_move_iterator(fn.body.stmts.begin()),
+                            std::make_move_iterator(fn.body.stmts.end()));
+            fn.body.stmts = std::move(prologue);
+        }
+        // `mut x: T` params — prepend `let mut x = synth;` so the body's
+        // mutable local is materialized from the (immutable) synth parameter.
+        if (!fn_mut_params.empty()) {
+            std::vector<lir::LStmt> prologue;
+            for (auto& mp : fn_mut_params) {
+                lir::SLet sl;
+                sl.name   = mp.user;
+                sl.type   = mp.ty;
+                sl.is_mut = true;
+                sl.value  = builder().var_ref(mp.synth, mp.ty);
+                prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
             prologue.insert(prologue.end(),
                             std::make_move_iterator(fn.body.stmts.begin()),

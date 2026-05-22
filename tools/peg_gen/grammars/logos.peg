@@ -1153,6 +1153,12 @@
           => { CODE: PARAM, NAME: $2, IS_REF: true }
            / KW_REF IDENT COLON type_ref
           => { CODE: PARAM, NAME: $2, TYPE: $4, IS_REF: true }
+           // `fn f(mut x: T)` — the parameter is a *mutable local binding*
+           // (Rust-style; the mutability is invisible to callers, it just
+           // lets the body reassign / take `&mut` of the param). Sema treats
+           // it as a normal `x: T` param whose local binding is mutable.
+           / KW_MUT IDENT COLON type_ref
+          => { CODE: PARAM, NAME: $2, TYPE: $4, IS_MUT: true }
            // P4-pm-19 / C5-cl-07: `(a, b, ...): (T1, T2, ...)` tuple-
            // destructure parameter. Reuses `pat_binding_list` (which
            // emits an `{ITEMS: [PAT_WILD{NAME}…]}` sub-map already used
