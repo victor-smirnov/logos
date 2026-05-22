@@ -14,7 +14,7 @@ re-checked file-by-file and skipped where already imported.
 
 ## NEW gaps surfaced
 
-### G146-1 — a NESTED tuple pattern element value-test mis-dispatches (TRACTABLE — soundness)
+### G146-1 — ✅ FIXED 2026-05-22 (6bf2bd48): EMatchExpr recursive matcher (was stmt-only)
 
 A top-level tuple pattern with literal/range elements works (verified, kept
 `tuple-range-12582-b146`). But when an inner tuple sits as an ELEMENT of an enclosing
@@ -43,7 +43,7 @@ into a tuple-typed element of an enclosing tuple, mirroring the now-working recu
 bind path (pat_test should call itself on tuple sub-elements). `pattern/issue-12582.rs`
 was distilled to the top-level tuple-range form (the nested `((1..=2,2),)` arm dropped).
 
-### G146-2 — a `<Type as Trait>::CONST` qualified-path is a parse error (TRACTABLE)
+### G146-2 — ✅ FIXED 2026-05-22: <Type as Trait>::CONST and ::method() qualified path (grammar)
 
 A trait associated const read through a fully-qualified `<i32 as Foo>::ID` path is a
 syntax error (`syntax error near 'if'` — the parser bails on the `<...>::` qualified
@@ -58,7 +58,7 @@ the same impl-const lookup the bare `Type::ITEM` path already performs. The `T::
 generic facet is a separate sema gap (resolve an assoc const off a type-parameter's
 bound). `associated-const.rs` adapted to the concrete-type path.
 
-### G146-3 — enum discriminant given by a non-literal expression is a parse error (TRACTABLE / Divergence-adjacent)
+### G146-3 — §A DIVERGENCE (const-eval in discriminant position → use metacall or explicit literal; NOT a gap)
 
 An explicit enum discriminant that is an expression — `enum Foo { Bar = (5, 42).1 }`
 (a tuple-index expression) — is a syntax error (`syntax error near 'enum'`). The

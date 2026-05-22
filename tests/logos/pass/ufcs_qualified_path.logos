@@ -1,0 +1,11 @@
+package ufcs_qualified_path;
+trait HasId { const ID: i64; fn make() -> i64; }
+struct Foo {}
+impl HasId for Foo { const ID: i64 = 42i64; fn make() -> i64 { return 7i64; } }
+fn main() -> i32 {
+    let a: i64 = <Foo as HasId>::ID;          // qualified const
+    let b: i64 = <Foo as HasId>::make();      // qualified call
+    if a != 42i64 { return 1i32; }
+    if b != 7i64 { return 2i32; }
+    return 0i32;
+}
