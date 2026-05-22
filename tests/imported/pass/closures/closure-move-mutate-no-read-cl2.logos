@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/moved-upvar-mut-rebind-11958.rs
+// Modifications: a `move ||` closure that assigns to its captured upvar
+// without ever reading it (no rebind-as-mut required). Logos: the move
+// closure owns its copy; we verify the outer binding is unaffected and
+// the closure runs. Closure annotated; nullary.
+package closure_move_mutate_no_read_cl2;
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let mut thunk = move || { let mut y: i64 = x; y = 2i64; let _z: i64 = y; };
+    thunk();
+    if x != 1i64 { return 1; }
+    return 0;
+}

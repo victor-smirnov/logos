@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-42463.rs
+// Modifications: the `CheckedDeref { value, check }` struct distilled to a
+// generic struct holding a value and an `F: Fn(&T)->bool` predicate field,
+// invoked via `(self.check)(&self.value)`. Deref/DerefMut operator overloading
+// is out of scope; the feature preserved is a closure stored in a generic
+// struct field and called through the field on a borrow of a sibling field.
+package closure_struct_field_call_cl2;
+
+struct Checked<T, F: Fn(i64) -> bool> {
+    value: T,
+    check: F,
+}
+
+fn run<F: Fn(i64) -> bool>(c: Checked<i64, F>) -> bool {
+    return (c.check)(c.value);
+}
+
+fn main() -> i32 {
+    let c = Checked { value: 7i64, check: |v: i64| -> bool { return v > 0i64; } };
+    if !run(c) { return 1; }
+    return 0;
+}

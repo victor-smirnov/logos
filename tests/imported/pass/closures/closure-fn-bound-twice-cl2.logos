@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-arg.rs
+// Modifications: a single `Fn(i64)->i64` closure applied twice through a
+// generic `twice<F: Fn(i64)->i64>` higher-order fn (composition). Tests
+// an `Fn` (not FnMut/FnOnce) bound that is called more than once.
+package closure_fn_bound_twice_cl2;
+
+fn twice<F: Fn(i64) -> i64>(x: i64, f: F) -> i64 {
+    return f(f(x));
+}
+
+fn main() -> i32 {
+    let r = twice(3i64, |y: i64| -> i64 { return y * 2i64; });
+    if r != 12i64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure_no_cap_coerce_many_run_pass.rs
+// Modifications: distilled to the CoerceMany core — a `match` whose arms
+// are non-capturing closures and a fn item, all unifying to one callable
+// stored in a single binding then invoked. Logos: explicit return types;
+// fn items and non-capturing closures both satisfy an `fn`-ptr param.
+package closure_in_match_arm_cl2;
+
+fn foo(_x: i64) -> i64 { return 0i64; }
+
+fn pick(sel: i32) -> fn(i64) -> i64 {
+    let f = match sel {
+        0 => foo,
+        _ => foo,
+    };
+    return f;
+}
+
+fn main() -> i32 {
+    let f = pick(0i32);
+    if f(42i64) != 0i64 { return 1; }
+    return 0;
+}

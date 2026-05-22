@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/typeck_type_placeholder_1.rs
+// Modifications: the `let x: Vec<_> = (0..5).collect()` placeholder-inference
+// core. Logos has no range-collect; distilled to building a Vec by push and
+// reading back, with the element type inferred from the literals (no
+// annotation on the elements). The kept feature: `_`-style inference of a
+// Vec element type from usage.
+package typeck_collect_into_vec_tc;
+
+fn main() -> i32 {
+    let mut x: Vec<i64> = vec_new::<i64>();
+    let mut i: i64 = 0i64;
+    while i < 5i64 { x.push(i); i += 1i64; }
+    let mut acc: i64 = 0i64;
+    for e in &x { acc += *e; }
+    if acc != 10i64 { return 1; }
+    if (x.length() as i64) != 5i64 { return 2; }
+    return 0;
+}

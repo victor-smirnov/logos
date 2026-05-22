@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/typeck_type_placeholder_1.rs
+// Modifications: integer-type inference — an unannotated literal whose type
+// is fixed by a later use against a typed binding. Tests that the inference
+// engine propagates the concrete int type backward to the literal.
+package typeck_int_inference_from_use_tc;
+
+fn take_u32(x: u32) -> u32 { return x; }
+
+fn main() -> i32 {
+    let n = 5u32;
+    let m = n + 1u32;
+    let r: u32 = take_u32(m);
+    if r != 6u32 { return 1; }
+    return 0;
+}

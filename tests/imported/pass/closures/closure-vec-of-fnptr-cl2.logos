@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure_no_cap_coerce_many_run_pass.rs
+// Modifications: a Vec of `fn(i64)->i64` items pushed then iterated and
+// applied. Tests fn-ptr values as Vec elements (heap-stored callables),
+// distinct from the fixed-array form (closure-fnptr-array).
+package closure_vec_of_fnptr_cl2;
+
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+fn neg(x: i64) -> i64 { return -x; }
+
+fn main() -> i32 {
+    let mut fs: Vec<fn(i64) -> i64> = vec_new::<fn(i64) -> i64>();
+    fs.push(dbl); fs.push(neg);
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < (fs.length() as i64) { acc += fs.get(i)(5i64); i += 1i64; }
+    if acc != 5i64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/inference-method-chain-diverging-fallback.rs
+// Modifications: the `produce().and_then(..).unwrap_or_else(|_| panic!())`
+// chain distilled — a generic `produce<T>() -> Result<i64, T>` whose Ok
+// arm is mapped and whose Err arm feeds a diverging fallback. panic!()
+// is replaced by `unwrap_or` with a sentinel (Logos: diverging-fallback
+// inference of the Err type-param). Tests type-arg inference across a
+// Result combinator chain.
+package typeck_method_chain_result_tc;
+
+fn produce<T>(t: T) -> Result<i64, T> { return Result::Ok(22i64); }
+
+fn main() -> i32 {
+    let r: Result<i64, bool> = produce(false);
+    let x: i64 = match r {
+        Result::Ok(v) => v,
+        Result::Err(_e) => -1i64,
+    };
+    if x != 22i64 { return 1; }
+    return 0;
+}

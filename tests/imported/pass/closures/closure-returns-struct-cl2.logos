@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/basic-closure-syntax.rs
+// Modifications: a closure whose body constructs and returns a struct
+// value, with the struct's field read after the call. Tests a closure
+// returning an aggregate (not a scalar).
+package closure_returns_struct_cl2;
+
+struct Point { x: i64, y: i64 }
+
+fn main() -> i32 {
+    let mk = |a: i64, b: i64| -> Point { return Point { x: a, y: b }; };
+    let p = mk(3i64, 4i64);
+    if p.x + p.y != 7i64 { return 1; }
+    return 0;
+}

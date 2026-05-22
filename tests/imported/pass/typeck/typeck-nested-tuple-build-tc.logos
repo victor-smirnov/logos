@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/nested-generic-traits-performance.rs
+// Modifications: the deeply-nested tuple `((((...),()),()),...)` distilled
+// to a 3-deep nested tuple constructed and field-accessed by index. Tests
+// type-checking + construction of nested tuple aggregates.
+package typeck_nested_tuple_build_tc;
+
+fn main() -> i32 {
+    let t: (i64, (i64, (i64, i64))) = (1i64, (2i64, (3i64, 4i64)));
+    let (a, (b, (c, d))) = t;
+    if a + b + c + d != 10i64 { return 1; }
+    return 0;
+}

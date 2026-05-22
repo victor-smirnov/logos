@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/unify-return-ty.rs
+// Modifications: unification of the two arms of an `if`-expression to a
+// single type, used as the value of a `let`. Tests branch-type unification
+// (both arms produce the same type, no coercion needed).
+package typeck_unify_if_branches_tc;
+
+fn main() -> i32 {
+    let cond: bool = true;
+    let v: i64 = if cond { 10i64 } else { 20i64 };
+    if v != 10i64 { return 1; }
+    return 0;
+}

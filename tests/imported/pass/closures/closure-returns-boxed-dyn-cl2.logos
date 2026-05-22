@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-upvar-last-use-analysis.rs
+// Modifications: `Box<dyn FnMut()->isize>` return → a fn returning a
+// non-capturing closure value of an inferred concrete type, then calling
+// it. Box<dyn> closure objects are a separate axis (Sprint 5.8); the kept
+// feature is a fn that builds and returns a closure consumed by the caller.
+package closure_returns_boxed_dyn_cl2;
+
+fn foo() -> (|| -> i64) {
+    let result = || -> i64 { return 22i64; };
+    return result;
+}
+
+fn main() -> i32 {
+    let f = foo();
+    if f() != 22i64 { return 1; }
+    return 0;
+}

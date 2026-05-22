@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/issue-10682.rs
+// Modifications: `Box<isize>` owned data → plain i64 capture (Logos Box<T>
+// is stack; the test's point is nested `move||` closures capturing the
+// same outer owned value through two FnOnce layers). Closures annotated.
+package closure_nested_move_owned_cl2;
+
+fn work(_x: i64) {}
+fn foo<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    foo(move || { foo(move || { work(a); }); });
+    return 0;
+}

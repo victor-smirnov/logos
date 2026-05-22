@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-last-use-move.rs
+// Modifications: `String`/`.len()` → owned closure value moved out of an
+// FnMut as the last use; spelled with i64 result. The feature: a generic
+// `apply<T,F: FnMut(i64)->T>` driving an inner generic `g` that calls the
+// closure, with the closure's final expression being a move-out.
+package closure_fnmut_return_move_cl2;
+
+fn g<T, F: FnMut(i64) -> T>(s: i64, mut f: F) -> T { return f(s); }
+
+fn apply<T, F: FnMut(i64) -> T>(s: i64, mut f: F) -> T {
+    return g(s, |v: i64| -> T { let r: T = f(v); return r; });
+}
+
+fn main() -> i32 {
+    let result: i64 = apply(4i64, |s: i64| -> i64 { return s; });
+    if result != 4i64 { return 1; }
+    return 0;
+}

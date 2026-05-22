@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/nested-closure-call.rs
+// Modifications: a recursive computation expressed through a fn-ptr passed
+// to itself (factorial helper taking its own continuation). Tests a fn-ptr
+// parameter invoked alongside ordinary recursion.
+package closure_recursive_via_fnptr_cl2;
+
+fn fact(n: i64) -> i64 {
+    if n <= 1i64 { return 1i64; }
+    return n * fact(n - 1i64);
+}
+
+fn run(n: i64, f: fn(i64) -> i64) -> i64 { return f(n); }
+
+fn main() -> i32 {
+    let r = run(5i64, fact);
+    if r != 120i64 { return 1; }
+    return 0;
+}

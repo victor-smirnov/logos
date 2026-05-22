@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-expr-precedence.rs
+// Modifications: an immediately-invoked closure expression used directly as
+// the initializer of a `let`. Tests IIFE-style closure call in expression
+// position (closure literal followed by a call).
+package closure_immediately_invoked_cl2;
+
+fn main() -> i32 {
+    let v: i64 = (|| -> i64 { return 6i64 * 7i64; })();
+    if v != 42i64 { return 1; }
+    return 0;
+}

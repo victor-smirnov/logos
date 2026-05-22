@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/semistatement-in-lambda.rs
+// Modifications: a closure whose body is a block containing statements
+// (a let + an if) before its final return. Tests multi-statement closure
+// bodies (not just a single expression).
+package closure_semistatement_body_cl2;
+
+fn main() -> i32 {
+    let f = |n: i64| -> i64 {
+        let mut acc: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < n { acc += i; i += 1i64; }
+        if acc > 100i64 { return 100i64; }
+        return acc;
+    };
+    if f(5i64) != 10i64 { return 1; }
+    return 0;
+}

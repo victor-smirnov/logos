@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/issue-18937-1.rs
+// Modifications: the original deduces `[U]: 'a` from `T: 'a` for a
+// `Leak<[U]> for Vec<U>` impl returning a borrowed slice. unsafe
+// transmute/forget + the Vec/slice machinery are out of scope. The kept
+// feature: a generic trait `Leakable<T>` implemented for a generic
+// container `Bag<U>` with a `U: Copy` bound, returning a stored element by
+// value (the Copy bound makes the by-value read valid — B1 parity).
+package typeck_leak_slice_bound_tc;
+
+trait Leakable<T> {
+    fn leak(self: &Self) -> T;
+}
+
+struct Bag<U> { item: U }
+
+impl<U: Copy> Leakable<U> for Bag<U> {
+    fn leak(self: &Bag<U>) -> U { return self.item; }
+}
+
+fn main() -> i32 {
+    let b = Bag::<i64> { item: 7i64 };
+    if b.leak() != 7i64 { return 1; }
+    let c = Bag::<bool> { item: true };
+    if !c.leak() { return 2; }
+    return 0;
+}

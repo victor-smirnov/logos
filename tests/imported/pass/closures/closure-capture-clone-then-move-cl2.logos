@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-capture-after-clone.rs
+// Modifications: `Box<isize>` + `.clone()` → an i64 used once (read) and
+// then captured by a FnOnce closure. The regression point: an earlier
+// non-final use of a binding must not be treated as its last use when a
+// later closure captures it. invoke<F: FnOnce()>.
+package closure_capture_clone_then_move_cl2;
+
+fn invoke<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    let k: i64 = 22i64;
+    let u: i64 = k + 1i64;
+    if u != 23i64 { return 1; }
+    let captured: i64 = k;
+    invoke(move || { let _r: i64 = captured; });
+    return 0;
+}

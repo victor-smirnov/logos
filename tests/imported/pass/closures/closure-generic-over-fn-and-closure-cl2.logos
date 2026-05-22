@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-arg-call-as.rs
+// Modifications: one generic `apply<F: Fn(i64)->i64>` called with BOTH a
+// plain fn item AND a closure literal in the same main. Tests a single
+// Fn-bound generic monomorphized at a fn-ptr and at a closure type.
+package closure_generic_over_fn_and_closure_cl2;
+
+fn triple(x: i64) -> i64 { return x * 3i64; }
+
+fn apply<F: Fn(i64) -> i64>(x: i64, f: F) -> i64 { return f(x); }
+
+fn main() -> i32 {
+    let a = apply(2i64, triple);
+    let b = apply(2i64, |x: i64| -> i64 { return x + 100i64; });
+    if a != 6i64 { return 1; }
+    if b != 102i64 { return 2; }
+    return 0;
+}

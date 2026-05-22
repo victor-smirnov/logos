@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/unify-return-ty.rs
+// Modifications: variable shadowing that rebinds the same name to a
+// different type in the same scope (i64 then bool then i64). Tests that
+// each `let` introduces a fresh binding with its own type.
+package typeck_shadowing_rebind_type_tc;
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let x: bool = x > 0i64;
+    let x: i64 = if x { 1i64 } else { 0i64 };
+    if x != 1i64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-fn-coerce.rs
+// Modifications: a higher-order fn that selects and returns one of two fn
+// items as an `fn(i64)->i64` pointer, which the caller invokes. Tests
+// fn-item-to-fn-ptr value selection and return (CoerceMany at return).
+package closure_higher_order_returns_fnptr_cl2;
+
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn dec(x: i64) -> i64 { return x - 1i64; }
+
+fn select(up: bool) -> fn(i64) -> i64 {
+    if up { return inc; }
+    return dec;
+}
+
+fn main() -> i32 {
+    let f = select(true);
+    let g = select(false);
+    if f(10i64) != 11i64 { return 1; }
+    if g(10i64) != 9i64 { return 2; }
+    return 0;
+}

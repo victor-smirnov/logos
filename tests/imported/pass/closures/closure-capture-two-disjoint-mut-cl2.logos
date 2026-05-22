@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-explicit-types.rs
+// Modifications: a single FnMut closure that compound-assigns into two
+// distinct captured mut locals (disjoint upvars). Tests multiple mutable
+// captures in one closure body driven through repeated calls.
+package closure_capture_two_disjoint_mut_cl2;
+
+fn main() -> i32 {
+    let mut a: i64 = 0i64;
+    let mut b: i64 = 0i64;
+    let mut step = || { a += 1i64; b += 2i64; };
+    step(); step(); step();
+    if a != 3i64 { return 1; }
+    if b != 6i64 { return 2; }
+    return 0;
+}

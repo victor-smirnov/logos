@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/project-cache-issue-37154.rs
+// Modifications: the regression was a method resolved twice on the same
+// receiver hitting a stale projection cache. Distilled to a generic
+// `identity<T>` and a trait method both invoked twice on the same value —
+// the second call must resolve identically to the first (no cache poison).
+package typeck_generic_fn_twice_distinct_tc;
+
+trait Marker { fn tag(self: &Self) -> i64; }
+
+struct Wrap<T> { inner: T }
+
+impl<T> Marker for Wrap<T> { fn tag(self: &Wrap<T>) -> i64 { return 7i64; } }
+
+fn main() -> i32 {
+    let w = Wrap::<i64> { inner: 1i64 };
+    let a = w.tag();
+    let b = w.tag();
+    if a + b != 14i64 { return 1; }
+    return 0;
+}
