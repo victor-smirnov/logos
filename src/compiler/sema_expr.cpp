@@ -2114,6 +2114,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             for (uint64_t i = 0; i < n_args; ++i) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
                 try_coerce_array_ref_to_slice(arg_exprs[i], exact_fi->param_types[i]);
+                try_coerce_slice_to_array_ref(arg_exprs[i], exact_fi->param_types[i]);
                 try_retype_bare_enum_arg(arg_exprs[i], exact_fi->param_types[i]);
                 widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                 auto at = arg_exprs[i]->type;
@@ -2366,6 +2367,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         for (uint64_t i = 0; i < n_args; ++i) {
             try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
             try_coerce_array_ref_to_slice(arg_exprs[i], fi.param_types[i]);
+            try_coerce_slice_to_array_ref(arg_exprs[i], fi.param_types[i]);
             try_retype_bare_enum_arg(arg_exprs[i], fi.param_types[i]);
             widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
@@ -2978,6 +2980,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 retype_bare_enum_arg(arg_exprs[i], pt);
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
+                try_coerce_slice_to_array_ref(arg_exprs[i], pt);
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&

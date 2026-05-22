@@ -1,0 +1,29 @@
+package index_through_array_ref_param;
+
+// `&arr` passed to a `&[T; N]` param + indexed through the ref.
+fn sum_ref(v: &[i64; 4]) -> i64 {
+    return v[0] + v[1] + v[2] + v[3];
+}
+
+// `(*v)[i]` parenthesized-deref index — same result, different spelling.
+fn first_deref(v: &[i64; 4]) -> i64 {
+    return (*v)[0];
+}
+
+// Common case unchanged: `&arr` to a `&[T]` slice param.
+fn sum_slice(s: &[i64]) -> i64 {
+    let mut acc: i64 = 0i64;
+    for x in s { acc = acc + *x; }
+    return acc;
+}
+
+fn main() -> i32 {
+    let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+    // Common case: let-bind a slice from an array (must still work).
+    let sl: &[i64] = &arr;
+    if sum_ref(&arr) != 100i64 { return 1i32; }
+    if first_deref(&arr) != 10i64 { return 2i32; }
+    if sum_slice(&arr) != 100i64 { return 3i32; }
+    if sum_slice(sl) != 100i64 { return 4i32; }
+    return 0i32;
+}

@@ -345,6 +345,37 @@ private:
                                   make_slice_type(et.elem()));
         return true;
     }
+    // Inverse of the above. `&arr` over an array *variable* is lowered
+    // context-free to a fat-pointer slice `&[T]` (sema_expr.cpp `&array_var`
+    // branch) — discarding the precise `&[T; N]` type. When the parameter
+    // actually wants `&[T; N]` (a ref-to-array), recover it: the slice_lit's
+    // base is the `addr_of(arr)`, so re-synthesize a fresh `&[T; N]` addr_of
+    // from the array var's name. Soundness: re-look up the var to confirm it
+    // is an array whose real size == N (else a `[T; M]` var would be retyped
+    // to a wrong-length `&[T; N]`). Only the shared `&` case (Kind::Ref / Ptr);
+    // a shared slice never satisfies a `&mut [T; N]` param.
+    bool try_coerce_slice_to_array_ref(lir::LExprPtr& arg, TypeRef expected) {
+        if (!arg || !expected) return false;
+        TypeRef et(expected);
+        if (et.kind() != LogosType::Kind::Ref &&
+            et.kind() != LogosType::Kind::Ptr) return false;
+        TypeRef pointee = et.pointee();
+        if (!pointee || pointee.kind() != LogosType::Kind::Array) return false;
+        TypeRef at(arg->type);
+        if (!at || at.kind() != LogosType::Kind::Slice) return false;
+        if (!types_compatible(at.elem(), pointee.elem())) return false;
+        auto xref = expr_ref_of(*arg);
+        if (!xref || xref.kind() != lir_schema::expr::Code::SliceLit) return false;
+        auto base = lir_view::ESliceLitView{xref}.base();
+        if (!base || base.kind() != lir_schema::expr::Code::AddrOf) return false;
+        std::string var_name(lir_view::EAddrOfView{base}.var_name());
+        if (var_name.empty()) return false;
+        auto vt = lookup(var_name);
+        if (!vt || TypeRef(vt).kind() != LogosType::Kind::Array) return false;
+        if (TypeRef(vt).arr_size() != pointee.arr_size()) return false;
+        arg = builder().addr_of(var_name, expected);
+        return true;
+    }
     // Retype an incompletely-typed generic enum-literal argument to the
     // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
     // `Opt::Some(3)` passed directly as a call argument carries no (or

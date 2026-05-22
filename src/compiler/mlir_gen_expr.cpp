@@ -1788,6 +1788,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     switch (recv_ref.kind()) {
     case ec::Code::VarRef: {
         std::string name(lir_view::EVarRefView{recv_ref}.name());
+        // Ref/ptr-to-array param (`v: &[T; N]`): the var's SSA value IS the
+        // pointer to the array (== &elem[0]), so index it directly with the
+        // element stride — mirror the `(*v)[i]` (DEREF) path's `default:` case.
+        // Without this the else-branch below uses subscript_elem_type(name),
+        // which returns the whole-array slot type and loads the array.
+        if (recv_t &&
+            (recv_t.kind() == LogosType::Kind::Ref ||
+             recv_t.kind() == LogosType::Kind::MutRef ||
+             recv_t.kind() == LogosType::Kind::Ptr) &&
+            recv_t.pointee() &&
+            recv_t.pointee().kind() == LogosType::Kind::Array) {
+            arr_ptr   = gen_expr(*recv_le);
+            elem_type = logos_to_mlir(type);
+            if (!elem_type) elem_type = builder_.getI32Type();
+            break;
+        }
         // Module constant carrying an array literal — re-materialise the
         // value as a fresh on-stack alloca, walk into it like a normal
         // local. The const's TypeRef is what drives elem_type.
