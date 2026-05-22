@@ -5520,6 +5520,43 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
 
+    // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
+    // carries a real name, not `_`) moves an owned move-type scrutinee into
+    // the binding: Rust's by-value match move, `match v { x => … }` ≡
+    // `{ let x = v; … }`. Mark the scrutinee var moved so it is not dropped a
+    // SECOND time after the match — the binding's own drop already fires at arm
+    // end (match-arm bindings drop, a6a04330). Without this an owned Vec/String
+    // scrutinee is double-freed (SIGSEGV). Restricted to an unguarded binding
+    // arm (which always matches → unconditional move); guarded binding arms
+    // leave the scrutinee conditionally live for later arms.
+    if (scrut && scrut_type && is_move_type(scrut_type) &&
+        expr_ref_of(*scrut).kind() == lir_schema::expr::Code::VarRef &&
+        node.has_key(la::ITEMS)) {
+        std::string scrut_var{lir_view::EVarRefView{expr_ref_of(*scrut)}.name()};
+        if (!scrut_var.empty()) {
+            auto arms_mv = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < arms_mv.size(); ++i) {
+                auto arm = map_of(arms_mv.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
+                if (arm.has_key(la::GUARD)) continue;
+                if (!arm.has_key(la::LHS)) continue;
+                auto lhs = map_of(arm.get(la::LHS.code));
+                // A bare-identifier arm parses as a single-alt PAT_OR wrapping
+                // the binding (mirrors is_catchall_pat) — unwrap it.
+                if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
+                    auto alts = arr_of(lhs.get(la::ITEMS.code));
+                    if (alts.size() == 1) lhs = map_of(alts.get(0));
+                }
+                // A whole-value binding is a PAT_WILD carrying a real NAME
+                // (anonymous `_` has no NAME key).
+                if (code_of(lhs) == la::PAT_WILD && lhs.has_key(la::NAME)) {
+                    auto nm = str_of(lhs.get(la::NAME.code));
+                    if (!nm.empty() && nm != "_") { mark_moved(scrut_var); break; }
+                }
+            }
+        }
+    }
+
     // Sprint 5.2: arm-after-catchall lint (closes B-pt-07).  The first
     // unguarded `_` arm makes every subsequent arm unreachable.
     if (node.has_key(la::ITEMS)) {

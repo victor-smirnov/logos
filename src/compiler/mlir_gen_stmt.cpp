@@ -2437,11 +2437,30 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             std::string pwn(lir_view::PatWildView{p}.name());
             if (!pwn.empty() && pwn != "_") {
                 mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-                auto alloca = create_entry_alloca(sv.getType());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                scope_[pwn] = alloca;
-                let_vars_.insert(pwn);
-                var_elem_types_[pwn] = sv.getType();
+                TypeRef st = scrut_le ? TypeRef(scrut_le->type) : TypeRef{};
+                if (st && (st.kind() == LogosType::Kind::Struct ||
+                           st.kind() == LogosType::Kind::ZonedStruct)) {
+                    // Whole-value struct binding (`match v { x => … }` for an
+                    // owned struct): `sv` is already the POINTER to the
+                    // scrutinee's struct (structs are by-pointer). Alias that
+                    // storage directly + record the struct key, so `x` sees the
+                    // real fields and its drop glue frees the real buffer once.
+                    // The store-into-a-fresh-alloca path below would make `x`
+                    // hold a pointer-to-struct typed as the struct, so drop
+                    // would read the (stack) pointer value as the first field
+                    // and free a bogus address (SIGSEGV). The scrutinee var is
+                    // marked moved in sema (lower_match), so it isn't dropped
+                    // a second time.
+                    scope_[pwn] = sv;
+                    var_struct_[pwn] = mlir_struct_key(st);
+                    let_vars_.insert(pwn);
+                } else {
+                    auto alloca = create_entry_alloca(sv.getType());
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+                    scope_[pwn] = alloca;
+                    let_vars_.insert(pwn);
+                    var_elem_types_[pwn] = sv.getType();
+                }
             }
             return;
         }
