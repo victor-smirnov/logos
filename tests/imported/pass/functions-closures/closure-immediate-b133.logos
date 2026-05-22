@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-immediate.rs
+// Modifications: the asserts inside the closure become a checked return value;
+// the mixed-width args (u8,u16,u8) are preserved. Tests a closure with three
+// mixed-integer-width arguments returning a value, called immediately (the
+// "immediate logic" struct-reopt path the original guards).
+package closure_immediate_b133;
+
+fn main() -> i32 {
+    let c = |a: u8, b: u16, d: u8| -> i32 {
+        if a != 1u8 { return 1i32; }
+        if b != 2u16 { return 2i32; }
+        if d != 3u8 { return 3i32; }
+        return 0i32;
+    };
+    return c(1u8, 2u16, 3u8);
+}

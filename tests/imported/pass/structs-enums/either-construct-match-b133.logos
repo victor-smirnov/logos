@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/small-enums-with-fields.rs
+// Modifications: the size_of / Debug-format / macro_rules check harness is
+// dropped (those are §A const-eval / derive features); the retained core is the
+// two-type-param generic enum `Either<T,U>` with payload variants Left(T) /
+// Right(U), constructed at distinct instantiations and matched back. isize/usize
+// suffixed; assert->if-return. Tests a generic two-param enum with per-variant
+// payloads of different type params, constructed and matched.
+package either_construct_match_b133;
+
+enum Either<T, U> {
+    Left(T),
+    Right(U),
+}
+
+fn left_val(e: Either<u8, i16>) -> i64 {
+    return match e {
+        Either::Left(x) => x as i64,
+        Either::Right(y) => y as i64,
+    };
+}
+
+fn main() -> i32 {
+    let a: Either<u8, i16> = Either::Left(132u8);
+    let b: Either<u8, i16> = Either::Right(0i16 - 20000i16);
+    if left_val(a) != 132i64 { return 1i32; }
+    if left_val(b) != (0i64 - 20000i64) { return 2i32; }
+    return 0i32;
+}

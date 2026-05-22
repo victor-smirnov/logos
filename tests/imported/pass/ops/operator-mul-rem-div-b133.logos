@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: distilled from tests/ui/binop/operator-overloading.rs and
+// tests/ui/mir/mir_augmented_assignments.rs (Mul/Div/Rem/BitXor facets).
+// Logos operator traits are single-type (Self=RHS=Output). Tests user operator
+// overloading for `*` (Mul), `/` (Div) and `%` (Rem) on a newtype wrapping an
+// i32. assert->if-return. (`^`/BitXor on a user struct is NOT dispatched to the
+// trait — the `^` operator is hardcoded to int/bool — so that facet is dropped.)
+package operator_mul_rem_div_b133;
+
+use logos.lang.ops;
+
+struct Int {
+    v: i32,
+}
+
+impl Mul for Int {
+    fn mul(self: Self, rhs: Self) -> Int { return Int { v: self.v * rhs.v }; }
+}
+impl Div for Int {
+    fn div(self: Self, rhs: Self) -> Int { return Int { v: self.v / rhs.v }; }
+}
+impl Rem for Int {
+    fn rem(self: Self, rhs: Self) -> Int { return Int { v: self.v % rhs.v }; }
+}
+fn main() -> i32 {
+    let a: Int = Int { v: 12i32 };
+    let b: Int = Int { v: 5i32 };
+    if (a * b).v != 60i32 { return 1i32; }
+    if (Int { v: 20i32 } / Int { v: 4i32 }).v != 5i32 { return 2i32; }
+    if (Int { v: 17i32 } % Int { v: 5i32 }).v != 2i32 { return 3i32; }
+    return 0i32;
+}

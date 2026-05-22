@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: distilled from tests/ui/unboxed-closures/unboxed-closures-
+// generic.rs + unboxed-closures-infer-fnmut.rs (a generic FnMut-bound HOF that
+// invokes the callable MULTIPLE times). Tests `apply_twice<F: FnMut(i64)->i64>`
+// calling the bound closure twice and threading the intermediate result, with a
+// capturing closure passed in. assert->if-return.
+package uc_generic_call_twice_b133;
+
+fn apply_twice<F: FnMut(i64) -> i64>(mut f: F, x: i64) -> i64 {
+    let a: i64 = f(x);
+    let b: i64 = f(a);
+    return b;
+}
+
+fn main() -> i32 {
+    let bias: i64 = 3i64;
+    let r: i64 = apply_twice(|v: i64| -> i64 { return v * 2i64 + bias; }, 1i64);
+    // f(1) = 5, f(5) = 13
+    if r != 13i64 { return 1i32; }
+    return 0i32;
+}

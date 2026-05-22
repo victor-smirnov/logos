@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-by-ref.rs
+// Modifications: usize->u64; assert->if-return. Tests by-ref capture across
+// the three Fn-kind bounds: `call_fn<F:Fn()>` reads a captured var, then
+// `call_fn_mut<F:FnMut()>` mutates it; the mutation is observed afterward.
+package uc_by_ref_kinds_b133;
+
+fn call_fn<F: Fn() -> u64>(f: F) -> u64 { return f(); }
+fn call_fn_mut<F: FnMut()>(mut f: F) { f(); }
+
+fn main() -> i32 {
+    let mut x: u64 = 0u64;
+    let y: u64 = 2u64;
+    // by-ref read of a captured var through Fn
+    let seen: u64 = call_fn(|| -> u64 { return x; });
+    if seen != 0u64 { return 1i32; }
+    // by-ref mutation of the captured var through FnMut
+    call_fn_mut(|| { x = x + y; });
+    call_fn_mut(|| { x = x + y; });
+    if x != y * 2u64 { return 2i32; }
+    return 0i32;
+}

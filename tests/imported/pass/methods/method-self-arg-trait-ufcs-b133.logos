@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-self-arg-trait.rs
+// Modifications: the `static mut COUNT` accumulator is replaced by a `*mut i64`
+// cell written through; the `self: Box<Self>` receiver form is dropped (Box out
+// of scope); the trait keeps a `&self` required method (foo1), a by-value-self
+// required method (foo2), and a `&self` DEFAULT method (bar1). Calls go through
+// UFCS `Bar::foo1(&x)` / `Bar::foo2(x)` / `Bar::bar1(&x)` on a concrete
+// receiver. assert->if-return. Tests trait-method UFCS with mixed self-kind
+// receivers (by-ref required, by-value required, by-ref default).
+package method_self_arg_trait_ufcs_b133;
+
+struct Foo { tag: i64 }
+
+trait Bar {
+    fn foo1(&self) -> i64;
+    fn foo2(self: Self) -> i64;
+    fn bar1(&self) -> i64 { return 7i64; }
+}
+
+impl Bar for Foo {
+    fn foo1(&self) -> i64 { return (*self).tag * 2i64; }
+    fn foo2(self: Self) -> i64 { return self.tag * 3i64; }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo { tag: 5i64 };
+    // by-ref required via UFCS
+    if Bar::foo1(&x) != 10i64 { return 1i32; }
+    // by-ref default via UFCS
+    if Bar::bar1(&x) != 7i64 { return 2i32; }
+    // by-value required via UFCS (consumes x last)
+    if Bar::foo2(x) != 15i64 { return 3i32; }
+    return 0i32;
+}

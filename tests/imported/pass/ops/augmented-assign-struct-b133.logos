@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_augmented_assignments.rs (compound-assign
+// facet). Logos AddAssign/SubAssign/MulAssign take `&mut self`. Tests that the
+// compound-assignment operators `+=`/`-=`/`*=` on a user struct dispatch to the
+// matching *Assign trait impl, mutating the receiver in place.
+package augmented_assign_struct_b133;
+
+use logos.lang.ops;
+
+struct Int {
+    v: i32,
+}
+
+impl AddAssign for Int {
+    fn add_assign(&mut self, rhs: Int) { (*self).v = (*self).v + rhs.v; }
+}
+impl SubAssign for Int {
+    fn sub_assign(&mut self, rhs: Int) { (*self).v = (*self).v - rhs.v; }
+}
+impl MulAssign for Int {
+    fn mul_assign(&mut self, rhs: Int) { (*self).v = (*self).v * rhs.v; }
+}
+
+fn main() -> i32 {
+    let mut x: Int = Int { v: 1i32 };
+    x += Int { v: 2i32 };
+    if x.v != 3i32 { return 1i32; }
+    x *= Int { v: 4i32 };
+    if x.v != 12i32 { return 2i32; }
+    x -= Int { v: 5i32 };
+    if x.v != 7i32 { return 3i32; }
+    return 0i32;
+}

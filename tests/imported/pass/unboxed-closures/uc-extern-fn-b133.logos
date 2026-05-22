@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-extern-fn.rs
+// Modifications: isize->i64; the `&F`/`&mut F` ref-to-callable params become
+// by-value generic Fn-family params (Logos passes the fn-ptr/closure value);
+// assert->if-return. Tests that a bare fn ITEM (`square`) satisfies the full
+// Fn / FnMut / FnOnce family when threaded through the three bounded HOFs.
+package uc_extern_fn_b133;
+
+fn square(x: i64) -> i64 { return x * x; }
+
+fn call_it<F: Fn(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+fn call_it_mut<F: FnMut(i64) -> i64>(mut f: F, x: i64) -> i64 { return f(x); }
+fn call_it_once<F: FnOnce(i64) -> i64>(f: F, x: i64) -> i64 { return f(x); }
+
+fn main() -> i32 {
+    if call_it(square, 22i64) != square(22i64) { return 1i32; }
+    if call_it_mut(square, 22i64) != square(22i64) { return 2i32; }
+    if call_it_once(square, 22i64) != square(22i64) { return 3i32; }
+    return 0i32;
+}

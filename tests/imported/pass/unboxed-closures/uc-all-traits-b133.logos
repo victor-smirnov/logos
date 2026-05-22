@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-all-traits.rs
+// Modifications: isize->i64; assert->if-return; the three HOFs keep their
+// Fn / FnMut / FnOnce bounds; a fresh move-closure capturing `z` is passed to
+// each. Tests that one closure shape satisfies all three Fn-family bounds.
+package uc_all_traits_b133;
+
+fn a<F: Fn(i64, i64) -> i64>(f: F) -> i64 { return f(1i64, 2i64); }
+fn b<F: FnMut(i64, i64) -> i64>(mut f: F) -> i64 { return f(3i64, 4i64); }
+fn c<F: FnOnce(i64, i64) -> i64>(f: F) -> i64 { return f(5i64, 6i64); }
+
+fn main() -> i32 {
+    let z: i64 = 7i64;
+    if a(|x: i64, y: i64| -> i64 { return x + y + z; }) != 10i64 { return 1i32; }
+    if b(|x: i64, y: i64| -> i64 { return x + y + z; }) != 14i64 { return 2i32; }
+    if c(|x: i64, y: i64| -> i64 { return x + y + z; }) != 18i64 { return 3i32; }
+    return 0i32;
+}

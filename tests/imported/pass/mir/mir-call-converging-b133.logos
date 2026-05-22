@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_call_converging.rs
+// Modifications: usize->u64; the deferred-init `let x;` becomes a `let mut x`
+// initialized before the loop (Logos requires definite init at declaration;
+// deferred-init-in-loop of an immutable is a separate known-open form). Tests a
+// converging call assigned inside a `loop { x = f(); break; }` then read out.
+package mir_call_converging_b133;
+
+fn converging_fn() -> u64 { return 43u64; }
+
+fn mir() -> u64 {
+    let mut x: u64 = 0u64;
+    loop {
+        x = converging_fn();
+        break;
+    }
+    return x;
+}
+
+fn main() -> i32 {
+    if mir() != 43u64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-single-word-env.rs
+// Modifications: isize->i64; the three Fn/FnMut/FnOnce-bounded HOFs become
+// closure-typed params; `move`-closures capturing a single upvar `z` are
+// passed in. Tests single-word-environment closures (a path codegen treats
+// specially) captured by value across three call shapes.
+package uc_single_word_env_b133;
+
+fn a(f: fn(i64, i64) -> i64) -> i64 { return f(1i64, 2i64); }
+
+fn main() -> i32 {
+    let z: i64 = 10i64;
+    let cl = |x: i64, y: i64| -> i64 { return x + y + z; };
+    if cl(1i64, 2i64) != 13i64 { return 1i32; }
+    if cl(3i64, 4i64) != 17i64 { return 2i32; }
+    // non-capturing fn-ptr path
+    if a(plain_add) != 3i64 { return 3i32; }
+    return 0i32;
+}
+
+fn plain_add(x: i64, y: i64) -> i64 { return x + y; }

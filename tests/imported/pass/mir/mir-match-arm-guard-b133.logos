@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_match_arm_guard.rs (#30527 regression).
+// Modifications: i8 payload kept; assert->if-return; negatives written
+// `0 - n`; match returned via `return match`. Tests that a match arm carrying a
+// boolean GUARD over a bound payload (`Some(xyz) if xyz > 100`) is generated
+// correctly alongside a plain-payload arm and a fieldless arm.
+package mir_match_arm_guard_b133;
+
+fn match_with_guard(x: Option<i8>) -> i8 {
+    return match x {
+        Option::Some(xyz) if xyz > 100i8 => 0i8,
+        Option::Some(_) => 0i8 - 1i8,
+        Option::None => 0i8 - 2i8,
+    };
+}
+
+fn main() -> i32 {
+    if match_with_guard(Option::Some(111i8)) != 0i8 { return 1i32; }
+    if match_with_guard(Option::Some(2i8)) != (0i8 - 1i8) { return 2i32; }
+    if match_with_guard(Option::None) != (0i8 - 2i8) { return 3i32; }
+    return 0i32;
+}

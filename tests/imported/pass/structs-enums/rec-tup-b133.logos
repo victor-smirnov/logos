@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/rec-tup.rs
+// Modifications: isize->i64; assert->if-return; `type rect = (Point, Point)`
+// kept as a tuple type alias. Tests a tuple whose elements are STRUCTs: a type
+// alias `Rect = (Point, Point)`, destructuring `let (fst, _) = r;` /
+// `let (_, snd) = r;` to project a struct out of a tuple, then `.x`/`.y` field
+// access. (`let r2 = r;` is built fresh rather than copied — Point is not
+// Copy, so the original `let r2 = r;` would move `r`.)
+package rec_tup_b133;
+
+struct Point { x: i64, y: i64 }
+
+type Rect = (Point, Point);
+
+fn fst(r: Rect) -> Point { let (a, _) = r; return a; }
+fn snd(r: Rect) -> Point { let (_, b) = r; return b; }
+
+fn f(r: Rect, x1: i64, y1: i64, x2: i64, y2: i64) -> i32 {
+    if fst(r).x != x1 { return 1i32; }
+    if fst(r).y != y1 { return 2i32; }
+    if snd(r).x != x2 { return 3i32; }
+    if snd(r).y != y2 { return 4i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r: Rect = (Point { x: 10i64, y: 20i64 }, Point { x: 11i64, y: 22i64 });
+    if fst(r).x != 10i64 { return 5i32; }
+    if fst(r).y != 20i64 { return 6i32; }
+    if snd(r).x != 11i64 { return 7i32; }
+    if snd(r).y != 22i64 { return 8i32; }
+    let r2: Rect = (Point { x: 10i64, y: 20i64 }, Point { x: 11i64, y: 22i64 });
+    let x: i64 = fst(r2).x;
+    if x != 10i64 { return 9i32; }
+    let c1: i32 = f(r, 10i64, 20i64, 11i64, 22i64);
+    if c1 != 0i32 { return 10i32; }
+    return 0i32;
+}

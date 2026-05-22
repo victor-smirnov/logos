@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-where-clause.rs
+// Modifications: literals suffixed; assert->if-return; the generic
+// `check<T> where Option<T>: Foo` is monomorphized to a concrete `check_u32`
+// (Logos has no where-clause-bound method dispatch over an open `Option<T>` in
+// a body, but the CORE — method notation calling a trait method impl'd on a
+// concrete `Option<u32>` — is preserved). `unwrap_or` is the prelude Option
+// combinator. Tests trait-method dispatch on `Option<u32>` via method syntax.
+package method_where_clause_b133;
+
+use logos.lang.option;
+
+trait Foo {
+    fn foo(&self) -> i32;
+}
+
+impl Foo for Option<u32> {
+    fn foo(&self) -> i32 {
+        return (*self).unwrap_or(22u32) as i32;
+    }
+}
+
+fn check_u32(x: Option<u32>) -> i32 {
+    let y: Option<u32> = Option::None;
+    return x.foo() + y.foo();
+}
+
+fn main() -> i32 {
+    if check_u32(Option::Some(23u32)) != 45i32 { return 1i32; }
+    return 0i32;
+}

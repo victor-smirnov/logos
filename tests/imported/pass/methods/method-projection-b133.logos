@@ -1,0 +1,51 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-projection.rs (issue #20469).
+// Modifications: `MakeString -> String` distilled to `Doubler -> i64` (String
+// build dropped); the associated type `type F: Doubler` is fixed to a concrete
+// type per impl; `foo<F: Foo>(f)` dispatches through `f.get().double()` where
+// the receiver type is the projection `Self::F`. assert->if-return. Tests
+// method-notation dispatch onto an associated-type projection bound.
+package method_projection_b133;
+
+trait Doubler {
+    fn double(&self) -> i64;
+}
+
+struct WrapI64 { v: i64 }
+struct WrapU32 { v: u32 }
+
+impl Doubler for WrapI64 {
+    fn double(&self) -> i64 { return (*self).v * 2i64; }
+}
+impl Doubler for WrapU32 {
+    fn double(&self) -> i64 { return ((*self).v as i64) * 2i64; }
+}
+
+trait Foo {
+    type F: Doubler;
+    fn get(&self) -> Self::F;
+}
+
+fn foo<F: Foo>(f: &F) -> i64 {
+    return f.get().double();
+}
+
+struct SomeStruct { field: i64 }
+struct OtherStruct { field: u32 }
+
+impl Foo for SomeStruct {
+    type F = WrapI64;
+    fn get(&self) -> WrapI64 { return WrapI64 { v: (*self).field }; }
+}
+impl Foo for OtherStruct {
+    type F = WrapU32;
+    fn get(&self) -> WrapU32 { return WrapU32 { v: (*self).field }; }
+}
+
+fn main() -> i32 {
+    let a: SomeStruct = SomeStruct { field: 22i64 };
+    let b: OtherStruct = OtherStruct { field: 11u32 };
+    if foo(&a) != 44i64 { return 1i32; }
+    if foo(&b) != 22i64 { return 2i32; }
+    return 0i32;
+}
