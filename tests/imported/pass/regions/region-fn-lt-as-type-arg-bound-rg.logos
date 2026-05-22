@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-early-bound-used-in-bound.rs
+// Feature: a fn lifetime param used as part of a type arg in a trait bound
+// (`G: GetRef<'a, i64>`), with the lifetime threaded through the trait + impl.
+package region_fn_lt_as_type_arg_bound_rg;
+trait GetRef<'a, T> { fn get(self: &Self) -> &'a T; }
+struct Holder<'a, T> { t: &'a T }
+impl<'a, T> GetRef<'a, T> for Holder<'a, T> {
+    fn get(self: &Holder<'a, T>) -> &'a T { return (*self).t; }
+}
+fn add<'a, G: GetRef<'a, i64>>(g1: &G, g2: &G) -> i64 { return *g1.get() + *g2.get(); }
+fn main() -> i32 {
+    let three: i64 = 3i64;
+    let b1: Holder<i64> = Holder { t: &three };
+    if add(&b1, &b1) == 6i64 { return 0i32; }
+    return 1i32;
+}

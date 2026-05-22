@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/mid-path-type-params.rs
+// Feature: a generic struct `S<T>` whose inherent associated fn `new<U>(x: T, _: U)`
+// introduces an EXTRA method-level type param U (unused in the body), called via
+// `S::<i64>::make(...)` mid-path type-level turbofish. Plus the same shape via a
+// trait method. (Method-level `::<U>` on the assoc-fn segment dropped — infers from
+// the argument, matching B108 gap #3 in prior batches.)
+package generic_method_extra_typaram_g3;
+struct S<T> { contents: T }
+impl<T: Copy> S<T> {
+    fn make<U>(x: T, _y: U) -> S<T> { return S { contents: x }; }
+}
+trait Mk<T> { fn make2<U>(x: T, y: U) -> Self; }
+struct S2 { contents: i64 }
+impl Mk<i64> for S2 {
+    fn make2<U>(x: i64, _y: U) -> S2 { return S2 { contents: x }; }
+}
+fn main() -> i32 {
+    let a: S<i64> = S::<i64>::make(17i64, true);
+    let b: S2 = S2::make2(17i64, 9u8);
+    if a.contents == 17i64 && b.contents == 17i64 { return 0i32; }
+    return 1i32;
+}

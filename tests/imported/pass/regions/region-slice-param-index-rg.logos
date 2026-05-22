@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-borrow-evec-fixed.rs
+// Feature: passing a fixed-size array by value to a fn that indexes it. (Upstream
+// borrows it as `&[isize]` unsized slice; both `&[i64;N]`-as-slice coercion and
+// dynamic `&[T]`-as-value are KNOWN-OPEN, so the array is passed by value here.)
+package region_slice_param_index_rg;
+fn foo(x: [i64; 5]) -> i64 { return x[0]; }
+fn main() -> i32 {
+    let p: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    if foo(p) == 1i64 { return 0i32; }
+    return 1i32;
+}

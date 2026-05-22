@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-default-type-params.rs
+// Feature: a generic struct `Foo<A>` with TWO distinct CONCRETE-typearg inherent
+// impl blocks (`impl Foo<i64>` and `impl Foo<bool>`), each providing a method only
+// for that instantiation. (Upstream uses default type params + char; default params
+// are a Rust-only sugar so distilled to explicit instantiation per port rules.)
+package default_type_param_concrete_impls_g3;
+struct Foo<A> { a: A }
+impl Foo<i64> { fn bar_int(self: &Foo<i64>) -> i64 { return (*self).a; } }
+impl Foo<bool> { fn bar_bool(self: &Foo<bool>) -> bool { return (*self).a; } }
+fn main() -> i32 {
+    let fi: Foo<i64> = Foo { a: 7i64 };
+    let fb: Foo<bool> = Foo { a: true };
+    if fi.bar_int() == 7i64 && fb.bar_bool() { return 0i32; }
+    return 1i32;
+}

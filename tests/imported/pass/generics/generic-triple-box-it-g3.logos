@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-unique.rs
+// Feature: generic free fn taking a generic 3-field struct `Triple<T>` by value
+// and returning it (upstream returns Box<Triple<T>>; Box<T>->stack per port rule).
+// Turbofish call `box_it::<i64>(...)`. isize->i64.
+package generic_triple_box_it_g3;
+struct Triple<T> { x: T, y: T, z: T }
+fn box_it<T>(x: Triple<T>) -> Triple<T> { return x; }
+fn main() -> i32 {
+    let x: Triple<i64> = box_it::<i64>(Triple { x: 1i64, y: 2i64, z: 3i64 });
+    if x.y == 2i64 { return 0i32; }
+    return 1i32;
+}

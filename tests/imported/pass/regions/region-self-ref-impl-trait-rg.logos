@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-self-impls.rs
+// Feature: a trait with a lifetime param implemented for a struct holding a ref,
+// where the method returns the struct's own borrowed field with the trait's
+// lifetime (`impl<'a> GetChowder<'a> for Clam<'a>`).
+package region_self_ref_impl_trait_rg;
+struct Clam<'a> { chowder: &'a i64 }
+trait GetChowder<'a> { fn get_chowder(self: &Self) -> &'a i64; }
+impl<'a> GetChowder<'a> for Clam<'a> {
+    fn get_chowder(self: &Clam<'a>) -> &'a i64 { return (*self).chowder; }
+}
+fn main() -> i32 {
+    let three: i64 = 3i64;
+    let clam: Clam = Clam { chowder: &three };
+    if *clam.get_chowder() == 3i64 { return 0i32; }
+    return 1i32;
+}

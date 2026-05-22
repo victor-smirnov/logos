@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-dependent-let-ref.rs
+// Feature: a `ref` binding into the interior of a borrowed temporary
+// (`let Foo(ref x) = &Foo(3)`) — the `&` lifetime is extended to the block
+// because a ref binding is created to the interior. Distilled via match.
+package region_ref_binding_into_interior_rg;
+struct Foo { v: i64 }
+fn main() -> i32 {
+    let f: &Foo = &Foo { v: 3i64 };
+    match *f { Foo { v: ref x } => { if *x == 3i64 { return 0i32; } } }
+    return 1i32;
+}

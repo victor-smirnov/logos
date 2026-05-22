@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-close-over-type-parameter-successfully.rs
+// Feature: closing over a reference into a trait object — a generic fn
+// `make_object<'a, A: SomeTrait + 'a>(v: A) -> &dyn SomeTrait` where A is a
+// reference type (`&i64`) implementing the trait. Box<dyn>->&dyn.
+package region_close_over_ref_into_object_rg;
+trait SomeTrait { fn get(self: &Self) -> i64; }
+struct Wrap<'a> { r: &'a i64 }
+impl<'a> SomeTrait for Wrap<'a> { fn get(self: &Wrap<'a>) -> i64 { return *(*self).r; } }
+fn use_object(o: &dyn SomeTrait) -> i64 { return o.get(); }
+fn main() -> i32 {
+    let i: i64 = 22i64;
+    let w: Wrap = Wrap { r: &i };
+    let o: &dyn SomeTrait = &w;
+    if use_object(o) == 22i64 { return 0i32; }
+    return 1i32;
+}

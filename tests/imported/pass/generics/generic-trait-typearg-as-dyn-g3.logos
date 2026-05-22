@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-object.rs
+// Feature: a generic trait `Foo<T>` implemented for a concrete struct at a concrete
+// type arg (`impl Foo<i64> for S`), then used through a trait object `&dyn Foo<i64>`.
+// Box<dyn>->&dyn per port rule.
+package generic_trait_typearg_as_dyn_g3;
+trait Foo<T> { fn get(self: &Self) -> T; }
+struct S { x: i64 }
+impl Foo<i64> for S { fn get(self: &S) -> i64 { return (*self).x; } }
+fn main() -> i32 {
+    let s: S = S { x: 1i64 };
+    let y: &dyn Foo<i64> = &s;
+    if y.get() == 1i64 { return 0i32; }
+    return 1i32;
+}

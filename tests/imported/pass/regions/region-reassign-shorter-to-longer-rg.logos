@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-reassign-let-bound-pointer.rs
+// Feature: reassigning a let-bound reference from a longer-lived borrow to a
+// shorter-lived one; the inferred region is the intersection. mut local ref.
+package region_reassign_shorter_to_longer_rg;
+fn foo(x: &i64) -> i64 {
+    let a: i64 = 1i64;
+    let mut z: &i64 = x;
+    z = &a;
+    return *z;
+}
+fn main() -> i32 {
+    let one: i64 = 1i64;
+    if foo(&one) == 1i64 { return 0i32; }
+    return 1i32;
+}

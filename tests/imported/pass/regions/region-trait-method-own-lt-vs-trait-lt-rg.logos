@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-debruijn-of-object.rs
+// Feature: a trait with a TYPE-level lifetime param `AstConv<'tcx>` whose method
+// introduces its OWN method-level lifetime `<'a>(&'a self) -> &'a Ctxt<'tcx>` —
+// two distinct nested region binders (DeBruijn depth). Passed as &dyn.
+package region_trait_method_own_lt_vs_trait_lt_rg;
+struct Ctxt<'tcx> { x: &'tcx i32 }
+trait AstConv<'tcx> { fn tcx<'a>(self: &'a Self) -> &'a Ctxt<'tcx>; }
+struct Conv<'tcx> { c: Ctxt<'tcx> }
+impl<'tcx> AstConv<'tcx> for Conv<'tcx> {
+    fn tcx<'a>(self: &'a Conv<'tcx>) -> &'a Ctxt<'tcx> { return &(*self).c; }
+}
+fn use_conv(conv: &dyn AstConv) -> i32 { return *conv.tcx().x; }
+fn main() -> i32 {
+    let n: i32 = 5i32;
+    let c: Conv = Conv { c: Ctxt { x: &n } };
+    if use_conv(&c) == 5i32 { return 0i32; }
+    return 1i32;
+}

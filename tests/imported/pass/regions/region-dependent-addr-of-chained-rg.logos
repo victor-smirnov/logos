@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-dependent-addr-of.rs
+// Feature: dependent region pointers — a let-bound borrow `let foo = &a.value;`
+// then a borrow of its field `&foo.v1`; the inferencer must deduce nested-scope
+// outlives (&v < L2 < L1). Distilled to two struct levels + array field index.
+package region_dependent_addr_of_chained_rg;
+struct B { v1: i64, v2: [i64; 3] }
+struct A { value: B }
+fn get_v1(a: &A) -> &i64 {
+    let foo: &B = &(*a).value;
+    return &(*foo).v1;
+}
+fn get_v2(a: &A, i: u64) -> &i64 {
+    let foo: &B = &(*a).value;
+    return &(*foo).v2[i];
+}
+fn main() -> i32 {
+    let a: A = A { value: B { v1: 7i64, v2: [10i64, 20i64, 30i64] } };
+    if *get_v1(&a) == 7i64 && *get_v2(&a, 1u64) == 20i64 { return 0i32; }
+    return 1i32;
+}

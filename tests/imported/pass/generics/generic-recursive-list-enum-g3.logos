@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-recursive-tag.rs
+// Feature: a generic recursive enum `List<T>` = Cons(T, *const List<T>) | Nil built
+// several levels deep, summed by a recursive fn. Upstream boxes both fields
+// (Box<T>, Box<List<T>>); Logos requires explicit indirection `*const List<T>` for
+// the self-referential payload (raw-ptr box per compiler diagnostic).
+package generic_recursive_list_enum_g3;
+enum List<T> { Cons(T, *const List<T>), Nil }
+fn sum(l: *const List<i64>) -> i64 {
+    unsafe {
+        match *l {
+            List::Cons(h, t) => { return h + sum(t); }
+            List::Nil => { return 0i64; }
+        }
+    }
+}
+fn main() -> i32 {
+    let n3: List<i64> = List::Nil;
+    let l3: List<i64> = List::Cons(13i64, &n3 as *const List<i64>);
+    let l2: List<i64> = List::Cons(12i64, &l3 as *const List<i64>);
+    let l1: List<i64> = List::Cons(10i64, &l2 as *const List<i64>);
+    if sum(&l1 as *const List<i64>) == 35i64 { return 0i32; }
+    return 1i32;
+}

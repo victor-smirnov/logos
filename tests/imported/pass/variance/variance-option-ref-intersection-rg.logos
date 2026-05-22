@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/variance/variance-intersection-of-ref-and-opt-ref.rs
+// Feature: a struct with a `&'l i32` field and an `Option<&'l i32>` field; a fn
+// builds it from two refs of distinct (intersecting) lifetimes — covariance lets
+// both approximate to a common region. Distilled match instead of cloned/unwrap_or.
+package variance_option_ref_intersection_rg;
+struct Lst<'l> { field1: &'l i32, field2: Option<&'l i32> }
+fn foo(field1: &i32, field2: Option<&i32>) -> i32 {
+    let list: Lst = Lst { field1: field1, field2: field2 };
+    let extra: i32 = match list.field2 { Option::Some(r) => *r, Option::None => 0i32 };
+    return *list.field1 + extra;
+}
+fn main() -> i32 {
+    let x: i32 = 22i32;
+    let y: i32 = 3i32;
+    if foo(&x, Option::Some(&y)) != 25i32 { return 1i32; }
+    if foo(&x, Option::None) != 22i32 { return 2i32; }
+    return 0i32;
+}

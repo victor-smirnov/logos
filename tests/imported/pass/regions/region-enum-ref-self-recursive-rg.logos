@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-creating-enums2.rs
+// Feature: a recursive enum carrying references to itself with a shared lifetime
+// param (`Ast<'a>` with `Add(&'a Ast<'a>, &'a Ast<'a>)`), built by a fn returning
+// `Ast<'r>`. Exercises self-referential-lifetime enum construction.
+package region_enum_ref_self_recursive_rg;
+enum Ast<'a> { Num(i64), Add(&'a Ast<'a>, &'a Ast<'a>) }
+fn mk_add<'r>(x: &'r Ast<'r>, y: &'r Ast<'r>) -> Ast<'r> { return Ast::Add(x, y); }
+fn eval(a: &Ast) -> i64 {
+    match *a {
+        Ast::Num(n) => { return n; }
+        Ast::Add(l, r) => { return eval(l) + eval(r); }
+    }
+}
+fn main() -> i32 {
+    let a: Ast = Ast::Num(2i64);
+    let b: Ast = Ast::Num(3i64);
+    let s: Ast = mk_add(&a, &b);
+    if eval(&s) == 5i64 { return 0i32; }
+    return 1i32;
+}

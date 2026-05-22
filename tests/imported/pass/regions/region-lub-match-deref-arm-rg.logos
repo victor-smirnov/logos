@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-lub-ref-ref-rc.rs
+// Feature: a 2-variant enum with a lifetime param (`Cached<'a>` = Ref(&'a i64) |
+// Owned(i64)); a `&'b self` method returns a `&'b i64` picking from either the
+// stored owned field or (via &-of-deref) the borrowed variant — LUB of the two
+// arm regions unifies. (Single lifetime 'a used for self+param: the cross-arm
+// implicit-outlives `'a: 'b` shape is a NEW gap — see B127-ui-surfaced-gaps.md.)
+package region_lub_match_deref_arm_rg;
+enum Cached<'a> { Ref(&'a i64), Owned(i64) }
+impl<'a> Cached<'a> {
+    fn get_ref(self: &'a Cached<'a>) -> &'a i64 {
+        match *self {
+            Cached::Ref(r) => { return r; }
+            Cached::Owned(ref o) => { return o; }
+        }
+    }
+}
+fn main() -> i32 {
+    let n: i64 = 9i64;
+    let c1: Cached = Cached::Ref(&n);
+    let c2: Cached = Cached::Owned(4i64);
+    if *c1.get_ref() == 9i64 && *c2.get_ref() == 4i64 { return 0i32; }
+    return 1i32;
+}

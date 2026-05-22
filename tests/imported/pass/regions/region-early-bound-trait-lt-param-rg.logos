@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-early-bound-trait-param.rs
+// Feature: an early-bound lifetime param as a generic param of a TRAIT
+// (`trait Trait<'a>`), with `&'a self`-style long method + `<'b>&'b self` short
+// method, called through a generic fn `poly_invoke<'c, T: Trait<'c>>`.
+package region_early_bound_trait_lt_param_rg;
+trait Trait<'a> { fn long(self: &'a Self) -> i64; fn shortm<'b>(self: &'b Self) -> i64; }
+struct S { v: i64 }
+impl<'a> Trait<'a> for S {
+    fn long(self: &'a S) -> i64 { return (*self).v; }
+    fn shortm<'b>(self: &'b S) -> i64 { return (*self).v + 1i64; }
+}
+fn poly_invoke<'c, T: Trait<'c>>(x: &'c T) -> i64 { return x.long() + x.shortm(); }
+fn main() -> i32 {
+    let s: S = S { v: 10i64 };
+    if poly_invoke(&s) == 21i64 { return 0i32; }
+    return 1i32;
+}

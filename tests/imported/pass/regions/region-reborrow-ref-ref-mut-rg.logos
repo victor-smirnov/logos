@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-infer-reborrow-ref-mut-recurse.rs
+// Feature: reborrow through a `&'a &'b mut i64` — the borrow of `*x` must be
+// extended to outlive 'a; returns `&**y`. Tests nested-ref reborrow region inference.
+package region_reborrow_ref_ref_mut_rg;
+fn foo<'a, 'b>(x: &'a &'b mut i64) -> &'a i64 {
+    let y: &&mut i64 = x;
+    return &**y;
+}
+fn main() -> i32 {
+    let mut n: i64 = 7i64;
+    let r: &mut i64 = &mut n;
+    let rr: &&mut i64 = &r;
+    if *foo(rr) == 7i64 { return 0i32; }
+    return 1i32;
+}

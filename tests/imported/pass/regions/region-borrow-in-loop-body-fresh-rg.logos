@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-infer-borrow-scope-within-loop-ok.rs
+// Feature: a fresh borrow taken inside a loop body via a generic `borrow<T>(&T)->&T`
+// and immediately used+broken; the borrow region is confined to the loop iteration.
+package region_borrow_in_loop_body_fresh_rg;
+fn borrow<T>(x: &T) -> &T { return x; }
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    loop {
+        let y: &i64 = borrow(&x);
+        if *y != 3i64 { return 1i32; }
+        break;
+    }
+    return 0i32;
+}

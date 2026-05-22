@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-32498.rs
+// Feature: deeply-nested generic-struct type used as a type arg (monomorphization
+// must not overflow). Distilled from the L<L<...>> nesting: an Option-payload
+// generic wrapper instantiated 4 levels deep. Upstream asserts size_of==1 (niche);
+// distilled to value round-trip since size_of is a const-eval intrinsic (metacall channel).
+package generic_nested_type_alias_zst_g3;
+struct L<T> { n: T }
+fn main() -> i32 {
+    let v: L<L<L<L<i64>>>> = L { n: L { n: L { n: L { n: 5i64 } } } };
+    if v.n.n.n.n == 5i64 { return 0i32; }
+    return 1i32;
+}

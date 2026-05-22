@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-1112.rs
+// Feature: a generic struct with a generic first field followed by many mixed-width
+// scalar fields (u8/bool/u16) — interior-pointer alignment of a dynamic-width head
+// field. Passed by value to a generic fn `bar<T>(X<T>)` reading a later field.
+package generic_many_field_struct_byval_g3;
+struct X<T> { a: T, b: u8, c: bool, d: u8, e: u16, f: u8, g: u8 }
+fn bar<T>(x: X<T>) -> u16 { return x.e; }
+fn main() -> i32 {
+    let x: X<i64> = X { a: 12345678i64, b: 9u8, c: true, d: 10u8, e: 11u16, f: 12u8, g: 13u8 };
+    if bar(x) == 11u16 { return 0i32; }
+    return 1i32;
+}

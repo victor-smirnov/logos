@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-infer-contravariance-due-to-ret.rs
+// Feature: a fn `max<'r>(&'r BoxedInt, &'r i64) -> i64` that constrains a struct
+// ref and a bare ref to the SAME region 'r; called with a borrow of a local
+// temporary whose region is shorter than the struct's — contravariance via ret.
+package region_two_refs_same_region_pick_rg;
+struct BoxedInt<'a> { f: &'a i64 }
+fn max<'r>(bi: &'r BoxedInt, f: &'r i64) -> i64 {
+    if *bi.f > *f { return *bi.f; }
+    return *f;
+}
+fn with(bi: &BoxedInt) -> i64 {
+    let i: i64 = 22i64;
+    return max(bi, &i);
+}
+fn main() -> i32 {
+    let g: i64 = 21i64;
+    let foo: BoxedInt = BoxedInt { f: &g };
+    if with(&foo) == 22i64 { return 0i32; }
+    return 1i32;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-default-type-params.rs (Baz<T,U,V> shape)
+// Feature: a 3-param generic struct where a later field's type uses an EARLIER type
+// param nested inside another generic (`Baz<T, U, V>` with U=Helper<T>, V=Opt<U>).
+// Distilled to explicit type args (defaults are Rust sugar).
+package generic_prev_param_in_field_g3;
+struct Helper<T> { v: T }
+enum Opt<T> { Sm(T), Nn }
+struct Baz<T, U, V> { a: T, b: U, c: V }
+fn main() -> i32 {
+    let h: Helper<bool> = Helper { v: false };
+    let o: Opt<Helper<bool>> = Opt::Sm(Helper { v: true });
+    let x: Baz<bool, Helper<bool>, Opt<Helper<bool>>> = Baz { a: true, b: h, c: o };
+    if x.a && !x.b.v {
+        match x.c { Opt::Sm(hh) => { if hh.v { return 0i32; } return 2i32; } Opt::Nn => { return 3i32; } }
+    }
+    return 1i32;
+}

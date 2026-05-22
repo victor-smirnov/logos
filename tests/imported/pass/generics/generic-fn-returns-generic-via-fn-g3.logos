@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-derived-type.rs
+// Feature: a generic fn `f<T>(t)->Pair<T>` builds a generic struct from a cloned
+// arg, then passes it through another generic identity fn `g::<Pair<T>>(x)`.
+// Turbofish on a generic-struct type arg; T: Clone (Copy satisfies).
+package generic_fn_returns_generic_via_fn_g3;
+struct Pair<T> { a: T, b: T }
+fn g<X>(x: X) -> X { return x; }
+fn f<T: Clone>(t: T) -> Pair<T> {
+    let x: Pair<T> = Pair { a: t.clone(), b: t };
+    return g::<Pair<T>>(x);
+}
+fn main() -> i32 {
+    let b: Pair<i64> = f::<i64>(10i64);
+    if b.a == 10i64 && b.b == 10i64 { return 0i32; }
+    return 1i32;
+}

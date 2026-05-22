@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-trait-object-1.rs
+// Feature: a fn produces a trait object whose lifetime is tied to an input ref
+// (`extension<'e>(&'e E<'e>) -> &dyn M`), where the object wraps a struct built
+// from a borrowed-method result. Box<dyn>->&dyn per port rule.
+package region_trait_object_from_struct_method_rg;
+struct E<'a> { f: &'a u8 }
+impl<'a> E<'a> { fn m(self: &E<'a>) -> &'a u8 { return (*self).f; } }
+struct P<'c> { g: &'c u8 }
+trait M { fn n(self: &Self) -> u8; }
+impl<'d> M for P<'d> { fn n(self: &P<'d>) -> u8 { return *(*self).g; } }
+fn main() -> i32 {
+    let ten: u8 = 10u8;
+    let w: E = E { f: &ten };
+    let p: P = P { g: w.m() };
+    let o: &dyn M = &p;
+    if o.n() == 10u8 { return 0i32; }
+    return 1i32;
+}

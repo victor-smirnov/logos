@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-self-in-enums.rs
+// Feature: enum variant carrying a reference (`IntWrapper<'a>(&'a i64)`), bound out
+// by a `match` arm into a local `&i64` whose lifetime links to the enum's.
+package region_enum_bind_by_ref_match_rg;
+enum IntWrapper<'a> { Ctor(&'a i64) }
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let y: IntWrapper = IntWrapper::Ctor(&x);
+    let z: &i64 = match y { IntWrapper::Ctor(zz) => zz };
+    if *z == 3i64 { return 0i32; }
+    return 1i32;
+}

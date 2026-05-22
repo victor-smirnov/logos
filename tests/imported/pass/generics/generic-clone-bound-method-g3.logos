@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-default-type-params.rs (baz method shape)
+// Feature: `impl<A: Clone> Foo<A>` — a generic inherent impl whose method bound (Clone)
+// is satisfied by a Copy type arg, returning a clone-by-value of the field.
+package generic_clone_bound_method_g3;
+struct Foo<A> { a: A }
+impl<A: Clone> Foo<A> { fn baz(self: &Foo<A>) -> A { return (*self).a.clone(); } }
+fn main() -> i32 {
+    let f: Foo<i64> = Foo { a: 42i64 };
+    if f.baz() == 42i64 { return 0i32; }
+    return 1i32;
+}

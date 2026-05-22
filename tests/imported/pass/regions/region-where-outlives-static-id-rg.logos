@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-static-bound-rpass.rs
+// Feature: where-clause region-outlives bounds — `static_id<'a>(&'a ()) -> &'static ()
+// where 'a: 'static`, `ref_id<'a>(&'a()) -> &'a() where 'static: 'a`, and a
+// transitive `where 'a: 'b, 'b: 'static`. Distilled to &'a i64 carrying a value;
+// the &'static source is a borrow of a fn-local (top-level `static` items not ported).
+package region_where_outlives_static_id_rg;
+fn static_id<'a>(t: &'a i64) -> &'static i64 where 'a: 'static { return t; }
+fn ref_id<'a>(t: &'a i64) -> &'a i64 where 'static: 'a { return t; }
+fn static_id_indirect<'a, 'b>(t: &'a i64) -> &'static i64 where 'a: 'b, 'b: 'static { return t; }
+fn run(val: &'static i64) -> i32 {
+    let a: &i64 = static_id(val);
+    let b: &i64 = ref_id(val);
+    let c: &i64 = static_id_indirect(val);
+    if *a + *b + *c == 21i64 { return 0i32; }
+    return 1i32;
+}
+fn main() -> i32 {
+    let v: i64 = 7i64;
+    return run(&v);
+}

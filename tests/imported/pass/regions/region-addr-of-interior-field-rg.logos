@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-addr-of-interior-of-unique-box.rs
+// Feature: returning a borrow of an interior field reached through a nested struct
+// field (`&x.pos.x`) — the borrow's region outlives the fn body. Upstream nests via
+// Box<Point>; Box<T>->stack per port rule (Point inline).
+package region_addr_of_interior_field_rg;
+struct Point { x: i64, y: i64 }
+struct Character { pos: Point }
+fn get_x(c: &Character) -> &i64 { return &(*c).pos.x; }
+fn main() -> i32 {
+    let ch: Character = Character { pos: Point { x: 4i64, y: 9i64 } };
+    if *get_x(&ch) == 4i64 { return 0i32; }
+    return 1i32;
+}
