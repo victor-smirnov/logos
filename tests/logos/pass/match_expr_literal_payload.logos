@@ -1,0 +1,14 @@
+package match_expr_literal_payload;
+enum Foo { FooUint(u64), FooNullary }
+fn classify(f: Foo) -> i64 {
+    let r: i64 = match f {
+        Foo::FooUint(1u64) => 1i64,
+        _ => 0i64
+    };
+    return r;
+}
+fn main() -> i32 {
+    if classify(Foo::FooUint(0u64)) != 0i64 { return 1i32; }
+    if classify(Foo::FooUint(1u64)) != 1i64 { return 2i32; }
+    return 0i32;
+}

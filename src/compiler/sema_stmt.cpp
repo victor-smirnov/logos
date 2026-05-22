@@ -6534,6 +6534,21 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     guard = std::move(synth_guard);
                 }
             }
+            // G145-2 (soundness): AND in the refutable-inner guards collected
+            // during build_pattern (a literal/variant sub-pattern in a variant
+            // payload, e.g. `Foo::FooUint(1)`). The statement-form lower_match
+            // already does this; without it the match-EXPRESSION form silently
+            // dropped the payload test and mis-dispatched (matched the variant
+            // tag regardless of the inner literal).
+            for (auto& rg : refut_guards) {
+                if (!rg) continue;
+                if (guard) {
+                    auto merged = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
+                    guard = std::move(merged);
+                } else {
+                    guard = std::move(rg);
+                }
+            }
 
             // Lower the arm value: either an EXPR arm (pattern => expr,) or a
             // BODY block arm (pattern => { stmts }).  Block arms that always
