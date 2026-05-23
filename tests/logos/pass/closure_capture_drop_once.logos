@@ -1,0 +1,30 @@
+// Regression (G156-7): a closure capturing a Drop-bearing struct BY REFERENCE
+// (read-only) double-freed it — a `return` inside the closure body called
+// collect_all_drops(), which crossed into the ENCLOSING function's scope frames
+// and dropped the captured (borrowed) variable, in addition to its drop at the
+// original binding. The closure body's scope is now a DROP BOUNDARY: a return
+// drops only the closure's own frames, not the enclosing function's captures.
+package closure_capture_drop_once;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+
+struct Refs { owner: Owner, n: i64 }
+
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let e = Refs { owner: Owner { i: p }, n: 5i64 };
+        // Read-only borrow capture, body has a `return`.
+        let f = || -> i64 { return e.n; };
+        if f() != 5i64 { return 2i32; }
+        if f() != 5i64 { return 3i32; }   // calling twice must not drop twice
+    }
+    // `e` (its Owner field) must be dropped EXACTLY once, at `e`'s scope exit —
+    // not also inside the closure body on each call.
+    if c != 1i64 { return 1i32; }
+    return 0i32;
+}

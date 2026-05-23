@@ -1347,6 +1347,12 @@ private:
     struct Frame {
         logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order
+        // G156-7: a closure body's own frame is a DROP boundary. The enclosing
+        // function's frames stay on the stack (so the body can `lookup` captured
+        // names for type resolution), but a `return` inside the closure must NOT
+        // drop the enclosing function's locals — only the closure's own frames.
+        // collect_all_drops stops after a boundary frame.
+        bool closure_boundary = false;
     };
     std::vector<Frame> scope_;
 
@@ -1432,6 +1438,7 @@ private:
     }
 
     void push_scope() { scope_.emplace_back(); }
+    void push_closure_scope() { scope_.emplace_back(); scope_.back().closure_boundary = true; }
     void pop_scope() {
         if (!scope_.empty()) {
             // Remove popped variables from moved set

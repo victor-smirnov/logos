@@ -2556,6 +2556,10 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
             if (auto d = make_drop_stmt(*it, vit->second))
                 drops.push_back(std::move(*d));
         }
+        // G156-7: stop at a closure boundary — a `return` inside a closure body
+        // drops only the closure's own frames, never the enclosing function's
+        // captured locals (which the env borrows / the original owns).
+        if (fit->closure_boundary) break;
     }
     return drops;
 }

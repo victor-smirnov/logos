@@ -10922,8 +10922,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
 
-    // Push a new scope with closure params
-    push_scope();
+    // Push a new scope with closure params. It is a DROP BOUNDARY (G156-7): a
+    // `return` inside the body drops only the closure's own frames, not the
+    // enclosing function's captured locals (the env borrows them / the original
+    // binding owns them — dropping here would double-free).
+    push_closure_scope();
     for (auto& p : params) {
         // Skip mut-bind synths: the user name is defined mutable below; defining
         // the synth too would give move-type params double drop glue.

@@ -139,7 +139,16 @@ foo::<>();                // syntax error near '<'
 Observed: `syntax error`. Decision: **empty-generic-brackets-equiv DROPPED**
 (the equivalence relies on `<>` parsing).
 
-### G156-7 ⚠️ DOUBLE-FREE — closure capturing a Drop-bearing struct double-frees
+### G156-7 ⚠️ DOUBLE-FREE — ✅ FIXED (borrow capture): closure capturing a Drop struct
+**FIXED** (this session): a `return` in the closure body called collect_all_drops()
+which crossed into the enclosing fn's scope and dropped the borrowed capture (on
+each call) on top of its real scope-exit drop. The closure body's scope is now a
+DROP BOUNDARY (collect_all_drops stops at it). Regression
+`tests/logos/pass/closure_capture_drop_once.logos`. FOLLOW-UP: a `move ||`
+closure OWNING a droppable capture now leaks it (needs proper closure capture
+drop glue — separate). Original report follows.
+
+### G156-7 (orig) ⚠️ DOUBLE-FREE — closure capturing a Drop-bearing struct double-frees
 A closure that captures a struct OWNING a Drop-bearing field (e.g. a `Vec`) by
 reference double-frees at runtime (`free(): double free detected`). The
 underlying struct's owned Vec is dropped both via the closure's captured copy and
