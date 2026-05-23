@@ -9260,14 +9260,44 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     // Simple inference: match payload args to payload type params.
     TypeRef result_type = make_enum_type(ename);
     if (!einfo.type_params.empty()) {
-        // Build substitution from payload args
+        // Build substitution from payload args. When a payload is an unresolved
+        // integer/float literal AND the let/return hint pins that type-param to
+        // a concrete type (`let a: MyOpt<i64> = MyOpt::MSome(3)`), prefer the
+        // hint over the i32/f64 literal default — otherwise `3` would default
+        // the enum's T to i32 and the annotation's i64 would be ignored, so
+        // a downstream `impl<T> ... for MyOpt<T>` method instantiates at the
+        // wrong T (root cause of G150-2's generic-enum-`==` blocker).
+        bool hint_matches = hint_enum_type_ &&
+            TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
+            !TypeRef(hint_enum_type_).type_args().empty();
+        auto hint_for_param = [&](std::string_view tvname) -> TypeRef {
+            if (!hint_matches) return nullptr;
+            for (size_t k = 0; k < einfo.type_params.size() &&
+                               k < TypeRef(hint_enum_type_).type_args().size(); ++k)
+                if (einfo.type_params[k].name == tvname) {
+                    auto h = TypeRef(hint_enum_type_).type_args()[k];
+                    if (h && TypeRef(h).kind() != LogosType::Kind::Error) return h;
+                    break;
+                }
+            return nullptr;
+        };
         SemaSubst subst;
         for (size_t i = 0; i < vinfo->payload_types.size() && i < payload.size(); ++i) {
             auto pt = vinfo->payload_types[i];
             if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto inferred = payload[i]->type;
-                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
-                subst[std::string(TypeRef(pt).type_var_name())] = inferred;
+                std::string tvn(TypeRef(pt).type_var_name());
+                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit ||
+                    TypeRef(inferred).kind() == LogosType::Kind::FloatLit) {
+                    if (auto h = hint_for_param(tvn)) {
+                        inferred = h;                  // annotation wins
+                        widen_int_expr(payload[i], h, builder());  // pin the literal too
+                    } else {
+                        inferred = TypeRef(inferred).kind() == LogosType::Kind::FloatLit
+                                   ? prim(LogosType::Kind::F64) : i32_t();
+                    }
+                }
+                subst[tvn] = inferred;
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
@@ -9552,10 +9582,26 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             auto pt = vinfo->payload_types[i];
             if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
                 auto inferred = payload[i]->type;
-                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit) inferred = i32_t();
+                std::string tvn(TypeRef(pt).type_var_name());
+                // G150-2: an unresolved integer/float-literal payload defers to
+                // the let/return hint (projected into pre_subst) when it pins
+                // this type-param — `let a: MyOpt<i64> = MyOpt::MSome(3)` must
+                // bind T=i64, not the i32 literal default. Otherwise a generic
+                // `impl<T> ... for MyOpt<T>` method instantiates at the wrong T.
+                if (TypeRef(inferred).kind() == LogosType::Kind::IntLit ||
+                    TypeRef(inferred).kind() == LogosType::Kind::FloatLit) {
+                    auto psit = pre_subst.find(tvn);
+                    if (psit != pre_subst.end() && psit->second) {
+                        inferred = psit->second;
+                        widen_int_expr(payload[i], inferred, builder());
+                    } else {
+                        inferred = TypeRef(inferred).kind() == LogosType::Kind::FloatLit
+                                   ? prim(LogosType::Kind::F64) : i32_t();
+                    }
+                }
                 // Payload-derived inference fills any slot still
                 // missing after the explicit turbofish pass above.
-                auto& slot = subst[std::string(TypeRef(pt).type_var_name())];
+                auto& slot = subst[tvn];
                 if (!slot) slot = inferred;
             }
         }

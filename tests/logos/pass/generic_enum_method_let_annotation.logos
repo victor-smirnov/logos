@@ -1,0 +1,23 @@
+package generic_enum_method_let_annotation;
+// G150-2 (root cause): a let-annotation's enum type-arg must pin an unresolved
+// integer-literal payload, so `let a: MyOpt<i64> = MyOpt::MSome(3)` binds T=i64
+// (not the i32 literal default) — otherwise a generic `impl<T> Eq for MyOpt<T>`
+// method instantiates at the wrong T and the call mismatches the emission.
+enum MyOpt<T> { MNone, MSome(T) }
+impl<T: Eq> Eq for MyOpt<T> {
+    fn eq(self: &Self, other: &Self) -> bool {
+        match self {
+            MyOpt::MSome(a) => { match other { MyOpt::MSome(b) => { return *a == *b; } MyOpt::MNone => { return false; } } }
+            MyOpt::MNone => { match other { MyOpt::MSome(b) => { return false; } MyOpt::MNone => { return true; } } }
+        }
+    }
+}
+fn main() -> i64 {
+    let a: MyOpt<i64> = MyOpt::MSome(3);
+    let b: MyOpt<i64> = MyOpt::MSome(3);
+    let c: MyOpt<i64> = MyOpt::MSome(4);
+    if !a.eq(&b) { return 1; }
+    if a.eq(&c) { return 2; }
+    if a == b { } else { return 3; }   // also via the operator routing
+    return 0;
+}
