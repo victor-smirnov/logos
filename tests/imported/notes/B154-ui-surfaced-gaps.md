@@ -23,6 +23,29 @@ upstream tests (e.g. `drop/issue-979`, `drop/conditional-drop-10734`,
 
 ---
 
+## STATUS 2026-05-23
+✅ **G154-5** let-else literal/range pattern never refuted (silent) — FIXED ea45fedb.
+REMAINING — high-severity (DEEP, for a focused control-flow/semantics session):
+- **G154-1** ⚠️ `return` in a sub-expression (struct-field init / call arg) doesn't
+  short-circuit → wrong value / SIGSEGV. Never-type-in-subexpression: the
+  diverging `return` in expr position isn't emitted as the terminator before the
+  enclosing struct-lit/call continues. Control-flow lowering piece.
+- **G154-4** ⚠️ moving a Drop value OUT of a tuple double-drops. ROOT: tuples
+  don't have proper Drop semantics — has_droppable_fields is Struct-only, so a
+  tuple owning a String doesn't drop it via the tuple; the move-in element isn't
+  marked moved and the move-out isn't tracked. Needs tuple-Drop (drop elements +
+  move-in/out tracking). (Partial mark_moved_expr TupleIndex tried + reverted —
+  insufficient alone.)
+- **G154-6** ⚠️ inner `fn` item shadowing a same-named local breaks the outer
+  local ref (niche; trivial rename workaround).
+REMAINING — parse/sema (workarounds): G154-2 return-diverging let-init, G154-3
+block-as-for-iterator, G154-7 `@`-binding in variant payload, G154-8 range/
+multi-field or-pattern in payload, G154-9 tuple-struct ctor as fn value, G154-10
+`<T as Trait>::Out` projection in type position.
+ACCUMULATING DEEP-GAP BACKLOG (across B153/B154, for a focused session): backward
+type-inference from later assignment (G153-1/2), `static`/`static mut` items
+(G153-3), return-in-subexpression (G154-1), tuple-Drop semantics (G154-4).
+
 ## Gaps surfaced
 
 ### G154-1 — ⚠️ SILENT MISCOMPILE / CRASH: `return` in a sub-expression does not short-circuit
