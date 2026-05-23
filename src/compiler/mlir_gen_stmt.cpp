@@ -3793,8 +3793,37 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         }
         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, match_block, else_block);
     } else {
-        // Non-enum scrutinee — always matches (fall into match_block)
-        builder_.create<mlir::cf::BranchOp>(loc_, match_block);
+        // Non-enum scrutinee. A LITERAL / range pattern is REFUTABLE — test the
+        // value and branch to else on mismatch (G154-5: previously this always
+        // fell into match_block, so the else was dead and a non-matching literal
+        // like `let 4 = x else {…}` was silently accepted). Irrefutable
+        // non-enum patterns (tuple / plain binding) keep the unconditional jump.
+        mlir::Value lit_cond;
+        if (mlir::isa<mlir::IntegerType>(scrut_val.getType())) {
+            auto styp = scrut_val.getType();
+            if (pat_kind == pc::Code::Int) {
+                auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, lir_view::PatIntView{pat_ref}.value(), 64), styp);
+                lit_cond = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::eq, scrut_val, cv);
+            } else if (pat_kind == pc::Code::Bool) {
+                auto cv = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(
+                    loc_, lir_view::PatBoolView{pat_ref}.value() ? 1 : 0, 64), styp);
+                lit_cond = builder_.create<mlir::arith::CmpIOp>(
+                    loc_, mlir::arith::CmpIPredicate::eq, scrut_val, cv);
+            } else if (pat_kind == pc::Code::Range) {
+                lir_view::PatRangeView pr{pat_ref};
+                auto lo = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), styp);
+                auto hi = coerce_int(builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), styp);
+                auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sge, scrut_val, lo);
+                auto le = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::sle, scrut_val, hi);
+                lit_cond = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+            }
+        }
+        if (lit_cond)
+            builder_.create<mlir::cf::CondBranchOp>(loc_, lit_cond, match_block, else_block);
+        else
+            builder_.create<mlir::cf::BranchOp>(loc_, match_block);
     }
 
     // ── else_block: diverging else body ──────────────────────────────────
