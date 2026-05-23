@@ -745,6 +745,19 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // bound is admitted as a no-op (matches `T: Sized` being
             // implicit in Rust). `?Sized` opt-out isn't expressible yet.
             if (bound.trait_name == "Sized") continue;
+            // G158-6: a `where &T: Trait` bound (on_ref_subject) is satisfied by
+            // an `impl Trait for &Concrete` (registered under `$ref_<C>` /
+            // `$mut_ref_<C>`), NOT `impl Trait for Concrete`. Check that impl
+            // key instead of the plain one below.
+            if (bound.on_ref_subject) {
+                std::string rk = (bound.is_ref_mut ? "$mut_ref_" : "$ref_") + concrete_str;
+                if (impls_.count(bound.trait_name + "::" + rk)) continue;
+                error(std::format("'{}': type '{}{}' does not implement trait '{}' "
+                                  "required by parameter '&{}'",
+                      target_name, bound.is_ref_mut ? "&mut " : "&", concrete_str,
+                      bound.trait_name, tp.name));
+                continue;
+            }
             // Auto trait: synthesize satisfaction from field types.
             auto trit = traits_.find(bound.trait_name);
             if (trit != traits_.end() && trit->second.is_auto) {

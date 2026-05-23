@@ -1,0 +1,33 @@
+// Distilled regression for G158-6 (closed 2026-05-23).
+// A reference-typed where-clause subject `where &T: Trait` (and `&mut T:
+// Trait`) now parses, registers, and dispatches. Was a parse error
+// (`syntax error near 'fn'`).
+//   - Grammar: a `where_pred` alt `ref_type COLON trait_bound...` (the subject
+//     starts with `&`, so no collision with the IDENT-named `type_param`).
+//   - Sema: read_type_params records the bound on type-param T flagged
+//     `on_ref_subject`; check_type_bounds verifies it against
+//     `impl Trait for &Concrete` (the `$ref_<C>` impl key).
+//   - Dispatch: `x.val()` (x: &T) resolves via T's on_ref_subject bound; mono,
+//     for a `&`/`&mut` receiver over a concrete struct/enum, keys on the
+//     `$ref_<C>__m` ref-impl symbol when the plain `<C>__m` is absent.
+package where_clause_ref_bound_b158;
+
+trait TheTrait { fn val(self: &Self) -> i64; }
+
+struct S { v: i64 }
+impl TheTrait for &S { fn val(self: &Self) -> i64 { return 5i64; } }
+
+struct M { w: i64 }
+impl TheTrait for &mut M { fn val(self: &Self) -> i64 { return 7i64; } }
+
+fn foo<T>(x: &T) -> i64 where &T: TheTrait { return x.val(); }
+fn bar<T>(x: &mut T) -> i64 where &mut T: TheTrait { return x.val(); }
+
+fn main() -> i32 {
+    let s: S = S { v: 9i64 };
+    if foo(&s) != 5i64 { return 1i32; }
+
+    let mut m: M = M { w: 3i64 };
+    if bar(&mut m) != 7i64 { return 2i32; }
+    return 0i32;
+}

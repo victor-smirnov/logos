@@ -326,6 +326,12 @@ struct TraitBound {
     // When set, the bound does NOT add a positive bound on the type param —
     // it removes the implicit Sized bound that would otherwise apply.
     bool                 is_relaxed = false;
+    // G158-6: a `where &T: Trait` / `where &mut T: Trait` clause records the
+    // bound on type-param `T` but flags that the SUBJECT is a reference to T
+    // (`&T`/`&mut T`), not `T` itself. The method resolver consults these only
+    // for a matching reference receiver; `is_ref_mut` distinguishes `&mut`.
+    bool                 on_ref_subject = false;
+    bool                 is_ref_mut = false;
 };
 
 // ── Type parameter ────────────────────────────────────────────────────────

@@ -110,19 +110,20 @@ references (variance-option-ref-intersection).
   inference-rhs-operator-visitor-3743; regression
   `pass/methods/autoderef-ref-recv-byvalue-self`. Full suite 4801/4801.
 
-- **G158-6** ◻ OPEN (draw-the-boundary — last B158 gap) — a reference-typed
-  subject in a `where` clause `where &T: Trait` (incl. `for<'a> &'a T: Trait`)
-  is a parse error. Repro: `fn foo<T>(x: &T)->i64 where &T: TheTrait { x.val() }`
-  → `syntax error near 'fn'`; plain `where T: Trait` parses fine. DROPPED:
-  where-clause-ref-bound. This forks into THREE independent sub-parts for a
-  rare pattern, so it's parked as a precise baghunt rather than half-built:
-  (1) GRAMMAR — `where_clause`/`type_param` accept a `ref_type COLON
-  trait_bound…` predicate (a non-IDENT subject; would need a TYPE-keyed node,
-  not NAME-keyed); (2) SEMA bound registration — `current_type_bounds_` keys on
-  type-param NAMES, so a `&T` subject needs a distinct registration channel;
-  (3) DISPATCH — `x.val()` (x: `&T`, bound `&T: Trait`) must resolve through
-  that ref-subject bound (mono retargets to the `impl Trait for &S` symbol).
-  Low real-world value; revisit if a future batch needs it.
+- **G158-6** ✅ CLOSED (2026-05-23) — a reference-typed where-clause subject
+  `where &T: Trait` (and `&mut T: Trait`) now parses, registers, and dispatches.
+  All three sub-parts done: (1) GRAMMAR — a `where_pred` alt `ref_type COLON
+  trait_bound (PLUS trait_bound)*` producing a TYPE-keyed `TYPE_PARAM` (the `&`
+  subject never collides with `type_param`'s IDENT alts); (2) SEMA — read_type_params
+  resolves the `&T`/`&mut T` subject, records the bounds on type-param T flagged
+  `on_ref_subject` (+ `is_ref_mut`); check_type_bounds verifies an on_ref_subject
+  bound against `impl Trait for &Concrete` (the `$ref_<C>` / `$mut_ref_<C>` impl
+  key) instead of the plain `Concrete` one; (3) DISPATCH — `x.val()` (x: &T)
+  resolves via T's bound (TypeVar-bound resolver), and mono, for a `&`/`&mut`
+  receiver over a concrete struct/enum, keys on the `$ref_<C>__m` ref-impl
+  symbol when the plain `<C>__m` is absent (a general improvement — the concrete
+  `&S` direct call already worked). Regression `pass/where-clauses/where-clause-
+  ref-bound` (both `&S` and `&mut M`). Full suite 4841/4841.
 
 - **G158-7** ✅ CLOSED (2026-05-23, the coercion) — a `&mut C` / `&C` arg (C a
   type-param bounded by the trait, or a concrete type implementing it) now

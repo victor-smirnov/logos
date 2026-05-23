@@ -3354,6 +3354,44 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                 for (uint64_t i = 0; i < witems.size(); ++i) {
                     auto constraint = map_of(witems.get(i));
                     if (code_of(constraint) != la::TYPE_PARAM) continue;
+                    // G158-6: a reference-typed subject `where &T: Trait` carries
+                    // TYPE (the `&T` node) instead of NAME. Resolve it; if it's
+                    // `&T`/`&mut T` over a type-param, record the bounds on T
+                    // flagged `on_ref_subject` (so the method resolver applies
+                    // them only to a matching reference receiver).
+                    if (!constraint.has_key(la::NAME) && constraint.has_key(la::TYPE)) {
+                        auto refty = resolve_type(map_of(constraint.get(la::TYPE.code)));
+                        if (!refty) continue;
+                        bool is_mut = TypeRef(refty).kind() == LogosType::Kind::MutRef;
+                        TypeRef pointee = ((TypeRef(refty).kind() == LogosType::Kind::Ref ||
+                                            is_mut) && TypeRef(refty).pointee())
+                                          ? TypeRef(refty).pointee() : TypeRef(nullptr);
+                        if (!pointee || TypeRef(pointee).kind() != LogosType::Kind::TypeVar)
+                            continue;
+                        std::string sub_name(TypeRef(pointee).type_var_name());
+                        TypeParam* tp_ptr = nullptr;
+                        for (auto& tp : result)
+                            if (tp.name == sub_name) { tp_ptr = &tp; break; }
+                        if (!tp_ptr) {
+                            TypeParam tp; tp.name = sub_name;
+                            result.push_back(std::move(tp));
+                            tp_ptr = &result.back();
+                        }
+                        if (constraint.has_key(la::ITEMS)) {
+                            auto rbounds = arr_of(constraint.get(la::ITEMS.code));
+                            for (uint64_t b = 0; b < rbounds.size(); ++b) {
+                                auto bnode = map_of(rbounds.get(b));
+                                if (code_of(bnode) != la::TRAIT_BOUND) continue;
+                                TraitBound tb;
+                                tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                read_trait_bound_args(bnode, tb);
+                                tb.on_ref_subject = true;
+                                tb.is_ref_mut = is_mut;
+                                tp_ptr->bounds.push_back(std::move(tb));
+                            }
+                        }
+                        continue;
+                    }
                     auto tname = std::string(str_of(constraint.get(la::NAME.code)));
                     // Find the type param in result and add bounds.
                     TypeParam* tp_ptr = nullptr;

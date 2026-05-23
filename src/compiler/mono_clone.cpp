@@ -3045,6 +3045,34 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
+                // G158-6: a `&`/`&mut` receiver over a concrete Struct/Enum may
+                // be calling a method from `impl Trait for &Concrete` (mangled
+                // `$ref_<C>__m` / `$mut_ref_<C>__m`), e.g. a generic `x: &T`
+                // with `where &T: Trait` after T=Concrete. The peel above set
+                // cname=<C>; if the plain `<C>__m` doesn't exist but the
+                // ref-impl symbol does, key on it instead.
+                if (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                           TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
+                    TypeRef(rt).pointee() &&
+                    (TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Struct ||
+                     TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::ZonedStruct ||
+                     TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum)) {
+                    auto sym_exists = [&](const std::string& fb) -> bool {
+                        if (templates_.count(fb) || specs_.count(fb)) return true;
+                        for (auto& f : in_.functions)
+                            if (bare_fn_name(f->name) == fb ||
+                                bare_fn_name(f->name).rfind(fb + "__", 0) == 0) return true;
+                        for (auto& f : out_.functions)
+                            if (bare_fn_name(f->name) == fb ||
+                                bare_fn_name(f->name).rfind(fb + "__", 0) == 0) return true;
+                        return false;
+                    };
+                    std::string refc =
+                        (TypeRef(rt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") + cname;
+                    if (!sym_exists(cname + "__" + method) &&
+                        sym_exists(refc + "__" + method))
+                        cname = refc;
+                }
                 // Trait-aware method mangling: when sema flagged this dispatch
                 // as ambiguous-by-name (tag_trait carries the chosen trait),
                 // prefer the trait-qualified base `<cname>__<trait>__<method>`

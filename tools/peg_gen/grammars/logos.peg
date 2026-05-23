@@ -1106,8 +1106,18 @@
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5 }
 
     // where T: Trait, U: Trait2
-    where_clause <- KW_WHERE type_param (COMMA type_param)*
+    where_clause <- KW_WHERE where_pred (COMMA where_pred)*
                  => { CODE: WHERE_CLAUSE, ITEMS: $... }
+
+    // G158-6: a reference-typed where-clause subject `where &T: Trait` (incl.
+    // `for<'a> &'a T: Trait`). The subject is a `ref_type` (starts with `&`,
+    // so it never collides with `type_param`'s IDENT/HASH/... alts). Stored as
+    // a TYPE_PARAM carrying TYPE (the `&T` node) instead of NAME; sema's
+    // where-clause walker registers a ref-subject bound on the underlying
+    // type-param. Plain `T: Bound` falls through to `type_param`.
+    where_pred <- ref_type COLON trait_bound (PLUS trait_bound)*
+               => { CODE: TYPE_PARAM, TYPE: $1, ITEMS: $... }
+                / type_param
 
     // ── Public function ──────────────────────────────────────────
     // Antiquot alts (NAME_VAR holds an expr-TOM; only valid inside quote_*! body —
