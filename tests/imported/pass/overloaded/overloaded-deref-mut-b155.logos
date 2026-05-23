@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-deref-count.rs
+// Modifications: the upstream test threads an immutable/mutable deref *counter*
+//   through a Cell<usize> and counts dispatches. Logos has no Cell here, so the
+//   counting harness is dropped and the test keeps the operational core: a newtype
+//   with user Deref + DerefMut exercised via immutable `*n` reads, mutable `*n = ...`
+//   assignment, and a read-modify-write through the deref place. usize→i64; assert_eq!
+//   → early-return sentinels. Deref<Target>/DerefMut<Target> take the target as a
+//   trait type-param. NOTE: the upstream compound form `*n -= k` does NOT dispatch
+//   through a user DerefMut place yet (G155-3) — so the read-modify-write is written
+//   as the equivalent `*n = *n - k` (Deref read on RHS + DerefMut write on LHS).
+// Tests: user Deref dispatch on `*n` read, DerefMut dispatch on `*n = v` write, and a
+//   read-modify-write `*n = *n - k` mixing Deref (RHS read) and DerefMut (LHS write).
+package overloaded_deref_mut_b155;
+
+use logos.lang.ops;
+
+struct DerefCounter {
+    value: i64,
+}
+
+impl DerefCounter {
+    fn new(value: i64) -> DerefCounter {
+        return DerefCounter { value: value };
+    }
+}
+
+impl Deref<i64> for DerefCounter {
+    fn deref(&self) -> &i64 { return &self.value; }
+}
+
+impl DerefMut<i64> for DerefCounter {
+    fn deref_mut(&mut self) -> &mut i64 { return &mut self.value; }
+}
+
+fn main() -> i32 {
+    let mut n: DerefCounter = DerefCounter::new(0i64);
+
+    if *n != 0i64 { return 1i32; }   // immutable deref read
+
+    *n = 5i64;                       // mutable deref + assignment
+    if *n != 5i64 { return 2i32; }
+
+    *n = *n - 3i64;                  // Deref read (RHS) + DerefMut write (LHS)
+    if *n != 2i64 { return 3i32; }
+
+    return 0i32;
+}

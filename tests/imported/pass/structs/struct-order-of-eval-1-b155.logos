@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-1.rs
+// Modifications: the String field `f0` is reshaped to i64 (no String move-out subtlety
+//   needed to exercise the eval-order point); the nested functional-update base
+//   `..S { f0: .., f1: 23 }` is preserved. The explicitly-listed `f0` overrides the
+//   base's `f0`, while `f1` is taken from the base. assert_eq! → early-return sentinel.
+// Tests: a struct literal whose functional-update base is itself a struct literal —
+//   explicitly-listed fields win, remaining fields come from the base.
+package struct_order_of_eval_1_b155;
+
+struct S { f0: i64, f1: i64 }
+
+fn main() -> i32 {
+    let s = S {
+        f0: 1i64,
+        ..S {
+            f0: 5i64,
+            f1: 23i64,
+        }
+    };
+    if s.f0 != 1i64 { return 1i32; }    // explicit f0 wins
+    if s.f1 != 23i64 { return 2i32; }   // f1 from base
+    return 0i32;
+}

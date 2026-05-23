@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/subst.rs
+// Modifications: isize → i64; the user trait is renamed `Add` → `MyAdd` to avoid clashing
+//   with the stdlib operator `Add`; `Sized` supertrait dropped (implicit). assert_eq! →
+//   early-return sentinel. Faithful: a custom two-type-param `MyAdd<RHS,Result>` trait, a
+//   marker `MyNum: MyAdd<Self,Self>` supertrait, and a generic `f<T: MyNum>` calling `add`.
+// Tests: a supertrait bound (`MyNum: MyAdd<Self,Self>`) makes the supertrait's method
+//   callable on a generic `T: MyNum`, with `Self`-substituted type params.
+package inheritance_subst_b155;
+
+trait MyAdd<RHS, Result> {
+    fn add(&self, rhs: &RHS) -> Result;
+}
+
+trait MyNum: MyAdd<Self, Self> {}
+
+struct MyInt { val: i64 }
+
+fn mi(v: i64) -> MyInt { return MyInt { val: v }; }
+
+impl MyAdd<MyInt, MyInt> for MyInt {
+    fn add(&self, other: &MyInt) -> MyInt { return mi(self.val + other.val); }
+}
+
+impl MyNum for MyInt {}
+
+fn f<T: MyNum>(x: T, y: T) -> T {
+    return x.add(&y);
+}
+
+fn main() -> i32 {
+    let x = mi(3i64);
+    let y = mi(5i64);
+    let z = f(x, y);
+    if z.val != 8i64 { return 1i32; }
+    return 0i32;
+}

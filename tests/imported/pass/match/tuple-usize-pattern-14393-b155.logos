@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/tuple-usize-pattern-14393.rs
+// Modifications: the upstream test matches `("", 1_usize)` against tuple patterns mixing
+//   a string literal, an integer literal, and wildcards (only checks it compiles+runs).
+//   Logos has no String comparison in patterns here, so the first tuple element is i64
+//   (was &str); the literal/wildcard tuple-pattern structure (a literal in the 2nd slot,
+//   a literal in the 1st slot, a catch-all) is preserved and exercised over distinct
+//   inputs so each arm is observed (early-return sentinels). usize → u64.
+// Tests: matching a 2-tuple against patterns that mix literal and wildcard sub-patterns
+//   across both positions, with correct arm selection.
+package tuple_usize_pattern_14393_b155;
+
+fn classify(t: (i64, u64)) -> i64 {
+    match t {
+        (_, 42u64) => 1i64,
+        (0i64, _) => 2i64,
+        _ => 3i64,
+    }
+}
+
+fn main() -> i32 {
+    if classify((0i64, 42u64)) != 1i64 { return 1i32; }   // 2nd-slot literal wins
+    if classify((0i64, 1u64)) != 2i64 { return 2i32; }    // 1st-slot literal
+    if classify((5i64, 7u64)) != 3i64 { return 3i32; }    // catch-all
+    return 0i32;
+}

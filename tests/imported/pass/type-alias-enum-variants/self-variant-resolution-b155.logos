@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias-enum-variants/type-alias-enum-variants-pass.rs
+// Modifications: the upstream test resolves enum variants through `Self::Variant`
+//   (in impls) AND through a type alias (`type FooAlias = Foo; FooAlias::Bar(..)`),
+//   for tuple / struct / unit variants, asserting via derive(PartialEq) + check_pat!.
+//   In Logos: (a) using a type ALIAS as an enum-variant constructor is not yet
+//   supported (G155-2), so variants are constructed through the real enum name `Foo`;
+//   (b) `Self::Qux` for a NO-payload variant in an impl errors (G155-1), so the unit
+//   case uses `Foo::Qux` directly while the payload-carrying `Self::Bar(..)` form (which
+//   works) is kept to exercise Self-variant resolution. derive/macros dropped; the
+//   check_pat! assertions are reshaped to `match` arms; i32 literals suffixed.
+// Tests: `Self::Bar(n)` tuple-variant construction inside an impl method, plus variant
+//   construction and `match`-pattern resolution through the canonical enum name.
+package self_variant_resolution_b155;
+
+enum Foo {
+    Bar(i64),
+    Qux,
+}
+
+impl Foo {
+    fn bar() -> Foo {
+        return Self::Bar(3i64);   // Self::Variant resolution for a payload variant
+    }
+    fn qux() -> Foo {
+        return Foo::Qux;          // Self::Qux (no-payload) is G155-1; use Foo::Qux
+    }
+}
+
+fn main() -> i32 {
+    let b = Foo::Bar(1i64);
+    match b {
+        Foo::Bar(n) => { if n != 1i64 { return 1i32; } }
+        Foo::Qux => { return 2i32; }
+    }
+
+    match Foo::bar() {
+        Foo::Bar(n) => { if n != 3i64 { return 3i32; } }
+        Foo::Qux => { return 4i32; }
+    }
+
+    match Foo::qux() {
+        Foo::Qux => {}
+        Foo::Bar(_) => { return 5i32; }
+    }
+
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ptr_ops/ptr-swap-basic.rs
+// Modifications: Rust's prelude `mem::swap(&mut x, &mut y)` → Logos's safe
+//   `swap_ref::<i64>(&mut x, &mut y)` (the `_ref` form coexists with the unsafe
+//   pointer-based `swap`), per the B101 convention. i32 literals suffixed; assert_eq!
+//   → early-return sentinels.
+// Tests: mem::swap_ref exchanges the values of two mutable locals.
+package ptr_swap_basic_b155;
+
+use logos.lang.mem;
+
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    let mut y: i64 = 7i64;
+    swap_ref::<i64>(&mut x, &mut y);
+    if x != 7i64 { return 1i32; }
+    if y != 3i64 { return 2i32; }
+    return 0i32;
+}

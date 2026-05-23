@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-inference.rs
+// Modifications: isize → i64; assert_eq! → early-return sentinel; the closure's arg
+//   type is annotated (`|i: i64|`) since Logos does not infer the param type from the
+//   FnOnce bound here. Faithful otherwise: a generic `apply<A,F: FnOnce(A)->A>`.
+// Tests: a closure that wraps a free function call passed to a generic FnOnce-bounded
+//   `apply` and invoked through the type parameter.
+package closure_inference_b155;
+
+fn foo(i: i64) -> i64 { return i + 1i64; }
+
+fn apply<A, F>(f: F, v: A) -> A where F: FnOnce(A) -> A {
+    return f(v);
+}
+
+fn main() -> i32 {
+    let f = |i: i64| -> i64 { return foo(i); };
+    if apply(f, 2i64) != 3i64 { return 1i32; }
+    return 0i32;
+}

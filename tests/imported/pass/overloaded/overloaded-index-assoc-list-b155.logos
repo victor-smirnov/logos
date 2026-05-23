@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index-assoc-list.rs
+// Modifications: the upstream test stores key/value pairs in a Vec and indexes by a
+//   borrowed key (`list[&foo]`), the point being that `Index` takes its argument *by
+//   reference*. Logos has no Vec/String here, so the backing store is reshaped to a
+//   fixed two-pair struct and the keys are i64 (was String). The by-reference index
+//   argument (`Index<&i64, Output>` with `fn index(&self, k: &i64)`) is preserved
+//   faithfully — that is the property under test. assert_eq! → early-return sentinels.
+// Tests: overloaded `[]` whose index operand is taken by reference (`list[&foo]`),
+//   dispatching to a user `Index<&i64, i64>` impl that returns a borrow of a field.
+package overloaded_index_assoc_list_b155;
+
+use logos.lang.ops;
+
+struct Pair { key: i64, value: i64 }
+struct AssociationList { a: Pair, b: Pair }
+
+impl Index<&i64, i64> for AssociationList {
+    fn index(&self, index: &i64) -> &i64 {
+        if self.a.key == *index { return &self.a.value; }
+        return &self.b.value;
+    }
+}
+
+fn main() -> i32 {
+    let foo: i64 = 1i64;
+    let bar: i64 = 2i64;
+
+    let list = AssociationList {
+        a: Pair { key: foo, value: 22i64 },
+        b: Pair { key: bar, value: 44i64 },
+    };
+
+    if list[&foo] != 22i64 { return 1i32; }
+    if list[&bar] != 44i64 { return 2i32; }
+
+    // index again to confirm the by-ref index does not consume the key
+    if list[&foo] != 22i64 { return 3i32; }
+    if list[&bar] != 44i64 { return 4i32; }
+
+    return 0i32;
+}

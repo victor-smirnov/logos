@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-generic.rs
+// Modifications: println! dropped; assert_eq! → early-return sentinel. Faithful:
+//   generic `call_it<F: FnMut(i32,i32)->i32>` invoked with a two-arg adding closure.
+// Tests: a two-argument closure value passed to a generic FnMut-bounded function and
+//   invoked through the type parameter.
+package unboxed_closures_generic_b155;
+
+fn call_it<F: FnMut(i32, i32) -> i32>(y: i32, mut f: F) -> i32 {
+    return f(2i32, y);
+}
+
+fn main() -> i32 {
+    let f = |x: i32, y: i32| -> i32 { return x + y; };
+    let z = call_it(3i32, f);
+    if z != 5i32 { return 1i32; }
+    return 0i32;
+}

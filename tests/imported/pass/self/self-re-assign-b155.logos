@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-re-assign.rs
+// Modifications: the upstream test uses Box/Rc to check that assigning an owned/managed
+//   variable to itself does not glue_drop before glue_take (#3290). Logos has no Box/Rc
+//   here, so the self-assignment is exercised on a plain mutable local (the property —
+//   `x = x` is well-formed and value-preserving — is the same). assert_eq! → early-return.
+// Tests: self-assignment `x = x` of a mutable local is a no-op and preserves the value.
+package self_re_assign_b155;
+
+fn main() -> i32 {
+    let mut x: i64 = 3i64;
+    x = x;
+    if x != 3i64 { return 1i32; }
+    return 0i32;
+}

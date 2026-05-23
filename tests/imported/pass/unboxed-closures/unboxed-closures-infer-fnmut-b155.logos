@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-infer-fnmut.rs
+// Modifications: i32 counter → i64; assert_eq! → early-return sentinel. Faithful:
+//   a mutating local closure `tick` is called twice inside an inner block.
+// Tests: a local closure that mutably captures a counter is inferred as FnMut and
+//   invoked directly multiple times.
+package unboxed_closures_infer_fnmut_b155;
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    {
+        let mut tick = || { counter = counter + 1i64; };
+        tick();
+        tick();
+    }
+    if counter != 2i64 { return 1i32; }
+    return 0i32;
+}

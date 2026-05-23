@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-self-in-enums.rs
+// Modifications: isize → i64; println! dropped, the bound reference is asserted instead
+//   (early-return sentinel). The `let mut z: &i64` is given an initializer (`&x`) since
+//   Logos requires a definite type/init at declaration rather than inferring from a
+//   later match arm. Faithful: an enum carrying a borrowed payload `Ctor(&'a i64)`,
+//   matched to extract and rebind the borrow.
+// Tests: a lifetime-parameterized enum whose variant carries a reference payload; the
+//   match arm binds the borrowed payload and assigns it through a mutable ref local.
+package regions_self_in_enums_b155;
+
+enum IntWrapper<'a> {
+    Ctor(&'a i64),
+}
+
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let y = IntWrapper::Ctor(&x);
+    let mut z: &i64 = &x;
+    match y {
+        IntWrapper::Ctor(zz) => { z = zz; }
+    }
+    if *z != 3i64 { return 1i32; }
+    return 0i32;
+}

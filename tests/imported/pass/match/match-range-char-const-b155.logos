@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-range-char-const.rs
+// Modifications: the upstream test uses `const LOW_RANGE: char = '0'` / `HIGH_RANGE`
+//   as the inclusive-range pattern bounds. Logos does not yet accept a CONST identifier
+//   as a range-pattern bound (G155-6: `LOW..=HIGH` fails to parse), so the bounds are
+//   written as the equivalent char LITERALS `'0'..='9'`. The match result is asserted
+//   (early-return sentinels) instead of discarded.
+// Tests: an inclusive char range pattern `'0'..='9'` in a match arm, matching and not
+//   matching values.
+package match_range_char_const_b155;
+
+fn main() -> i32 {
+    let matched = match '5' {
+        '0'..='9' => true,
+        _ => false,
+    };
+    if matched != true { return 1i32; }
+
+    let not_matched = match 'a' {
+        '0'..='9' => true,
+        _ => false,
+    };
+    if not_matched != false { return 2i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-by-ref.rs
+// Modifications: usize → u64; assertions → early-return sentinels. Faithful otherwise:
+//   three generic functions bounded by Fn / FnMut / FnOnce each invoking the closure,
+//   with a closure that by-ref-captures `x` and `y` from the environment.
+// Tests: a single closure value coerces to Fn, FnMut, and FnOnce generic bounds and
+//   mutates a by-ref-captured environment variable across the calls.
+package unboxed_closures_by_ref_b155;
+
+fn call_fn<F: Fn()>(f: F) { f(); }
+fn call_fn_mut<F: FnMut()>(mut f: F) { f(); }
+fn call_fn_once<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    let mut x: u64 = 0u64;
+    let y: u64 = 2u64;
+
+    call_fn(|| { });
+    call_fn_mut(|| { x = x + y; });
+    call_fn_once(|| { x = x + y; });
+    if x != y * 2u64 { return 1i32; }
+    return 0i32;
+}

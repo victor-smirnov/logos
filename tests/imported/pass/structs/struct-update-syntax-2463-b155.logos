@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-update-syntax-2463.rs
+// Modifications: isize → i64; the discarded `_y`/`_z` bindings are kept and their
+//   resulting fields asserted (early-return sentinels) so the run actually observes
+//   the functional-update result.
+// Tests: struct functional-update syntax `Pair { f: 1, g: 1, ..x }` and the partial
+//   form `Pair { f: 1, ..x }` that fills the rest of the fields from `x`.
+package struct_update_syntax_2463_b155;
+
+struct Pair {
+    f: i64,
+    g: i64,
+}
+
+fn main() -> i32 {
+    let x = Pair { f: 0i64, g: 0i64 };
+
+    let y = Pair { f: 1i64, g: 1i64, ..x };
+    if y.f != 1i64 { return 1i32; }
+    if y.g != 1i64 { return 2i32; }
+
+    let z = Pair { f: 1i64, ..x };
+    if z.f != 1i64 { return 3i32; }
+    if z.g != 0i64 { return 4i32; }   // g filled from x.g (0)
+
+    return 0i32;
+}

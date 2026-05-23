@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/call-bound-inherited2.rs
+// Modifications: isize → i64; assert_eq! → early-return sentinel. Faithful: a three-level
+//   supertrait chain `Baz: Bar: Foo`, and a generic `gg<T: Baz>` that calls `f()` which is
+//   inherited transitively from Foo.
+// Tests: transitive supertrait method resolution — a `T: Baz` bound makes the grand-
+//   supertrait `Foo::f` callable.
+package inheritance_call_bound_inherited2_b155;
+
+trait Foo { fn f(&self) -> i64; }
+trait Bar: Foo { fn g(&self) -> i64; }
+trait Baz: Bar { fn h(&self) -> i64; }
+
+struct A { x: i64 }
+
+impl Foo for A { fn f(&self) -> i64 { return 10i64; } }
+impl Bar for A { fn g(&self) -> i64 { return 20i64; } }
+impl Baz for A { fn h(&self) -> i64 { return 30i64; } }
+
+fn gg<T: Baz>(a: &T) -> i64 {
+    return a.f();
+}
+
+fn main() -> i32 {
+    let a = A { x: 3i64 };
+    if gg(&a) != 10i64 { return 1i32; }
+    return 0i32;
+}

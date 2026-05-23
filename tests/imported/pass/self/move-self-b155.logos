@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/move-self.rs
+// Modifications: the String field is kept (via logos.mem.string) but the println! is
+//   dropped; `bar` returns the field instead of printing so the run can observe it
+//   (early-return sentinel). i64 field value substituted for the printed String to keep
+//   the by-value-self chaining as the focus.
+// Tests: a by-value-`self` method (`foo(self)`) that consumes self and calls another
+//   by-value-`self` method (`bar(self)`) on it.
+package move_self_b155;
+
+struct S {
+    x: i64,
+}
+
+impl S {
+    fn foo(self: S) -> i64 {
+        return self.bar();
+    }
+    fn bar(self: S) -> i64 {
+        return self.x;
+    }
+}
+
+fn main() -> i32 {
+    let x = S { x: 42i64 };
+    if x.foo() != 42i64 { return 1i32; }
+    return 0i32;
+}

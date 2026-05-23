@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/multiple-inheritors.rs
+// Modifications: isize → i64; the unit field `bogus: ()` → `bogus: i64`; assert_eq! →
+//   early-return sentinels (combined into one sum check). Faithful: diamond supertrait
+//   shape where both `B: A` and `C: A`, and a generic `f<T: B + C>` calls all three.
+// Tests: a generic function bounded by `T: B + C` where both B and C inherit from A;
+//   the inherited `a()` plus the direct `b()`/`c()` all dispatch on the bound.
+package inheritance_multiple_inheritors_b155;
+
+trait A { fn a(&self) -> i64; }
+trait B: A { fn b(&self) -> i64; }
+trait C: A { fn c(&self) -> i64; }
+
+struct S { bogus: i64 }
+
+impl A for S { fn a(&self) -> i64 { return 10i64; } }
+impl B for S { fn b(&self) -> i64 { return 20i64; } }
+impl C for S { fn c(&self) -> i64 { return 30i64; } }
+
+fn f<T: B + C>(x: &T) -> i64 {
+    return x.a() + x.b() + x.c();
+}
+
+fn main() -> i32 {
+    let s = S { bogus: 0i64 };
+    if f(&s) != 60i64 { return 1i32; }
+    return 0i32;
+}

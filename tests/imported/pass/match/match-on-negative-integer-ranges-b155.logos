@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-on-negative-integer-ranges.rs
+// Modifications: assert_eq! → early-return sentinels; literals suffixed. Faithful:
+//   a signed inclusive range pattern with negative bounds, in both `match` and `if let`.
+// Tests: an inclusive range pattern `-128i8..=-101i8` over a signed scalar in a `match`
+//   arm and in an `if let`, with a value (-50) outside the range (neither matches).
+package match_on_negative_integer_ranges_b155;
+
+fn main() -> i32 {
+    let r = match -50i8 {
+        -128i8..=-101i8 => true,
+        _ => false,
+    };
+    if r != false { return 1i32; }
+
+    if let -128i8..=-101i8 = -50i8 {
+        return 2i32;   // must NOT match
+    }
+
+    // sanity: an in-range value does match
+    let r2 = match -110i8 {
+        -128i8..=-101i8 => true,
+        _ => false,
+    };
+    if r2 != true { return 3i32; }
+
+    return 0i32;
+}

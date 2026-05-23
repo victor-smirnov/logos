@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-unify-return.rs
+// Modifications: the upstream test checks that a fn item coerces to a fn-pointer when it
+//   is the payload of `Some(main): Option<fn()>` (verifying coercion unifies the expected
+//   return type of `Some`/`Foo.foo`). The `Foo.foo<T>` method-call rows are dropped; the
+//   core — building `Some(f): Option<fn()->i64>` from a fn item and then calling through
+//   the Option payload — is kept and the result asserted (early-return sentinels). `fn()`
+//   given an i64 return so the call is observable.
+// Tests: a fn item coerced to a fn-pointer as the payload of `Some(..): Option<fn()->i64>`,
+//   then matched and invoked.
+package coerce_unify_return_b155;
+
+use logos.lang.option;
+
+fn target() -> i64 { return 7i64; }
+
+fn main() -> i32 {
+    let o: Option<fn() -> i64> = Some(target);
+    match o {
+        Some(f) => { if f() != 7i64 { return 1i32; } }
+        None => { return 2i32; }
+    }
+    return 0i32;
+}

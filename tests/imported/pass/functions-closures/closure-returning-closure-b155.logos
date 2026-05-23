@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-returning-closure.rs
+// Modifications: upstream is `let f = |_||x, y| x+y; f(())(1, 2)`. Logos needs explicit
+//   types: the outer closure takes an i64 placeholder arg and returns a fn-pointer-typed
+//   adding closure (non-capturing, so it coerces to `fn(i64,i64)->i64`). The double-call
+//   `f(())(1,2)` is split into `let g = f(0); g(1,2)` for clarity. assert_eq! → sentinel.
+// Tests: a closure that returns another (non-capturing) closure, and calling the result.
+package closure_returning_closure_b155;
+
+fn main() -> i32 {
+    let f = |_u: i64| -> (fn(i64, i64) -> i64) {
+        return |x: i64, y: i64| -> i64 { return x + y; };
+    };
+    let g = f(0i64);
+    if g(1i64, 2i64) != 3i64 { return 1i32; }
+    return 0i32;
+}

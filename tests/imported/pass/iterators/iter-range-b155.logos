@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/iterators/iter-range.rs
+// Modifications: isize → i64; the `assert!(a < b)` precondition is dropped (incidental);
+//   println! dropped and the accumulated sum asserted instead (early-return sentinel).
+//   The closure arg type is annotated. Faithful: a hand-rolled `range_<F: FnMut(i64)>`
+//   that invokes the callback over a half-open range.
+// Tests: a generic FnMut-bounded callback function driven over a numeric range, with a
+//   closure that mutably captures and accumulates into an outer `sum`.
+package iter_range_b155;
+
+fn range_<F>(a: i64, b: i64, mut it: F) where F: FnMut(i64) {
+    let mut i: i64 = a;
+    while i < b {
+        it(i);
+        i = i + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    range_(0i64, 100i64, |x: i64| { sum = sum + x; });
+    if sum != 4950i64 { return 1i32; }
+    return 0i32;
+}
