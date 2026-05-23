@@ -1021,6 +1021,17 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 impls_.count(bound.trait_name + "::$fnptr$" +
                              std::to_string(cv.closure_params().size())))
                 continue;
+            // NOTE (G158-7 follow-on, deferred as a distinct gap): a `dyn Trait`
+            // trait object DOES implement its own trait (`dyn T: T`), so a
+            // `?Sized` generic passthrough like `tick_generic<C: ?Sized +
+            // Counter>(c: &mut C)` invoked with `&mut dyn Counter` should
+            // satisfy this bound. Accepting it here is sound, but the
+            // downstream method dispatch (`c.tick()` on a `&mut C` that
+            // monomorphises to a trait object) is NOT yet wired in mono /
+            // mlir-gen (no vtable-slot resolution for a substituted-to-dyn
+            // receiver; `&mut dyn` receiver normalization). Until that lands,
+            // we keep the clean sema rejection rather than admit a
+            // compile-then-SIGSEGV. See baghunt_qsized_dyn_passthrough_dispatch.
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }

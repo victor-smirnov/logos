@@ -2386,7 +2386,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 auto pt = exact_fi->param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
                     TypeRef(pt).kind() != LogosType::Kind::Error &&
-                    !types_compatible(at, pt))
+                    !types_compatible(at, pt) &&
+                    !ref_arg_satisfies_dyn(at, pt))   // G158-7
                     { auto [es, gs] = type_str_pair(pt, at);
                       error(std::format("call to '{}' arg {}: expected {}, got {}",
                           callee, i + 1, es, gs)); }
@@ -2639,7 +2640,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto pt = fi.param_types[i];
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
                 TypeRef(pt).kind() != LogosType::Kind::Error &&
-                !types_compatible(at, pt))
+                !types_compatible(at, pt) &&
+                !ref_arg_satisfies_dyn(at, pt))   // G158-7
                 { auto [es, gs] = type_str_pair(pt, at);
                   error(std::format("call to '{}' arg {}: expected {}, got {}",
                       callee, i + 1, es, gs)); }
@@ -10092,6 +10094,52 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             mark_moved_expr(expr_ref_of(*p));
     }
     return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
+}
+
+bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
+    if (!at || !pt) return false;
+    if (TypeRef(pt).kind() != LogosType::Kind::TraitObject) return false;
+    if (TypeRef(at).kind() != LogosType::Kind::Ref &&
+        TypeRef(at).kind() != LogosType::Kind::MutRef) return false;
+    TypeRef pointee = TypeRef(at).pointee();
+    if (!pointee) return false;
+    std::string trait(TypeRef(pt).trait_name());
+    if (trait.empty()) return false;
+
+    // (a) pointee is a TypeVar bounded (transitively) by the trait.
+    if (TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
+        std::string tv(TypeRef(pointee).type_var_name());
+        auto bit = current_type_bounds_.find(tv);
+        if (bit == current_type_bounds_.end()) return false;
+        logos::compiler::StrSet seen;
+        std::function<bool(const std::string&)> reaches =
+            [&](const std::string& tn) -> bool {
+                if (!seen.insert(tn).second) return false;
+                if (tn == trait) return true;
+                auto it = find_trait_iter_scoped(tn);
+                if (it == traits_.end()) return false;
+                for (auto& s : it->second.supertraits)
+                    if (reaches(s.trait_name)) return true;
+                return false;
+            };
+        for (auto& b : bit->second)
+            if (reaches(b.trait_name)) return true;
+        return false;
+    }
+
+    // (b) pointee is a concrete struct/enum implementing the trait.
+    std::string bare, concrete;
+    if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
+        bare = std::string(TypeRef(pointee).struct_name());
+        concrete = concrete_struct_name(pointee);
+    } else if (TypeRef(pointee).kind() == LogosType::Kind::Enum) {
+        bare = std::string(TypeRef(pointee).enum_name());
+        concrete = bare;
+    }
+    if (bare.empty()) return false;
+    return impls_.count(trait + "::" + bare) ||
+           (!concrete.empty() && impls_.count(trait + "::" + concrete));
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {

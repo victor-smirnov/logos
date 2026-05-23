@@ -1619,7 +1619,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                     !(TypeRef(arg_lt).kind() == LogosType::Kind::Struct &&
                       TypeRef(arg_lt).struct_name() == "Box"))
                     v = spill_to_alloca(v);
-                v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), type_str(vt_type));
+                // Key the vtable on the mono-mangled concrete name
+                // (`Gen$G1$i64`), not the angle-bracket `type_str` form
+                // (`Gen<i64>`), which never matches the registry (→ null
+                // vtable → SIGSEGV; same root as G158-10).
+                std::string vt_name =
+                    (TypeRef(vt_type).kind() == LogosType::Kind::Struct ||
+                     TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
+                        ? concrete_struct_name(vt_type)
+                        : type_str(vt_type);
+                v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name);
             }
         }
         if (i < param_types.size()) {

@@ -377,6 +377,15 @@ private:
         arg = builder().addr_of(var_name, expected);
         return true;
     }
+    // G158-7: does an `&T` / `&mut T` argument satisfy a `&dyn Trait`
+    // (TraitObject) parameter by an unsizing coercion? True when the pointee
+    // is either (a) a TypeVar whose in-scope bound-closure includes the
+    // trait, or (b) a concrete struct/enum that implements the trait. The arg
+    // expr is NOT rewritten — mlir-gen's call-site `coerce_to_dyn` builds the
+    // fat pointer (keying on the arg's still-`&T` type). Defined in
+    // sema_expr.cpp (needs find_trait_iter_scoped / impls_).
+    bool ref_arg_satisfies_dyn(TypeRef at, TypeRef pt);
+
     // Retype an incompletely-typed generic enum-literal argument to the
     // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
     // `Opt::Some(3)` passed directly as a call argument carries no (or

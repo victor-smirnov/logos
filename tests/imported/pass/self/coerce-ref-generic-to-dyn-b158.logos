@@ -1,0 +1,36 @@
+// Distilled regression for G158-7 (closed 2026-05-23).
+// A `&mut C` / `&C` argument where C is a generic type-param bounded by the
+// trait now coerces to a `&mut dyn Trait` / `&dyn Trait` parameter at a call
+// site (an unsizing coercion). Previously: "expected &dyn Counter, got
+// &mut C". Sema accepts the coercion (ref_arg_satisfies_dyn) and mlir-gen
+// builds the fat pointer per-monomorphisation, keying the vtable on the
+// concrete mono-mangled name (`Gen$G1$i64`, not `Gen<i64>` — same root as
+// G158-10, which would SIGSEGV on the generic-struct case).
+// Sourced from tests/ui/self/dyn-compatibility-sized-self-by-value.rs.
+// NOTE: the broader `?Sized` generic-passthrough form (`tick_generic<C:
+// ?Sized + Counter>(c: &mut C)` invoked with a `&mut dyn Counter`, then
+// `c.tick()`) needs trait-object method dispatch through a substituted-to-dyn
+// receiver — a distinct open gap (baghunt_qsized_dyn_passthrough_dispatch),
+// so this regression covers only the coercion.
+package coerce_ref_generic_to_dyn_b158;
+
+trait Counter { fn tick(self: &mut Self) -> i64; }
+
+struct CCounter { c: i64 }
+impl Counter for CCounter { fn tick(self: &mut Self) -> i64 { self.c = self.c + 1i64; return self.c; } }
+
+struct Gen<T> { c: i64, extra: T }
+impl<T> Counter for Gen<T> { fn tick(self: &mut Self) -> i64 { self.c = self.c + 1i64; return self.c; } }
+
+fn use_dyn(c: &mut dyn Counter) -> i64 { return c.tick(); }
+
+fn via_generic<C: Counter>(mut c: C) -> i64 { return use_dyn(&mut c); }
+
+fn main() -> i32 {
+    let cc: CCounter = CCounter { c: 0i64 };
+    if via_generic::<CCounter>(cc) != 1i64 { return 1i32; }
+
+    let g: Gen<i64> = Gen { c: 0i64, extra: 99i64 };
+    if via_generic::<Gen<i64>>(g) != 1i64 { return 2i32; }
+    return 0i32;
+}

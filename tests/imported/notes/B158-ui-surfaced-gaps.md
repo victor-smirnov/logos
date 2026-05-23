@@ -110,12 +110,24 @@ references (variance-option-ref-intersection).
   reference-typed bound IS its point). TRACTABLE: grammar — allow a reference type
   as a where-clause bounded type.
 
-- **G158-7** — a generic `&mut C` (C: Trait) does not coerce to `&mut dyn Trait`
-  at a call site. Repro: `fn tick1<C:Counter>(mut c:C){ tick2(&mut c) }` where
-  `tick2(c: &mut dyn Counter)` → `expected &dyn Counter, got &mut C`, and `dyn
-  Counter` is then rejected as not implementing `Counter` for a `?Sized` bound.
-  DROPPED: dyn-compatibility-sized-self-by-value (this unsizing coercion IS its
-  point).
+- **G158-7** ✅ CLOSED (2026-05-23, the coercion) — a `&mut C` / `&C` arg (C a
+  type-param bounded by the trait, or a concrete type implementing it) now
+  coerces to a `&mut dyn Trait` / `&dyn Trait` parameter. Sema:
+  `ref_arg_satisfies_dyn(at, pt)` admits the unsizing in the free-call arg
+  check (both the exact-`fi` and fallback-`fi` paths) without rewriting the
+  arg, so mlir-gen's existing call-site `coerce_to_dyn` builds the fat pointer.
+  mlir-gen: that coercion now keys the vtable on the mono-mangled concrete name
+  (`Gen$G1$i64`) instead of the angle-bracket `type_str` form (`Gen<i64>`) —
+  the generic-struct case was a latent SIGSEGV (same root as G158-10).
+  Regression `pass/self/coerce-ref-generic-to-dyn` (concrete + generic struct).
+  REMAINING (distinct gap, see `baghunt_qsized_dyn_passthrough_dispatch`): the
+  `?Sized` generic passthrough — `tick_generic<C: ?Sized + Counter>(c: &mut C)`
+  invoked with a `&mut dyn Counter` then calling `c.tick()`. That needs (a)
+  `dyn T: T` bound satisfaction AND (b) trait-object method dispatch through a
+  receiver that monomorphises to a trait object (mono vtable-slot resolution +
+  `&mut dyn` receiver normalization). Kept as a clean sema rejection for now
+  (not a compile-then-crash). dyn-compatibility-sized-self-* re-import waits on
+  it.
 
 - **G158-8** ✅ CLOSED (2026-05-23) — `fn new() -> Self where Self: Sized;`
   now parses. The true root was NOT the no-param shape (the original diagnosis)
