@@ -4294,6 +4294,15 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // function body. Route through the package-aware lookups.
         const SemaStructInfo* sinfo = find_struct_by_name(sname).second;
         if (!sinfo) sinfo = find_datatype_by_name(sname).second;
+        // Default binding modes (RFC 2005), struct shape: under a SHARED `&`
+        // scrutinee a plain shorthand field of a MOVE-ONLY type binds BY
+        // REFERENCE — so it doesn't move the owned field out of the borrow (the
+        // field binding would otherwise be Drop-scheduled and double-free the
+        // scrutinee's buffer at arm exit). Codegen already binds an aggregate
+        // field's GEP address; this just makes collect_drops skip it. Copy
+        // fields stay by-value. Mirrors the enum-variant gate; shared `&` only.
+        bool default_ref = scrut_type &&
+            TypeRef(scrut_type).kind() == LogosType::Kind::Ref;
         v.each_field([&](lir_view::PatFieldBindingView fv) {
             auto fname = fv.field_name();
             TypeRef ftype = error_t();
@@ -4301,7 +4310,14 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                 for (auto& f : sinfo->fields)
                     if (f.name == fname) { ftype = f.type; break; }
             auto sub = fv.sub();
-            if (!sub) define(std::string(fname), ftype);
+            if (!sub) {
+                TypeRef bt = ftype;
+                if (default_ref && ftype &&
+                    TypeRef(ftype).kind() != LogosType::Kind::Error &&
+                    is_move_type(ftype))
+                    bt = make_ref(/*is_mut=*/false, ftype);
+                define(std::string(fname), bt);
+            }
             else bind_pattern_ref(sub, ftype);
         });
     } else if (k == ps::Code::Slice) {

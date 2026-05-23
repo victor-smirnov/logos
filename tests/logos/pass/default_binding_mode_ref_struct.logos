@@ -1,0 +1,19 @@
+package default_binding_mode_ref_struct;
+// Default binding modes (RFC 2005), struct shape: a plain shorthand field
+// binding under a SHARED `&` struct scrutinee binds a MOVE-ONLY field BY
+// REFERENCE — so `match &p { Pair { a, b } => a.len() }` doesn't move the owned
+// String out of the borrow (→ double-free at arm exit). Copy fields by-value.
+use logos.mem.string;
+
+struct Pair { a: String, b: i64 }
+
+fn sum(p: &Pair) -> i64 {
+    match p { Pair { a, b } => { return a.len() + *b; } }   // a: &String, b: i64
+}
+
+fn main() -> i64 {
+    let p: Pair = Pair { a: String::from("xy"), b: 3 };
+    if sum(&p) != 5 { return 1; }
+    if sum(&p) != 5 { return 2; }   // reuse — must not double-free
+    return 0;
+}
