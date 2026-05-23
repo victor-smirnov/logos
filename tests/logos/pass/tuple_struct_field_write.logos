@@ -1,0 +1,18 @@
+package tuple_struct_field_write;
+// G152-3: direct field write/compound-assign on a TUPLE-STRUCT (`x.0 = v`,
+// `x.1 += v`). A tuple-struct is a named Struct with positional fields "0".."N";
+// the write path only handled plain tuples (`Kind::Tuple`). Fixed: route to a
+// struct field-write. (Read `x.0` + `&mut x.0` already worked.)
+struct Point(i64, i64);
+struct Wrap(i64);
+fn main() -> i64 {
+    let mut p: Point = Point(3i64, 2i64);
+    p.0 = 10i64;
+    p.1 += 5i64;
+    if p.0 != 10i64 { return 1; }
+    if p.1 != 7i64 { return 2; }
+    let mut w: Wrap = Wrap(0i64);
+    w.0 += 42i64;
+    if w.0 != 42i64 { return 3; }
+    return 0;
+}

@@ -4483,6 +4483,13 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
     // ── while let pattern = expr { ... } ──────────────────────────
     // Desugars to: loop { match expr { PAT => body, _ => break } }
     if (node.has_key(la::PAT)) {
+        // G152-16: capture the loop label BEFORE lowering scrut/body (a nested
+        // loop would otherwise steal pending_loop_label_), and thread it onto
+        // the desugared SLoop + the break-frame so `'a: while let … { break 'a }`
+        // resolves. Without this the label was dropped → "label not in scope".
+        std::string my_label = std::move(pending_loop_label_);
+        pending_loop_label_.clear();
+
         auto scrut = node.has_key(la::VALUE)
             ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
         TypeRef scrut_type = scrut->type;
@@ -4495,9 +4502,11 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
-            loop_break_frames_.push_back({"", nullptr, false});
+            if (!my_label.empty()) active_loop_labels_.push_back(my_label);
+            loop_break_frames_.push_back({my_label, nullptr, false});
             *then_body = lower_block(map_of(node.get(la::BODY.code)));
             loop_break_frames_.pop_back();
+            if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
         }
         pop_scope();
@@ -4514,6 +4523,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         auto loop_body = lir::alloc_block(*cur_prog_);
         loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
         lir::SLoop sl; sl.body = std::move(loop_body);
+        sl.label = std::move(my_label);
         return make_stmt_emit(node_line_, std::move(sl));
     }
 
@@ -5507,6 +5517,41 @@ lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
     if (TypeRef(recv_t).kind() == LogosType::Kind::MutRef && TypeRef(recv_t).pointee())
         recv_t = TypeRef(recv_t).pointee();
 
+    // G152-3: a TUPLE-STRUCT (`Point(i64,i64)`) is a named Struct whose
+    // positional fields are named "0".."N", so `x.0 = v` is a struct
+    // field-write to field "0". (Field READ `x.0` and `&mut x.0` already handle
+    // this — only the write/compound-assign path rejected it.) Route to a
+    // struct field-write.
+    if (TypeRef(recv_t).kind() == LogosType::Kind::Struct ||
+        TypeRef(recv_t).kind() == LogosType::Kind::ZonedStruct) {
+        std::string fname = std::to_string(idx);
+        TypeRef ft = field_type_of_for_type(recv_t, fname);
+        if (!ft) {
+            error(std::format("tuple-struct field write: '{}' has no field {} (got {})",
+                              recv_name, idx, type_str(recv_t)));
+            return make_stmt_emit(node_line_, lir::SFieldWrite{std::string(recv_name), fname, error_expr()});
+        }
+        TypeRef orig = lookup(recv_name);
+        bool via_mr = orig && TypeRef(orig).kind() == LogosType::Kind::MutRef;
+        if (!lookup_is_mut(recv_name) && !via_mr)
+            error(std::format("tuple-struct field write to immutable variable '{}'", recv_name));
+        lir::LExprPtr val = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+        if (TypeRef(ft).kind() != LogosType::Kind::Error &&
+            TypeRef(val->type).kind() != LogosType::Kind::Error &&
+            !types_compatible(val->type, ft))
+            error(std::format("tuple-struct field write '{}.{}': expected {}, got {}",
+                  recv_name, idx, type_str(ft), type_str(val->type)));
+        if (TypeRef(ft).kind() != LogosType::Kind::Error &&
+            TypeRef(val->type).kind() == LogosType::Kind::IntLit)
+            if (auto v = get_intlit_value(val))
+                if (!intlit_fits(*v, TypeRef(ft).kind()))
+                    error(std::format("tuple-struct field write '{}.{}': value {} does not fit in {}",
+                          recv_name, idx, *v, type_str(ft)));
+        track_write_move(val);
+        return make_stmt_emit(node_line_,
+            lir::SFieldWrite{std::string(recv_name), fname, std::move(val)});
+    }
     if (TypeRef(recv_t).kind() != LogosType::Kind::Tuple) {
         error(std::format("tuple field write: '{}' is not a tuple (got {})", recv_name, type_str(recv_t)));
         return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
@@ -7263,6 +7308,36 @@ lir::LStmt SemaChecker::lower_tuple_field_compound_assign(TinyMapView node) {
     }
     if (TypeRef(recv_t).kind() == LogosType::Kind::MutRef && TypeRef(recv_t).pointee())
         recv_t = TypeRef(recv_t).pointee();
+    // G152-3: tuple-STRUCT `x.0 += v` → struct field compound-assign on field
+    // "0" (the read side `x.0` + `&mut x.0` already work; only the write path
+    // rejected it). Desugar to `x.0 = x.0 op v` via field_read + SFieldWrite.
+    if (TypeRef(recv_t).kind() == LogosType::Kind::Struct ||
+        TypeRef(recv_t).kind() == LogosType::Kind::ZonedStruct) {
+        std::string fname = std::to_string(idx);
+        TypeRef ft = field_type_of_for_type(recv_t, fname);
+        if (!ft) {
+            error(std::format("tuple-struct field compound assign: '{}' has no field {}",
+                              recv_name, idx));
+            if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
+            return builder().stmt_break(nullptr, "", node_line_);
+        }
+        TypeRef orig = lookup(recv_name);
+        if (!lookup_is_mut(recv_name) &&
+            !(orig && TypeRef(orig).kind() == LogosType::Kind::MutRef))
+            error(std::format("tuple-struct field compound assign to immutable variable '{}'", recv_name));
+        auto recv_ref = builder().var_ref(std::string(recv_name), orig ? orig : recv_t);
+        auto lhs_read = builder().field_read(std::move(recv_ref), fname, ft);
+        auto rhs = node.has_key(la::VALUE)
+            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+        if (TypeRef(ft).kind() != LogosType::Kind::Error &&
+            TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
+            !types_compatible(rhs->type, ft))
+            error(std::format("compound assignment to '{}.{}': type mismatch — expected {}, got {}",
+                  recv_name, idx, type_str(ft), type_str(rhs->type)));
+        auto combined = builder().bin_op(base_op, std::move(lhs_read), std::move(rhs), ft);
+        return make_stmt_emit(node_line_,
+            lir::SFieldWrite{std::string(recv_name), fname, std::move(combined)});
+    }
     if (TypeRef(recv_t).kind() != LogosType::Kind::Tuple) {
         error(std::format("tuple field compound assign: '{}' is not a tuple (got {})",
                           recv_name, type_str(recv_t)));
