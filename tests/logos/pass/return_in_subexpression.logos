@@ -1,0 +1,64 @@
+// Regression (G154-1 / G154-2): `return` (and other diverging exprs) in
+// expression / sub-expression position.
+//   G154-1: a `return E` whose enum value's other type params come from the
+//     function return type (`return Err(e)` in `-> Result<i64,i64>`) must infer
+//     them from `ret_type_` even in a SUB-EXPRESSION (struct-field init, call
+//     arg) — previously it inferred `Result<error,_>` → mlir-gen "unknown
+//     tagged enum". Also a diverging operand of a binop (`1 + return 7`) is the
+//     never type `!` and type-checks without a numeric requirement.
+//   G154-2: a bare nested block `{ return X; }` (BLOCK_STMT) and a
+//     `let _x = return X;` initializer are recognized as diverging by the
+//     fn-body "all paths return" reachability check.
+package return_in_subexpression;
+
+struct Pair { a: i64, b: i64 }
+
+// G154-1: return Err in a struct-field initializer.
+fn field_init(c: bool) -> Result<i64, i64> {
+    let p = Pair { a: 22i64, b: if c { return Err(32i64); } else { 7i64 } };
+    return Ok(p.a + p.b);
+}
+
+// G154-1: return None in a struct-field initializer (Option).
+fn opt_field(c: bool) -> Option<i64> {
+    let p = Pair { a: 1i64, b: if c { return None; } else { 2i64 } };
+    return Some(p.a + p.b);
+}
+
+// G154-1: return Err in a call argument.
+fn g(x: i64) -> i64 { return x + 1i64; }
+fn call_arg(c: bool) -> Result<i64, i64> {
+    let v = g(if c { return Err(9i64); } else { 5i64 });
+    return Ok(v);
+}
+
+// G154-1: diverging operand of `+` is `!` (no numeric requirement).
+fn binop_never(c: bool) -> i64 {
+    let x = 10i64 + (if c { return 99i64; } else { 5i64 });
+    return x;
+}
+
+// G154-2: bare nested block as the fn-body tail.
+fn nested_block() -> i64 { { return 3i64; } }
+
+// G154-2: `let` whose initializer diverges.
+fn let_diverges() -> i64 { let _x: i64 = return 7i64; }
+
+fn main() -> i32 {
+    match field_init(true)  { Err(e) => { if e != 32i64 { return 1i32; } } Ok(_) => { return 2i32; } }
+    match field_init(false) { Ok(v) => { if v != 29i64 { return 3i32; } } Err(_) => { return 4i32; } }
+
+    match opt_field(true)  { None => {} Some(_) => { return 5i32; } }
+    match opt_field(false) { Some(v) => { if v != 3i64 { return 6i32; } } None => { return 7i32; } }
+
+    match call_arg(true)  { Err(e) => { if e != 9i64 { return 8i32; } } Ok(_) => { return 9i32; } }
+    match call_arg(false) { Ok(v) => { if v != 6i64 { return 10i32; } } Err(_) => { return 11i32; } }
+
+    if binop_never(true)  != 99i64 { return 12i32; }
+    if binop_never(false) != 15i64 { return 13i32; }
+
+    if nested_block() != 3i64 { return 14i32; }
+    if let_diverges() != 7i64 { return 15i32; }
+
+    return 0i32;
+}

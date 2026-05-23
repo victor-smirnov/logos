@@ -935,7 +935,20 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         if (c == la::RETURN_EXPR) {
             lir::LExprPtr rval = nullptr;
             if (expr.has_key(la::VALUE)) {
+                // G154-1: thread the function's return type into the value's
+                // enum-literal inference, so `return Err(e)` / `return None`
+                // in a SUB-EXPRESSION (struct-field init, call arg) resolves the
+                // enum's OTHER type params from `ret_type_` (e.g. Ok's type in
+                // `Result<i64,i64>`). Without it the literal infers
+                // `Result<error, i64>` → mlir-gen "unknown tagged enum". The
+                // tail-position `return e;` statement already gets this via the
+                // SReturn stmt path; the expression-position form did not.
+                TypeRef _saved_hint = hint_enum_type_;
+                if (ret_type_ &&
+                    TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
+                    hint_enum_type_ = ret_type_;
                 rval = lower_expr(map_of(expr.get(la::VALUE.code)));
+                hint_enum_type_ = _saved_hint;
                 if (rval && ret_type_ &&
                     TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                     TypeRef(rval->type).kind() != LogosType::Kind::Error &&
@@ -1596,6 +1609,13 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
 
     if (TypeRef(lt).kind() == LogosType::Kind::Error || TypeRef(rt).kind() == LogosType::Kind::Error) {
         result_type = error_t();
+    } else if (TypeRef(lt).kind() == LogosType::Kind::Never ||
+               TypeRef(rt).kind() == LogosType::Kind::Never) {
+        // G154-1: a diverging operand (`1 + return 7`, `x * break`) is `!` —
+        // the whole binop never produces a value, so it type-checks against any
+        // operator without a numeric/bool requirement. Result is the never type;
+        // mlir-gen already emits the operand's terminator and drops the rest.
+        result_type = never_t();
     } else if (op == "&&" || op == "||") {
         // A diverging operand (`c || return false`) is the never type `!` and
         // satisfies the bool requirement (it never produces a non-bool value).

@@ -48,6 +48,24 @@ type-inference from later assignment (G153-1/2), `static`/`static mut` items
 
 ## Gaps surfaced
 
+### G154-1 / G154-2 — ✅ FIXED: `return` in a sub-expression + diverging-init reachability
+**FIXED** (this session). Three independent root causes, all closed; regression
+`tests/logos/pass/return_in_subexpression.logos`:
+  - G154-1 enum-lit inference: the RETURN_EXPR sema handler now sets
+    `hint_enum_type_ = ret_type_` while lowering the return value, so
+    `return Err(e)` / `return None` in a struct-field init / call arg resolves
+    the enum's OTHER type params from the function return type (was inferring
+    `Result<error,_>` → mlir-gen "unknown tagged enum"). The crash form
+    (`return` in argument position) already worked.
+  - G154-1 binop never-operand: `lower_binop` now treats a `Never`-typed operand
+    (`1 + return 7`, `x * break`) as `!` — result type is `never`, no
+    numeric/bool requirement (was erroring "right must be numeric, got !").
+  - G154-2 reachability: `stmt_always_returns` now recognizes a bare `BLOCK_STMT`
+    (`{ return X; }` — the statement-position block code, distinct from la::BLOCK)
+    and a `let _x = <diverging>;` initializer as diverging, so the fn-body
+    "all paths return" check accepts them.
+Original report follows.
+
 ### G154-1 — ⚠️ SILENT MISCOMPILE / CRASH: `return` in a sub-expression does not short-circuit
 A `return` placed inside a sub-expression position (a struct-literal field
 initializer, or a call/macro argument) does NOT short-circuit the enclosing

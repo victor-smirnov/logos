@@ -71,8 +71,28 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         return stmt.has_key(la::BODY) &&
                block_always_returns(map_of(stmt.get(la::BODY.code)));
     }
-    // A bare nested block `{ … return X; }` diverges if its body does.
+    // A bare nested block `{ … return X; }` diverges if its body does. At
+    // statement position a bare block parses as BLOCK_STMT (BODY = block);
+    // la::BLOCK is the block node itself (reached via the VALUE recursion above
+    // / direct calls). Handle both (G154-2).
+    if (c == la::BLOCK_STMT) {
+        return stmt.has_key(la::BODY) &&
+               block_always_returns(map_of(stmt.get(la::BODY.code)));
+    }
     if (c == la::BLOCK) return block_always_returns(stmt);
+    // A `let x = <diverging>;` initializer (`let _x = return 7;`,
+    // `let _x = if c { return } else { return }`) never binds — control leaves
+    // the function via the initializer, so the let diverges (G154-2). Mirrors
+    // the EXPR_STMT/TAIL_EXPR value handling above.
+    if (c == la::LET && stmt.has_key(la::VALUE)) {
+        auto e = map_of(stmt.get(la::VALUE.code));
+        int32_t ec = code_of(e);
+        if (ec == la::RETURN_EXPR || ec == la::BREAK_EXPR ||
+            ec == la::CONTINUE_EXPR || is_divergent_call(e))
+            return true;
+        if (ec == la::BLOCK) return block_always_returns(e);
+        if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
+    }
     if (c == la::LOOP) {
         // `loop {}` is an infinite loop — it never falls through to the next statement.
         return true;
