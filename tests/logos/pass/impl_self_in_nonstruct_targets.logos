@@ -1,0 +1,39 @@
+// Regression (G156-8/9/13): bare `Self` in impl method bodies/signatures must
+// resolve for impl-target shapes whose mangled name is not a plain struct name.
+// Previously these errored "unknown type 'Self'" because lower_fn's name-lookup
+// only handles bare struct/datatype/primitive names; lower_impl now seeds Self
+// from the resolved target for these shapes (mirroring the tuple/fn-ptr case).
+//   (8)  reference target              `impl Get for &i64`        → Self = &i64
+//   (9)  concrete-type-arg, no impl    `impl Foo<i64> { ... }`    → Self = Foo<i64>
+//   (13) blanket on a bound type-var   `impl<F: Bar<i64>> ... F`  → Self = F
+package impl_self_in_nonstruct_targets;
+
+// (8) impl on a reference type, `self: Self` (== &i64).
+trait Get { fn get(self: Self) -> i64; }
+impl Get for &i64 { fn get(self: Self) -> i64 { return *self; } }
+
+// (9) concrete-type-arg inherent impl with no impl-generic-param, `self: &Self`.
+struct Foo<T> { v: T }
+impl Foo<i64> { fn m(self: &Self) -> i64 { return self.v; } }
+
+// (13) blanket impl on a bound type-var, `self: &mut Self`, delegating to the bound.
+trait Bar<M> { fn bar(self: &Self) -> M; }
+trait Doubler { fn doubled(self: &mut Self) -> i64; }
+struct Z { n: i64 }
+impl Bar<i64> for Z { fn bar(self: &Self) -> i64 { return self.n; } }
+impl<F: Bar<i64>> Doubler for F {
+    fn doubled(self: &mut Self) -> i64 { return self.bar() * 2i64; }
+}
+
+fn main() -> i32 {
+    let x = 7i64;
+    if (&x).get() != 7i64 { return 1i32; }
+
+    let f = Foo::<i64> { v: 42i64 };
+    if f.m() != 42i64 { return 2i32; }
+
+    let mut z = Z { n: 5i64 };
+    if z.doubled() != 10i64 { return 3i32; }
+
+    return 0i32;
+}

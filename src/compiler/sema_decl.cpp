@@ -1512,22 +1512,40 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         us.elem = u8_t();
         current_type_params_["Self"] = pool_->alloc(std::move(us));
     }
-    // SL-sl-08: `impl Trait for (A, B, …)` — Self resolves to the tuple
-    // TypeRef so the impl method bodies can name `Self` / `&Self`. Set it
+    // Seed `Self` for impl-target shapes whose mangled `struct_ctx` name is NOT
+    // resolvable by lower_fn's name-lookup path (which only handles bare
+    // struct/datatype/primitive names). Without this, `self: Self` / `&Self` /
+    // `Self::…` in the method body errors "unknown type 'Self'". Set
     // UNCONDITIONALLY (overriding any stale `Self` left by a prior impl whose
-    // cleanup didn't fire — an impl's Self is definitively its own target),
-    // and save/restore so the tuple Self doesn't leak into the next impl.
-    // Without the override a stale struct Self (e.g. Vec) made
-    // `impl<A...> Trait for (A...)` bodies resolve `Self` to that struct.
+    // cleanup didn't fire — an impl's Self is definitively its own target) with
+    // save/restore so it doesn't leak into the next impl. Covers:
+    //   - tuple / fn-ptr targets (SL-sl-08 / G149-6 — without the override a
+    //     stale struct Self made `impl<A...> Trait for (A...)` resolve wrong),
+    //   - reference targets `impl Trait for &T`            → Self = &T  (G156-8)
+    //   - concrete-type-arg target, no impl param `impl Foo<i64>`       (G156-9)
+    //   - blanket impl on a type-var `impl<…F:Bar> Trait for F` → Self = F
+    //     (explicit methods; default methods are already seeded — G156-13)
+    TypeRef seed_self = nullptr;
+    if (target_resolved) {
+        auto tk = TypeRef(target_resolved).kind();
+        if (tk == LogosType::Kind::Tuple || tk == LogosType::Kind::FnPtr ||
+            tk == LogosType::Kind::Ref   || tk == LogosType::Kind::MutRef)
+            seed_self = target_resolved;
+        else if ((tk == LogosType::Kind::Struct ||
+                  tk == LogosType::Kind::ZonedStruct ||
+                  tk == LogosType::Kind::Enum) &&
+                 impl_tps.empty() && !TypeRef(target_resolved).type_args().empty())
+            seed_self = target_resolved;  // concrete-type-arg, no impl param
+    }
+    if (!seed_self && ib.is_blanket && !impl_tps.empty())
+        seed_self = make_typevar(target);  // blanket on a bound type-var
     bool _restore_tuple_self = false;
     TypeRef _saved_tuple_self = nullptr;
     bool _had_tuple_self = false;
-    if (target_resolved &&
-        (TypeRef(target_resolved).kind() == LogosType::Kind::Tuple ||
-         TypeRef(target_resolved).kind() == LogosType::Kind::FnPtr)) {
+    if (seed_self) {
         _had_tuple_self = current_type_params_.count("Self") > 0;
         if (_had_tuple_self) _saved_tuple_self = current_type_params_["Self"];
-        current_type_params_["Self"] = target_resolved;
+        current_type_params_["Self"] = seed_self;
         _restore_tuple_self = true;
     }
     // G149-6: a fn-ptr is type-erased to a uniform pointer, so its methods emit
