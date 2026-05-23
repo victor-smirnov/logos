@@ -446,7 +446,21 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
     if (!t || TypeRef(t).kind() != LogosType::Kind::Tuple) return nullptr;
     llvm::SmallVector<mlir::Type> fields;
     for (auto e : TypeRef(t).tuple_elems()) {
-        auto ft = logos_to_mlir(e);
+        // A struct-typed element is stored INLINE (the tuple literal stores the
+        // whole struct value into the element slot — see gen codegen), exactly
+        // like a struct-typed FIELD of a struct. `logos_to_mlir` lowers a Struct
+        // to `ptr` (8B), which here would UNDER-size the slot vs the 24B inline
+        // store → stack overflow + corrupted neighbour elements (a String
+        // element clobbered the next i64). Embed the registered inline struct
+        // type instead, mirroring the struct-field layout.
+        mlir::Type ft;
+        if (e && (TypeRef(e).kind() == LogosType::Kind::Struct ||
+                  TypeRef(e).kind() == LogosType::Kind::ZonedStruct)) {
+            auto cn = concrete_struct_name(e);
+            if (auto sit = struct_types_.find(cn); sit != struct_types_.end())
+                ft = sit->second.llvm_type;
+        }
+        if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;
         fields.push_back(ft);
     }

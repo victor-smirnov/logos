@@ -2514,10 +2514,23 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
             for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
                 if (bindings[bi] == "_") continue;
-                auto elem_mlir = logos_to_mlir(btypes[bi]);
-                if (!elem_mlir) continue;
                 llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
                 auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
+                TypeRef bt = btypes[bi];
+                // A struct-typed element is stored INLINE in the tuple (see
+                // tuple_llvm_type), so bind its GEP ADDRESS (a place) — not a
+                // scalar load, which read only the struct's first word (a String
+                // element gave back String.data, so `a.len()` read garbage).
+                // Mirrors the struct-field shorthand / pat_bind aggregate bind.
+                if (bt && (TypeRef(bt).kind() == LogosType::Kind::Struct ||
+                           TypeRef(bt).kind() == LogosType::Kind::ZonedStruct)) {
+                    scope_[bindings[bi]] = fp;
+                    let_vars_.insert(bindings[bi]);
+                    var_struct_[bindings[bi]] = mlir_struct_key(bt);
+                    continue;
+                }
+                auto elem_mlir = logos_to_mlir(bt);
+                if (!elem_mlir) continue;
                 auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
                 auto alloca = create_entry_alloca(elem_mlir);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);

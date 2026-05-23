@@ -1,0 +1,18 @@
+package tuple_struct_element_match;
+// Pre-existing tuple-layout bug: a tuple with a struct-typed element
+// (`(String, i64)`) typed the element as `ptr` (8B) but stored the struct
+// INLINE (24B) → stack overflow + corrupted neighbour element; the match
+// extract then loaded only the struct's first word. Fixed: tuple_llvm_type
+// embeds struct elements inline (like struct fields), and the tuple-match
+// extract binds a struct element by ADDRESS (not a scalar load).
+use logos.mem.string;
+
+fn main() -> i64 {
+    let p: (String, i64) = (String::from("xy"), 3);
+    match p { (a, b) => { if a.len() + b != 5 { return 1; } } }
+
+    // by-value, two struct elements + a tail scalar
+    let q: (String, String, i64) = (String::from("ab"), String::from("cde"), 4);
+    match q { (x, y, n) => { if x.len() + y.len() + n != 9 { return 2; } } }
+    return 0;
+}
