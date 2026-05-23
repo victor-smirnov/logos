@@ -214,9 +214,24 @@ impl String {
         self.advance_len(n);
     }
 
-    // True if the string content equals another String.
+    // True if the string content equals another String. Compares by length +
+    // bytes directly (NOT via eq_cstr, which calls str_len on the buffer): an
+    // empty String has a NULL backing buffer, so the cstr path dereferenced
+    // null and SIGSEGV'd (G153-5). Length-equal-zero short-circuits before any
+    // buffer access, so empty-vs-empty / empty-vs-nonempty are safe.
     pub fn eq_string(&self, other: &String) -> bool {
-        return self.eq_cstr(other.as_ptr());
+        if self.nbytes != other.nbytes { return false; }
+        if self.nbytes == 0 { return true; }
+        let mut i: i64 = 0;
+        while i < self.nbytes {
+            unsafe {
+                let ap: *const u8 = (self.data as i64 + i) as *const u8;
+                let bp: *const u8 = (other.data as i64 + i) as *const u8;
+                if *ap != *bp { return false; }
+            }
+            i = i + 1;
+        }
+        return true;
     }
 
     // True if the string content equals the str slice `s`.

@@ -1,0 +1,17 @@
+package string_eq_empty;
+// G153-5 (crash): comparing an empty `String::from("")` (null backing buffer)
+// via `==`/`!=` SIGSEGV'd — String::eq_string went through eq_cstr, which calls
+// str_len on the buffer (null-deref). Now eq_string compares by length + bytes
+// directly, short-circuiting on length 0 before any buffer access.
+use logos.mem.string;
+fn main() -> i32 {
+    let s = String::from("hej");
+    let e = String::from("");
+    let e2 = String::from("");
+    if s == e { return 1; }
+    if e == s { return 2; }
+    if e != e2 { return 3; }
+    if !(s == String::from("hej")) { return 4; }
+    if e.len() != 0 { return 5; }
+    return 0;
+}
