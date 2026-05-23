@@ -6353,6 +6353,37 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     }
                     if (moves) { mark_moved(scrut_var); break; }
                 }
+                // An unguarded TUPLE-destructure arm (`match p { (a, b) => … }`)
+                // over a by-value tuple scrutinee moves move-only elements into
+                // the bindings — mark `p` moved so its scope-exit Drop (tuple
+                // branch) doesn't double-free an element a binding already owns
+                // (G154-4 / G156-2). Only when an element is bound BY VALUE
+                // (not `_`, not `ref`) and is a move type; an all-Copy / fully
+                // `ref`-bound / all-`_` destructure moves nothing.
+                if (code_of(lhs) == la::PAT_TUPLE && lhs.has_key(la::ITEMS) &&
+                    scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Tuple) {
+                    auto subs = arr_of(lhs.get(la::ITEMS.code));
+                    auto telems = TypeRef(scrut_type).tuple_elems();
+                    bool moves = false;
+                    for (uint64_t si = 0; si < subs.size() && si < telems.size() && !moves; ++si) {
+                        auto sub = map_of(subs.get(si));
+                        // Each tuple-pattern element parses as a single-alt
+                        // PAT_OR wrapping the binding — unwrap it.
+                        if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS)) {
+                            auto alts = arr_of(sub.get(la::ITEMS.code));
+                            if (alts.size() == 1) sub = map_of(alts.get(0));
+                        }
+                        if (code_of(sub) != la::PAT_WILD) continue;  // binding slot
+                        if (!sub.has_key(la::NAME)) continue;        // anonymous `_`
+                        auto nm = str_of(sub.get(la::NAME.code));
+                        if (nm.empty() || nm == "_") continue;
+                        if (sub.has_key(la::IS_REF) && sub.get(la::IS_REF.code).is_value() &&
+                            sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+                            continue;                                // `ref` binding
+                        if (telems[si] && is_move_type(telems[si])) moves = true;
+                    }
+                    if (moves) { mark_moved(scrut_var); break; }
+                }
             }
         }
     }

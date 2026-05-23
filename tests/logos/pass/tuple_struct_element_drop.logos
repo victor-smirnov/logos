@@ -1,0 +1,50 @@
+// Regression (G156-2 tuple-half / G154-4): Drop now fires for owned struct
+// elements of a tuple, exactly once, and a moved-out element is not dropped
+// again. Prerequisite fix: tuple struct-elements are stored INLINE for both
+// Copy and move structs (gen_tuple_lit loads the aggregate), and ETupleIndex
+// returns the element address — so a Copy struct read by value and a move-out
+// both work, and the scope-end tuple Drop GEPs each owned element.
+package tuple_struct_element_drop;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+// A Copy (no-Drop) struct used inline in a tuple, read by value.
+struct P { x: i64, y: i64, z: i64 }
+fn sum(p: P) -> i64 { return p.x + p.y + p.z; }
+
+fn consume(r: R) -> i64 { return 0i64; }
+
+fn main() -> i32 {
+    // (1) one droppable element drops once at scope end.
+    let mut c1: i64 = 0i64;
+    let p1: *mut i64 = &mut c1;
+    { let _a: (R, i64) = (mk(p1), 0i64); }
+    if c1 != 1i64 { return 1i32; }
+
+    // (2) two droppable elements both drop.
+    let mut c2: i64 = 0i64;
+    let p2: *mut i64 = &mut c2;
+    { let _b: (R, R) = (mk(p2), mk(p2)); }
+    if c2 != 2i64 { return 2i32; }
+
+    // (3) moving an element out → dropped once (in consume), NOT again by the
+    //     tuple's scope-end drop.
+    let mut c3: i64 = 0i64;
+    let p3: *mut i64 = &mut c3;
+    {
+        let t: (R, i64) = (mk(p3), 0i64);
+        let _x = consume(t.0);
+    }
+    if c3 != 1i64 { return 3i32; }
+
+    // (4) Copy struct element read by value (multi-field, inline correctness).
+    let t4: (P, i64) = (P { x: 10i64, y: 20i64, z: 30i64 }, 7i64);
+    if sum(t4.0) != 60i64 { return 4i32; }
+    if t4.1 != 7i64 { return 5i32; }
+
+    return 0i32;
+}

@@ -1495,6 +1495,20 @@ private:
             }
             mark_moved(path);
         }
+        // G154-4: moving a tuple element out by value (`consume(t.0)`) marks
+        // `<name>.<index>` so the tuple's scope-end Drop (SDrop tuple branch)
+        // skips that element — else it is dropped twice (double-free).
+        if (er.kind() == C::TupleIndex) {
+            if (!is_move_type(er.type(cur_prog_->type_pool.impl()))) return;
+            lir_view::ETupleIndexView tv{er};
+            auto recv = tv.receiver();
+            if (recv && recv.kind() == C::VarRef) {
+                std::string path(lir_view::EVarRefView{recv}.name());
+                path.push_back('.');
+                path += std::to_string(tv.index());
+                mark_moved(path);
+            }
+        }
     }
 
     std::string drop_fn_for(TypeRef t) const;

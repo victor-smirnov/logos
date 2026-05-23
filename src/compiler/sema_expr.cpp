@@ -1116,6 +1116,15 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                         et = prim(LogosType::Kind::I64);
             }
             elem_types.push_back(et);
+            // A CONCRETE move-type value placed into a tuple element is MOVED
+            // into the tuple — mark its source consumed so it isn't also dropped
+            // at its own binding (the tuple now owns it and drops it; G154-4).
+            // Skip TypeVar elements: Logos is lenient about generic reuse
+            // (`(x, x)` for `x: T` may be Copy at mono — gen-tuple-* rely on
+            // this), and a TypeVar's drop is routed through the
+            // `__typevar_pending__drop` / mono mechanism, not the tuple slot.
+            if (TypeRef(et).kind() != LogosType::Kind::TypeVar)
+                mark_moved_expr(expr_ref_of(*e));
             elems.push_back(std::move(e));
         }
         auto tt = make_tuple_type(std::move(elem_types));

@@ -2068,7 +2068,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) 
         if (!el) { ok = false; return; }
         auto val = gen_expr(*el);
         if (!val) { ok = false; return; }
-        if (TypeRef(type).tuple_elems()[i]) {
+        // The element slot type from the tuple layout. A Struct/ZonedStruct
+        // element is embedded INLINE (tuple_llvm_type), so its slot is an
+        // LLVMStructType, but gen_expr returns the struct BY POINTER. Load the
+        // aggregate value and store it into the slot (a value copy) rather than
+        // storing the 8-byte pointer into the inline slot — which under-filled
+        // larger structs and forced ETupleIndex to compensate with a bogus
+        // `load ptr` read (G156-2 / G154-4 prerequisite). Mirrors the inline
+        // struct-FIELD path in gen_struct_lit.
+        mlir::Type slot_ty;
+        if (auto sst = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(stype);
+            sst && i < sst.getBody().size())
+            slot_ty = sst.getBody()[i];
+        if (slot_ty && mlir::isa<mlir::LLVM::LLVMStructType>(slot_ty) &&
+            val.getType() == ptr_type()) {
+            val = builder_.create<mlir::LLVM::LoadOp>(loc_, slot_ty, val);
+        } else if (TypeRef(type).tuple_elems()[i]) {
             auto et = logos_to_mlir(TypeRef(type).tuple_elems()[i]);
             if (et) val = coerce_numeric(val, et);
         }
@@ -2106,6 +2121,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
         recv = spill_to_alloca(recv);
     llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(v.index())};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, recv, idx);
+    // A Struct/ZonedStruct element is embedded INLINE (tuple_llvm_type) and a
+    // struct value is represented BY its address (logos_to_mlir(Struct) == ptr).
+    // Return the element GEP — the struct pointer — rather than `load`ing the
+    // struct's first field as if the element were a scalar pointer (which fed
+    // callees a bogus receiver → SIGSEGV when `t.0` was passed by value).
+    // Now consistent with gen_tuple_lit's inline aggregate store. Mirrors
+    // struct-field reads. Other kinds (scalars, enums-as-heap-ptr, nested
+    // tuples stored as ptr) keep the load.
+    if (TypeRef et(type); et && (et.kind() == LogosType::Kind::Struct ||
+                                 et.kind() == LogosType::Kind::ZonedStruct))
+        return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }
 

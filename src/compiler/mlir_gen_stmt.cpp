@@ -331,6 +331,55 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             }
         }
     }
+
+    // 3. Auto-drop droppable TUPLE elements (G156-2 / G154-4). A tuple owns its
+    //    elements; `it->second` is the tuple-struct pointer (var_tuple_). GEP
+    //    each element of the inline tuple layout and run its drop. An element
+    //    moved out (`take(t.0)`) is recorded as the index string in
+    //    moved_fields and skipped, so the value isn't released twice. Struct
+    //    elements are now stored INLINE consistently (gen_tuple_lit), so the
+    //    element GEP is a real struct pointer.
+    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st &&
+        st.kind() == LogosType::Kind::Tuple) {
+        std::set<std::string> moved;
+        v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
+        auto elems = st.tuple_elems();
+        auto ttype = tuple_llvm_type(st);
+        if (ttype) {
+            for (int i = (int)elems.size() - 1; i >= 0; --i) {
+                if (moved.count(std::to_string(i))) continue;
+                TypeRef et(elems[i]);
+                if (!et) continue;
+                auto ek = et.kind();
+                // Reference / pointer elements don't own their pointee.
+                if (ek == LogosType::Kind::Ref || ek == LogosType::Kind::MutRef ||
+                    ek == LogosType::Kind::Ptr)
+                    continue;
+                std::string ename;
+                if (ek == LogosType::Kind::Struct || ek == LogosType::Kind::ZonedStruct)
+                    ename = concrete_struct_name(et);
+                else if (ek == LogosType::Kind::Enum)
+                    ename = std::string(et.enum_name());
+                if (ename.empty()) continue;
+                std::string elem_drop = resolve_method_symbol(ename, "drop");
+                if (elem_drop.empty()) continue;
+                auto elem_fn = mod.lookupSymbol<mlir::func::FuncOp>(elem_drop);
+                if (!elem_fn) continue;
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
+                auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), ttype, it->second, gi);
+                // Inline-embedded struct element → GEP IS the pointer. A
+                // ptr-stored element (enum heap ptr) → load it first.
+                mlir::Value elem_ptr;
+                if (ek == LogosType::Kind::Struct || ek == LogosType::Kind::ZonedStruct)
+                    elem_ptr = elem_gep;
+                else
+                    elem_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), elem_gep);
+                builder_.create<mlir::func::CallOp>(loc_, elem_fn, mlir::ValueRange{elem_ptr});
+            }
+        }
+    }
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {

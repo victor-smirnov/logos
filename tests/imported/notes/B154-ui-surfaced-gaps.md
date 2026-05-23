@@ -109,6 +109,20 @@ for x in { 0i64..3i64 } { … }   // syntax error near '3i64'
 Binding the block to a `let` first works (`let r = { 0..3 }; for x in r`).
 (`mut/no-mut-lint-for-desugared-mut` reshaped.)
 
+### G154-4 — ✅ FIXED: DOUBLE-DROP / missed-drop on tuple elements
+**FIXED** (this session, with G156-2 tuple-half). Three coordinated changes:
+(1) tuple struct-elements are now stored INLINE for Copy as well as move structs
+(`gen_tuple_lit` loads the aggregate before storing, mirroring struct fields) —
+previously Copy elements stored a pointer into the inline slot; (2) `ETupleIndex`
+returns the element GEP (the struct address) instead of `load`ing its first field
+as a scalar pointer; (3) the SDrop Tuple branch GEPs and drops each owned
+element, and `mark_moved_expr` records a moved-out tuple index (`<name>.<idx>`)
+so the scope-end drop skips it. Net: a Drop element in a tuple drops exactly
+once whether kept or moved out. Regression:
+`tests/logos/pass/tuple_struct_element_drop.logos`. (Enum-payload Drop —
+variant-switched glue — is the remaining G156-2 enum-half, still open.) Original
+report follows.
+
 ### G154-4 — ⚠️ DOUBLE-DROP: moving a Drop value OUT of a tuple drops it twice
 Moving a Drop-typed value INTO a tuple drops it exactly once (correct), but
 moving it back OUT — either by tuple destructure `let (c,_d) = b;` or by field

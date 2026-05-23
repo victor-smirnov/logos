@@ -2231,6 +2231,14 @@ bool SemaChecker::is_move_type(TypeRef t) const {
                 if (b.trait_name == "Copy") return false;
         return true;
     }
+    // A tuple is a move type iff any element is (it then owns a non-Copy value
+    // and is dropped / consumed as a whole — G154-4 / G156-2). Tuples of all
+    // Copy elements stay Copy.
+    if (TypeRef(t).kind() == LogosType::Kind::Tuple) {
+        for (auto e : TypeRef(t).tuple_elems())
+            if (e && is_move_type(e)) return true;
+        return false;
+    }
     // Struct types are move types unless they implement Copy.
     if (TypeRef(t).kind() != LogosType::Kind::Struct)
         return false;
@@ -2333,7 +2341,17 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
 }
 
 bool SemaChecker::has_droppable_fields(TypeRef t) const {
-    if (!t || TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+    if (!t) return false;
+    // G156-2 / G154-4: a tuple owns its elements — droppable if any element is.
+    // The SDrop Tuple branch GEPs each droppable element and runs its drop.
+    // (Enum variant payloads are a separate increment — see the baghunt.)
+    if (TypeRef(t).kind() == LogosType::Kind::Tuple) {
+        for (auto e : TypeRef(t).tuple_elems())
+            if (e && (!drop_fn_for(e).empty() || has_droppable_fields(e)))
+                return true;
+        return false;
+    }
+    if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
     auto sit = structs_.end();
     if (!TypeRef(t).pkg_name().empty()) {
         auto qkey = sema_key(TypeRef(t).pkg_name(), TypeRef(t).struct_name());

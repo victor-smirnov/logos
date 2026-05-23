@@ -68,6 +68,15 @@ impl MyTrait<u8>  for MyType { fn get(self: &MyType) -> u8  { return self.dummy 
 Observed: `error [fn MyType__get]: duplicate function 'MyType__get'`.
 Decision: **multidispatch1 DROPPED** (this IS the test's whole point).
 
+### G156-2 ⚠️ SILENT MISSED-DROP — tuple-element ✅ FIXED; enum-payload still open
+**TUPLE-ELEMENT half FIXED** (this session — see G154-4 in B154 notes): tuple
+struct-element storage unified to inline (Copy+move), `ETupleIndex` returns the
+element address, and the SDrop Tuple branch drops each owned element exactly once
+(with moved-out elements skipped). **ENUM-payload half still OPEN** — needs
+variant-switched drop glue (load disc, switch, drop the active variant's
+droppable payload fields); planned in `baghunt_enum_tuple_drop_glue`. Original
+report follows.
+
 ### G156-2 ⚠️ SILENT MISSED-DROP — Drop does not fire for enum-payload / tuple-element
 When a Drop-bearing value is moved into an ENUM variant payload or a TUPLE
 element and the container is dropped at scope end, the payload/element's `drop`
