@@ -3404,10 +3404,19 @@ inline bool valid_float_literal_format(std::string_view sv) noexcept {
         suffix_len = 3;
 
     std::string_view main = sv.substr(start, sv.size() - start - suffix_len);
-    size_t dot = main.find('.');
-    if (dot == std::string_view::npos) return false;
-
     auto is_dec = [](char c) { return c >= '0' && c <= '9'; };
+    size_t dot = main.find('.');
+    if (dot == std::string_view::npos) {
+        // Bare-mantissa exponent (`5e9`, `5e-11`): no decimal point, so an
+        // exponent is REQUIRED (a plain integer is not a float literal).
+        size_t exp0 = main.find_first_of("eE");
+        if (exp0 == std::string_view::npos) return false;
+        if (!valid_digit_groups(main.substr(0, exp0), is_dec)) return false;
+        size_t es = exp0 + 1;
+        if (es < main.size() && (main[es] == '+' || main[es] == '-')) ++es;
+        return valid_digit_groups(main.substr(es), is_dec);
+    }
+
     if (!valid_digit_groups(main.substr(0, dot), is_dec)) return false;
 
     size_t exp = main.find_first_of("eE", dot + 1);

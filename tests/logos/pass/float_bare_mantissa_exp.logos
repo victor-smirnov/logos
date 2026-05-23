@@ -1,0 +1,18 @@
+package float_bare_mantissa_exp;
+// G152-1: bare-mantissa exponent float literals (`5e9`, `5e-11`, `2E+3`) — no
+// decimal point. Fixed at the parser level: the peg_gen hand-coded number lexer
+// upgrades a base-10 integer followed by `e`/`E`+exponent to FLOAT, and sema's
+// valid_float_literal_format accepts the no-dot exponent form.
+fn main() -> i64 {
+    let a: f64 = 5e9f64;
+    let b: f64 = 5e-11f64;
+    let c: f64 = 2E+3f64;
+    let d: f64 = 2.5e3f64;      // decimal+exp still works
+    let n: i64 = 5;             // plain integer is NOT a float
+    if a < 1.0f64 { return 1; }
+    if b > 1.0e-10f64 { return 2; }
+    if c < 1999.0f64 { return 3; }
+    if d < 2499.0f64 { return 4; }
+    if n != 5 { return 5; }
+    return 0;
+}

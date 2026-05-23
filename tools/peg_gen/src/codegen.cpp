@@ -1414,6 +1414,30 @@ private:
                     w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", float_tok);
                     w.dedent();
                     w.line("}");
+                    // Bare-mantissa exponent FLOAT (no decimal point): `5e9`,
+                    // `5e-11`, `2E+3` → FLOAT. Only base-10 decimal integers
+                    // upgrade; requires `e`/`E` then (optional sign and) a digit.
+                    if (hex || bin || oct)
+                        w.line("if (base == 10 && pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')");
+                    else
+                        w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')");
+                    w.line("    && ((pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))");
+                    w.line("        || (pos_+2 < source_.size() && (source_[pos_+1] == '+' || source_[pos_+1] == '-') && std::isdigit(source_[pos_+2])))) {");
+                    w.indent();
+                    w.line("++pos_; // consume 'e'/'E'");
+                    w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    if (flt_sfx) {
+                        w.line("if (pos_ + 3 <= source_.size() &&");
+                        w.line("    (source_.substr(pos_, 3) == \"f32\" || source_.substr(pos_, 3) == \"f64\")) {");
+                        w.line("    pos_ += 3;");
+                        w.line("} else if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) {");
+                        w.line("    ++pos_;");
+                        w.line("}");
+                    }
+                    w.fmt("return {{TK::{}, source_.substr(start, pos_ - start), start_line_}};", float_tok);
+                    w.dedent();
+                    w.line("}");
                 }
 
                 if (int_sfx) {
