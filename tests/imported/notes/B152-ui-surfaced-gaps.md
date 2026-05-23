@@ -19,21 +19,29 @@ link. Tests that hit a gap were re-shaped to preserve the essence (noted inline
 
 ---
 
-## STATUS 2026-05-23 — gaps CLOSED
+## STATUS 2026-05-23 — 11 of 14 real gaps CLOSED (G152-13 was not-a-gap)
 ✅ **G152-5** captured array write (silent) — c732163d. ✅ **G152-9** tuple-of-&Enum
 struct-variant SIGSEGV — 71f4aa9f. ✅ **G152-16** while-let labeled break + **G152-3**
 tuple-struct `x.0=v` write — 679c7a51. ✅ **G152-12** generic-struct field pattern
-types + **G152-15** `..` rest in tuple-struct/struct `let` — 786d74df.
-REVERTED: **G152-1** bare-mantissa float `5e-11` — peg_gen regex engine doesn't
-handle the alternation; the regex change had no effect (no hand-coded matcher
-either). Workaround `5.0e-11` stands; needs a peg_gen-regex-engine look.
-STILL OPEN (grammar/parse cluster, workarounds exist): G152-2/7/8 (turbofish on
-tuple-struct ctor / in pattern / `None::<T>`), G152-6 (composite-LHS where),
-G152-10/11 (type alias in pattern / generic alias ctor), G152-13 (`panic!()` by
-name), G152-14 (pattern in fn param).
-SIDE OBSERVATION: a destructure-`let` binding (`let Bar { b, .. } = …`) does not
-shadow an earlier same-named `let b` (reads the stale value) — distinct from
-G152-15; possible separate destructure-let-shadowing bug to confirm.
+types + **G152-15** `..` rest in tuple-struct/struct `let` — 786d74df. ✅ **G152-2**
+turbofish tuple-struct ctor + destructure-`let` SHADOWING (the side-observation
+bug) — a03859bc. ✅ **G152-1** bare-mantissa float `5e9`/`5e-11` (FIXED at parser
+level: peg_gen hand-coded number lexer + sema valid_float_literal_format —
+7f1dec39). ✅ **G152-8** `None::<i64>` turbofish + **G152-10** type alias in struct
+pattern — d86fa9f2. ✅ **G152-13** NOT A GAP (`panic!()` needs `use logos.std.fmt;`).
+REMAINING (3 niche parse gaps, trivial workarounds, low priority):
+- **G152-7** turbofish in a PATTERN (`Some::<i64>(_)`) — grammar (parse+ignore the
+  turbofish across the variant/struct pattern rules); workaround: drop it (the
+  type is known from the scrutinee). Recurs occasionally in ports.
+- **G152-6** composite-LHS where-clause (`where Option<T>: Foo`) — grammar
+  (where-LHS as an applied type) + sema constraint record/verify; workaround:
+  `where T: Foo` or restructure.
+- **G152-11** GENERIC type alias in construction (`type S4<U> = S3<U,char>;
+  S4::<u8>{..}`) — sema: lower_struct_lit handles non-generic aliases but a
+  generic alias needs turbofish→alias-type_param substitution into the target +
+  threading the full target type-args (the turbofish maps to the ALIAS params,
+  not the resolved struct's). Workaround: use the base struct directly.
+- **G152-14** non-ident pattern in fn param (`fn foo((): ())`) — grammar; rare.
 
 ---
 
@@ -159,7 +167,12 @@ A generic type alias `type S4<U> = S3<U, char>;` used as a struct literal
 (`S4::<u8> { … }`) errors `struct literal: unknown struct 'S4'`.
 - Workaround in `structs-enums/struct-aliases`: use the base struct directly.
 
-### G152-13 — `panic!()` is not a callable macro by name
+### G152-13 — ✅ NOT A GAP: `panic!()` needs `use logos.std.fmt;`
+With `use logos.std.fmt;` in scope, `panic!("msg")` resolves to the fmt-tier
+`#[fn_macro] panic` and works (verified). Without the import only the runtime
+`logos.lang.panic::panic(str)` fn is visible, which isn't a fn_macro → the error.
+Sibling of G150-4 (range/iter imports). ORIGINAL note:
+#### (orig) G152-13 — `panic!()` is not a callable macro by name
 `panic!()` errors `'panic' is not marked #[fn_macro] or #[token_macro]`. Tests
 relying on `panic!` for a diverging arm/branch must use `assert!(false)` (changes
 the branch type) or a real diverging expression.
