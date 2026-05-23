@@ -1,0 +1,31 @@
+// Regression (G156-10): a closure that mutates a MULTI-LEVEL field path
+// (`w.p.x += 20`, `c.b.a.v = 99`) silently lost the write — the statement
+// lowers to SChainFieldWrite, which the closure capture scanner had no case
+// for, so the base receiver was captured BY VALUE instead of by reference.
+// Single-level field writes (SFieldWrite) already worked. The scanner now marks
+// the chain-write's base receiver as a mutated capture (by-ref).
+package closure_multilevel_field_write;
+
+struct Point { x: i64, y: i64 }
+struct Wrapper { p: Point }
+
+struct A { v: i64 }
+struct B { a: A }
+struct C { b: B }
+
+fn main() -> i32 {
+    // 2-level compound-assign.
+    let mut w = Wrapper { p: Point { x: 10i64, y: 10i64 } };
+    let mut c1 = || { w.p.x += 20i64; };
+    c1();
+    if w.p.x != 30i64 { return 1i32; }
+    if w.p.y != 10i64 { return 2i32; }
+
+    // 3-level plain write.
+    let mut cc = C { b: B { a: A { v: 1i64 } } };
+    let mut c2 = || { cc.b.a.v = 99i64; };
+    c2();
+    if cc.b.a.v != 99i64 { return 3i32; }
+
+    return 0i32;
+}

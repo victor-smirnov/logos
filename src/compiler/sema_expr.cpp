@@ -11266,6 +11266,18 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.value());
                 break;
             }
+            case SC::ChainFieldWrite: {
+                // G156-10: a multi-level field write/compound-assign
+                // (`w.p.x += 20`) lowers to SChainFieldWrite. Mark the BASE
+                // receiver (`w`) as a mutated capture so the closure captures it
+                // BY REFERENCE — otherwise `w` was captured by value and the
+                // nested write was silently lost. (Single-level FieldWrite was
+                // already handled above.)
+                auto v = lir_view::SChainFieldWriteView{s};
+                mark_mut_capture(v.receiver());
+                scan_captures_v(v.value());
+                break;
+            }
             case SC::IndexWrite: {
                 auto v = lir_view::SIndexWriteView{s};
                 mark_mut_capture(v.arr());
