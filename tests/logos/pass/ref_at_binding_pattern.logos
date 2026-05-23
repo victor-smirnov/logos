@@ -1,0 +1,16 @@
+package ref_at_binding_pattern;
+// G150-1: `ref x @ <pattern>` — at-binding by reference. `*x` reads through it
+// (via the deref-identity shim, as with `Some(ref v) => *v`).
+fn classify(v: i64) -> i64 {
+    match v {
+        ref x @ 1..=10 => { return *x + 100; }
+        ref y @ 11..=20 => { return *y + 200; }
+        _ => { return 0; }
+    }
+}
+fn main() -> i64 {
+    if classify(5) != 105 { return 1; }
+    if classify(15) != 215 { return 2; }
+    if classify(99) != 0 { return 3; }
+    return 0;
+}

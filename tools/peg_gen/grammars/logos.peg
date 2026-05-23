@@ -1747,6 +1747,11 @@
     // G1: use pat_single (not pat_single_base) so n @ ref x and n @ &pat work.
     pat_single :group variant: <- IDENT AT pat_single
         => { CODE: PAT_AT, NAME: $1, VALUE: $3 }
+        // G150-1: `ref x @ pat` — at-binding by reference. Must precede the
+        // bare `KW_REF IDENT` alt, which would otherwise match `ref x` and
+        // leave `@ pat` unparsed.
+        / KW_REF IDENT AT pat_single
+        => { CODE: PAT_AT, NAME: $2, VALUE: $4, IS_REF: true }
         // ref mut binding
         / KW_REF KW_MUT IDENT
         => { CODE: PAT_WILD, NAME: $3, IS_MUT: true, IS_REF: true }
