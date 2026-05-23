@@ -1,0 +1,25 @@
+package match_struct_move_field_drop;
+// Two struct-pattern Drop-correctness fixes:
+//  1. by-value `match p { Pair { a, b } }` over a move-only field consumes p —
+//     the source must not re-drop a field a binding already owns (double-free).
+//  2. explicit `match &p { Pair { a: ref a, b } }` binds a struct field by
+//     reference correctly (previously read GARBAGE — silent miscompile).
+use logos.mem.string;
+
+struct Pair { a: String, b: i64 }
+
+fn by_ref(p: &Pair) -> i64 {
+    match p { Pair { a: ref a, b } => { return a.len() + *b; } }   // a: &String
+}
+
+fn main() -> i64 {
+    // by-value match: p consumed, no double-free at scope exit
+    let p: Pair = Pair { a: String::from("xy"), b: 3 };
+    match p { Pair { a, b } => { if a.len() + b != 5 { return 1; } } }
+
+    // explicit ref over &Pair (struct field) — correct value, reusable
+    let q: Pair = Pair { a: String::from("abc"), b: 7 };
+    if by_ref(&q) != 10 { return 2; }
+    if by_ref(&q) != 10 { return 3; }
+    return 0;
+}

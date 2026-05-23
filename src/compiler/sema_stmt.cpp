@@ -6146,6 +6146,47 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     auto nm = str_of(lhs.get(la::NAME.code));
                     if (!nm.empty() && nm != "_") { mark_moved(scrut_var); break; }
                 }
+                // An unguarded STRUCT-destructure arm (`match p { Pair{a,b} =>
+                // … }`) over a by-value scrutinee moves the bound fields into
+                // the bindings, consuming `p` — mark it moved so its scope-exit
+                // Drop doesn't double-free a field a binding already owns
+                // (mirrors the let-destructure fix). BUT only when the arm
+                // actually moves out a MOVE-ONLY field by value: an empty struct,
+                // an all-Copy-field struct, or a fully `ref`-bound destructure
+                // moves nothing and leaves `p` live (it may be matched again).
+                // (Reached only for a by-value struct scrutinee — is_move_type
+                // above is false for a `&Struct` ref scrutinee.)
+                if (code_of(lhs) == la::PAT_STRUCT) {
+                    auto psname = std::string(str_of(lhs.get(la::NAME.code)));
+                    auto si_ = find_struct_by_name(psname).second;
+                    if (!si_) si_ = find_datatype_by_name(psname).second;
+                    bool moves = false;
+                    if (si_ && lhs.has_key(la::ITEMS)) {
+                        auto fl = map_of(lhs.get(la::ITEMS.code));
+                        if (fl.has_key(la::ITEMS)) {
+                            auto fitems = arr_of(fl.get(la::ITEMS.code));
+                            for (uint64_t fi = 0; fi < fitems.size() && !moves; ++fi) {
+                                auto fn = map_of(fitems.get(fi));
+                                if (code_of(fn) != la::PAT_FIELD) continue;
+                                // A `ref`-bound field doesn't move.
+                                if (fn.has_key(la::VALUE)) {
+                                    auto sub = map_of(fn.get(la::VALUE.code));
+                                    if (code_of(sub) == la::PAT_WILD &&
+                                        sub.has_key(la::IS_REF) &&
+                                        sub.get(la::IS_REF.code).is_value() &&
+                                        sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+                                        continue;
+                                }
+                                auto fnm = std::string(str_of(fn.get(la::NAME.code)));
+                                for (auto& f : si_->fields)
+                                    if (f.name == fnm && is_move_type(f.type)) {
+                                        moves = true; break;
+                                    }
+                            }
+                        }
+                    }
+                    if (moves) { mark_moved(scrut_var); break; }
+                }
             }
         }
     }

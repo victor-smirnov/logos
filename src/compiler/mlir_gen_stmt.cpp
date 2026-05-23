@@ -2260,6 +2260,34 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         });
         break;
     }
+    case pc::Code::RefBind: {
+        // `ref x` (and default-binding-mode refs that route through a RefBind
+        // sub): bind `x : &T` to the slot ADDRESS — a borrow, no load/copy, so
+        // it doesn't move/double-free an owned field. pat_bind previously had NO
+        // RefBind case → the name was never bound → garbage reads (silent
+        // miscompile for `match &p { Pair { a: ref a } }`). Mirrors the
+        // enum-variant is_ref_bind path (G151-1): ref-to-struct binds the ptr +
+        // tracks struct shape so `x.field` GEPs through it; a scalar ref
+        // alloca-wraps so `*x` derefs one level.
+        auto n = lir_view::PatRefBindView{pat}.name();
+        if (n.empty() || n == "_") return;
+        std::string name(n);
+        bool ref_to_struct = ty &&
+            (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+             TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+        if (ref_to_struct) {
+            scope_[name] = slot_ptr;
+            let_vars_.insert(name);
+            var_struct_[name] = mlir_struct_key(ty);
+        } else {
+            auto alloca = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, alloca);
+            scope_[name] = alloca;
+            let_vars_.insert(name);
+            var_elem_types_[name] = ptr_type();
+        }
+        break;
+    }
     default: break;
     }
 }
@@ -2734,11 +2762,29 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     if (!prbn.empty() && prbn != "_") {
                         auto fp = gep_field(sptr, sinfo, field_name);
                         if (fp) {
-                            auto alloca = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-                            scope_[prbn] = alloca;
-                            let_vars_.insert(prbn);
-                            var_elem_types_[prbn] = ptr_type();
+                            // A struct-typed field: bind `fp` directly + track
+                            // struct shape so `px.field` GEPs through it. The
+                            // alloca-wrap (ptr-of-ptr, no shape) made `px.field`
+                            // read GARBAGE — the silent miscompile, sibling of
+                            // the enum-payload G151-1 fix. Scalar fields keep
+                            // the alloca-wrap so `*px` derefs one level.
+                            TypeRef fty;
+                            if (sd) for (auto& lf : sd->fields)
+                                if (lf.name == field_name) { fty = lf.type; break; }
+                            bool ref_to_struct = fty &&
+                                (TypeRef(fty).kind() == LogosType::Kind::Struct ||
+                                 TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                            if (ref_to_struct) {
+                                scope_[prbn] = fp;
+                                let_vars_.insert(prbn);
+                                var_struct_[prbn] = mlir_struct_key(fty);
+                            } else {
+                                auto alloca = create_entry_alloca(ptr_type());
+                                builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
+                                scope_[prbn] = alloca;
+                                let_vars_.insert(prbn);
+                                var_elem_types_[prbn] = ptr_type();
+                            }
                         }
                     }
                 } else {
