@@ -2239,6 +2239,9 @@ bool SemaChecker::is_move_type(TypeRef t) const {
             if (e && is_move_type(e)) return true;
         return false;
     }
+    // G158-4: an array `[T; N]` is a move type iff its element is.
+    if (TypeRef(t).kind() == LogosType::Kind::Array)
+        return TypeRef(t).elem() && is_move_type(TypeRef(t).elem());
     // G156-2: an enum is a move type iff it carries a droppable payload or has a
     // user `impl Drop` — then it owns a non-Copy value and must be move-tracked
     // (so its scope-exit Drop and a payload moved out by a match binding don't
@@ -2366,6 +2369,9 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     auto member_droppable = [&](TypeRef m) -> bool {
         return m && !is_copy_tv(m) && (!drop_fn_for(m).empty() || has_droppable_fields(m));
     };
+    // G158-4: an array `[T; N]` owns its elements — droppable if the element is.
+    if (TypeRef(t).kind() == LogosType::Kind::Array)
+        return member_droppable(TypeRef(t).elem());
     // G156-2 / G154-4: a tuple owns its elements — droppable if any element is.
     if (TypeRef(t).kind() == LogosType::Kind::Tuple) {
         for (auto e : TypeRef(t).tuple_elems())

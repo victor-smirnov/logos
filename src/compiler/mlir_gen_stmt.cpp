@@ -259,6 +259,159 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     for (auto& [k, val] : saved_struct)           var_struct_[k]       = val;
 }
 
+bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
+    using K = LogosType::Kind;
+    if (!ty) return false;
+    auto k = TypeRef(ty).kind();
+    if (k == K::Ref || k == K::MutRef || k == K::Ptr) return false;
+    if (k == K::Struct || k == K::ZonedStruct) {
+        std::string name = concrete_struct_name(ty);
+        if (!resolve_method_symbol(name, "drop").empty()) return true;
+        if (auto sd = all_struct_defs_.find(name); sd != all_struct_defs_.end())
+            for (auto& f : sd->second->fields)
+                if (value_needs_drop(f.type)) return true;
+        return false;
+    }
+    if (k == K::Tuple) {
+        for (auto e : TypeRef(ty).tuple_elems()) if (value_needs_drop(e)) return true;
+        return false;
+    }
+    if (k == K::Enum) {
+        std::string ename(TypeRef(ty).enum_name());
+        if (!resolve_method_symbol(ename, "drop").empty()) return true;
+        if (auto* te = resolve_tagged_enum(ename, ty))
+            for (auto& vp : te->variants)
+                for (auto ft : vp.logos_types) if (value_needs_drop(ft)) return true;
+        return false;
+    }
+    if (k == K::Array) return value_needs_drop(TypeRef(ty).elem());
+    return false;
+}
+
+void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty) {
+    using K = LogosType::Kind;
+    if (!value_ptr || !ty) return;
+    auto k = TypeRef(ty).kind();
+    if (k == K::Ref || k == K::MutRef || k == K::Ptr) return;
+    if (!value_needs_drop(ty)) return;
+    auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    // Child VALUE ptr from an aggregate ptr + slot index: inline children
+    // (struct/tuple/array) → the GEP; heap children (enum heap ptr) → load it.
+    auto child_value_ptr = [&](mlir::Value agg, mlir::Type agg_ty, int idx, K ck) -> mlir::Value {
+        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
+        auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), agg_ty, agg, gi);
+        if (ck == K::Enum)
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), gep).getResult();
+        return gep;
+    };
+    if (k == K::Struct || k == K::ZonedStruct) {
+        std::string name = concrete_struct_name(ty);
+        // A user `impl Drop` OWNS the value: calling its drop runs the destructor
+        // and (for a by-value `self` drop) consumes the fields, which drop at the
+        // drop body's scope end. So call it and STOP — recursing the fields here
+        // too would double-drop them (drop_glue_three_levels). Only a DROP-LESS
+        // struct recurses its fields. Mirrors the enum branch.
+        if (auto ds = resolve_method_symbol(name, "drop"); !ds.empty())
+            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
+                builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
+                return;
+            }
+        auto sdit = all_struct_defs_.find(name);
+        auto sit  = struct_types_.find(mlir_struct_key(ty));
+        if (sit == struct_types_.end()) sit = struct_types_.find(name);
+        if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
+            auto& info = sit->second;
+            auto& def  = *sdit->second;
+            for (int i = (int)def.fields.size() - 1; i >= 0; --i) {
+                TypeRef ft(def.fields[i].type);
+                auto fk = ft ? TypeRef(ft).kind() : K::Error;
+                if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
+                if (!value_needs_drop(ft)) continue;
+                auto fp = gep_field(value_ptr, info, std::string(def.fields[i].name));
+                if (!fp) continue;
+                mlir::Value cp = (fk == K::Enum)
+                    ? builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp).getResult()
+                    : fp;
+                gen_drop_value(cp, ft);
+            }
+        }
+        return;
+    }
+    if (k == K::Tuple) {
+        auto ttype = tuple_llvm_type(ty);
+        auto elems = TypeRef(ty).tuple_elems();
+        if (ttype)
+            for (int i = (int)elems.size() - 1; i >= 0; --i) {
+                TypeRef et(elems[i]);
+                auto ek = et ? TypeRef(et).kind() : K::Error;
+                if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
+                if (!value_needs_drop(et)) continue;
+                gen_drop_value(child_value_ptr(value_ptr, ttype, i, ek), et);
+            }
+        return;
+    }
+    if (k == K::Enum) {
+        std::string ename(TypeRef(ty).enum_name());
+        // A REAL user enum Drop (by-value self) consumes the payload itself —
+        // call it and stop. resolve_method_symbol can return a non-existent
+        // symbol for an enum with NO user Drop (false positive), so require the
+        // symbol to actually EXIST before treating it as a user drop; otherwise
+        // fall through to the variant-switched payload recursion (G158-4 fix).
+        if (auto ds = resolve_method_symbol(ename, "drop"); !ds.empty())
+            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
+                builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
+                return;
+            }
+        auto* te = resolve_tagged_enum(ename, ty);
+        if (!te) return;
+        std::vector<const TaggedEnumInfo::VariantPayload*> dvs;
+        for (auto& vp : te->variants) {
+            for (auto ft : vp.logos_types)
+                if (ft && value_needs_drop(ft)) { dvs.push_back(&vp); break; }
+        }
+        if (dvs.empty()) return;
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, value_ptr, di);
+        auto disc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, value_ptr, pi);
+        auto* region = builder_.getBlock()->getParent();
+        for (auto* vp : dvs) {
+            auto pay = variant_payload_struct(*vp);
+            auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, vp->disc, 32);
+            auto eq = builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::eq, disc, dc);
+            auto* then_blk = new mlir::Block();
+            auto* cont_blk = new mlir::Block();
+            region->push_back(then_blk);
+            region->push_back(cont_blk);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, eq, then_blk, cont_blk);
+            builder_.setInsertionPointToStart(then_blk);
+            for (size_t fi = 0; fi < vp->logos_types.size(); ++fi) {
+                TypeRef ft(vp->logos_types[fi]);
+                auto fk = ft ? TypeRef(ft).kind() : K::Error;
+                if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
+                if (!value_needs_drop(ft)) continue;
+                gen_drop_value(child_value_ptr(pay_ptr, pay, (int)fi, fk), ft);
+            }
+            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+            builder_.setInsertionPointToStart(cont_blk);
+        }
+        return;
+    }
+    if (k == K::Array) {
+        TypeRef et = TypeRef(ty).elem();
+        auto ek = et ? TypeRef(et).kind() : K::Error;
+        if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) return;
+        if (!value_needs_drop(et)) return;
+        auto atype = logos_to_mlir(ty);
+        uint64_t n = TypeRef(ty).arr_size();
+        for (uint64_t i = 0; i < n; ++i)
+            gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et);
+        return;
+    }
+}
+
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());
     auto it = scope_.find(var_name);
@@ -287,173 +440,70 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{it->second});
     }
 
-    // 2. Auto-drop droppable fields (reverse field order)
-    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && st.kind() == LogosType::Kind::Struct) {
-        // Sema-side move tracking marks fields consumed by the surrounding
-        // scope (e.g. `take(outer.f)` passes outer.f by value). Those fields
-        // are no longer owned by `var_name` and must be skipped here, else
-        // the underlying value gets released twice.
+    // 2. Recursively drop the var's owned sub-values — struct fields, tuple
+    //    elements, enum variant payload, AND array elements — generalized via
+    //    gen_drop_value, which handles arbitrary nesting (G158-4). Step 1 above
+    //    already ran the var's OWN user drop (drop_fn), so here we recurse its
+    //    children. Fields/elements moved out (recorded in moved_fields) are
+    //    skipped so a value isn't released twice.
+    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st) {
+        using K = LogosType::Kind;
         std::set<std::string> moved;
         v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
-        // Try pkg-qualified key first; fall back to bare for back-compat.
-        auto sit = struct_types_.find(mlir_struct_key(st));
-        if (sit == struct_types_.end())
-            sit = struct_types_.find(std::string(st.struct_name()));
-        if (sit != struct_types_.end()) {
-            auto& info = sit->second;
-            for (int fi = (int)info.fields.size() - 1; fi >= 0; --fi) {
-                auto& f = info.fields[fi];
-                if (moved.count(f.name)) continue;
-                // *T / &T / &mut T fields don't own their pointee — auto-drop
-                // must not call <T>::drop on the pointer value (which would
-                // reinterpret the address bits as a T and corrupt the
-                // pointee). f.struct_name is still populated for chain-field
-                // access, so we can't gate on emptiness alone.
-                if (f.is_pointer) continue;
-                std::string field_drop = f.struct_name.empty()
-                    ? std::string{} : resolve_method_symbol(f.struct_name, "drop");
-                if (field_drop.empty()) continue;
-                auto field_fn = mod.lookupSymbol<mlir::func::FuncOp>(field_drop);
-                if (!field_fn) continue;
-                // GEP to field; pass pointer to the field data to drop.
-                // Inline-embedded fields (LLVMStructType): GEP IS the pointer.
-                // Pointer fields: load the pointer from the GEP first.
-                auto field_gep = gep_field(it->second, info, f.name);
-                if (!field_gep) continue;
-                mlir::Value field_ptr;
-                if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
-                    field_ptr = field_gep;
-                } else {
-                    field_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, ptr_type(), field_gep);
+        auto k = st.kind();
+        if (k == K::Struct || k == K::ZonedStruct) {
+            std::string name = concrete_struct_name(st);
+            auto sdit = all_struct_defs_.find(name);
+            if (sdit == all_struct_defs_.end())
+                sdit = all_struct_defs_.find(std::string(st.struct_name()));
+            auto sit = struct_types_.find(mlir_struct_key(st));
+            if (sit == struct_types_.end()) sit = struct_types_.find(name);
+            if (sit == struct_types_.end()) sit = struct_types_.find(std::string(st.struct_name()));
+            if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
+                auto& info = sit->second;
+                auto& def  = *sdit->second;
+                for (int i = (int)def.fields.size() - 1; i >= 0; --i) {
+                    if (moved.count(std::string(def.fields[i].name))) continue;
+                    TypeRef ft(def.fields[i].type);
+                    auto fk = ft ? TypeRef(ft).kind() : K::Error;
+                    if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
+                    if (!value_needs_drop(ft)) continue;
+                    auto fp = gep_field(it->second, info, std::string(def.fields[i].name));
+                    if (!fp) continue;
+                    mlir::Value cp = (fk == K::Enum)
+                        ? builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp).getResult()
+                        : fp;
+                    gen_drop_value(cp, ft);
                 }
-                builder_.create<mlir::func::CallOp>(loc_, field_fn, mlir::ValueRange{field_ptr});
             }
-        }
-    }
-
-    // 3. Auto-drop droppable TUPLE elements (G156-2 / G154-4). A tuple owns its
-    //    elements; `it->second` is the tuple-struct pointer (var_tuple_). GEP
-    //    each element of the inline tuple layout and run its drop. An element
-    //    moved out (`take(t.0)`) is recorded as the index string in
-    //    moved_fields and skipped, so the value isn't released twice. Struct
-    //    elements are now stored INLINE consistently (gen_tuple_lit), so the
-    //    element GEP is a real struct pointer.
-    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st &&
-        st.kind() == LogosType::Kind::Tuple) {
-        std::set<std::string> moved;
-        v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
-        auto elems = st.tuple_elems();
-        auto ttype = tuple_llvm_type(st);
-        if (ttype) {
-            for (int i = (int)elems.size() - 1; i >= 0; --i) {
-                if (moved.count(std::to_string(i))) continue;
-                TypeRef et(elems[i]);
-                if (!et) continue;
-                auto ek = et.kind();
-                // Reference / pointer elements don't own their pointee.
-                if (ek == LogosType::Kind::Ref || ek == LogosType::Kind::MutRef ||
-                    ek == LogosType::Kind::Ptr)
-                    continue;
-                std::string ename;
-                if (ek == LogosType::Kind::Struct || ek == LogosType::Kind::ZonedStruct)
-                    ename = concrete_struct_name(et);
-                else if (ek == LogosType::Kind::Enum)
-                    ename = std::string(et.enum_name());
-                if (ename.empty()) continue;
-                std::string elem_drop = resolve_method_symbol(ename, "drop");
-                if (elem_drop.empty()) continue;
-                auto elem_fn = mod.lookupSymbol<mlir::func::FuncOp>(elem_drop);
-                if (!elem_fn) continue;
-                llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
-                auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), ttype, it->second, gi);
-                // Inline-embedded struct element → GEP IS the pointer. A
-                // ptr-stored element (enum heap ptr) → load it first.
-                mlir::Value elem_ptr;
-                if (ek == LogosType::Kind::Struct || ek == LogosType::Kind::ZonedStruct)
-                    elem_ptr = elem_gep;
-                else
-                    elem_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, ptr_type(), elem_gep);
-                builder_.create<mlir::func::CallOp>(loc_, elem_fn, mlir::ValueRange{elem_ptr});
-            }
-        }
-    }
-
-    // 4. Auto-drop the active variant's droppable payload fields of an ENUM
-    //    (G156-2 enum-half). Enum values are heap pointers; load the disc and,
-    //    for each variant carrying a droppable payload, conditionally GEP into
-    //    that variant's payload struct and drop each owned field. Only the
-    //    active variant's payload is live, so each drop is guarded by a disc
-    //    check. A payload moved out by a match/let binding is handled by marking
-    //    the scrutinee/source moved (so no SDrop is emitted for the enum).
-    //    SKIP when the enum has a USER `impl Drop` (drop_fn set): that drop takes
-    //    `self` by value and consumes the payload itself (its match binds the
-    //    payload, which drops at the drop-body end) — auto-dropping here too
-    //    would double-free (drop-trait-enum-b154).
-    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && drop_fn.empty() &&
-        st.kind() == LogosType::Kind::Enum) {
-        auto* te = resolve_tagged_enum(std::string(st.enum_name()), st);
-        if (te) {
+        } else if (k == K::Tuple) {
+            auto ttype = tuple_llvm_type(st);
+            auto elems = st.tuple_elems();
+            if (ttype)
+                for (int i = (int)elems.size() - 1; i >= 0; --i) {
+                    if (moved.count(std::to_string(i))) continue;
+                    TypeRef et(elems[i]);
+                    auto ek = et ? TypeRef(et).kind() : K::Error;
+                    if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
+                    if (!value_needs_drop(et)) continue;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
+                    auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, it->second, gi);
+                    mlir::Value cp = (ek == K::Enum)
+                        ? builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), gep).getResult()
+                        : gep;
+                    gen_drop_value(cp, et);
+                }
+        } else if (k == K::Enum && drop_fn.empty()) {
+            // The slot holds the enum heap ptr directly (var_tagged_enum_) or is a
+            // slot CONTAINING it (var_tagged_enum_ptr_ / mutable). gen_drop_value
+            // does the variant-switch + payload recursion.
             mlir::Value enum_ptr = it->second;
             if (var_tagged_enum_ptr_.count(var_name))
                 enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
-            struct DropField { int64_t idx; mlir::LLVM::LLVMStructType pay; std::string sym; bool inl; };
-            struct DropVariant { int64_t disc; std::vector<DropField> fields; };
-            std::vector<DropVariant> dvs;
-            for (auto& vp : te->variants) {
-                DropVariant dv; dv.disc = vp.disc;
-                auto pay = variant_payload_struct(vp);
-                for (size_t fi = 0; fi < vp.logos_types.size(); ++fi) {
-                    TypeRef ft(vp.logos_types[fi]);
-                    if (!ft) continue;
-                    auto fk = ft.kind();
-                    if (fk == LogosType::Kind::Ref || fk == LogosType::Kind::MutRef ||
-                        fk == LogosType::Kind::Ptr)
-                        continue;
-                    std::string fname;
-                    if (fk == LogosType::Kind::Struct || fk == LogosType::Kind::ZonedStruct)
-                        fname = concrete_struct_name(ft);
-                    else if (fk == LogosType::Kind::Enum)
-                        fname = std::string(ft.enum_name());
-                    if (fname.empty()) continue;
-                    std::string sym = resolve_method_symbol(fname, "drop");
-                    if (sym.empty() || !mod.lookupSymbol<mlir::func::FuncOp>(sym)) continue;
-                    dv.fields.push_back({(int64_t)fi, pay, sym,
-                        fk == LogosType::Kind::Struct || fk == LogosType::Kind::ZonedStruct});
-                }
-                if (!dv.fields.empty()) dvs.push_back(std::move(dv));
-            }
-            if (!dvs.empty()) {
-                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
-                auto disc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
-                llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-                auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
-                auto* region = builder_.getBlock()->getParent();
-                for (auto& dv : dvs) {
-                    auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, dv.disc, 32);
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, disc, dc);
-                    auto* then_blk = new mlir::Block();
-                    auto* cont_blk = new mlir::Block();
-                    region->push_back(then_blk);
-                    region->push_back(cont_blk);
-                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, then_blk, cont_blk);
-                    builder_.setInsertionPointToStart(then_blk);
-                    for (auto& f : dv.fields) {
-                        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(f.idx)};
-                        auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), f.pay, pay_ptr, fi);
-                        mlir::Value fptr = f.inl ? fp
-                            : builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp).getResult();
-                        if (auto ffn = mod.lookupSymbol<mlir::func::FuncOp>(f.sym))
-                            builder_.create<mlir::func::CallOp>(loc_, ffn, mlir::ValueRange{fptr});
-                    }
-                    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
-                    builder_.setInsertionPointToStart(cont_blk);
-                }
-            }
+            gen_drop_value(enum_ptr, st);
+        } else if (k == K::Array) {
+            // Inline array: it->second points at the `[T; N]` storage.
+            gen_drop_value(it->second, st);
         }
     }
 }

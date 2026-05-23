@@ -562,6 +562,15 @@ private:
     void gen_stmt_kind(lir_view::SForEachView v);
     void gen_stmt_kind(lir_view::SBlockView v);
     void gen_stmt_kind(lir_view::SDropView v);
+    // G158-4: recursively drop a value of type `ty` located at `value_ptr`
+    // (struct → user drop + fields; tuple → elements; enum → variant-switched
+    // payload; array → each element; ref/ptr/scalar → nothing). Handles
+    // arbitrary nesting (array-of-struct, struct-with-array-field, …).
+    void gen_drop_value(mlir::Value value_ptr, TypeRef ty);
+    // Codegen-side "does a value of this type own anything droppable" — mirrors
+    // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
+    // GEP/loop emission for non-droppable members.
+    bool value_needs_drop(TypeRef ty);
     void gen_stmt_kind(lir_view::SDerefWriteView v);
     void gen_stmt_kind(lir_view::SLetElseView v);
     void gen_stmt_kind(lir_view::SChainFieldWriteView v);

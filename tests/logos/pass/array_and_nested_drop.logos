@@ -1,0 +1,30 @@
+// Regression (G158-4 + generalization): Drop is now run for owned values in
+// arrays, AND for arbitrary nesting (array-of-struct, struct-with-array-field,
+// tuple-of-array, array-of-tuple) — via the unified recursive gen_drop_value.
+package array_and_nested_drop;
+
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+struct Holder { rs: [R; 2], tag: i64 }   // struct with an array-of-Drop field
+
+fn main() -> i32 {
+    // (1) bare array of Drop.
+    let mut c1: i64 = 0i64; let p1: *mut i64 = &mut c1;
+    { let _a: [R; 3] = [mk(p1), mk(p1), mk(p1)]; }
+    if c1 != 3i64 { return 1i32; }
+
+    // (2) struct containing an array-of-Drop field (nested).
+    let mut c2: i64 = 0i64; let p2: *mut i64 = &mut c2;
+    { let _h: Holder = Holder { rs: [mk(p2), mk(p2)], tag: 9i64 }; }
+    if c2 != 2i64 { return 2i32; }
+
+    // (3) tuple containing an array-of-Drop element (nested).
+    let mut c3: i64 = 0i64; let p3: *mut i64 = &mut c3;
+    { let _t: ([R; 2], i64) = ([mk(p3), mk(p3)], 1i64); }
+    if c3 != 2i64 { return 3i32; }
+
+    return 0i32;
+}

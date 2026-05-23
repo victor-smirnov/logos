@@ -2080,8 +2080,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) 
         if (auto sst = mlir::dyn_cast<mlir::LLVM::LLVMStructType>(stype);
             sst && i < sst.getBody().size())
             slot_ty = sst.getBody()[i];
-        if (slot_ty && mlir::isa<mlir::LLVM::LLVMStructType>(slot_ty) &&
+        if (slot_ty && (mlir::isa<mlir::LLVM::LLVMStructType>(slot_ty) ||
+                        mlir::isa<mlir::LLVM::LLVMArrayType>(slot_ty)) &&
             val.getType() == ptr_type()) {
+            // Inline aggregate element (struct OR array): gen_expr returns it BY
+            // POINTER; load the aggregate value and store it into the inline slot
+            // (storing the pointer would under-fill the slot — G158-4 nested).
             val = builder_.create<mlir::LLVM::LoadOp>(loc_, slot_ty, val);
         } else if (TypeRef(type).tuple_elems()[i]) {
             auto et = logos_to_mlir(TypeRef(type).tuple_elems()[i]);
