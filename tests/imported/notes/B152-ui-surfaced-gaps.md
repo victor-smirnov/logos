@@ -19,6 +19,24 @@ link. Tests that hit a gap were re-shaped to preserve the essence (noted inline
 
 ---
 
+## STATUS 2026-05-23 — gaps CLOSED
+✅ **G152-5** captured array write (silent) — c732163d. ✅ **G152-9** tuple-of-&Enum
+struct-variant SIGSEGV — 71f4aa9f. ✅ **G152-16** while-let labeled break + **G152-3**
+tuple-struct `x.0=v` write — 679c7a51. ✅ **G152-12** generic-struct field pattern
+types + **G152-15** `..` rest in tuple-struct/struct `let` — 786d74df.
+REVERTED: **G152-1** bare-mantissa float `5e-11` — peg_gen regex engine doesn't
+handle the alternation; the regex change had no effect (no hand-coded matcher
+either). Workaround `5.0e-11` stands; needs a peg_gen-regex-engine look.
+STILL OPEN (grammar/parse cluster, workarounds exist): G152-2/7/8 (turbofish on
+tuple-struct ctor / in pattern / `None::<T>`), G152-6 (composite-LHS where),
+G152-10/11 (type alias in pattern / generic alias ctor), G152-13 (`panic!()` by
+name), G152-14 (pattern in fn param).
+SIDE OBSERVATION: a destructure-`let` binding (`let Bar { b, .. } = …`) does not
+shadow an earlier same-named `let b` (reads the stale value) — distinct from
+G152-15; possible separate destructure-let-shadowing bug to confirm.
+
+---
+
 ## ⚠️ HIGHEST PRIORITY — SILENT MISCOMPILE
 
 ### G152-5 — writing a captured array element inside a closure is LOST ⚠️ SILENT MISCOMPILE
