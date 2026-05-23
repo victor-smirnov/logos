@@ -1,0 +1,15 @@
+package tuple_struct_numeric_field_literal;
+// G150-3: tuple-struct construction via the numeric-field literal syntax
+// `S { 0: a, 1: b }` (alternative to `S(a, b)`).
+struct S(i64, i64);
+struct One(i64);
+fn main() -> i64 {
+    let s: S = S { 0: 3, 1: 4 };
+    let o: One = One { 0: 10 };
+    // out-of-order fields also resolve by name
+    let t: S = S { 1: 100, 0: 5 };
+    if s.0 + s.1 != 7 { return 1; }
+    if o.0 != 10 { return 2; }
+    if t.0 + t.1 != 105 { return 3; }
+    return 0;
+}

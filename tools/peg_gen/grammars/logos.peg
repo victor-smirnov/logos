@@ -2448,6 +2448,11 @@
                => { CODE: FIELD_INIT, NAME_VAR: $2, VALUE: $4 }
               / IDENT COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
+              // G150-3: tuple-struct numeric-field literal `S { 0: a, 1: b }`.
+              // Fields of `struct S(T0, T1)` are named "0"/"1" internally
+              // (same as `s.0` access), so the integer token text is the name.
+              / INTEGER COLON expr
+               => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
               / KW_NEW COLON expr
                => { CODE: FIELD_INIT, NAME: $1, VALUE: $3 }
               / KW_NULL COLON expr
