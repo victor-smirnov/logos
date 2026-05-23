@@ -1,0 +1,24 @@
+package rest_pattern_variant_tuple_struct;
+// G151-2: `..` rest in tuple-variant and tuple-struct patterns —
+// `A(..)`, `A(x, ..)`, `A(.., y)`, and the tuple-struct counterparts.
+enum E { A(i64, i64, i64), B }
+struct S(i64, i64, i64);
+fn ev_all(e: &E) -> i64 { match e { E::A(..) => { return 1; } E::B => { return 0; } } }
+fn ev_pre(e: &E) -> i64 { match e { E::A(x, ..) => { return x; } E::B => { return 0; } } }
+fn ev_suf(e: &E) -> i64 { match e { E::A(.., z) => { return z; } E::B => { return 0; } } }
+fn ev_mid(e: &E) -> i64 { match e { E::A(x, .., z) => { return x + z; } E::B => { return 0; } } }
+fn ts_all(s: &S) -> i64 { match s { S(..) => { return 1; } } }
+fn ts_pre(s: &S) -> i64 { match s { S(x, ..) => { return x; } } }
+fn ts_suf(s: &S) -> i64 { match s { S(.., z) => { return z; } } }
+fn main() -> i64 {
+    let e = E::A(3, 4, 5);
+    if ev_all(&e) != 1 { return 1; }
+    if ev_pre(&e) != 3 { return 2; }
+    if ev_suf(&e) != 5 { return 3; }
+    if ev_mid(&e) != 8 { return 4; }
+    let s = S(7, 8, 9);
+    if ts_all(&s) != 1 { return 5; }
+    if ts_pre(&s) != 7 { return 6; }
+    if ts_suf(&s) != 9 { return 7; }
+    return 0;
+}

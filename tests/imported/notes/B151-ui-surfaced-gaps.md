@@ -58,7 +58,7 @@ mutate / second-position payload). Regression `pass/ref_struct_enum_payload`.
 
 ## Parse / unsupported-syntax gaps (clean errors, not miscompiles)
 
-### G151-2 — `..` rest pattern inside a tuple-struct / tuple-variant pattern
+### G151-2 — ✅ FIXED: `..` rest in tuple-struct / tuple-variant pattern
 `A(..)` (tuple-struct) and `Variant(..)` (tuple enum variant) are parse errors
 (`syntax error near '('`). Per-field wildcards (`A(_)`, `Variant(_, _)`) work.
 - Repro: `match A(3i64) { A(..) => … }` → `syntax error near '('`.

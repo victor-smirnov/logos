@@ -2264,30 +2264,52 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             lir::PatStruct ps;
             ps.struct_name = pename;
             ps.has_rest    = false;
-            size_t sub_n = 0;
+            size_t arity   = tsi_p->fields.size();
             if (pnode.has_key(la::ARGS)) {
                 auto aav = pnode.get(la::ARGS.code);
                 if (!aav.is_null() && aav.is_pointer()) {
                     auto blist = map_of(aav);
                     if (blist.has_key(la::ITEMS)) {
                         auto bitems = arr_of(blist.get(la::ITEMS.code));
-                        sub_n = bitems.size();
+                        // G151-2: a single `..` rest in a tuple-struct pattern
+                        // (`S(..)`, `S(x, ..)`, `S(.., z)`). Map named args to
+                        // their real positions (before-rest → low, after-rest →
+                        // tail) and set has_rest; skipped positions bind nothing.
+                        int rest_idx = -1;
+                        size_t non_rest = 0;
+                        for (uint64_t j = 0; j < bitems.size(); ++j) {
+                            if (code_of(map_of(bitems.get(j))) == la::PAT_REST) {
+                                if (rest_idx >= 0)
+                                    error("tuple-struct pattern: only one '..' allowed");
+                                rest_idx = (int)j;
+                            } else ++non_rest;
+                        }
+                        if (rest_idx >= 0) ps.has_rest = true;
                         for (uint64_t j = 0; j < bitems.size(); ++j) {
                             auto bnode = map_of(bitems.get(j));
-                            TypeRef ftype = j < tsi_p->fields.size()
-                                            ? tsi_p->fields[j].type : nullptr;
+                            if (code_of(bnode) == la::PAT_REST) continue;
+                            size_t pos;
+                            if (rest_idx < 0 || (int)j < rest_idx) pos = j;
+                            else pos = arity - (bitems.size() - 1 - (size_t)rest_idx)
+                                       + (j - (size_t)rest_idx - 1);
+                            TypeRef ftype = pos < tsi_p->fields.size()
+                                            ? tsi_p->fields[pos].type : nullptr;
                             lir::PatFieldBinding fb;
-                            fb.field_name = std::to_string(j);
+                            fb.field_name = std::to_string(pos);
                             fb.sub.push_back(build_pattern(bnode, ftype));
                             ps.fields.push_back(std::move(fb));
                         }
+                        if (rest_idx < 0 && non_rest != arity)
+                            error(std::format(
+                                "tuple-struct pattern '{}': expected {} fields, got {}",
+                                pename, arity, non_rest));
+                        else if (rest_idx >= 0 && non_rest > arity)
+                            error(std::format(
+                                "tuple-struct pattern '{}': {} fields exceed arity {}",
+                                pename, non_rest, arity));
                     }
                 }
             }
-            if (sub_n != tsi_p->fields.size())
-                error(std::format(
-                    "tuple-struct pattern '{}': expected {} fields, got {}",
-                    pename, tsi_p->fields.size(), sub_n));
             auto mo = lir_mirror_emit_pat_struct(
                 *cur_prog_, ps.struct_name, ps.fields, ps.has_rest);
             lir::Pattern p_;
@@ -2576,6 +2598,21 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // until the match-lowering supports nested guards.
                     int32_t bc = code_of(bnode);
                     if (bc == la::PAT_UNIT) continue;  // () unit — no binding
+                    // G151-2: `..` rest in a tuple-variant pattern (`A(..)`,
+                    // `A(x, ..)`, `A(.., y)`). Expand to `_` for the skipped
+                    // positions so the remaining (named) args land on the
+                    // correct payload positions. Only one `..` allowed.
+                    if (bc == la::PAT_REST) {
+                        size_t arity = vinfo ? vinfo->payload_types.size() : 0;
+                        size_t non_rest = bitems.size() - 1;  // this rest is one item
+                        size_t gap = arity > non_rest ? arity - non_rest : 0;
+                        for (size_t g = 0; g < gap; ++g) {
+                            bindings.push_back("_");
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(false);
+                        }
+                        continue;
+                    }
                     if (bc == la::PAT_WILD) {
                         if (!bnode.has_key(la::NAME)) continue;
                         bool is_ref = bnode.has_key(la::IS_REF) &&

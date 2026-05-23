@@ -1683,7 +1683,9 @@
     // Emit PAT_OR only when a PIPE is actually present, so single-pattern
     // args pass through unchanged (sema's variant-payload arg lowering
     // recurses via build_pattern, which already handles PAT_OR).
-    pat_variant_arg <- pat_single PIPE pat_single (PIPE pat_single)*
+    pat_variant_arg <- DOTDOT
+                    => { CODE: PAT_REST }
+                     / pat_single PIPE pat_single (PIPE pat_single)*
                     => { CODE: PAT_OR, ITEMS: $... }
                      / pat_single
     pat_variant_args <- pat_variant_arg (COMMA pat_variant_arg)* COMMA?
