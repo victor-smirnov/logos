@@ -3,12 +3,11 @@
 // Modifications: the macro/`const`/`static` machinery dropped; reduced to the
 //   path forms that translate: a free fn item bound to an `fn`-pointer value
 //   and called; a type-qualified UFCS instance-method call `i64::dbl(&n)`; a
-//   type-qualified UFCS static-method call `Maker::make()`. The TRAIT-qualified
-//   instance-method form `Doubler::dbl(&n)` is dropped (gap G159-2: only
-//   type-qualified and trait-static UFCS resolve). `&self`->`self: &Self`;
-//   assert! -> early-return sentinels.
+//   TRAIT-qualified instance-method call `Doubler::dbl(&n)` (G159-2, closed
+//   2026-05-23); a type-qualified UFCS static-method call `Maker::make()`.
+//   `&self`->`self: &Self`; assert! -> early-return sentinels.
 // Tests UFCS-style polymorphic paths: a free fn item as an `fn`-pointer value,
-//   a type-qualified instance method `Type::method(&recv)`, and a static method.
+//   a type-qualified AND a trait-qualified instance method, and a static method.
 package ufcs_polymorphic_paths_b159;
 
 trait Doubler { fn dbl(self: &Self) -> i64; }
@@ -29,6 +28,9 @@ fn main() -> i32 {
     // type-qualified UFCS instance method
     let n = 21i64;
     if i64::dbl(&n) != 42i64 { return 2i32; }
+
+    // trait-qualified UFCS instance method (G159-2)
+    if Doubler::dbl(&n) != 42i64 { return 4i32; }
 
     // type-qualified UFCS static method
     let m = Maker::make();

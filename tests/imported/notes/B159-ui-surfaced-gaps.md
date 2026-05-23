@@ -89,23 +89,16 @@ type-qualified instance method `Type::method(&recv)`, a static method
   Assessment: TRACTABLE-ish mono gap (blanket-method-over-generic-enum
   instantiation enqueue), in the same family as prior blanket-impl mono fixes.
 
-- **G159-2** ◻ OPEN (TRACTABLE) — TRAIT-qualified UFCS instance-method call
-  `Trait::method(&recv)` does not resolve: `call to undefined static method
-  'Doubler::dbl'`. The TYPE-qualified form `Type::method(&recv)` (e.g.
-  `i64::dbl(&n)`) AND trait-static UFCS (`Trait::new()` via let-anno, G158-9)
-  both work. So the missing channel is specifically resolving a trait-path
-  *instance* method by the first-argument's type. Minimal repro:
-  ```
-  trait Doubler { fn dbl(self: &Self) -> i64; }
-  impl Doubler for i64 { fn dbl(self: &Self) -> i64 { return *self * 2i64; } }
-  fn main() -> i32 { let n = 21i64; if Doubler::dbl(&n) != 42i64 { return 1i32; } return 0i32; }
-  ```
-  Original test `ufcs/ufcs-polymorphic-paths.rs`; the trait-qualified instance
-  form was DROPPED, kept test uses the type-qualified form. Assessment:
-  TRACTABLE — `lower_static_call` already resolves trait-path STATIC methods via
-  Self inference; extend it to bind Self from the first (receiver) argument's
-  type for declared INSTANCE methods, then bridge to the concrete
-  `<Type>__<method>` symbol (mirrors the G158-9 fix shape).
+- **G159-2** ✅ CLOSED (2026-05-23) — TRAIT-qualified UFCS instance-method call
+  `Trait::method(&recv)` now resolves for a PRIMITIVE receiver too. There was
+  already a trait-qualified-UFCS handler in `lower_static_call` (maps
+  `Trait::method(recv,…)` → `<recv-type>__<method>` from the first arg's type),
+  but it only recognised Struct/ZonedStruct/Enum receivers; a primitive
+  receiver (`Doubler::dbl(&n)`, n: i64) left `rname` empty → "call to undefined
+  static method 'Doubler::dbl'". Added a primitive-scalar arm
+  (int/float/bool/char widths) keying on `type_str(rt)` (`i64__dbl`). Verified
+  struct + primitive + multi-arg forms. Restored the trait-qualified instance
+  call to `ufcs-polymorphic-paths-b159`.
 
 - **G159-3** ◻ OPEN (TRACTABLE) — EXPRESSION-valued enum discriminants are a
   parse error: `enum Color { Purple = 1 << 1, Orange = 8 >> 1 }` →

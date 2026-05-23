@@ -10289,7 +10289,11 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // (type-qualified) already works; this adds the trait-qualified form.
     if (find_trait_iter_scoped(std::string(class_name)) != traits_.end() &&
         !arg_exprs.empty() && !enums_.count(std::string(class_name)) &&
-        find_struct_by_name(std::string(class_name)).second == nullptr) {
+        find_struct_by_name(std::string(class_name)).second == nullptr &&
+        // A datatype (Hermes) sharing the trait's name (e.g. `Array`) has its
+        // own static methods (`Array::init`) — don't hijack those as a
+        // trait-UFCS instance dispatch on the first arg's type (G159-2 guard).
+        find_datatype_by_name(std::string(class_name)).second == nullptr) {
         TypeRef rt = arg_exprs[0]->type;
         while (rt && (is_ref_like(TypeRef(rt).kind()) ||
                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
@@ -10304,8 +10308,31 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                             : concrete_struct_name(rt);
             else if (rk == LogosType::Kind::Enum)
                 rname = TypeRef(rt).enum_name().to_string();
+            else if (rk == LogosType::Kind::I8  || rk == LogosType::Kind::I16 ||
+                     rk == LogosType::Kind::I24 || rk == LogosType::Kind::I32 ||
+                     rk == LogosType::Kind::I56 || rk == LogosType::Kind::I64 ||
+                     rk == LogosType::Kind::I128 ||
+                     rk == LogosType::Kind::U8  || rk == LogosType::Kind::U16 ||
+                     rk == LogosType::Kind::U24 || rk == LogosType::Kind::U32 ||
+                     rk == LogosType::Kind::U56 || rk == LogosType::Kind::U64 ||
+                     rk == LogosType::Kind::U128 ||
+                     rk == LogosType::Kind::Usize || rk == LogosType::Kind::Isize ||
+                     rk == LogosType::Kind::F32 || rk == LogosType::Kind::F64 ||
+                     rk == LogosType::Kind::Bool || rk == LogosType::Kind::Char)
+                // G159-2: primitive receiver (`Doubler::dbl(&n)` where n: i64).
+                // The impl `impl Doubler for i64` mangles to `i64__dbl`.
+                rname = type_str(rt);
         }
-        if (!rname.empty()) { resolved_class = rname; mangled = rname + "__" + std::string(method_name); }
+        // Only commit the rewrite when the concrete `<recv-type>__<method>`
+        // actually resolves — otherwise leave `mangled` for the normal
+        // resolution paths (and a clean error) instead of a spurious miss.
+        if (!rname.empty()) {
+            std::string cand = rname + "__" + std::string(method_name);
+            if (!find_func_candidates(cand).empty() || find_generic_func(cand)) {
+                resolved_class = rname;
+                mangled = cand;
+            }
+        }
     }
 
     // A bounded type-param used as the static-call class (`S::method` inside
