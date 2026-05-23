@@ -6269,7 +6269,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         if (mm.name == method_name) { provider_traits++; break; }
                     if (provider_traits > 1) break;
                 }
-                if (provider_traits > 1) mc.tag_trait = chosen_trait;
+                // Tag the chosen trait so mono resolves to the trait-qualified
+                // symbol `<Concrete>__<Trait>__<method>` when one exists. Needed
+                // not only for multi-trait collisions but also when the trait
+                // method was qualified away from the plain base by a same-named
+                // INHERENT method (G156-5) — there the plain base holds the
+                // inherent, so a `T: Trait` bound call must use the qualified
+                // name or it wrongly dispatches to the inherent. Mono falls back
+                // to the plain name when no qualified symbol exists, so tagging
+                // the single-provider case is harmless.
+                if (provider_traits >= 1) mc.tag_trait = chosen_trait;
             }
             return builder().method_call_v(std::move(mc), ret_type);
         }

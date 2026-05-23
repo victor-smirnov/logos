@@ -1,0 +1,21 @@
+// Regression (G156-5): a type with BOTH an inherent method and a same-named
+// trait method collided on the mangled symbol (`duplicate function`). Rust
+// prefers the inherent for a concrete receiver, while a `T: Trait` bound call
+// uses the trait method. The inherent now stays on the plain base; the trait
+// method is qualified (`Type__Trait__m`); concrete dispatch finds the inherent,
+// and a trait-bound call carries tag_trait so mono picks the qualified symbol.
+package inherent_vs_trait_method;
+
+struct Foo {}
+trait Trait { fn bar(self: &Self) -> i64; }
+impl Foo { fn bar(self: &Self) -> i64 { return 7i64; } }
+impl Trait for Foo { fn bar(self: &Self) -> i64 { return 999i64; } }
+
+fn via_trait<T: Trait>(x: &T) -> i64 { return x.bar(); }
+
+fn main() -> i32 {
+    let f = Foo {};
+    if f.bar() != 7i64 { return 1i32; }                 // inherent wins (concrete)
+    if via_trait::<Foo>(&f) != 999i64 { return 2i32; }  // trait method via bound
+    return 0i32;
+}

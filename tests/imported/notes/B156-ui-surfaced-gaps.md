@@ -114,7 +114,15 @@ impl NonZero for <i32 as Int>::T { ... }   // syntax error near 'impl'
 Observed: `syntax error near 'impl'`. Decision: **associated-types-projection-
 from-known-type-in-impl DROPPED**.
 
-### G156-5 — inherent method NOT preferred over a same-named trait method (collision)
+### G156-5 — ✅ FIXED: inherent method now preferred over same-named trait method
+**FIXED** (this session): the inherent stays on the plain base (concrete receiver
+dispatch finds it → inherent wins, Rust semantics); the trait method is qualified
+`Type__Trait__m` and recorded in trait_method_registry_, and the typevar-bound
+dispatch now tags the chosen trait (single-provider too) so a `T: Trait` call
+resolves to the qualified symbol. Regression
+`tests/logos/pass/inherent_vs_trait_method.logos`. Original report follows.
+
+### G156-5 (orig) — inherent method NOT preferred over a same-named trait method (collision)
 A type having both an inherent method and a trait method of the SAME name
 collides on mangling instead of preferring the inherent one (Rust prefers the
 inherent). Tractable: relates to G156-1 / trait-aware method mangling — an

@@ -3712,6 +3712,8 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
         bool already = trait_method_registry_.count(plain_base) > 0;
         std::string clash_sym;
+        bool clash_inherent = false;   // G156-5: an INHERENT method of the same
+                                       // name+sig already holds the plain base.
         if (!already) {
             if (auto oit = ov.find(plain_base); oit != ov.end()) {
                 for (auto& sym : oit->second) {
@@ -3719,14 +3721,31 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                     if (fit == tbl.end()) continue;
                     std::string esig = function_signature_key(
                         plain_base, fit->second.param_types, fit->second.is_vararg);
-                    if (esig == plain_sig && !fit->second.trait_name.empty() &&
-                        fit->second.trait_name != info.trait_name) {
+                    if (esig != plain_sig) continue;
+                    if (fit->second.trait_name.empty()) {
+                        clash_inherent = true;   // keep inherent; qualify trait
+                    } else if (fit->second.trait_name != info.trait_name) {
                         clash_sym = sym; break;
                     }
                 }
             }
         }
-        if (already || !clash_sym.empty()) {
+        if (clash_inherent && clash_sym.empty()) {
+            // G156-5: Rust prefers the inherent method over a same-named trait
+            // method. Leave the inherent on the plain base (concrete-receiver
+            // dispatch finds it directly) and qualify ONLY this trait method so
+            // both coexist. Record the trait in the registry so a `T: Trait`
+            // BOUND dispatch resolves to the qualified `<type>__<trait>__<m>`
+            // (not the inherent on the plain base). With a single trait the
+            // registry size stays 1 → no disambiguation error for concrete.
+            {
+                auto& traits = trait_method_registry_[plain_base];
+                if (std::find(traits.begin(), traits.end(), info.trait_name) == traits.end())
+                    traits.push_back(info.trait_name);
+            }
+            base_name      = qual_base;
+            info.base_name = qual_base;
+        } else if (already || !clash_sym.empty()) {
             // First collision: re-key the pre-existing plain entry to its
             // own trait-qualified base, and pull it out of the plain index.
             if (!clash_sym.empty()) {
