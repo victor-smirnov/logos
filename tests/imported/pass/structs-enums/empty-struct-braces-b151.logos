@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust tests/ui/structs-enums/empty-struct-braces.rs
+// Modifications: a focused subset — empty brace struct `Empty1 {}` + an enum
+// with a brace-style empty variant `Empty4 {}` and a unit variant, constructed
+// and matched (the xcrate half, unit-struct `Empty2;`, tuple `Empty7()`, FRU on
+// empty structs, and fn-ctor coercion cases dropped). Tests empty-brace struct
+// and enum-variant construction + matching with `{}` and `{ .. }` patterns.
+package empty_struct_braces_test;
+
+struct Empty1 {}
+
+enum E {
+    Empty4 {},
+    Empty5,
+}
+
+fn classify(e: E) -> i32 {
+    match e {
+        E::Empty4 {} => 4,
+        E::Empty5 => 5,
+    }
+}
+
+fn main() -> i32 {
+    let e1: Empty1 = Empty1 {};
+    match e1 {
+        Empty1 {} => {}
+    }
+    match e1 {
+        Empty1 { .. } => {}
+    }
+    if classify(E::Empty4 {}) != 4 { return 1; }
+    if classify(E::Empty5) != 5 { return 2; }
+    return 0;
+}
