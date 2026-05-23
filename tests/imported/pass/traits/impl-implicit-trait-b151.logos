@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust tests/ui/traits/impl-implicit-trait.rs
+// Modifications: isize → i64; `&self` → `self: &Self`; added a main body that
+// constructs each enum and calls the inherent method (orig main empty). Tests
+// inherent `impl` blocks (no trait) on a generic enum and a non-generic enum,
+// each providing a method `foo`.
+package impl_implicit_trait_test;
+
+use logos.std.fmt;
+
+enum OptionA<T> {
+    NoneA,
+    SomeA(T),
+}
+
+impl<T> OptionA<T> {
+    fn foo(self: &OptionA<T>) -> bool { return true; }
+}
+
+enum OptionB {
+    NoneB,
+    SomeB(i64),
+}
+
+impl OptionB {
+    fn foo(self: &OptionB) -> bool { return true; }
+}
+
+fn main() -> i32 {
+    let a = OptionA::SomeA(3i64);
+    let b = OptionB::SomeB(7i64);
+    assert_eq!(a.foo(), true);
+    assert_eq!(b.foo(), true);
+    return 0;
+}

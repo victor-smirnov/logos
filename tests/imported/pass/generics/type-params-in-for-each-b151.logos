@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust tests/ui/generics/type-params-in-for-each.rs
+// Modifications: usize → i64; `extern "C" fn` param dropped (the test never
+// calls create_index, and the ABI marker is incidental); `Vec<T>` local kept
+// via vec_new::<T>(); the higher-order `range_` driver kept. Tests instantiating
+// a method-generic higher-order fn (`F: FnMut(i64)`) whose closure body declares
+// a `Vec<T>` over the outer type param T.
+package type_params_in_for_each_test;
+
+use logos.lang.range;
+use logos.lang.iter;
+
+struct S<T> {
+    a: T,
+    b: i64,
+}
+
+fn range_<F: FnMut(i64)>(lo: i64, hi: i64, mut it: F) {
+    let mut lo_ = lo;
+    while lo_ < hi { it(lo_); lo_ += 1i64; }
+}
+
+fn create_index<T>() {
+    range_(0i64, 256i64, |_i: i64| {
+        let _bucket: Vec<T> = vec_new::<T>();
+    });
+}
+
+fn main() -> i32 {
+    create_index::<i64>();
+    return 0;
+}

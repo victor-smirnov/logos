@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/where-clauses/where-clauses-method.rs
+// Modifications: `&self` → `self: &Self`; `==` on the generic field requires the
+// `where T: Eq` bound (mapped to Logos's Eq); `println!` → exit checks. Tests a
+// method on a generic struct carrying a method-level `where T: Eq` clause,
+// dispatching `==` on the generic field.
+package where_clauses_method_test;
+
+use logos.std.fmt;
+
+struct Foo<T> {
+    value: T,
+}
+
+impl<T> Foo<T> {
+    fn equals(self: &Foo<T>, u: &Foo<T>) -> bool where T: Eq {
+        return self.value == u.value;
+    }
+}
+
+fn main() -> i32 {
+    let x = Foo { value: 1i64 };
+    let y = Foo { value: 2i64 };
+    assert_eq!(x.equals(&x), true);
+    assert_eq!(x.equals(&y), false);
+    return 0;
+}

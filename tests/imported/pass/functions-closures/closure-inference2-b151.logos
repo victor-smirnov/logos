@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/closure-inference2.rs
+// Modifications: integer literals annotated i64; assert_eq! → exit check. Tests
+// an identity closure written inside a block expression (`let f = { |i| i };`)
+// and called twice with inferred argument type.
+package closure_inference2_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let f = { |i: i64| i };
+    assert_eq!(f(2i64), 2i64);
+    assert_eq!(f(5i64), 5i64);
+    return 0;
+}

@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/fn-coerce-field.rs
+// Modifications: the nested fn `f` hoisted to top level (Logos has no fn-in-fn
+// here); a call of the stored fn-ptr field added + exit check. Tests a generic
+// struct with an `FnOnce`-bounded field holding a fn item coerced to `fn()`
+// (`field: f as fn()`).
+package fn_coerce_field_test;
+
+struct R<F: FnOnce()> {
+    field: F,
+}
+
+fn f() {}
+
+fn main() -> i32 {
+    let i: R<fn()> = R { field: f as fn() };
+    (i.field)();
+    return 0;
+}

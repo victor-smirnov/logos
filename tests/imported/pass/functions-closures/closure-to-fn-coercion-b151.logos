@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/closure-to-fn-coercion.rs
+// Modifications: kept the local-binding coercion cases; the `const FOO`/`const
+// BAR` array-of-fn-ptr and `generic::<T>` size_of cases dropped (const-at-type +
+// size_of are Logos divergences); the return-position coercion (`fn() -> fn()`)
+// rewritten as a local-binding coercion (return-position closure→fn-ptr is a
+// gap, G151-3); assert_eq! → exit check. Tests a non-capturing closure coercing
+// to a `fn(u8) -> u8` / `fn() -> u32` pointer bound to a local and called.
+package closure_to_fn_coercion_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let foo: fn(u8) -> u8 = |v: u8| v;
+    assert_eq!(foo(31u8), 31u8);
+    let bar: fn() -> u32 = || 42u32;
+    assert_eq!(bar(), 42u32);
+    return 0;
+}

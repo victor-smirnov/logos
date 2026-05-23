@@ -215,3 +215,16 @@ multi-place assignment). All four DROPPED.
 - traits/**multi-rhs-eq** (issue-26339): two impls of one generic trait with different type-args on one Self, arg-type-driven dispatch.
 - traits/**inherent-over-blanket** (multidispatch-conditional-impl-not-considered): inherent method preferred over an inapplicable blanket trait impl.
 - where-clauses/**where-clauses-method** (where-clauses-method): method-level `where T: Eq` constraint + `==` on the constrained field.
+
+#### G149-6 — EXECUTABLE PLAN (found 2026-05-22, read-only)
+The mangler wall IS resolvable with a TARGETED change (not global):
+`mangle_type_for_name` (sema.cpp ~1334) falls through to `type_str` for FnPtr →
+`fn(A,B)->C` (TypeVar-laden). Add a `mutable bool mangle_erase_fnptr_` flag:
+`function_signature_key` sets it true when `base_name` starts with `$fnptr$`
+(i.e. a fn-ptr-impl method), mangles, resets. mangle_type_for_name gains an
+explicit `case FnPtr:` → if the flag is set, return `$fnptr$<closure_params size>`
+(arity-only, no TypeVars); else current `type_str` behavior. Emission then names
+the method `$fnptr$2__foo__f__ref_$fnptr$2__ref_$fnptr$2` (stable), and the mono
+call (cname `$fnptr$2`, prefix-match `$fnptr$2__foo__`) finds it. NOT global —
+regular `fn apply(f: fn(..)->..)` keeps full-sig mangling (base_name="apply").
+Re-apply the 7 prototype sites + this mangler change = full fix.

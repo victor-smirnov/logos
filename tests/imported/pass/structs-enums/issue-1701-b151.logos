@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/structs-enums/issue-1701.rs
+// Modifications: the `Option<String>` return → an i64 code per variant (Logos
+// has no Option<String> == ); the tuple-variant REST patterns `cat(..)` /
+// `rabbit(..)` → explicit per-field wildcards `Cat(_)` / `Rabbit(_, _)` (the
+// `..` rest form in a tuple-variant pattern is a parse error, gap G151-2);
+// isize → i64; assert_eq! → exit checks. Tests matching a mixed enum (single-
+// payload, two-payload, and unit variants) dispatching on the variant.
+package issue_1701_test;
+
+use logos.std.fmt;
+
+enum Pat { Tabby, Tortoise, Calico }
+enum Breed { Beagle, Rottweiler, Pug }
+enum EarKind { Lop, Upright }
+enum Animal { Cat(Pat), Dog(Breed), Rabbit(i64, EarKind), Tiger }
+
+fn noise(a: Animal) -> i64 {
+    match a {
+        Animal::Cat(_) => 1i64,
+        Animal::Dog(_) => 2i64,
+        Animal::Rabbit(_, _) => 3i64,
+        Animal::Tiger => 4i64,
+    }
+}
+
+fn main() -> i32 {
+    assert_eq!(noise(Animal::Cat(Pat::Tabby)), 1i64);
+    assert_eq!(noise(Animal::Dog(Breed::Pug)), 2i64);
+    assert_eq!(noise(Animal::Rabbit(7i64, EarKind::Upright)), 3i64);
+    assert_eq!(noise(Animal::Tiger), 4i64);
+    return 0;
+}

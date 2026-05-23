@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/pattern/struct-wildcard-pattern-14308.rs
+// Modifications: isize → i64; the tuple-struct REST wildcard `A(..)` rewritten
+// to the per-field wildcard `A(_)` (the `..` rest form is a parse error in a
+// tuple-struct pattern — gap G151-2); assert_eq! → exit checks. Tests a
+// tuple-struct wildcard pattern matching any value, and a literal-field arm
+// `A(1)` falling through to the wildcard.
+package struct_wildcard_pattern_test;
+
+use logos.std.fmt;
+
+struct A(i64);
+
+fn main() -> i32 {
+    let x = match A(3i64) {
+        A(_) => 1i64,
+    };
+    assert_eq!(x, 1i64);
+    let x = match A(4i64) {
+        A(1) => 1i64,
+        A(_) => 2i64,
+    };
+    assert_eq!(x, 2i64);
+    return 0;
+}

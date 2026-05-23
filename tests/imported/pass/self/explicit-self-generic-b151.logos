@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust tests/ui/self/explicit-self-generic.rs
+// Modifications: usize → i64; `Box<_>` indirection dropped (incidental); `&mut
+// self` → `self: &mut Self`; `Vec<(K,V)>` payload kept via vec_new; `match
+// *self` → `match self`; the upstream `ref l` binding rewritten to a by-value
+// binding `l` — `ref`-binding a STRUCT enum payload then reading `l.field` is a
+// silent miscompile (gap G151-1); by-value binding is correct; assert_eq! →
+// exit. Tests a method on a two-type-param generic enum (`HashMap<K,V>`) that
+// matches `self` and reads a field out of a struct payload.
+package explicit_self_generic_test;
+
+use logos.std.fmt;
+
+struct LM { resize_at: i64, size: i64 }
+
+enum HashMap<K, V> {
+    Inner(LM, Vec<(K, V)>),
+}
+
+fn linear_map<K, V>() -> HashMap<K, V> {
+    return HashMap::Inner(LM { resize_at: 32i64, size: 0i64 }, vec_new::<(K, V)>());
+}
+
+impl<K, V> HashMap<K, V> {
+    fn len(self: &mut HashMap<K, V>) -> i64 {
+        match self {
+            HashMap::Inner(l, _) => { return l.size; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = linear_map::<i64, i64>();
+    assert_eq!(m.len(), 0i64);
+    return 0;
+}

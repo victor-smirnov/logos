@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust tests/ui/traits/bound/generic_trait.rs
+// Modifications: isize → i64; the `impl ... for ()` targets become a zero-field
+// struct (Logos has no method surface on bare `()`); `&self` → `self: &Self`;
+// assert_eq! → exit check. Tests a trait `ConnFactory<C: Conn>` whose type
+// param is itself trait-bounded, with both traits implemented and the factory's
+// `create()` result's method dispatched.
+package generic_trait_bound_test;
+
+use logos.std.fmt;
+
+struct Conn {}
+struct Factory {}
+
+trait Connection {
+    fn read(self: &Self) -> i64;
+}
+
+trait ConnectionFactory<C: Connection> {
+    fn create(self: &Self) -> C;
+}
+
+impl Connection for Conn {
+    fn read(self: &Conn) -> i64 { return 43i64; }
+}
+
+impl ConnectionFactory<Conn> for Factory {
+    fn create(self: &Factory) -> Conn { return Conn {}; }
+}
+
+fn main() -> i32 {
+    let factory = Factory {};
+    let connection: Conn = factory.create();
+    let result = connection.read();
+    assert_eq!(result, 43i64);
+    return 0;
+}

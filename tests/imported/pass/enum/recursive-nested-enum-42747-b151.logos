@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/enum/issue-42747.rs
+// Modifications: the `macro_rules! fooN!` expansion (27 levels) is written out
+// by hand for 4 levels (macro_rules! is not on the Logos surface); the unit
+// base `()` payload becomes a zero-field struct; literals suffixed. Tests
+// deeply-nested recursive enum types (each carrying the previous as payload),
+// constructed at the outermost level.
+package recursive_nested_enum_test;
+
+use logos.std.fmt;
+
+struct Base {}
+
+enum Foo0 { Empty, First(Base), Second(Base) }
+enum Foo1 { Empty, First(Foo0), Second(Foo0) }
+enum Foo2 { Empty, First(Foo1), Second(Foo1) }
+enum Foo3 { Empty, First(Foo2), Second(Foo2) }
+
+fn depth(f: Foo3) -> i64 {
+    match f {
+        Foo3::Empty => 0i64,
+        Foo3::First(_) => 1i64,
+        Foo3::Second(_) => 2i64,
+    }
+}
+
+fn main() -> i32 {
+    let a = Foo3::Empty;
+    let b = Foo3::First(Foo2::Second(Foo1::First(Foo0::Empty)));
+    assert_eq!(depth(a), 0i64);
+    assert_eq!(depth(b), 1i64);
+    return 0;
+}

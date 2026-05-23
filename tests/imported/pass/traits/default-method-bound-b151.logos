@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/traits/default-method/bound.rs
+// Modifications: isize → i64; impl-on-primitive kept; `&self` → `self: &Self`;
+// assert_eq! → exit check. Tests a trait default method `g` (returns 10)
+// reached through an empty `impl A for i64 {}` via a `T: A` generic bound.
+package default_method_bound_test;
+
+use logos.std.fmt;
+
+trait A {
+    fn g(self: &Self) -> i64 { return 10i64; }
+}
+
+impl A for i64 {}
+
+fn f<T: A>(i: T) {
+    assert_eq!(i.g(), 10i64);
+}
+
+fn main() -> i32 {
+    f(0i64);
+    return 0;
+}

@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust tests/ui/traits/alignment-gep-tup-like-1.rs
+// Modifications: the `Box<dyn Invokable<A>>` indirection dropped — the trait
+// method is called directly on the generic struct (Box/dyn incidental to the
+// tuple-return point); `&self` → `self: &Self`; `.clone()` on a Copy field
+// dropped; assert_eq! → exit check. Tests a generic struct method returning a
+// tuple `(A, u16)` mixing the generic field and a u16 field (GEP alignment).
+package alignment_gep_tup_like_test;
+
+use logos.std.fmt;
+
+struct Invoker<A> {
+    a: A,
+    b: u16,
+}
+
+trait Invokable<A> {
+    fn f(self: &Self) -> (A, u16);
+}
+
+impl<A: Copy> Invokable<A> for Invoker<A> {
+    fn f(self: &Invoker<A>) -> (A, u16) {
+        return (self.a, self.b);
+    }
+}
+
+fn main() -> i32 {
+    let inv = Invoker::<u64> { a: 22u64, b: 44u16 };
+    let r = inv.f();
+    assert_eq!(r.0, 22u64);
+    assert_eq!(r.1, 44u16);
+    return 0;
+}

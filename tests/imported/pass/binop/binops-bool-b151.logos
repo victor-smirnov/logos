@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust tests/ui/binop/binops.rs
+// Modifications: kept the bool subset (test_bool) + a struct field-mutation
+// inequality check (test_class, isize→i64); dropped the unit `()` relational,
+// raw-pointer transmute, and struct == (no enum/struct == in Logos) cases;
+// assert!/assert_eq! → exit checks. Tests bool relational + bitwise operators
+// and a struct's mutable field write changing a subsequent comparison.
+package binops_bool_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    // bool relational
+    if (true < false) { return 1; }
+    if (true <= false) { return 2; }
+    if !(true > false) { return 3; }
+    if !(true >= false) { return 4; }
+    if !(false < true) { return 5; }
+    if !(false <= true) { return 6; }
+    if (false > true) { return 7; }
+    if (false >= true) { return 8; }
+
+    // bool bitwise
+    assert_eq!(false & false, false);
+    assert_eq!(true & false, false);
+    assert_eq!(true & true, true);
+    assert_eq!(false | false, false);
+    assert_eq!(true | false, true);
+    assert_eq!(true | true, true);
+    assert_eq!(false ^ false, false);
+    assert_eq!(true ^ false, true);
+    assert_eq!(true ^ true, false);
+
+    // struct field mutation changing a comparison
+    let mut r_y = 2i64;
+    let q_y = 2i64;
+    r_y = 17i64;
+    assert_eq!(r_y != q_y, true);
+    assert_eq!(r_y, 17i64);
+    return 0;
+}

@@ -45,3 +45,18 @@ ranges are special-cased and don't need the import). With the two `use`s,
 `(1..5).sum()` / `(1..=4).sum()` work. Regression `pass/iterator_sum_range`.
 (Open question, not a bug: whether range+iter should join the prelude for Rust
 parity — a prelude-policy decision, deferred.)
+
+#### G150-2 Option== — EXECUTABLE LEAD (read-only, 2026-05-22)
+The transitive `Option<i8>::eq` "no valid function" is a NAMING-SCHEME MISMATCH
+between two generic-enum-method emit paths:
+- `instantiate_enum_templates` (mono_clone.cpp ~4913, eager during the library
+  layer build): builds inst names as `cname + bare.substr(base.size())` →
+  CNAME-INSERTED form `Option__i8__eq__g__…`.
+- the call-site / `finish_generic_call` / scan-enqueue path: appends the
+  method-level type-arg at the END → `Option__eq__g__…__i8`.
+A direct user call (meqg MyOpt<i64>) works because the call-driven path emits the
+matching appended-arg name; the stdlib build eagerly emits the inserted-cname
+name, but the call expects the appended-arg name → mismatch. FIX: unify the two
+schemes (make instantiate_enum_templates emit via the same function_symbol_name /
+appended-type-arg convention the call site uses, OR vice-versa). VERIFY post-B151
+by instrumenting both name builders for `Option__eq`.

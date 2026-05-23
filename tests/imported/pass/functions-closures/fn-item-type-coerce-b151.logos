@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/fn-item-type-coerce.rs
+// Modifications: isize → i64; a use of the bound fn-ptr added + exit check
+// (orig main only bound it). Tests coercing a fn item (`foo`) to a fn-pointer
+// type alias (`type IntMap = fn(i64) -> i64`) bound to a local, plus passing two
+// distinct fn items to a generic `eq::<IntMap>` unifying them at the same type.
+package fn_item_type_coerce_test;
+
+use logos.std.fmt;
+
+fn foo(x: i64) -> i64 { return x * 2i64; }
+fn bar(x: i64) -> i64 { return x * 4i64; }
+
+type IntMap = fn(i64) -> i64;
+
+fn eq<T>(_x: T, _y: T) {}
+
+fn main() -> i32 {
+    let f: IntMap = foo;
+    eq::<IntMap>(foo, bar);
+    assert_eq!(f(21i64), 42i64);
+    return 0;
+}

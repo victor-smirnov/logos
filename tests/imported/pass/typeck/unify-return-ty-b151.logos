@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust tests/ui/typeck/unify-return-ty.rs
+// Modifications: isize → i64; `mem::transmute(0_usize)` → a null raw pointer
+// built by casting `0u64` (Logos has no transmute; the test's point is that a
+// generic fn returning `*const T` type-checks and unifies). Tests calling a
+// generic `null::<T>() -> *const T` at a concrete type.
+package unify_return_ty_test;
+
+fn null<T>() -> *const T {
+    unsafe {
+        return (0u64) as *const T;
+    }
+}
+
+fn main() -> i32 {
+    let _p = null::<i64>();
+    return 0;
+}

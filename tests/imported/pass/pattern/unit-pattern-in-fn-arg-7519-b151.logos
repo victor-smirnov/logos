@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/pattern/unit-pattern-matching-in-function-argument-7519.rs
+// Modifications: the unit-typed parameter `(():())` is rewritten to a named
+// unit-struct parameter (Logos has no method/binding surface on bare `()`).
+// Regression for rustc #7519 (ICE matching a unit in a function argument).
+package unit_pattern_in_fn_arg_test;
+
+struct Unit {}
+
+fn foo(_u: Unit) {}
+
+fn main() -> i32 {
+    foo(Unit {});
+    return 0;
+}

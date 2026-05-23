@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/traits/anon-static-method.rs
+// Modifications: isize → i64; `println!` → exit check of the field. Tests an
+// inherent (no-trait) static method `Foo::new()` constructing the struct,
+// dispatched by type-qualified call.
+package anon_static_method_test;
+
+use logos.std.fmt;
+
+struct Foo {
+    x: i64,
+}
+
+impl Foo {
+    fn new() -> Foo {
+        return Foo { x: 3i64 };
+    }
+}
+
+fn main() -> i32 {
+    let x = Foo::new();
+    assert_eq!(x.x, 3i64);
+    return 0;
+}

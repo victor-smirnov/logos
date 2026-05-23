@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/functions-closures/capture-clauses-boxed-closures.rs
+// Modifications: usize → i64; assert_eq! → exit check. Tests a `FnMut(&T)`
+// closure capturing a mutable accumulator by reference, driven over a slice
+// `&[T]` by a generic higher-order fn (1..=5 sum = 15).
+package capture_clauses_boxed_closures_test;
+
+use logos.std.fmt;
+
+fn each<T, F: FnMut(&T)>(x: &[T], mut f: F) {
+    for val in x {
+        f(val);
+    }
+}
+
+fn main() -> i32 {
+    let mut sum = 0i64;
+    let elems = [1i64, 2i64, 3i64, 4i64, 5i64];
+    each(&elems, |val: &i64| { sum += *val; });
+    assert_eq!(sum, 15i64);
+    return 0;
+}
