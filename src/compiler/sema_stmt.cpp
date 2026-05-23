@@ -1135,22 +1135,45 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
                 auto blist = map_of(aav);
                 if (blist.has_key(la::ITEMS)) {
                     auto bitems = arr_of(blist.get(la::ITEMS.code));
-                    arg_n = bitems.size();
-                    for (uint64_t j = 0; j < bitems.size() && j < tsi_let->fields.size(); ++j) {
+                    // G152-15: a single `..` rest (`let Foo(a, b, ..)` /
+                    // `Foo(.., z)` / `Foo(a, .., z)`) skips the unmatched middle
+                    // positions — names before the rest bind low fields, names
+                    // after bind the tail. (Match arms already support this,
+                    // G151-2; the `let` path didn't.)
+                    size_t arity = tsi_let->fields.size();
+                    int rest_idx = -1; size_t named = 0;
+                    for (uint64_t j = 0; j < bitems.size(); ++j) {
+                        if (code_of(map_of(bitems.get(j))) == la::PAT_REST) {
+                            if (rest_idx >= 0) error("tuple-struct `let` pattern: only one `..` allowed");
+                            rest_idx = (int)j;
+                        } else ++named;
+                    }
+                    arg_n = rest_idx < 0 ? bitems.size() : arity;
+                    if (named > arity)
+                        error(std::format("tuple-struct pattern '{}': {} bindings exceed {} fields",
+                                          sname, named, arity));
+                    size_t trailing = rest_idx < 0 ? 0 : (bitems.size() - 1 - (size_t)rest_idx);
+                    for (uint64_t j = 0; j < bitems.size(); ++j) {
                         auto bnode = map_of(bitems.get(j));
                         int32_t bc = code_of(bnode);
+                        if (bc == la::PAT_REST) continue;
+                        // Map pattern item j → field position (rest-aware).
+                        size_t fpos;
+                        if (rest_idx < 0 || (int)j < rest_idx) fpos = j;
+                        else fpos = arity - trailing + (j - (size_t)rest_idx - 1);
+                        if (fpos >= arity) continue;
                         // PAT_WILD bindings only for now; underscore skips.
                         if (bc == la::PAT_WILD && bnode.has_key(la::NAME)) {
                             auto vname = std::string(str_of(bnode.get(la::NAME.code)));
                             if (vname == "_") continue;
-                            auto ftype = tsi_let->fields[j].type;
+                            auto ftype = tsi_let->fields[fpos].type;
                             lir::SLet sl;
                             sl.name   = vname;
                             sl.type   = ftype;
                             sl.is_mut = false;
                             sl.value  = builder().field_read(
                                 builder().var_ref(tmp, rhs_type),
-                                std::to_string(j), ftype);
+                                std::to_string(fpos), ftype);
                             define(vname, ftype);
                             blk->stmts.push_back(
                                 make_stmt_emit(node_line_, std::move(sl)));
@@ -1158,7 +1181,7 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
                             error(std::format(
                                 "tuple-struct `let` pattern: only plain identifier "
                                 "bindings are supported (got nested pattern at field {})",
-                                j));
+                                fpos));
                         }
                     }
                 }
@@ -4323,6 +4346,27 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // function body. Route through the package-aware lookups.
         const SemaStructInfo* sinfo = find_struct_by_name(sname).second;
         if (!sinfo) sinfo = find_datatype_by_name(sname).second;
+        // G152-12: substitute the struct's generic type-args into field types,
+        // so `match s { S3 { x, y } }` over `S3<u8,u16>` binds x:u8 / y:u16 — not
+        // the template vars U/V (which mismatch any concrete op `==`/assert_eq).
+        // Field-ACCESS `s.x` already resolves concretely; the pattern path
+        // didn't. Deref a &Struct scrutinee for the type-args.
+        SemaSubst struct_subst;
+        {
+            TypeRef sst = scrut_type;
+            if (sst && (TypeRef(sst).kind() == LogosType::Kind::Ref ||
+                        TypeRef(sst).kind() == LogosType::Kind::MutRef ||
+                        TypeRef(sst).kind() == LogosType::Kind::Ptr) &&
+                TypeRef(sst).pointee())
+                sst = TypeRef(sst).pointee();
+            if (sinfo && sst &&
+                (TypeRef(sst).kind() == LogosType::Kind::Struct ||
+                 TypeRef(sst).kind() == LogosType::Kind::ZonedStruct) &&
+                !TypeRef(sst).type_args().empty())
+                for (size_t k = 0; k < sinfo->type_params.size() &&
+                                   k < TypeRef(sst).type_args().size(); ++k)
+                    struct_subst[sinfo->type_params[k].name] = TypeRef(sst).type_args()[k];
+        }
         // Default binding modes (RFC 2005), struct shape: under a SHARED `&`
         // scrutinee a plain shorthand field of a MOVE-ONLY type binds BY
         // REFERENCE — so it doesn't move the owned field out of the borrow (the
@@ -4341,7 +4385,11 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
             TypeRef ftype = error_t();
             if (sinfo)
                 for (auto& f : sinfo->fields)
-                    if (f.name == fname) { ftype = f.type; break; }
+                    if (f.name == fname) {
+                        ftype = struct_subst.empty() ? f.type
+                                                     : subst_type_sema(f.type, struct_subst);
+                        break;
+                    }
             auto sub = fv.sub();
             if (!sub) {
                 TypeRef bt = ftype;

@@ -1,0 +1,11 @@
+package generic_struct_field_pattern;
+// G152-12: a generic struct's field bound in a struct pattern kept the template
+// type var (U/V) instead of the concrete instantiation, so any concrete op
+// errored "type mismatch (U vs u8)". Fixed: substitute the scrutinee's
+// type-args into the field types in bind_pattern_ref's struct case.
+struct S3<U, V> { x: U, y: V }
+fn main() -> i64 {
+    let s: S3<u8, u16> = S3::<u8, u16> { x: 4u8, y: 9u16 };
+    match s { S3 { x, y } => { if x != 4u8 { return 1; } if y != 9u16 { return 2; } } }
+    return 0;
+}

@@ -1,0 +1,15 @@
+package let_rest_tuple_struct;
+// G152-15: a single `..` rest in a tuple-struct / struct `let` pattern (already
+// worked in match arms, G151-2). `let Foo(a, b, ..)` / `Foo(.., z)` /
+// `Bar { x, .. }`.
+struct Foo(i64, i64, i64);
+struct Bar { a: i64, b: i64, c: i64 }
+fn main() -> i64 {
+    let Foo(p, q, ..) = Foo(1i64, 2i64, 3i64);
+    if p + q != 3 { return 1; }
+    let Foo(.., z) = Foo(4i64, 5i64, 6i64);
+    if z != 6 { return 2; }
+    let Bar { b, .. } = Bar { a: 7i64, b: 8i64, c: 9i64 };
+    if b != 8 { return 3; }
+    return 0;
+}
