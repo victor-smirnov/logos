@@ -1,0 +1,28 @@
+// Distilled regression for G158-1 (autoderef-invoke facet, closed 2026-05-23).
+// Calling `f()` where `f: &F` / `f: &mut F` (F a type-param bounded by
+// Fn / FnMut) now autoderef-invokes through the reference — previously "call
+// to undefined function 'f'". The reference points straight at the closure
+// {fn_ptr, env_ptr}, so the call lowers to a ClosureCall on the ref value (no
+// extra deref). by-value `F` continues to work.
+// Sourced from unboxed-closures-blanket-fn / -fn-mut.
+// NOTE (distinct open facet, NOT covered): `&F` SATISFYING a `Fn` bound, i.e.
+// passing `&f` to `a<F2: Fn>(f2: F2)` — needs blanket `impl Fn for &F` +
+// closure-by-ref ABI. So those originals are not yet re-imported in full.
+package call_through_ref_to_fn_bound_b158;
+
+fn apply_ref<F: Fn(i64) -> i64>(f: &F, x: i64) -> i64 { return f(x); }
+fn apply_mut<F: FnMut() -> i64>(f: &mut F) -> i64 { return f() + f(); }
+fn apply_val<F: Fn() -> i64>(f: F) -> i64 { return f(); }
+
+fn main() -> i32 {
+    let g = |a: i64| -> i64 { return a * 3i64; };
+    if apply_ref(&g, 4i64) != 12i64 { return 1i32; }
+
+    let mut n: i64 = 0i64;
+    let mut h = || -> i64 { n = n + 1i64; return n; };
+    if apply_mut(&mut h) != 3i64 { return 2i32; }  // 1 + 2
+
+    let k = || -> i64 { return 9i64; };
+    if apply_val(k) != 9i64 { return 3i32; }
+    return 0i32;
+}

@@ -2111,8 +2111,23 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     bool is_fn_bound = false;
     TypeRef synth_closure_t = nullptr;
     TypeRef original_typevar_t = nullptr;
-    if (callee_type && TypeRef(callee_type).kind() == LogosType::Kind::TypeVar) {
-        std::string tvname(TypeRef(callee_type).type_var_name());
+    // G158-1: the callee may be `&F` / `&mut F` (a reference to an Fn-bounded
+    // type-param) — autoderef-invoke it. Peel a single ref wrapper for the
+    // bound lookup; the var_ref keeps the ref type and the call derefs through
+    // it (the reference points straight at the closure {fn_ptr, env_ptr}).
+    bool fn_bound_via_ref = false;
+    TypeRef fn_bound_recv_type = callee_type;   // possibly the `&F` ref type
+    TypeRef fn_bound_inner = callee_type;
+    if (fn_bound_inner &&
+        (TypeRef(fn_bound_inner).kind() == LogosType::Kind::Ref ||
+         TypeRef(fn_bound_inner).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(fn_bound_inner).pointee() &&
+        TypeRef(TypeRef(fn_bound_inner).pointee()).kind() == LogosType::Kind::TypeVar) {
+        fn_bound_inner = TypeRef(fn_bound_inner).pointee();
+        fn_bound_via_ref = true;
+    }
+    if (fn_bound_inner && TypeRef(fn_bound_inner).kind() == LogosType::Kind::TypeVar) {
+        std::string tvname(TypeRef(fn_bound_inner).type_var_name());
         auto bit = current_type_bounds_.find(tvname);
         if (bit != current_type_bounds_.end()) {
             for (auto& b : bit->second) {
@@ -2120,7 +2135,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 std::vector<TypeRef> ps = b.fn_params;
                 TypeRef ret = b.fn_ret ? b.fn_ret : void_t();
                 synth_closure_t = make_closure_type(std::move(ps), ret);
-                original_typevar_t = callee_type;  // keep F for var_ref
+                // keep F (or &F) for var_ref so mono substitutes to the
+                // concrete closure/fn-ptr (or ref thereof).
+                original_typevar_t = fn_bound_recv_type;
                 is_fn_bound = true;
                 break;
             }

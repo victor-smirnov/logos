@@ -60,15 +60,19 @@ references (variance-option-ref-intersection).
 
 ## Gaps surfaced
 
-- **G158-1** — `&F` / `&mut F` does not satisfy a `Fn` / `FnMut` bound, and
-  calling through such a reference does not autoderef-invoke. Repro:
-  `fn c<F: Fn()->i64>(f: &F)->i64 { a(f) }` → `type '&F' does not implement trait
-  'Fn' required by parameter 'F'`; likewise `f(x)` where `f: &F` → `call to
-  undefined function 'f'`. Workaround: pass `F` by value (lost the `&F`/`&mut F`
-  receiver facet in unboxed-closures-extern-fn). DROPPED: unboxed-closures-
-  blanket-fn, unboxed-closures-blanket-fn-mut (the `&F`-as-Fn form IS their
-  point). TRACTABLE-ish: needs blanket `impl<F: Fn> Fn for &F` (+ &mut) plus
-  call-operator autoderef.
+- **G158-1** ◑ PARTIAL (2026-05-23) — TWO facets:
+  - ✅ **autoderef-invoke** `f()` / `f(x)` where `f: &F` / `f: &mut F` (F a
+    type-param bounded Fn/FnMut). Was "call to undefined function 'f'". Fix
+    (sema_expr.cpp lower_call): the fn-bound detection peels a single
+    `&`/`&mut` wrapper before the TypeVar→bound lookup; the reference points
+    straight at the closure {fn_ptr, env_ptr}, so the call lowers to a
+    ClosureCall on the ref value directly (NO extra deref — the param IS the
+    closure ptr). Regression `pass/unboxed-closures/call-through-ref-to-fn-bound`.
+  - ❌ **`&F` satisfying a `Fn` bound** — passing `&f` to `a<F2: Fn>(f2: F2)`
+    (`'a': type '&F' does not implement trait 'Fn' required by parameter 'F'`).
+    Needs blanket `impl<F: Fn> Fn for &F` (+ &mut) AND a closure-by-ref ABI
+    bridge (a `&closure` flowing into a by-value-`F` param). Distinct harder
+    gap; unboxed-closures-blanket-fn / -fn-mut still DROPPED pending it.
 
 - **G158-2** ✅ CLOSED (2026-05-23) — `&fn(T)->R` now parses. Grammar:
   `ref_pointee` gained `fn_ptr_type` (before `simple_type`, which can't start
