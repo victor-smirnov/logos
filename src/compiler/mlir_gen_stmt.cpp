@@ -380,6 +380,82 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             }
         }
     }
+
+    // 4. Auto-drop the active variant's droppable payload fields of an ENUM
+    //    (G156-2 enum-half). Enum values are heap pointers; load the disc and,
+    //    for each variant carrying a droppable payload, conditionally GEP into
+    //    that variant's payload struct and drop each owned field. Only the
+    //    active variant's payload is live, so each drop is guarded by a disc
+    //    check. A payload moved out by a match/let binding is handled by marking
+    //    the scrutinee/source moved (so no SDrop is emitted for the enum).
+    //    SKIP when the enum has a USER `impl Drop` (drop_fn set): that drop takes
+    //    `self` by value and consumes the payload itself (its match binds the
+    //    payload, which drops at the drop-body end) — auto-dropping here too
+    //    would double-free (drop-trait-enum-b154).
+    if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st && drop_fn.empty() &&
+        st.kind() == LogosType::Kind::Enum) {
+        auto* te = resolve_tagged_enum(std::string(st.enum_name()), st);
+        if (te) {
+            mlir::Value enum_ptr = it->second;
+            if (var_tagged_enum_ptr_.count(var_name))
+                enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+            struct DropField { int64_t idx; mlir::LLVM::LLVMStructType pay; std::string sym; bool inl; };
+            struct DropVariant { int64_t disc; std::vector<DropField> fields; };
+            std::vector<DropVariant> dvs;
+            for (auto& vp : te->variants) {
+                DropVariant dv; dv.disc = vp.disc;
+                auto pay = variant_payload_struct(vp);
+                for (size_t fi = 0; fi < vp.logos_types.size(); ++fi) {
+                    TypeRef ft(vp.logos_types[fi]);
+                    if (!ft) continue;
+                    auto fk = ft.kind();
+                    if (fk == LogosType::Kind::Ref || fk == LogosType::Kind::MutRef ||
+                        fk == LogosType::Kind::Ptr)
+                        continue;
+                    std::string fname;
+                    if (fk == LogosType::Kind::Struct || fk == LogosType::Kind::ZonedStruct)
+                        fname = concrete_struct_name(ft);
+                    else if (fk == LogosType::Kind::Enum)
+                        fname = std::string(ft.enum_name());
+                    if (fname.empty()) continue;
+                    std::string sym = resolve_method_symbol(fname, "drop");
+                    if (sym.empty() || !mod.lookupSymbol<mlir::func::FuncOp>(sym)) continue;
+                    dv.fields.push_back({(int64_t)fi, pay, sym,
+                        fk == LogosType::Kind::Struct || fk == LogosType::Kind::ZonedStruct});
+                }
+                if (!dv.fields.empty()) dvs.push_back(std::move(dv));
+            }
+            if (!dvs.empty()) {
+                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
+                auto disc = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+                llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
+                auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
+                auto* region = builder_.getBlock()->getParent();
+                for (auto& dv : dvs) {
+                    auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, dv.disc, 32);
+                    auto eq = builder_.create<mlir::arith::CmpIOp>(
+                        loc_, mlir::arith::CmpIPredicate::eq, disc, dc);
+                    auto* then_blk = new mlir::Block();
+                    auto* cont_blk = new mlir::Block();
+                    region->push_back(then_blk);
+                    region->push_back(cont_blk);
+                    builder_.create<mlir::cf::CondBranchOp>(loc_, eq, then_blk, cont_blk);
+                    builder_.setInsertionPointToStart(then_blk);
+                    for (auto& f : dv.fields) {
+                        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(f.idx)};
+                        auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), f.pay, pay_ptr, fi);
+                        mlir::Value fptr = f.inl ? fp
+                            : builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp).getResult();
+                        if (auto ffn = mod.lookupSymbol<mlir::func::FuncOp>(f.sym))
+                            builder_.create<mlir::func::CallOp>(loc_, ffn, mlir::ValueRange{fptr});
+                    }
+                    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+                    builder_.setInsertionPointToStart(cont_blk);
+                }
+            }
+        }
+    }
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {

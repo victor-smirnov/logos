@@ -3032,6 +3032,12 @@ private:
     lir::LStmt lower_field_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_match(hermes::TinyMapView node);
     lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
+    // G156-2: mark a by-value move-type match scrutinee var as moved when an
+    // unguarded arm binds+moves it (whole-binding / struct / tuple / variant
+    // payload). Shared by the statement and expression match paths so the
+    // enum's scope-exit Drop doesn't double-free a value a binding/result owns.
+    void mark_match_scrutinee_moved(const lir::LExprPtr& scrut, TypeRef scrut_type,
+                                    hermes::TinyMapView node);
     // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
     // emits a diagnostic if a non-guarded wildcard is absent and some
     // variant / bool value is uncovered. Read-only over `smatch`; factored

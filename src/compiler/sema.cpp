@@ -2239,6 +2239,13 @@ bool SemaChecker::is_move_type(TypeRef t) const {
             if (e && is_move_type(e)) return true;
         return false;
     }
+    // G156-2: an enum is a move type iff it carries a droppable payload or has a
+    // user `impl Drop` — then it owns a non-Copy value and must be move-tracked
+    // (so its scope-exit Drop and a payload moved out by a match binding don't
+    // double-free). Plain C-like / all-Copy-payload enums (Option<i64>, …) stay
+    // non-move.
+    if (TypeRef(t).kind() == LogosType::Kind::Enum)
+        return !drop_fn_for(t).empty() || has_droppable_fields(t);
     // Struct types are move types unless they implement Copy.
     if (TypeRef(t).kind() != LogosType::Kind::Struct)
         return false;
@@ -2342,13 +2349,55 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
 
 bool SemaChecker::has_droppable_fields(TypeRef t) const {
     if (!t) return false;
+    // A field/element/payload is droppable if it has a drop fn or transitively
+    // droppable fields — BUT a `T: Copy`-bounded TypeVar is provably non-droppable
+    // (Copy and Drop are mutually exclusive), even though drop_fn_for(TypeVar)
+    // returns the `__typevar_pending__drop` sentinel. Without this, a generic
+    // `Foo<T: Copy>` (tuple element / enum payload) is wrongly treated as
+    // droppable → move-tracking + drop-glue over-trigger (crash on Copy-only
+    // generic enums). Mirrors the Copy-bound check in is_move_type.
+    auto is_copy_tv = [&](TypeRef x) -> bool {
+        if (!x || TypeRef(x).kind() != LogosType::Kind::TypeVar) return false;
+        auto bit = current_type_bounds_.find(std::string(TypeRef(x).type_var_name()));
+        if (bit != current_type_bounds_.end())
+            for (auto& b : bit->second) if (b.trait_name == "Copy") return true;
+        return false;
+    };
+    auto member_droppable = [&](TypeRef m) -> bool {
+        return m && !is_copy_tv(m) && (!drop_fn_for(m).empty() || has_droppable_fields(m));
+    };
     // G156-2 / G154-4: a tuple owns its elements — droppable if any element is.
-    // The SDrop Tuple branch GEPs each droppable element and runs its drop.
-    // (Enum variant payloads are a separate increment — see the baghunt.)
     if (TypeRef(t).kind() == LogosType::Kind::Tuple) {
         for (auto e : TypeRef(t).tuple_elems())
-            if (e && (!drop_fn_for(e).empty() || has_droppable_fields(e)))
-                return true;
+            if (member_droppable(e)) return true;
+        return false;
+    }
+    // G156-2 enum-half: an enum owns its active variant's payload — droppable if
+    // any variant has a droppable payload field. Generic enum payloads are
+    // stored as TypeVars; map them through the enum's type_params → this
+    // TypeRef's concrete type_args (shallow; nested generics fall back to bare).
+    if (TypeRef(t).kind() == LogosType::Kind::Enum) {
+        auto eit = enums_.end();
+        if (!TypeRef(t).pkg_name().empty())
+            eit = enums_.find(sema_key(TypeRef(t).pkg_name(), TypeRef(t).enum_name()));
+        if (eit == enums_.end()) eit = enums_.find(std::string(TypeRef(t).enum_name()));
+        if (eit == enums_.end()) return false;
+        auto targs = TypeRef(t).type_args();
+        auto& tparams = eit->second.type_params;
+        auto concretize = [&](TypeRef pt) -> TypeRef {
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
+                auto nm = TypeRef(pt).type_var_name();
+                for (size_t k = 0; k < tparams.size() && k < targs.size(); ++k)
+                    if (tparams[k].name == nm) return targs[k];
+            }
+            return pt;
+        };
+        for (auto& v : eit->second.variants)
+            for (auto pt : v.payload_types) {
+                TypeRef cpt = concretize(pt);
+                if (member_droppable(cpt))
+                    return true;
+            }
         return false;
     }
     if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;

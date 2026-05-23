@@ -6271,23 +6271,9 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
     }
 }
 
-lir::LStmt SemaChecker::lower_match(TinyMapView node) {
-    lir::LExprPtr scrut = nullptr;
-    TypeRef scrut_type = error_t();
-    if (node.has_key(la::VALUE)) {
-        scrut = lower_expr(map_of(node.get(la::VALUE.code)));
-        scrut_type = scrut->type;
-    } else { scrut = error_expr(); }
-
-    // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
-    // carries a real name, not `_`) moves an owned move-type scrutinee into
-    // the binding: Rust's by-value match move, `match v { x => … }` ≡
-    // `{ let x = v; … }`. Mark the scrutinee var moved so it is not dropped a
-    // SECOND time after the match — the binding's own drop already fires at arm
-    // end (match-arm bindings drop, a6a04330). Without this an owned Vec/String
-    // scrutinee is double-freed (SIGSEGV). Restricted to an unguarded binding
-    // arm (which always matches → unconditional move); guarded binding arms
-    // leave the scrutinee conditionally live for later arms.
+void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
+                                              TypeRef scrut_type,
+                                              hermes::TinyMapView node) {
     if (scrut && scrut_type && is_move_type(scrut_type) &&
         expr_ref_of(*scrut).kind() == lir_schema::expr::Code::VarRef &&
         node.has_key(la::ITEMS)) {
@@ -6384,9 +6370,78 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     }
                     if (moves) { mark_moved(scrut_var); break; }
                 }
+                // An unguarded VARIANT-DATA arm (`match r { Ok(s) => … }`) over a
+                // by-value enum scrutinee moves the bound payload into the
+                // binding — mark `r` moved so the enum's scope-exit Drop (the
+                // SDrop Enum branch) doesn't double-free a payload a binding (or
+                // a value returned from the arm) already owns. Reached only for a
+                // droppable / move-type enum scrutinee (is_move_type gate above).
+                // A `_` or `ref` binding moves nothing. (G156-2 enum-half.)
+                if (code_of(lhs) == la::PAT_VARIANT_DATA) {
+                    bool moves = false;
+                    auto scan_subs = [&](hermes::AnyVal items_av) {
+                        if (items_av.is_null()) return;
+                        auto subs = arr_of(items_av);
+                        for (uint64_t si = 0; si < subs.size() && !moves; ++si) {
+                            auto sub = map_of(subs.get(si));
+                            if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS)) {
+                                auto alts = arr_of(sub.get(la::ITEMS.code));
+                                if (alts.size() == 1) sub = map_of(alts.get(0));
+                            }
+                            // struct-shape field binding (PAT_FIELD): a shorthand
+                            // `{ name }` (no VALUE) IS a by-value binding of the
+                            // field; `{ field: pat }` carries the sub in VALUE.
+                            if (code_of(sub) == la::PAT_FIELD) {
+                                if (!sub.has_key(la::VALUE)) { moves = true; continue; }
+                                sub = map_of(sub.get(la::VALUE.code));
+                            }
+                            if (code_of(sub) != la::PAT_WILD || !sub.has_key(la::NAME)) continue;
+                            auto nm = str_of(sub.get(la::NAME.code));
+                            if (nm.empty() || nm == "_") continue;
+                            if (sub.has_key(la::IS_REF) && sub.get(la::IS_REF.code).is_value() &&
+                                sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+                                continue;  // `ref` binding moves nothing
+                            moves = true;
+                        }
+                    };
+                    // tuple-shape `V(a, b)`: sub-patterns under ARGS→ITEMS;
+                    // struct-shape `V { x, y }`: PAT_FIELD list directly under ITEMS.
+                    if (lhs.has_key(la::ARGS)) {
+                        auto args = map_of(lhs.get(la::ARGS.code));
+                        if (args.has_key(la::ITEMS)) scan_subs(args.get(la::ITEMS.code));
+                    }
+                    if (lhs.has_key(la::ITEMS)) {
+                        // struct-shape ITEMS is a pat_field_list NODE wrapping its
+                        // own ITEMS array (same shape as PAT_STRUCT) — unwrap it,
+                        // else arr_of on the node SIGSEGVs (issue-19340-2).
+                        auto fl = map_of(lhs.get(la::ITEMS.code));
+                        if (fl.has_key(la::ITEMS)) scan_subs(fl.get(la::ITEMS.code));
+                    }
+                    if (moves) { mark_moved(scrut_var); break; }
+                }
             }
         }
     }
+}
+
+lir::LStmt SemaChecker::lower_match(TinyMapView node) {
+    lir::LExprPtr scrut = nullptr;
+    TypeRef scrut_type = error_t();
+    if (node.has_key(la::VALUE)) {
+        scrut = lower_expr(map_of(node.get(la::VALUE.code)));
+        scrut_type = scrut->type;
+    } else { scrut = error_expr(); }
+
+    // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
+    // carries a real name, not `_`) moves an owned move-type scrutinee into
+    // the binding: Rust's by-value match move, `match v { x => … }` ≡
+    // `{ let x = v; … }`. Mark the scrutinee var moved so it is not dropped a
+    // SECOND time after the match — the binding's own drop already fires at arm
+    // end (match-arm bindings drop, a6a04330). Without this an owned Vec/String
+    // scrutinee is double-freed (SIGSEGV). Restricted to an unguarded binding
+    // arm (which always matches → unconditional move); guarded binding arms
+    // leave the scrutinee conditionally live for later arms.
+    mark_match_scrutinee_moved(scrut, scrut_type, node);
 
     // Sprint 5.2: arm-after-catchall lint (closes B-pt-07).  The first
     // unguarded `_` arm makes every subsequent arm unreachable.
@@ -6834,6 +6889,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
+    // G156-2: a match-EXPRESSION that binds+moves a payload out of a by-value
+    // move-type enum/struct/tuple scrutinee (`let x = match body { Ok(s) => s }`)
+    // must mark the scrutinee moved so its scope-exit Drop doesn't double-free a
+    // value the result already owns. Same per-arm analysis as the statement
+    // match path (shared helper). (Was: lforge read_manifest / graph_cas
+    // double-free.)
+    mark_match_scrutinee_moved(scrut, scrut_type, node);
 
     // Sprint 5.2: arm-after-catchall lint (closes B-pt-07, expr position).
     if (node.has_key(la::ITEMS)) {

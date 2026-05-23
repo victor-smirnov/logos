@@ -1,0 +1,75 @@
+// Regression (G156-2 enum-half): Drop now fires for a Drop-bearing value held in
+// an enum variant payload, exactly once. The SDrop Enum branch loads the disc
+// and conditionally drops the active variant's owned payload fields; enums with
+// a droppable payload are move types, so a payload moved out by a match/if-let
+// binding is tracked (scrutinee marked moved → the enum's scope-exit drop is
+// suppressed → no double-free). A mid-arm `return` is covered (the scrutinee is
+// marked moved BEFORE arm lowering, so collect_all_drops there skips it).
+package enum_payload_drop;
+
+trait Drop { fn drop(self: &mut Self); }
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+fn mk(i: *mut i64) -> R { return R { i: i }; }
+
+enum T { T0(R), T1 }
+
+// struct-shape variant carrying a Drop field (issue-19340-2 shape).
+enum SS { V { r: R, tag: i64 }, Empty }
+
+// match consuming a by-value enum, payload moved out, with a mid-arm return
+// (mirrors lforge's read_manifest pattern that double-freed).
+fn extract_ret(a: T, sink: *mut i64) -> i64 {
+    match a {
+        T::T0(r) => { unsafe { *sink = *r.i; } return 1i64; }
+        T1 => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    // (1) payload dropped at scope end.
+    let mut c1: i64 = 0i64;
+    let p1: *mut i64 = &mut c1;
+    { let _a: T = T::T0(mk(p1)); }
+    if c1 != 1i64 { return 1i32; }
+
+    // (2) no-payload variant drops nothing.
+    let mut c2: i64 = 0i64;
+    let p2: *mut i64 = &mut c2;
+    { let _b: T = T::T1; let _u = p2; }
+    if c2 != 0i64 { return 2i32; }
+
+    // (3) match moves the payload out → dropped once, not also by scope-exit.
+    let mut c3: i64 = 0i64;
+    let p3: *mut i64 = &mut c3;
+    { let a: T = T::T0(mk(p3)); match a { T::T0(r) => { let _u = r.i; } T1 => {} } }
+    if c3 != 1i64 { return 3i32; }
+
+    // (4) if-let extraction.
+    let mut c4: i64 = 0i64;
+    let p4: *mut i64 = &mut c4;
+    { let a: T = T::T0(mk(p4)); if let T::T0(r) = a { let _u = r.i; } }
+    if c4 != 1i64 { return 4i32; }
+
+    // (5) match with a mid-arm RETURN consuming the payload (lforge shape).
+    let mut c5: i64 = 0i64;
+    let p5: *mut i64 = &mut c5;
+    let mut sink: i64 = 0i64;
+    { let a: T = T::T0(mk(p5)); let _r = extract_ret(a, &mut sink); }
+    if c5 != 1i64 { return 5i32; }
+
+    // (6) struct-shape variant: payload dropped at scope end.
+    let mut c6: i64 = 0i64;
+    let p6: *mut i64 = &mut c6;
+    { let _a: SS = SS::V { r: mk(p6), tag: 1i64 }; }
+    if c6 != 1i64 { return 6i32; }
+
+    // (7) struct-shape variant: shorthand-bound payload moved out by match,
+    //     dropped once (not also by the enum's scope-exit drop).
+    let mut c7: i64 = 0i64;
+    let p7: *mut i64 = &mut c7;
+    { let a: SS = SS::V { r: mk(p7), tag: 2i64 }; match a { SS::V { r, tag } => { let _u = r.i; } Empty => {} } }
+    if c7 != 1i64 { return 7i32; }
+
+    return 0i32;
+}
