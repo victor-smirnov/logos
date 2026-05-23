@@ -126,15 +126,18 @@ references (variance-option-ref-intersection).
   (supertrait-self-returning-4107). DROPPED: trait-static-method-by-let-anno (the
   trait-path Self-from-annotation IS its point).
 
-- **G158-10** ⚠️ CRASH (SIGSEGV at runtime) — dispatching a method through a
-  *parameterized* trait object `&dyn Trait<A>` segfaults. Minimal repro:
-  `trait Clam<A>{fn chowder(self:&Self,y:A)->i64;} impl<A> Clam<A> for Foo<A>{...}
-  fn f<A>(x:&dyn Clam<A>,a:A)->i64{ x.chowder(a) } let d:&dyn Clam<i64>=&c; f(d,1)`
-  → SIGSEGV (exit 139). Compiles + links cleanly; crashes on the indirect call.
-  DROPPED: generic-trait-object-call-2288 (generic trait-object dispatch IS its
-  point). TRACTABLE-ish: the vtable / receiver layout for a type-parameterized
-  trait object is wrong — likely related to the `&dyn Trait<A>` fat-pointer
-  construction or vtable slot resolution.
+- **G158-10** ✅ CLOSED (2026-05-23) — parameterized trait-object dispatch
+  `&dyn Trait<A>` now works. Root was a NULL vtable slot (the `&dyn` fat pointer
+  was built with field 1 / vtable left uninitialized → garbage fn-ptr → SIGSEGV
+  on the indirect call). Two-part fix in mlir-gen: (1) `emit_trait_vtables` —
+  a generic impl's `target_type` is the *pattern* `Foo$G1$A`, but the concrete-
+  instantiation index keys under the bare base `Foo`; strip the `$G…` suffix so
+  `collect_concrete_targets` finds `Foo$G1$i64` and registers `Clam::Foo$G1$i64`.
+  (2) the `let d: &dyn …` coercion site (mlir_gen_stmt) keyed on
+  `type_str(src)` = the angle-bracket form `Foo<i64>` (never matches); switched
+  to `concrete_struct_name(src)` = the mono-mangled `Foo$G1$i64`. Re-imported
+  `generic-trait-object-call-2288` (issue #2288); verified across multiple type
+  args (i64/bool) + multi-method traits. Full suite green.
 
 - **G158-11** — an `unsafe fn(...)->R` *type* (unsafe-qualified fn-pointer type)
   in parameter position is a parse error. Repro: `fn call(func: unsafe fn()->i64)`

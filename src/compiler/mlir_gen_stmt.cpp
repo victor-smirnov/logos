@@ -810,7 +810,16 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                 TypeRef(src_logos_type).struct_name() == "Box" &&
                 TypeRef(src_logos_type).type_args().size() == 1)
                 src_logos_type = TypeRef(src_logos_type).type_args()[0];
-            std::string src_type = type_str(src_logos_type);
+            // Use the mono-mangled concrete name (`Foo$G1$i64`) — the vtable
+            // registry keys generic-impl entries on this form. `type_str`
+            // yields the angle-bracket form (`Foo<i64>`) which never matches
+            // (→ null vtable → SIGSEGV on dispatch; G158-10).
+            std::string src_type =
+                (src_logos_type &&
+                 (TypeRef(src_logos_type).kind() == LogosType::Kind::Struct ||
+                  TypeRef(src_logos_type).kind() == LogosType::Kind::ZonedStruct))
+                    ? concrete_struct_name(src_logos_type)
+                    : type_str(src_logos_type);
             alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type);
         }
         scope_[s.name] = alloca;

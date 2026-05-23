@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/generic-trait-object-call.rs (issue #2288)
+// Modifications: `Box<dyn clam<A>>` → `&dyn clam<A>` (Logos's owned trait
+//   object channel; the fat-pointer dispatch is the same vtable mechanism);
+//   `chowder` returns the captured `x` so the dispatch is OBSERVABLE
+//   (original returned `()`); `pub fn main()` → `fn main()->i32` with
+//   early-return sentinels; isize → i64; `#[derive(Copy,Clone)]` dropped
+//   (incidental). Two distinct instantiations (i64, bool) exercise the
+//   per-monomorphisation vtable.
+// Tests dispatch through a PARAMETERIZED trait object `&dyn clam<A>` — the
+// vtable for a type-parameterised trait must resolve to the monomorphised
+// `Foo$G1$<arg>__chowder` symbol. This is G158-10 (closed 2026-05-23): a
+// generic impl's `target_type` is the pattern `foo$G1$A`, so the concrete-
+// vtable registration must strip the `$G…` suffix to find `foo$G1$i64`, and
+// the `&dyn` coercion site must key on the mono-mangled (not angle-bracket)
+// concrete name. Previously SIGSEGV'd (null vtable slot).
+package generic_trait_object_call_2288_b158;
+
+trait Clam<A> { fn chowder(self: &Self, y: A) -> i64; }
+
+struct Foo<A> { x: i64 }
+
+impl<A> Clam<A> for Foo<A> {
+    fn chowder(self: &Self, y: A) -> i64 { return self.x; }
+}
+
+fn f<A>(x: &dyn Clam<A>, a: A) -> i64 {
+    return x.chowder(a);
+}
+
+fn main() -> i32 {
+    let c: Foo<i64> = Foo { x: 42i64 };
+    let d: &dyn Clam<i64> = &c;
+    if f(d, 7i64) != 42i64 { return 1i32; }
+
+    let e: Foo<bool> = Foo { x: 99i64 };
+    let g: &dyn Clam<bool> = &e;
+    if f(g, true) != 99i64 { return 2i32; }
+    return 0i32;
+}

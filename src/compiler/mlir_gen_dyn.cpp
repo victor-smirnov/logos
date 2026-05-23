@@ -807,7 +807,17 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             // `coerce_to_dyn` keys on the concrete-mangled struct name
             // (`Foo$G1$arg`), so this is what makes generic-impl method
             // dispatch resolve to the right monomorphised symbols.
-            for (auto& concrete : collect_concrete_targets(ib.target_type)) {
+            //
+            // The concrete-targets index keys instantiations under the BARE
+            // struct base (`Foo`), but a generic impl's `target_type` is the
+            // parameterised pattern (`impl<A> Clam<A> for Foo<A>` →
+            // `Foo$G1$A`). Strip the `$G…` suffix to recover the bare base so
+            // `&dyn Clam<i64>` over a `Foo<i64>` finds its `Foo$G1$i64` vtable
+            // (otherwise: no entry → null vtable slot → SIGSEGV; G158-10).
+            std::string_view target_base = ib.target_type;
+            if (auto g = target_base.find("$G"); g != std::string_view::npos)
+                target_base = target_base.substr(0, g);
+            for (auto& concrete : collect_concrete_targets(std::string(target_base))) {
                 dyn_vtable_methods_[td.name + "::" + concrete] =
                     resolve_methods(concrete);
             }
