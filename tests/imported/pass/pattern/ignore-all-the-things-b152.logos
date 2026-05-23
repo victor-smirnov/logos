@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust tests/ui/pattern/ignore-all-the-things.rs
+// Modifications: isize → i64, literals suffixed; bound values asserted via
+// logos.std.fmt. The tuple-STRUCT and STRUCT rest patterns (`let Foo(a, b, ..)`,
+// `let Bar{b, ..}`) are not supported in `let` bindings (G152-15: tuple-struct
+// `let` pattern only allows plain identifier bindings), so those are expressed
+// via `match` (where `..` rest works); plain-tuple rest stays in `let` (works).
+// Tests `..` rest in tuple-struct, struct, tuple, and slice patterns.
+package ignore_all_the_things_test;
+
+use logos.std.fmt;
+
+struct Foo(i64, i64, i64, i64);
+struct Bar { a: i64, b: i64, c: i64, d: i64 }
+
+fn main() -> i32 {
+    // plain-tuple rest in `let` (works)
+    let (..) = (5i64, 5i64, 5i64, 5i64);
+    let (a2, b2, ..) = (1i64, 2i64, 5i64, 5i64);
+    assert_eq!(a2, 1i64);
+    assert_eq!(b2, 2i64);
+    let (.., c3, d3) = (5i64, 5i64, 3i64, 4i64);
+    assert_eq!(c3, 3i64);
+    assert_eq!(d3, 4i64);
+
+    // tuple-struct rest via `match`
+    match Foo(5i64, 5i64, 5i64, 5i64) {
+        Foo(..) => { }
+    }
+    match Foo(1i64, 2i64, 5i64, 5i64) {
+        Foo(a, b, ..) => { assert_eq!(a, 1i64); assert_eq!(b, 2i64); }
+    }
+    match Foo(5i64, 5i64, 5i64, 4i64) {
+        Foo(.., d) => { assert_eq!(d, 4i64); }
+    }
+
+    // struct rest via `match`
+    match (Bar { a: 5i64, b: 5i64, c: 5i64, d: 5i64 }) {
+        Bar { .. } => { }
+    }
+    match (Bar { a: 5i64, b: 7i64, c: 5i64, d: 5i64 }) {
+        Bar { b: bb, .. } => { assert_eq!(bb, 7i64); }
+    }
+
+    // slice rest
+    match [5i64, 5i64, 5i64, 5i64] {
+        [..] => { }
+    }
+    match [1i64, 5i64, 5i64, 9i64] {
+        [a, .., b] => { assert_eq!(a, 1i64); assert_eq!(b, 9i64); }
+    }
+    return 0;
+}

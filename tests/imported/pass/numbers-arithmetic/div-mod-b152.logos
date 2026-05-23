@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/div-mod.rs
+// Modifications: isize → i64, literals suffixed i64; assert_eq! via
+// logos.std.fmt. Tests integer division and remainder.
+package div_mod_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let x: i64 = 15i64;
+    let y: i64 = 5i64;
+    assert_eq!(x / 5i64, 3i64);
+    assert_eq!(x / 4i64, 3i64);
+    assert_eq!(x / 3i64, 5i64);
+    assert_eq!(x / y, 3i64);
+    assert_eq!(15i64 / y, 3i64);
+    assert_eq!(x % 5i64, 0i64);
+    assert_eq!(x % 4i64, 3i64);
+    assert_eq!(x % 3i64, 0i64);
+    assert_eq!(x % y, 0i64);
+    assert_eq!(15i64 % y, 0i64);
+    return 0;
+}

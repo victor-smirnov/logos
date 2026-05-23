@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/labeled-break.rs
+// Modifications: exit check added (orig main has no assertions). Tests
+// `break 'label` escaping an inner loop from a labeled `loop`, `for`, and
+// `while`.
+package labeled_break_test;
+
+fn main() -> i32 {
+    'foo: loop {
+        loop {
+            break 'foo;
+        }
+    }
+
+    'bar: for _ in 0i64..100i64 {
+        loop {
+            break 'bar;
+        }
+    }
+
+    'foobar: while 1i64 + 1i64 == 2i64 {
+        loop {
+            break 'foobar;
+        }
+    }
+    return 0;
+}

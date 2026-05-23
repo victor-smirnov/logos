@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust tests/ui/binding/expr-match.rs
+// Modifications: assert! via logos.std.fmt; the four test fns inlined into main
+// with early-return error codes. Tests `match` used as an expression: as a
+// statement-RHS, with type inference, nested in a match scrutinee, and as a
+// block result.
+package expr_match_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    // test_basic
+    let mut rs: bool = match true { true => { true } false => { false } };
+    assert!(rs);
+    rs = match false { true => { false } false => { true } };
+    assert!(rs);
+
+    // test_inferrence
+    let rs2 = match true { true => { true } false => { false } };
+    assert!(rs2);
+
+    // test_alt_as_alt_head
+    let rs3 =
+        match match false { true => { true } false => { false } } {
+          true => { false }
+          false => { true }
+        };
+    assert!(rs3);
+
+    // test_alt_as_block_result
+    let rs4 =
+        match false {
+          true => { false }
+          false => { match true { true => { true } false => { false } } }
+        };
+    assert!(rs4);
+    return 0;
+}

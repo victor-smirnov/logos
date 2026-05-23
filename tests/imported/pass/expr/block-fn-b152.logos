@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/expr/block-fn.rs
+// Modifications: isize → i64; the nested fn `ten` hoisted to top level;
+// assert_eq! via logos.std.fmt. Tests binding a fn item to a local (`let rs =
+// ten;`) and calling it through the binding.
+package block_fn_test;
+
+use logos.std.fmt;
+
+fn ten() -> i64 { return 10i64; }
+
+fn main() -> i32 {
+    let rs = ten;
+    assert_eq!(rs(), 10i64);
+    return 0;
+}

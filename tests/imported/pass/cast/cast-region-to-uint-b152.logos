@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust tests/ui/cast/cast-region-to-uint.rs
+// Modifications: isize → i64, usize → u64; println! → cast + nonzero check.
+// Tests casting a reference to a `*const` raw pointer and then to an integer
+// address (`&x as *const i64 as u64`); the address of a stack local is nonzero.
+package cast_region_to_uint_test;
+
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    let addr = (&x as *const i64 as u64);
+    if addr == 0u64 { return 1; }
+    return 0;
+}

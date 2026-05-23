@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/floatlits.rs
+// Modifications: assert! via logos.std.fmt; the exponent literals `5e-11`/`5e-9`
+// rewritten with an explicit decimal point (`5.0e-11`/`5.0e-9`) — bare-mantissa
+// exponent floats are a lexer gap (G152-1). Tests f64 literal parsing including
+// exponent notation.
+package floatlits_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let f = 4.999999999999f64;
+    assert!(f > 4.90f64);
+    assert!(f < 5.0f64);
+    let g = 4.90000000001e-10f64;
+    assert!(g > 5.0e-11f64);
+    assert!(g < 5.0e-9f64);
+    return 0;
+}

@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust tests/ui/structs-enums/struct-aliases.rs
+// Modifications: isize → i64; `mem::size_of_val` checks dropped (size_of is a
+// Logos divergence). Several gaps narrow the original: a type alias is not
+// recognised in a struct PATTERN (G152-10), so the match uses the real struct
+// name `S`; a GENERIC type alias is not recognised even in construction
+// (G152-11); and a generic-struct field bound in a struct PATTERN keeps its
+// type variable, so concrete ops on it type-mismatch (G152-12) — so the generic
+// half reads fields directly (`s.x`/`s.y`) which resolve correctly. Tests
+// `type S2 = S;` used in construction + generic struct construction/field-read.
+package struct_aliases_test;
+
+use logos.std.fmt;
+
+struct S {
+    x: i64,
+    y: i64,
+}
+
+type S2 = S;
+
+struct S3<U, V> {
+    x: U,
+    y: V,
+}
+
+fn main() -> i32 {
+    let s = S2 { x: 1i64, y: 2i64 };
+    match s {
+        S { x: x, y: y } => {
+            assert_eq!(x, 1i64);
+            assert_eq!(y, 2i64);
+        }
+    }
+
+    let s2 = S3::<u8, u16> { x: 4u8, y: 9u16 };
+    assert_eq!(s2.x, 4u8);
+    assert_eq!(s2.y, 9u16);
+
+    let s3 = S3::<u16, u8> { x: 5u16, y: 7u8 };
+    assert_eq!(s3.x, 5u16);
+    assert_eq!(s3.y, 7u8);
+    return 0;
+}

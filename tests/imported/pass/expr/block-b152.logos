@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/expr/block.rs
+// Modifications: isize → i64, literals suffixed; the nested struct `RS` hoisted
+// to top level; the test fns inlined into main; assert!/assert_eq! via
+// logos.std.fmt. Tests standalone blocks as expressions: a bool block, a struct
+// constructor block, and a block with a loop whose final expression is the
+// block result.
+package block_test;
+
+use logos.std.fmt;
+
+struct RS { v1: i64, v2: i64 }
+
+fn main() -> i32 {
+    let rs: bool = { true };
+    assert!(rs);
+
+    let rec = { RS { v1: 10i64, v2: 20i64 } };
+    assert_eq!(rec.v2, 20i64);
+
+    let filled = { let mut a = 0i64; while a < 10i64 { a += 1i64; } a };
+    assert_eq!(filled, 10i64);
+    return 0;
+}

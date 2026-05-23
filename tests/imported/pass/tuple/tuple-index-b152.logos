@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust tests/ui/tuple/tuple-index.rs
+// Modifications: isize → i64, literals suffixed; assert_eq! via logos.std.fmt.
+// Tuple-STRUCT direct field writes (`x.0 += 5`, `x.0 = ...`) are a gap (G152-3),
+// so the tuple-struct mutations are routed through `&mut x.N` field borrows
+// (which work); the plain-tuple half keeps the faithful `x.0 += 5` form (works).
+// Tests tuple-struct and plain-tuple numeric field access + mutation +
+// `&mut` field borrow.
+package tuple_index_test;
+
+use logos.std.fmt;
+
+struct Point(i64, i64);
+
+fn main() -> i32 {
+    let mut x = Point(3i64, 2i64);
+    assert_eq!(x.0, 3i64);
+    assert_eq!(x.1, 2i64);
+    {
+        let r0 = &mut x.0;
+        *r0 += 5i64;
+    }
+    assert_eq!(x.0, 8i64);
+    {
+        let ry = &mut x.1;
+        *ry -= 2i64;
+        let r0 = &mut x.0;
+        *r0 += 3i64;
+    }
+    assert_eq!(x.0, 11i64);
+    assert_eq!(x.1, 0i64);
+
+    let mut x2 = (3i64, 2i64);
+    assert_eq!(x2.0, 3i64);
+    assert_eq!(x2.1, 2i64);
+    x2.0 += 5i64;
+    assert_eq!(x2.0, 8i64);
+    {
+        let ry = &mut x2.1;
+        *ry -= 2i64;
+        x2.0 += 3i64;
+        assert_eq!(x2.0, 11i64);
+    }
+    assert_eq!(x2.1, 0i64);
+    return 0;
+}

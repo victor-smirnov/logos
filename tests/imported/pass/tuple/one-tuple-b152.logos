@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/tuple/one-tuple.rs
+// Modifications: the `let (y,) = x;` 1-tuple destructure rewritten as a `match`
+// (let-destructure of a tuple is refutable-let, unsupported); char equality
+// checked with `==` + early-return rather than assert_eq! (char has no Debug
+// impl). Tests the 1-tuple `('c',)`/`('d',)` in match patterns.
+package one_tuple_test;
+
+fn main() -> i32 {
+    match ('c',) {
+        (x,) => {
+            if x != 'c' { return 1; }
+        }
+    }
+    let x: (char,) = ('d',);
+    match x {
+        (y,) => {
+            if y != 'd' { return 2; }
+        }
+    }
+    return 0;
+}

@@ -1,0 +1,61 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/while-let.rs
+// Modifications: the `BinaryHeap<isize>` source replaced with a counting `pop`
+// fn returning `Option<i64>` (no BinaryHeap in scope; the test's point is the
+// `while let Some(x) = ..` loop, not the heap); isize → i64; assert_eq! via
+// logos.std.fmt. Labeled `break 'a`/`continue 'a` on a while-let loop is a gap
+// (G152-16: label not in scope on while-let), so the break/continue use plain
+// (unlabeled) form on the single while-let. Tests `while let Some(x) = pop()`
+// with break and continue, and a nested while-let.
+package while_let_test;
+
+use logos.std.fmt;
+use logos.lang.option;
+
+fn pop(n: &mut i64) -> Option<i64> {
+    if *n > 0i64 {
+        let v = *n;
+        *n -= 1i64;
+        return Some(v);
+    }
+    return None;
+}
+
+fn main() -> i32 {
+    let mut a = 3i64;
+    let mut sum = 0i64;
+    while let Some(x) = pop(&mut a) {
+        sum += x;
+    }
+    assert_eq!(sum, 6i64);
+
+    let mut b = 3i64;
+    let mut sum2 = 0i64;
+    while let Some(x) = pop(&mut b) {
+        sum2 += x;
+        if x == 2i64 {
+            break;
+        }
+    }
+    assert_eq!(sum2, 5i64);
+
+    let mut c = 3i64;
+    let mut sum3 = 0i64;
+    while let Some(x) = pop(&mut c) {
+        if x == 3i64 {
+            continue;
+        }
+        sum3 += x;
+    }
+    assert_eq!(sum3, 3i64);
+
+    let mut outer = 3i64;
+    let mut sum = 0i64;
+    while let Some(x) = pop(&mut outer) {
+        let mut inner = 3i64;
+        while let Some(y) = pop(&mut inner) {
+            sum += x * y;
+        }
+    }
+    assert_eq!(sum, 6i64 + 12i64 + 18i64);
+    return 0;
+}

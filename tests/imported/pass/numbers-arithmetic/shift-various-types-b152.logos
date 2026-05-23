@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/shift-various-types.rs
+// Modifications: isize/usize → i64/u64; literals suffixed; assert_eq! via
+// logos.std.fmt; the shift amount `>> p.field` keeps each integral field type.
+// Tests right-shift `22 >> n` where the shift amount has every integral type
+// (i8/i16/i32/i64 + u8/u16/u32/u64), each equal to 1.
+package shift_various_types_test;
+
+use logos.std.fmt;
+
+struct Panoply {
+    i8: i8,
+    i16: i16,
+    i32: i32,
+    i64: i64,
+    u8: u8,
+    u16: u16,
+    u32: u32,
+    u64: u64,
+}
+
+fn foo(p: &Panoply) {
+    assert_eq!(22i32 >> p.i8, 11i32);
+    assert_eq!(22i32 >> p.i16, 11i32);
+    assert_eq!(22i32 >> p.i32, 11i32);
+    assert_eq!(22i32 >> p.i64, 11i32);
+    assert_eq!(22i32 >> p.u8, 11i32);
+    assert_eq!(22i32 >> p.u16, 11i32);
+    assert_eq!(22i32 >> p.u32, 11i32);
+    assert_eq!(22i32 >> p.u64, 11i32);
+}
+
+fn main() -> i32 {
+    let p = Panoply {
+        i8: 1i8,
+        i16: 1i16,
+        i32: 1i32,
+        i64: 1i64,
+        u8: 1u8,
+        u16: 1u16,
+        u32: 1u32,
+        u64: 1u64,
+    };
+    foo(&p);
+    return 0;
+}

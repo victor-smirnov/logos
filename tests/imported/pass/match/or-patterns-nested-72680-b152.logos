@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust tests/ui/match/issue-72680.rs
+// Modifications: only the `g`/`h` bool halves kept (the `f` half matches on
+// `&str` literal patterns — dropped to avoid str-pattern surface); assert! via
+// logos.std.fmt. Tests or-patterns at top level and nested within tuple
+// patterns (`(true | false, false, true, false)`), including deeply nested
+// tuple-of-tuple or-patterns.
+package or_patterns_nested_test;
+
+use logos.std.fmt;
+
+fn g(x: bool, y: bool, z: bool) -> bool {
+    match (x, y, x, z) {
+        (true | false, false, true, false) => true,
+        (false, true | false, true | false, false) => true,
+        (true | false, true | false, true | false, true) => false,
+        (true, true | false, true | false, false) => false,
+    }
+}
+
+fn h(x: bool, y: bool, z: bool) -> bool {
+    match (x, (y, (x, (z,)))) {
+        (true | false, (false, (true, (false,)))) => true,
+        (false, (true | false, (true | false, (false,)))) => true,
+        (true | false, (true | false, (true | false, (true,)))) => false,
+        (true, (true | false, (true | false, (false,)))) => false,
+    }
+}
+
+fn main() -> i32 {
+    assert!(!g(true, true, true));
+    assert!(!g(false, true, true));
+    assert!(!g(true, false, true));
+    assert!(!g(false, false, true));
+    assert!(!g(true, true, false));
+    assert!(g(false, true, false));
+    assert!(g(true, false, false));
+    assert!(g(false, false, false));
+
+    assert!(!h(true, true, true));
+    assert!(!h(false, true, true));
+    assert!(!h(true, false, true));
+    assert!(!h(false, false, true));
+    assert!(!h(true, true, false));
+    assert!(h(false, true, false));
+    assert!(h(true, false, false));
+    assert!(h(false, false, false));
+    return 0;
+}

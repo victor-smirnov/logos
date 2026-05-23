@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust tests/ui/methods/inherent-methods-same-name.rs
+// Modifications: usize/isize → u64/i64; assert_eq! via logos.std.fmt. The
+// turbofish tuple-struct constructor `Foo::<u64>(5)` is a gap (G152-2), so the
+// instances are built with a type-annotated `let` binding (`let f: Foo<u64> =
+// Foo(5u64)`) which pins the same instantiation. Tests two inherent impl blocks
+// defining a same-named method `bar` on distinct instantiations of a generic
+// tuple struct (`Foo<u64>` vs `Foo<i64>`).
+package inherent_methods_same_name_test;
+
+use logos.std.fmt;
+
+struct Foo<T>(T);
+
+impl Foo<u64> {
+    fn bar(&self) -> i32 {
+        return self.0 as i32;
+    }
+}
+
+impl Foo<i64> {
+    fn bar(&self) -> i32 {
+        return -(self.0 as i32);
+    }
+}
+
+fn main() -> i32 {
+    let foo_u: Foo<u64> = Foo(5u64);
+    assert_eq!(foo_u.bar(), 5i32);
+
+    let foo_i: Foo<i64> = Foo(3i64);
+    assert_eq!(foo_i.bar(), -3i32);
+    return 0;
+}

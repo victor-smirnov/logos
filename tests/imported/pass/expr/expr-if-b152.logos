@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust tests/ui/expr/if/expr-if.rs
+// Modifications: the eight test fns inlined into main; assert! via logos.std.fmt.
+// Tests `if` used as an expression: as a let-RHS, with else-if chains, with
+// inferred type, as its own condition (`if if .. { .. } else { .. } { .. }`),
+// and as a block result.
+package expr_if_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let rs: bool = if true { true } else { false };
+    assert!(rs);
+
+    let rs_e: bool = if false { false } else { true };
+    assert!(rs_e);
+
+    let rs1: bool = if true { true } else if true { false } else { false };
+    assert!(rs1);
+
+    let rs2: bool = if false { false } else if true { true } else { false };
+    assert!(rs2);
+
+    let rs3: bool = if false { false } else if false { false } else { true };
+    assert!(rs3);
+
+    let rs_inf = if true { true } else { false };
+    assert!(rs_inf);
+
+    let rc1 = if if false { false } else { true } { true } else { false };
+    assert!(rc1);
+    let rc2 = if if true { false } else { true } { false } else { true };
+    assert!(rc2);
+
+    let rb = if true { if false { false } else { true } } else { false };
+    assert!(rb);
+    return 0;
+}

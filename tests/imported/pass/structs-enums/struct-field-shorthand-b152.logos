@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust tests/ui/structs-enums/struct-field-shorthand.rs
+// Modifications: i32/bool kept; assert_eq! via logos.std.fmt; bool field checked
+// with `==`-into-if (bool has no Debug via assert_eq!). Tests struct field
+// init shorthand (`x` ≡ `x: x`) mixed with explicit fields and reordered fields.
+package struct_field_shorthand_test;
+
+use logos.std.fmt;
+
+struct Foo {
+    x: i32,
+    y: bool,
+    z: i32,
+}
+
+struct Bar {
+    x: i32,
+}
+
+fn main() -> i32 {
+    let x = 1i32;
+    let y = true;
+    let z = 2i32;
+    let a = Foo { x, y: y, z };
+    assert_eq!(a.x, x);
+    if a.y != y { return 1; }
+    assert_eq!(a.z, z);
+
+    let b = Bar { x };
+    assert_eq!(b.x, x);
+
+    let c = Foo { z, y, x };
+    assert_eq!(c.x, x);
+    if c.y != y { return 2; }
+    assert_eq!(c.z, z);
+    return 0;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/i8-incr.rs
+// Modifications: integer literals suffixed i8; assert_eq! via logos.std.fmt.
+// Tests i8 increment/decrement round-trips back to the original value.
+package i8_incr_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let mut x: i8 = -12i8;
+    let y: i8 = -12i8;
+    x = x + 1i8;
+    x = x - 1i8;
+    assert_eq!(x, y);
+    return 0;
+}

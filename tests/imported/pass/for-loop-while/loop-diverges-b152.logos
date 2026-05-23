@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/for-loop-while/loop-diverges.rs
+// Modifications: exit check added. Tests that a `loop {}` can be the tail
+// expression of a diverging fn (return type `!`), called only on a
+// never-taken branch.
+package loop_diverges_test;
+
+fn forever() -> ! {
+    loop {}
+}
+
+fn main() -> i32 {
+    if 1i64 == 2i64 { forever(); }
+    return 0;
+}

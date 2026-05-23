@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust tests/ui/binding/nested-pattern.rs
+// Modifications: isize/usize → i64/u64; `use logos.lang.option;`; println!/
+// panic! → early-return error codes. Turbofish in a pattern (`Some::<i64>(_)`)
+// is a parse gap (G152-7), so the inner pattern is plain `Some(_)`; the
+// turbofish constructor `None::<i64>` is a gap (G152-8), so a let-pinned
+// `let n: Option<i64> = None;` supplies it. Tests a nested enum pattern where
+// the inner `Some(_)` fails to match a `bar(1, None)`, so the wildcard arm runs.
+package nested_pattern_test;
+
+use logos.lang.option;
+
+enum T { foo(i64, u64), bar(i64, Option<i64>) }
+
+fn nested(o: T) -> i32 {
+    match o {
+        T::bar(_i, Some(_)) => { return 1; }
+        _ => { return 0; }
+    }
+}
+
+fn main() -> i32 {
+    let n: Option<i64> = None;
+    return nested(T::bar(1i64, n));
+}

@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/numbers-arithmetic/i32-sub.rs
+// Modifications: literals suffixed i32; assert_eq! via logos.std.fmt. Tests
+// negating an i32 via `0 - x`.
+package i32_sub_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let mut x: i32 = -400i32;
+    x = 0i32 - x;
+    assert_eq!(x, 400i32);
+    return 0;
+}

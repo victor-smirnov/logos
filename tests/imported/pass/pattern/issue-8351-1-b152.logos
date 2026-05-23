@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/pattern/issue-8351-1.rs
+// Modifications: isize → i64; panic! arms → distinct early-return error codes.
+// Tests struct-variant patterns: a specific-value arm `E::Foo{f: 1}`, a rest
+// arm `E::Foo{..}`, and a catch-all — the value `E::Foo{f: 0}` falls through to
+// the `{..}` arm.
+package issue_8351_1_test;
+
+enum E {
+    Foo { f: i64 },
+    Bar,
+}
+
+fn main() -> i32 {
+    let e = E::Foo { f: 0i64 };
+    match e {
+        E::Foo { f: 1i64 } => { return 1; }
+        E::Foo { .. } => { return 0; }
+        _ => { return 2; }
+    }
+}
