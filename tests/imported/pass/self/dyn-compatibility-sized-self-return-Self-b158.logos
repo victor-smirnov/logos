@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/dyn-compatibility-sized-self-return-Self.rs
+// Modifications: u32 → i64; `&mut self` → `self: &mut Self`; `Counter::new()`
+//   (trait-path static with Self from let-anno) kept (G158-9); assert_eq! →
+//   return sentinel. No other reshaping — this is the FULL upstream test.
+// Exercises the whole `?Sized` dyn-compatibility chain that B158's G158-7/8/9
+//   closed: a `where Self: Sized` static `new()` (G158-8 parse + G158-9
+//   trait-path-static-from-let-anno), a `&mut C` → `&mut dyn Counter` unsizing
+//   coercion at a call site (G158-7 coercion), and `tick_generic<C: ?Sized +
+//   Counter>(c: &mut C)` invoked with a `&mut dyn Counter` then calling
+//   `c.tick()` — `dyn Counter: Counter` bound satisfaction + vtable dispatch
+//   through a receiver that monomorphises to a trait object (G158-7 dispatch,
+//   closed 2026-05-23). preticked: 0→2; main: tick→4; final tick → 5.
+package dyn_compatibility_sized_self_return_self_b158;
+
+trait Counter {
+    fn make() -> Self where Self: Sized;
+    fn tick(self: &mut Self) -> i64;
+}
+
+struct CCounter { c: i64 }
+
+impl Counter for CCounter {
+    fn make() -> CCounter { return CCounter { c: 0i64 }; }
+    fn tick(self: &mut Self) -> i64 { self.c = self.c + 1i64; return self.c; }
+}
+
+fn preticked<C: Counter>() -> C {
+    let mut c: C = Counter::make();
+    tick(&mut c);
+    return c;
+}
+
+fn tick(c: &mut dyn Counter) { tick_generic(c); }
+
+fn tick_generic<C: ?Sized + Counter>(c: &mut C) {
+    c.tick();
+    c.tick();
+}
+
+fn main() -> i32 {
+    let mut c: CCounter = preticked::<CCounter>();
+    tick(&mut c);
+    if c.tick() != 5i64 { return 1i32; }
+    return 0i32;
+}

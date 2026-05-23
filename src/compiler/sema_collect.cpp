@@ -1021,17 +1021,30 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 impls_.count(bound.trait_name + "::$fnptr$" +
                              std::to_string(cv.closure_params().size())))
                 continue;
-            // NOTE (G158-7 follow-on, deferred as a distinct gap): a `dyn Trait`
-            // trait object DOES implement its own trait (`dyn T: T`), so a
-            // `?Sized` generic passthrough like `tick_generic<C: ?Sized +
-            // Counter>(c: &mut C)` invoked with `&mut dyn Counter` should
-            // satisfy this bound. Accepting it here is sound, but the
-            // downstream method dispatch (`c.tick()` on a `&mut C` that
-            // monomorphises to a trait object) is NOT yet wired in mono /
-            // mlir-gen (no vtable-slot resolution for a substituted-to-dyn
-            // receiver; `&mut dyn` receiver normalization). Until that lands,
-            // we keep the clean sema rejection rather than admit a
-            // compile-then-SIGSEGV. See baghunt_qsized_dyn_passthrough_dispatch.
+            // G158-7: a `dyn Trait` trait object satisfies a `T: Trait` bound —
+            // a trait object implements its own trait (Rust's auto rule) + any
+            // supertrait. Enables the `?Sized` generic passthrough
+            // `tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with a
+            // `&mut dyn Counter`. The downstream method dispatch (`c.tick()` on a
+            // `&mut C` that monomorphises to a trait object) is wired in
+            // mono_clone (vtable-slot resolution) + mlir-gen (ref-wrapped
+            // TraitObject dispatch).
+            if ((cv.kind() == LogosType::Kind::TraitObject ||
+                 cv.kind() == LogosType::Kind::UnsizedDyn) &&
+                !cv.trait_name().empty()) {
+                logos::compiler::StrSet seen;
+                std::function<bool(const std::string&)> reaches =
+                    [&](const std::string& tn) -> bool {
+                        if (!seen.insert(tn).second) return false;
+                        if (tn == bound.trait_name) return true;
+                        auto it = traits_.find(tn);
+                        if (it == traits_.end()) return false;
+                        for (auto& s : it->second.supertraits)
+                            if (reaches(s.trait_name)) return true;
+                        return false;
+                    };
+                if (reaches(std::string(cv.trait_name()))) continue;
+            }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }

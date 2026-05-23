@@ -2848,6 +2848,56 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string tag_system{v.tag_system()};
             std::string tag_trait{v.tag_trait()};
             int32_t vtable_index = v.vtable_index();
+            // G158-7: a generic receiver that MONOMORPHISED to a trait object
+            // (`tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with a
+            // `&mut dyn Counter`) must dispatch through the vtable, not a static
+            // `<cname>__<method>` symbol. After subst the receiver is
+            // `MutRef(TraitObject)` / pointee `UnsizedDyn` with no vtable index
+            // (sema couldn't know C would be a dyn). Re-type the receiver to a
+            // bare TraitObject (matching a direct `&dyn`/`&mut dyn` call) and set
+            // the slot from the trait's method order, then emit a dyn method
+            // call. Gated on vtable_index<0 + empty resolved_symbol/tag so it
+            // never disturbs an already-resolved dispatch.
+            // The mirror stores vtable_index in a 24-bit field, so an unset
+            // `-1` round-trips as 0x00FFFFFF. Treat any value with the 24-bit
+            // sign bit set as "unset/virtual-unknown".
+            bool vtable_unset = ((uint32_t)vtable_index) >= 0x00800000u;
+            if (vtable_unset && resolved_symbol.empty() && tag_system.empty() &&
+                new_recv && new_recv->type) {
+                TypeRef nrt = new_recv->type;
+                while (nrt && (TypeRef(nrt).kind() == LogosType::Kind::Ptr ||
+                               TypeRef(nrt).kind() == LogosType::Kind::Ref ||
+                               TypeRef(nrt).kind() == LogosType::Kind::MutRef) &&
+                       TypeRef(nrt).pointee())
+                    nrt = TypeRef(nrt).pointee();
+                if (nrt && (TypeRef(nrt).kind() == LogosType::Kind::TraitObject ||
+                            TypeRef(nrt).kind() == LogosType::Kind::UnsizedDyn) &&
+                    !TypeRef(nrt).trait_name().empty()) {
+                    std::string tname(TypeRef(nrt).trait_name());
+                    int slot = -1;
+                    for (auto& td : out_.traits) {
+                        if (td.name != tname) continue;
+                        for (size_t mi = 0; mi < td.methods.size(); ++mi)
+                            if (td.methods[mi].name == method) { slot = (int)mi; break; }
+                        break;
+                    }
+                    if (slot >= 0) {
+                        LogosTypeBuilder tob;
+                        tob.kind = LogosType::Kind::TraitObject;
+                        tob.trait_name = tname;
+                        tob.type_args = TypeRef(nrt).type_args();
+                        new_recv->type = out_.type_pool.alloc(std::move(tob));
+                        std::vector<lir::LExprPtr> mc_args;
+                        v.each_arg([&](lir_view::ExprRef ar) {
+                            mc_args.push_back(subst_child_expr(ar));
+                        });
+                        result->mirror_offset_ = lir_mirror_emit_method_call(
+                            out_, result->type, new_recv, method, "",
+                            {}, mc_args, slot, "", "", "");
+                        break;
+                    }
+                }
+            }
             // Unwrap pointer/reference for TypeVar check.
             auto orig_inner = orig_recv_type;
             if (orig_inner && (TypeRef(orig_inner).kind() == LogosType::Kind::Ptr ||

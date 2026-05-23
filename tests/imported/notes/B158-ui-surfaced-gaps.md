@@ -131,14 +131,20 @@ references (variance-option-ref-intersection).
   (`Gen$G1$i64`) instead of the angle-bracket `type_str` form (`Gen<i64>`) —
   the generic-struct case was a latent SIGSEGV (same root as G158-10).
   Regression `pass/self/coerce-ref-generic-to-dyn` (concrete + generic struct).
-  REMAINING (distinct gap, see `baghunt_qsized_dyn_passthrough_dispatch`): the
-  `?Sized` generic passthrough — `tick_generic<C: ?Sized + Counter>(c: &mut C)`
-  invoked with a `&mut dyn Counter` then calling `c.tick()`. That needs (a)
-  `dyn T: T` bound satisfaction AND (b) trait-object method dispatch through a
-  receiver that monomorphises to a trait object (mono vtable-slot resolution +
-  `&mut dyn` receiver normalization). Kept as a clean sema rejection for now
-  (not a compile-then-crash). dyn-compatibility-sized-self-* re-import waits on
-  it.
+  ✅ ALSO CLOSED (2026-05-23) the `?Sized` generic passthrough —
+  `tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with a `&mut dyn
+  Counter` then calling `c.tick()`. Two parts: (a) `dyn T: T` bound
+  satisfaction — sema_collect check_type_bounds: a `TraitObject`/`UnsizedDyn`
+  `cv` satisfies a `T: Trait` bound when its trait (transitively, via
+  supertraits) reaches `bound.trait_name`; (b) vtable dispatch through a
+  receiver that monomorphised to a trait object — mono_clone EMethodCall: when
+  the substituted receiver peels to TraitObject/UnsizedDyn and the vtable index
+  is unset (the mirror's 24-bit field round-trips `-1` to `0x00FFFFFF`, so the
+  guard tests the 24-bit sign bit), re-type the receiver to a bare TraitObject
+  and set the slot from the trait's method order, then emit a dyn method call
+  (subst already canonicalises `&mut UnsizedDyn` → TraitObject). Full upstream
+  test re-imported: `pass/self/dyn-compatibility-sized-self-return-Self`. Full
+  suite 4838/4838.
 
 - **G158-8** ✅ CLOSED (2026-05-23) — `fn new() -> Self where Self: Sized;`
   now parses. The true root was NOT the no-param shape (the original diagnosis)
