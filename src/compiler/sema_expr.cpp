@@ -6278,7 +6278,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // name or it wrongly dispatches to the inherent. Mono falls back
                 // to the plain name when no qualified symbol exists, so tagging
                 // the single-provider case is harmless.
-                if (provider_traits >= 1) mc.tag_trait = chosen_trait;
+                if (provider_traits >= 1) {
+                    mc.tag_trait = chosen_trait;
+                    // G156-1: when the bound carries concrete trait type-args
+                    // (`T: MyTrait<u64>`), fold them into tag_trait as a
+                    // `$G<n>$<args>` suffix (the SAME scheme bare_fn_name preserves
+                    // — a plain `$` would be stripped as a pkg separator) so mono
+                    // resolves the args-qualified symbol
+                    // `<Concrete>__MyTrait$G1$u64__method`, distinct from a sibling
+                    // `impl MyTrait<u8>`. Mono builds `cname__tag_trait__m`.
+                    if (auto bit3 = current_type_bounds_.find(recv_bound_key);
+                        bit3 != current_type_bounds_.end()) {
+                        for (auto& b : bit3->second) {
+                            if (b.trait_name != chosen_trait || b.type_args.empty()) continue;
+                            mc.tag_trait = chosen_trait + trait_targ_suffix(b.type_args);
+                            break;
+                        }
+                    }
+                }
             }
             return builder().method_call_v(std::move(mc), ret_type);
         }

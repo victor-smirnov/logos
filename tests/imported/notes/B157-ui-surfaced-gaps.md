@@ -79,7 +79,11 @@ place). DROPPED `structs-enums/compare-generic-enums` (whose whole point is
 path already works, so the fix is localized to how by-value enum params are
 materialized for the `==`→`eq` call. Highest priority.
 
-### G157-2 — two impls of a generic trait `Trait<T>` for the same type collide
+### G157-2 — ✅ FIXED (= G156-1): two impls of a generic trait for one type
+**FIXED** (this session) — see G156-1. Trait type-args folded into the method
+mangling (`$G<n>$<args>`) + tag_trait dispatch threading. Original report follows.
+
+### G157-2 (orig) — two impls of a generic trait `Trait<T>` for the same type collide
 `impl MyTrait<u64> for MyType` + `impl MyTrait<u8> for MyType` (selected by the
 result type) emit the same mangled symbol `MyType__get` → `error: duplicate
 function 'MyType__get'`. Method mangling does not include the trait type-arg, so

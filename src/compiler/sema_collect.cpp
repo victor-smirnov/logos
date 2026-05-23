@@ -2361,6 +2361,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 current_type_params_[tit->second.type_params[i].name] = trait_type_args[i];
         }
     }
+    // G156-1: expose this impl's concrete trait type-args to collect_fn so the
+    // method collision-detection can mangle by them (empty for inherent impls).
+    current_impl_trait_args_ = trait_type_args;
     // Detect blanket impl: `impl<T: Bound> Trait for T` — target IS one of
     // this impl's own type parameters.  Methods are collected as generic fns
     // (target becomes the TypeVar name, e.g. "T__method"); later, at call
@@ -2597,7 +2600,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // Trait-aware mangling: a method that collided with another
                 // trait's same-named method was re-keyed under the
                 // trait-qualified base; check that first.
-                auto cands = find_func_candidates(
+                // G156-1: when this impl has concrete trait type-args, the method
+                // was re-keyed under the args-aware base `<tgt>__<Trait>$<args>__<m>`
+                // (so `impl Trait<u64>` and `impl Trait<u8>` coexist). Look that up
+                // first, then the bare trait-qualified base, then the plain name.
+                std::string targ_sfx = trait_targ_suffix(trait_type_args);
+                auto cands = !targ_sfx.empty()
+                    ? find_func_candidates(check_target + "__" + trait_name + targ_sfx + "__" + m.name)
+                    : std::vector<const SemaFuncInfo*>{};
+                if (cands.empty()) cands = find_func_candidates(
                     check_target + "__" + trait_name + "__" + m.name);
                 if (cands.empty()) cands = find_func_candidates(mangled);
                 // Find if THIS specific overload was explicitly provided.
@@ -3578,6 +3589,11 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
     SemaFuncInfo info;
     info.trait_name = std::string(trait_ctx);
+    // G156-1: carry the impl's concrete trait type-args (when this method is
+    // collected within the current trait-impl) so collision detection + mangling
+    // can distinguish `impl Trait<u64> for X` from `impl Trait<u8> for X`.
+    if (!trait_ctx.empty() && std::string(trait_ctx) == current_impl_trait_name_)
+        info.trait_type_args = current_impl_trait_args_;
     // Free fn: pending_doc_ holds module-level doc. Methods (collect_fn called
     // from collect_impl/collect_trait/collect_struct method loops) — caller
     // has already cleared pending_doc_ via take_pending_doc(), so this is a
@@ -3702,13 +3718,27 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     // ~30 plain lookup sites are unaffected for the common case.
     if (!info.trait_name.empty() && struct_ctx.size() && raw_name.size()) {
         const std::string plain_base = base_name;
-        const std::string qual_base = std::string(struct_ctx) + "__" +
-                                       info.trait_name + "__" + std::string(raw_name);
+        // G156-1: fold the trait's concrete type-args into the qualified base so
+        // `impl Trait<u64> for X` and `impl Trait<u8> for X` mangle distinctly
+        // (`X__Trait$u64__m` vs `X__Trait$u8__m`). No args → bare `X__Trait__m`.
+        auto qual_for = [&](const std::string& tname, const std::vector<TypeRef>& targs) {
+            return std::string(struct_ctx) + "__" + tname + trait_targ_suffix(targs)
+                   + "__" + std::string(raw_name);
+        };
+        const std::string qual_base = qual_for(info.trait_name, info.trait_type_args);
         bool generic = !info.type_params.empty();
         auto& ov  = generic ? generic_overloads_ : func_overloads_;
         auto& tbl = generic ? generic_funcs_     : funcs_;
         const std::string plain_sig =
             function_signature_key(plain_base, info.param_types, info.is_vararg);
+        auto args_differ = [&](const std::vector<TypeRef>& a,
+                               const std::vector<TypeRef>& b) {
+            if (a.size() != b.size()) return true;
+            for (size_t i = 0; i < a.size(); ++i)
+                if (type_str(a[i] ? a[i] : error_t()) != type_str(b[i] ? b[i] : error_t()))
+                    return true;
+            return false;
+        };
 
         bool already = trait_method_registry_.count(plain_base) > 0;
         std::string clash_sym;
@@ -3724,7 +3754,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                     if (esig != plain_sig) continue;
                     if (fit->second.trait_name.empty()) {
                         clash_inherent = true;   // keep inherent; qualify trait
-                    } else if (fit->second.trait_name != info.trait_name) {
+                    } else if (fit->second.trait_name != info.trait_name ||
+                               // G156-1: same trait NAME, distinct trait type-args.
+                               args_differ(fit->second.trait_type_args,
+                                           info.trait_type_args)) {
                         clash_sym = sym; break;
                     }
                 }
@@ -3753,8 +3786,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                     SemaFuncInfo ex = std::move(fit->second);
                     tbl.erase(fit);
                     std::string ex_trait = ex.trait_name;
-                    std::string ex_qual = std::string(struct_ctx) + "__" +
-                        ex_trait + "__" + std::string(raw_name);
+                    // Re-key WITH the existing method's own trait type-args, so a
+                    // same-trait-different-args clash (G156-1) doesn't re-key both
+                    // to the same bare `X__Trait__m` and re-collide.
+                    std::string ex_qual = qual_for(ex_trait, ex.trait_type_args);
                     ex.base_name   = ex_qual;
                     ex.symbol_name = function_symbol_name(ex_qual, ex);
                     auto& plist = ov[plain_base];

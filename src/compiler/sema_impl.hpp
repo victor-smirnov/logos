@@ -1672,6 +1672,11 @@ private:
                             // trait-qualified base `<target>__<trait>__<method>`
                             // (see trait_method_registry_).
                             std::string trait_name;
+                            // G156-1: the impl's concrete trait type-args
+                            // (`impl Trait<u64> for X` → [u64]). Two impls of the
+                            // same trait name for one type at distinct args mangle
+                            // their methods by these so they coexist + dispatch.
+                            std::vector<TypeRef> trait_type_args;
                           };
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
@@ -2014,6 +2019,10 @@ private:
     // itself isn't yet in impls_ when method signatures are being
     // type-checked during collect_impl).
     std::string current_impl_trait_name_;
+    // G156-1: the impl's CONCRETE trait type-args (`impl Trait<u64> for X` → [u64]),
+    // set during collect_impl. Two impls of the same trait NAME for one type at
+    // distinct concrete args mangle their methods with these args so they coexist.
+    std::vector<TypeRef> current_impl_trait_args_;
     // Bounds per type param name (set alongside current_type_params_ during push_type_params)
     logos::compiler::StrMap<std::vector<TraitBound>> current_type_bounds_;
     // Phase 1B-9: names of currently-in-scope type params that carry `?Sized`
@@ -3038,6 +3047,12 @@ private:
     // enum's scope-exit Drop doesn't double-free a value a binding/result owns.
     void mark_match_scrutinee_moved(const lir::LExprPtr& scrut, TypeRef scrut_type,
                                     hermes::TinyMapView node);
+    // G156-1: mangle an impl's concrete trait type-args into a `$G<n>$<a1>$…`
+    // suffix appended to a trait name in a qualified method base
+    // (`X__Trait$G1$u64__m`). Uses the `$G` generic-marker scheme so
+    // bare_fn_name preserves it (a plain `$` is stripped as a pkg separator).
+    // Empty for no args. Must be byte-identical across collect/lower/dispatch.
+    std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
     // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
     // emits a diagnostic if a non-guarded wildcard is absent and some
     // variant / bool value is uncovered. Read-only over `smatch`; factored

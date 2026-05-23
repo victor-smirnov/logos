@@ -53,7 +53,14 @@ conditional blanket `impl<M,F:Bar<M>> Foo<M> for F` (where-clause-vs-impl).
 
 ## Gaps surfaced
 
-### G156-1 — same type-param trait impl'd twice for one type → duplicate method
+### G156-1 — ✅ FIXED: same type-param trait impl'd twice for one type
+**FIXED** (this session): the method base folds the impl's concrete trait
+type-args into a `$G<n>$<args>` suffix (`MyType__MyTrait$G1$u64__get`) so two
+`impl MyTrait<A> for X` at distinct A coexist; a `T: MyTrait<u64>` bound call
+threads the suffix through tag_trait so mono dispatches the right variant.
+Regression `tests/logos/pass/trait_typearg_multidispatch.logos`. Original report follows.
+
+### G156-1 (orig) — same type-param trait impl'd twice for one type → duplicate method
 A single struct implementing a type-parameterized trait `MyTrait<T>` for two
 distinct concrete `T` collides on method mangling (the trait type-arg is not part
 of the mangled method symbol). Tractable: same root as trait-aware method

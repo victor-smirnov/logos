@@ -145,9 +145,18 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // qualified base is actually registered, so non-colliding methods are
     // byte-identical to before.
     if (!current_impl_trait_name_.empty() && !struct_ctx.empty()) {
+        // G156-1: include the impl's trait type-args in the qualified base
+        // (`X__Trait$u64__m`) so two `impl Trait<A> for X` at distinct A get
+        // distinct symbols. Try the args-aware base first, then the bare one.
+        std::string targ_sfx = trait_targ_suffix(current_impl_trait_args_);
+        std::string qual_args = std::string(struct_ctx) + "__" +
+                           current_impl_trait_name_ + targ_sfx + "__" + std::string(raw_name);
         std::string qual = std::string(struct_ctx) + "__" +
                            current_impl_trait_name_ + "__" + std::string(raw_name);
-        if (func_overloads_.count(qual) || generic_overloads_.count(qual))
+        if (!targ_sfx.empty() &&
+            (func_overloads_.count(qual_args) || generic_overloads_.count(qual_args)))
+            mangled = qual_args;
+        else if (func_overloads_.count(qual) || generic_overloads_.count(qual))
             mangled = qual;
     }
 
@@ -1111,6 +1120,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         std::string& dst; std::string saved;
         ~ImplTraitNameRestore() { dst = std::move(saved); }
     } _restore_itn{current_impl_trait_name_, std::move(saved_impl_trait_name)};
+    // G156-1: restore current_impl_trait_args_ at impl teardown; it is SET below
+    // once impl_trait_args is resolved, so lower_fn can mangle the methods by the
+    // trait type-args (matching the collect-side qualified base).
+    std::vector<TypeRef> saved_impl_trait_args = current_impl_trait_args_;
+    current_impl_trait_args_.clear();
+    struct ImplTraitArgsRestore {
+        std::vector<TypeRef>& dst; std::vector<TypeRef> saved;
+        ~ImplTraitArgsRestore() { dst = std::move(saved); }
+    } _restore_ita{current_impl_trait_args_, std::move(saved_impl_trait_args)};
     // Push impl's own type params: either from IMPL_TYPE_PARAMS (new generic trait impl
     // form: impl<T> Trait for Struct<T>) or from TYPE_PARAMS (standalone: impl<T> Pair<T>).
     std::vector<TypeParam> impl_tps;
@@ -1411,6 +1429,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
     }
+    // G156-1: expose the impl's concrete trait type-args to lower_fn (mangling).
+    current_impl_trait_args_ = impl_trait_args;
     // Propagate type_code from a genos-specialization decl:
     // `#[type_code=100] pub genos Array<AnyVal>;` + `impl Array<AnyVal> for E`
     // → E inherits type_code 100.  Only fires if the direct trait didn't

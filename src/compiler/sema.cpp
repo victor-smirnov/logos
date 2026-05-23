@@ -2525,6 +2525,18 @@ void SemaChecker::compute_auto_copy_types() {
     }
 }
 
+std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) const {
+    if (args.empty()) return {};
+    std::string s = "$G" + std::to_string(args.size());
+    for (auto a : args) {
+        s += "$";
+        std::string ts = a ? type_str(a) : std::string("?");
+        for (char& c : ts) if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
+        s += ts;
+    }
+    return s;
+}
+
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);

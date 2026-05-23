@@ -1,0 +1,24 @@
+// Regression (G156-1 / G157-2): a single type implementing a type-parameterized
+// trait `MyTrait<T>` for two distinct concrete `T` collided on the mangled
+// method symbol (`duplicate function`). The method base now folds the impl's
+// concrete trait type-args into a `$G<n>$<args>` suffix
+// (`MyType__MyTrait$G1$u64__get`), so the two impls coexist; a `T: MyTrait<u64>`
+// bound call threads the same suffix through tag_trait so mono dispatches to the
+// correct variant. The `$G` scheme is used (not a plain `$`) so bare_fn_name
+// preserves it instead of stripping it as a package separator.
+package trait_typearg_multidispatch;
+
+trait MyTrait<T> { fn get(self: &Self) -> T; }
+struct MyType { dummy: u64 }
+impl MyTrait<u64> for MyType { fn get(self: &MyType) -> u64 { return self.dummy; } }
+impl MyTrait<u8>  for MyType { fn get(self: &MyType) -> u8  { return self.dummy as u8; } }
+
+fn via64<T: MyTrait<u64>>(x: &T) -> u64 { return x.get(); }
+fn via8<T: MyTrait<u8>>(x: &T) -> u8 { return x.get(); }
+
+fn main() -> i32 {
+    let m = MyType { dummy: 300u64 };
+    if via64::<MyType>(&m) != 300u64 { return 1i32; }
+    if via8::<MyType>(&m) != 44u8 { return 2i32; }   // 300 % 256 == 44
+    return 0i32;
+}
