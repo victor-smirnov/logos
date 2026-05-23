@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust tests/ui/moves/move-arg-2.rs
+// Modifications: Box dropped (the inner Vec moves directly); isize → i64;
+// `vec![10]` → `vec_new` + push; `(*foo)[0]` → `foo.get(0)`; the test exercises
+// moving a local and a temporary into a fn arg. Checked via early-return
+// sentinels.
+package move_arg_2_test;
+
+fn test(foo: Vec<i64>) -> i64 { foo.get(0i64) }
+
+fn main() -> i32 {
+    // forget a local by move-in
+    let mut x = vec_new::<i64>();
+    x.push(10i64);
+    if test(x) != 10i64 { return 1; }
+
+    // forget a temporary by move-in
+    let mut t = vec_new::<i64>();
+    t.push(10i64);
+    if test(t) != 10i64 { return 2; }
+    return 0;
+}

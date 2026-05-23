@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-assign-to-subfield.rs
+// Modifications: nested type decls hoisted to top level; isize → i64;
+// assert_eq! via logos.std.fmt. Tests that a non-`mut`-declared field of a
+// `mut` whole struct can be reassigned, including a deeply interior field.
+package borrowck_assign_to_subfield_test;
+
+use logos.std.fmt;
+
+struct B {
+    a: i64
+}
+struct A {
+    a: i64,
+    w: B,
+}
+
+fn main() -> i32 {
+    let mut p = A {
+        a: 1i64,
+        w: B { a: 1i64 },
+    };
+
+    p.a = 2i64;
+    p.w.a = 2i64;
+
+    assert_eq!(p.a, 2i64);
+    assert_eq!(p.w.a, 2i64);
+    return 0;
+}

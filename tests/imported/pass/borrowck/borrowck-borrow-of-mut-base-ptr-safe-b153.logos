@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-borrow-of-mut-base-ptr-safe.rs
+// Modifications: isize → i64; named lifetimes + #[allow] dropped; the `mut`
+// param qualifiers dropped (not needed); made run-pass with a trivial driver.
+// Tests that freezing (`&*t0`) an `&mut` pointer while its referent is already
+// frozen (also via a `&t0` reborrow) is legal.
+package borrowck_borrow_of_mut_base_ptr_safe_test;
+
+fn foo(t0: &mut i64, t1: &mut i64) {
+    let p: &i64 = &*t0;
+    let t2 = &t0;
+    let q: &i64 = &**t2;
+    let r: &i64 = &*t0;
+}
+
+fn main() -> i32 {
+    let mut a = 1i64;
+    let mut b = 2i64;
+    foo(&mut a, &mut b);
+    return 0;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/moves/move-nullary-fn.rs (issue #922)
+// Modifications: none beyond main signature. Tests forwarding a FnOnce()-bound
+// generic value into another FnOnce()-bound generic fn.
+package move_nullary_fn_test;
+
+fn f2<F>(_thing: F) where F: FnOnce() { }
+
+fn f<F>(thing: F) where F: FnOnce() {
+    f2(thing);
+}
+
+fn main() -> i32 {
+    f(|| {});
+    return 0;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/inference/simple-infer.rs
+// Modifications: println! dropped; the inferred-then-assigned local checked via
+// assert_eq!. The bare `let mut n;` (type inferred purely from a later
+// assignment) is a parse error in Logos (G153-2), so a type annotation is added
+// — the deferred-init + later-assign shape is preserved. Tests deferred-init of
+// a `mut` local.
+package simple_infer_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let mut n: i64;
+    n = 1i64;
+    assert_eq!(n, 1i64);
+    return 0;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-pat-reassign-no-binding.rs
+// Modifications: Option via logos.lang.option; the binding is annotated
+// `Option<i64>` because a `None`-inferred `let mut x = None;` leaves the Option
+// payload type unresolved (T) — assert_eq!/`==` then pointer-compares and a
+// payload `!=` errors `type mismatch (T vs i64)` (G153-1). The final check uses
+// a `match` to extract the payload. Tests reassigning `x` inside a match arm
+// that bound nothing from `x`.
+package borrowck_pat_reassign_test;
+
+use logos.lang.option;
+
+fn main() -> i32 {
+    let mut x: Option<i64> = None;
+    match x {
+        None => {
+            x = Some(0i64);
+        }
+        Some(_) => { }
+    }
+    match x {
+        Some(v) => { if v != 0i64 { return 1; } }
+        None => { return 2; }
+    }
+    return 0;
+}

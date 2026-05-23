@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/recursion/instantiable.rs
+// Modifications: tuple-struct `foo(X)` rewritten as a named-field struct (the
+// recursion-through-raw-pointer is the point); `ptr::null()` → null raw pointer
+// via `0 as *const foo` under unsafe. Tests that a struct referencing itself
+// only through a raw pointer field is instantiable.
+package instantiable_test;
+
+struct Foo { x: X }
+
+struct X { x: u64, nxt: *const Foo }
+
+fn main() -> i32 {
+    let nullp = 0u64 as *const Foo;
+    let _x = Foo { x: X { x: 0u64, nxt: nullp } };
+    return 0;
+}

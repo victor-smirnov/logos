@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/loops/loop-with-label-9047.rs
+// Modifications: println! dropped; String return → i64 sentinel; the
+// `let mut ch_start: usize;` deferred-init kept with a type annotation. Tests a
+// labeled `'outer: loop { … break 'outer; }`.
+package loop_with_label_9047_test;
+
+fn decode() -> i64 {
+    'outer: loop {
+        let mut ch_start: u64;
+        break 'outer;
+    }
+    return 0i64;
+}
+
+fn main() -> i32 {
+    if decode() != 0i64 { return 1; }
+    return 0;
+}

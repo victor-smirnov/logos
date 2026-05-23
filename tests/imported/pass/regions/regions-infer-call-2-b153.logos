@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-call-2.rs
+// Modifications: isize → i64; named lifetime dropped; assert_eq! via
+// logos.std.fmt. Tests a closure (capturing an outer ref `x`) passed to a
+// generic FnOnce(&i64)->T fn, where lifetimes are inferred to the intersection.
+package regions_infer_call_2_test;
+
+use logos.std.fmt;
+
+fn takes_two(x: &i64, y: &i64) -> i64 { *x + *y }
+
+fn with<T, F>(f: F) -> T where F: FnOnce(&i64) -> T {
+    f(&20i64)
+}
+
+fn has_one(x: &i64) -> i64 {
+    with(|y| takes_two(x, y))
+}
+
+fn main() -> i32 {
+    assert_eq!(has_one(&2i64), 22i64);
+    return 0;
+}

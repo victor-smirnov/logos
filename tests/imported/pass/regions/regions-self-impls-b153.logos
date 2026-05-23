@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-self-impls.rs
+// Modifications: isize → i64; named lifetimes dropped from the trait/impl;
+// println! dropped; made run-pass by checking the returned reference. Tests a
+// trait method returning a reference stored in a struct field.
+package regions_self_impls_test;
+
+struct Clam {
+    chowder: i64
+}
+
+trait GetChowder {
+    fn get_chowder(&self) -> &i64;
+}
+
+impl GetChowder for Clam {
+    fn get_chowder(&self) -> &i64 { return &self.chowder; }
+}
+
+fn main() -> i32 {
+    let clam = Clam { chowder: 3i64 };
+    if *clam.get_chowder() != 3i64 { return 1; }
+    return 0;
+}

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/recursion/recursive-struct-with-raw-pointer-field.rs
+// Modifications: `core::ptr::null_mut()` → `0 as *mut [Loopy; 1]`. Tests a
+// struct recursively containing a raw pointer to a fixed-size array of itself
+// (the type_of handling of recursive arrays).
+package recursive_struct_raw_pointer_test;
+
+struct Loopy {
+    ptr: *mut [Loopy; 1]
+}
+
+fn main() -> i32 {
+    let nullp = 0u64 as *mut [Loopy; 1];
+    let _t = Loopy { ptr: nullp };
+    return 0;
+}

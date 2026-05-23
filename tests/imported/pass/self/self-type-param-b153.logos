@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/self/self-type-param.rs
+// Modifications: isize → i64; made run-pass by invoking the method and checking
+// the returned Self. Tests a trait method whose return type is `Self`.
+package self_type_param_test;
+
+trait MyTrait {
+    fn f(&self) -> Self;
+}
+
+struct S {
+    x: i64
+}
+
+impl MyTrait for S {
+    fn f(&self) -> S {
+        S { x: 3i64 }
+    }
+}
+
+fn main() -> i32 {
+    let s = S { x: 0i64 };
+    let r = s.f();
+    if r.x != 3i64 { return 1; }
+    return 0;
+}

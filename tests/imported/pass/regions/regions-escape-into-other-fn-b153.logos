@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-escape-into-other-fn.rs
+// Modifications: Box dropped (plain u64); usize → u64; assert_eq! via
+// logos.std.fmt. Tests a reference threaded through fns: foo returns its arg
+// ref, bar derefs it.
+package regions_escape_into_other_fn_test;
+
+use logos.std.fmt;
+
+fn foo(x: &u64) -> &u64 { x }
+fn bar(x: &u64) -> u64 { *x }
+
+fn main() -> i32 {
+    let p: u64 = 3u64;
+    assert_eq!(bar(foo(&p)), 3u64);
+    return 0;
+}

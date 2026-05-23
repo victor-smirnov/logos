@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust tests/ui/mir/mir_struct_with_assoc_ty.rs
+// Modifications: PhantomData dropped (empty generic struct body); the field
+// type keeps the fully-qualified associated-type projection
+// `<Global<[u32; 2]> as DataBind>::Data` (resolves to `[u32; 2]`); assert_eq!
+// via logos.std.fmt. Tests a struct field whose type is an associated-type
+// projection over a generic impl.
+package mir_struct_with_assoc_ty_test;
+
+use logos.std.fmt;
+
+trait DataBind {
+    type Data;
+}
+
+struct Global<T> {}
+
+impl<T> DataBind for Global<T> {
+    type Data = T;
+}
+
+struct Data {
+    offsets: <Global<[u32; 2]> as DataBind>::Data,
+}
+
+fn create_data() -> Data {
+    let mut d = Data { offsets: [1u32, 2u32] };
+    d.offsets[0u64] = 3u32;
+    d
+}
+
+fn main() -> i32 {
+    let d = create_data();
+    assert_eq!(d.offsets[0u64], 3u32);
+    assert_eq!(d.offsets[1u64], 2u32);
+    return 0;
+}

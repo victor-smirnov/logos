@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust tests/ui/moves/move-3-unique.rs
+// Modifications: Box dropped (Triple passed by value); the all-i64 struct is
+// auto-Copy so the `.clone()` in the loop is unnecessary (`x` is reused
+// directly); the loop count shrunk 10000 → 100; isize → i64; bool param made
+// explicit; deferred-init `let mut y: Triple;` keeps its annotation. Tests
+// moving a value through a chain of bindings and a conditional reassignment.
+package move_3_unique_test;
+
+struct Triple { x: i64, y: i64, z: i64 }
+
+fn test(cond: bool, foo: Triple) -> i64 {
+    let bar = foo;
+    let mut y: Triple;
+    if cond { y = bar; } else { y = Triple { x: 4i64, y: 5i64, z: 6i64 }; }
+    return y.y;
+}
+
+fn main() -> i32 {
+    let x = Triple { x: 1i64, y: 2i64, z: 3i64 };
+    let mut i: i64 = 0i64;
+    while i < 100i64 {
+        if test(true, x) != 2i64 { return 1; }
+        i = i + 1i64;
+    }
+    if test(false, x) != 5i64 { return 2; }
+    return 0;
+}

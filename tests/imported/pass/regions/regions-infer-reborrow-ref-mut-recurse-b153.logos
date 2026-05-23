@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-infer-reborrow-ref-mut-recurse.rs
+// Modifications: isize → i64; named lifetimes dropped; made run-pass by
+// invoking foo and checking the deref. Tests reborrow of `&**y` through a
+// `&&mut i64` (region inference extends the borrow lifetime).
+package regions_infer_reborrow_test;
+
+fn foo(x: &&mut i64) -> i64 {
+    let y = &*x;
+    **y
+}
+
+fn main() -> i32 {
+    let mut v = 7i64;
+    let r = &mut v;
+    let rr = &r;
+    if foo(rr) != 7i64 { return 1; }
+    return 0;
+}

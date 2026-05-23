@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust tests/ui/statics/static-function-pointer.rs
+// Modifications: isize → i64; Logos has no `static`/`static mut` (G153-3), so
+// the two function-pointer globals are expressed as `let`/`let mut` locals
+// (a `const` fn-pointer is also rejected — const initializers must be literal),
+// preserving the fn-pointer call + reassignment essence. assert_eq! via
+// logos.std.fmt.
+package static_function_pointer_test;
+
+use logos.std.fmt;
+
+fn f(x: i64) -> i64 { x }
+fn g(x: i64) -> i64 { 2i64 * x }
+
+fn main() -> i32 {
+    let func_f: fn(i64) -> i64 = f;
+    let mut func_g: fn(i64) -> i64 = f;
+    assert_eq!(func_f(42i64), 42i64);
+    assert_eq!(func_g(42i64), 42i64);
+    func_g = g;
+    assert_eq!(func_g(42i64), 84i64);
+    return 0;
+}

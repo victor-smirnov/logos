@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust tests/ui/inference/fnonce-closure-call.rs
+// Modifications: none beyond main signature. Tests passing a closure to a
+// generic fn bounded by FnOnce() and calling it.
+package fnonce_closure_call_test;
+
+fn f<F: FnOnce()>(p: F) {
+    p();
+}
+
+fn main() -> i32 {
+    let p = || ();
+    f(p);
+    return 0;
+}

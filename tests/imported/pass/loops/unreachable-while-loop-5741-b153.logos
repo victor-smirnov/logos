@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust tests/ui/loops/unreachable-while-loop-5741.rs
+// Modifications: `while true {}` after a `return` — exercises codegen of an
+// unreachable while-loop following early return. Tests that an unreachable
+// `while` after `return` compiles and the fn returns normally.
+package unreachable_while_loop_5741_test;
+
+fn run() {
+    return;
+    while true {}
+}
+
+fn main() -> i32 {
+    run();
+    return 0;
+}

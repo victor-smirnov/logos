@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/self/self-in-method-body-resolves.rs
+// Modifications: unit struct `Foo` given an explicit field; the originally
+// check-pass test is made run-pass by calling `Foo::bar()` and checking the
+// constructed value. `Self::new()` inside the body errors `undefined static
+// method 'Self::new'` (G153-4), so the call is written `Foo::new()`. The
+// `-> Self` return type still exercises Self resolution. Tests a static method
+// calling a sibling static method inside the impl.
+package self_in_method_body_test;
+
+struct Foo { x: i64 }
+
+impl Foo {
+    fn new() -> Self {
+        Foo { x: 7i64 }
+    }
+    fn bar() -> i64 {
+        let f = Foo::new();
+        f.x
+    }
+}
+
+fn main() -> i32 {
+    if Foo::bar() != 7i64 { return 1; }
+    return 0;
+}

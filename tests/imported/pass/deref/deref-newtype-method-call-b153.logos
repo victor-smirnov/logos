@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust tests/ui/deref/deref-newtype-method-call.rs
+// Modifications: tuple-struct `A(B)` → named-field struct; Deref impl via the
+// std ops Deref trait; made run-pass by having B::foo return a value checked in
+// main. Tests calling a method of the Deref::Target through a newtype.
+package deref_newtype_method_call_test;
+
+use logos.lang.ops;
+
+struct B {}
+struct A { inner: B }
+
+impl Deref for A {
+    type Target = B;
+    fn deref(&self) -> &B { &self.inner }
+}
+
+impl B {
+    fn foo(&self) -> i64 { 7i64 }
+}
+
+fn main() -> i32 {
+    let a = A { inner: B {} };
+    if a.foo() != 7i64 { return 1; }
+    return 0;
+}

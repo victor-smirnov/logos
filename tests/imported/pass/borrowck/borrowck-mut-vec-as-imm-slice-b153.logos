@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-mut-vec-as-imm-slice.rs
+// Modifications: isize → i64; `vec![1,2,3]` → vec_new + push; assert_eq! via
+// logos.std.fmt. Tests passing `&Vec<i64>` where a `&[i64]` slice is expected
+// (Vec→slice coercion) and iterating it by reference.
+package borrowck_mut_vec_as_imm_slice_test;
+
+use logos.std.fmt;
+
+fn want_slice(v: &[i64]) -> i64 {
+    let mut sum = 0i64;
+    for i in v { sum += *i; }
+    sum
+}
+
+fn has_mut_vec(v: Vec<i64>) -> i64 {
+    want_slice(&v)
+}
+
+fn main() -> i32 {
+    let mut x = vec_new::<i64>();
+    x.push(1i64);
+    x.push(2i64);
+    x.push(3i64);
+    assert_eq!(has_mut_vec(x), 6i64);
+    return 0;
+}

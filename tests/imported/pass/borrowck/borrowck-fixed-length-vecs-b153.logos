@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust tests/ui/borrowck/borrowck-fixed-length-vecs.rs
+// Modifications: literals suffixed; assert_eq! via logos.std.fmt. Tests
+// borrowing an element of a fixed-length array.
+package borrowck_fixed_length_vecs_test;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let x = [22i64];
+    let y = &x[0u64];
+    assert_eq!(*y, 22i64);
+    return 0;
+}

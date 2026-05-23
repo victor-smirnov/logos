@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust tests/ui/regions/regions-reassign-match-bound-pointer.rs
+// Modifications: isize → i64. Tests reassigning a `mut z` binding (bound in a
+// match arm over a reference) to a shorter-lived reference — the lifetime is
+// inferred to the intersection.
+package regions_reassign_match_bound_pointer_test;
+
+fn foo(x: &i64) {
+    let a = 1i64;
+    match x {
+        mut z => {
+            z = &a;
+        }
+    }
+}
+
+fn main() -> i32 {
+    foo(&1i64);
+    return 0;
+}
