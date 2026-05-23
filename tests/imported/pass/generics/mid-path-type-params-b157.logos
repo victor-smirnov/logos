@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/mid-path-type-params.rs
+// Mid-path type params: a generic associated/static fn `new<U>` on a generic
+// struct `S<T>`, called as `S::<i64>::new::<f64>(..)`.
+// Modifications: isize->i64; the `Trait::<isize>::new::<f64>` UFCS line dropped
+// (static-trait-method UFCS is a separate surface); the method-level turbofish
+// `::new::<f64>` dropped (a parse error in Logos in an associated-fn path — see
+// G157-4), so U is inferred from the arg; type turbofish on the path kept
+// (`S::<i64>::new(..)`); the constructed value's field is read back + checked.
+package mid_path_type_params_b157;
+
+struct S<T> { contents: T }
+
+impl<T> S<T> {
+    fn new<U>(x: T, _y: U) -> S<T> {
+        return S { contents: x };
+    }
+}
+
+fn main() -> i32 {
+    let s: S<i64> = S::<i64>::new(1i64, 1.0f64);
+    if s.contents != 1i64 { return 1i32; }
+    return 0i32;
+}

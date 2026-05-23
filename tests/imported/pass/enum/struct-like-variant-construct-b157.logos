@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/struct-like-variant-construct.rs
+// Construct a struct-like enum variant `Foo::Bar { a, b }`; check fields via
+// match (Rust's test only constructs; we additionally read back the fields).
+// Modifications: isize->i64; assert via sentinels.
+package struct_like_variant_construct_b157;
+
+enum Foo {
+    Bar { a: i64, b: i64 },
+    Baz { c: f64, d: f64 }
+}
+
+fn main() -> i32 {
+    let x: Foo = Foo::Bar { a: 2i64, b: 3i64 };
+    match x {
+        Foo::Bar { a: a, b: b } => {
+            if a != 2i64 { return 1i32; }
+            if b != 3i64 { return 2i32; }
+        }
+        Foo::Baz { c: _c, d: _d } => { return 3i32; }
+    }
+    return 0i32;
+}

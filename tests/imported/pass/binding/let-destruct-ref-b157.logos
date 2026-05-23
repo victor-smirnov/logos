@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/let-destruct-ref.rs
+// `let ref y = x;` binds y as a reference to x; `*y` derefs back.
+// Modifications: usize->u64; assert_eq! -> sentinel.
+package let_destruct_ref_b157;
+
+fn main() -> i32 {
+    let x: u64 = 3u64;
+    let ref y = x;
+    if x != *y { return 1i32; }
+    return 0i32;
+}

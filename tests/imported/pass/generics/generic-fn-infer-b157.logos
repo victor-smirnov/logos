@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-fn-infer.rs
+// Issue #45: infer type parameter from the argument at the call site.
+// Modifications: isize->i64; assert_eq! -> sentinel.
+package generic_fn_infer_b157;
+
+fn id<T>(x: T) -> T { return x; }
+
+fn main() -> i32 {
+    let x: i64 = 42i64;
+    let y: i64 = id(x);
+    if x != y { return 1i32; }
+    return 0i32;
+}

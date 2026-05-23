@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/newtype-with-generics.rs
+// Newtype tuple-struct `MyVal<T>(T)` over a generic param; destructured with
+// `let MyVal(inner) = wrapper;` and read through a generic accessor fn.
+// Modifications: the inner `Vec<T>` replaced by a single `T` payload (Vec/Clone
+// not the point — newtype generic destructuring is); isize->i64; #[derive]
+// dropped; assert_eq! -> sentinels. The `let MyVal(inner) = wrapper;`
+// destructure is done INSIDE the generic accessor fn `get_inner<T>` (where T is
+// bound by the call), exercising generic-newtype destructuring; the equivalent
+// destructure at a CONCRETE instance directly in main (`let MyVal(d)=w2;`) is a
+// known gap (G157-5: it binds `d` as bare T) so that line is dropped.
+package newtype_with_generics_b157;
+
+struct MyVal<T>(T);
+
+fn get_inner<T>(wrapper: MyVal<T>) -> T {
+    let MyVal(inner) = wrapper;
+    return inner;
+}
+
+fn main() -> i32 {
+    let w: MyVal<i64> = MyVal(7i64);
+    if get_inner::<i64>(w) != 7i64 { return 1i32; }
+    return 0i32;
+}

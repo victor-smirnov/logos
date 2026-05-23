@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/nested-matchs.rs
+// Nested matches over Option with a conditionally-assigned local `bar` set
+// inside the inner match arm.
+// Modifications: isize->i64; turbofish on bare-variant patterns dropped;
+// panic!() -> sentinel return path; println! -> sentinel check; the
+// deferred-init local `bar` declared `mut` (Logos requires mut for an
+// assign-after-decl local; Rust infers single-assignment).
+package nested_matchs_b157;
+
+fn foo() -> i32 {
+    match Some(5i64) {
+        Some(_x) => {
+            let mut bar: i64;
+            match None {
+                None => { bar = 5i64; }
+                Some(_z) => { return 2i32; }
+            }
+            if bar != 5i64 { return 1i32; }
+            return 0i32;
+        }
+        None => { return 3i32; }
+    }
+}
+
+fn main() -> i32 {
+    return foo();
+}

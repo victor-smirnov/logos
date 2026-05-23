@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/issue-333.rs
+// Bind a generic fn as a fn-ptr value (`let f = id::<T>;`) inside another
+// generic fn, then call it.
+// Modifications: int literal suffixed; assert_eq! -> sentinel.
+package issue_333_b157;
+
+fn id<T>(x: T) -> T { return x; }
+
+fn quux<T>(x: T) -> T { let f = id::<T>; return f(x); }
+
+fn main() -> i32 {
+    if quux(10i64) != 10i64 { return 1i32; }
+    return 0i32;
+}

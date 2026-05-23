@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-unique.rs
+// Generic struct `Triple<T>` passed through a generic fn instantiated at i64.
+// Modifications: isize->i64; Box dropped (return the value directly); turbofish
+// kept; assert_eq! -> sentinel.
+package generic_unique_b157;
+
+struct Triple<T> { x: T, y: T, z: T }
+
+fn ident<T>(x: Triple<T>) -> Triple<T> { return x; }
+
+fn main() -> i32 {
+    let x: Triple<i64> = ident::<i64>(Triple { x: 1i64, y: 2i64, z: 3i64 });
+    if x.y != 2i64 { return 1i32; }
+    return 0i32;
+}

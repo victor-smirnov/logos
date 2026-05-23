@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/tup.rs
+// Tuple type alias, let-destructuring, pass-by-value tuple to fn.
+// Modifications: isize->i64; `assert_eq!` -> early-return sentinels;
+// `pub fn main()` -> `fn main()->i32`.
+package tup_b157;
+
+fn f(p: (i64, i64), x: i64, y: i64) -> i32 {
+    let (a, b) = p;
+    if a != x { return 1i32; }
+    if b != y { return 2i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let p: (i64, i64) = (10i64, 20i64);
+    let (a, b) = p;
+    if a != 10i64 { return 3i32; }
+    if b != 20i64 { return 4i32; }
+    let p2: (i64, i64) = p;
+    let r1: i32 = f(p, 10i64, 20i64);
+    if r1 != 0i32 { return 10i32 + r1; }
+    let r2: i32 = f(p2, 10i64, 20i64);
+    if r2 != 0i32 { return 20i32 + r2; }
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/match-with-ret-arm.rs
+// A match arm that diverges (`return ()`) unified with a value-producing arm:
+// the let binding `f` still infers a concrete type.
+// Modifications: usize/u32 -> i64; the `.parse::<usize>().ok()` source replaced
+// with a directly-constructed `Option<i64>` (parse not the point of the test);
+// the early `return ()` arm reshaped to `return 9i32` (main returns i32);
+// assert_eq! -> sentinel.
+package match_with_ret_arm_b157;
+
+fn run(opt: Option<i64>) -> i32 {
+    let f: i64 = match opt {
+        None => { return 9i32; }
+        Some(num) => num
+    };
+    if f != 1234i64 { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    return run(Some(1234i64));
+}

@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/explicit-self.rs
+// Various explicit-self receivers on a struct: `&self`, by-value `self`, and a
+// `&self`-returning-a-borrowed-field method; plus a region-generic select.
+// Modifications: f64 static `tau` dropped; the enum-shape `select` simplified to
+// a struct method that returns a borrowed field; Box receiver -> by-value/&self;
+// isize->i64; #[derive(Clone)] dropped; assert_eq! -> sentinels.
+package explicit_self_b157;
+
+struct A { a: i64 }
+
+struct Thing { x: A }
+
+impl Thing {
+    fn quux(self: &Self) -> i64 { return self.x.a; }
+    fn baz(self: &Self) -> &A { return &self.x; }
+    fn spam(self: Self) -> i64 { return self.x.a; }
+}
+
+trait Nus { fn f(self: &Self) -> i64; }
+impl Nus for Thing { fn f(self: &Self) -> i64 { return self.x.a; } }
+
+fn main() -> i32 {
+    let y: Thing = Thing { x: A { a: 10i64 } };
+    if y.quux() != 10i64 { return 1i32; }
+    let r: &A = y.baz();
+    if r.a != 10i64 { return 2i32; }
+    if y.f() != 10i64 { return 3i32; }
+
+    let z: Thing = Thing { x: A { a: 11i64 } };
+    if z.spam() != 11i64 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-static-methods.rs
+// A trait with a STATIC (no-self) method generic in both a payload type T and a
+// method type-param/closure; impl'd for a user type. Upstream impls on `Vec<T>`
+// with a `map_` building a new Vec; here distilled to a Holder<T> whose static
+// `apply<U>` maps its field through an fn-ptr `fn(&T)->U`.
+// Modifications: Vec->Holder<T> single field; FnMut closure->fn-ptr;
+// `&Self`-style explicit receiver-less static method; assert_eq!->sentinel.
+// The static call uses the CONCRETE-type path `Holder::apply(..)` rather than
+// the trait-name path `Mapper::apply(..)` (the latter can't infer Self — same
+// shape as Rust's own E0790 on static-method-generic-inference; see G157-6).
+package generic_static_methods_b157;
+
+trait Mapper<T> {
+    fn apply<U>(x: &Self, f: fn(&T) -> U) -> U;
+}
+
+struct Holder<T> { v: T }
+
+impl<T> Mapper<T> for Holder<T> {
+    fn apply<U>(x: &Holder<T>, f: fn(&T) -> U) -> U {
+        return f(&x.v);
+    }
+}
+
+fn inc(x: &i64) -> i64 { return *x + 1i64; }
+
+fn main() -> i32 {
+    let h: Holder<i64> = Holder { v: 41i64 };
+    let r: i64 = Holder::apply(&h, inc);
+    if r != 42i64 { return 1i32; }
+    return 0i32;
+}

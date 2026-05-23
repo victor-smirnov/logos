@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/numeric-fields.rs
+// Tuple-struct built with NUMERIC field-name literal syntax `S { 1: .., 0: .. }`
+// (out of order) and read back.
+// Modifications: `..` rest-pattern dropped; the numeric-FIELD match pattern
+// `S { 0: a, 1: b }` (a parse error in Logos — see G157-3) replaced with the
+// positional tuple pattern `S(a, b)`, which binds the same fields; assert via
+// sentinels.
+package numeric_fields_b157;
+
+struct S(u8, u16);
+
+fn main() -> i32 {
+    let s: S = S { 1: 10u16, 0: 11u8 };
+    match s {
+        S(a, b) => {
+            if a != 11u8 { return 1i32; }
+            if b != 10u16 { return 2i32; }
+        }
+    }
+    return 0i32;
+}

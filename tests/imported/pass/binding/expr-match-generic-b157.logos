@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-generic.rs
+// `let actual: T = match true { true => x, _ => ... };` with generic T flowing
+// through a match expression, then a fn-ptr comparator.
+// Modifications: isize->i64; Clone bound dropped; `compare<T>` fn-ptr alias
+// expanded to explicit `fn(T,T)->bool` params; nested fns hoisted; panic! arm
+// reshaped (true branch always taken); assert! -> sentinels.
+package expr_match_generic_b157;
+
+fn test_generic_bool(expected: bool, eq: fn(bool, bool) -> bool) -> i32 {
+    let actual: bool = match true { true => expected, _ => expected };
+    if !(eq(expected, actual)) { return 1i32; }
+    return 0i32;
+}
+
+fn compare_bool(b1: bool, b2: bool) -> bool { return b1 == b2; }
+
+struct Pair { a: i64, b: i64 }
+
+fn compare_rec(t1: Pair, t2: Pair) -> bool {
+    return t1.a == t2.a && t1.b == t2.b;
+}
+
+fn test_generic_rec(expected: Pair, eq: fn(Pair, Pair) -> bool) -> i32 {
+    let actual: Pair = match true { true => expected, _ => expected };
+    if !(eq(expected, actual)) { return 2i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r1: i32 = test_generic_bool(true, compare_bool);
+    if r1 != 0i32 { return r1; }
+    let r2: i32 = test_generic_rec(Pair { a: 1i64, b: 2i64 }, compare_rec);
+    if r2 != 0i32 { return r2; }
+    return 0i32;
+}
