@@ -2607,6 +2607,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // Ref/MutRef so codegen materialises the payload by-address.
     std::vector<bool> binding_is_ref;
     std::vector<bool> binding_is_mut;
+    // Parallel to `bindings`: true only for a PLAIN named PAT_WILD binding
+    // (not "_", not a synthesized refutable-inner / nested-destructure slot).
+    // Gates the default-binding-mode ref wrap below so it never touches synth
+    // slots (those are handled by-value / Stage-2).
+    std::vector<bool> binding_from_wild;
     if (!pat_is_struct_shape && pnode.has_key(la::ARGS)) {
         AnyVal aav = pnode.get(la::ARGS.code);
         if (!aav.is_null() && aav.is_pointer()) {
@@ -2634,6 +2639,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             bindings.push_back("_");
                             binding_is_ref.push_back(false);
                             binding_is_mut.push_back(false);
+                            binding_from_wild.push_back(false);
                         }
                         continue;
                     }
@@ -2645,9 +2651,11 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         bool is_mut = bnode.has_key(la::IS_MUT) &&
                                       bnode.get(la::IS_MUT.code).is_value() &&
                                       bnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
-                        bindings.push_back(std::string(str_of(bnode.get(la::NAME.code))));
+                        auto bname = std::string(str_of(bnode.get(la::NAME.code)));
+                        bindings.push_back(bname);
                         binding_is_ref.push_back(is_ref);
                         binding_is_mut.push_back(is_ref && is_mut);
+                        binding_from_wild.push_back(bname != "_");
                         continue;
                     }
                     // P4-pm-02: nested struct/tuple pattern inside
@@ -2664,6 +2672,9 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         std::string synth = std::format(
                             "__pat_pld_{}_{}", pvname, tmp_var_count_++);
                         bindings.push_back(synth);
+                        binding_is_ref.push_back(false);
+                        binding_is_mut.push_back(false);
+                        binding_from_wild.push_back(false);
                         current_pat_nested_subs_->push_back({synth, bnode});
                         continue;
                     }
@@ -2680,6 +2691,9 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             std::format("{}", j));
                         if (!synth.empty()) {
                             bindings.push_back(std::move(synth));
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(false);
+                            binding_from_wild.push_back(false);
                             continue;
                         }
                     }
@@ -2731,17 +2745,44 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         bindings.clear();
         binding_is_ref.clear();
         binding_is_mut.clear();
+        binding_from_wild.clear();
     }
     if (bindings.size() != binding_types.size())
         error(std::format("pattern {}::{}: expected {} bindings, got {}",
               pename, pvname, binding_types.size(), bindings.size()));
-    // SL-sl-03 follow-up: wrap binding_types in Ref/MutRef for any
-    // PAT_WILD with `ref` / `ref mut`. mlir_gen detects this and
-    // returns the payload field's GEP address rather than a load,
-    // so the binding actually references the original payload slot.
-    for (size_t k = 0; k < binding_types.size() && k < binding_is_ref.size(); ++k) {
-        if (binding_is_ref[k] && binding_types[k]) {
-            binding_types[k] = make_ref(binding_is_mut[k], binding_types[k]);
+    // SL-sl-03 follow-up + default binding modes (RFC 2005 match ergonomics).
+    // mlir_gen detects a Ref/MutRef binding type (while the payload stays bare)
+    // and binds the payload field's GEP ADDRESS rather than a load — so the
+    // binding references the original payload slot (no move/copy/Drop).
+    //   • explicit `ref` / `ref mut` → always by-reference (binding_is_ref).
+    //   • DEFAULT binding mode: under a `&`/`&mut` scrutinee, a plain named
+    //     payload binding of a MOVE-ONLY type is bound by reference too — so
+    //     `match &opt { Some(a) => … }` doesn't move the owned payload out of
+    //     the borrow (which dropped it at arm exit → double-free). COPY
+    //     payloads stay by-value: copying a Copy out of a shared borrow is
+    //     sound, more ergonomic, and sidesteps needing `&T`-arithmetic
+    //     auto-deref. FOLLOW-UP (Victor): once `&T`-operator support / arith
+    //     auto-deref lands, drop the is_move_type gate to bind ALL payloads by
+    //     reference (full literal RFC 2005). See plan-default-binding-modes.
+    //
+    // Stage 1 is restricted to SHARED `&` scrutinees. `&mut` default-ref is
+    // deferred: a `&mut self` match in a generic stdlib body (OptionIter::next
+    // etc.) would bind the payload as `&mut T`, which then flows back into the
+    // same generic's type-arg → unbounded `&mut`-wrapping instantiation
+    // (`OptionIter<&mut &mut … T>`, depth-limit blow-up). Needs a
+    // self-referential guard before enabling — see plan-default-binding-modes.
+    bool default_ref = scrut_type &&
+        TypeRef(scrut_type).kind() == LogosType::Kind::Ref;
+    for (size_t k = 0; k < binding_types.size(); ++k) {
+        if (!binding_types[k]) continue;
+        bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
+        if (explicit_ref) {
+            bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
+            binding_types[k] = make_ref(is_mut, binding_types[k]);
+        } else if (default_ref &&
+                   k < binding_from_wild.size() && binding_from_wild[k] &&
+                   is_move_type(binding_types[k])) {
+            binding_types[k] = make_ref(/*is_mut=*/false, binding_types[k]);
         }
     }
     auto mo = lir_mirror_emit_pat_variant_data(

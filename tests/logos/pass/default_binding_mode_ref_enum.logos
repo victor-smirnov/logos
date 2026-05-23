@@ -1,0 +1,49 @@
+package default_binding_mode_ref_enum;
+// Default binding modes (RFC 2005 match ergonomics), Stage 1: a plain payload
+// binding under a SHARED `&` enum scrutinee binds a MOVE-ONLY payload BY
+// REFERENCE — so it doesn't move the owned value out of the borrow (which
+// dropped it at arm exit → double-free). COPY payloads stay by-value.
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.mem.string;
+
+// move-only payload (String): plain `Some(a)` over `&Option<String>` → a: &String
+fn slen(o: &Option<String>) -> i64 {
+    match o {
+        Option::Some(a) => { return a.len(); }   // a is &String — borrow, no move
+        Option::None => { return -1; }
+    }
+}
+
+// Copy payload (i64): plain `Some(x)` over `&Option<i64>` → x stays i64 (by value),
+// so plain arithmetic still works (the is_move_type gate keeps Copy by-value).
+fn add1(o: &Option<i64>) -> i64 {
+    match o {
+        Option::Some(x) => { return x + 1; }
+        Option::None => { return 0; }
+    }
+}
+
+fn main() -> i64 {
+    let s: Option<String> = Option::Some(String::from("xy"));
+    // call twice + the owner drops at scope exit — must NOT double-free
+    if slen(&s) != 2 { return 1; }
+    if slen(&s) != 2 { return 2; }
+
+    let n: Option<i64> = Option::Some(41);
+    if add1(&n) != 42 { return 3; }
+    if add1(&n) != 42 { return 4; }
+
+    // Result move-only payload, by-ref binding via shared &
+    let r: Result<String, i64> = Result::Ok(String::from("abc"));
+    match &r {
+        Result::Ok(v) => { if v.len() != 3 { return 5; } }
+        Result::Err(_) => { return 6; }
+    }
+    match &r {
+        Result::Ok(v) => { if v.len() != 3 { return 7; } }
+        Result::Err(_) => { return 8; }
+    }
+    return 0;
+}
