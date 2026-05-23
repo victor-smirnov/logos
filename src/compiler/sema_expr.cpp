@@ -4795,6 +4795,41 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
             fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
     }
     if (!fi_ptr) {
+        // G152-8: a turbofish on a no-payload enum variant in value position
+        // (`None::<i64>`). Pin the enum's type-args from the turbofish via
+        // hint_enum_type_ and route to the enum-lit path — mirrors the
+        // Some/Ok/Err handling in lower_generic_call.
+        auto try_variant = [&](const std::string& en, const std::string& vn)
+                -> lir::LExprPtr {
+            auto [vpkg, vesi] = find_enum_by_name(en);
+            (void)vpkg;
+            if (!vesi) return nullptr;
+            bool has = false;
+            for (auto& v : vesi->variants) if (v.name == vn) { has = true; break; }
+            if (!has) return nullptr;
+            std::vector<TypeRef> targs;
+            if (items_size > 0) {
+                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items_size; ++i)
+                    targs.push_back(resolve_type(map_of(items.get(i))));
+            }
+            TypeRef saved = hint_enum_type_;
+            if (!targs.empty() && targs.size() == vesi->type_params.size())
+                hint_enum_type_ = make_generic_enum(en, std::move(targs));
+            auto e = lower_enum_lit_data_from_static(node, en, vn);
+            hint_enum_type_ = saved;
+            return e;
+        };
+        if (callee == "None")      { if (auto e = try_variant("Option", "None")) return e; }
+        else if (callee == "Some") { if (auto e = try_variant("Option", "Some")) return e; }
+        else if (callee == "Ok")   { if (auto e = try_variant("Result", "Ok"))   return e; }
+        else if (callee == "Err")  { if (auto e = try_variant("Result", "Err"))  return e; }
+        {
+            auto vit = cur_imports_.variant_aliases.find(std::string(callee));
+            if (vit != cur_imports_.variant_aliases.end())
+                if (auto e = try_variant(vit->second, std::string(callee))) return e;
+        }
         error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
         return error_expr();
     }

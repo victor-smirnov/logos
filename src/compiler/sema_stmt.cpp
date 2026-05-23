@@ -3477,6 +3477,25 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         const SemaStructInfo* sinfo = nullptr;
         { auto [sp, si] = find_struct_by_name(sname); sinfo = si; }
         if (!sinfo) { auto [dp, di] = find_datatype_by_name(sname); sinfo = di; }
+        if (!sinfo) {
+            // G152-10: a type alias used as a struct pattern (`type S2 = S;
+            // match x { S2 { a, b } => … }`). Resolve the alias to its target
+            // struct and match under the real name (codegen + scrutinee check
+            // need it). Construction already resolves aliases.
+            auto ait = type_aliases_.find(sname);
+            if (ait != type_aliases_.end() && ait->second.type &&
+                (TypeRef(ait->second.type).kind() == LogosType::Kind::Struct ||
+                 TypeRef(ait->second.type).kind() == LogosType::Kind::ZonedStruct)) {
+                std::string target(TypeRef(ait->second.type).struct_name());
+                if (!target.empty()) {
+                    if (auto [sp2, si2] = find_struct_by_name(target); si2) {
+                        sinfo = si2; sname = target;
+                    } else if (auto [dp2, di2] = find_datatype_by_name(target); di2) {
+                        sinfo = di2; sname = target;
+                    }
+                }
+            }
+        }
         if (!sinfo)
             error(std::format("struct pattern: unknown struct '{}'", sname));
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&

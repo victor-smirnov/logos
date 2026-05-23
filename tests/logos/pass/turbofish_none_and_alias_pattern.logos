@@ -1,0 +1,18 @@
+package turbofish_none_and_alias_pattern;
+// G152-8: `None::<i64>` (turbofish on a no-payload variant in value position).
+// G152-10: a type alias used as a struct pattern (`type S2 = S; match { S2{..} }`).
+use logos.lang.option;
+
+struct S { x: i64, y: i64 }
+type S2 = S;
+
+fn takes(o: Option<i64>) -> i64 { match o { Option::Some(v) => v, Option::None => -1 } }
+
+fn main() -> i64 {
+    let n = None::<i64>;
+    if takes(n) != -1 { return 1; }
+
+    let s: S2 = S2 { x: 3i64, y: 4i64 };
+    match s { S2 { x, y } => { if x + y != 7 { return 2; } } }
+    return 0;
+}
