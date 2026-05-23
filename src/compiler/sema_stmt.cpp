@@ -3136,9 +3136,22 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     }
     if (pc == la::PAT_TUPLE) {
         // Tuple pattern: (a, b, c) — irrefutable, binds each element.
-        // Scrutinee must be a tuple type.
+        // Default binding modes: a `&(T,U)` / `&mut (T,U)` scrutinee is accepted
+        // (deref to the inner tuple — gen_match uses the ref ptr directly as the
+        // tuple base). Under a shared `&`, a move-only element binds by
+        // reference; Copy elements stay by-value. Mirrors the enum/struct gates.
         lir::PatTuple pt;
-        if (!scrut_type || TypeRef(scrut_type).kind() != LogosType::Kind::Tuple) {
+        TypeRef tst = scrut_type;
+        bool default_ref = false;
+        if (tst &&
+            (TypeRef(tst).kind() == LogosType::Kind::Ref ||
+             TypeRef(tst).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(tst).pointee() &&
+            TypeRef(TypeRef(tst).pointee()).kind() == LogosType::Kind::Tuple) {
+            default_ref = TypeRef(tst).kind() == LogosType::Kind::Ref;
+            tst = TypeRef(tst).pointee();
+        }
+        if (!tst || TypeRef(tst).kind() != LogosType::Kind::Tuple) {
             error(std::format("tuple pattern requires tuple scrutinee, got {}",
                   scrut_type ? type_str(scrut_type) : "?"));
             lir::Pattern pw_;
@@ -3151,7 +3164,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // keeps its fixed-arity layout: `(a, b, ..)` over `(T1, T2,
         // T3)` becomes `(a, b, _)`; `(.., b, c)` becomes `(_, b, c)`;
         // `(a, .., c)` with arity 4 becomes `(a, _, _, c)`.
-        size_t tuple_arity = TypeRef(scrut_type).tuple_elems().size();
+        size_t tuple_arity = TypeRef(tst).tuple_elems().size();
         AnyVal items_av = pnode.get(la::ITEMS.code);
         std::vector<hermes::TinyMapView> raw_elems;
         size_t rest_pos = SIZE_MAX;
@@ -3188,7 +3201,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         for (size_t i = 0; i < expanded.size(); ++i) {
             TypeRef elem_ty = nullptr;
             if (i < tuple_arity)
-                elem_ty = TypeRef(scrut_type).tuple_elems()[i];
+                elem_ty = TypeRef(tst).tuple_elems()[i];
             if (!expanded[i].has_value()) {
                 // Synth `_` skip from rest expansion.
                 pt.bindings.push_back("_");
@@ -3266,9 +3279,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (pt.bindings.size() != tuple_arity)
             error(std::format("tuple pattern: expected {} elements, got {}",
                   tuple_arity, pt.bindings.size()));
-        // Fill binding types from tuple elements.
-        for (size_t i = 0; i < TypeRef(scrut_type).tuple_elems().size(); ++i)
-            pt.binding_types.push_back(TypeRef(scrut_type).tuple_elems()[i]);
+        // Fill binding types (default-ref move-only elems under a shared &).
+        for (size_t i = 0; i < TypeRef(tst).tuple_elems().size(); ++i) {
+            TypeRef et = TypeRef(tst).tuple_elems()[i];
+            if (default_ref && et && TypeRef(et).kind() != LogosType::Kind::Error && is_move_type(et))
+                et = make_ref(false, et);
+            pt.binding_types.push_back(et);
+        }
         auto mo = lir_mirror_emit_pat_tuple(*cur_prog_, pt.bindings, pt.binding_types, pt.subs);
         lir::Pattern p_;
         p_.mirror_offset_ = mo;

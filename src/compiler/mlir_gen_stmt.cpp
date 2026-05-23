@@ -2355,6 +2355,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             }
         }
     }
+    // Default binding modes: `match &(T,U) { (a,b) }`. A `&tuple` is a one-level
+    // pointer to the tuple-struct (like `&struct`, NOT the two-level `&Enum`),
+    // so use it directly as the tuple base ptr (feeds the tuple extract's
+    // `scrut_ptr ? scrut_ptr : …`). tuple_llvm_type derefs the ref for layout.
+    if (!scrut_ptr) {
+        TypeRef st(scrut_le->type);
+        if (st && (st.kind() == LogosType::Kind::Ref ||
+                   st.kind() == LogosType::Kind::MutRef ||
+                   st.kind() == LogosType::Kind::Ptr) &&
+            st.pointee() &&
+            TypeRef(st.pointee()).kind() == LogosType::Kind::Tuple)
+            scrut_ptr = scrut;
+    }
     // Keep scrut at its natural type; coerce disc constants to match it.
     mlir::Type scrut_type = scrut.getType();
 
@@ -2417,7 +2430,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             default: return false;
         }
     };
-    if (scrut_le->type && TypeRef(scrut_le->type).kind() == LogosType::Kind::Tuple) {
+    bool scrut_is_tuple = scrut_le->type &&
+        (TypeRef(scrut_le->type).kind() == LogosType::Kind::Tuple ||
+         ((TypeRef(scrut_le->type).kind() == LogosType::Kind::Ref ||
+           TypeRef(scrut_le->type).kind() == LogosType::Kind::MutRef ||
+           TypeRef(scrut_le->type).kind() == LogosType::Kind::Ptr) &&
+          TypeRef(scrut_le->type).pointee() &&
+          TypeRef(TypeRef(scrut_le->type).pointee()).kind() == LogosType::Kind::Tuple));
+    if (scrut_is_tuple) {
         // Tuple patterns are always irrefutable.
         for (auto& a : arm_refs) {
             if (a.guard()) continue;
@@ -2522,11 +2542,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 // scalar load, which read only the struct's first word (a String
                 // element gave back String.data, so `a.len()` read garbage).
                 // Mirrors the struct-field shorthand / pat_bind aggregate bind.
-                if (bt && (TypeRef(bt).kind() == LogosType::Kind::Struct ||
-                           TypeRef(bt).kind() == LogosType::Kind::ZonedStruct)) {
+                // Under a `&`-tuple scrutinee a move-only element binds as
+                // `&Struct` (default binding modes); the inline-struct address is
+                // exactly that reference, so unwrap the ref and bind fp too.
+                TypeRef agg = bt;
+                if (bt && (TypeRef(bt).kind() == LogosType::Kind::Ref ||
+                           TypeRef(bt).kind() == LogosType::Kind::MutRef) &&
+                    TypeRef(bt).pointee())
+                    agg = TypeRef(bt).pointee();
+                if (agg && (TypeRef(agg).kind() == LogosType::Kind::Struct ||
+                            TypeRef(agg).kind() == LogosType::Kind::ZonedStruct)) {
                     scope_[bindings[bi]] = fp;
                     let_vars_.insert(bindings[bi]);
-                    var_struct_[bindings[bi]] = mlir_struct_key(bt);
+                    var_struct_[bindings[bi]] = mlir_struct_key(agg);
                     continue;
                 }
                 auto elem_mlir = logos_to_mlir(bt);

@@ -443,6 +443,14 @@ const TaggedEnumInfo* MLIRGenImpl::resolve_tagged_enum(const std::string& name,
 }
 
 mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
+    // Deref a `&(T,U)` / `&mut (T,U)` / `*(T,U)` to the inner tuple so a tuple
+    // pattern over a ref scrutinee resolves the layout (default binding modes).
+    if (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+              TypeRef(t).kind() == LogosType::Kind::MutRef ||
+              TypeRef(t).kind() == LogosType::Kind::Ptr) &&
+        TypeRef(t).pointee() &&
+        TypeRef(TypeRef(t).pointee()).kind() == LogosType::Kind::Tuple)
+        t = TypeRef(t).pointee();
     if (!t || TypeRef(t).kind() != LogosType::Kind::Tuple) return nullptr;
     llvm::SmallVector<mlir::Type> fields;
     for (auto e : TypeRef(t).tuple_elems()) {
