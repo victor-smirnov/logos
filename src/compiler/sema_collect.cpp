@@ -1015,6 +1015,19 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
                                        cv.kind() == LogosType::Kind::FnPtr))
                 continue;
+            // G158-1: `&F` / `&mut F` satisfies an Fn-family bound when the
+            // pointee is itself callable (a closure / fn-ptr, or a TypeVar
+            // bounded by Fn that resolves to one at mono). Rust's blanket
+            // `impl<F: Fn> Fn for &F`. The call through such a reference
+            // autoderef-invokes (see lower_call's fn_bound_via_ref path).
+            if (bound.is_fn_family &&
+                (cv.kind() == LogosType::Kind::Ref ||
+                 cv.kind() == LogosType::Kind::MutRef) &&
+                cv.pointee() &&
+                (TypeRef(cv.pointee()).kind() == LogosType::Kind::Closure ||
+                 TypeRef(cv.pointee()).kind() == LogosType::Kind::FnPtr ||
+                 TypeRef(cv.pointee()).kind() == LogosType::Kind::TypeVar))
+                continue;
             // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
             // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
             if (cv.kind() == LogosType::Kind::FnPtr &&

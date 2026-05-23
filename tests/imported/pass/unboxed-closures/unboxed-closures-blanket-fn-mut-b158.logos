@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-blanket-fn-mut.rs
+// Modifications: i32 → i64; `pub fn main()` → `fn main()->i32`; expression-body
+//   closures `|| 22` → `|| -> i64 { return 22i64; }`; assert_eq! → sentinels;
+//   the unused `z` binding dropped; the two closures given distinct names (a
+//   fresh closure per call site, since each is moved into the helper).
+// Tests that you can supply `&mut F` where `F: FnMut()` (G158-1, closed
+//   2026-05-23): `b(f: &mut dyn FnMut()->i64) { a(f) }` passes a `&mut dyn
+//   FnMut` (≡ MutRef<Closure>) and `c<F: FnMut()->i64>(f: &mut F) { a(f) }`
+//   passes a `&mut F` to `a<F2: FnMut>(mut f2: F2)`.
+package unboxed_closures_blanket_fn_mut_b158;
+
+fn a<F: FnMut() -> i64>(mut f: F) -> i64 { return f(); }
+
+fn b(f: &mut dyn FnMut() -> i64) -> i64 { return a(f); }
+
+fn c<F: FnMut() -> i64>(f: &mut F) -> i64 { return a(f); }
+
+fn main() -> i32 {
+    let mut g1 = || -> i64 { return 22i64; };
+    if b(&mut g1) != 22i64 { return 1i32; }
+    let mut g2 = || -> i64 { return 22i64; };
+    if c(&mut g2) != 22i64 { return 2i32; }
+    return 0i32;
+}
