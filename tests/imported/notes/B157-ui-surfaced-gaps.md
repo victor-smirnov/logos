@@ -44,6 +44,19 @@ across int/float widths verified by value (supported-cast); u8-expr `as char`
 
 ## Gaps surfaced
 
+### ⚠️ G157-1 — ✅ FIXED: by-value tagged-enum fn-param `==` SEGFAULTS at runtime
+**FIXED** (this session). A by-value tagged-enum param arrives as the heap ptr
+(one level); the `==`→`eq` method takes `&Enum` (two-level). `&param` returned
+the bare heap ptr because by-value enum params were not registered in
+`var_tagged_enum_`, so EAddrOf's enum-spill path didn't fire → `eq` loaded the
+i32 disc as a pointer → SIGSEGV. Fix: register by-value TAGGED-enum params (gated
+on a resolvable TaggedEnumInfo so C-like i32 enums keep the scalar-spill path) in
+`var_tagged_enum_` during param binding (`mlir_gen_fn.cpp`), so `&param` spills to
+a slot. Regression: `tests/logos/pass/by_value_enum_param_eq.logos`.
+`compare-generic-enums` can now be re-imported. (NOTE: custom enums still need an
+explicit `Eq` impl for `==` — by design, separate from this fix.) Original
+report follows.
+
 ### ⚠️ G157-1 — by-value `Option<T>` fn-param `==` SEGFAULTS at runtime (silent crash)
 Passing an `Option<i64>` (or any enum) by value into a function and comparing it
 with `==` inside the callee crashes at runtime (SIGSEGV), even when both operands
@@ -112,8 +125,8 @@ concrete-type path `Holder::apply(&h, inc)` works and is used in
 (matches Rust semantics).
 
 ## Dropped tests (and why)
-- `structs-enums/compare-generic-enums` — ⚠️ G157-1: the test's essence is
-  `Option<i64> == Option<i64>` evaluated inside a `cmp(x, y)` fn, which SIGSEGVs.
-  No reshape preserves the across-fn-boundary enum `==` without the crash.
+- ~~`structs-enums/compare-generic-enums`~~ — **NOW IMPORTED**
+  (`compare-generic-enums-b157.logos`) after the G157-1 fix; `Option<i64> ==
+  Option<i64>` across a `cmp(x, y)` fn now works.
 - `traits/multidispatch1` — G157-2: relies on two `MyTrait<T>` impls for one type
   at different T; they collide on the mangled method symbol at compile time.

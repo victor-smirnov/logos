@@ -298,6 +298,20 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 sname = mlir_struct_key(pv.pointee());
             if (!sname.empty()) { var_struct_[p.name] = std::move(sname); continue; }
 
+            // G157-1: a by-value TAGGED-enum param (e.g. `x: Option<i64>`)
+            // arrives as the heap ptr (one level). Register it like a local
+            // enum `let` so `&x` spills it to a slot (EAddrOf's var_tagged_enum_
+            // path) — yielding a real ptr-to-enum-ptr that the `==`→`eq` method
+            // (which takes `&Enum`, two-level) can deref. Without this, `&x`
+            // returned the bare heap ptr and `eq` loaded the i32 disc as a
+            // pointer → SIGSEGV. C-like (no-payload) enum params are i32, not
+            // ptr — their `&` is handled by EAddrOf's scalar-spill branch, so
+            // gate on a resolvable TaggedEnumInfo.
+            if (pv.kind() == LogosType::Kind::Enum &&
+                resolve_tagged_enum(std::string(pv.enum_name()), pv)) {
+                var_tagged_enum_.insert(p.name);
+                continue;
+            }
         }
     }
 

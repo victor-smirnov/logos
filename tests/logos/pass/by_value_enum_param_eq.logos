@@ -1,0 +1,28 @@
+// Regression (G157-1): comparing a by-value tagged-enum function parameter with
+// `==` inside the callee SIGSEGV'd. A by-value enum param arrives as the heap
+// pointer (one level); the `==`→`eq` method takes `&Enum` (two-level), so
+// passing the bare param made `eq` load the i32 discriminant as a pointer and
+// crash. The inline (same-fn) form already worked. Fix: register by-value
+// tagged-enum params in var_tagged_enum_ so `&param` spills to a slot.
+package by_value_enum_param_eq;
+
+fn opt_eq(x: Option<i64>, y: Option<i64>) -> bool { return x == y; }
+fn res_eq(x: Result<i64, i64>, y: Result<i64, i64>) -> bool { return x == y; }
+
+fn main() -> i32 {
+    let a: Option<i64> = Some(3i64);
+    let b: Option<i64> = Some(4i64);
+    let n: Option<i64> = None;
+    if opt_eq(a, b) { return 1i32; }      // Some(3) != Some(4)
+    if !opt_eq(a, a) { return 2i32; }     // Some(3) == Some(3)
+    if opt_eq(a, n) { return 3i32; }      // Some != None
+    if !opt_eq(n, n) { return 4i32; }     // None == None
+
+    let ok1: Result<i64, i64> = Ok(7i64);
+    let ok2: Result<i64, i64> = Ok(7i64);
+    let er: Result<i64, i64> = Err(7i64);
+    if !res_eq(ok1, ok2) { return 5i32; } // Ok(7) == Ok(7)
+    if res_eq(ok1, er) { return 6i32; }   // Ok != Err
+
+    return 0i32;
+}

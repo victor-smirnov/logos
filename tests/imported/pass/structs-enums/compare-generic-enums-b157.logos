@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/compare-generic-enums.rs
+// Modifications: isize → i64; `type an_int = isize` alias dropped (use i64
+//   directly); assert! → early-return sentinels; `pub fn main()` →
+//   `fn main() -> i32 { …; return 0; }`. Faithful: the whole point is
+//   `Option<i64> == Option<i64>` evaluated INSIDE a `cmp(x, y)` fn over
+//   by-value enum parameters.
+// Tests: comparing two by-value `Option<i64>` parameters with `==` across a
+//   function boundary (previously SIGSEGV'd — G157-1, now fixed).
+package compare_generic_enums_b157;
+
+fn cmp(x: Option<i64>, y: Option<i64>) -> bool {
+    return x == y;
+}
+
+fn main() -> i32 {
+    if cmp(Some(3i64), None) { return 1i32; }
+    if cmp(Some(3i64), Some(4i64)) { return 2i32; }
+    if !cmp(Some(3i64), Some(3i64)) { return 3i32; }
+    if !cmp(None, None) { return 4i32; }
+    return 0i32;
+}
