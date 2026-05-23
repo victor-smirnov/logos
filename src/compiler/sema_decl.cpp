@@ -184,16 +184,41 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // Some trait-default bodies and impl methods refer to `Self` in their
     // parameter types.  Keep a concrete Self binding alive for the duration
     // of lowering if the surrounding impl context already determined it.
-    if (!struct_ctx.empty() && !current_type_params_.count("Self")) {
-        // Prefer datatype Self when a name exists in both tables.
-        auto [dpkg, dsi] = find_datatype_by_name(struct_ctx);
-        auto [spkg, ssi] = find_struct_by_name(struct_ctx);
-        if (dsi)
-            current_type_params_["Self"] = make_datatype_type(struct_ctx, dpkg);
-        else if (ssi)
-            current_type_params_["Self"] = make_struct_type(struct_ctx, spkg);
-        else if (auto prim_t = lookup_type_by_name(struct_ctx))
-            current_type_params_["Self"] = prim_t;
+    if (!struct_ctx.empty()) {
+        // G153-4 / G141-2: only KEEP an existing Self if it names the SAME type
+        // as this method's impl (the impl-block may have set `Self = Foo<T>`
+        // with type-args — don't clobber that with a bare `Foo`). A Self left
+        // over from a DIFFERENT impl (e.g. a prior `impl Vec`) is STALE and
+        // mis-resolved `Self::method()` in this body to the wrong type — so
+        // overwrite it. (The `!count` guard alone leaked the stale binding.)
+        bool need_set = true;
+        if (auto sit = current_type_params_.find("Self");
+            sit != current_type_params_.end() && sit->second) {
+            auto cur = TypeRef(sit->second);
+            std::string cur_name;
+            if (cur.kind() == LogosType::Kind::Struct ||
+                cur.kind() == LogosType::Kind::ZonedStruct)
+                cur_name = std::string(cur.struct_name());
+            else if (cur.kind() == LogosType::Kind::Enum)
+                cur_name = std::string(cur.enum_name());
+            // Strip pkg prefix + generic `$G…` suffix for the bare-name compare.
+            if (auto d = cur_name.rfind('.'); d != std::string::npos)
+                cur_name = cur_name.substr(d + 1);
+            if (auto g = cur_name.find("$G"); g != std::string::npos)
+                cur_name = cur_name.substr(0, g);
+            if (cur_name == struct_ctx) need_set = false;
+        }
+        if (need_set) {
+            // Prefer datatype Self when a name exists in both tables.
+            auto [dpkg, dsi] = find_datatype_by_name(struct_ctx);
+            auto [spkg, ssi] = find_struct_by_name(struct_ctx);
+            if (dsi)
+                current_type_params_["Self"] = make_datatype_type(struct_ctx, dpkg);
+            else if (ssi)
+                current_type_params_["Self"] = make_struct_type(struct_ctx, spkg);
+            else if (auto prim_t = lookup_type_by_name(struct_ctx))
+                current_type_params_["Self"] = prim_t;
+        }
     }
 
     lir::LFunction fn;

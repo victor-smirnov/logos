@@ -9999,8 +9999,25 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
-    auto class_name = str_of(node.get(la::RECEIVER.code));
+    std::string class_name(str_of(node.get(la::RECEIVER.code)));
     auto method_name = str_of(node.get(la::NAME.code));
+
+    // G153-4: `Self::method()` inside an impl body — resolve `Self` to the
+    // impl's concrete type name (bound in current_type_params_["Self"]) so the
+    // static method resolves, exactly as if the type name were written.
+    if (class_name == "Self") {
+        auto sit = current_type_params_.find("Self");
+        if (sit != current_type_params_.end() && sit->second) {
+            auto st = TypeRef(sit->second);
+            std::string resolved;
+            if (st.kind() == LogosType::Kind::Struct ||
+                st.kind() == LogosType::Kind::ZonedStruct)
+                resolved = concrete_struct_name(sit->second);
+            else if (st.kind() == LogosType::Kind::Enum)
+                resolved = std::string(st.enum_name());
+            if (!resolved.empty()) class_name = std::move(resolved);
+        }
+    }
 
     // If "class_name" is actually an enum, redirect to enum lit with data —
     // but only when method_name is a variant. Otherwise it's a static method

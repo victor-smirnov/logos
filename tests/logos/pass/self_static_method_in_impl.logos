@@ -1,0 +1,17 @@
+package self_static_method_in_impl;
+// G153-4: `Self::method()` (static, no-receiver) called inside another method of
+// the same impl errored "undefined static method 'Self::new'" — `Self` resolved
+// to a STALE type from a prior impl (G141-2 leak). Fixed: lower_static_call
+// resolves `Self` to the current impl type, and lower_fn overwrites a stale Self
+// (different-named) instead of keeping it.
+struct Foo { x: i64 }
+impl Foo {
+    fn new() -> Self { return Foo { x: 42 }; }
+    fn bar() -> i64 { return Self::new().x; }
+    fn via_self() -> Foo { return Self::new(); }
+}
+fn main() -> i64 {
+    if Foo::bar() != 42 { return 1; }
+    if Foo::via_self().x != 42 { return 2; }
+    return 0;
+}
