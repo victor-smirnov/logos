@@ -2047,6 +2047,16 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             : lir_view::PatVariantDataView{pat}.disc();
         // slot holds the heap ptr to the enum struct.
         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        // A `&Enum` slot (e.g. a tuple element of type `&Enum`) is TWO-level
+        // (ptr-to-enum-heap-ptr); deref once more to reach the enum struct.
+        // The single-`&Enum` match applies this via_ref deref at the gen_match
+        // top — the per-element test must too, else the disc GEP reads the ref
+        // pointer as the struct → garbage disc → mis-dispatch / SIGSEGV (G152-9).
+        if (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                   TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(ty).pointee() &&
+            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum)
+            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
         auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
         auto dv = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
@@ -2153,6 +2163,13 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         auto* te = resolve_tagged_enum(std::string(pvd.enum_name()), ty);
         if (!te) return;
         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        // `&Enum` slot is two-level — deref once more to the enum struct (G152-9,
+        // mirrors the pat_test fix) before extracting payload fields.
+        if (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                   TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(ty).pointee() &&
+            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum)
+            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         const TaggedEnumInfo::VariantPayload* vp = nullptr;
         for (auto& vi : te->variants) if (vi.disc == (int32_t)pvd.disc()) { vp = &vi; break; }
         if (!vp) return;
@@ -2587,6 +2604,16 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         if (!te_sub) return;
                         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, ptr_type(), ep);
+                        // `&Enum` tuple element is two-level — deref once more to
+                        // the enum struct before extracting the payload (G152-9,
+                        // mirrors the pat_test / pat_bind disc fix).
+                        TypeRef et = btypes[idx];
+                        if (et && (TypeRef(et).kind() == LogosType::Kind::Ref ||
+                                   TypeRef(et).kind() == LogosType::Kind::MutRef) &&
+                            TypeRef(et).pointee() &&
+                            TypeRef(TypeRef(et).pointee()).kind() == LogosType::Kind::Enum)
+                            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, ptr_type(), enum_ptr);
                         bind_enum_payload(enum_ptr, te_sub,
                                           lir_view::PatVariantDataView{sp}, nested_added);
                     } else if (sp.kind() == pc::Code::Tuple ||

@@ -1,0 +1,33 @@
+package match_tuple_of_enum_refs;
+// G152-9 (SIGSEGV): a tuple of two `&Enum` matched against struct-variant
+// patterns crashed. A `&Enum` is two-level (ptr-to-enum-heap-ptr); the
+// tuple-element variant disc test / payload extract loaded only one level and
+// GEP'd the ref pointer as the enum struct → garbage disc → mis-dispatch /
+// crash. Fixed: per-element variant test + both payload-extract paths now deref
+// a ref-to-enum tuple element the extra level (mirrors the single-&Enum match).
+enum E { Foo { foo: u64 }, Bar { bar: u64 } }
+
+fn classify(e1: &E, e2: &E) -> u64 {
+    match (e1, e2) {
+        (E::Foo { foo: _ }, E::Foo { foo: _ }) => 0u64,
+        (E::Foo { foo: _ }, E::Bar { bar: _ }) => 1u64,
+        (E::Bar { bar: _ }, E::Bar { bar: _ }) => 2u64,
+        (E::Bar { bar: _ }, E::Foo { foo: _ }) => 3u64,
+    }
+}
+fn pick(e1: &E, e2: &E) -> u64 {
+    match (e1, e2) {
+        (E::Foo { foo: a }, E::Bar { bar: b }) => a + b,   // payload bindings
+        _ => 99u64,
+    }
+}
+
+fn main() -> i64 {
+    let f: E = E::Foo { foo: 10u64 };
+    let b: E = E::Bar { bar: 5u64 };
+    if classify(&f, &b) != 1u64 { return 1; }
+    if classify(&b, &f) != 3u64 { return 2; }
+    if classify(&f, &f) != 0u64 { return 3; }
+    if pick(&f, &b) != 15u64 { return 4; }
+    return 0;
+}
