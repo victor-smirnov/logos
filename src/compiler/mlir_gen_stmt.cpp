@@ -58,6 +58,24 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
         }
         if (is_ref_bind) {
+            // G151-1: `ref l` of a STRUCT-typed payload field binds `l : &Struct`.
+            // `fp` already IS the pointer to the inline payload struct, so bind
+            // it exactly like a `&Struct` let — scope_[l] = fp + var_struct_[l]
+            // — so `l.field` GEPs through it. (Wrapping fp in an extra
+            // ptr-of-ptr alloca with no struct-shape tracking made `l.field`
+            // read garbage — the silent miscompile.) Scalar `ref l` keeps the
+            // alloca-wrap below so `*l` derefs through one level.
+            TypeRef pointee = lt ? TypeRef(lt) : TypeRef{};
+            bool ref_to_struct = pointee &&
+                (pointee.kind() == LogosType::Kind::Struct ||
+                 pointee.kind() == LogosType::Kind::ZonedStruct);
+            if (ref_to_struct) {
+                scope_[bindings[bi]] = fp;
+                let_vars_.insert(bindings[bi]);
+                var_struct_[bindings[bi]] = mlir_struct_key(lt);
+                added.push_back(bindings[bi]);
+                continue;
+            }
             auto alloca = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
             scope_[bindings[bi]] = alloca;
@@ -2551,6 +2569,21 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
                         }
                         if (is_ref_bind) {
+                            // G151-1: `ref l` of a STRUCT payload binds `l : &Struct`
+                            // — fp IS the struct pointer, so bind it like a
+                            // `&Struct` (scope_=fp + var_struct_) so `l.field`
+                            // GEPs correctly. The old ptr-of-ptr alloca with no
+                            // struct-shape tracking made `l.field` read garbage.
+                            // Scalar `ref l` keeps the alloca-wrap for `*l`.
+                            TypeRef rlt = bi < vp->logos_types.size()
+                                ? TypeRef(vp->logos_types[bi]) : TypeRef{};
+                            if (rlt && (rlt.kind() == LogosType::Kind::Struct ||
+                                        rlt.kind() == LogosType::Kind::ZonedStruct)) {
+                                scope_[bindings[bi]] = fp;
+                                let_vars_.insert(bindings[bi]);
+                                var_struct_[bindings[bi]] = mlir_struct_key(rlt);
+                                continue;
+                            }
                             auto alloca = create_entry_alloca(ptr_type());
                             builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
                             scope_[bindings[bi]] = alloca;

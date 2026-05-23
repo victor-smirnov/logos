@@ -2638,6 +2638,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
                         }
                         if (is_ref_bind) {
+                            // G151-1: `ref l` of a STRUCT payload binds `l : &Struct`
+                            // — fp IS the struct pointer, so bind it like a
+                            // `&Struct` (scope_=fp + var_struct_) so `l.field`
+                            // GEPs correctly (match-EXPRESSION path; mirrors the
+                            // match-stmt fix). Scalar `ref l` keeps the alloca-
+                            // wrap so `*l` derefs through the original slot.
+                            if (lt && (TypeRef(lt).kind() == LogosType::Kind::Struct ||
+                                       TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
+                                scope_[bindings[bi]] = fp;
+                                let_vars_.insert(bindings[bi]);
+                                var_struct_[bindings[bi]] = mlir_struct_key(lt);
+                                added.push_back(bindings[bi]);
+                                continue;
+                            }
                             // Bind as an alloca holding the GEP address,
                             // typed as ptr_type so let-var lookup loads
                             // the address for use. `*ref_binding` then

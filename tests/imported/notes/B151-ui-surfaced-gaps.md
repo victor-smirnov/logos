@@ -15,7 +15,7 @@ changes). Tests that hit a gap were either re-shaped to preserve the essence
 
 ## ⚠️ HIGHEST PRIORITY — SILENT MISCOMPILE
 
-### G151-1 — `ref`-binding a STRUCT enum payload reads garbage  ⚠️ SILENT MISCOMPILE
+### G151-1 — ✅ FIXED (2026-05-22): `ref`-binding a STRUCT enum payload read garbage ⚠️ was SILENT MISCOMPILE + SIGABRT
 Binding a struct-typed enum payload field with `ref` in a match arm, then
 reading a field off the ref binding, returns garbage (no error, no crash — wrong
 value). By-value binding of the same payload is correct. Scalar payloads with
@@ -41,9 +41,15 @@ fn main() -> i32 {
   generic-enum-via-`self: &mut Self` shape additionally ABORTs at runtime (SIGABRT
   exit 134) instead of returning garbage — likely the same root manifesting after
   more downstream codegen.
-- Tractability: moderate-to-deep (mlir-gen match-extract: `ref` of a struct
-  payload appears to bind the wrong address / a copy at the wrong offset, so the
-  subsequent field GEP reads garbage). §B catch-up.
+**FIX**: the `is_ref_bind` branch bound `l` as a ptr-of-ptr alloca typed ptr_type
+with NO `var_struct_` shape tracking, so `l.field` GEP'd off the wrong base →
+garbage. For a STRUCT-typed payload, `fp` already IS the pointer to the inline
+payload struct, so bind it exactly like a `&Struct` (scope_[l]=fp + var_struct_[l])
+— `l.field` then GEPs correctly. Scalar `ref l` keeps the alloca-wrap (`*l`
+deref). Applied at ALL THREE binding sites (bind_enum_payload, extract_payload
+stmt path, EMatchExpr expr path). Verified general across 6 sibling shapes
+(non-generic / by-value / generic-via-`self:&mut Self` / match-expr / `ref mut`+
+mutate / second-position payload). Regression `pass/ref_struct_enum_payload`.
 - Surfaced by `tests/ui/self/explicit-self-generic.rs`; that test is KEPT, with
   the `ref l` rewritten to a by-value binding `l` (the upstream payload is Copy,
   so faithful).

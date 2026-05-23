@@ -1,0 +1,24 @@
+package ref_struct_enum_payload;
+// G151-1 (SILENT MISCOMPILE + SIGABRT): `ref l` binding a STRUCT-typed enum
+// payload field then reading `l.field` returned garbage (and SIGABRT'd in the
+// generic-via-self shape). General fix: bind `l` as `&Struct` (scope_=fp +
+// var_struct_), not a ptr-of-ptr alloca, in BOTH match-stmt and match-expr.
+struct LM { size: i64, cap: i64 }
+enum HM { Inner(LM, i64) }
+enum GE<T> { V(LM, T) }
+impl<T> GE<T> {
+    fn sz(self: &mut Self) -> i64 { match self { GE::V(ref l, _) => { return l.size; } } }
+}
+fn stmt_ref(m: &mut HM) -> i64 { match m { HM::Inner(ref l, _) => { return l.size + l.cap; } } }
+fn expr_ref(m: &HM) -> i64 { let r: i64 = match m { HM::Inner(ref l, _) => l.size * l.cap }; return r; }
+fn ref_mut(m: &mut HM) { match m { HM::Inner(ref mut l, _) => { l.size = l.size + 100; } } }
+fn main() -> i64 {
+    let mut m = HM::Inner(LM { size: 3i64, cap: 4i64 }, 7i64);
+    if stmt_ref(&mut m) != 7 { return 1; }
+    if expr_ref(&m) != 12 { return 2; }
+    ref_mut(&mut m);
+    if stmt_ref(&mut m) != 107 { return 3; }   // size now 103, +cap 4
+    let mut g: GE<i64> = GE::V(LM { size: 42i64, cap: 0i64 }, 9i64);
+    if g.sz() != 42 { return 4; }
+    return 0;
+}
