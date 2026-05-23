@@ -68,7 +68,25 @@ faithful import of `structs/struct-path-self-2.rs` (which leans on `Self { a, b 
 literals AND `Self { a, b }` patterns) — dropped. Workaround: name the struct
 explicitly (`S { a: .., b: .. }`).
 
-### G155-5 — ⚠️ SILENT MISCOMPILE + CRASH: `match` over `&Enum` ref-patterns
+### G155-5 — ⚠️ SILENT MISCOMPILE + CRASH: `match` over `&Enum` ref-patterns — ✅ FIXED
+**FIXED** (this session). Both facets closed in mlir-gen (stmt + expr match paths);
+regression test `tests/logos/pass/match_ref_enum_variant_pattern.logos`. Fixes:
+  - (a) crash: an explicit `&E::Foo{..}` / `&E::Some(x)` arm over a `&Enum`
+    scrutinee that was already auto-deref'd to a TAGGED enum (te_info set ⇒ the
+    scrutinee is now the disc) is peeled — the redundant leading `&` no longer
+    re-dispatches through the scalar-deref RefPat handler (which tried to
+    `llvm.load` a pointer out of the i32 disc). Inner variant/struct pattern
+    (incl. payload bindings) now flows through the normal path.
+  - (b) silent miscompile: the tuple test loop now routes a bare `Variant`
+    (no-payload, incl. C-like) and a `RefPat` element through the recursive
+    `pat_test` matcher; previously they fell to the flat scalar-load path which
+    emitted NO disc comparison → always-matched → first arm won. `pat_test`
+    also grew a C-like-enum branch (load the i32 disc directly when there is no
+    TaggedEnumInfo) and a `RefPat` case (load the ref, recurse into the inner
+    against the pointee type — uniform across C-like enum / tagged enum /
+    scalar).
+Original report follows.
+
 Two related facets of matching enums by reference with `&Pattern` arms:
   (a) ⚠️ CRASH — a single `&Enum` matched with a `&Variant { .. }` struct-variant
       ref-pattern fails mlir-gen verification:
@@ -119,8 +137,10 @@ Observed: `syntax error near 'LOW'`. Workaround: use the literal bounds directly
 ## Dropped tests (and why)
 - `structs/struct-path-self-2.rs` — needs `Self { .. }` struct literals + `Self { .. }`
   patterns (G155-4).
-- `match/issue-5530.rs` — `match (&Enum, &Enum)` with struct-variant ref-patterns
-  (G155-5: crash on single-ref form, silent miscompile on the tuple form).
+- ~~`match/issue-5530.rs`~~ — **NOW IMPORTED** (`issue-5530-b155.logos`) after the
+  G155-5 fix; `match (&Enum, &Enum)` with struct-variant ref-patterns discriminates
+  both elements correctly (was: crash on single-ref form, silent miscompile on the
+  tuple form).
 - `structs/unit-like-struct.rs` — `struct Foo;` body-less unit struct does not parse.
 - `type-alias-enum-variants-pass.rs` — full faithful form needs both G155-1
   (`Self::UnitVariant`) and G155-2 (alias-as-constructor); a reduced version that

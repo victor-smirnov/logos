@@ -1,0 +1,77 @@
+// Regression (G155-5): variant patterns over a `&Enum` / by-value enum that
+// previously mis-discriminated or crashed mlir-gen.
+//   (a) An explicit `&E::Foo{..}` / `&E::Some(x)` ref-pattern over a `&Enum`
+//       scrutinee crashed ("'llvm.load' operand must be pointer, got i32"):
+//       the auto-deref already turned the scrutinee into the disc, but the
+//       leading `&` was re-dispatched through the scalar-deref RefPat handler.
+//       It is now peeled so the inner variant pattern (incl. payload bindings)
+//       flows through the normal path. Both match-stmt and match-expr forms.
+//   (b) A no-payload (incl. C-like) variant as a TUPLE element pattern
+//       (`(&E::A, &E::B)` / `(E::A, E::B)`) silently always-matched the first
+//       arm — the tuple test loop never routed a bare `Variant`/`RefPat`
+//       element through the recursive matcher, so no disc comparison was
+//       emitted. It now discriminates correctly.
+package match_ref_enum_variant_pattern;
+
+enum CLike { A, B, C }
+
+enum Payload { Foo { x: i64 }, Some(i64), Bar }
+
+// (a) explicit ref-pattern over &Enum, expression form, with payload bindings.
+fn classify(e: &Payload) -> i64 {
+    match e {
+        &Payload::Foo { x: v } => v + 100i64,
+        &Payload::Some(n)      => n + 200i64,
+        &Payload::Bar          => 0i64,
+    }
+}
+
+// (a) explicit ref-pattern, statement form.
+fn classify_stmt(e: &Payload) -> i64 {
+    let mut r = 0i64;
+    match e {
+        &Payload::Foo { x: v } => { r = v + 1i64; }
+        &Payload::Some(n)      => { r = n + 2i64; }
+        &Payload::Bar          => { r = 9i64; }
+    }
+    return r;
+}
+
+// (b) C-like variants as by-ref tuple elements.
+fn pair_ref(t: (&CLike, &CLike)) -> u64 {
+    match t {
+        (&CLike::A, &CLike::C) => 7u64,
+        (&CLike::B, &CLike::C) => 9u64,
+        _ => 0u64,
+    }
+}
+
+// (b) C-like variants as by-value tuple elements.
+fn pair_val(t: (CLike, CLike)) -> u64 {
+    match t {
+        (CLike::A, CLike::B) => 1u64,
+        _ => 0u64,
+    }
+}
+
+fn main() -> i32 {
+    let foo = Payload::Foo { x: 5i64 };
+    let some = Payload::Some(7i64);
+    let bar = Payload::Bar;
+    if classify(&foo) != 105i64 { return 1; }
+    if classify(&some) != 207i64 { return 2; }
+    if classify(&bar) != 0i64 { return 3; }
+    if classify_stmt(&foo) != 6i64 { return 4; }
+    if classify_stmt(&some) != 9i64 { return 5; }
+    if classify_stmt(&bar) != 9i64 { return 6; }
+
+    let a = CLike::A;
+    let b = CLike::B;
+    let c = CLike::C;
+    if pair_ref((&a, &c)) != 7u64 { return 7; }
+    if pair_ref((&b, &c)) != 9u64 { return 8; }
+    if pair_ref((&a, &b)) != 0u64 { return 9; }
+    if pair_val((CLike::A, CLike::B)) != 1u64 { return 10; }
+    if pair_val((CLike::B, CLike::A)) != 0u64 { return 11; }
+    return 0;
+}

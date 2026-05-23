@@ -2062,11 +2062,29 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         std::string ename = pat.kind() == pc::Code::Variant
             ? std::string(lir_view::PatVariantView{pat}.enum_name())
             : std::string(lir_view::PatVariantDataView{pat}.enum_name());
-        auto* te = resolve_tagged_enum(ename, ty);
-        if (!te) return true_c();
         int64_t disc = pat.kind() == pc::Code::Variant
             ? lir_view::PatVariantView{pat}.disc()
             : lir_view::PatVariantDataView{pat}.disc();
+        bool via_ref_enum = ty &&
+            (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+             TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(ty).pointee() &&
+            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum;
+        auto* te = resolve_tagged_enum(ename, ty);
+        if (!te) {
+            // C-like enum (all-nullary, no TaggedEnumInfo): the value IS the i32
+            // discriminant — there is no heap struct. Load it and compare to the
+            // variant's disc. Previously this `return true_c()` made the test a
+            // NO-OP → C-like-enum tuple/match elements always-matched → wrong arm
+            // (G155-5(b)). A `&Enum` element is one pointer level deeper.
+            mlir::Value base = slot_ptr;
+            if (via_ref_enum)
+                base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+            auto dv = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), base);
+            auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+            return builder_.create<mlir::arith::CmpIOp>(
+                loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
+        }
         // slot holds the heap ptr to the enum struct.
         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
         // A `&Enum` slot (e.g. a tuple element of type `&Enum`) is TWO-level
@@ -2074,10 +2092,7 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         // The single-`&Enum` match applies this via_ref deref at the gen_match
         // top — the per-element test must too, else the disc GEP reads the ref
         // pointer as the struct → garbage disc → mis-dispatch / SIGSEGV (G152-9).
-        if (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
-                   TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(ty).pointee() &&
-            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum)
+        if (via_ref_enum)
             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
         auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
@@ -2127,6 +2142,21 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
         });
         return cond;
+    }
+    case pc::Code::RefPat: {
+        // `&P` (or `&mut P`) matched against a `&T` slot: the slot holds the
+        // reference (a ptr to the T value). Load it and recurse into P against
+        // the pointee type. Uniform across C-like enum (pointee is an i32),
+        // tagged enum (pointee slot holds the heap ptr) and scalars — the
+        // dereffed ref value is exactly the address pat_test expects (G155-5a).
+        lir_view::PatRefPatView rp{pat};
+        auto inner = rp.inner();
+        if (!inner) return true_c();
+        TypeRef pointee = (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                                  TypeRef(ty).kind() == LogosType::Kind::MutRef))
+                          ? TypeRef(ty).pointee() : ty;
+        auto ref_val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        return pat_test(inner, ref_val, pointee);
     }
     default:
         return true_c();
@@ -3135,6 +3165,22 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     for (int i = (int)arm_refs.size() - 1; i >= 0; --i) {
         auto arm_pat   = arm_refs[i].pat();
         auto arm_kind  = arm_pat ? arm_pat.kind() : pc::Code(-1);
+        // G155-5(a): explicit `&E::Foo{..}` / `&E::Some(x)` ref-pattern over a
+        // `&Enum` scrutinee we already auto-deref'd to a TAGGED enum (te_info
+        // set ⇒ `scrut` is the disc, `scrut_ptr` the enum struct). Peel the
+        // redundant leading `&` so the inner variant/struct pattern flows
+        // through the normal payload-extracting paths. The C-like no-payload
+        // `&E::A` case (te_info null, `scrut` still a ptr-to-i32) keeps the
+        // dedicated RefPat handler below.
+        if (te_info && arm_kind == pc::Code::RefPat) {
+            if (auto inner = lir_view::PatRefPatView{arm_pat}.inner();
+                inner && (inner.kind() == pc::Code::VariantData ||
+                          inner.kind() == pc::Code::Variant ||
+                          inner.kind() == pc::Code::Struct)) {
+                arm_pat = inner;
+                arm_kind = arm_pat.kind();
+            }
+        }
         auto arm_guard_ref = arm_refs[i].guard();
         auto arm_body_ref  = arm_refs[i].body();
         auto* body_block   = new mlir::Block();
@@ -3328,7 +3374,10 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     // pat_test and skip the scalar load.
                     bool needs_recursive =
                         sub.kind() == pc::Code::Tuple ||
-                        sub.kind() == pc::Code::VariantData;
+                        sub.kind() == pc::Code::VariantData ||
+                        sub.kind() == pc::Code::Variant ||  // G155-5(b): no-payload
+                                                            // (incl. C-like) variant
+                        sub.kind() == pc::Code::RefPat;     // G155-5(a): `&E::A`
                     if (sub.kind() == pc::Code::Or) {
                         lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef a){
                             if (a && a.kind() != pc::Code::Int && a.kind() != pc::Code::Bool)

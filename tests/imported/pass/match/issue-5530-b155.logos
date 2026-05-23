@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-5530.rs
+// Modifications: usize→u64; assert_eq! → early-return sentinels (distinct nonzero
+//   codes); `pub fn main()` → `fn main() -> i32 { …; return 0; }`.
+//   Faithful otherwise — the entire point is matching a tuple of two `&Enum`
+//   references against `(&Enum::Foo{..}, &Enum::Bar{..})`-style struct-variant
+//   ref-patterns (fun1 = full cross product, fun2 = ref-pattern + wildcard).
+// Tests: a tuple `(&Enum, &Enum)` matched with explicit `&Variant{..}` struct-
+//   variant ref-patterns discriminates BOTH elements correctly. Previously this
+//   crashed mlir-gen (single ref form) / silently mis-discriminated the second
+//   element (tuple form) — G155-5 / G152-9, now fixed.
+package issue_5530_b155;
+
+enum Enum {
+    Foo { foo: u64 },
+    Bar { bar: u64 },
+}
+
+fn fun1(e1: &Enum, e2: &Enum) -> u64 {
+    match (e1, e2) {
+        (&Enum::Foo { foo: _ }, &Enum::Foo { foo: _ }) => 0u64,
+        (&Enum::Foo { foo: _ }, &Enum::Bar { bar: _ }) => 1u64,
+        (&Enum::Bar { bar: _ }, &Enum::Bar { bar: _ }) => 2u64,
+        (&Enum::Bar { bar: _ }, &Enum::Foo { foo: _ }) => 3u64,
+    }
+}
+
+fn fun2(e1: &Enum, e2: &Enum) -> u64 {
+    match (e1, e2) {
+        (&Enum::Foo { foo: _ }, &Enum::Foo { foo: _ }) => 0u64,
+        (&Enum::Foo { foo: _ }, _) => 1u64,
+        (&Enum::Bar { bar: _ }, &Enum::Bar { bar: _ }) => 2u64,
+        (&Enum::Bar { bar: _ }, _) => 3u64,
+    }
+}
+
+fn main() -> i32 {
+    let foo = Enum::Foo { foo: 1u64 };
+    let bar = Enum::Bar { bar: 1u64 };
+
+    if fun1(&foo, &foo) != 0u64 { return 1i32; }
+    if fun1(&foo, &bar) != 1u64 { return 2i32; }
+    if fun1(&bar, &bar) != 2u64 { return 3i32; }
+    if fun1(&bar, &foo) != 3u64 { return 4i32; }
+
+    if fun2(&foo, &foo) != 0u64 { return 5i32; }
+    if fun2(&foo, &bar) != 1u64 { return 6i32; }
+    if fun2(&bar, &bar) != 2u64 { return 7i32; }
+    if fun2(&bar, &foo) != 3u64 { return 8i32; }
+
+    return 0i32;
+}

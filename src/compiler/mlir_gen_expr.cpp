@@ -3052,6 +3052,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         auto arm_guard_ref = arm_refs[i].guard();
         auto arm_value_ref = arm_refs[i].value();
         auto arm_pat_ref = arm_refs[i].pat();
+        // G155-5(a): an explicit `&E::Foo{..}` / `&E::Some(x)` ref-pattern over
+        // a `&Enum` scrutinee that we already auto-deref'd to a TAGGED enum
+        // (te_info set ⇒ `scrut`/`scrut_ptr` already point at the enum struct,
+        // `scrut` is the disc). The leading `&` is redundant here — peel it so
+        // the inner variant/struct pattern flows through the normal
+        // payload-extracting paths below. (The C-like no-payload `&E::A` case,
+        // where te_info is null and `scrut` is still a ptr-to-i32, keeps the
+        // dedicated RefPat handler further down.)
+        if (te_info && arm_pat_ref.kind() == pc::Code::RefPat) {
+            if (auto inner = lir_view::PatRefPatView{arm_pat_ref}.inner();
+                inner && (inner.kind() == pc::Code::VariantData ||
+                          inner.kind() == pc::Code::Variant ||
+                          inner.kind() == pc::Code::Struct))
+                arm_pat_ref = inner;
+        }
         auto* body_block = new mlir::Block();
         region->push_back(body_block);
 
@@ -3226,7 +3241,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     // through pat_test and skip the flat scalar load.
                     bool needs_recursive =
                         sub.kind() == pc::Code::Tuple ||
-                        sub.kind() == pc::Code::VariantData;
+                        sub.kind() == pc::Code::VariantData ||
+                        sub.kind() == pc::Code::Variant ||  // G155-5(b)
+                        sub.kind() == pc::Code::RefPat;     // G155-5(a)
                     if (sub.kind() == pc::Code::Or) {
                         lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef a){
                             if (a && a.kind() != pc::Code::Int && a.kind() != pc::Code::Bool)
