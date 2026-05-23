@@ -11,6 +11,22 @@ incidental, nested type decls hoisted to top level, `vec![..]` → `vec_new` +
 push, recursive-enum-by-value reshaped through raw pointers (Logos has no
 auto-boxing).
 
+## STATUS 2026-05-23
+✅ **G153-5** empty-String compare SIGSEGV (CRASH) — FIXED 601eb119 (eq_string
+compares length+bytes, null-safe). ✅ **G153-4** `Self::method()` static call in
+impl body — FIXED de797ac8 (resolve Self in lower_static_call + overwrite stale
+Self in lower_fn). REMAINING (3 bigger pieces, workarounds exist):
+- **G153-1** backward type-flow: `let mut x = None;` typed from a LATER
+  `x = Some(0i64)` leaves Option<T> unresolved → Eq pointer-compares. Known hard
+  cluster ([[baghunt_mono_eager_typevar_default_clone]]); needs backward
+  inference into the binding type + Eq dispatch. Workaround: annotate.
+- **G153-2** bare deferred-init `let mut n;` (type from later assign) parse error
+  — COUPLED to G153-1 (grammar trivial, but useless without backward inference).
+  Workaround: `let mut n: T;`.
+- **G153-3** `static`/`static mut` module items — a real FEATURE (parse + sema +
+  codegen for mutable globals + init order). `const` is the partial workaround.
+  Dedicated feature session.
+
 All 26 kept tests verified rc=0 against the as-is `build/bin/logosc` (no
 compiler changes). The link line uses `-Wl,--gc-sections` so the stdlib's
 unreferenced `derive_*_hook` metaprog functions (which reference JIT-only
