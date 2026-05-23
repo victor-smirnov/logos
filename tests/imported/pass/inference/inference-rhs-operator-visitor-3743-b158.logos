@@ -24,9 +24,9 @@ trait RhsOfVec2Mul {
 
 impl RhsOfVec2Mul for f64 {
     type Result = Vec2;
-    // (*lhs).vmul: explicit deref — auto-deref of a `&Vec2` receiver to a
-    //   by-value-`self` inherent method isn't supported (G158-5).
-    fn mul_vec2_by(self: &f64, lhs: &Vec2) -> Vec2 { return (*lhs).vmul(*self); }
+    // lhs.vmul: auto-deref of a `&Vec2` receiver to the by-value-`self`
+    //   inherent method `vmul(self: Vec2, ...)` (G158-5, closed 2026-05-23).
+    fn mul_vec2_by(self: &f64, lhs: &Vec2) -> Vec2 { return lhs.vmul(*self); }
 }
 
 fn scaled<Res, Rhs: RhsOfVec2Mul<Result = Res>>(lhs: Vec2, rhs: Rhs) -> Res {

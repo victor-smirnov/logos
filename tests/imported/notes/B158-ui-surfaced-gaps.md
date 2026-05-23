@@ -90,11 +90,19 @@ references (variance-option-ref-intersection).
   `zero-size-type-destructors`; regression `pass/array_and_nested_drop`
   ([R;3]/struct-[R;2]/tuple-[R;2] → exactly 3/2/2 drops). Full suite 4799/4799.
 
-- **G158-5** — auto-deref of a `&T` receiver to a by-value-`self` inherent method
-  is not supported. Repro: `fn f(lhs: &Vec2)->Vec2 { lhs.vmul(2.0) }` where
-  `vmul(self: Vec2,...)` → `'Vec2' has no method 'vmul'`. Workaround: explicit
-  deref `(*lhs).vmul(...)` (used in rhs-operator-visitor-3743). TRACTABLE:
-  receiver auto-deref+auto-copy for Copy-ish by-value `self` methods.
+- **G158-5** ✅ CLOSED (2026-05-23) — a `&T` / `&mut T` / `*T` receiver now
+  auto-derefs to a by-value-`self` method (`fn m(self: T, …)`). Fix in sema
+  method resolution (sema_expr.cpp): added a self-param match case for
+  `actual=&T`, `formal=T` (by value) → mark `auto_deref_recv`, then wrap the
+  receiver in `builder().deref(...)` (mirrors the explicit `(*recv).m()`
+  workaround / Rust autoderef). CRUCIAL ordering: a deref-only candidate is
+  LOWER priority than any exact / auto-ref match (Rust tries `T`/`&T`/`&mut T`
+  at the current deref level before stepping) — recorded as a `deref_fallback`
+  and only used when no non-deref candidate matched, so `inherent-method-order`
+  (a `&Foo` receiver picking the trait `val(self:&Foo)` over inherent
+  `val(self:Foo)`) still resolves correctly. Workaround removed from
+  inference-rhs-operator-visitor-3743; regression
+  `pass/methods/autoderef-ref-recv-byvalue-self`. Full suite 4801/4801.
 
 - **G158-6** — a reference-typed subject in a `where` clause `where &T: Trait`
   (incl. `for<'a> &'a T: Trait`) is a parse error. Repro:

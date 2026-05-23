@@ -6880,6 +6880,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     const SemaFuncInfo* fi_ptr = nullptr;
     bool auto_ref_recv = false;
     bool auto_ref_mut = false;
+    bool auto_deref_recv = false;
     SemaSubst recv_struct_subst;
     {
         TypeRef rst = recv->type;
@@ -6904,12 +6905,21 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::vector<TypeRef> types;
         types.push_back(recv->type);
         for (auto& a : arg_exprs) types.push_back(a->type);
+        // G158-5: a by-value-`self` method reached only by auto-dereffing the
+        // receiver is LOWER priority than any exact / auto-ref match (Rust's
+        // autoderef order: try `T`/`&T`/`&mut T` at the current deref level
+        // before stepping to the next deref). Record the first deref-only
+        // candidate and only fall back to it if no non-deref candidate matched
+        // (otherwise e.g. a `&Foo` receiver would wrongly pick inherent
+        // `val(self: Foo)` over trait `val(self: &Foo)`).
+        const SemaFuncInfo* deref_fallback = nullptr;
         for (auto* cand : find_func_candidates(mangled)) {
             if (!cand || !cand->type_params.empty()) continue;
             if (cand->param_types.size() != types.size()) continue;
             bool ok = true;
             bool needs_ref = false;
             bool needs_mut = false;
+            bool needs_deref = false;
             auto formal0 = cand->param_types[0];
             if (!recv_struct_subst.empty())
                 formal0 = subst_type_sema(formal0, recv_struct_subst);
@@ -6935,6 +6945,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                            TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
                            types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
                     // const/mut pointer receivers are compatible if pointees match.
+                } else if ((is_ref_like(TypeRef(actual0).kind()) ||
+                            TypeRef(actual0).kind() == LogosType::Kind::Ptr) &&
+                           TypeRef(actual0).pointee() &&
+                           !is_ref_like(TypeRef(formal0).kind()) &&
+                           TypeRef(formal0).kind() != LogosType::Kind::Ptr &&
+                           types_equal(TypeRef(actual0).pointee(), formal0)) {
+                    // G158-5: receiver is `&T`/`&mut T`/`*T` but the method
+                    // takes `self` BY VALUE — auto-deref the receiver (mirrors
+                    // the explicit `(*recv).method()` workaround / Rust's
+                    // autoderef-then-by-value-self). The by-value self copies
+                    // (or moves) out of the reference; borrow-check enforces
+                    // Copy/move-out soundness downstream.
+                    needs_deref = true;
                 } else if (!types_compatible(actual0, formal0)) {
                     ok = false;
                 }
@@ -6950,13 +6973,31 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             if (!ok) continue;
+            if (needs_deref) {
+                // Defer: a non-deref candidate later in the list takes
+                // priority. Keep only the first deref-only match.
+                if (!deref_fallback) deref_fallback = cand;
+                continue;
+            }
             fi_ptr = cand;
             auto_ref_recv = needs_ref;
             auto_ref_mut = needs_mut;
             break;
         }
+        if (!fi_ptr && deref_fallback) {
+            fi_ptr = deref_fallback;
+            auto_deref_recv = true;
+        }
         if (!fi_ptr)
             fi_ptr = find_generic_func(mangled);
+    }
+    // G158-5: auto-deref a `&T`/`*T` receiver for a by-value-`self` method.
+    if (fi_ptr && auto_deref_recv && recv->type &&
+        (is_ref_like(TypeRef(recv->type).kind()) ||
+         TypeRef(recv->type).kind() == LogosType::Kind::Ptr) &&
+        TypeRef(recv->type).pointee()) {
+        auto pointee = TypeRef(recv->type).pointee();
+        recv = builder().deref(std::move(recv), pointee);
     }
     if (fi_ptr && auto_ref_recv && recv->type &&
         TypeRef(recv->type).kind() != LogosType::Kind::Ref &&
