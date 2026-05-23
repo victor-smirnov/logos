@@ -27,14 +27,21 @@ instantiation-on-transitive-demand gap (mono doesn't enqueue the spec). Backed
 the stdlib impls out (stays green). Next: fix the mono enqueue for transitively-
 demanded generic enum-method specs, then re-add the stdlib impls.
 
-### G150-1 — `ref IDENT @ Pattern` is a parse error
-`ref x` parses, and `x @ Pat` parses, but the combination `ref x @ Pat` does not.
-Worked around in `nested-patterns-at`.
+### G150-1 — ✅ FIXED: `ref IDENT @ Pattern`
+Grammar `KW_REF IDENT AT pat_single` → PAT_AT(IS_REF), before the greedy bare
+`KW_REF IDENT` alt. `*x` reads through via the deref-identity shim (as with
+`Some(ref v) => *v`). Regression `pass/ref_at_binding_pattern`.
 
-### G150-3 — tuple-struct numeric-field literal `S { 0: .., 1: .. }`
-Construction via numeric field names (`S { 0: a, 1: b }`) is a parse error.
-Dropped `numeric-fields`.
+### G150-3 — ✅ FIXED: tuple-struct numeric-field literal `S { 0: a, 1: b }`
+Added `INTEGER COLON expr` to field_init; tuple-struct fields are named "0"/"1"
+(same as `s.0`), so sema's by-name resolution maps them positionally (out-of-order
+OK). Regression `pass/tuple_struct_numeric_field_literal`.
 
-### G150-4 — `Iterator::sum()` unusable on ranges / `.iter()` chains
-`(0..n).sum()` / `v.iter()....sum()` errors "receiver is not a struct". Dropped
-two sum/cloned tests.
+### G150-4 — ✅ NOT A COMPILER GAP: `Iterator::sum()` on ranges works with imports
+`(0..n).sum()` errored "receiver is not a struct" only because the port omitted
+`use logos.lang.range; use logos.lang.iter;` — range-as-VALUE needs the `RangeI64`
+struct + `Iterator` in scope (they aren't in the prelude, unlike Rust; for-loop
+ranges are special-cased and don't need the import). With the two `use`s,
+`(1..5).sum()` / `(1..=4).sum()` work. Regression `pass/iterator_sum_range`.
+(Open question, not a bug: whether range+iter should join the prelude for Rust
+parity — a prelude-policy decision, deferred.)

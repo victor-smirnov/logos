@@ -1,0 +1,14 @@
+package iterator_sum_range;
+// G150-4: Iterator::sum() on ranges works (it just needs the range + iter
+// imports — they aren't in the prelude, unlike Rust). Not a compiler gap.
+use logos.lang.range;
+use logos.lang.iter;
+fn main() -> i64 {
+    let a: i64 = (1i64..5i64).sum();    // 1+2+3+4 = 10
+    let b: i64 = (1i64..=4i64).sum();   // inclusive = 10
+    let c: i64 = (0i64..0i64).sum();    // empty = 0
+    if a != 10 { return 1; }
+    if b != 10 { return 2; }
+    if c != 0  { return 3; }
+    return 0;
+}
