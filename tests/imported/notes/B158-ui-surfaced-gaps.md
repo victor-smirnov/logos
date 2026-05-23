@@ -70,10 +70,9 @@ references (variance-option-ref-intersection).
   point). TRACTABLE-ish: needs blanket `impl<F: Fn> Fn for &F` (+ &mut) plus
   call-operator autoderef.
 
-- **G158-2** — a reference-to-fn-pointer *type* `&fn(T)->R` is a parse error.
-  Repro: `fn f(x: &fn(i64)->i64)` → `syntax error near 'fn'`. DROPPED:
-  unboxed-closures-call-fn-autoderef (autoderef-of-`&fn`-receiver is its point).
-  TRACTABLE: grammar — allow a fn-pointer type after `&`/`&mut`.
+- **G158-2** ✅ CLOSED (2026-05-23) — `&fn(T)->R` now parses. Grammar:
+  `ref_pointee` gained `fn_ptr_type` (before `simple_type`, which can't start
+  with `fn`). Regression `pass/typeck/fn-ptr-type-ref-and-unsafe`.
 
 - **G158-3** — no module-level `static` / `static mut` (re-confirms G153-3).
   Repro: `static mut HIT: i64 = 0i64;` at module scope → `syntax error near
@@ -147,12 +146,11 @@ references (variance-option-ref-intersection).
   `generic-trait-object-call-2288` (issue #2288); verified across multiple type
   args (i64/bool) + multi-method traits. Full suite green.
 
-- **G158-11** — an `unsafe fn(...)->R` *type* (unsafe-qualified fn-pointer type)
-  in parameter position is a parse error. Repro: `fn call(func: unsafe fn()->i64)`
-  → `syntax error near 'fn'`; an `unsafe fn` *definition* parses fine. DROPPED:
-  typeck-fn-to-unsafe-fn-ptr (reification to an `unsafe fn` pointer IS its point).
-  TRACTABLE: grammar — allow `unsafe` (and the ABI marker) before a `fn(...)`
-  pointer type.
+- **G158-11** ✅ CLOSED (2026-05-23) — `unsafe fn(...)->R` pointer type now
+  parses. Grammar: `fn_ptr_type` gained `KW_UNSAFE`-prefixed alternatives
+  (4 arities) producing `FN_PTR_TYPE` with `IS_UNSAFE: 1`; the qualifier is
+  parsed-and-captured but structurally identical to the safe form. Regression
+  `pass/typeck/fn-ptr-type-ref-and-unsafe`.
 
 - **G158-12** — `.map(closure).sum()` over a range fails MLIR generation.
   Repro: `(0i64..4i64).map(|i| -> i64 { return i*2i64; }).sum::<i64>()` →

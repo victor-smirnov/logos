@@ -1413,7 +1413,9 @@
     // (whitespace-tolerant) at type position. `&&T` (no whitespace) is
     // still handled by the DOUBLE_REF_TYPE alts above, which the lexer
     // routes through the AND token.
-    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / simple_type
+    // G158-2: `&fn(T)->R` / `&mut fn()->R` — a reference to a fn-pointer type.
+    // `fn_ptr_type` precedes `simple_type` (simple_type can't start with `fn`).
+    ref_pointee <- ref_type / arr_type / tuple_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*
@@ -1431,7 +1433,19 @@
     // Each `for<>` alt mirrors the bare-fn alt below with a HRTB_BINDERS
     // capture. Sema doesn't yet skolemize per-type binders; the binders
     // are parsed-and-captured for future region inference.
-    fn_ptr_type <- hrtb_binder KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+    // G158-11: `unsafe fn(...)->R` pointer TYPE. The unsafe qualifier is
+    // parsed-and-captured (IS_UNSAFE) but is otherwise structurally identical
+    // to the safe fn-pointer type. Must precede the bare alts so `unsafe` is
+    // consumed here, not left to fail.
+    fn_ptr_type <- KW_UNSAFE KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, PARAMS: $4, RET_TYPE: $7 }
+                 / KW_UNSAFE KW_FN LPAREN fn_ptr_type_args RPAREN
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, PARAMS: $4 }
+                 / KW_UNSAFE KW_FN LPAREN RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, RET_TYPE: $6 }
+                 / KW_UNSAFE KW_FN LPAREN RPAREN
+                => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1 }
+                 / hrtb_binder KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
                 => { CODE: FN_PTR_TYPE, HRTB_BINDERS: $1, PARAMS: $4, RET_TYPE: $7 }
                  / hrtb_binder KW_FN LPAREN fn_ptr_type_args RPAREN
                 => { CODE: FN_PTR_TYPE, HRTB_BINDERS: $1, PARAMS: $4 }

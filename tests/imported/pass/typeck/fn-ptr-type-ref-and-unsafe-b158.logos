@@ -1,0 +1,25 @@
+// Distilled regression for G158-2 + G158-11 (closed 2026-05-23).
+//   G158-2:  `&fn(T)->R` — a reference to a fn-pointer TYPE in parameter
+//            position (was a parse error; `ref_pointee` lacked `fn_ptr_type`).
+//   G158-11: `unsafe fn(...)->R` — an unsafe-qualified fn-pointer TYPE in
+//            parameter position (was a parse error; `fn_ptr_type` had no
+//            `unsafe` alternative). The qualifier is parsed-and-captured.
+// Sourced from the facets of unboxed-closures-call-fn-autoderef (G158-2) and
+// typeck-fn-to-unsafe-fn-ptr (G158-11).
+package fn_ptr_type_ref_and_unsafe_b158;
+
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+unsafe fn secret() -> i64 { return 42i64; }
+
+// &fn(i64)->i64 parameter — deref then call.
+fn apply_ref(g: &fn(i64) -> i64, x: i64) -> i64 { return (*g)(x); }
+
+// unsafe fn()->i64 parameter — call inside an unsafe block.
+fn call_unsafe(func: unsafe fn() -> i64) -> i64 { unsafe { return func(); } }
+
+fn main() -> i32 {
+    let f: fn(i64) -> i64 = dbl;
+    if apply_ref(&f, 5i64) != 10i64 { return 1i32; }
+    if call_unsafe(secret) != 42i64 { return 2i32; }
+    return 0i32;
+}
