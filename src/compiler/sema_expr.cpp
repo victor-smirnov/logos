@@ -10404,6 +10404,39 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 probe(cname_str);
             }
             if (tm) {
+                // G158-9: resolve Self from the let-annotation expected type
+                // (`let f: Foo = HasNew::make()` — Foo implements HasNew). The
+                // hint carries the concrete type; if it implements cname, emit
+                // the concrete `<Type>__<method>` directly (the concrete-path
+                // `Foo::make()` already works — this just bridges the trait
+                // path to it). Takes priority over the type-param search below.
+                if (hint_call_return_type_) {
+                    TypeRef h(hint_call_return_type_);
+                    std::string hn, hbare;
+                    if (h.kind() == LogosType::Kind::Struct ||
+                        h.kind() == LogosType::Kind::ZonedStruct) {
+                        hbare = std::string(h.struct_name());
+                        hn = concrete_struct_name(hint_call_return_type_);
+                    } else if (h.kind() == LogosType::Kind::Enum) {
+                        hbare = std::string(h.enum_name());
+                        hn = hbare;
+                    }
+                    // Impls key either on the bare struct base (`Reset::Foo`,
+                    // for `impl<T> Reset for Foo<T>`) or the concrete-spec name
+                    // (`Reset::Box2$G1$i64`, for `impl Reset for Box2<i64>`).
+                    if (!hbare.empty() &&
+                        (impls_.count(cname_str + "::" + hbare) ||
+                         (!hn.empty() && impls_.count(cname_str + "::" + hn)))) {
+                        SemaSubst self_subst;
+                        self_subst["Self"] = hint_call_return_type_;
+                        TypeRef ret_t = subst_type_sema(tm->ret_type, self_subst);
+                        if (arg_exprs.size() != tm->param_types.size())
+                            error(std::format("method call '{}::{}': expected {} args, got {}",
+                                  cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
+                        return builder().call(hn + "__" + mname_str, {},
+                                              std::move(arg_exprs), ret_t);
+                    }
+                }
                 // Find type-params whose transitive bound-closure includes cname.
                 std::vector<std::string> candidates;
                 for (auto& [tpname, bounds] : current_type_bounds_) {

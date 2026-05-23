@@ -127,13 +127,16 @@ references (variance-option-ref-intersection).
   `pass/self/sized-self-new-where-clause`; the full
   dyn-compatibility-sized-self-return-Self re-import waits on G158-7 + G158-9.
 
-- **G158-9** — a trait static method called via the *trait* path with `Self`
-  resolved from the let-binding annotation is unresolved. Repro:
-  `let f: Foo = HasNew::new();` (with `trait HasNew { fn new()->Self; }` impl'd
-  for Foo) → `call to undefined static method 'HasNew::new'`; the concrete path
-  `Foo::new()` works. Workaround: use the concrete path `Mat2::identity(..)`
-  (supertrait-self-returning-4107). DROPPED: trait-static-method-by-let-anno (the
-  trait-path Self-from-annotation IS its point).
+- **G158-9** ✅ CLOSED (2026-05-23) — trait-path static `Trait::method()` with
+  `Self` from the let-annotation now resolves. Fix in `lower_static_call`: when
+  the named trait declares the static method, use `hint_call_return_type_` (the
+  `let f: Foo = …` annotation) as Self and, if that concrete type implements
+  the trait (`impls_` keyed on bare base `Trait::Foo` OR concrete-spec
+  `Trait::Box2$G1$i64`), emit the concrete `<Type>__<method>` — bridging the
+  trait path to the already-working concrete path. Takes priority over the
+  type-param-bound search. Regression
+  `pass/self/trait-path-static-self-from-let-anno` (plain struct + concrete-spec
+  generic).
 
 - **G158-10** ✅ CLOSED (2026-05-23) — parameterized trait-object dispatch
   `&dyn Trait<A>` now works. Root was a NULL vtable slot (the `&dyn` fat pointer

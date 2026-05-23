@@ -1,0 +1,29 @@
+// Distilled regression for G158-9 (closed 2026-05-23).
+// A trait-path static-method call `Trait::method()` whose `Self` is resolved
+// from the LET-BINDING annotation type was unresolved ("call to undefined
+// static method 'HasNew::make'"); only the concrete path `Foo::make()` worked.
+// Fix: lower_static_call uses `hint_call_return_type_` (the let-annotation) as
+// Self when the named trait declares the static method and the hint type
+// implements it — emitting the concrete `<Type>__<method>` (bridging to the
+// already-working concrete path). Covers both a plain struct and a
+// concrete-spec generic impl.
+package trait_path_static_self_from_let_anno_b158;
+
+trait HasNew { fn make() -> Self; }
+
+struct Foo { v: i64 }
+impl HasNew for Foo { fn make() -> Foo { return Foo { v: 7i64 }; } }
+
+trait Reset { fn fresh() -> Self; }
+struct Box2<T> { a: T, b: T }
+impl Reset for Box2<i64> { fn fresh() -> Box2<i64> { return Box2 { a: 0i64, b: 0i64 }; } }
+
+fn main() -> i32 {
+    let f: Foo = HasNew::make();
+    if f.v != 7i64 { return 1i32; }
+
+    let x: Box2<i64> = Reset::fresh();
+    if x.a != 0i64 { return 2i32; }
+    if x.b != 0i64 { return 3i32; }
+    return 0i32;
+}
