@@ -1,0 +1,40 @@
+package stdlib_option_result_eq;
+// G150-2 (full): the stdlib generic Eq impls `impl<T: Eq> Eq for Option<T>`
+// and `impl<T: Eq, E: Eq> Eq for Result<T, E>` make `==`/`!=` work on
+// Option/Result of any Eq payload — including a bare `Option::None` literal
+// operand (its type-args are pinned from the other operand) and nested
+// `Option<Option<T>>` (the generic body's `*a == *b` dispatches through the
+// payload's own Eq via the bound). Closes the transitive generic-enum-method
+// instantiation gap (two naming schemes unified in mono).
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+
+fn main() -> i64 {
+    let a: Option<i64> = Option::Some(3);
+    let b: Option<i64> = Option::Some(3);
+    let c: Option<i64> = Option::Some(4);
+    let n: Option<i64> = Option::None;
+    if !(a == b) { return 1; }
+    if a == c { return 2; }
+    if a == n { return 3; }
+    if n != Option::None { return 4; }   // bare-literal RHS pins <i64>
+    if !(a != c) { return 5; }
+
+    // nested Option<Option<T>>
+    let p: Option<Option<i64>> = Option::Some(Option::Some(5));
+    let q: Option<Option<i64>> = Option::Some(Option::Some(5));
+    let r: Option<Option<i64>> = Option::Some(Option::None);
+    if !(p == q) { return 6; }
+    if p == r { return 7; }
+
+    // Result
+    let ok1: Result<i64, i64> = Result::Ok(7);
+    let ok2: Result<i64, i64> = Result::Ok(7);
+    let er1: Result<i64, i64> = Result::Err(9);
+    let er2: Result<i64, i64> = Result::Err(9);
+    if !(ok1 == ok2) { return 8; }
+    if ok1 == er1 { return 9; }
+    if !(er1 == er2) { return 10; }
+    return 0;
+}

@@ -27,6 +27,7 @@ package logos.mem.string;
 use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.str;
+use logos.lang.cmp;
 
 // ── String ─────────────────────────────────────────────────────────────────
 
@@ -444,4 +445,13 @@ unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
     }
     buf[0] = 0xEF as u8; buf[1] = 0xBF as u8; buf[2] = 0xBD as u8;
     return 3;
+}
+
+// String total equality (Rust: `impl Eq for String`). Enables `String == String`
+// and, transitively, `Option<String> == …` / `Vec<String> == …` through the
+// generic `impl<T: Eq> Eq for …` blanket impls in logos.lang.cmp.
+impl Eq for String {
+    fn eq(self: &Self, other: &Self) -> bool {
+        return self.eq_string(other);
+    }
 }

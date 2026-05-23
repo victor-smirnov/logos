@@ -4936,10 +4936,51 @@ void Mono::instantiate_enum_templates() {
                 // Match type params to subst keys
                 bool matches = fn.type_params.size() == tmpl->type_params.size();
                 if (!matches) continue;
-                std::string bare_inst = cname + std::string(bare.substr(base.size()));
-                std::string inst_name = fn_pkg.empty() ? bare_inst
-                                                       : fn_pkg + "." + bare_inst;
-                if (done_.count(inst_name)) continue;
+                // A generic enum method has TWO mangled-name conventions
+                // depending on its call site, and instantiate_enum_templates
+                // is the one place that must satisfy both:
+                //   • cname-INSERT (`Option__i8__eq`) — a direct concrete-
+                //     receiver call (`o.eq(&p)`) or the `==`/`!=` operator
+                //     lowering (sema routes to `<enum>__eq`), and every
+                //     non-generic method of a generic enum (`unwrap`).
+                //   • type-arg APPEND (`Option__eq__g__sig__i8`) — a
+                //     trait-bound dispatch (`fn f<T: Eq>(t:&T){ t.eq(..) }`
+                //     with T=Option<i8>): collect_fn flattened the impl
+                //     header's `T` into the method's type_params, so the
+                //     method is mangled `__g__` and the bound-dispatch site
+                //     appends the type-arg after the signature.
+                // The method body is identical, so emit it under the primary
+                // name and, when it's a generic-mangled method, also under
+                // the insert-form alias (and vice-versa) so whichever name a
+                // caller demands resolves. Unused copies are dead-stripped.
+                std::string method_suffix(bare.substr(base.size()));
+                std::string arg_suffix = cname.substr(base.size());
+                bool is_generic_method =
+                    method_suffix.find("__g__") != std::string::npos;
+                std::string bare_primary = is_generic_method
+                    ? std::string(bare) + arg_suffix      // append form
+                    : cname + method_suffix;              // cname-insert form
+                std::string bare_alias = is_generic_method
+                    ? cname + method_suffix               // also the insert form
+                    : std::string();
+                auto qualify = [&](const std::string& b) {
+                    return fn_pkg.empty() ? b : fn_pkg + "." + b;
+                };
+                std::string inst_name = qualify(bare_primary);
+                std::string alias_name =
+                    bare_alias.empty() ? std::string() : qualify(bare_alias);
+                // Skip only when BOTH names are already emitted. A different
+                // call path may have already emitted the primary (e.g. a direct
+                // `Option<i64> == …` emits the append form) while the insert-
+                // form alias is still demanded by a nested generic body (the
+                // `*a == *b` over `&Option<i64>` inside `Option<Option<i64>>::eq`
+                // resolves to the insert form). Skipping the whole iteration on
+                // the primary alone would drop the alias → "does not reference a
+                // valid function". Fall through and let the per-name guards
+                // below emit whichever is missing.
+                bool need_primary = !done_.count(inst_name);
+                bool need_alias   = !alias_name.empty() && !done_.count(alias_name);
+                if (!need_primary && !need_alias) continue;
                 if (is_self_referential(fn)) continue;
                 SubstMap fn_subst = subst;
                 PackMap fn_packs = packs;
@@ -5066,10 +5107,26 @@ void Mono::instantiate_enum_templates() {
                 }
                 if (!fully_bound) continue;
                 auto nm = clone_fn(fn, fn_subst, fn_packs);
-                nm.name = inst_name;
-                done_.insert(inst_name);
-                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
-                lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
+                // Emit the alias copy (same body, alternate mangled name) so
+                // both the bound-dispatch (append) and direct-call/operator
+                // (cname-insert) forms link — emitting whichever name a caller
+                // demanded but no path has produced yet. (One may already be
+                // done via another call site; see need_primary/need_alias.)
+                if (need_alias) {
+                    auto alias = nm;            // deep copy of the cloned body
+                    alias.name = alias_name;
+                    done_.insert(alias_name);
+                    out_.functions.push_back(
+                        std::make_unique<lir::LFunction>(std::move(alias)));
+                    lir_mirror_emit_function(out_, *out_.mirror_table,
+                                             *out_.functions.back());
+                }
+                if (need_primary) {
+                    nm.name = inst_name;
+                    done_.insert(inst_name);
+                    out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
+                    lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
+                }
             }
             out_.enums.push_back(std::move(inst));
             ++stats_.enum_instances;

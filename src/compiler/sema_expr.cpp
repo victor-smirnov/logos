@@ -1184,6 +1184,39 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto lt = lhs->type;
     auto rt = rhs->type;
 
+    // Borrow an operand by reference for an Eq trait-method desugar WITHOUT
+    // transferring ownership or spilling a Drop-bearing copy:
+    //   • a named variable → addr_of (borrow the place in situ)
+    //   • `*p` (deref)      → `&*p ≡ p` peephole (reference the pointee place)
+    //   • any other rvalue  → addr_of_temp (spill; safe — rvalues aren't aliased)
+    // Spilling an owned operand (String, or a two-level heap enum like
+    // Option<String>) through addr_of_temp creates a temp that drop-insertion
+    // treats as owned; dropping it frees the original's buffer → double-free at
+    // scope exit (and re-running `o1 == o2` makes it fire every time). Place
+    // operands MUST be borrowed in place. Mirrors lower_unary's `&`.
+    auto take_operand_ref = [&](TinyMapView child, lir::LExprPtr lowered,
+                                TypeRef vty) -> lir::LExprPtr {
+        if (code_of(child) == la::VAR_REF) {
+            auto vn = str_of(child.get(la::NAME.code));
+            if (lookup(vn))
+                return builder().addr_of(std::string(vn), make_ref(false, vty));
+        }
+        if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
+            auto inner = lower_expr(map_of(child.get(la::VALUE.code)));
+            auto it = inner->type;
+            if (it && (is_ref_like(TypeRef(it).kind()) ||
+                       TypeRef(it).kind() == LogosType::Kind::Ptr)) {
+                inner->type = make_ref(false, TypeRef(it).pointee());
+                lir_mirror_update_type(*cur_prog_, *inner);
+                return inner;
+            }
+            return builder().addr_of_temp(std::move(inner), false,
+                                          make_ref(false, it));
+        }
+        return builder().addr_of_temp(std::move(lowered), false,
+                                      make_ref(false, vty));
+    };
+
     TypeRef result_type = error_t();
 
     // CP-cm-08b: tuple `==` / `!=` desugars to Eq-trait method call on
@@ -1331,14 +1364,95 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             auto type_name = concrete_struct_name(lt);
             auto mangled = type_name + "__" + method_name;
             auto fit = find_func_by_base_and_signature(mangled, {lt, rt}, false);
+            // Rust-shape operator impls take their operands by reference
+            // (`fn eq(&self, &other)`). The by-value signature above won't
+            // match those, so retry with `&lt`/`&rt` (mirrors the tuple-Eq
+            // lookup). push_operand below then auto-refs to match.
+            if (!fit)
+                fit = find_func_by_base_and_signature(
+                    mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
             if (fit) {
+                // Auto-ref each operand when the matched impl method takes it
+                // by reference (`fn eq(&self, &other)`, the Rust shape). The
+                // signature-match above is ref-tolerant, so without this we'd
+                // pass the struct BY VALUE into a `&`-param slot — moving the
+                // operand (`use of moved value 'a'`) and handing mlir-gen a
+                // value where a pointer is expected. By-value impls (no ref on
+                // the formal) keep the historic by-value pass unchanged.
                 std::vector<lir::LExprPtr> args;
-                args.push_back(std::move(lhs));
-                args.push_back(std::move(rhs));
+                auto push_operand = [&](lir::LExprPtr e, TypeRef vty, size_t idx) {
+                    if (idx < fit->param_types.size()) {
+                        auto formal = fit->param_types[idx];
+                        if (formal && is_ref_like(TypeRef(formal).kind()) &&
+                            !is_ref_like(TypeRef(vty).kind())) {
+                            bool is_mut = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                            args.push_back(builder().addr_of_temp(
+                                std::move(e), is_mut, make_ref(is_mut, vty)));
+                            return;
+                        }
+                    }
+                    args.push_back(std::move(e));
+                };
+                push_operand(std::move(lhs), lt, 0);
+                push_operand(std::move(rhs), rt, 1);
                 return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
             }
             // No impl found — fall through to normal type checking
         }
+    }
+
+    // G150-2: `==` / `!=` on a bounded TypeVar (`fn f<T: Eq>(a:T,b:T){ a==b }`,
+    // and crucially the generic `impl<T: Eq> Eq for Option<T>` body's
+    // `*a == *b` where a,b: &T). A raw LBinOp here would survive substitution
+    // to mlir-gen, which pointer-compares the operands — correct for primitive
+    // T but WRONG for a heap type like Option<i64> (distinct allocations of
+    // equal values compare unequal → nested `Option<Option<i64>>` equality
+    // returns false). Desugar to the `eq`/`ne` Eq-trait method on an auto-ref'd
+    // receiver (the exact shape the working typevar-method path emits, cf.
+    // iter_eq's `(&*xr).eq(&*yr)`); mono dispatches it to the concrete impl
+    // after T is substituted. Only intercept when an `eq`-providing bound is
+    // actually in scope — otherwise fall through to the existing diagnostic.
+    if ((op == "==" || op == "!=") &&
+        TypeRef(lt).kind() == LogosType::Kind::TypeVar) {
+        std::string tv_name(TypeRef(lt).type_var_name());
+        auto bit = current_type_bounds_.find(tv_name);
+        bool provides_eq = false;
+        int  eq_providers = 0;
+        if (bit != current_type_bounds_.end()) {
+            StrSet seen;
+            std::function<void(const std::string&)> walk = [&](const std::string& tn) {
+                if (!seen.insert(tn).second) return;
+                auto it = find_trait_iter_scoped(tn);
+                if (it == traits_.end()) return;
+                for (auto& m : it->second.methods)
+                    if (m.name == "eq") { provides_eq = true; break; }
+                for (auto& s : it->second.supertraits) walk(s.trait_name);
+            };
+            for (auto& b : bit->second) walk(b.trait_name);
+        }
+        if (provides_eq) {
+            for (auto& [tn, ti] : traits_) {
+                (void)tn;
+                for (auto& mm : ti.methods)
+                    if (mm.name == "eq") { eq_providers++; break; }
+                if (eq_providers > 1) break;
+            }
+            std::string m = (op == "==") ? "eq" : "ne";
+            auto lref = take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+            auto rref = take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
+            lir::EMethodCall mc;
+            mc.receiver = std::move(lref);
+            mc.method   = m;
+            mc.type_args = {};
+            std::vector<lir::LExprPtr> margs;
+            margs.push_back(std::move(rref));
+            mc.args = std::move(margs);
+            mc.vtable_index = -1;
+            mc.resolved_type = "";
+            if (eq_providers > 1) mc.tag_trait = "Eq";
+            return builder().method_call_v(std::move(mc), bool_t());
+        }
+        // No eq-providing bound — fall through to the generic operator check.
     }
 
     // G150-2: `==` / `!=` on an enum. A payload-carrying enum needs a
@@ -1352,6 +1466,32 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         TypeRef(lt).kind() == LogosType::Kind::Enum &&
         TypeRef(rt).kind() == LogosType::Kind::Enum &&
         TypeRef(lt).enum_name() == TypeRef(rt).enum_name()) {
+        // A payload-less enum literal operand (`Option::None`) lowers to the
+        // bare enum type (no type-args) when it has no local inference source
+        // (see lower_enum_lit's hint_enum_type_ path). The OTHER operand's
+        // concrete type (`Option<i64>`) is exactly that source — re-lower the
+        // bare operand with it as the enum-type hint so both sides carry the
+        // same concrete heap layout the generic `eq` impl expects. Without
+        // this, addr_of_temp wraps a wrong-shaped (bare-enum) value and the
+        // generated `eq` derefs garbage → SIGSEGV. Re-lowering is safe: only a
+        // context-free enum *literal* is bare (a typed variable never is), and
+        // literals have no side effects to duplicate.
+        auto relower_bare = [&](lir::LExprPtr& side, TypeRef& sty,
+                                TypeRef hint, TinyMapView anode) {
+            if (TypeRef(sty).type_args().empty() &&
+                TypeRef(hint).kind() == LogosType::Kind::Enum &&
+                !TypeRef(hint).type_args().empty()) {
+                TypeRef saved = hint_enum_type_;
+                hint_enum_type_ = hint;
+                side = lower_expr(anode);
+                hint_enum_type_ = saved;
+                sty = side->type;
+            }
+        };
+        if (!TypeRef(lt).type_args().empty())
+            relower_bare(rhs, rt, lt, map_of(node.get(la::RHS.code)));
+        else if (!TypeRef(rt).type_args().empty())
+            relower_bare(lhs, lt, rt, map_of(node.get(la::LHS.code)));
         std::string method_name = (op == "==") ? "eq" : "ne";
         std::string base_name(TypeRef(lt).enum_name());
         std::string bare = base_name + "__" + method_name;
@@ -1365,8 +1505,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         for (auto* c : find_func_candidates(bare))
             if (c && c->param_types.size() == 2) { chosen = c; break; }
         if (chosen) {
-            auto lref = builder().addr_of_temp(std::move(lhs), false, lty);
-            auto rref = builder().addr_of_temp(std::move(rhs), false, rty);
+            (void)lty; (void)rty;
+            auto lref = take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+            auto rref = take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
             std::vector<lir::LExprPtr> args;
             args.push_back(std::move(lref));
             args.push_back(std::move(rref));

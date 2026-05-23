@@ -6,7 +6,34 @@ functions-closures (3), generics (3), traits (3), expr (2), and binop / coercion
 
 ## Gaps
 
-### G150-2 — ✅ silent miscompile CLOSED; full Option/Result `==` deep-deferred
+### G150-2 — ✅ FULLY CLOSED (2026-05-22): Option/Result `==` works end-to-end
+Full `Option/Result ==` now works for ANY Eq payload (primitive, nested
+`Option<Option<T>>`, and owned/Drop like String) via stdlib `impl<T: Eq> Eq for
+Option<T>` + `impl<T: Eq, E: Eq> Eq for Result<T, E>` + `impl Eq for String`.
+Four interlocking fixes:
+1. **mono naming-scheme unify** (mono_clone.cpp instantiate_enum_templates): a
+   generic enum method is demanded under TWO mangled forms — cname-INSERT
+   (`Option__i64__eq`, direct/operator call) and type-arg APPEND
+   (`Option__eq__g__sig__i64`, trait-bound dispatch). Emit BOTH (alias copy),
+   and dedup per-name (need_primary/need_alias) so a direct `Option<i64> ==`
+   pre-emitting the append form doesn't suppress the insert-form alias a nested
+   generic body still demands.
+2. **bare enum-literal operand re-lower** (sema_expr lower_binop enum-eq): a
+   bare `Option::None` RHS gets its type-args pinned from the typed LHS
+   (hint_enum_type_) so both sides share the heap layout `eq` expects (was
+   SIGSEGV).
+3. **typevar `==`/`!=` → eq/ne desugar** (sema_expr lower_binop): `a == b` on a
+   bounded `T: Eq` emits an `eq` EMethodCall (mono-dispatched) instead of a raw
+   LBinOp that mlir-gen pointer-compares — fixes nested enum equality.
+4. **struct-operator `==` auto-ref + ref-signature find** (sema_expr): match an
+   `&self` Eq impl and borrow operands in place (place-aware take_operand_ref:
+   var→addr_of, `*p`→`&*p≡p` peephole) so owned operands aren't moved/copied.
+NOT done (separate feature, `ref` is the working idiom): default binding modes
+for `match &enum { V(plainBinding) }` over a Drop payload — see
+baghunt-match-ref-enum-default-binding-modes. Regression: pass/
+stdlib_option_result_eq + stdlib_string_eq. 4582/4582.
+
+#### (historical) G150-2 — silent miscompile CLOSED; full == was deep-deferred
 `Option<T> == Option<T>` compiled, linked, and silently returned the WRONG answer
 (always false — heap-pointer compare). FIXED the dangerous part: sema's
 `lower_binop` routes enum `==`/`!=` to the enum's `eq` Eq impl when present

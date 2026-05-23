@@ -1,0 +1,26 @@
+package stdlib_string_eq;
+// G150-2 follow-on: `impl Eq for String` (delegates to eq_string) makes
+// `String == String` work, and — through `impl<T: Eq> Eq for Option<T>` —
+// `Option<String> == Option<String>` too. The Option Eq body binds its
+// payload with `ref` (so a &Self match never moves the owned String out of
+// the borrow → no double-free at scope exit when re-compared / dropped).
+use logos.mem.string;
+use logos.lang.option;
+use logos.lang.cmp;
+
+fn main() -> i64 {
+    let a: String = String::from("hi");
+    let b: String = String::from("hi");
+    let c: String = String::from("yo");
+    if !(a == b) { return 1; }
+    if a == c { return 2; }
+    if a == b { } else { return 3; }   // reuse a,b — must not double-free
+
+    let o1: Option<String> = Option::Some(String::from("x"));
+    let o2: Option<String> = Option::Some(String::from("x"));
+    let o3: Option<String> = Option::Some(String::from("z"));
+    if !(o1 == o2) { return 4; }
+    if o1 == o3 { return 5; }
+    if !(o1 == o2) { return 6; }       // reuse o1,o2 — must not double-free
+    return 0;
+}

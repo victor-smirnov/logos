@@ -7,6 +7,8 @@
 package logos.lang.cmp;
 
 use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
 
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool;
@@ -79,5 +81,30 @@ impl<A...: Eq> Eq for (A...) {
     }
     fn ne(self: &Self, other: &Self) -> bool {
         return !tuple_all_eq::<Self>(self, other);
+    }
+}
+
+// NOTE on `ref`: `self`/`other` are `&Self`, so the payload bindings use the
+// explicit `ref a` form — they bind `a: &T` (a borrow), NOT by value. A plain
+// `Some(a)` against a `&Option<T>` would move the payload out of the borrow and
+// drop it at arm exit (double-free for an owned payload like String). Logos has
+// not yet implemented Rust's default binding modes (RFC 2005 match ergonomics),
+// under which `ref` would be implicit here; `ref` is the working idiom until
+// then. See baghunt-match-ref-enum-default-binding-modes.
+impl<T: Eq> Eq for Option<T> {
+    fn eq(self: &Self, other: &Self) -> bool {
+        match self {
+            Option::Some(ref a) => { match other { Option::Some(ref b) => { return *a == *b; } Option::None => { return false; } } }
+            Option::None => { match other { Option::Some(ref b) => { return false; } Option::None => { return true; } } }
+        }
+    }
+}
+
+impl<T: Eq, E: Eq> Eq for Result<T, E> {
+    fn eq(self: &Self, other: &Self) -> bool {
+        match self {
+            Result::Ok(ref a) => { match other { Result::Ok(ref b) => { return *a == *b; } Result::Err(ref b) => { return false; } } }
+            Result::Err(ref a) => { match other { Result::Ok(ref b) => { return false; } Result::Err(ref b) => { return *a == *b; } } }
+        }
     }
 }
