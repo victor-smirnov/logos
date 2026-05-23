@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/2229_closure_analysis/run_pass/disjoint-capture-in-same-closure.rs
+// A single closure mutates several distinct fields of the same struct; each
+// field is captured disjointly and the mutations persist after the call.
+// Modifications: the `s: String` field → an i64 field (String not the point);
+// closure made to actually run + observed via field reads; assert → ret
+// sentinels. (Single-level field mutation in a closure persists; the original
+// is compile-only — we additionally call it and check the writes.)
+package disjoint_capture_in_same_closure_b156;
+
+struct Struct { x: i64, y: i64, z: i64 }
+
+fn main() -> i32 {
+    let mut s: Struct = Struct { x: 10i64, y: 10i64, z: 0i64 };
+    let mut c = || {
+        s.x += 10i64;
+        s.y += 42i64;
+        s.z = 7i64;
+    };
+    c();
+    if s.x != 20i64 { return 1i32; }
+    if s.y != 52i64 { return 2i32; }
+    if s.z != 7i64 { return 3i32; }
+    return 0i32;
+}

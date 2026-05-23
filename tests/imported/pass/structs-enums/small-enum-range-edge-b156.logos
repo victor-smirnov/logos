@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/small-enum-range-edge.rs
+// Range-assertion wraparound when reading discriminants: a u8 enum with
+// variants at 0 and 255, an i8 enum with variants at -128 and 127, cast to the
+// underlying integer and wrapping_add'd across the edge.
+// Modifications: #[repr(u8)]/#[repr(i8)] dropped (Logos enum-to-int cast uses
+// the declared discriminant); the `static CLu: Eu = ...` items dropped (no
+// `static`, G153-3) — only the discriminant-edge arithmetic is kept; assert_eq!
+// → early-return sentinels. (Negative enum discriminant `-128` works directly
+// in a decl, unlike a negated-literal at expression position.)
+package small_enum_range_edge_b156;
+
+enum Eu { Lu = 0, Hu = 255 }
+enum Es { Ls = -128, Hs = 127 }
+
+fn main() -> i32 {
+    if (Eu::Hu as u8).wrapping_add(1u8) != (Eu::Lu as u8) { return 1i32; }
+    if (Es::Hs as i8).wrapping_add(1i8) != (Es::Ls as i8) { return 2i32; }
+    if (Eu::Lu as u8) != 0u8 { return 3i32; }
+    if (Eu::Hu as u8) != 255u8 { return 4i32; }
+    if (Es::Ls as i8) != -128i8 { return 5i32; }
+    if (Es::Hs as i8) != 127i8 { return 6i32; }
+    return 0i32;
+}

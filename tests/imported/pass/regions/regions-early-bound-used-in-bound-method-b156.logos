@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-early-bound-used-in-bound-method.rs
+// A trait GetRef with a method returning a `&i64`; an inherent method `add<G:
+// GetRef>` takes a generic G bounded by the trait and dereferences both the
+// receiver's field and `g2.get()` to sum them.
+// Modifications: named lifetimes dropped; isize → i64; struct renamed Box→Bx
+// (Box reserved); `&self`→`self: &Self`; assert_eq! → early-return sentinel.
+package regions_early_bound_used_in_bound_method_b156;
+
+trait GetRef { fn get(self: &Self) -> &i64; }
+
+struct Bx { t: *const i64 }
+
+impl GetRef for Bx {
+    fn get(self: &Self) -> &i64 { return unsafe { &*self.t }; }
+}
+
+impl Bx {
+    fn add<G: GetRef>(self: &Self, g2: G) -> i64 {
+        return unsafe { *self.t } + *g2.get();
+    }
+}
+
+fn main() -> i32 {
+    let three: i64 = 3i64;
+    let b1: Bx = Bx { t: &three as *const i64 };
+    let b2: Bx = Bx { t: &three as *const i64 };
+    if b1.add::<Bx>(b2) != 6i64 { return 1i32; }
+    return 0i32;
+}

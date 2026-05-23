@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/assignability-trait.rs
+// Type-assignability in method resolution: a trait `Iterable<A>` with a
+// method-generic method taking an `FnMut(&A)->bool` predicate; the trait is
+// impl'd for a wrapper `Coll`, and the method is called with both a checking and
+// a counting closure.
+// Modifications: the `Vec`/`&[A]` impls → a fixed wrapper `Coll` carrying a
+// `[i64;4]`; the generic `length<A,T:Iterable<A>>` indirection DROPPED — calling
+// a method-generic trait method through a generic fn bound triggers a codegen
+// error (G156-12); the closures call `iterate` directly instead; isize/usize →
+// i64; `&self`→`self: &Self`; assert_eq! → ret sentinels.
+package assignability_trait_b156;
+
+struct Coll { data: [i64; 4] }
+
+trait Iterable<A> {
+    fn iterate<F: FnMut(&A) -> bool>(self: &Self, f: F) -> bool;
+}
+
+impl Iterable<i64> for Coll {
+    fn iterate<F: FnMut(&i64) -> bool>(self: &Self, mut f: F) -> bool {
+        let mut i: i64 = 0i64;
+        while i < 4i64 {
+            if !f(&self.data[i as u64]) { return false; }
+            i += 1i64;
+        }
+        return true;
+    }
+}
+
+fn main() -> i32 {
+    let x: Coll = Coll { data: [0i64, 1i64, 2i64, 3i64] };
+    // checking predicate
+    if !x.iterate(|y: &i64| -> bool { return *y >= 0i64; }) { return 1i32; }
+    // early-exit predicate
+    if x.iterate(|y: &i64| -> bool { return *y < 2i64; }) { return 2i32; }
+    // counting closure
+    let mut len: i64 = 0i64;
+    x.iterate(|_y: &i64| -> bool { len += 1i64; return true; });
+    if len != 4i64 { return 3i32; }
+    return 0i32;
+}

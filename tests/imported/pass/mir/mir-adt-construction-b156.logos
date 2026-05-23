@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_adt_construction.rs
+// ADT construction + matching: a C-repr enum matched as part of a 2-tuple
+// scrutinee (test1), and a tuple-like struct constructed + field-read (test3).
+// Modifications: #[repr(C)] dropped; the #[repr(packed)] Pakd struct + its
+// manual Debug/PartialEq/Drop dropped (packed layout + Debug not the point);
+// test4/test5 (tuple-struct / Some constructor used as a fn VALUE — `let y =
+// Some;`) DROPPED — see G154-9 (constructor-as-first-class-value unsupported).
+// assert_eq! → early-return sentinels.
+package mir_adt_construction_b156;
+
+enum CEnum { Hello = 30, World = 60 }
+
+fn test1(c: CEnum) -> i32 {
+    let c2: CEnum = CEnum::Hello;
+    match (c, c2) {
+        (CEnum::Hello, CEnum::Hello) => { return 42i32; }
+        (CEnum::World, CEnum::Hello) => { return 0i32; }
+        _ => { return 1i32; }
+    }
+}
+
+struct TupleLike { a: u64, b: u32 }
+fn test3() -> TupleLike { return TupleLike { a: 42u64, b: 42u32 }; }
+
+fn main() -> i32 {
+    if test1(CEnum::Hello) != 42i32 { return 1i32; }
+    if test1(CEnum::World) != 0i32 { return 2i32; }
+    let t: TupleLike = test3();
+    if t.a != 42u64 { return 3i32; }
+    if t.b != 42u32 { return 4i32; }
+    return 0i32;
+}

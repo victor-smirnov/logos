@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/init-res-into-things.rs
+// A Drop-having value moved INTO a struct field is dropped exactly once when
+// the container goes out of scope (test_rec). The enum-payload (test_tag) and
+// tuple-element (test_tup) cases are DROPPED — see G156-2: Logos does NOT fire
+// a payload/element Drop when the enum/tuple container is dropped (silent
+// missed-drop). Box cases also dropped (no auto-boxing).
+// Modifications: Cell<isize> counter → a *mut i64 counter incremented in drop;
+// distilled local Drop trait per the established convention; struct hoisted to
+// top level; assert → ret sentinel.
+package init_res_into_things_b156;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct R { i: *mut i64 }
+impl Drop for R {
+    fn drop(self: &mut Self) { unsafe { *self.i = *self.i + 1i64; } }
+}
+fn mk_r(i: *mut i64) -> R { return R { i: i }; }
+
+struct BoxR { x: R }
+
+fn test_rec(i: *mut i64) -> bool {
+    { let _a: BoxR = BoxR { x: mk_r(i) }; }
+    return unsafe { *i } == 1i64;
+}
+
+fn main() -> i32 {
+    let mut c1: i64 = 0i64;
+    if !test_rec(&mut c1 as *mut i64) { return 1i32; }
+    return 0i32;
+}

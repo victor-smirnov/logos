@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-issue-21212.rs
+// A blanket `impl<P> Parser for P` declaring an associated type `Input` and a
+// default method; calling the default method on a concrete type goes through
+// the blanket impl. (Regression: normalizing Self::Input must not loop.)
+// Modifications: by-value `parse(input: Self::Input)` body `panic!()` → a
+// default method returning a sentinel value (Logos has no panic! macro and the
+// test only needs the blanket+assoc-type to type-check + dispatch); assert via
+// early-return sentinel.
+package associated_types_issue_21212_b156;
+
+trait Parser {
+    type Input;
+    fn parse(self: &Self) -> i64 { return 1i64; }
+}
+
+impl<P> Parser for P { type Input = i64; }
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    if x.parse() != 1i64 { return 1i32; }
+    return 0i32;
+}

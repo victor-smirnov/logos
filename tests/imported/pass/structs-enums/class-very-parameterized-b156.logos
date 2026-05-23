@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-impl-very-parameterized-trait.rs
+// A heavily-method'd generic struct `Cat<T>` (multiple inherent impl blocks):
+// find returns `Option<&T>`, get unwraps it, contains_key/insert/len mutate the
+// meows counter. Exercises a generic struct with several impl blocks + an
+// `Option<&T>`-returning method + a static `new` ctor.
+// Modifications: the `Vec`/`String`/`cat_type`+PartialEq map-emulation dropped;
+// instantiated at T = i64; `&self`/`&mut self`→`self: &Self`/`self: &mut Self`;
+// println!/panic! dropped; Option matched directly (no .unwrap()/== on Option);
+// assert → early-return sentinels.
+package class_very_parameterized_b156;
+
+struct Cat<T> { meows: i64, how_hungry: i64, name: T }
+
+impl<T> Cat<T> {
+    fn len(self: &Self) -> i64 { return self.meows; }
+    fn contains_key(self: &Self, k: &i64) -> bool { return *k <= self.meows; }
+    fn insert(self: &mut Self, k: i64) -> bool { self.meows += k; return true; }
+    fn find(self: &Self, k: &i64) -> Option<&T> {
+        if *k <= self.meows { return Option::Some(&self.name); }
+        return Option::None;
+    }
+}
+
+impl<T> Cat<T> {
+    fn new(in_x: i64, in_y: i64, in_name: T) -> Cat<T> {
+        return Cat { meows: in_x, how_hungry: in_y, name: in_name };
+    }
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat<i64> = Cat::<i64>::new(2i64, 57i64, 99i64);
+    if !nyan.contains_key(&2i64) { return 1i32; }
+    if nyan.len() != 2i64 { return 2i32; }
+    nyan.insert(6i64);
+    if nyan.len() != 8i64 { return 3i32; }
+    match nyan.find(&1i64) {
+        Option::Some(v) => { if *v != 99i64 { return 4i32; } }
+        Option::None => { return 5i32; }
+    }
+    match nyan.find(&100i64) {
+        Option::Some(_) => { return 6i32; }
+        Option::None => {}
+    }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/inference-method-chain-diverging-fallback.rs
+// Type inference across a method chain: `and_then` followed by a fallback
+// `unwrap_or_else`; the closure error type must unify across the chain while the
+// success type is i64.
+// Modifications: generic `produce<T>()` pinned to `Result<i64,i64>`; the
+// diverging `unwrap_or_else(|_| panic!())` replaced by `unwrap_or_else` with a
+// non-diverging fallback (panic! is not a callable macro in Logos, G152-13, and
+// the chain takes the Ok path anyway); closures given explicit types; assert →
+// early-return sentinel.
+package inference_method_chain_diverging_fallback_b156;
+
+use logos.lang.result;
+
+fn produce() -> Result<i64, i64> { return Result::Ok(22i64); }
+
+fn main() -> i32 {
+    let x: i64 = produce()
+        .and_then(|v: i64| -> Result<i64, i64> { return Result::Ok(v); })
+        .unwrap_or_else(|_e: i64| -> i64 { return -1i64; });
+    if x != 22i64 { return 1i32; }
+    return 0i32;
+}

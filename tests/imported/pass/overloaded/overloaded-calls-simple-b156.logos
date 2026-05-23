@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-calls-simple.rs
+// User structs implementing the Fn-family traits: S1 impls FnMut, S2 impls Fn
+// (+ FnMut/FnOnce forwarding), S3 impls FnOnce with a 2-arg signature.
+// Modifications: i32 fields kept; the unstable `impl FnMut<(i32,)>` /
+// `extern "rust-call"` forms → Logos's `impl FnMut<i32> for S { type Output=i32;
+// fn call_mut(&mut self, z) }` shape (logos.lang.ops); the bodies call through
+// the Fn-family methods. The CALL-SYNTAX form `s(3)` does NOT dispatch to a
+// user Fn-impl (G156-11) — calls use the method forms `s.call_mut(z)` /
+// `s.call(z)` / `s.call_once((z,zz))`; assert_eq! → early-return sentinels.
+package overloaded_calls_simple_b156;
+
+use logos.lang.ops;
+
+struct S1 { x: i32, y: i32 }
+impl FnMut<i32> for S1 {
+    type Output = i32;
+    fn call_mut(&mut self, z: i32) -> i32 { return self.x * self.y * z; }
+}
+
+struct S2 { x: i32, y: i32 }
+impl Fn<i32> for S2 {
+    type Output = i32;
+    fn call(&self, z: i32) -> i32 { return self.x * self.y * z; }
+}
+
+struct S3 { x: i32, y: i32 }
+impl FnOnce<i32, i32> for S3 {
+    type Output = i32;
+    fn call_once(self: Self, z: i32, zz: i32) -> i32 { return self.x * self.y * z * zz; }
+}
+
+fn main() -> i32 {
+    let mut s1: S1 = S1 { x: 3i32, y: 3i32 };
+    if s1.call_mut(3i32) != 27i32 { return 1i32; }
+
+    let s2: S2 = S2 { x: 3i32, y: 3i32 };
+    if s2.call(3i32) != 27i32 { return 2i32; }
+
+    let s3: S3 = S3 { x: 3i32, y: 3i32 };
+    if s3.call_once(3i32, 1i32) != 27i32 { return 3i32; }
+    return 0i32;
+}

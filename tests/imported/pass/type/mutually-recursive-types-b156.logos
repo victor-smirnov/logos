@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type/mutually-recursive-types.rs
+// Mutually recursive enum definitions: Tree references List, List references
+// Tree, and a self-recursive SmallList. The compiler must resolve the cyclic
+// type-dependency graph.
+// Modifications: `Box<T>` indirection → `*const T` raw-pointer indirection (no
+// auto-Box in Logos); the recursive variant payloads are constructed via real
+// addresses of stack values under `unsafe`; #[derive] dropped; assert via match.
+package mutually_recursive_types_b156;
+
+enum Colour { Red, Green, Blue }
+
+enum Tree { Children(*const List), Leaf(Colour) }
+
+enum List { Cons(*const Tree, *const List), Nil }
+
+enum SmallList { Kons(i64, *const SmallList), Neel }
+
+fn main() -> i32 {
+    let _l1: Tree = Tree::Leaf(Colour::Red);
+    let _l2: Tree = Tree::Leaf(Colour::Green);
+    let _l3: Tree = Tree::Leaf(Colour::Blue);
+
+    let nil: List = List::Nil;
+    let tree: Tree = Tree::Leaf(Colour::Blue);
+    let children: Tree = Tree::Children(&nil as *const List);
+    let cons: List = List::Cons(&tree as *const Tree, &nil as *const List);
+
+    let snil: SmallList = SmallList::Neel;
+    let skons: SmallList = SmallList::Kons(42i64, &snil as *const SmallList);
+
+    // Verify variants discriminate correctly.
+    match children { Tree::Children(_) => {}, _ => { return 1i32; } }
+    match cons { List::Cons(_, _) => {}, _ => { return 2i32; } }
+    match skons { SmallList::Kons(n, _) => { if n != 42i64 { return 3i32; } }, _ => { return 4i32; } }
+    return 0i32;
+}

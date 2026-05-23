@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/lambda-infer-unresolved.rs
+// A closure capturing a struct field by reference is created before the struct
+// is otherwise used; tests that the closure body type-checks even though the
+// struct's type is still being resolved at the point the closure is formed.
+// Modifications: isize → i64; the `Vec<isize>` field is replaced by a fixed
+// `[i64; 0]`-style scalar count `len` field — capturing a Vec-owning struct in a
+// closure double-frees at runtime (G156-7), so the drop-bearing field is dropped
+// to preserve the inference essence; println! closure body → a read of `n`
+// returned from the closure; assert_eq! → early-return sentinel.
+package lambda_infer_unresolved_b156;
+
+struct Refs { len: i64, n: i64 }
+
+fn main() -> i32 {
+    let e: Refs = Refs { len: 0i64, n: 0i64 };
+    let f = || -> i64 { return e.n; };
+    if e.len != 0i64 { return 1i32; }
+    if f() != 0i64 { return 2i32; }
+    return 0i32;
+}

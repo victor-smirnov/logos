@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/2229_closure_analysis/run_pass/capture-disjoint-field-tuple.rs
+// RFC 2229 disjoint capture over a TUPLE: a closure immutably borrows `t.0`
+// while a mutable borrow of `t.1` is held outside; both coexist.
+// Modifications: i64 elements; println! closure body → returning t.0; assert →
+// early-return sentinels.
+package capture_disjoint_field_tuple_b156;
+
+fn main() -> i32 {
+    let mut t: (i64, i64) = (10i64, 10i64);
+
+    let c = || -> i64 { return t.0; };
+
+    // `c` only captures t.0, so mutating t.1 is allowed.
+    let t1: &mut i64 = &mut t.1;
+
+    let read0: i64 = c();
+    *t1 = 20i64;
+
+    if read0 != 10i64 { return 1i32; }
+    if t.1 != 20i64 { return 2i32; }
+    return 0i32;
+}

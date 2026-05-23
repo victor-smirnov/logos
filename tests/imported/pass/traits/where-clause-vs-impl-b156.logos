@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/where-clause-vs-impl.rs
+// A conditional blanket `impl<M, F: Bar<M>> Foo<M> for F` coexisting with a
+// where-clause-bounded usage; trait resolution must not get confused between
+// the blanket impl and the where clause (issue #18453). Calling `foo` on a type
+// that impls `Bar<i64>` dispatches through the blanket impl.
+// Modifications: Rc/Clone machinery dropped (incidental); the blanket impl's
+// self type written as the explicit `self: &mut F` (bare `Self` in an impl-on-
+// type-var rejects — G156-13); `&mut self`→`self: &mut F`; assert via sentinel.
+package where_clause_vs_impl_b156;
+
+trait Foo<M> { fn foo(self: &mut Self, msg: M) -> i64; }
+trait Bar<M> { fn dummy(self: &Self) -> M; }
+
+impl<M, F: Bar<M>> Foo<M> for F {
+    fn foo(self: &mut F, msg: M) -> i64 { return 1i64; }
+}
+
+struct Thing {}
+impl Bar<i64> for Thing { fn dummy(self: &Self) -> i64 { return 0i64; } }
+
+fn main() -> i32 {
+    let mut t: Thing = Thing {};
+    if t.foo(5i64) != 1i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-calls-zero-args.rs
+// A user struct implementing the Fn-family with a ZERO-argument signature.
+// Modifications: the unstable `impl FnMut<()>` / `extern "rust-call"` →
+// `impl FnMut for S { type Output=i32; fn call_mut(&mut self) }` (logos.lang.ops;
+// the empty type-arg list `FnMut<>` does not parse — write bare `FnMut`); the
+// call-syntax `s()` does NOT dispatch to a user Fn-impl (G156-11) — use the
+// `s.call_mut()` method form; assert_eq! → early-return sentinel.
+package overloaded_calls_zero_args_b156;
+
+use logos.lang.ops;
+
+struct S { x: i32, y: i32 }
+
+impl FnMut for S {
+    type Output = i32;
+    fn call_mut(&mut self) -> i32 { return self.x * self.y; }
+}
+
+fn main() -> i32 {
+    let mut s: S = S { x: 3i32, y: 3i32 };
+    if s.call_mut() != 9i32 { return 1i32; }
+    return 0i32;
+}

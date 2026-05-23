@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/2229_closure_analysis/run_pass/capture-disjoint-field-struct.rs
+// RFC 2229 disjoint closure capture: a closure immutably borrows `p.x`, while a
+// mutable borrow of the sibling field `p.y` is held outside the closure; both
+// coexist and the outside mutation is observed afterwards.
+// Modifications: i32 fields kept; println! closure body → returning p.x;
+// assert via early-return sentinels. (Single-level field capture works;
+// multi-level `w.p.x` mutation in a closure is LOST — see G156-10.)
+package capture_disjoint_field_struct_b156;
+
+struct Point { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let mut p: Point = Point { x: 10i32, y: 10i32 };
+
+    let c = || -> i32 { return p.x; };
+
+    // `c` only captures `p.x`, so mutating `p.y` is allowed alongside it.
+    let py: &mut i32 = &mut p.y;
+
+    let read_x: i32 = c();
+    *py = 20i32;
+
+    if read_x != 10i32 { return 1i32; }
+    if p.y != 20i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/object-method-numbering.rs
+// A generic fn bounded by an associated-type EQUALITY constraint
+// (`T: SomeTrait<SomeType=i32>`) calls the trait method through the bound; the
+// impl is for i32 with `type SomeType = i32`.
+// Modifications: the `&dyn SomeTrait<SomeType=i32>` object is replaced by a
+// direct generic call `get_int::<i32>(&x)` (no dyn objects); `&self`→`self:
+// &Self`; assert_eq! → early-return sentinel.
+package object_method_numbering_b156;
+
+trait SomeTrait {
+    type SomeType;
+    fn get(self: &Self) -> Self::SomeType;
+}
+
+fn get_int<T: SomeTrait<SomeType=i32>>(x: &T) -> i32 { return x.get(); }
+
+impl SomeTrait for i32 {
+    type SomeType = i32;
+    fn get(self: &Self) -> i32 { return *self; }
+}
+
+fn main() -> i32 {
+    let x: i32 = 22i32;
+    if get_int::<i32>(&x) != 22i32 { return 1i32; }
+    return 0i32;
+}

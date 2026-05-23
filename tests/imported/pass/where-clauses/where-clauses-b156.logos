@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses.rs
+// A blanket `impl<T: Eq> Equal for T` with a method-level where-clause
+// (`equals<U,X>(..) where U: Eq, X: Eq`); plus a free fn `equal<T> where T: Eq`.
+// Modifications: the generic blanket is instantiated only at i64 (Logos's Eq is
+// available on i64); `Self`-typed `other: &Self` kept; String `equal` case
+// dropped (the i64 case carries the where-clause essence); println! → asserts;
+// `==` used directly (i64: Eq). assert → early-return sentinels.
+package where_clauses_b156;
+
+use logos.lang.cmp;
+
+trait Equal {
+    fn equal(self: &Self, other: &Self) -> bool;
+    fn equals2<U: Eq, X: Eq>(self: &Self, this: &U, that: &U, x: &X, y: &X) -> bool;
+}
+
+impl Equal for i64 {
+    fn equal(self: &Self, other: &i64) -> bool { return *self == *other; }
+    fn equals2<U: Eq, X: Eq>(self: &Self, this: &U, that: &U, x: &X, y: &X) -> bool {
+        return *this == *that && *x == *y;
+    }
+}
+
+fn equal_fn<T: Eq>(x: &T, y: &T) -> bool { return *x == *y; }
+
+fn main() -> i32 {
+    if equal_fn::<i64>(&1i64, &2i64) { return 1i32; }
+    if !equal_fn::<i64>(&1i64, &1i64) { return 2i32; }
+    let a: i64 = 5i64;
+    if !a.equal(&5i64) { return 3i32; }
+    if a.equal(&6i64) { return 4i32; }
+    if !a.equals2::<i64, i64>(&1i64, &1i64, &7i64, &7i64) { return 5i32; }
+    if a.equals2::<i64, i64>(&1i64, &2i64, &7i64, &7i64) { return 6i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/impl-trait-chain-14229.rs
+// A blanket `impl<T: Foo> Bar for T {}` makes Bar's default method callable on
+// any Foo; Foo is impl'd for `&S`, so both `(&s).bar()` (via &S: Foo) and the
+// auto-ref forms resolve. Tests default-method-on-blanket dispatch.
+// Modifications: by-value `self`→`self: Self`; named lifetimes dropped;
+// observable side effects via a *mut i64 counter (Rust's bodies are empty);
+// assert → early-return sentinel.
+package impl_trait_chain_14229_b156;
+
+trait Foo { fn foo(self: Self) -> i64 { return 1i64; } }
+trait Bar { fn bar(self: Self) -> i64 { return 2i64; } }
+
+struct S {}
+
+impl Foo for S {}
+impl<T: Foo> Bar for T {}
+
+fn main() -> i32 {
+    let s1: S = S {};
+    if s1.foo() != 1i64 { return 1i32; }
+    let s2: S = S {};
+    if s2.bar() != 2i64 { return 2i32; }
+    return 0i32;
+}

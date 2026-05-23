@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-poly-methods.rs
+// A generic struct `Cat<U>` carrying a METHOD-GENERIC method `speak<T>` (the
+// method introduces its own type param T, distinct from the struct's U).
+// Modifications: usize/isize → u64/i64; the `Vec<U>`/`Vec<T>` payloads dropped
+// (the test's point is the method-level type param, not Vec): `speak<T>` takes a
+// `T`-typed value + an explicit increment count; `&mut self`→`self: &mut Self`;
+// constructed via a free factory fn at U = i64. assert → ret sentinels.
+package class_poly_methods_b156;
+
+struct Cat<U> { meows: u64, how_hungry: i64, seed: U }
+
+impl<U> Cat<U> {
+    fn speak<T>(self: &mut Self, _stuff: T, n: u64) { self.meows += n; }
+    fn meow_count(self: &mut Self) -> u64 { return self.meows; }
+}
+
+fn make_cat<U>(in_x: u64, in_y: i64, s: U) -> Cat<U> {
+    return Cat { meows: in_x, how_hungry: in_y, seed: s };
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat<i64> = make_cat::<i64>(52u64, 99i64, 0i64);
+    if nyan.how_hungry != 99i64 { return 1i32; }
+    // method-generic call with T = i64 (the value passed) and a count of 3
+    nyan.speak::<i64>(7i64, 3u64);
+    if nyan.meow_count() != 55u64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,58 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/inheritance/self-in-supertype.rs
+// Use of `Self` in a supertrait bound: `trait Float: FuzzyEq<Self>`. A generic
+// `compare<F: Float>` obtains `Float::two_pi()` (a STATIC supertrait method
+// returning Self) and calls the supertrait method `fuzzy_eq` on it; `fuzzy_eq`
+// in turn calls `fuzzy_eq_eps`. Implemented for f32 and f64.
+// Modifications: `static FUZZY_EPSILON` → an inline 0.1 literal; `.abs()` (not
+// on the f32/f64 surface) → a manual `if d<0 {-d} else {d}`; `&self`→`self:
+// &Self`; assert! → early-return sentinels. One generic `compare<F:Float>` is
+// instantiated at both f32 and f64.
+package self_in_supertype_b156;
+
+trait FuzzyEq<Eps> {
+    fn fuzzy_eq(self: &Self, other: &Self) -> bool;
+    fn fuzzy_eq_eps(self: &Self, other: &Self, epsilon: &Eps) -> bool;
+}
+
+trait Float: FuzzyEq<Self> {
+    fn two_pi() -> Self;
+}
+
+impl FuzzyEq<f32> for f32 {
+    fn fuzzy_eq(self: &Self, other: &f32) -> bool { return self.fuzzy_eq_eps(other, &0.1f32); }
+    fn fuzzy_eq_eps(self: &Self, other: &f32, epsilon: &f32) -> bool {
+        let d: f32 = *self - *other;
+        let ad: f32 = if d < 0.0f32 { -d } else { d };
+        return ad < *epsilon;
+    }
+}
+impl Float for f32 { fn two_pi() -> f32 { return 6.283185307f32; } }
+
+impl FuzzyEq<f64> for f64 {
+    fn fuzzy_eq(self: &Self, other: &f64) -> bool { return self.fuzzy_eq_eps(other, &0.1f64); }
+    fn fuzzy_eq_eps(self: &Self, other: &f64, epsilon: &f64) -> bool {
+        let d: f64 = *self - *other;
+        let ad: f64 = if d < 0.0f64 { -d } else { d };
+        return ad < *epsilon;
+    }
+}
+impl Float for f64 { fn two_pi() -> f64 { return 6.283185307f64; } }
+
+fn compare<F: Float>(f1: F) -> bool {
+    let f2: F = Float::two_pi();
+    return f1.fuzzy_eq(&f2);
+}
+
+fn main() -> i32 {
+    if !compare::<f32>(6.29f32) { return 1i32; }
+    if !compare::<f32>(6.19f32) { return 2i32; }
+    if compare::<f32>(7.28f32) { return 3i32; }
+    if compare::<f32>(6.18f32) { return 4i32; }
+
+    if !compare::<f64>(6.29f64) { return 5i32; }
+    if !compare::<f64>(6.19f64) { return 6i32; }
+    if compare::<f64>(7.28f64) { return 7i32; }
+    if compare::<f64>(6.18f64) { return 8i32; }
+    return 0i32;
+}

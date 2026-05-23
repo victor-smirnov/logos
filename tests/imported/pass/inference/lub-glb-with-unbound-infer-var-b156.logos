@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/lub-glb-with-unbound-infer-var.rs
+// Computing the LUB of two fn types whose parameter types are inferred: two
+// closures coerced to `fn(i64)`, unified across the arms of a match, then the
+// result called. (Originally `fn(_)` with an inferred param; pinned to i64.)
+// Modifications: `fn(_)`→`fn(i64)`; closure bodies `|_| ()`→`|x: i64| {}`.
+package lub_glb_with_unbound_infer_var_b156;
+
+fn main() -> i32 {
+    let a_f: fn(i64) = |x: i64| { };
+    let b_f: fn(i64) = |x: i64| { };
+    let c_f: fn(i64) = match 22i64 {
+        0i64 => a_f,
+        _ => b_f,
+    };
+    c_f(4i64);
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/rcvr-borrowed-to-region.rs
+// A trait impl ON A REFERENCE TYPE (`impl get for &i64`): calling `.get()` on a
+// `&i64` borrows the receiver to the reference impl and derefs it.
+// Modifications: isize → i64; named lifetime dropped; `self: Self` written as
+// the explicit `self: &i64` (Logos rejects bare `Self` for a `&T` impl target —
+// see G156-8); the `Box`/`6.into()` case dropped (no auto-Box); assert_eq! →
+// early-return sentinel.
+package rcvr_borrowed_to_region_b156;
+
+trait Get { fn get(self: &i64) -> i64; }
+
+impl Get for &i64 {
+    fn get(self: &i64) -> i64 { return *self; }
+}
+
+fn main() -> i32 {
+    let x: i64 = 6i64;
+    let y: i64 = (&x).get();
+    if y != 6i64 { return 1i32; }
+    return 0i32;
+}

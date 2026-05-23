@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-default-type-params.rs
+// A generic struct `Foo<A>` with multiple impl blocks specialized on distinct
+// concrete type-args (`Foo<i64>`, `Foo<bool>`) PLUS a fully generic
+// `impl<A> Foo<A>` providing a common method. Dispatch picks the right impl by
+// the struct's type-arg.
+// Modifications: default type params `Foo<A = (isize,char)>` dropped (no default
+// type params); Clone bound + `.clone()` → a plain by-value field read; tuple
+// `(isize,char)` payload dropped; concrete-type-arg impl `Self` written as the
+// explicit `self: &Foo<i64>` (G156-9: a no-impl-param concrete-type-arg impl
+// rejects bare `Self`); assert_eq! → early-return sentinels.
+package generic_multi_impl_on_type_arg_b156;
+
+struct Foo<A> { a: A }
+
+impl Foo<i64>  { fn bar_int(self: &Foo<i64>) -> i64 { return self.a; } }
+impl Foo<bool> { fn bar_bool(self: &Foo<bool>) -> bool { return self.a; } }
+
+impl<A> Foo<A> {
+    fn get(self: &Self) -> A { return self.a; }
+}
+
+fn main() -> i32 {
+    let fi: Foo<i64> = Foo { a: 5i64 };
+    if fi.bar_int() != 5i64 { return 1i32; }
+    if fi.get() != 5i64 { return 2i32; }
+    let fb: Foo<bool> = Foo { a: true };
+    if fb.bar_bool() != true { return 3i32; }
+    if fb.get() != true { return 4i32; }
+    return 0i32;
+}
