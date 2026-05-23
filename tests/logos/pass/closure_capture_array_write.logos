@@ -1,0 +1,21 @@
+package closure_capture_array_write;
+// G152-5 (silent miscompile): a closure capturing a fixed-size array and only
+// WRITING an element (`a[i] = v`, with no read of `a`) silently dropped the
+// write — the capture scanner only walked reads, so a write-only target was
+// never captured (empty env, empty closure body). Fixed: a write target is
+// also recorded as a (mutable) capture.
+fn main() -> i64 {
+    let mut a: [i64; 3] = [0i64, 0i64, 0i64];
+    let mut set0 = |v: i64| { a[0u64] = v; };
+    set0(5i64);
+    if a[0u64] != 5i64 { return 1; }
+
+    // write + read mix in one closure
+    let mut bump = |i: u64, v: i64| { a[i] = v; };
+    bump(1u64, 7i64);
+    bump(2u64, 9i64);
+    if a[1u64] != 7i64 { return 2; }
+    if a[2u64] != 9i64 { return 3; }
+    if a[0u64] != 5i64 { return 4; }   // earlier write still present
+    return 0;
+}

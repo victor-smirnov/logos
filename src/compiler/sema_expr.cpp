@@ -10934,11 +10934,21 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto mark_mut_capture = [&](std::string_view target_name) {
         if (target_name.empty() || param_names.count(std::string(target_name)))
             return;
-        // Only mark if it would (or already does) appear as a capture —
-        // i.e. it resolves in an enclosing scope.
-        if (!lookup(std::string(target_name)))
+        // Only mark if it resolves in an enclosing scope.
+        auto t = lookup(std::string(target_name));
+        if (!t)
             return;
-        mut_captures_set.insert(std::string(target_name));
+        std::string nm(target_name);
+        mut_captures_set.insert(nm);
+        // A WRITE-only target (`a[i] = v` / `h.f = v` with no prior read of the
+        // base) must ALSO be captured — the scanner's read-walk never sees it,
+        // so without this it's absent from the env and the write is silently
+        // dropped (empty closure body — G152-5). Mirror add_capture's record.
+        if (!seen.count(nm)) {
+            captures.push_back(nm);
+            capture_types.push_back(t);
+            seen.insert(nm);
+        }
     };
     auto add_capture = [&](const std::string& name) {
         if (param_names.count(name) || seen.count(name))
