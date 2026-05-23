@@ -730,9 +730,12 @@
                  // empty struct-item `struct S {}`). Zero payload, struct-shape.
                  / IDENT LBRACE RBRACE
                 => { CODE: VARIANT_DEF, NAME: $1, IS_STRUCT_SHAPE: 1 }
-                 / IDENT ASSIGN MINUS INTEGER
+                 // G159-3: a bare (`-`)literal discriminant only matches when
+                 // it's the COMPLETE value — a trailing binary operator
+                 // (`1 << 1`) falls through to the general const-expr alt below.
+                 / IDENT ASSIGN MINUS INTEGER !(SHL / SHR / PIPE / AMP / CARET / PLUS / MINUS / STAR / SLASH / PERCENT)
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $4, LO_NEG: true }
-                 / IDENT ASSIGN INTEGER
+                 / IDENT ASSIGN INTEGER !(SHL / SHR / PIPE / AMP / CARET / PLUS / MINUS / STAR / SLASH / PERCENT)
                 => { CODE: VARIANT_DEF, NAME: $1, VALUE: $3 }
                  / IDENT ASSIGN KW_METACALL block
                 => { CODE: VARIANT_DEF, NAME: $1, BODY: $4 }
@@ -745,6 +748,13 @@
                  / IDENT ASSIGN enum_xref KW_AS type_ref
                 => { CODE: VARIANT_DEF, NAME: $1, BODY: $3 }
                  / IDENT ASSIGN enum_xref
+                => { CODE: VARIANT_DEF, NAME: $1, BODY: $3 }
+                 // G159-3: a general const expression discriminant
+                 // (`Purple = 1 << 1`). Stored under BODY (an expr node — NOT a
+                 // metacall BLOCK nor an enum_xref NAME+FIELD map); sema
+                 // evaluates it via the existing CTFE channel (ctfe::eval_expr),
+                 // the same one metacall discriminants use.
+                 / IDENT ASSIGN expr
                 => { CODE: VARIANT_DEF, NAME: $1, BODY: $3 }
                  / IDENT
                 => { CODE: VARIANT_DEF, NAME: $1 }

@@ -1456,6 +1456,22 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             next_val = vval + 1;
                             continue;
                         }
+                        // G159-3: a general const-expression discriminant
+                        // (`Purple = 1 << 1`) — BODY is a bare expr node, NOT a
+                        // metacall BLOCK. Evaluate it directly via the same CTFE
+                        // channel metacall discriminants use.
+                        if (code_of(blk) != la::BLOCK) {
+                            auto r = ctfe::eval_expr(blk, holder_);
+                            if (!r)
+                                error(std::format("enum discriminant expression: {}", r.error().msg));
+                            else
+                                vval = r.value().i;
+                            info.variants.push_back({vname, vval, {}, {}, false, false,
+                                                     std::move(variant_sweep_doc)});
+                            variant_sweep_doc.clear();
+                            next_val = vval + 1;
+                            continue;
+                        }
                         // MP-mc-01: `Variant = metacall { <expr> }`. Block
                         // tail expression evaluated via ctfe; integer
                         // result becomes the discriminant.

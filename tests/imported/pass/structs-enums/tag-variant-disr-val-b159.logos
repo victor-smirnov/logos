@@ -1,9 +1,9 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/structs-enums/tag-variant-disr-val.rs
-// Modifications: isize->i64; String results replaced with i64 sentinels; the
-//   expression-valued discriminants `1 << 1` / `8 >> 1` rewritten as their
-//   literal results `2` / `4` (gap G159-3: expression discriminants don't
-//   parse); the `PartialEq` impl rewritten as a local `ColorEq` trait comparing
+// Modifications: isize->i64; String results replaced with i64 sentinels;
+//   expression-valued discriminants `1 << 1` / `8 >> 1` kept as-is (G159-3,
+//   closed 2026-05-23 — const-expr discriminants now parse + CTFE-evaluate);
+//   the `PartialEq` impl rewritten as a local `ColorEq` trait comparing
 //   via `as i64`; `&self`->`self: &Self`; matched + if-chained on the variants.
 // Tests a C-like enum with explicit (incl. hex + negative) discriminant values,
 //   cast to i64, compared via a user equality trait, and dispatched in match +
@@ -17,8 +17,8 @@ enum Color {
     Black = 0x000000,
     White = 0xFFFFFF,
     Imaginary = -1,
-    Purple = 2,
-    Orange = 4,
+    Purple = 1 << 1,
+    Orange = 8 >> 1,
 }
 
 trait ColorEq { fn ceq(self: &Self, other: &Color) -> bool; }

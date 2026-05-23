@@ -100,21 +100,17 @@ type-qualified instance method `Type::method(&recv)`, a static method
   struct + primitive + multi-arg forms. Restored the trait-qualified instance
   call to `ufcs-polymorphic-paths-b159`.
 
-- **G159-3** ◻ OPEN (TRACTABLE) — EXPRESSION-valued enum discriminants are a
-  parse error: `enum Color { Purple = 1 << 1, Orange = 8 >> 1 }` →
-  `syntax error near 'enum'`. Literal discriminants (incl. hex `0xff0000`,
-  negative `-1`) parse fine. So the grammar's discriminant production accepts a
-  (signed) integer literal but not a general const expression. Minimal repro:
-  ```
-  enum Color { Purple = 1 << 1 }
-  fn main() -> i32 { return 0i32; }
-  ```
-  Original test `structs-enums/tag-variant-disr-val.rs`; the `1 << 1` / `8 >> 1`
-  discriminants were rewritten to their literal results (`2` / `4`) in
-  `tag-variant-disr-val-b159`. Assessment: TRACTABLE — extend the enum-variant
-  discriminant grammar rule to a const-expression (or at least the shift/bit/
-  arith binops on integer literals); evaluation routes through the existing
-  comptime/metacall channel.
+- **G159-3** ✅ CLOSED (2026-05-23) — EXPRESSION-valued enum discriminants now
+  parse + evaluate: `enum Color { Purple = 1 << 1, Orange = 8 >> 1 }`. Grammar:
+  the bare-literal discriminant alts (`= INTEGER` / `= -INTEGER`) gained a
+  negative lookahead `!(SHL/SHR/PIPE/AMP/CARET/PLUS/MINUS/STAR/SLASH/PERCENT)`
+  so a literal followed by a binary operator falls through to a new `IDENT
+  ASSIGN expr` alt (BODY = expr node). Sema (sema_collect discriminant lowering)
+  evaluates that BODY via the EXISTING CTFE channel `ctfe::eval_expr` — the same
+  one metacall discriminants use, so no separate const-eval engine (consistent
+  with the no-const-eval policy). Verified `<<`/`>>`/`|`/`&`/`-`/hex const-exprs
+  compute correctly. Restored the `1 << 1` / `8 >> 1` discriminants in
+  `tag-variant-disr-val-b159`.
 
 ## Other observations (NOT counted as new gaps)
 
