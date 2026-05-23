@@ -3083,6 +3083,81 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             tmpl_key = pkg.empty() ? inst_bare : pkg + "." + inst_bare;
                         }
                     }
+                    // G159-1: lazy blanket-method instantiation for a GENERIC
+                    // struct/enum receiver. The eager blanket pass (mono.cpp)
+                    // only instantiates `<Concrete>__<method>` for NON-generic
+                    // candidate types; a generic instance (`Option<u16>`)
+                    // reaching a blanket `impl<T: Bound> Trait for T` via the
+                    // call site never gets its `Option__u16__get` emitted →
+                    // mlir-gen "does not reference a valid function". When the
+                    // template key is still the unresolved bare `<cname>__<m>`
+                    // and the receiver is a generic struct/enum, clone the
+                    // blanket method template `$blanket$<trait>$<bound>$<tv>__<m>`
+                    // with {tv → receiver type} and enqueue. The drain re-enters
+                    // this path for any blanket method the body calls
+                    // (`self.copy()` → `Option__u16__copy`), so the whole chain
+                    // resolves from this one hook.
+                    TypeRef inner_rt = rt;
+                    while (inner_rt &&
+                           (TypeRef(inner_rt).kind() == LogosType::Kind::Ptr ||
+                            TypeRef(inner_rt).kind() == LogosType::Kind::Ref ||
+                            TypeRef(inner_rt).kind() == LogosType::Kind::MutRef) &&
+                           TypeRef(inner_rt).pointee())
+                        inner_rt = TypeRef(inner_rt).pointee();
+                    if (tmpl_key == base_fn &&
+                        !templates_.count(base_fn) && !specs_.count(base_fn) &&
+                        inner_rt &&
+                        (TypeRef(inner_rt).kind() == LogosType::Kind::Struct ||
+                         TypeRef(inner_rt).kind() == LogosType::Kind::ZonedStruct ||
+                         TypeRef(inner_rt).kind() == LogosType::Kind::Enum)) {
+                        for (auto& bi : blanket_impls_) {
+                            std::string full_prefix = "$blanket$" + bi.trait_name
+                                + "$" + bi.bound_trait + "$" + bi.target_typevar + "__";
+                            std::string tprefix = full_prefix + method;
+                            const lir::LFunction* btmpl = nullptr;
+                            std::string method_tail;
+                            std::string btmpl_pkg;
+                            for (auto& fp : in_.functions) {
+                                if (!fp) continue;
+                                std::string bn = fp->name, pk;
+                                if (auto d = bn.rfind('.'); d != std::string::npos)
+                                    { pk = bn.substr(0, d); bn = bn.substr(d + 1); }
+                                if (bn.rfind(tprefix, 0) != 0) continue;
+                                std::string rest = bn.substr(tprefix.size());
+                                if (!rest.empty() &&
+                                    rest.compare(0, 5, "__g__") != 0 &&
+                                    rest.compare(0, 5, "__f__") != 0) continue;
+                                btmpl = fp.get();
+                                method_tail = bn.substr(full_prefix.size());
+                                btmpl_pkg = pk;
+                                break;
+                            }
+                            if (!btmpl) continue;
+                            StrSet bseen;
+                            if (!bi.bound_trait.empty() &&
+                                !mono_concrete_satisfies_bound(bi.bound_trait, inner_rt, bseen))
+                                continue;
+                            bool extra_ok = true;
+                            for (auto& eb : bi.extra_bounds) {
+                                StrSet es;
+                                if (!mono_concrete_satisfies_bound(eb, inner_rt, es))
+                                    { extra_ok = false; break; }
+                            }
+                            if (!extra_ok) continue;
+                            std::string dest_bare = cname + "__" + method_tail;
+                            std::string dest = btmpl_pkg.empty()
+                                ? dest_bare : btmpl_pkg + "." + dest_bare;
+                            if (!done_.count(dest)) {
+                                SubstMap bsubst;
+                                bsubst[bi.target_typevar] = inner_rt;
+                                done_.insert(dest);
+                                worklist_.push_back({dest, btmpl,
+                                                     std::move(bsubst), {}, depth_ + 1});
+                            }
+                            tmpl_key = dest;
+                            break;
+                        }
+                    }
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     v.each_arg([&](lir_view::ExprRef ar) {

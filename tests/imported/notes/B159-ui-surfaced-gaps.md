@@ -67,14 +67,22 @@ type-qualified instance method `Type::method(&recv)`, a static method
 
 ## Gaps surfaced
 
-- **G159-1** ◻ OPEN (TRACTABLE-ish) — a blanket `impl<T: MyCopy> Get for T`
-  instantiated at `Option<U>` (whose `MyCopy` is supplied by a separate
-  `impl<U: Copy> MyCopy for Option<U>`) fails to MONOMORPHIZE the blanket method
-  for the Option instance: `'func.call' op 'Option__u16__get' does not reference
-  a valid function`. The primitive arms of the same blanket (`Get for u16/u32/
-  i32`) emit fine. So the gap is specifically the blanket-`get`-on-a-generic-enum
-  spec not being enqueued/emitted when the bound (`MyCopy`) is itself satisfied
-  by a generic-enum blanket. Minimal repro:
+- **G159-1** ✅ CLOSED (2026-05-23) — a blanket `impl<T: MyCopy> Get for T`
+  instantiated at a GENERIC-ENUM receiver (`Option<u16>`) now monomorphizes the
+  blanket method. Root: the EAGER blanket-instantiation pass (mono.cpp) only
+  emits `<Concrete>__<method>` for NON-generic candidate types — a generic
+  instance like `Option<u16>` reaching the blanket via a call site got no
+  `Option__u16__get` (→ mlir-gen "does not reference a valid function"). Fix
+  (mono_clone.cpp, the TypeVar-receiver→concrete retargeting block): when the
+  resolved template key is still the unresolved bare `<cname>__<method>` and the
+  (peeled) receiver is a generic struct/enum, search blanket_impls_ for a
+  blanket whose `$blanket$<trait>$<bound>$<tv>__<method>` template exists and
+  whose bound the receiver satisfies (mono_concrete_satisfies_bound), then clone
+  it with {tv → receiver type} and enqueue `<cname>__<method>`. The worklist
+  drain re-enters this same hook for any blanket method the cloned body calls
+  (`self.copy()` → `Option__u16__copy` via the Option MyCopy blanket), so the
+  whole chain resolves from one hook. Restored the Option arm in
+  `conditional-dispatch-b159` (Some(7u16) round-trips). Original repro:
   ```
   trait Get { fn get(self: &Self) -> Self; }
   trait MyCopy { fn copy(self: &Self) -> Self; }
