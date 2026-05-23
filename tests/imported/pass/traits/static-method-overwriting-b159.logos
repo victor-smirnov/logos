@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/static-method-overwriting.rs
+// Modifications: module `mod base { }` flattened to module scope; `dummy: ()`
+//   unit field replaced with a marker `i64` field; println! dropped; the
+//   trait-path static-method call `HasNew::new()` resolved via the
+//   let-annotation Self type (works since G158-9); observe the constructed
+//   tag values.
+// Tests a trait static method `new() -> Self` with two impls, each selected by
+//   the let-annotation type (`let f: Foo = HasNew::new();`).
+package static_method_overwriting_b159;
+
+trait HasNew { fn new() -> Self; }
+
+struct Foo { tag: i64 }
+struct Bar { tag: i64 }
+
+impl HasNew for Foo {
+    fn new() -> Foo { return Foo { tag: 1i64 }; }
+}
+impl HasNew for Bar {
+    fn new() -> Bar { return Bar { tag: 2i64 }; }
+}
+
+fn main() -> i32 {
+    let f: Foo = HasNew::new();
+    let b: Bar = HasNew::new();
+    if f.tag != 1i64 { return 1i32; }
+    if b.tag != 2i64 { return 2i32; }
+    return 0i32;
+}

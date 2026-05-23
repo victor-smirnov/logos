@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ufcs/ufcs-polymorphic-paths.rs
+// Modifications: the macro/`const`/`static` machinery dropped; reduced to the
+//   path forms that translate: a free fn item bound to an `fn`-pointer value
+//   and called; a type-qualified UFCS instance-method call `i64::dbl(&n)`; a
+//   type-qualified UFCS static-method call `Maker::make()`. The TRAIT-qualified
+//   instance-method form `Doubler::dbl(&n)` is dropped (gap G159-2: only
+//   type-qualified and trait-static UFCS resolve). `&self`->`self: &Self`;
+//   assert! -> early-return sentinels.
+// Tests UFCS-style polymorphic paths: a free fn item as an `fn`-pointer value,
+//   a type-qualified instance method `Type::method(&recv)`, and a static method.
+package ufcs_polymorphic_paths_b159;
+
+trait Doubler { fn dbl(self: &Self) -> i64; }
+impl Doubler for i64 { fn dbl(self: &Self) -> i64 { return *self * 2i64; } }
+
+struct Maker { tag: i64 }
+impl Maker {
+    fn make() -> Maker { return Maker { tag: 99i64 }; }
+}
+
+fn id(x: i64) -> i64 { return x; }
+
+fn main() -> i32 {
+    // free fn item as an fn-pointer value
+    let f: fn(i64) -> i64 = id;
+    if f(5i64) != 5i64 { return 1i32; }
+
+    // type-qualified UFCS instance method
+    let n = 21i64;
+    if i64::dbl(&n) != 42i64 { return 2i32; }
+
+    // type-qualified UFCS static method
+    let m = Maker::make();
+    if m.tag != 99i64 { return 3i32; }
+
+    return 0i32;
+}

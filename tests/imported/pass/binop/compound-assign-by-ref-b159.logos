@@ -1,0 +1,53 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/compound-assign-by-ref.rs
+// Modifications: each `x OP= &rhs` rewritten as `x OP= rhs` (the test's point was
+//   a reference RHS coercing to the value operand; Logos applies the op to the
+//   value directly); literals suffixed; assert_eq! -> early-return sentinels;
+//   shift amounts kept as u32.
+// Tests compound-assignment operators across widths/types: += -= *= /= %=
+//   |= &= ^= <<= >>= on i8/i16/f32/f64/i64/u8/u16/u32/u64.
+package compound_assign_by_ref_b159;
+
+fn main() -> i32 {
+    let mut a = 3i8;
+    a += 2i8;
+    if a != 5i8 { return 1i32; }
+
+    let mut b = 7i16;
+    b -= 4i16;
+    if b != 3i16 { return 2i32; }
+
+    let mut c = 3.0f32;
+    c *= 3.0f32;
+    if c != 9.0f32 { return 3i32; }
+
+    let mut d = 6.0f64;
+    d /= 2.0f64;
+    if d != 3.0f64 { return 4i32; }
+
+    let mut e = 7i64;
+    e %= 4i64;
+    if e != 3i64 { return 5i32; }
+
+    let mut f = 0b1010u8;
+    f |= 0b1100u8;
+    if f != 0b1110u8 { return 6i32; }
+
+    let mut g = 0b1010u16;
+    g &= 0b1100u16;
+    if g != 0b1000u16 { return 7i32; }
+
+    let mut h = 0b1010u32;
+    h ^= 0b1100u32;
+    if h != 0b0110u32 { return 8i32; }
+
+    let mut i = 0b1010u64;
+    i <<= 2u32;
+    if i != 0b101000u64 { return 9i32; }
+
+    let mut j = 0b101000u64;
+    j >>= 2u32;
+    if j != 0b1010u64 { return 10i32; }
+
+    return 0i32;
+}

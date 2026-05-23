@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/expr-match-struct.rs
+// Modifications: isize->i64; `#[derive]` dropped; `panic!` arm replaced with a
+//   sentinel struct; the `PartialEq for mood` impl rewritten as a `MoodEq`
+//   trait comparing via `as i64`; assert_eq! -> early-return sentinels.
+// Tests `match` used as an expression producing a struct value and an enum
+//   value, then reading the result via a field / user equality.
+package expr_match_struct_b159;
+
+struct R { i: i64 }
+
+enum Mood { Happy, Sad }
+
+trait MoodEq { fn meq(self: &Self, other: &Mood) -> bool; }
+impl MoodEq for Mood {
+    fn meq(self: &Self, other: &Mood) -> bool {
+        return (*self as i64) == (*other as i64);
+    }
+}
+
+fn main() -> i32 {
+    // match-as-expression producing a struct
+    let rs = match true { true => R { i: 100i64 }, false => R { i: -1i64 } };
+    if rs.i != 100i64 { return 1i32; }
+
+    // match-as-expression producing an enum
+    let rt = match true { true => { Mood::Happy } false => { Mood::Sad } };
+    if !rt.meq(&Mood::Happy) { return 2i32; }
+    if rt.meq(&Mood::Sad) { return 3i32; }
+
+    return 0i32;
+}

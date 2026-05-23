@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-recursive-tag.rs
+// Modifications: Logos rejects a by-value self-recursive enum payload
+//   (infinite-size; the original used Box<T> for the indirection which is
+//   incidental here). Reshaped to a non-recursive generic tagged-union
+//   `Tag<T> { Cons(T,T), Nil }` exercising the same turbofish variant
+//   constructors + match consumption; isize->i64; turbofish kept.
+// Tests a generic enum with a two-field tuple variant built via turbofish
+//   variant constructors `Tag::Cons::<i64>(..)` / `Tag::Nil::<i64>` and a match.
+package generic_recursive_tag_b159;
+
+enum Tag<T> { Cons(T, T), Nil }
+
+fn sum(t: Tag<i64>) -> i64 {
+    match t {
+        Tag::Cons(a, b) => { return a + b; }
+        Tag::Nil => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Tag<i64> = Tag::Cons::<i64>(10i64, 12i64);
+    let n: Tag<i64> = Tag::Nil::<i64>;
+    if sum(a) != 22i64 { return 1i32; }
+    if sum(n) != 0i64 { return 2i32; }
+    return 0i32;
+}

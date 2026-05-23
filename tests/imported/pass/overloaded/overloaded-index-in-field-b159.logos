@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index-in-field.rs
+// Modifications: isize->i64; `&self`/`&mut self`->`self: &Self`/`self: &mut Self`;
+//   `use std::ops::Index` dropped (Logos `Index` is built-in trait by name);
+//   assert_eq! -> early-return sentinel; the `Int` trait kept as a local trait;
+//   `f.foo[1]` (Index through a nested field) then a by-value-`self` method call
+//   on the indexed result.
+// Tests overloaded indexing where the indexed object is stored in a struct field
+//   (`f.foo[1]`), then calling a by-value-`self` trait method on the result.
+package overloaded_index_in_field_b159;
+
+struct Foo { x: i64, y: i64 }
+struct Bar { foo: Foo }
+
+impl Index<i64> for Foo {
+    type Output = i64;
+    fn index(self: &Self, z: i64) -> &i64 {
+        if z == 0i64 { return &self.x; }
+        return &self.y;
+    }
+}
+
+trait Int { fn get(self: Self) -> i64; }
+impl Int for i64 {
+    fn get(self: Self) -> i64 { return self; }
+}
+
+fn main() -> i32 {
+    let f = Bar { foo: Foo { x: 1i64, y: 2i64 } };
+    if f.foo[1i64].get() != 2i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-recursive-blanket-impl.rs
+// Modifications: the slice impl `Foo<u8> for [u8]` dropped (slice DST incidental)
+//   and the type-parameterized `Foo<A>` reduced to a plain `Foo`; modeled the
+//   recursive blanket `impl<T: Foo> Foo for &T` calling `(*self).foo()`;
+//   isize->i64; `&self`->`self: &Self`; observe the returned value.
+// Tests a recursive blanket impl `impl<T: Foo> Foo for &T` that autoderefs and
+//   re-dispatches to the underlying `impl Foo for MyType`.
+package method_recursive_blanket_impl_b159;
+
+trait Foo { fn foo(self: &Self) -> i64; }
+
+struct MyType { v: i64 }
+
+impl Foo for MyType {
+    fn foo(self: &Self) -> i64 { return self.v; }
+}
+
+impl<T: Foo> Foo for &T {
+    fn foo(self: &Self) -> i64 { return (*self).foo(); }
+}
+
+fn main() -> i32 {
+    let m = MyType { v: 42i64 };
+    let r = &m;
+    if r.foo() != 42i64 { return 1i32; }
+    return 0i32;
+}

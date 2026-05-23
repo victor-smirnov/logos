@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/rec-tup.rs
+// Modifications: isize->i64; `#[derive(Copy,Clone)]` dropped (Point is a plain
+//   Copy-by-layout struct); assert_eq! -> early-return sentinels; the type alias
+//   `type Rect = (Point, Point)` kept.
+// Tests a tuple type alias `Rect = (Point, Point)` of two Copy structs,
+//   let-destructured into its components, with the value copied across bindings.
+package rec_tup_b159;
+
+struct Point { x: i64, y: i64 }
+
+type Rect = (Point, Point);
+
+fn fst(r: Rect) -> Point { let (a, _) = r; return a; }
+fn snd(r: Rect) -> Point { let (_, b) = r; return b; }
+
+fn main() -> i32 {
+    let r: Rect = (Point { x: 10i64, y: 20i64 }, Point { x: 11i64, y: 22i64 });
+    if fst(r).x != 10i64 { return 1i32; }
+    if fst(r).y != 20i64 { return 2i32; }
+    if snd(r).x != 11i64 { return 3i32; }
+    if snd(r).y != 22i64 { return 4i32; }
+
+    let r2 = r;
+    let x: i64 = fst(r2).x;
+    if x != 10i64 { return 5i32; }
+
+    return 0i32;
+}

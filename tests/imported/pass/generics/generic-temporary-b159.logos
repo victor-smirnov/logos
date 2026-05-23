@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-temporary.rs
+// Modifications: isize->i64; println! dropped; assert_eq! -> early-return
+//   sentinel; threaded a `*mut i64` into the consumer to observe its effect
+//   (the original used a println side effect).
+// Tests a generic fn `apply<T>(produce: fn()->T, consume: fn(T))` driving two
+//   bare fn-pointer arguments, instantiated via turbofish at i64.
+package generic_temporary_b159;
+
+fn mk() -> i64 { return 1i64; }
+
+fn chk(a: i64, sink: *mut i64) {
+    unsafe { *sink = a; }
+}
+
+fn apply<T>(produce: fn() -> T, consume: fn(T, *mut i64), sink: *mut i64) {
+    consume(produce(), sink);
+}
+
+fn main() -> i32 {
+    let mut got: i64 = 0i64;
+    let produce: fn() -> i64 = mk;
+    let consume: fn(i64, *mut i64) = chk;
+    apply::<i64>(produce, consume, &mut got);
+    if got != 1i64 { return 1i32; }
+    return 0i32;
+}

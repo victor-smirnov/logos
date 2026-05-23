@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/nll/issue-24535-allow-mutable-borrow-in-match-guard.rs
+// Modifications: kept the `rust_issue_24535` facet (a match guard that takes a
+//   `&` of the scrutinee and a `&mut` of a temporary); the Vec/iterator facets
+//   dropped (collections incidental); `panic!` arms replaced with sentinel
+//   returns; the temporary hoisted to a `mut` local (Logos has no `&mut 3`
+//   place-of-a-literal); the `if let true = ...` guard form dropped.
+// Tests a match guard that borrows the scrutinee immutably (`&a`) while passing
+//   a `&mut` of a local into the same guard call.
+package match_guard_mutable_borrow_b159;
+
+fn compare(a: &u8, b: &mut u8) -> bool {
+    return *a == *b;
+}
+
+fn check(a: u8) -> i64 {
+    let mut tmp = 3u8;
+    match a {
+        0u8 => { return 1i64; }
+        3u8 if compare(&a, &mut tmp) => { return 0i64; }
+        _ => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    if check(3u8) != 0i64 { return 1i32; }
+    if check(0u8) != 1i64 { return 2i32; }
+    if check(5u8) != 3i64 { return 3i32; }
+    return 0i32;
+}

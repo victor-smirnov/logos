@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-3-unique.rs
+// Modifications: Box<Triple> dropped (the conditional MOVE + reassign is the
+//   point; Triple moved by value); `#[derive(Clone)]` -> a local `Clone` trait
+//   with an explicit `clone`; isize->i64; the 10000-iteration loop reduced to a
+//   few calls; assert_eq! -> early-return sentinels; `let mut y: Box<...>` ->
+//   `let mut y: Triple`.
+// Tests a conditional move: a value moved into a local, then in one branch
+//   re-bound from a moved local and in the other from a fresh literal, returning
+//   a field of the survivor.
+package move_3_conditional_b159;
+
+struct Triple { x: i64, y: i64, z: i64 }
+
+trait Clone { fn clone(self: &Self) -> Triple; }
+impl Clone for Triple {
+    fn clone(self: &Self) -> Triple {
+        return Triple { x: self.x, y: self.y, z: self.z };
+    }
+}
+
+fn test(cond: bool, foo: Triple) -> i64 {
+    let bar = foo;
+    let mut y: Triple;
+    if cond { y = bar; } else { y = Triple { x: 4i64, y: 5i64, z: 6i64 }; }
+    return y.y;
+}
+
+fn main() -> i32 {
+    let x = Triple { x: 1i64, y: 2i64, z: 3i64 };
+    if test(true, x.clone()) != 2i64 { return 1i32; }
+    if test(true, x.clone()) != 2i64 { return 2i32; }
+    if test(false, x) != 5i64 { return 3i32; }
+    return 0i32;
+}

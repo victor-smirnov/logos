@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/privacy/private-method-rpass.rs
+// Modifications: isize/usize->i64/u64; `&mut self`->`self: &mut Self`; the for-
+//   loop body (no-op nap) kept; observed `meows` via an extra getter; the two
+//   separate `impl cat` blocks merged is avoided — kept as two impls; a `pub`
+//   method calls a private one on self.
+// Tests calling a private inherent method from a pub one on `self: &mut Self`
+//   (privacy across two impl blocks of the same type).
+package private_method_b159;
+
+struct Cat { meows: u64, how_hungry: i64 }
+
+impl Cat {
+    fn play(self: &mut Self) {
+        self.meows += 1u64;
+        self.nap();
+    }
+    fn count(self: &Self) -> u64 { return self.meows; }
+}
+
+impl Cat {
+    fn nap(self: &mut Self) {
+        let mut i = 1u64;
+        while i < 10u64 { i += 1u64; }
+    }
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat = Cat { meows: 52u64, how_hungry: 99i64 };
+    nyan.play();
+    if nyan.count() != 53u64 { return 1i32; }
+    return 0i32;
+}

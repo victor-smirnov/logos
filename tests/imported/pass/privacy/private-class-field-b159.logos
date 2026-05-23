@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/privacy/private-class-field.rs
+// Modifications: isize/usize->i64/u64; `&mut self`->`self: &mut Self`; free
+//   constructor fn kept; assert_eq! -> early-return sentinel.
+// Tests a pub inherent method reading a (private) struct field of `self`.
+package private_class_field_b159;
+
+struct Cat { meows: u64, how_hungry: i64 }
+
+impl Cat {
+    fn meow_count(self: &mut Self) -> u64 { return self.meows; }
+}
+
+fn make_cat(in_x: u64, in_y: i64) -> Cat {
+    return Cat { meows: in_x, how_hungry: in_y };
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat = make_cat(52u64, 99i64);
+    if nyan.meow_count() != 52u64 { return 1i32; }
+    return 0i32;
+}

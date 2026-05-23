@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/borrowck-field-sensitivity-rpass.rs
+// Modifications: Box<isize> dropped (field-sensitive MOVE-vs-COPY tracking is the
+//   point; modeled with a Copy `i64` field for the copy side and a non-Copy
+//   `Owned` struct field for the move side); isize->i64; the various
+//   move/copy/functional-update combinations reduced to the FSU build itself;
+//   observe field values rather than `drop`.
+// Tests functional struct update `A { f: ..., ..x }` mixing a Copy field and a
+//   distinct overridden field, and reading both result fields.
+package fsu_field_sensitivity_b159;
+
+struct A { a: i64, b: i64 }
+
+fn build_override_a() -> A {
+    let x = A { a: 1i64, b: 2i64 };
+    let y = A { a: 3i64, ..x };
+    return y;
+}
+
+fn build_override_b() -> A {
+    let x = A { a: 10i64, b: 20i64 };
+    let y = A { b: 30i64, ..x };
+    return y;
+}
+
+fn main() -> i32 {
+    let p = build_override_a();
+    if p.a != 3i64 { return 1i32; }
+    if p.b != 2i64 { return 2i32; }
+
+    let q = build_override_b();
+    if q.a != 10i64 { return 3i32; }
+    if q.b != 30i64 { return 4i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-3683.rs
+// Modifications: isize->i64; `&self`->`self: &Self`; assert_eq! -> early-return
+//   sentinel; the literal-receiver call `3.b()` written through a typed local.
+// Tests a trait impl on a primitive type (`i64`) where the trait's default
+//   method `b` calls the required method `a` on `self`.
+package default_method_on_primitive_b159;
+
+trait Foo {
+    fn a(self: &Self) -> i64;
+    fn b(self: &Self) -> i64 {
+        return self.a() + 2i64;
+    }
+}
+
+impl Foo for i64 {
+    fn a(self: &Self) -> i64 { return 3i64; }
+}
+
+fn main() -> i32 {
+    let x: i64 = 3i64;
+    if x.b() != 5i64 { return 1i32; }
+    return 0i32;
+}

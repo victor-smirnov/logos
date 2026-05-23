@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-exterior-unique.rs
+// Modifications: Box<T> dropped (the generic struct holds the value `T` directly
+//   — the test's point is generic-struct construction through a generic fn);
+//   isize->i64; turbofish kept; assert_eq! -> early-return sentinel.
+// Tests a generic struct `Recbox<T> { x: T }` constructed inside a generic fn
+//   `reclift<T>(t:T)->Recbox<T>`, instantiated via turbofish at i64.
+package generic_exterior_unique_b159;
+
+struct Recbox<T> { x: T }
+
+fn reclift<T>(t: T) -> Recbox<T> {
+    return Recbox { x: t };
+}
+
+fn main() -> i32 {
+    let foo: i64 = 17i64;
+    let rbfoo: Recbox<i64> = reclift::<i64>(foo);
+    if rbfoo.x != foo { return 1i32; }
+    return 0i32;
+}

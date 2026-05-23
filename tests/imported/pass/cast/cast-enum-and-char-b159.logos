@@ -1,0 +1,52 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cast/cast-rfc0401.rs
+// Modifications: dropped the pointer/fat-pointer/vtable/fptr-addr cast facets
+//   (raw-pointer reinterpretation + unsizing out of scope) and the float-extreme
+//   facets; kept the C-like enum-discriminant casts (explicit + signed
+//   discriminants to i8/u8/u16/i16), prim-int casts (bool/char to ints), and
+//   char<->u8 round trips; assert_eq! -> early-return sentinels; literals
+//   suffixed; non-ASCII char literals replaced with ASCII to avoid encoding
+//   incidentals.
+// Tests `as`-cast value semantics: C-like enum discriminants (incl. explicit +
+//   signed values) to integer widths, bool/char to ints, and u8<->char.
+package cast_enum_and_char_b159;
+
+enum Simple { A, B, C }
+enum Valued { H8 = 163, Z = 0, X = 256, H7 = 67 }
+enum ValuedSigned { M1 = -1, P1 = 1 }
+
+fn main() -> i32 {
+    // enum-cast (implicit discriminants)
+    if (Simple::A as u8) != 0u8 { return 1i32; }
+    if (Simple::B as u8) != 1u8 { return 2i32; }
+    if (Simple::C as u8) != 2u8 { return 3i32; }
+
+    // enum-cast (explicit discriminants, signed truncation)
+    if (Valued::H8 as i8) != -93i8 { return 4i32; }
+    if (Valued::H7 as i8) != 67i8 { return 5i32; }
+    if (Valued::Z as i8) != 0i8 { return 6i32; }
+    if (Valued::H8 as u8) != 163u8 { return 7i32; }
+    if (Valued::H8 as u16) != 163u16 { return 8i32; }
+
+    // signed enum discriminants
+    if (ValuedSigned::M1 as u16) != 65535u16 { return 9i32; }
+    if (ValuedSigned::M1 as i16) != -1i16 { return 10i32; }
+    if (ValuedSigned::P1 as u16) != 1u16 { return 11i32; }
+    if (ValuedSigned::P1 as i16) != 1i16 { return 12i32; }
+
+    // prim-int-cast (bool to ints)
+    if (false as u16) != 0u16 { return 13i32; }
+    if (true as u16) != 1u16 { return 14i32; }
+    if (false as i64) != 0i64 { return 15i32; }
+    if (true as i64) != 1i64 { return 16i32; }
+
+    // char to ints
+    if ('a' as u32) != 0x61u32 { return 17i32; }
+    if ('a' as u16) != 0x61u16 { return 18i32; }
+    if ('a' as u8) != 0x61u8 { return 19i32; }
+
+    // u8 to char round trip
+    if (0x61u8 as char) != 'a' { return 20i32; }
+
+    return 0i32;
+}

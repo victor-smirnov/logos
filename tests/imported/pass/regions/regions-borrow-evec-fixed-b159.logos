@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-borrow-evec-fixed.rs
+// Modifications: isize->i64; integer literals suffixed; assert_eq! ->
+//   early-return sentinel; the fixed-size array is borrowed as a `&[i64]` slice
+//   passed into `foo` and indexed.
+// Tests borrowing a fixed-size array as a `&[i64]` slice argument and indexing
+//   element 0 inside the callee.
+package regions_borrow_evec_fixed_b159;
+
+fn foo(x: &[i64]) -> i64 {
+    return x[0];
+}
+
+fn main() -> i32 {
+    let p = &[1i64, 2i64, 3i64, 4i64, 5i64];
+    if foo(p) != 1i64 { return 1i32; }
+    return 0i32;
+}

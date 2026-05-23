@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match.rs
+// Modifications: assert! -> early-return sentinels; the four sub-tests inlined
+//   into main; match-as-expression in let-init, reassign, match-head, and
+//   block-result positions all preserved.
+// Tests `match` used as an expression: as a let initializer, as a reassignment
+//   RHS, as the scrutinee of another match (match-as-match-head), and as a
+//   block result inside an arm.
+package expr_match_b159;
+
+fn main() -> i32 {
+    // basic + reassign
+    let mut rs: bool = match true { true => { true } false => { false } };
+    if !rs { return 1i32; }
+    rs = match false { true => { false } false => { true } };
+    if !rs { return 2i32; }
+
+    // inference
+    let ri = match true { true => { true } false => { false } };
+    if !ri { return 3i32; }
+
+    // match as match head
+    let rh =
+        match match false { true => { true } false => { false } } {
+            true => { false }
+            false => { true }
+        };
+    if !rh { return 4i32; }
+
+    // match as block result
+    let rb =
+        match false {
+            true => { false }
+            false => { match true { true => { true } false => { false } } }
+        };
+    if !rb { return 5i32; }
+
+    return 0i32;
+}

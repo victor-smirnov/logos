@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binops.rs
+// Modifications: isize->i64; dropped the unit `()` and raw-pointer transmute
+//   facets (transmute out of scope, unit comparisons incidental); kept the bool
+//   ordering + bitwise corner cases and the struct field-mutation/equality
+//   facet; assert!/assert_eq! -> early-return sentinels; #[derive]/println!
+//   dropped; struct equality checked field-wise.
+// Tests binary-op corner cases: bool ordering (`<`,`<=`,`>`,`>=`), bool bitwise
+//   (`&`,`|`,`^`), and struct field mutation observed via equality.
+package binops_corner_cases_b159;
+
+struct P { x: i64, y: i64 }
+
+fn main() -> i32 {
+    // bool ordering: false < true
+    if true < false { return 1i32; }
+    if true <= false { return 2i32; }
+    if !(true > false) { return 3i32; }
+    if !(true >= false) { return 4i32; }
+    if !(false < true) { return 5i32; }
+    if !(false <= true) { return 6i32; }
+    if false > true { return 7i32; }
+    if false >= true { return 8i32; }
+
+    // bool bitwise
+    if (false & false) != false { return 9i32; }
+    if (true & false) != false { return 10i32; }
+    if (true & true) != true { return 11i32; }
+    if (false | false) != false { return 12i32; }
+    if (true | false) != true { return 13i32; }
+    if (false ^ false) != false { return 14i32; }
+    if (true ^ false) != true { return 15i32; }
+    if (true ^ true) != false { return 16i32; }
+
+    // struct field mutation
+    let q = P { x: 1i64, y: 2i64 };
+    let mut r = P { x: 1i64, y: 2i64 };
+    if q.x != r.x { return 17i32; }
+    if q.y != r.y { return 18i32; }
+    r.y = 17i64;
+    if r.y == q.y { return 19i32; }
+    if r.y != 17i64 { return 20i32; }
+
+    return 0i32;
+}

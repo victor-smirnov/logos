@@ -1,0 +1,59 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/tag-variant-disr-val.rs
+// Modifications: isize->i64; String results replaced with i64 sentinels; the
+//   expression-valued discriminants `1 << 1` / `8 >> 1` rewritten as their
+//   literal results `2` / `4` (gap G159-3: expression discriminants don't
+//   parse); the `PartialEq` impl rewritten as a local `ColorEq` trait comparing
+//   via `as i64`; `&self`->`self: &Self`; matched + if-chained on the variants.
+// Tests a C-like enum with explicit (incl. hex + negative) discriminant values,
+//   cast to i64, compared via a user equality trait, and dispatched in match +
+//   if-else chains.
+package tag_variant_disr_val_b159;
+
+enum Color {
+    Red = 0xff0000,
+    Green = 0x00ff00,
+    Blue = 0x0000ff,
+    Black = 0x000000,
+    White = 0xFFFFFF,
+    Imaginary = -1,
+    Purple = 2,
+    Orange = 4,
+}
+
+trait ColorEq { fn ceq(self: &Self, other: &Color) -> bool; }
+impl ColorEq for Color {
+    fn ceq(self: &Self, other: &Color) -> bool {
+        return (*self as i64) == (*other as i64);
+    }
+}
+
+fn name_by_match(c: Color) -> i64 {
+    match c {
+        Color::Red => { return 1i64; }
+        Color::Green => { return 2i64; }
+        Color::Blue => { return 3i64; }
+        Color::Black => { return 4i64; }
+        Color::White => { return 5i64; }
+        Color::Imaginary => { return 6i64; }
+        Color::Purple => { return 7i64; }
+        Color::Orange => { return 8i64; }
+    }
+}
+
+fn main() -> i32 {
+    if (Color::Red as i64) != 0xff0000i64 { return 1i32; }
+    if (Color::Imaginary as i64) != -1i64 { return 2i32; }
+    if (Color::Purple as i64) != 2i64 { return 3i32; }
+    if (Color::Orange as i64) != 4i64 { return 4i32; }
+
+    if name_by_match(Color::Blue) != 3i64 { return 5i32; }
+    if name_by_match(Color::Orange) != 8i64 { return 6i32; }
+
+    let r = Color::Red;
+    let r2 = Color::Red;
+    if !r.ceq(&r2) { return 7i32; }
+    if r.ceq(&Color::Green) { return 8i32; }
+
+    return 0i32;
+}

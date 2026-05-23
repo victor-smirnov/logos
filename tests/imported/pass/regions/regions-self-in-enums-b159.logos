@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/regions/regions-self-in-enums.rs
+// Modifications: named lifetime `'a` dropped from the enum + ctor (Logos
+//   reference-in-enum-payload needs no explicit lifetime); isize->i64; println!
+//   replaced by an early-return value check on the matched-out reference;
+//   declared the receiving local `mut` (assign-after-decl needs it in Logos).
+// Tests an enum variant holding a reference payload `Ctor(&i64)`, constructed
+//   from a local and matched to extract the reference, then dereferenced.
+package regions_self_in_enums_b159;
+
+enum IntWrapper { Ctor(&i64) }
+
+fn main() -> i32 {
+    let x = 3i64;
+    let y = IntWrapper::Ctor(&x);
+    let mut z: &i64;
+    match y {
+        IntWrapper::Ctor(zz) => { z = zz; }
+    }
+    if *z != 3i64 { return 1i32; }
+    return 0i32;
+}

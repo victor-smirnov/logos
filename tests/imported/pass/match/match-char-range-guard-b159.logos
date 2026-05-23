@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-26251.rs
+// Modifications: string arm results replaced with i64 sentinels; the
+//   `panic!` default arm replaced with a distinct sentinel; assert_eq! ->
+//   early-return; demonstrates that an overlapping char-range arm guarded by
+//   `if false` is skipped, falling through to the exact-char arm.
+// Tests char inclusive-range patterns `'a'..='b'` with a match guard: a guarded
+//   overlapping range arm is skipped so the exact `'a'` arm wins.
+package match_char_range_guard_b159;
+
+fn classify(x: char) -> i64 {
+    match x {
+        'a'..='b' if false => { return 1i64; }
+        'a' => { return 2i64; }
+        'a'..='b' => { return 3i64; }
+        _ => { return 9i64; }
+    }
+}
+
+fn main() -> i32 {
+    if classify('a') != 2i64 { return 1i32; }
+    if classify('b') != 3i64 { return 2i32; }
+    if classify('z') != 9i64 { return 3i32; }
+    return 0i32;
+}
