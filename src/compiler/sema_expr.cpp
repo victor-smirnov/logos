@@ -4609,6 +4609,64 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             fi_ptr = const_cast<SemaFuncInfo*>(cands[0]);
     }
     if (!fi_ptr) {
+        // G152-2: turbofish tuple-struct constructor `Foo::<u64>(5)`. Same as
+        // the plain `Foo(5)` ctor (B-ts-01) but the struct's type-args come from
+        // the explicit turbofish rather than inference.
+        if (auto [tspkg, tsinfo] = find_struct_by_name(std::string(callee));
+            tsinfo && tsinfo->is_tuple_struct) {
+            std::vector<lir::LExprPtr> arg_exprs;
+            if (node.has_key(la::ARGS)) {
+                AnyVal av = node.get(la::ARGS.code);
+                if (!av.is_null()) {
+                    auto al = map_of(av);
+                    if (al.has_key(la::ITEMS)) {
+                        auto items = arr_of(al.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < items.size(); ++i)
+                            arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                    }
+                }
+            }
+            if (arg_exprs.size() != tsinfo->fields.size()) {
+                error(std::format("tuple-struct '{}': expected {} fields, got {}",
+                                  callee, tsinfo->fields.size(), arg_exprs.size()));
+                return error_expr();
+            }
+            SemaSubst subst;
+            auto targs = collect_type_args(node);
+            for (size_t i = 0; i < tsinfo->type_params.size() && i < targs.size(); ++i)
+                subst[tsinfo->type_params[i].name] = targs[i];
+            if (!tsinfo->type_params.empty())  // infer any not pinned by turbofish
+                for (size_t i = 0; i < arg_exprs.size(); ++i)
+                    unify_types(tsinfo->fields[i].type, arg_exprs[i]->type, subst);
+            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+            for (size_t i = 0; i < arg_exprs.size(); ++i) {
+                auto pt = tsinfo->fields[i].type;
+                if (!subst.empty()) pt = subst_type_sema(pt, subst);
+                widen_int_expr(arg_exprs[i], pt, builder());
+                auto at = arg_exprs[i]->type;
+                if (TypeRef(at).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::Error &&
+                    TypeRef(pt).kind() != LogosType::Kind::TypeVar &&
+                    !types_compatible(at, pt)) {
+                    auto [es, gs] = type_str_pair(pt, at);
+                    error(std::format("tuple-struct '{}' field {}: expected {}, got {}",
+                                      callee, i, es, gs));
+                }
+                fields.emplace_back(std::to_string(i), std::move(arg_exprs[i]));
+            }
+            TypeRef lit_type;
+            if (!tsinfo->type_params.empty()) {
+                std::vector<TypeRef> tas;
+                for (auto& tp : tsinfo->type_params) {
+                    auto it = subst.find(tp.name);
+                    tas.push_back(it != subst.end() ? it->second : make_typevar(tp.name));
+                }
+                lit_type = make_generic_struct(std::string(callee), tas, {}, std::string(tspkg));
+            } else {
+                lit_type = make_struct_type(std::string(callee), tspkg);
+            }
+            return builder().struct_lit(std::string(callee), std::move(fields), lit_type);
+        }
         // CP-cm-03: Rust-prelude shorthand for Option/Result variant
         // construction. Routes through lower_enum_lit_data_from_static so
         // hint_enum_type_ propagation (`let r: Result<i32, i32> = Ok(42)`

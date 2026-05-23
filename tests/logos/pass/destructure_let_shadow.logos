@@ -1,0 +1,15 @@
+package destructure_let_shadow;
+// Destructure-`let` must shadow an existing same-named binding (it lowers to a
+// transparent block; the field binding's shadow was wrongly restored on block
+// exit → the destructured value was lost, reading the stale outer value).
+struct Bar { a: i64, b: i64 }
+fn main() -> i64 {
+    let b: i64 = 2;
+    let Bar { b, .. } = Bar { a: 7i64, b: 8i64 };
+    if b != 8 { return 1; }                 // shadowed by the destructure
+    let (p, q) = (10i64, 20i64);
+    let (p, q) = (q, p);                     // tuple destructure swap + shadow
+    if p != 20i64 { return 2; }
+    if q != 10i64 { return 3; }
+    return 0;
+}

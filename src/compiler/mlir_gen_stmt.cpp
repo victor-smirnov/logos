@@ -214,6 +214,28 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
+    // A destructure-`let` (`let Pair{a,b} = e` / `let (a,b) = e`) lowers to a
+    // TRANSPARENT block: `let __dst = e; let a = __dst.0; …`. Its field bindings
+    // must LEAK into the enclosing scope — INCLUDING shadowing an existing
+    // same-named binding (`let b = 2; let Bar{b,..} = …`). A real `{ }` block
+    // restores shadows on exit (B-st-01); doing that here reverted the shadowing
+    // field binding to the OUTER alloca → the destructured value was lost. The
+    // synthetic `__dst`/`__destruct` temp as the FIRST statement marks the
+    // destructure block; for it, skip the scope-restore (the temp leaking is
+    // harmless — it's a unique compiler name never referenced after).
+    {
+        bool first = true, is_destructure = false;
+        v.body().each_stmt([&](lir_view::StmtRef s) {
+            if (!first) return;
+            first = false;
+            if (s.kind() == lir_schema::stmt::Code::Let) {
+                std::string n(lir_view::SLetView{s}.name());
+                if (n.rfind("__dst", 0) == 0 || n.rfind("__destruct", 0) == 0)
+                    is_destructure = true;
+            }
+        });
+        if (is_destructure) { gen_block(v.body()); return; }
+    }
     // Sprint 3.1: restore shadowed SSA-name mappings on inner-block exit
     // (closes B-st-01 — return-after-shadow read inner alloca instead of
     // outer).  We snapshot only the *previous values* of pre-existing

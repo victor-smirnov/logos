@@ -1,0 +1,12 @@
+package turbofish_tuple_struct_ctor;
+// G152-2: turbofish tuple-struct constructor `Foo::<u64>(5)`. The non-turbofish
+// `Foo(5)` worked; the generic-call path errored "undefined function 'Foo'".
+struct Foo<T>(T);
+struct Two<A, B>(A, B);
+fn main() -> i64 {
+    let a = Foo::<u64>(5u64);
+    let b = Two::<i64, i64>(3i64, 4i64);
+    if a.0 != 5u64 { return 1; }
+    if b.0 + b.1 != 7i64 { return 2; }
+    return 0;
+}
