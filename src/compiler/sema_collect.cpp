@@ -1015,6 +1015,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
                                        cv.kind() == LogosType::Kind::FnPtr))
                 continue;
+            // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
+            // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
+            if (cv.kind() == LogosType::Kind::FnPtr &&
+                impls_.count(bound.trait_name + "::$fnptr$" +
+                             std::to_string(cv.closure_params().size())))
+                continue;
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }
@@ -2172,6 +2178,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                 }
             }
+        } else if (code_of(tnode) == la::FN_PTR_TYPE) {
+            // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` — fn-pointer is
+            // type-erased to a uniform pointer at the Logos ABI, so the impl
+            // covers ALL fn-ptrs of a given arity. Key it by arity: `$fnptr$N`.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            target = "$fnptr$" + std::to_string(TypeRef(resolved).closure_params().size());
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold transparent type aliases so `impl Trait for Alias`
@@ -2200,6 +2213,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // unsubstituted TypeVars (e.g. `Result<Vec<T>, E>`); finish_generic_call
     // unifies against the concrete receiver to recover impl-level bindings.
     impl_target_typeref_ = target_resolved;
+    // G149-6: fn-ptr target is type-erased → its methods codegen identically for
+    // all A,B,C; collect them NON-generic (don't prepend impl type-params, which
+    // would make a never-instantiated template). A,B,C stay pushed for `&Self`.
+    if (target.rfind("$fnptr$", 0) == 0)
+        impl_type_params_.clear();
     if (trait_name.empty())
         ctx_ = std::format("{}impl {}", impl_is_unsafe ? "unsafe " : "", target);
     else
@@ -2289,6 +2307,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
             us.elem = u8_t();
             self_type = pool_->alloc(std::move(us));
         }
+        // G149-6: a fn-ptr target binds Self to the resolved FnPtr so `&Self`
+        // resolves (codegens as a plain ptr).
+        if (!self_type && target_resolved)
+            self_type = target_resolved;
         if (self_type)
             current_type_params_["Self"] = self_type;
     }

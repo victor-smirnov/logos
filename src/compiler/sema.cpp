@@ -1270,6 +1270,11 @@ bool types_equal(TypeRef a, TypeRef b) noexcept {
 
 static std::string mangle_type_for_name(TypeRef t);
 
+// G149-6: when set (only during a fn-ptr-impl method's signature mangling),
+// a fn-pointer type mangles to its arity-only `$fnptr$<n>` form so the symbol
+// is stable across the impl's TypeVars A,B,C. Toggled by function_signature_key.
+static bool g_mangle_erase_fnptr = false;
+
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
@@ -1331,6 +1336,14 @@ static std::string mangle_type_for_name(TypeRef t) {
                       (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
         return std::string(buf);
     }
+    case LogosType::Kind::FnPtr:
+        // G149-6: erase fn-ptr Self in a fn-ptr-impl method signature to its
+        // arity-only form so the symbol is stable across the impl's A,B,C.
+        // Outside that context, keep the full type_str (distinct fn-ptr-value
+        // params must stay distinguishable).
+        if (g_mangle_erase_fnptr)
+            return "$fnptr$" + std::to_string(TypeRef(t).closure_params().size());
+        return type_str(t);
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
     }
@@ -1343,6 +1356,13 @@ std::string SemaChecker::canonical_func_type_name(TypeRef t) const {
 std::string SemaChecker::function_signature_key(std::string_view base_name,
                                                 const std::vector<TypeRef>& param_types,
                                                 bool is_vararg) const {
+    // G149-6: a fn-ptr-impl method (`$fnptr$N__method`) has a fn-pointer `Self`
+    // carrying the impl's TypeVars (`fn(A,B)->C`). Erase such fn-ptr params to
+    // their arity-only `$fnptr$<n>` form so the symbol is stable across A,B,C
+    // (one emission per arity) and matches the call site's `$fnptr$N` cname.
+    bool erase = base_name.rfind("$fnptr$", 0) == 0;
+    bool saved = g_mangle_erase_fnptr;
+    g_mangle_erase_fnptr = erase;
     std::string key(base_name);
     for (auto pt : param_types) {
         key += "__";
@@ -1350,6 +1370,7 @@ std::string SemaChecker::function_signature_key(std::string_view base_name,
     }
     if (param_types.empty()) key += "__void";
     if (is_vararg) key += "__vararg";
+    g_mangle_erase_fnptr = saved;
     return key;
 }
 

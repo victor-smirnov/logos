@@ -146,6 +146,46 @@ For the platform, this turns several pieces of design into specific affordances:
 
 That is as far as the model-only picture goes. The remaining design consequences — what it means for the human in the loop, how ownership and responsibility are allocated, and what the platform's two fundamental goals are — are the subject of [Models, Humans, and Programs as One System](joint-system.md).
 
+## The Information-Theoretic View of Model Memory
+
+The iterated-map view is one lens on model behavior; it describes the **dynamics**. There is a second lens, dual to it, that describes the **statics** — what a trained model's knowledge *is*, as an object, and which operations that object does and does not support. The two do not compete. Where the dynamical view asks *which basin does this trajectory fall into*, the information-theoretic view asks *what is stored, and can it be retrieved, enumerated, or inverted*. Logos's design leans on the second lens as heavily as the first, because it is the one that explains — structurally, from the architecture rather than as an observed quirk — the single most consequential failure mode in AI-authored code.
+
+### Memory as a compressed, forward-only program
+
+Generalization is compression: a trained network stores the regularities of its training distribution as a short program, not as a table (this is the same compressibility axis as [Two Domains of Tasks](#two-domains-of-tasks), seen from the memory side rather than the task side). The decisive point is that the compression is **implicit**. There is no materialized list of "what the model knows" anywhere in the weights — there is a function that, run forward, evaluates a learned mapping at one point.
+
+That makes the model a *point-query engine*. It computes a forward map cheaply, in one pass. It does not compute the **inverse**, and it does not **enumerate**. "Given this output, what inputs produce it" and "list all the cases/behaviors of kind X" are not forward evaluations — they are an inversion or a scan over a materialized, navigable extent, and no such extent exists. The partition a network induces over its input space is never written down; it is only ever evaluated. A database has an index you can walk; a model has a function you can call.
+
+> A model answers *what is f at this point*. It cannot answer *enumerate the domain* or *invert f* — those require a materialized extent the architecture does not build. This is not a gap scale closes; it is a property of storing knowledge as a compressed forward function instead of as an index.
+
+### Two kinds of gap
+
+When a model emits an incomplete artifact — an implementation that handles a feature's common cases and silently drops the rest — the omissions fall into two structurally different classes, and distinguishing them is the whole game.
+
+- **OOD gap.** The relevant mass never formed. The training distribution lacked the case, generalization did not bridge it, so there is no learned function to evaluate there. Closing it requires *new external content* — genuine acquisition.
+- **InD gap.** The mass is present — the model "knows" the case, in the operational sense that when the case is placed in front of it, it handles it immediately and correctly — but it was not emitted, because emitting it would have required *enumerating* the feature's full set of sub-behaviors, and enumeration is the one operation the model does not have. The knowledge is in-distribution but not self-listable.
+
+The InD gap is the surprising and expensive one: the deficiency is not knowledge but *access*. And before the case is probed, **OOD and InD gaps are indistinguishable from the outside** — both present as "the model silently did not do X." Which regime you are in is knowable only after probing.
+
+This is precisely the static shadow of the dynamical [InD vs OoD](#ind-vs-ood-the-native-coordinate-system) picture. "Basins form around InD examples, and the InD region is a constellation of islands" is the same fact as "the mass exists, but the forward dynamics started from an ordinary prompt contract toward the modal basin and never visit the island." The case is reachable — but only if something *leads* the trajectory there. **"Models need to be led through the basin landscape" (dynamical) and "localization must come from outside" (information-theoretic) are one statement in two vocabularies.**
+
+### Generation is not verification
+
+Producing a complete artifact means committing to one trajectory out of an astronomically branching space *and* allocating effort correctly across thousands of sub-behaviors with no internal signal for which deserves attention next — so the model spreads effort and leaves uniform shallow gaps. Verifying or repairing a *specific* flagged case is conditioned on a near-complete specification of the answer (the failing example pins the expected behavior; the surrounding code pins the structure), so its conditional entropy is small and the model does it fluently. Checking-given-a-witness is cheap; producing-and-covering is not — the same asymmetry that separates recognizing a solution from finding one.
+
+Two corollaries look like paradoxes until the asymmetry is in hand:
+
+- **Self-written tests route around the model's own gaps.** A test the model writes is drawn from the same compressed model of the feature that produced the implementation; it exercises exactly the subset that was implemented. The gap lives in the *complement* of that shared model — and you cannot write a test for what lies outside your model of the feature. The artifact's blind spot and its self-test's blind spot coincide.
+- **"Ask the model to check its own work" does not surface InD gaps.** The check is generated from the same distribution as the artifact, with the same coverage bias. Confidence is a property of being-in-a-basin, not of being-complete; the model's "looks done" is itself a generated completion under the identical shallow-coverage pressure.
+
+### Why this cannot be fixed from inside
+
+You might hope to materialize the model's InD knowledge by sampling it exhaustively — drive the forward map until everything it knows has been seen, then store *that* as an enumerable extent. In the limit this is possible. It is also intractable, for a principled reason: InD gaps live in the low-probability tail (that is *why* they were not emitted), surfacing an item of probability ε costs ~1/ε draws, and the gaps are spread over exponentially many such tail regions. Sampling-to-enumerate is brute-force inversion; it re-incurs exactly the exponential the missing inverse operator imposed. It is also cheap precisely where it is useless (the modal output you already get) and astronomically expensive precisely where you need it (the rare tail). And even unbounded sampling yields the support only in the limit, with no stopping rule and no completeness certificate — you never know whether the whole tail has been seen.
+
+Nor can the deficiency be *offloaded* the way arithmetic is. Offloading works when the missing function's domain is **external** to the model: arithmetic is over numbers, numbers live outside, hand it to a calculator. "Enumerate what the model knows" is a function whose domain *is the model*. You cannot offload a function over X to a party with no access to X — and only the model has access to its own learned extent, while it is exactly the architecture that cannot scan it. The deficit and the data coincide inside the model. This is not a missing *capability* (offloadable) but a missing *reflexive* operation (not offloadable in principle).
+
+> The model cannot enumerate its own knowledge, and no amount of self-querying makes it. If the model cannot list what it does not know, the list must come from outside. That single consequence drives the development methodology in [Coding Tasks](coding-tasks.md).
+
 ## What Cannot Be Assumed About Models
 
 A few negative claims, useful to keep in mind whenever the temptation to "just have the model do it" appears:
@@ -155,5 +195,6 @@ A few negative claims, useful to keep in mind whenever the temptation to "just h
 - Models do not know when they are wrong. There is no internal signal correlated with correctness on high-compressible tasks; confidence is shaped by surface plausibility, not by truth.
 - Models do not generalize cleanly out of distribution. Adversarial inputs, novel domain combinations, and tasks that "look like" but differ from training tasks all degrade quietly.
 - Models cannot enforce invariants. Anything the platform requires to be invariant must be enforced *by the platform*, not relied on from the model.
+- Models cannot enumerate their own knowledge. They can evaluate what they know at a point, but cannot list it. Any set of cases that must be covered has to be supplied and checked from outside; the model has no operation that scans its own extent, and self-sampling cannot stand in for one (see [The Information-Theoretic View of Model Memory](#the-information-theoretic-view-of-model-memory)).
 
 Each of these is reflected in the requirements that follow.

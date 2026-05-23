@@ -1192,8 +1192,14 @@ namespace logos::compiler {
 inline std::string_view bare_fn_name(std::string_view nm) noexcept {
     if (auto p = nm.find("__f__"); p != std::string_view::npos) nm = nm.substr(0, p);
     else if (auto p = nm.find("__g__"); p != std::string_view::npos) nm = nm.substr(0, p);
-    // Strip free-fn pkg prefix (`pkg$base`).
-    if (auto d = nm.find('$'); d != std::string_view::npos) {
+    // Strip free-fn pkg prefix (`pkg$base`, pkg may have inner dots like
+    // `logos.lang.cmp$error`). Guards:
+    //   - `$Gn` generic-args marker (`Vec$G1$i64`) — not a pkg separator.
+    //   - a `$` at position 0, OR immediately preceded by `.` (`fp.$fnptr$2`):
+    //     that `$` STARTS a method's type name (`$fnptr$N`/`$tuple$N`/`$slice$…`)
+    //     after the method-pkg dot — NOT a free-fn pkg-base separator. Without
+    //     this guard the strip ate the leading `$` (G149-6 bug).
+    if (auto d = nm.find('$'); d != std::string_view::npos && d > 0 && nm[d - 1] != '.') {
         bool is_generic_marker = (d + 2 < nm.size()
                                   && nm[d + 1] == 'G'
                                   && nm[d + 2] >= '0' && nm[d + 2] <= '9');

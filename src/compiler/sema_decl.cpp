@@ -1220,6 +1220,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                 }
             }
+        } else if (code_of(tnode) == la::FN_PTR_TYPE) {
+            // G149-6: parallel to sema_collect — fn-pointer impl target keyed
+            // by arity (`$fnptr$N`); type-erased to a uniform pointer.
+            auto resolved = resolve_type(tnode);
+            target_resolved = resolved;
+            target = "$fnptr$" + std::to_string(TypeRef(resolved).closure_params().size());
         } else {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             // Unfold type aliases: `type ObjectArray = Array<AnyVal>;` makes
@@ -1492,12 +1498,18 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     TypeRef _saved_tuple_self = nullptr;
     bool _had_tuple_self = false;
     if (target_resolved &&
-        TypeRef(target_resolved).kind() == LogosType::Kind::Tuple) {
+        (TypeRef(target_resolved).kind() == LogosType::Kind::Tuple ||
+         TypeRef(target_resolved).kind() == LogosType::Kind::FnPtr)) {
         _had_tuple_self = current_type_params_.count("Self") > 0;
         if (_had_tuple_self) _saved_tuple_self = current_type_params_["Self"];
         current_type_params_["Self"] = target_resolved;
         _restore_tuple_self = true;
     }
+    // G149-6: a fn-ptr is type-erased to a uniform pointer, so its methods emit
+    // ONCE non-generic — clear impl_type_params_ so lower_fn doesn't make a
+    // never-instantiated generic template. (Cleared again at teardown.)
+    if (target.rfind("$fnptr$", 0) == 0)
+        impl_type_params_.clear();
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
         // Phase A.2: doc-line sweep — pending_doc_ primes the next lower_fn.

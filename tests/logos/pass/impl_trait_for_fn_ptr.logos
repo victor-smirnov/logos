@@ -1,0 +1,20 @@
+package impl_trait_for_fn_ptr;
+// G149-6: `impl<A,B,C> Trait for fn(A,B)->C` — implementing a trait on a bare
+// fn-pointer type. The fn-ptr is type-erased to a uniform pointer, so the
+// method emits ONCE (non-generic, keyed `$fnptr$N__method`); the fn-ptr Self is
+// mangled to its arity-only form so emit + dispatch agree.
+trait MyTrait { fn foo(self: &Self) -> i64; }
+impl<A, B, C> MyTrait for fn(A, B) -> C { fn foo(self: &Self) -> i64 { return 42; } }
+trait Apply { fn run(self: &Self) -> i64; }
+impl<A, R> Apply for fn(A) -> R { fn run(self: &Self) -> i64 { return 7; } }
+fn bar<T: MyTrait>(t: &T) -> i64 { return t.foo(); }
+fn use1<T: Apply>(t: &T) -> i64 { return t.run(); }
+fn thing(a: i64, b: i64) -> i64 { return a + b; }
+fn one(x: i64) -> i64 { return x; }
+fn main() -> i64 {
+    let f2: fn(i64, i64) -> i64 = thing;
+    let f1: fn(i64) -> i64 = one;
+    if bar(&f2) != 42 { return 1; }       // inferred bound (no turbofish)
+    if use1(&f1) != 7 { return 2; }
+    return 0;
+}

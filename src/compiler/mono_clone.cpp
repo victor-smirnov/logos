@@ -2967,6 +2967,32 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     else if (has(concrete_n))    cname = concrete_n;
                     else if (has("$tuple$variadic")) cname = "$tuple$variadic";
                 }
+                // G149-6: fn-pointer receiver — `impl<A,B,C> Trait for fn(A,B)->C`
+                // registered the method under `$fnptr$N` (arity). Map a
+                // `fn(...)->R` receiver to that key (mirrors the tuple sentinel).
+                {
+                    TypeRef fnptr_rt = rt;
+                    if (fnptr_rt && (TypeRef(fnptr_rt).kind() == LogosType::Kind::Ptr ||
+                                     TypeRef(fnptr_rt).kind() == LogosType::Kind::Ref ||
+                                     TypeRef(fnptr_rt).kind() == LogosType::Kind::MutRef) &&
+                        TypeRef(fnptr_rt).pointee())
+                        fnptr_rt = TypeRef(fnptr_rt).pointee();
+                    if (TypeRef(fnptr_rt).kind() == LogosType::Kind::FnPtr &&
+                        (cname.empty() || cname == type_str(rt) ||
+                         (TypeRef(rt).pointee() && cname == type_str(TypeRef(rt).pointee())))) {
+                        std::string k = "$fnptr$" +
+                            std::to_string(TypeRef(fnptr_rt).closure_params().size());
+                        std::string fn = k + "__" + method;
+                        bool exists = templates_.count(fn) || specs_.count(fn);
+                        if (!exists) {
+                            std::string p = fn + "__";
+                            for (auto& [kn, _] : templates_) if (kn.rfind(p, 0) == 0 || kn.find("." + p) != std::string::npos) { exists = true; break; }
+                            if (!exists) for (auto& f : in_.functions)  { auto t = bare_fn_name(f->name); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
+                            if (!exists) for (auto& f : out_.functions) { auto t = bare_fn_name(f->name); if (t == fn || t.rfind(p,0)==0) { exists = true; break; } }
+                        }
+                        if (exists) cname = k;
+                    }
+                }
                 if (cname.empty()) cname = type_str(rt);
                 if (cname == "&[u8]") cname = "str";
                 // Trait-aware method mangling: when sema flagged this dispatch

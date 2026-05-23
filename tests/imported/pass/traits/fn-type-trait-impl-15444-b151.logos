@@ -1,0 +1,12 @@
+package fn_type_trait_impl_15444_b151;
+// Faithful port of rustc tests/ui/traits/fn-type-trait-impl-15444.rs.
+// G149-6: `impl<A,B,C> MyTrait for fn(A,B)->C` + dispatch through `T: MyTrait`.
+// isize→i64; assert/`thing` body kept; foo returns a marker checked as exit 0.
+trait MyTrait { fn foo(self: &Self) -> i64; }
+impl<A, B, C> MyTrait for fn(A, B) -> C { fn foo(self: &Self) -> i64 { return 0; } }
+fn bar<T: MyTrait>(t: &T) -> i64 { return t.foo(); }
+fn thing(a: i64, b: i64) -> i64 { return a + b; }
+fn main() -> i64 {
+    let thing: fn(i64, i64) -> i64 = thing;
+    return bar(&thing);
+}
