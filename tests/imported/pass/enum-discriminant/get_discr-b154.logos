@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/get_discr.rs
+// Modifications: the upstream test stresses `codegen_get_discr` over enums with 254
+//   explicit `#[repr]`-typed variants; the essence we keep is the GENERIC payload-carrying
+//   enum E<X> and that matching A(_)/B/C returns the right arm regardless of X's payload
+//   type. `#[repr]` dropped (Logos enums have no repr attr). The giant 254-variant repr
+//   enums X1..X4 are replaced by a small struct payload + a bool payload + an i64 payload
+//   to keep the multi-type matrix without the unbounded variant list. assert_eq!→returns.
+// Tests: a generic enum E<X> with one payload variant A(X) and two unit variants B/C is
+//   matched correctly across several distinct X (struct, bool, i64).
+package get_discr_b154;
+
+struct Wrap { v: i64 }
+
+enum E<X> {
+    A(X),
+    B,
+    C,
+}
+
+fn match_e_w(e: E<Wrap>) -> u8 {
+    match e { E::A(_) => 0u8, E::B => 1u8, E::C => 2u8 }
+}
+fn match_e_b(e: E<bool>) -> u8 {
+    match e { E::A(_) => 0u8, E::B => 1u8, E::C => 2u8 }
+}
+fn match_e_i(e: E<i64>) -> u8 {
+    match e { E::A(_) => 0u8, E::B => 1u8, E::C => 2u8 }
+}
+
+fn main() -> i32 {
+    if match_e_w(E::A(Wrap { v: 7i64 })) != 0u8 { return 1i32; }
+    if match_e_w(E::<Wrap>::B) != 1u8 { return 2i32; }
+    if match_e_w(E::<Wrap>::C) != 2u8 { return 3i32; }
+
+    if match_e_b(E::A(true)) != 0u8 { return 4i32; }
+    if match_e_b(E::A(false)) != 0u8 { return 5i32; }
+    if match_e_b(E::<bool>::B) != 1u8 { return 6i32; }
+    if match_e_b(E::<bool>::C) != 2u8 { return 7i32; }
+
+    if match_e_i(E::A(99i64)) != 0u8 { return 8i32; }
+    if match_e_i(E::<i64>::B) != 1u8 { return 9i32; }
+    if match_e_i(E::<i64>::C) != 2u8 { return 10i32; }
+    return 0i32;
+}

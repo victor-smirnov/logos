@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-uninhabited-enum.rs
+// Modifications: local distilled-drop `trait Drop`. An empty (zero-variant, uninhabited)
+//   enum that has a Drop impl + a fn that takes it by value must compile (the fn is never
+//   callable). `pub fn main(){}` → `fn main()->i32 { return 0; }`.
+// Tests: a zero-variant enum with a Drop impl and a by-value consumer fn type-checks and
+//   the program links + runs (empty main).
+package drop_uninhabited_enum_b154;
+
+trait Drop { fn drop(self: Self); }
+
+enum Foo {}
+
+impl Drop for Foo { fn drop(self: Foo) {} }
+
+fn foo(x: Foo) {}
+
+fn main() -> i32 { return 0i32; }

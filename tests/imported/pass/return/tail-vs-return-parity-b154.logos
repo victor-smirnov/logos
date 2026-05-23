@@ -1,0 +1,44 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/nested-return-drop-order.rs (tail/return-parity portion)
+// Modifications: the headline nested-`return`-in-subexpression part was DROPPED
+//   (Logos miscompiles `return` in argument/field position — see B154 notes G154-1);
+//   the surviving portion exercises tail-expr vs explicit-`return` parity across plain
+//   and Result-returning fns + trait default methods. Box/derive stripped; isize→i64;
+//   uses logos.lang.result.
+// Tests: a fn body's last expression (tail) and an explicit `return` produce the same
+//   value, for plain i64 and Result<i64,i64>, including inside trait default methods.
+package tail_vs_return_parity_b154;
+
+use logos.lang.result;
+
+fn aa() -> i64 { return 3i64; }
+fn bb() -> i64 { 3i64 }
+fn cc() -> Result<i64, i64> { Ok(3i64) }
+fn dd() -> Result<i64, i64> { return Ok(3i64); }
+
+trait A {
+    fn aaa(self: &Self) -> i64 { 3i64 }
+    fn bbb(self: &Self) -> i64 { return 3i64; }
+    fn ccc(self: &Self) -> Result<i64, i64> { Ok(3i64) }
+    fn ddd(self: &Self) -> Result<i64, i64> { return Ok(3i64); }
+}
+
+struct B {}
+impl A for B {}
+
+fn unwrap_ok(r: Result<i64, i64>) -> i64 {
+    match r { Ok(v) => v, Err(e) => e }
+}
+
+fn main() -> i32 {
+    if aa() != 3i64 { return 1i32; }
+    if bb() != 3i64 { return 2i32; }
+    if unwrap_ok(cc()) != 3i64 { return 3i32; }
+    if unwrap_ok(dd()) != 3i64 { return 4i32; }
+    let b = B {};
+    if b.aaa() != 3i64 { return 5i32; }
+    if b.bbb() != 3i64 { return 6i32; }
+    if unwrap_ok(b.ccc()) != 3i64 { return 7i32; }
+    if unwrap_ok(b.ddd()) != 3i64 { return 8i32; }
+    return 0i32;
+}

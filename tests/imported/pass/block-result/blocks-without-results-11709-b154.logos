@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/block-result/blocks-without-results-11709.rs
+// Modifications: the upstream test exercises blocks in odd positions whose value the
+//   compiler must thread correctly. The `()`-typed cases (`let _r: () = {}`, `S{x:()}` with
+//   a unit field, `Some(mut a) => { let _a = a(); }`) are reshaped to i64-valued forms
+//   (Logos has no first-class `()` value here): a struct field initialized from a BLOCK
+//   whose tail is a value, with an observable side effect; plus the `not(true)` fn whose
+//   else-branch diverges via `panic!` upstream (reshaped to a plain bool return). isize→i64.
+// Tests: a struct field initialized from a block expression `S { x: { side(p); 5 } }`
+//   runs the block's side effect and binds the tail value (5); a fn whose if-branch
+//   negates and else-branch returns a bool works.
+package blocks_without_results_11709_b154;
+
+struct S { x: i64 }
+
+fn not(b: bool) -> bool {
+    if b { return !b; } else { return true; }
+}
+
+fn side(slot: *mut i64) {
+    unsafe { *slot = *slot + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let p = &mut n as *mut i64;
+    let s: S = S { x: { side(p); 5i64 } };
+    if s.x != 5i64 { return 1i32; }
+    unsafe { if *p != 1i64 { return 2i32; } }
+    if not(true) { return 3i32; }
+    if !not(false) { return 4i32; }
+    return 0i32;
+}

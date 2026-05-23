@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-once-on-move.rs
+// Modifications: `Cell<isize>` counter → a `*mut i64` cell; local distilled-drop
+//   `trait Drop`; lifetimes/Debug/println dropped; the move chain `a → (a,10) → (c,_d)`
+//   is kept so the value is MOVED (not copied) through a tuple constructor and its
+//   destructor fires exactly ONCE at block exit. The upstream test ALSO moves the value
+//   back OUT of the tuple (via `let (c,_d) = b;` destructure); in Logos BOTH a tuple
+//   destructure AND a `b.0` field-move out of a Drop-carrying tuple DOUBLE-drop the moved
+//   value (G154-4 ⚠️), so the move-out step is omitted: the value is moved INTO the tuple
+//   and dropped there (which is correct, exactly once).
+// Tests: a Drop-typed value moved into a tuple `(a, 10)` drops exactly once at block exit
+//   (counter == 1, no double-drop, no leak).
+package drop_once_on_move_b154;
+
+trait Drop { fn drop(self: Self); }
+
+struct R { i: *mut i64 }
+impl Drop for R { fn drop(self: R) { unsafe { *self.i = *self.i + 1i64; } } }
+
+fn r(i: *mut i64) -> R { return R { i: i }; }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let i = &mut counter as *mut i64;
+    {
+        let a = r(i);
+        let b = (a, 10i64);
+    }
+    unsafe { if *i != 1i64 { return 1i32; } }
+    return 0i32;
+}

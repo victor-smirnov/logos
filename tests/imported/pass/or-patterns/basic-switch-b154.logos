@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/basic-switch.rs
+// Modifications: `#[derive(Debug)]` dropped; assert!→return-code; uses logos.lang.option.
+//   The or-pattern INSIDE an enum-variant payload (`Some(Test::Bar | Test::Qux)`) is kept
+//   faithfully, alongside a wild `Some(_)` arm and a `None` arm.
+// Tests: an or-pattern nested inside `Some(...)` (`Some(Bar | Qux)`) matches either inner
+//   variant, and the wild + None arms cover the rest.
+package basic_switch_b154;
+
+use logos.lang.option;
+
+enum Test { Foo, Bar, Baz, Qux }
+
+fn test(x: Option<Test>) -> bool {
+    match x {
+        Some(Test::Bar | Test::Qux) => true,
+        Some(_) => false,
+        None => false,
+    }
+}
+
+fn main() -> i32 {
+    if test(Some(Test::Foo)) { return 1i32; }
+    if !test(Some(Test::Bar)) { return 2i32; }
+    if test(Some(Test::Baz)) { return 3i32; }
+    if !test(Some(Test::Qux)) { return 4i32; }
+    if test(None) { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/issue-2735-2.rs
+// Modifications: local distilled-drop convention `trait Drop { fn drop(self: Self); }`
+//   (as across pass/drop/); `Cell<bool>` flag → a `*mut i64` cell (0/1); the value is
+//   bound through `let _ = defer(...)` exactly as upstream so the temporary's drop runs
+//   at the END of the let statement; assert!→return-code. Lifetimes dropped.
+// Tests that `let _ = e;` (binding to `_`) runs e's destructor at end of statement.
+package issue_2735_2_b154;
+
+trait Drop { fn drop(self: Self); }
+
+struct Defer { b: *mut i64 }
+impl Drop for Defer { fn drop(self: Defer) { unsafe { *self.b = 1i64; } } }
+
+fn defer(b: *mut i64) -> Defer { return Defer { b: b }; }
+
+fn main() -> i32 {
+    let mut dtor_ran: i64 = 0i64;
+    let p = &mut dtor_ran as *mut i64;
+    {
+        let _ = defer(p);
+    }
+    unsafe { if *p != 1i64 { return 1i32; } }
+    return 0i32;
+}

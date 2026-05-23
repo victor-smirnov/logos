@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-trait-enum.rs
+// Modifications: the upstream test exercises Drop on an ENUM with payload-carrying
+//   variants, observing the order via an mpsc channel across threads. Logos has no
+//   mpsc/threads here, so the observable channel is replaced by a `*mut i64` counter
+//   and only the single-thread, in-scope drop cases are kept (threads/panic variant
+//   dropped). The enum `Drop` impl matches `&Self` and writes the counter; nested
+//   SendOnDrop's own Drop is also observed. local distilled-drop `trait Drop`.
+// Tests: Drop impl on an enum, dispatched by variant inside the drop body via
+//   `match self { ... }`; nested field with its own Drop also runs.
+package drop_trait_enum_b154;
+
+trait Drop { fn drop(self: Self); }
+
+struct SendOnDrop { c: *mut i64 }
+impl Drop for SendOnDrop { fn drop(self: SendOnDrop) { unsafe { *self.c = *self.c + 100i64; } } }
+
+enum Foo {
+    Simple(*mut i64),
+    Nested(SendOnDrop, *mut i64),
+}
+
+impl Drop for Foo {
+    fn drop(self: Foo) {
+        match self {
+            Foo::Simple(c) => { unsafe { *c = *c + 1i64; } }
+            Foo::Nested(s, c) => { unsafe { *c = *c + 1i64; } }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let c = &mut n as *mut i64;
+    {
+        let v = Foo::Simple(c);
+    }
+    unsafe { if *c != 1i64 { return 1i32; } }
+
+    let mut n2: i64 = 0i64;
+    let c2 = &mut n2 as *mut i64;
+    {
+        let v = Foo::Nested(SendOnDrop { c: c2 }, c2);
+    }
+    // Foo::drop adds 1, SendOnDrop::drop adds 100
+    unsafe { if *c2 != 101i64 { return 2i32; } }
+    return 0i32;
+}

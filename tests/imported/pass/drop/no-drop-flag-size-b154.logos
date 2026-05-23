@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/no-drop-flag-size.rs
+// Modifications: Rust `size_of::<T>()` → Logos `sizeof::<T>()` (metacall leaf, per the
+//   mem coretest convention); local distilled-drop `trait Drop`; isize→i64.
+// Tests: a generic struct Test<T> { a: T } with a Drop impl has the SAME size as T
+//   alone (no hidden drop-flag field is added) — here sizeof::<Test<i64>>() ==
+//   sizeof::<i64>().
+package no_drop_flag_size_b154;
+
+trait Drop { fn drop(self: Self); }
+
+struct Test<T> { a: T }
+impl<T> Drop for Test<T> { fn drop(self: Test<T>) {} }
+
+fn main() -> i32 {
+    if sizeof::<i64>() != sizeof::<Test<i64>>() { return 1i32; }
+    return 0i32;
+}

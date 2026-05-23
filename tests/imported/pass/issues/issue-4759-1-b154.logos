@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-4759-1.rs
+// Modifications: `isize`→`i64`; `&self`→`self:Self` (by-value self per the upstream
+//   `fn f(self)`); the method returns a value so the call is observable (upstream's `f`
+//   was empty); `4.f()`→`4i64.f()`. `pub fn main()`→`fn main()->i32`.
+// Tests: a user trait method implemented `for i64` is callable on an integer LITERAL
+//   receiver (`4i64.f()`), with by-value `self`.
+package issue_4759_1_b154;
+
+trait U { fn f(self: Self) -> i64; }
+impl U for i64 { fn f(self: i64) -> i64 { return self * 2i64; } }
+
+fn main() -> i32 {
+    if 4i64.f() != 8i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/field-replace-in-struct-with-drop.rs
+// Modifications: tuple-struct `Foo(String)` → named-field `Foo { s: String }`; `f.0 = ..`
+//   → `f.s = ..`; local distilled-drop `trait Drop`; both inline-replacement (field set
+//   directly) and outline-replacement (field set from a prior local) cases kept. The point:
+//   assigning a NEW value to a field of a struct whose type has a Drop impl is allowed (the
+//   old field value is replaced, the whole struct's Drop still runs at scope exit).
+//   uses logos.mem.string.
+// Tests: replacing a String field of a Foo (which has a Drop impl) — inline and from a
+//   moved-in local — leaves the field with the new value and does not error.
+package field_replace_in_struct_with_drop_b154;
+
+use logos.mem.string;
+
+trait Drop { fn drop(self: Self); }
+
+struct Foo { s: String }
+impl Drop for Foo { fn drop(self: Foo) {} }
+
+fn test_inline_replacement() -> bool {
+    let mut f = Foo { s: String::from("foo") };
+    f.s = String::from("bar");
+    return f.s == String::from("bar");
+}
+
+fn test_outline_replacement() -> bool {
+    let s = String::from("foo");
+    let mut f = Foo { s: s };
+    f.s = String::from("bar");
+    return f.s == String::from("bar");
+}
+
+fn main() -> i32 {
+    if !test_inline_replacement() { return 1i32; }
+    if !test_outline_replacement() { return 2i32; }
+    return 0i32;
+}

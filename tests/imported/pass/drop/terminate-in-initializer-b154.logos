@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/terminate-in-initializer.rs
+// Modifications: `Box<isize>` → i64; the `panic!()` / panic-indirect (`-> !` fn) cases
+//   dropped (no panic/thread harness); the `let _x = return;` case dropped because a bare
+//   `return` in an initializer position is not recognized as diverging in Logos ("not all
+//   paths return" — same G154-2 family as artificial-block). The `break` and `continue`
+//   divergent-initializer cases are kept faithfully. isize→i64; assert→sentinel return.
+// Tests: `let _x: i64 = break;` (inside a loop) and `let _x: i64 = continue;` (inside a
+//   while) are accepted — the divergent initializer never binds, control leaves the loop.
+package terminate_in_initializer_b154;
+
+fn test_break() -> i64 {
+    let n: i64 = 0i64;
+    loop { let _x: i64 = break; }
+    return n;
+}
+
+fn test_cont() -> i64 {
+    let mut i: i64 = 0i64;
+    while i < 1i64 {
+        i = i + 1i64;
+        let _x: i64 = continue;
+    }
+    return i;
+}
+
+fn main() -> i32 {
+    if test_break() != 0i64 { return 1i32; }
+    if test_cont() != 1i64 { return 2i32; }
+    return 0i32;
+}

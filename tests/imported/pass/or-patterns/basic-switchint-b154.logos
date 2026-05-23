@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/basic-switchint.rs
+// Modifications: `#[derive]` dropped; the MatchArm result enum collapsed to an i64 code;
+//   the `@`-binding-inside-payload + tuple-payload range or-patterns are reshaped to the
+//   forms Logos supports (an `@`-binding inside an enum-variant payload is unsupported —
+//   G154-7); a pure-LITERAL or-pattern inside a single-element payload works (`One(42|255)`),
+//   but a RANGE or-pattern in a payload (`One(100 | 110..=120)`) and an or-pattern in a
+//   MULTI-field payload (`Two(42|255, 1024|2048)`) are also unsupported (G154-8), so those
+//   are expressed at the top level instead. usize→i64; assert_eq!→sentinel.
+// Tests: top-level or-patterns across distinct variant constructors (`One(0)|One(1)|One(2)`)
+//   and a single-payload literal or-pattern `One(42 | 255)` select correctly.
+package basic_switchint_b154;
+
+enum Foo { One(i64), Two(i64, i64) }
+
+fn test_foo(x: Foo) -> i64 {
+    match x {
+        Foo::One(0i64) | Foo::One(1i64) | Foo::One(2i64) => 0i64,
+        Foo::One(42i64 | 255i64) => 1i64,
+        Foo::Two(42i64, 1024i64) | Foo::Two(255i64, 2048i64) => 2i64,
+        Foo::Two(a, _) => a + 4i64,
+        Foo::One(n) => n + 100i64,
+    }
+}
+
+fn main() -> i32 {
+    if test_foo(Foo::One(0i64)) != 0i64 { return 1i32; }
+    if test_foo(Foo::One(2i64)) != 0i64 { return 2i32; }
+    if test_foo(Foo::One(42i64)) != 1i64 { return 3i32; }
+    if test_foo(Foo::One(255i64)) != 1i64 { return 4i32; }
+    if test_foo(Foo::Two(42i64, 1024i64)) != 2i64 { return 5i32; }
+    if test_foo(Foo::Two(255i64, 2048i64)) != 2i64 { return 6i32; }
+    if test_foo(Foo::Two(5i64, 999i64)) != 9i64 { return 7i32; }
+    if test_foo(Foo::One(7i64)) != 107i64 { return 8i32; }
+    return 0i32;
+}

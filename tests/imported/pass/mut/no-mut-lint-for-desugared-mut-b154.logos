@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mut/no-mut-lint-for-desugared-mut.rs
+// Modifications: upstream is a lint test (`#![deny(unused_mut)]`) whose body is a
+//   `for _ in { return (); 0..3 } {}` — the for-loop's iterator expression is a block.
+//   Logos rejects an inline block as a `for` iterator expression (parse error — G154-3),
+//   and the `return ();` portion is unit-return (not kept), so the surviving essence is:
+//   a `for` over a range bound through a block-valued `let` iterates correctly.
+//   uses logos.lang.range.
+// Tests: a `for` loop over a range produced by a block expression runs the body.
+package no_mut_lint_for_desugared_mut_b154;
+
+use logos.lang.range;
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    let r = { 0i64..3i64 };
+    for x in r {
+        sum = sum + x;
+    }
+    if sum != 3i64 { return 1i32; }
+    return 0i32;
+}

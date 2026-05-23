@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-35423.rs
+// Modifications: the match arms' `println!` side effects → distinct i64 return values so
+//   each arm is observable; `ref r if *r < 0` guard + `e @ 1..=100` inclusive-range
+//   binding + catch-all are kept faithfully. isize→i64.
+// Tests: a match with a `ref r if <guard>` arm, an `e @ 1..=100` inclusive-range binding
+//   arm, and a `_` catch-all selects the correct arm for negative / in-range / out-of-range
+//   inputs.
+package issue_35423_b154;
+
+fn classify(x: i64) -> i64 {
+    match x {
+        ref r if *r < 0i64 => -1i64,
+        e @ 1i64..=100i64 => e,
+        _ => 0i64,
+    }
+}
+
+fn main() -> i32 {
+    if classify(-5i64) != -1i64 { return 1i32; }
+    if classify(1i64) != 1i64 { return 2i32; }
+    if classify(50i64) != 50i64 { return 3i32; }
+    if classify(100i64) != 100i64 { return 4i32; }
+    if classify(200i64) != 0i64 { return 5i32; }
+    if classify(0i64) != 0i64 { return 6i32; }
+    return 0i32;
+}

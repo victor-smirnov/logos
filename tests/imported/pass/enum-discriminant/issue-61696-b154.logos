@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-61696.rs
+// Modifications: the upstream test guards against a niche-encoding miscalc by stuffing a
+//   256-variant generic enum E2<X>; the kept core is the E1 case: a struct-variant carrying
+//   a `bool` field, an uninhabited-payload variant, plus two unit variants — matching the
+//   uninhabited-payload variant `V2 { .. }` must NOT misfire for a valid `V1 { f: true }`
+//   value (the original niche bug interpreted V1 as another variant). `#[inline(never)]`
+//   dropped; assert_eq!→sentinel.
+// Tests: an enum with a bool-payload struct-variant, an uninhabited-payload variant, and
+//   two unit variants discriminates correctly (V1/V3/V4 all match `_`, not `V2{..}`).
+package issue_61696_b154;
+
+enum Infallible {}
+
+enum E1 {
+    V1 { f: bool },
+    V2 { f: Infallible },
+    V3,
+    V4,
+}
+
+fn match_e1(y: E1) -> u8 {
+    match y {
+        E1::V2 { .. } => 1u8,
+        _ => 0u8,
+    }
+}
+
+fn main() -> i32 {
+    if match_e1(E1::V1 { f: true }) != 0u8 { return 1i32; }
+    if match_e1(E1::V1 { f: false }) != 0u8 { return 2i32; }
+    if match_e1(E1::V3) != 0u8 { return 3i32; }
+    if match_e1(E1::V4) != 0u8 { return 4i32; }
+    return 0i32;
+}

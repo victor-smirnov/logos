@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/weird-exprs.rs (portable subset)
+// Modifications: the upstream file is a grab-bag of pathological expressions, most of
+//   which use features Logos lacks (coroutines, unicode idents, unit `()` values, macros,
+//   `..` range-as-Debug). The portable subset kept here exercises deeply NESTED `match`
+//   scrutinees and an `if`-chain inside a `match` guard, returning i64 sentinels instead
+//   of `()`. assert!/assert_eq!→return-code.
+// Tests: a `match match match (...)` chain of nested scrutinees, and a match arm guard
+//   built from a nested `if/else` expression, both evaluate correctly.
+package weird_exprs_b154;
+
+fn nested_match() -> i64 {
+    return match match match match 1i64 {
+        n => n + 1i64,
+    } {
+        n => n + 1i64,
+    } {
+        n => n + 1i64,
+    } {
+        n => n + 1i64,
+    };
+}
+
+fn match_nested_if() -> bool {
+    let val = match 0i64 {
+        _ if if if if true { true } else { false } { true } else { false } { true } else { false } => true,
+        _ => false,
+    };
+    return val;
+}
+
+fn main() -> i32 {
+    if nested_match() != 5i64 { return 1i32; }
+    if !match_nested_if() { return 2i32; }
+    return 0i32;
+}

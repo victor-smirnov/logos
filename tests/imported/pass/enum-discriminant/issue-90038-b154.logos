@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-90038.rs
+// Modifications: `#[repr(u32)]` dropped (Logos enums have no repr); `unreachable!()`
+//   → a distinct return code; the nested-enum-as-payload shape is kept verbatim.
+// Tests: an enum Bar with a payload variant A(Foo) carrying ANOTHER enum value, plus
+//   two const variants B/C, matches A(_) correctly (regression: niche/discriminant calc
+//   over an enum-typed payload + >2 variants).
+package issue_90038_b154;
+
+enum Foo { A }
+
+enum Bar {
+    A(Foo),
+    B,
+    C,
+}
+
+fn main() -> i32 {
+    match Bar::A(Foo::A) {
+        Bar::A(_) => { return 0i32; }
+        Bar::B => { return 1i32; }
+        Bar::C => { return 2i32; }
+    }
+}

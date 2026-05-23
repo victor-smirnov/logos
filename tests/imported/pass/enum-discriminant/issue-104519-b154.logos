@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/issue-104519.rs
+// Modifications: `#[repr(i32)]` + the negative explicit discriminant dropped (Logos
+//   enums have no repr); `()` unit payloads kept; `#[inline(never)]` dropped; assert_eq!
+//   → return-code. The TransportErr payload variant is kept as a nested enum value.
+// Tests: an enum mixing two `()`-payload variants and one nested-enum-payload variant is
+//   matched correctly (regression: discriminant calc over `()` + enum payload mixes).
+package issue_104519_b154;
+
+enum TransportErr { UnknownMethod }
+
+enum OpenResult {
+    Ok2(()),
+    Err2(()),
+    TransportErr2(TransportErr),
+}
+
+fn some_match(result: OpenResult) -> u8 {
+    match result {
+        OpenResult::Ok2(_) => 0u8,
+        _ => 1u8,
+    }
+}
+
+fn main() -> i32 {
+    let result = OpenResult::Ok2(());
+    if some_match(result) != 0u8 { return 1i32; }
+    let e = OpenResult::TransportErr2(TransportErr::UnknownMethod);
+    if some_match(e) != 1u8 { return 2i32; }
+    return 0i32;
+}

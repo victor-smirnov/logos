@@ -1,0 +1,44 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/let-else-run-pass.rs
+// Modifications: the upstream headline NESTS let-else over integer-LITERAL patterns
+//   (`let 4 = x else { let 3 = x else { ... } }`). In Logos a refutable integer-literal
+//   pattern in let-else NEVER refutes (always binds, silently skips the else — G154-5 ⚠️),
+//   so the literal patterns are reshaped to ENUM patterns (Option), which DO refute
+//   correctly: the nested-let-else + loop-counter convergence structure is preserved.
+//   The trailing short-circuit `let Some(1)=Some(2) else {return}` is likewise expressed
+//   with a None vs Some refutation. panic!→sentinel; isize→i64; uses logos.lang.option.
+// Tests: nested `let Some(..) = f(x) else { ... continue }` with a counter converges
+//   (x climbs 1→3); a refuted enum let-else takes the else branch.
+package let_else_run_pass_b154;
+
+use logos.lang.option;
+
+// is_target(x) == Some(()) only when x == target
+fn eq3(x: i64) -> Option<i64> { if x == 3i64 { Some(x) } else { None } }
+fn eq4(x: i64) -> Option<i64> { if x == 4i64 { Some(x) } else { None } }
+
+fn climb() -> i64 {
+    let mut x: i64 = 1i64;
+    loop {
+        let Some(_) = eq4(x) else {
+            let Some(_) = eq3(x) else {
+                x = x + 1i64;
+                continue;
+            };
+            break;
+        };
+        return -1i64;
+    }
+    return x;
+}
+
+fn short_circuit() -> i64 {
+    let Some(_) = eq4(2i64) else { return 0i64; };
+    return -1i64;
+}
+
+fn main() -> i32 {
+    if climb() != 3i64 { return 1i32; }
+    if short_circuit() != 0i64 { return 2i32; }
+    return 0i32;
+}

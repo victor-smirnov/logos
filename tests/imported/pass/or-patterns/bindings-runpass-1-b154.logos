@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/bindings-runpass-1.rs
+// Modifications: the `&((..) , ..)` reference scrutinee → by-value tuple (the borrow is
+//   incidental); the `z @ (0 | 4)` payload-binding-with-or-pattern is unsupported inside a
+//   tuple position (G154-7 family), so the `z` binding + 0/4 test is moved into the arm
+//   body. Kept faithfully: an OR-PATTERN that binds the SAME name `y` on both sides
+//   (`(true, y) | (y, true)`) over a nested tuple. usize→i64; `bool as u8`→`bool as i64`.
+// Tests: an or-pattern over a tuple binding the same name on each alternative
+//   (`(true, y) | (y, true)`) binds `y` consistently and the body computes y+z.
+package bindings_runpass_1_b154;
+
+fn two_bindings(x: ((bool, bool), i64)) -> i64 {
+    match x {
+        ((true, y) | (y, true), z) => {
+            if z == 0i64 || z == 4i64 { return (y as i64) + z; }
+            return 20i64;
+        }
+        _ => 20i64,
+    }
+}
+
+fn main() -> i32 {
+    if two_bindings(((false, false), 0i64)) != 20i64 { return 1i32; }
+    if two_bindings(((false, true), 0i64)) != 0i64 { return 2i32; }
+    if two_bindings(((true, false), 0i64)) != 0i64 { return 3i32; }
+    if two_bindings(((true, true), 0i64)) != 1i64 { return 4i32; }
+    if two_bindings(((false, true), 4i64)) != 4i64 { return 5i32; }
+    if two_bindings(((true, false), 4i64)) != 4i64 { return 6i32; }
+    if two_bindings(((true, true), 4i64)) != 5i64 { return 7i32; }
+    if two_bindings(((false, true), 3i64)) != 20i64 { return 8i32; }
+    return 0i32;
+}
