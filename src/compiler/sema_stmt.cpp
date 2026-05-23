@@ -1187,6 +1187,10 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
     auto blk = lir::alloc_block(*cur_prog_);
     std::string tmp = std::format("__dst_{}", destruct_counter_++);
     define(tmp, rhs_type);
+    // `let __dst = rhs` consumes rhs — mark the source moved (lower_let does
+    // this for a plain `let`; this manual SLet must too, else the source AND
+    // the destructured field bindings both drop the same buffer → double-free).
+    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(*rhs));
     {
         lir::SLet sl;
         sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
@@ -1279,6 +1283,12 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
         }
     };
     emit_destruct(pat_node, tmp, rhs_type);
+    // The destructure moved the struct's fields into the bindings (each field
+    // binding owns the field value, e.g. a String's buffer ptr). The source
+    // temp must NOT also drop those fields at scope exit — that double-frees.
+    // A destructure consumes the whole value, so mark the temp moved (its
+    // scope-exit Drop is suppressed; the field bindings own + drop the data).
+    if (is_move_type(rhs_type)) mark_moved(tmp);
     lir::SBlock sb;
     sb.body = std::move(blk);
     return make_stmt_emit(node_line_, std::move(sb));

@@ -1,0 +1,21 @@
+package let_destructure_move_only_field;
+// `let Struct { a, b } = value` over a struct with a MOVE-ONLY (Drop) field
+// consumes the source: the field bindings own the data, and the source value's
+// scope-exit Drop is suppressed — previously BOTH dropped the same buffer
+// (double-free). Also covers field rename and the i64 (Copy) sibling field.
+use logos.mem.string;
+
+struct Pair { a: String, b: i64 }
+struct Nested { p: Pair, k: i64 }
+
+fn main() -> i64 {
+    let p: Pair = Pair { a: String::from("xy"), b: 3 };
+    let Pair { a, b } = p;                 // a owns the String; p must not re-drop
+    if a.len() + b != 5 { return 1; }
+
+    let q: Pair = Pair { a: String::from("abc"), b: 7 };
+    let Pair { a: s, b: n } = q;            // rename
+    if s.len() + n != 10 { return 2; }
+
+    return 0;
+}
