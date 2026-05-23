@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/iterator-sum-array-15673.rs (issue #15673)
+// Modifications: u64→i64; literals suffixed; assert_eq! → return sentinel;
+//   explicit `use` of the stdlib iter/range/option modules (no prelude here);
+//   the closure body `x[i]` indexes the fixed array (usize index → i64).
+// Tests `(0..N).map(|i| …).sum()` — a `.map(untyped-closure).sum()` over a
+// RANGE source. The closure param `i` must infer its type from the iterator's
+// Item (i64) via the `MapFn: FnMut(Item) -> MapOut` bound. This is G158-12
+// (closed 2026-05-23); previously the param stayed `<error>` → mlir-gen
+// "unknown struct MapIter$…$|<error>| -> …".
+package iterator_sum_array_15673_b158;
+
+use logos.lang.range;
+use logos.lang.iter;
+use logos.lang.option;
+
+fn main() -> i32 {
+    let x: [i64; 3] = [1i64, 2i64, 3i64];
+    let s: i64 = (0i64..3i64).map(|i| -> i64 { return x[i]; }).sum::<i64>();
+    if s != 6i64 { return 1i32; }
+    return 0i32;
+}

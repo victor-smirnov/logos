@@ -6373,11 +6373,59 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     recv_subst[tps[i].name] = TypeRef(rst).type_args()[i];
             }
         }
+        // G158-12: bind the method's owning-trait type-params (e.g.
+        // `Iterator<Item>`) from the receiver's impl, so an Fn-family bound's
+        // arg types (`MapFn: FnMut(Item) -> MapOut`) resolve concretely for the
+        // closure-formal hint. Without this, `(0..4).map(|i| …)` leaves `i`'s
+        // type unresolved (`<error>`) → mlir-gen "unknown struct MapIter…".
+        if (rst && !fi->trait_name.empty()) {
+            std::string recv_bare;
+            if (TypeRef(rst).kind() == LogosType::Kind::Struct ||
+                TypeRef(rst).kind() == LogosType::Kind::ZonedStruct)
+                recv_bare = std::string(TypeRef(rst).struct_name());
+            else if (TypeRef(rst).kind() == LogosType::Kind::Enum)
+                recv_bare = std::string(TypeRef(rst).enum_name());
+            if (!recv_bare.empty()) {
+                auto iit = impls_.find(fi->trait_name + "::" + recv_bare);
+                auto tit = traits_.find(fi->trait_name);
+                if (iit != impls_.end() && tit != traits_.end()) {
+                    auto& tps   = tit->second.type_params;
+                    auto& targs = iit->second.trait_type_args;
+                    for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
+                        if (targs[i] && !recv_subst.count(tps[i].name))
+                            recv_subst[tps[i].name] = targs[i];
+                }
+            }
+        }
         // Skip param[0] (self); return formals for the explicit args.
         for (size_t i = 1; i < fi->param_types.size(); ++i) {
             auto pt = fi->param_types[i];
             if (!recv_subst.empty() && pt)
                 pt = subst_type_sema(pt, recv_subst);
+            // G158-12: an Fn-family-bounded type-param formal (`F: FnMut(Item)
+            // -> R`) carries no closure shape on its own (it's a bare TypeVar).
+            // Synthesize a Closure hint from the bound's signature so an
+            // untyped closure arg (`|i|`) infers its param types from `Item`.
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
+                std::string tvn(TypeRef(pt).type_var_name());
+                for (auto& tp : fi->type_params) {
+                    if (tp.name != tvn) continue;
+                    for (auto& b : tp.bounds) {
+                        if (!b.is_fn_family) continue;
+                        std::vector<TypeRef> cps;
+                        for (auto fp : b.fn_params)
+                            cps.push_back(recv_subst.empty()
+                                          ? fp : subst_type_sema(fp, recv_subst));
+                        TypeRef cret = b.fn_ret
+                            ? (recv_subst.empty() ? b.fn_ret
+                                                  : subst_type_sema(b.fn_ret, recv_subst))
+                            : void_t();
+                        pt = make_closure_type(std::move(cps), cret);
+                        break;
+                    }
+                    break;
+                }
+            }
             out.push_back(pt);
         }
         return out;

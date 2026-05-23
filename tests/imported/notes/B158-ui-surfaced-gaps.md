@@ -169,13 +169,20 @@ references (variance-option-ref-intersection).
   parsed-and-captured but structurally identical to the safe form. Regression
   `pass/typeck/fn-ptr-type-ref-and-unsafe`.
 
-- **G158-12** — `.map(closure).sum()` over a range fails MLIR generation.
-  Repro: `(0i64..4i64).map(|i| -> i64 { return i*2i64; }).sum::<i64>()` →
-  `MLIR generation failed` (a stray `}) : () -> ()` printed). A bare
-  `(0..4).sum()` (no map) works. DROPPED: iterator-sum-array-15673 (map-over-range
-  -then-sum IS its point). NOTE distinct from G150-4 (which covered `Iterator::sum`
-  on plain ranges — that still works); the breakage is `MapIter::sum` over a range
-  source. TRACTABLE-ish: MapIter's `Sum` path emits an ill-typed closure call.
+- **G158-12** ✅ CLOSED (2026-05-23) — `.map(untyped-closure).sum()` over a
+  range now works. Root was NOT MapIter's Sum path but closure-PARAM inference:
+  the `.map(|i| …)` closure param `i` stayed `<error>` (→ mlir-gen "unknown
+  struct MapIter$…$|<error>| -> …"). The `map` formal is a bare type-param
+  `MapFn: FnMut(Item) -> MapOut`, so `preload_formals` produced no closure
+  shape to hint with. Fix (sema_expr.cpp preload_formals): (1) bind the
+  method's owning-trait type-params (`Iterator<Item>`) into `recv_subst` from
+  the receiver's impl (`impls_[Iterator::RangeI64].trait_type_args` →
+  `Item=i64`); (2) when a formal is an Fn-family-bounded type-param, synthesize
+  a `Closure` hint from the bound's `fn_params`/`fn_ret` (substituted) so the
+  untyped closure infers its param types. Generalizes to chained
+  `.map().map().sum()`. Re-imported iterator-sum-array-15673 (issue #15673).
+  (Separate pre-existing limitation, NOT G158-12: `.filter` over a range fails
+  even with an explicitly-typed closure — `'RangeI64' has no method 'filter'`.)
 
 ## Dropped tests (and why)
 
