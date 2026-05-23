@@ -1,0 +1,30 @@
+// Distilled regression for G158-8 (closed 2026-05-23).
+// A body-less trait-method DECLARATION named `new` (a keyword in Logos) with a
+// trailing `where Self: Sized` clause was a parse error: the `KW_FN KW_NEW`
+// grammar alts used a plain `SEMI` while the IDENT alts used `where_clause?
+// SEMI`. Added `where_clause?` to the keyword-named (`new`/`null`) body-less
+// alts. (`fn make() -> Self where Self: Sized;` — an IDENT-named method —
+// already parsed; the failure was specific to the keyword-named form.)
+// Sourced from tests/ui/self/dyn-compatibility-sized-self-return-Self.rs; the
+// full original additionally needs G158-7 (`&mut C` → `&mut dyn`) and G158-9
+// (trait-path `Counter::new()`), so only the where-clause facet is captured.
+package sized_self_new_where_clause_b158;
+
+trait Counter {
+    fn new() -> Self where Self: Sized;
+    fn tick(self: &mut Self) -> i64;
+}
+
+struct CCounter { c: i64 }
+
+impl Counter for CCounter {
+    fn new() -> CCounter { return CCounter { c: 0i64 }; }
+    fn tick(self: &mut Self) -> i64 { self.c = self.c + 1i64; return self.c; }
+}
+
+fn main() -> i32 {
+    let mut c: CCounter = CCounter::new();
+    if c.tick() != 1i64 { return 1i32; }
+    if c.tick() != 2i64 { return 2i32; }
+    return 0i32;
+}

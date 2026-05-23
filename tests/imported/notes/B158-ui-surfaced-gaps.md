@@ -117,13 +117,15 @@ references (variance-option-ref-intersection).
   DROPPED: dyn-compatibility-sized-self-by-value (this unsizing coercion IS its
   point).
 
-- **G158-8** — a `where Self: Sized` clause on a *no-parameter* body-less trait
-  method declaration is a parse error. Repro: `trait C { fn new() -> Self where
-  Self: Sized; }` → `syntax error near 'Self'`. NOTE: the same `where Self: Sized`
-  on a method decl that HAS parameters parses + works fine; the failure is
-  specific to the no-param/`()` declaration form. DROPPED: dyn-compatibility-
-  sized-self-return-Self. TRACTABLE: parser — accept a where-clause after a
-  no-arg method-signature declaration.
+- **G158-8** ✅ CLOSED (2026-05-23) — `fn new() -> Self where Self: Sized;`
+  now parses. The true root was NOT the no-param shape (the original diagnosis)
+  but the method NAME: `new` is a keyword (`KW_NEW`), and the `KW_FN KW_NEW`
+  (and `KW_FN KW_NULL`) body-less grammar alts used a plain `SEMI` while the
+  IDENT-named alts used `where_clause? SEMI`. Added `where_clause?` to the
+  keyword-named body-less decls. (An IDENT-named `fn make() -> Self where
+  Self: Sized;` already parsed.) Regression
+  `pass/self/sized-self-new-where-clause`; the full
+  dyn-compatibility-sized-self-return-Self re-import waits on G158-7 + G158-9.
 
 - **G158-9** — a trait static method called via the *trait* path with `Self`
   resolved from the let-binding annotation is unresolved. Repro:
