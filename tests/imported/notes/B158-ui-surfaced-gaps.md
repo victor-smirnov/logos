@@ -80,14 +80,15 @@ references (variance-option-ref-intersection).
   'static'`. Workaround: thread a `*mut i64` counter through the fn/closure (used
   in monomorphization-context, counter-not-moved).
 
-- **G158-4** ⚠️ SILENT MISCOMPILE — destructors are NOT run for the elements of
-  an array of Drop values at scope end. Minimal repro (distilled Drop + `*mut i64`
-  counter starting at 3): `{ let _x: [Foo; 3] = [Foo{c:p}, Foo{c:p}, Foo{c:p}]; }`
-  leaves the counter at 3 (expected 0) — no element drops fired; the same three
-  values as individual `let _a/_b/_c` DO drop correctly (counter → 0). Links + runs
-  + returns the WRONG value (no crash). DROPPED: zero-size-type-destructors (array-
-  element Drop IS its point). TRACTABLE: mlir-gen scope-exit drop emission must
-  iterate Drop-typed array elements (it already handles individual locals).
+- **G158-4** ✅ CLOSED (2026-05-23, 449a5421) — array-element Drop now fires. The
+  fix GENERALIZED all aggregate Drop: the three ad-hoc SDrop branches (struct/
+  tuple/enum) collapsed into one recursive `gen_drop_value(value_ptr, ty)` +
+  `value_needs_drop(ty)` in mlir-gen that handles Struct/Tuple/Enum/**Array** and
+  arbitrary nesting; sema `has_droppable_fields`/`is_move_type` gained Copy-aware
+  Array branches; `gen_tuple_lit` loads inline array element aggregates (was
+  storing a pointer → SIGSEGV on tuple-of-array). Re-imported
+  `zero-size-type-destructors`; regression `pass/array_and_nested_drop`
+  ([R;3]/struct-[R;2]/tuple-[R;2] → exactly 3/2/2 drops). Full suite 4799/4799.
 
 - **G158-5** — auto-deref of a `&T` receiver to a by-value-`self` inherent method
   is not supported. Repro: `fn f(lhs: &Vec2)->Vec2 { lhs.vmul(2.0) }` where

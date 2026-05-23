@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/zero-sized/zero-size-type-destructors.rs
+// Modifications: local `trait Drop { fn drop(self: Self) }` (the distilled
+//   drop convention used across pass/drop/); `static mut destructions` → a
+//   `*mut i64` cell counting UP from 0 (Logos has no `static mut`, G158-3);
+//   ZST `struct Foo;` → `struct Foo { c: *mut i64 }` since the counter must
+//   be reachable from `drop` (the original used a static); assert_eq! →
+//   return codes.
+// Tests that the destructor runs for EACH element of an array-of-Drop value
+// at scope end: `let _x = [Foo, Foo, Foo];` must fire drop 3 times. This is
+// G158-4 — array-element Drop glue (closed 2026-05-23, 449a5421).
+package zero_size_type_destructors_b158;
+
+trait Drop { fn drop(self: Self); }
+
+struct Foo { c: *mut i64 }
+impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn foo(c: *mut i64) {
+    let _x = [Foo { c: c }, Foo { c: c }, Foo { c: c }];
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    foo(c);
+    unsafe { if *c != 3i64 { return 1i32; } }
+    return 0i32;
+}
