@@ -1357,6 +1357,14 @@ private:
     std::vector<Frame> scope_;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
+    // G156-7: vars moved into a `move` closure that nonetheless must still be
+    // DROPPED at their scope exit. A move closure's env stores a POINTER to the
+    // source's storage (borrows it; closures have no capture drop-glue), and the
+    // source is marked moved (so use-after-move is enforced) — but suppressing
+    // its drop would leak. So the source stays in moved_vars_ (use-check works)
+    // AND is recorded here; collect_drops/collect_all_drops un-skip it so its
+    // destructor runs exactly once. Monotonic (no save/restore needed).
+    std::set<std::string> closure_owned_drop_;
     std::set<std::string> copy_types_;   // types with impl Copy — never move-only
 
     int destruct_counter_ = 0;           // unique-name source for `let (...)` temps

@@ -2598,7 +2598,10 @@ std::vector<lir::LStmt> SemaChecker::collect_drops() const {
     if (scope_.empty()) return drops;
     auto& frame = scope_.back();
     for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
-        if (moved_vars_.count(*it)) continue;
+        // G156-7: a var moved into a `move` closure stays in moved_vars_ (so
+        // use-after-move is enforced) but its destructor must still run — the
+        // closure only borrows its storage. Un-skip those.
+        if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
         auto vit = frame.vars.find(*it);
         if (vit == frame.vars.end()) continue;
         if (auto d = make_drop_stmt(*it, vit->second))
@@ -2611,7 +2614,8 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
     std::vector<lir::LStmt> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
         for (auto it = fit->var_order.rbegin(); it != fit->var_order.rend(); ++it) {
-            if (moved_vars_.count(*it)) continue;
+            // G156-7: un-skip move-closure-owned captures (still must drop).
+            if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
             auto vit = fit->vars.find(*it);
             if (vit == fit->vars.end()) continue;
             if (auto d = make_drop_stmt(*it, vit->second))

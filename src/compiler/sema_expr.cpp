@@ -11366,8 +11366,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
-            if (is_move_type(ec->capture_types[i]))
+            if (is_move_type(ec->capture_types[i])) {
                 mark_moved(ec->captures[i]);
+                // G156-7: a DROPPABLE move-capture must still be dropped at its
+                // source's scope exit — the env only borrows the source's
+                // storage and closures carry no capture drop-glue, so suppressing
+                // the drop (via moved_vars_) would leak. Keep it moved (so
+                // use-after-move is enforced) but record it so collect_drops
+                // un-skips the destructor.
+                if (needs_drop(ec->capture_types[i]))
+                    closure_owned_drop_.insert(ec->captures[i]);
+            }
         }
     }
 

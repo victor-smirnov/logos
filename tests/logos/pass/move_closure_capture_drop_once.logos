@@ -1,0 +1,23 @@
+// Regression (G156-7 move follow-up): a `move ||` closure capturing a
+// Drop-bearing value used to LEAK it — the move-mark suppressed the source's
+// scope-exit Drop while the env only borrows the source's storage (closures
+// carry no capture drop-glue). The capture now stays moved (use-after-move is
+// still enforced — see fail/move_closure_use_after_move) but is recorded in
+// closure_owned_drop_ so collect_drops un-skips its destructor → dropped once.
+package move_closure_capture_drop_once;
+
+trait Drop { fn drop(self: &mut Self); }
+struct Owner { i: *mut i64 }
+impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
+
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let p: *mut i64 = &mut c;
+    {
+        let o = Owner { i: p };
+        let f = move || -> i64 { return o.i as i64; };
+        let _x = f();
+    }
+    if c != 1i64 { return 1i32; }   // dropped EXACTLY once
+    return 0i32;
+}
