@@ -2782,17 +2782,27 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // (`OptionIter<&mut &mut … T>`, depth-limit blow-up). Needs a
     // self-referential guard before enabling — see plan-default-binding-modes.
     bool default_ref = scrut_type &&
-        TypeRef(scrut_type).kind() == LogosType::Kind::Ref;
+        (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(scrut_type).kind() == LogosType::Kind::MutRef);
+    bool default_mut = scrut_type &&
+        TypeRef(scrut_type).kind() == LogosType::Kind::MutRef;
     for (size_t k = 0; k < binding_types.size(); ++k) {
         if (!binding_types[k]) continue;
         bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
+        // Self-ref guard: never default-ref a bare TypeVar payload. A generic
+        // body's `match &[mut] self { Some(x) }` binds the payload typevar `T`;
+        // wrapping it `&[mut] T` flows into the enclosing generic's type-arg, and
+        // mono then re-wraps each instantiation → unbounded `OptionIter<&mut … T>`
+        // (the depth-limit blow-up). Concrete payloads (String) are fine; generic
+        // stdlib bodies use an explicit `ref` where they need a borrow.
+        bool tv_payload = TypeRef(binding_types[k]).kind() == LogosType::Kind::TypeVar;
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
             binding_types[k] = make_ref(is_mut, binding_types[k]);
-        } else if (default_ref &&
+        } else if (default_ref && !tv_payload &&
                    k < binding_from_wild.size() && binding_from_wild[k] &&
                    is_move_type(binding_types[k])) {
-            binding_types[k] = make_ref(/*is_mut=*/false, binding_types[k]);
+            binding_types[k] = make_ref(default_mut, binding_types[k]);
         }
     }
     auto mo = lir_mirror_emit_pat_variant_data(
@@ -3142,13 +3152,14 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // reference; Copy elements stay by-value. Mirrors the enum/struct gates.
         lir::PatTuple pt;
         TypeRef tst = scrut_type;
-        bool default_ref = false;
+        bool default_ref = false, default_mut = false;
         if (tst &&
             (TypeRef(tst).kind() == LogosType::Kind::Ref ||
              TypeRef(tst).kind() == LogosType::Kind::MutRef) &&
             TypeRef(tst).pointee() &&
             TypeRef(TypeRef(tst).pointee()).kind() == LogosType::Kind::Tuple) {
-            default_ref = TypeRef(tst).kind() == LogosType::Kind::Ref;
+            default_ref = true;
+            default_mut = TypeRef(tst).kind() == LogosType::Kind::MutRef;
             tst = TypeRef(tst).pointee();
         }
         if (!tst || TypeRef(tst).kind() != LogosType::Kind::Tuple) {
@@ -3282,8 +3293,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // Fill binding types (default-ref move-only elems under a shared &).
         for (size_t i = 0; i < TypeRef(tst).tuple_elems().size(); ++i) {
             TypeRef et = TypeRef(tst).tuple_elems()[i];
-            if (default_ref && et && TypeRef(et).kind() != LogosType::Kind::Error && is_move_type(et))
-                et = make_ref(false, et);
+            if (default_ref && et && TypeRef(et).kind() != LogosType::Kind::Error &&
+                TypeRef(et).kind() != LogosType::Kind::TypeVar && is_move_type(et))
+                et = make_ref(default_mut, et);
             pt.binding_types.push_back(et);
         }
         auto mo = lir_mirror_emit_pat_tuple(*cur_prog_, pt.bindings, pt.binding_types, pt.subs);
@@ -4317,9 +4329,13 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // field binding would otherwise be Drop-scheduled and double-free the
         // scrutinee's buffer at arm exit). Codegen already binds an aggregate
         // field's GEP address; this just makes collect_drops skip it. Copy
-        // fields stay by-value. Mirrors the enum-variant gate; shared `&` only.
+        // fields stay by-value. Mirrors the enum-variant gate (incl. the
+        // bare-TypeVar self-ref guard for `&mut`).
         bool default_ref = scrut_type &&
-            TypeRef(scrut_type).kind() == LogosType::Kind::Ref;
+            (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
+             TypeRef(scrut_type).kind() == LogosType::Kind::MutRef);
+        bool default_mut = scrut_type &&
+            TypeRef(scrut_type).kind() == LogosType::Kind::MutRef;
         v.each_field([&](lir_view::PatFieldBindingView fv) {
             auto fname = fv.field_name();
             TypeRef ftype = error_t();
@@ -4331,8 +4347,9 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                 TypeRef bt = ftype;
                 if (default_ref && ftype &&
                     TypeRef(ftype).kind() != LogosType::Kind::Error &&
+                    TypeRef(ftype).kind() != LogosType::Kind::TypeVar &&
                     is_move_type(ftype))
-                    bt = make_ref(/*is_mut=*/false, ftype);
+                    bt = make_ref(default_mut, ftype);
                 define(std::string(fname), bt);
             }
             else bind_pattern_ref(sub, ftype);

@@ -1,0 +1,30 @@
+package default_binding_mode_mut;
+// Default binding modes (RFC 2005) for `&mut` scrutinees: a plain move-only
+// payload/field/element binds as `&mut T`, so mutation through it persists to
+// the borrowed value. Covers enum / struct / tuple. The bare-TypeVar guard
+// keeps generic stdlib bodies (OptionIter::next) from the &mut-wrap explosion.
+use logos.lang.option;
+use logos.mem.string;
+
+struct W { s: String, n: i64 }
+
+fn bump_enum(o: &mut Option<String>) {
+    match o { Option::Some(s) => { s.push_str("!"); } Option::None => {} }
+}
+fn bump_struct(w: &mut W) { match w { W { s, n } => { s.push_str("x"); } } }
+fn bump_tuple(p: &mut (String, i64)) { match p { (s, n) => { s.push_str("z"); } } }
+
+fn main() -> i64 {
+    let mut o: Option<String> = Option::Some(String::from("hi"));
+    bump_enum(&mut o);
+    match o { Option::Some(s) => { if s.len() != 3 { return 1; } } Option::None => { return 2; } }
+
+    let mut w: W = W { s: String::from("ab"), n: 1 };
+    bump_struct(&mut w);
+    if w.s.len() != 3 { return 3; }
+
+    let mut p: (String, i64) = (String::from("cd"), 5);
+    bump_tuple(&mut p);
+    match p { (s, n) => { if s.len() != 3 { return 4; } } }
+    return 0;
+}

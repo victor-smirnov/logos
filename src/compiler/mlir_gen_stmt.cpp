@@ -2778,6 +2778,22 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 auto bind_struct_field = [&](const std::string& bind_name) {
                     auto fp = gep_field(sptr, sinfo, field_name);
                     if (!fp) return;
+                    // A struct-typed field is stored INLINE; bind its GEP ADDRESS
+                    // (a place) + track shape — NOT a load/copy. The copy didn't
+                    // persist mutation through a `&mut` binding (the change hit a
+                    // local alloca, not the scrutinee) and only "worked" for
+                    // shared reads because the &-typed binding's Drop is skipped.
+                    // Mirrors the tuple-element / pat_bind aggregate bind.
+                    TypeRef fty;
+                    if (sd) for (auto& lf : sd->fields)
+                        if (lf.name == field_name) { fty = lf.type; break; }
+                    if (fty && (TypeRef(fty).kind() == LogosType::Kind::Struct ||
+                                TypeRef(fty).kind() == LogosType::Kind::ZonedStruct)) {
+                        scope_[bind_name] = fp;
+                        let_vars_.insert(bind_name);
+                        var_struct_[bind_name] = mlir_struct_key(fty);
+                        return;
+                    }
                     mlir::Type fmlir;
                     for (auto& sf : sinfo.fields)
                         if (sf.name == field_name) { fmlir = sf.type; break; }
