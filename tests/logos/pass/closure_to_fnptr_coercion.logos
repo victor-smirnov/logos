@@ -1,0 +1,15 @@
+package closure_to_fnptr_coercion;
+// G151-3: non-capturing closure → fn-ptr coercion at return position AND let
+// binding, for both no-param and param'd closures (untyped params infer from
+// the expected fn-ptr signature).
+fn mk0() -> fn() -> i64 { return || 42i64; }
+fn mk1() -> fn(i64) -> i64 { return |x| x + 1; }
+fn main() -> i64 {
+    let f0: fn() -> i64 = mk0();
+    let f1: fn(i64) -> i64 = mk1();
+    let lit: fn(i64) -> i64 = |x| x * 2;     // let-binding param'd coerce
+    if f0() != 42 { return 1; }
+    if f1(41) != 42 { return 2; }
+    if lit(21) != 42 { return 3; }
+    return 0;
+}

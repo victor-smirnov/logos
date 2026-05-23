@@ -69,7 +69,7 @@ mutate / second-position payload). Regression `pass/ref_struct_enum_payload`.
   the tuple-pattern element list, already accepted in slice/struct patterns).
   §B catch-up.
 
-### G151-3 — closure→fn-pointer coercion only at a let/local binding, not at a return position
+### G151-3 — ✅ FIXED: closure→fn-pointer coercion at return position (+ param'd closures)
 `fn f() -> fn() -> u32 { return || 42u32; }` errors `return type mismatch —
 expected fn() -> u32, got || -> u32`. The identical coercion bound to a typed
 local (`let bar: fn() -> u32 = || 42u32;`) works.

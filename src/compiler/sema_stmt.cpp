@@ -1418,6 +1418,13 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     auto saved_ret_hint = hint_call_return_type_;
     if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
         hint_call_return_type_ = ann;
+    // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
+    // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
+    // param types (was `|<error>|`). Mirrors the call-arg + return paths.
+    auto saved_closure_hint = hint_closure_formal_;
+    if (ann && (TypeRef(ann).kind() == LogosType::Kind::FnPtr ||
+                TypeRef(ann).kind() == LogosType::Kind::Closure))
+        hint_closure_formal_ = ann;
 
     // C6-cc-04: `let p = &<scalar literal>;` — Rust extends the
     // temporary's lifetime to the enclosing scope; Logos previously
@@ -1479,6 +1486,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     hint_enum_type_ = saved_hint;
                     hint_struct_type_ = saved_struct_hint;
                     hint_call_return_type_ = saved_ret_hint;
+                    hint_closure_formal_ = saved_closure_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
                 }
             }
@@ -1527,6 +1535,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
     hint_call_return_type_ = saved_ret_hint;
+    hint_closure_formal_ = saved_closure_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred
@@ -1996,9 +2005,24 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                               TypeRef(ret_type_).kind() == LogosType::Kind::ZonedStruct) &&
                 !TypeRef(ret_type_).type_args().empty())
                 hint_struct_type_ = ret_type_;
+            // G151-3: when the return type is a fn-ptr/closure, hint it so an
+            // untyped closure literal (`return |x| x + 1`) infers its param
+            // types from the expected signature (mirrors the call-arg path).
+            auto saved_closure_hint = hint_closure_formal_;
+            if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::FnPtr ||
+                              TypeRef(ret_type_).kind() == LogosType::Kind::Closure))
+                hint_closure_formal_ = ret_type_;
             val = lower_expr(map_of(vav));
             hint_enum_type_ = saved_hint;
             hint_struct_type_ = saved_struct_hint;
+            hint_closure_formal_ = saved_closure_hint;
+            // G151-3: a non-capturing closure literal returned where a fn-ptr
+            // type is expected coerces to that fn-ptr — the same coercion the
+            // let-annotation and call-arg paths apply. Without this, `fn f() ->
+            // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
+            if (ret_type_ &&
+                TypeRef(ret_type_).kind() == LogosType::Kind::FnPtr)
+                try_coerce_closure_to_fnptr(val, ret_type_);
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
