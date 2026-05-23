@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/typeclasses-eq-example.rs
+// Modifications: kept the `Color` C-like enum + its `Equal` impl faithfully
+//   (match on `(*self, *a)` tuple of two enum values). The recursive `ColorTree`
+//   (Box-recursive) facet dropped — recursive enums need raw-ptr reshaping and
+//   the Color self-Eq dispatch is the representative point. assert -> sentinels.
+// Tests a user `Equal` trait (`isEq(&self, &Self)`) on a C-like enum, matched via
+//   a tuple of two dereferenced enum values.
+package typeclasses_eq_example_b158;
+
+enum Color { Cyan, Magenta, Yellow, Black }
+
+trait Equal { fn is_eq(self: &Self, a: &Self) -> bool; }
+
+impl Equal for Color {
+    fn is_eq(self: &Self, a: &Color) -> bool {
+        match (*self, *a) {
+            (Color::Cyan, Color::Cyan) => { return true; }
+            (Color::Magenta, Color::Magenta) => { return true; }
+            (Color::Yellow, Color::Yellow) => { return true; }
+            (Color::Black, Color::Black) => { return true; }
+            _ => { return false; }
+        }
+    }
+}
+
+fn main() -> i32 {
+    if !(Color::Cyan).is_eq(&Color::Cyan) { return 1i32; }
+    if !(Color::Magenta).is_eq(&Color::Magenta) { return 2i32; }
+    if (Color::Cyan).is_eq(&Color::Yellow) { return 3i32; }
+    if (Color::Magenta).is_eq(&Color::Cyan) { return 4i32; }
+    return 0i32;
+}

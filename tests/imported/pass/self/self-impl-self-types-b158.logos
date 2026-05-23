@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/self/self-impl-2.rs
+// Modifications: dropped the Box<Self>/trait+assoc-type half (Box incidental,
+//   assoc-type-on-Self not the point); kept the inherent-impl `Self` uses:
+//   `Self` as param type, `&Self` param, `-> Self` return, all in `foo`.
+// Tests using `Self` types in an inherent impl (param, &-param, return position).
+package self_impl_self_types_b158;
+
+struct Foo { v: i64 }
+
+impl Foo {
+    fn foo(x: Self, y: &Self) -> Self {
+        return Foo { v: x.v + y.v };
+    }
+}
+
+fn main() -> i32 {
+    let a = Foo { v: 10i64 };
+    let b = Foo { v: 32i64 };
+    let r: Foo = Foo::foo(a, &b);
+    if r.v != 42i64 { return 1i32; }
+    return 0i32;
+}

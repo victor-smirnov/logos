@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-single-word-env.rs
+// Modifications: isize->i64; assert_eq! -> early-return sentinels; move-closures
+//   capturing a single-word env `z` passed to Fn/FnMut/FnOnce-bounded helpers.
+// Tests single-word closure environment capture across the three Fn-family bounds.
+package uc_single_word_env_b158;
+
+fn a<F: Fn(i64, i64) -> i64>(f: F) -> i64 { return f(1i64, 2i64); }
+fn b<F: FnMut(i64, i64) -> i64>(mut f: F) -> i64 { return f(3i64, 4i64); }
+fn c<F: FnOnce(i64, i64) -> i64>(f: F) -> i64 { return f(5i64, 6i64); }
+
+fn main() -> i32 {
+    let z: i64 = 10i64;
+    if a(move |x: i64, y: i64| -> i64 { return x + y + z; }) != 13i64 { return 1i32; }
+    if b(move |x: i64, y: i64| -> i64 { return x + y + z; }) != 17i64 { return 2i32; }
+    if c(move |x: i64, y: i64| -> i64 { return x + y + z; }) != 21i64 { return 3i32; }
+    return 0i32;
+}

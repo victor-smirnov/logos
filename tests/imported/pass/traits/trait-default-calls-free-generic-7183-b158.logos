@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/bug-7183-generics.rs
+// Modifications: String/format! results replaced with i64 codes (the point is the
+//   dispatch, not the string); the recursive `impl Speak for Option<T>` kept;
+//   `*self` match on enum -> match on `self` ref; assert -> sentinels.
+// Tests a trait default method (`hi`) that calls a *free generic fn* (`hello<S:
+//   Speak>`) which calls back into the trait's required method (`say`), plus a
+//   blanket-style `impl<T: Speak> Speak for Option<T>` recursing on the payload.
+package trait_default_free_generic_b158;
+
+trait Speak {
+    fn say(self: &Self, s: i64) -> i64;
+    fn hi(self: &Self) -> i64 { return hello(self); }
+}
+
+fn hello<S: Speak>(s: &S) -> i64 { return s.say(100i64); }
+
+impl Speak for i64 {
+    fn say(self: &Self, s: i64) -> i64 { return s + *self; }
+}
+
+impl<T: Speak> Speak for Option<T> {
+    fn say(self: &Self, s: i64) -> i64 {
+        match self {
+            Option::None => { return s - 1i64; }
+            Option::Some(x) => { return 1000i64 + x.say(s); }
+        }
+    }
+}
+
+fn main() -> i32 {
+    if (3i64).hi() != 103i64 { return 1i32; }
+    let some3: Option<i64> = Option::Some(3i64);
+    if some3.hi() != 1103i64 { return 2i32; }
+    let none: Option<i64> = Option::None;
+    if none.hi() != 99i64 { return 3i32; }
+    return 0i32;
+}

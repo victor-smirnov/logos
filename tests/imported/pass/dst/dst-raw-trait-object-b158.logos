@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/dst/dst-raw.rs
+// Modifications: isize->i64; kept the raw trait-object pointer facets (`*const
+//   dyn Trait` and `*mut dyn Trait`) which round-trip through `&*z` to call
+//   `foo`; dropped the DST-struct/slice facets (`Foo<[_]>`, `*const [_]`) — not
+//   on the surface; assert -> sentinels.
+// Tests forming a raw pointer to a trait object (`*const dyn Trait`, `*mut dyn
+//   Trait`) and dispatching a method back through `&*z` under `unsafe`.
+package dst_raw_trait_object_b158;
+
+trait Trait { fn foo(self: &Self) -> i64; }
+
+struct A { f: i64 }
+impl Trait for A {
+    fn foo(self: &Self) -> i64 { return self.f; }
+}
+
+fn main() -> i32 {
+    let x = A { f: 42i64 };
+    let z: *const dyn Trait = &x;
+    // (*z).foo(): deref the raw trait-object ptr then dispatch ((&*z).foo()
+    //   yields a double-ref receiver the dispatcher rejects).
+    let r = unsafe { (*z).foo() };
+    if r != 42i64 { return 1i32; }
+
+    let mut x2 = A { f: 7i64 };
+    let zm: *mut dyn Trait = &mut x2;
+    let r2 = unsafe { (*zm).foo() };
+    if r2 != 7i64 { return 2i32; }
+    return 0i32;
+}

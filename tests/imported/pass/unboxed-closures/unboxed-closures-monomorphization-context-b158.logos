@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/issue-18661.rs
+// Modifications: hoisted nested fns to top level; Logos has no module-level
+//   `static` (G153-3) so the side-effect is observed via a `*mut i64` counter
+//   captured by the closure (an `Fn` closure capturing a raw ptr).
+// Tests that param substitutions from the correct environment are used when
+//   codegenning a closure created inside a generic fn (`outside<A,B>` builds a
+//   closure and passes it to `inside<F: Fn()>`).
+package uc_mono_context_b158;
+
+fn inside<F: Fn()>(c: F) {
+    c();
+}
+
+fn outside<A, B>(counter: *mut i64) {
+    inside(|| { unsafe { *counter = *counter + 1i64; } });
+}
+
+fn main() -> i32 {
+    let mut hit: i64 = 0i64;
+    outside::<i64, i64>(&mut hit);
+    if hit != 1i64 { return 1i32; }
+    return 0i32;
+}

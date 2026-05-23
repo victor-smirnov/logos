@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-unify-return.rs
+// Modifications: `main` (a `fn()`) replaced with a named `fn() -> i64` helper
+//   since `main` here returns i32; the `Option<fn>` result is unwrapped + called
+//   to observe it; `Foo.foo(g)` keeps the polymorphic method call form.
+// Tests that coercions unify the expected return type of a polymorphic method
+//   call: `Foo.foo::<fn()->i64>(g)` returns `Option<fn()->i64>`.
+package coerce_unify_return_b158;
+
+fn g() -> i64 { return 9i64; }
+
+struct Foo {}
+impl Foo {
+    fn foo<T>(self: Foo, x: T) -> Option<T> { return Option::Some(x); }
+}
+
+fn main() -> i32 {
+    let a: Option<fn() -> i64> = Option::Some(g);
+    let b: Option<fn() -> i64> = Foo {}.foo(g);
+    match a {
+        Option::Some(f) => { if f() != 9i64 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    match b {
+        Option::Some(f) => { if f() != 9i64 { return 3i32; } }
+        Option::None => { return 4i32; }
+    }
+    return 0i32;
+}

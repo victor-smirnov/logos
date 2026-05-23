@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-bare-fn-returning-zst-to-closure.rs
+// Modifications: usize->i64; `Foo` (a unit struct) -> a zero-field struct `Foo {}`;
+//   the mapped iterator is consumed (counted) so the run observes the fn-as-closure
+//   coercion executing.
+// Tests coercing a bare fn returning a zero-sized type into a closure position
+//   (`(0..N).map(i64_to_foo)`), then driving the adapter.
+package coerce_bare_fn_zst_b158;
+
+use logos.lang.range;
+
+struct Foo {}
+
+fn i64_to_foo(x: i64) -> Foo { return Foo {}; }
+
+fn main() -> i32 {
+    let n = (0i64..10i64).map(i64_to_foo).count();
+    if n != 10i64 { return 1i32; }
+    return 0i32;
+}

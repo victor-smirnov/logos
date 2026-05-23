@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-counter-not-moved.rs
+// Modifications: u32->i64; the `Vec`/`for item in y` move facet dropped; kept the
+//   two-closure core: a by-ref FnOnce closure mutating an outer `counter` through
+//   a `*mut i64`, then a `move` FnOnce closure mutating its own copy (no effect on
+//   the original). assert -> sentinels.
+// Tests FnOnce capture semantics: a by-ref closure mutates the stack counter,
+//   a subsequent `move` closure mutates only its captured copy.
+package uc_counter_not_moved_b158;
+
+fn call<F: FnOnce()>(f: F) { f(); }
+
+fn main() -> i32 {
+    let mut counter: i64 = 22i64;
+    let p: *mut i64 = &mut counter;
+    call(|| {
+        unsafe { *p = *p + *p; }
+    });
+    if counter != 44i64 { return 1i32; }
+
+    call(move || {
+        counter = counter + 1i64;
+    });
+    if counter != 44i64 { return 2i32; }
+    return 0i32;
+}

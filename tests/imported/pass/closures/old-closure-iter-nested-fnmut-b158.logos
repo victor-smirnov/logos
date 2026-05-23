@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/old-closure-iter-2.rs
+// Modifications: Vec<i64> -> a fixed `[i64; 5]` iterated by index in the helper
+//   (no Vec/clone surface needed); println! dropped; assert -> sentinel; the
+//   nested closure captures `sum` by mutable ref via a `*mut i64`.
+// Tests nested FnMut closures: an outer `iter` closure body itself runs an inner
+//   `iter` closure, accumulating a sum across the cartesian product.
+package old_closure_iter_nested_fnmut_b158;
+
+fn iter_arr<F: FnMut(i64)>(v: [i64; 5], mut f: F) {
+    let mut i: i64 = 0i64;
+    while i < 5i64 {
+        f(v[i as usize]);
+        i = i + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let v: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    let mut sum: i64 = 0i64;
+    let psum: *mut i64 = &mut sum;
+    iter_arr(v, |i| {
+        iter_arr(v, |j| {
+            unsafe { *psum = *psum + i * j; }
+        });
+    });
+    if sum != 225i64 { return 1i32; }
+    return 0i32;
+}

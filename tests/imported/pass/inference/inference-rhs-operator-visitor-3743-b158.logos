@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/issue-3743.rs
+// Modifications: f64 literals written with a decimal point; #[derive(Copy,Clone)]
+//   and #[inline] dropped; the `Mul` operator-overload form replaced with a
+//   direct method call `a.mul(3.0)` (operator `*` desugar to a user trait with an
+//   assoc-type Output is not the point here); println! -> value checks.
+// Tests an RHS operator-visitor pattern: `Vec2` multiplies via a `RhsOfVec2Mul`
+//   trait with an associated `Result` type, dispatched through a generic bound
+//   `impl<Res, Rhs: RhsOfVec2Mul<Result=Res>> ... for Vec2`.
+package inference_rhs_visitor_b158;
+
+struct Vec2 { x: f64, y: f64 }
+
+impl Vec2 {
+    fn vmul(self: Vec2, other: f64) -> Vec2 {
+        return Vec2 { x: self.x * other, y: self.y * other };
+    }
+}
+
+trait RhsOfVec2Mul {
+    type Result;
+    fn mul_vec2_by(self: &Self, lhs: &Vec2) -> Self::Result;
+}
+
+impl RhsOfVec2Mul for f64 {
+    type Result = Vec2;
+    // (*lhs).vmul: explicit deref — auto-deref of a `&Vec2` receiver to a
+    //   by-value-`self` inherent method isn't supported (G158-5).
+    fn mul_vec2_by(self: &f64, lhs: &Vec2) -> Vec2 { return (*lhs).vmul(*self); }
+}
+
+fn scaled<Res, Rhs: RhsOfVec2Mul<Result = Res>>(lhs: Vec2, rhs: Rhs) -> Res {
+    return rhs.mul_vec2_by(&lhs);
+}
+
+fn main() -> i32 {
+    let a = Vec2 { x: 3.0f64, y: 4.0f64 };
+    let v1: Vec2 = scaled(a, 3.0f64);
+    if v1.x != 9.0f64 { return 1i32; }
+    if v1.y != 12.0f64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/variance/variance-intersection-of-ref-and-opt-ref.rs
+// Modifications: i32->i64; named lifetimes dropped; `field2.cloned().unwrap_or(0)`
+//   modeled as a match on the `Option<&i64>` field (no `.cloned()` adapter on
+//   `Option<&T>` surface); assert -> sentinels.
+// Tests a struct holding both a `&i64` and an `Option<&i64>` field built from
+//   two distinct references, then reading both back.
+package variance_option_ref_intersection_b158;
+
+struct List {
+    field1: *const i64,
+    field2: Option<*const i64>,
+}
+
+fn opt_or(o: Option<*const i64>) -> i64 {
+    match o {
+        Option::Some(p) => { return unsafe { *p }; }
+        Option::None => { return 0i64; }
+    }
+}
+
+fn foo(field1: *const i64, field2: Option<*const i64>) -> i64 {
+    let list = List { field1: field1, field2: field2 };
+    return unsafe { *list.field1 } + opt_or(list.field2);
+}
+
+fn main() -> i32 {
+    let x: i64 = 22i64;
+    let yv: i64 = 3i64;
+    let y: Option<*const i64> = Option::Some(&yv);
+    let z: Option<*const i64> = Option::None;
+    if foo(&x, y) != 25i64 { return 1i32; }
+    if foo(&x, z) != 22i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-last-use-move.rs
+// Modifications: hoisted nested fn `g` to top level; String -> i64 (the value
+//   threaded through is incidental); assert -> sentinel.
+// Tests last-use move analysis in closures: a closure's tail value is moved out
+//   (not copied), passing through an FnMut-bounded helper and a second helper.
+package closure_last_use_move_b158;
+
+fn g<T, F: FnMut(i64) -> T>(s: i64, mut f: F) -> T {
+    return f(s);
+}
+
+fn apply<T, F: FnMut(i64) -> T>(s: i64, mut f: F) -> T {
+    return g(s, |v| -> T {
+        let r = f(v);
+        return r;
+    });
+}
+
+fn main() -> i32 {
+    let result = apply(4i64, |s| -> i64 { return s + 1i64; });
+    if result != 5i64 { return 1i32; }
+    return 0i32;
+}

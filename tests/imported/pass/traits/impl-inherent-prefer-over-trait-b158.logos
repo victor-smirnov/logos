@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/impl-inherent-prefer-over-trait.rs
+// Modifications: methods return an i64 tag instead of `panic!`-on-wrong / unit;
+//   the `impl dyn Trait` inherent-on-trait-object facet and UFCS `<Foo>::bar`
+//   dropped (kept the receiver-call `Foo.bar()` form); &self -> self: &Self.
+// Tests that an inherent method is preferred over a same-named trait method
+//   (G156-5): `Foo.bar()` calls the inherent `bar` (tag 1), not the trait's.
+package impl_inherent_prefer_b158;
+
+struct Foo { v: i64 }
+
+trait Trait { fn bar(self: &Self) -> i64; }
+
+impl Foo {
+    fn bar(self: &Self) -> i64 { return 1i64; }
+}
+
+impl Trait for Foo {
+    fn bar(self: &Self) -> i64 { return 99i64; }
+}
+
+fn main() -> i32 {
+    let f = Foo { v: 0i64 };
+    if f.bar() != 1i64 { return 1i32; }
+    return 0i32;
+}

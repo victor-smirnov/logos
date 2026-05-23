@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-4107.rs
+// Modifications: f64->i64; the `Index`/`Dimensional` supertrait chain kept (with
+//   default methods); `Matrix::identity(t) -> Self` returns the struct; the
+//   result is read back instead of being a typed `&Mat2` no-op.
+// Tests a 3-level supertrait chain (Matrix: Dimensional: Index) where the leaf
+//   trait declares a `-> Self` static method, implemented on a generic struct.
+// `Mat2::identity` uses the concrete path because the trait-path form
+//   `Matrix::identity` (Self from the let-annotation) isn't resolved (G158-9).
+package supertrait_self_returning_b158;
+
+trait Index<I, R> { fn get(self: &Self, i: I) -> R; }
+trait Dimensional<T>: Index<i64, T> {}
+
+struct Mat2<T> { x: T }
+struct Vec2<T> { x: T }
+
+impl<T> Index<i64, Vec2<T>> for Mat2<T> {
+    fn get(self: &Self, i: i64) -> Vec2<T> { return panic_index::<T>(); }
+}
+impl<T> Dimensional<Vec2<T>> for Mat2<T> {}
+
+fn panic_index<T>() -> Vec2<T> { loop {} }
+
+trait Matrix<T, V>: Dimensional<V> {
+    fn identity(t: T) -> Self;
+}
+
+impl<T> Matrix<T, Vec2<T>> for Mat2<T> {
+    fn identity(t: T) -> Mat2<T> { return Mat2 { x: t }; }
+}
+
+fn main() -> i32 {
+    let m: Mat2<i64> = Mat2::identity(5i64);
+    if m.x != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/issue-18652.rs
+// Modifications: u8->i64; immediately-invoked move-closure `(move || x+y)()`
+//   bound to a local first; assert -> sentinel.
+// Tests multiple free variables passed by value into a move once-closure.
+package uc_move_multi_capture_b158;
+
+fn main() -> i32 {
+    let x: i64 = 2i64;
+    let y: i64 = 3i64;
+    let f = move || -> i64 { return x + y; };
+    if f() != 5i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/reachable/diverging-expressions-unreachable-code.rs
+// Modifications: `panic!()` case dropped (no abort wanted in a run-pass); kept
+//   the `_id(return) && _id(return)` diverging-arg case; main returns 0.
+// Tests that a diverging expression (`return`) used as a fn argument typechecks
+//   and codegens without errors on the unreachable code after it.
+package diverging_unreachable_b158;
+
+fn id_bool(x: bool) -> bool { return x; }
+
+fn call_id() {
+    if id_bool(return) {
+        if id_bool(return) {
+        }
+    }
+}
+
+fn main() -> i32 {
+    call_id();
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-inference/float-type-inference-unification-14382.rs
+// Modifications: #[derive(Debug)] / println! dropped; float literal `1.0` pinned
+//   to f32 via the `Matrix4<f32>` let-annotation; the wrapped value is read back.
+// Tests that a generic `translate<S: POrd<S>>(s) -> Matrix4<S>` unifies S to f32
+//   from the `Matrix4<f32>` annotation (picks the `impl POrd<f32> for f32`).
+package float_infer_unification_b158;
+
+struct Matrix4<S> { v: S }
+trait POrd<S> {}
+
+fn translate<S: POrd<S>>(s: S) -> Matrix4<S> { return Matrix4 { v: s }; }
+
+impl POrd<f32> for f32 {}
+impl POrd<f64> for f64 {}
+
+fn main() -> i32 {
+    let x = 1.0f32;
+    let m: Matrix4<f32> = translate(x);
+    if m.v != 1.0f32 { return 1i32; }
+    return 0i32;
+}

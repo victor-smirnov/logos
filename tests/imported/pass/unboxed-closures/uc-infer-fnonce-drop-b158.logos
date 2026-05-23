@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-infer-fnonce.rs
+// Modifications: named lifetimes dropped; Drop modeled via a distilled local
+//   `trait Drop` + a `*mut i64` counter; `mem::drop(x)` -> a local `consume(x)`
+//   that takes the value by value so it's dropped at the consumer's scope end;
+//   assert -> sentinel.
+// Tests inferring `FnOnce` for a closure that *moves* a Drop value into it and is
+//   called once — the captured value's destructor runs exactly once.
+package uc_infer_fnonce_drop_b158;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct DropMe { c: *mut i64 }
+impl Drop for DropMe {
+    fn drop(self: &mut Self) { unsafe { *self.c = *self.c + 1i64; } }
+}
+
+fn consume(_x: DropMe) {}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let p: *mut i64 = &mut counter;
+    {
+        let drop_me = DropMe { c: p };
+        let tick = move || { consume(drop_me); };
+        tick();
+    }
+    if counter != 1i64 { return 1i32; }
+    return 0i32;
+}

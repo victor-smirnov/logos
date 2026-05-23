@@ -1,0 +1,11 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-static-call-fn-once.rs
+// Modifications: closure arg/ret annotated i64; the call result is checked.
+// Tests inferring the kind of an identity closure that is just called once.
+package uc_static_call_fn_once_b158;
+
+fn main() -> i32 {
+    let onetime = |x: i64| -> i64 { return x; };
+    if onetime(7i64) != 7i64 { return 1i32; }
+    return 0i32;
+}
