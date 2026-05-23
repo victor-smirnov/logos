@@ -75,6 +75,17 @@ fn fun1(e1: &Enum, e2: &Enum) -> u64 {
 - tuple `(&Enum, &Enum)` struct-variant patterns                → **SIGSEGV**.
 - Surfaced by `tests/ui/match/issue-5530.rs`; **DROPPED** (the tuple-of-refs to
   struct-variant enums is the test's whole point).
+- **ROOT CAUSE (2026-05-23, IR-confirmed):** a `&Enum` tuple element is TWO-level
+  (ptr-to-enum-heap-ptr, [[ref_enum_two_level_convention]]). The tuple-element
+  variant disc test loads the element (`%22` = the `&Enum`) then does
+  `GEP %22[0,0] as enum.Enum` — MISSING the second Load to deref the ref to the
+  actual enum-struct ptr. The single-`&Enum` match path applies that via_ref Load
+  (gen_match ~2342); the tuple-element variant test/extract does not → garbage
+  disc → mis-dispatch + payload GEP through garbage → SIGSEGV. FIX: in the
+  tuple-element VariantData test + extract (gen_match), when the element type is
+  a ref-to-enum, insert the extra Load (deref) before the disc GEP / payload
+  extract — mirror the via_ref handling. (The explicit `&Enum::Foo{..}` pattern
+  mlir-gen error is the sibling: a ref-pattern wrapping a variant pattern.)
 
 ---
 
