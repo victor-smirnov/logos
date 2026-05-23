@@ -82,6 +82,13 @@ materialized for the `==`→`eq` call. Highest priority.
 ### G157-2 — ✅ FIXED (= G156-1): two impls of a generic trait for one type
 **FIXED** (this session) — see G156-1. Trait type-args folded into the method
 mangling (`$G<n>$<args>`) + tag_trait dispatch threading. Original report follows.
+NOTE: the EXPLICIT-bound shape (`M: MyTrait<u64>`) is fully fixed and
+`multidispatch1-b157` (reshaped to monomorphic bound helpers) is imported. The
+FULLY-GENERIC wrapper `test_eq<T, M: MyTrait<T>>` (T chosen by turbofish) still
+fails — the dispatch folds the bound's trait arg into tag_trait as a STRING
+(`MyTrait$G1$T`), and mono does not substitute the typevar T→concrete inside that
+string. Proper fix: carry tag_trait args as TypeRefs on the method call so mono
+subst_type's them + builds the suffix at mono time. Follow-up.
 
 ### G157-2 (orig) — two impls of a generic trait `Trait<T>` for the same type collide
 `impl MyTrait<u64> for MyType` + `impl MyTrait<u8> for MyType` (selected by the

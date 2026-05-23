@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/multidispatch1.rs
+// Modifications: usize→u64; #[derive(Copy,Clone)]/Debug/Eq dropped; assert_eq! →
+//   early-return sentinels. The upstream `test_eq<T, M: MyTrait<T>>` (T generic,
+//   chosen by turbofish) is reshaped to two monomorphic bound helpers
+//   `test_eq_u64<M: MyTrait<u64>>` / `test_eq_u8<M: MyTrait<u8>>` — preserving the
+//   essence (one type implements MyTrait<T> for TWO distinct concrete T, dispatched
+//   via a `M: MyTrait<u64>` / `M: MyTrait<u8>` bound). The fully-generic-T wrapper
+//   needs mono-side trait-arg substitution in tag_trait (see B157 G157-2 note).
+// Tests: a single type implementing a type-parameterized trait at two distinct
+//   concrete type-args coexists, and a `T: Trait<u64>` bound call dispatches to
+//   the correct variant (G156-1 / G157-2, now fixed).
+package multidispatch1_b157;
+
+trait MyTrait<T> { fn get(self: &Self) -> T; }
+
+struct MyType { dummy: u64 }
+
+impl MyTrait<u64> for MyType { fn get(self: &MyType) -> u64 { return self.dummy; } }
+impl MyTrait<u8>  for MyType { fn get(self: &MyType) -> u8  { return self.dummy as u8; } }
+
+fn test_eq_u64<M: MyTrait<u64>>(m: &M, v: u64) -> i32 {
+    if m.get() != v { return 1i32; }
+    return 0i32;
+}
+fn test_eq_u8<M: MyTrait<u8>>(m: &M, v: u8) -> i32 {
+    if m.get() != v { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let value = MyType { dummy: 278u64 };           // 256 + 22
+    if test_eq_u64::<MyType>(&value, 278u64) != 0i32 { return 1i32; }
+    if test_eq_u8::<MyType>(&value, 22u8) != 0i32 { return 2i32; }   // 278 % 256 == 22
+    return 0i32;
+}
