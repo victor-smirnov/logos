@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/copy-out-of-array-1.rs
+// Modifications: u8→i64; `#[derive(Copy,Clone)]` dropped (Copy by layout);
+//   `foo` returns the element's field (Logos has no by-value `C` return needed
+//   here) so the copy-out is observable; nested `fn d()` hoisted to module
+//   scope; `usize` index → i64; assert via return codes.
+// Tests copying an element out of a fixed-size array passed BY VALUE as a fn
+//   parameter — `a[i]` over a `[C; 4]` of multi-field structs. This is G161-1
+//   (closed 2026-05-23): a `[Struct; N]` by-value param stores INLINE structs,
+//   so its subscript must stride by sizeof(Struct), not treat the array as
+//   array-of-pointers (which dereffed garbage → SIGSEGV).
+package copy_out_of_array_1_b161;
+
+struct C { a: i64, b: i64 }
+
+fn elem_a(arr: [C; 4], i: i64) -> i64 { return arr[i].a; }
+fn elem_b(arr: [C; 4], i: i64) -> i64 { return arr[i].b; }
+
+fn main() -> i32 {
+    if elem_a([C{a:10i64,b:11i64}, C{a:20i64,b:21i64}, C{a:30i64,b:31i64}, C{a:40i64,b:41i64}], 1i64) != 20i64 { return 1i32; }
+    if elem_b([C{a:10i64,b:11i64}, C{a:20i64,b:21i64}, C{a:30i64,b:31i64}, C{a:40i64,b:41i64}], 3i64) != 41i64 { return 2i32; }
+    return 0i32;
+}

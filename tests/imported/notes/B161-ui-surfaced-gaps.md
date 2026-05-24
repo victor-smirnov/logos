@@ -75,20 +75,15 @@ literals (estr-slice-cmp).
 
 ## Gaps surfaced
 
-- **G161-1** ⚠️ SILENT CRASH (DEEP-ish) — passing a `[StructType; N]` array BY
-  VALUE as a function parameter SIGSEGVs at runtime (compiles + links clean).
-  `[i64; N]` by-value params work; a LOCAL `[C; N]` index-out (`let r = a[1]`)
-  works; only the by-value struct-element-array PARAMETER corrupts (likely a
-  struct-array argument-passing / layout mismatch in the call ABI). Minimal repro:
-  ```
-  struct C { x: i64 }
-  fn foo(a: [C; 4]) -> i64 { return a[0i64].x; }
-  fn main() -> i32 { let r = foo([C{x:10i64}, C{x:20i64}, C{x:30i64}, C{x:40i64}]); if r != 10i64 { return 1i32; } return 0i32; }
-  ```
-  Dropped: `array-slice-vec/copy-out-of-array-1.rs` (and ruled out
-  `array-slice-vec/destructure-array-1.rs`, which also passes `[D; 4]` by value).
-  Assessment: DEEP-ish — sits in the struct-array argument-passing ABI in mlir-gen;
-  fix the by-value aggregate-array param lowering (spill/byval) generally.
+- **G161-1** ✅ CLOSED (2026-05-23) — passing a `[StructType; N]` array BY VALUE
+  as a fn parameter no longer SIGSEGVs. Root (mlir_gen_fn param setup): an array
+  param registered `var_subscript_[name] = logos_to_mlir(elem)`, but
+  `logos_to_mlir(Struct)` is `ptr` — so the index GEP strided the `[C;N]` as
+  array-of-pointers (8B), read each inline struct's first word as a pointer, and
+  dereffed garbage. Fix: for a struct/zoned-struct element, register the
+  struct's LLVM type (sizeof(Struct) stride, inline-element address) — mirrors
+  the slice-param branch. Verified with multi-field (24B) struct elements.
+  Re-imported `copy-out-of-array-1`.
 
 - **G161-2** TRACTABLE — a `for` loop over a MUTABLE borrow of an array/slice
   (`for i in &mut arr`) is rejected: the scrutinee `&mut [i64; N]` is mis-typed as

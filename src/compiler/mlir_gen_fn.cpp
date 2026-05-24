@@ -257,7 +257,21 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 // yields the alternating-value/zero pattern that masked the
                 // assertion bug. Register the element's MLIR type so the
                 // GEP stride matches the array layout.
-                auto et = logos_to_mlir(pv.elem());
+                TypeRef ae = pv.elem();
+                mlir::Type et;
+                // G161-1: a `[Struct; N]` array stores INLINE structs, not
+                // pointers — `logos_to_mlir(Struct)` is `ptr`, which would
+                // stride the GEP by 8 and read each element as a pointer
+                // (then deref garbage → SIGSEGV). Use the struct's LLVM type
+                // so the stride is sizeof(Struct) and `a[i]` is the inline
+                // element address (mirrors the slice-param branch above).
+                if (ae.kind() == LogosType::Kind::Struct ||
+                    ae.kind() == LogosType::Kind::ZonedStruct) {
+                    auto cname = mlir_struct_key(ae);
+                    auto sit = struct_types_.find(cname);
+                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
+                }
+                if (!et) et = logos_to_mlir(ae);
                 if (et) var_subscript_[p.name] = et;
             }
         }
