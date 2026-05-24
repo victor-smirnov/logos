@@ -9519,6 +9519,44 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
 }
 
+// g9/B121: generic associated-const projection `T::CONST`. When T (`cname`) is
+// an abstract type-param bounded by a trait that declares `const CONST`
+// (`mname`), the concrete value is known only after T is substituted at mono.
+// Route the read through a zero-arg accessor call `T__kassoc_CONST()`: mono
+// rewrites the `T__` prefix to the concrete type (its existing generic-static
+// dispatch ECall rewrite) and codegen calls the per-impl accessor LFunction
+// `Concrete__kassoc_CONST` emitted in lower_impl_block. Mirrors the generic-
+// static-method dispatch path. Returns nullptr if `cname` is not such a
+// projection (caller falls through to its normal "unknown enum" handling).
+lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cname,
+                                                         const std::string& mname) {
+    auto bit = current_type_bounds_.find(cname);
+    if (bit == current_type_bounds_.end()) return nullptr;
+    // Transitively close the bounds over supertraits (the const may be declared
+    // on a supertrait of a stated bound), then find a trait declaring `mname`.
+    logos::compiler::StrSet seen;
+    std::vector<std::string> search_traits;
+    std::function<void(const std::string&)> add_t =
+        [&](const std::string& tn) {
+            if (!seen.insert(tn).second) return;
+            search_traits.push_back(tn);
+            auto it = find_trait_iter_scoped(tn);
+            if (it != traits_.end())
+                for (auto& s : it->second.supertraits) add_t(s.trait_name);
+        };
+    for (auto& b : bit->second) add_t(b.trait_name);
+    for (auto& tn : search_traits) {
+        auto tit = find_trait_iter_scoped(tn);
+        if (tit == traits_.end()) continue;
+        for (auto& ac : tit->second.assoc_consts) {
+            if (ac.name != mname) continue;
+            TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
+            return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t);
+        }
+    }
+    return nullptr;
+}
+
 lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     std::string ename_buf(str_of(node.get(la::NAME.code)));
     // G160-1: `Self::Qux` (unit variant) inside an `impl Enum` body — resolve
@@ -9575,6 +9613,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
+        // g9/B121: generic assoc-const projection `T::CONST` (T a bound
+        // type-param) — route through a per-impl accessor call.
+        if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
+            return acc;
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
@@ -9663,6 +9705,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
+        // g9/B121: generic assoc-const projection `T::CONST` (T a bound
+        // type-param) — route through a per-impl accessor call.
+        if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
+            return acc;
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }

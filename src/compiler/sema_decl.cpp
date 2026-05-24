@@ -1634,9 +1634,41 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     fn.impl_target_pattern = ib.target_typeref;
                     prog.functions.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 }
+            } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
+                pending_doc_.clear();
+                // g9/B121: emit a zero-arg accessor `Target__kassoc_<name>`
+                // returning the const value, so a generic projection
+                // `T::<name>` (lowered by try_lower_generic_assoc_const to a
+                // `T__kassoc_<name>()` call that mono rewrites to
+                // `Target__kassoc_<name>` once T is substituted) has a concrete
+                // function to call. Only for concrete trait-impl targets;
+                // generic-target / blanket assoc consts are out of scope (the
+                // value could depend on the impl's type-params — a rarer
+                // follow-up). The concrete `Target::<name>` read still uses the
+                // direct assoc_const_impls_ value path (no accessor needed).
+                if (!trait_name.empty() && impl_tps.empty() &&
+                    !target_struct_tmpl && m.has_key(la::NAME) &&
+                    m.has_key(la::VALUE)) {
+                    auto cname = std::string(str_of(m.get(la::NAME.code)));
+                    TypeRef ctype = m.has_key(la::TYPE)
+                        ? resolve_type(map_of(m.get(la::TYPE.code))) : nullptr;
+                    auto val = lower_expr(map_of(m.get(la::VALUE.code)));
+                    if (ctype) builder().retype_expr(val, ctype);
+                    lir::LFunction acc;
+                    acc.name        = lower_target + "__kassoc_" + cname;
+                    acc.method_base = "kassoc_" + cname;
+                    acc.package     = cur_package_;
+                    acc.ret_type    = ctype ? ctype
+                                            : (val ? val->type : void_t());
+                    acc.is_pub      = true;
+                    acc.source_file = file_;
+                    acc.body.stmts.push_back(builder().stmt_return(val, 0));
+                    prog.functions.push_back(
+                        std::make_unique<lir::LFunction>(std::move(acc)));
+                }
             } else {
-                // Non-fn impl item (assoc-type/const). Discard any sweep doc
-                // since assoc-type/const docs are deferred to Phase A.3.
+                // Non-fn impl item (assoc-type). Discard any sweep doc since
+                // assoc-type docs are deferred to Phase A.3.
                 pending_doc_.clear();
             }
         }

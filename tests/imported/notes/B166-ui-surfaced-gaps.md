@@ -89,9 +89,12 @@ Workarounds (both banked green): plain `Holder<T>{Full(T)}` infers fine, and the
 
 ## KNOWN gaps — confirmed with tight repros this batch
 
-### K1 — generic associated-const projection `T::CONST` (= B121 / G163-3)  [repro g9]
-`fn sides<T: Shape>() -> i64 { return T::SIDES; }` → *"unknown enum 'T'"*. Matches the
-OPEN B121 note exactly. Workaround: concrete path or a `&self` method.
+### K1 — generic associated-const projection `T::CONST` (= B121 / G163-3)  [repro g9]  ✅ CLOSED 2026-05-24
+`fn sides<T: Shape>() -> i64 { return T::SIDES; }` previously → *"unknown enum 'T'"*. FIXED via
+synth-accessor: sema routes `T::CONST` to a zero-arg call `T__kassoc_CONST()`, lower_impl_block
+emits a per-impl `Concrete__kassoc_CONST` accessor, and mono's existing `T__m`→`Concrete__m`
+rewrite resolves it. Test: associated-consts/generic-assoc-const-projection-b121 (bare +
+arithmetic + supertrait-bound projection). Out of scope: generic-TARGET impls + const-in-type.
 
 ### K2 — two impls of `Trait<T>` for one type at distinct `T` (= G156-1 / G157-2)  [repro g10]
 `impl Add<i64> for Meters` + `impl Add<Meters> for Meters` → *"duplicate associated type

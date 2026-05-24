@@ -2931,6 +2931,12 @@ private:
     lir::HermesValPtr lower_hermes_val(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit(hermes::TinyMapView node);
     lir::LExprPtr lower_enum_lit_data(hermes::TinyMapView node);
+    // g9/B121: `T::CONST` where T is an abstract type-param whose bound trait
+    // declares `const CONST`. Returns a zero-arg accessor call
+    // `T__kassoc_CONST()` (mono rewrites `T__` → concrete; lower_impl_block
+    // emits the per-impl accessor) or nullptr if cname isn't such a projection.
+    lir::LExprPtr try_lower_generic_assoc_const(const std::string& cname,
+                                                const std::string& mname);
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);

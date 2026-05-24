@@ -1,0 +1,62 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-consts/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return. A trait declares an associated
+//   const `SIDES: i64`, overridden in two impls. Read GENERICALLY through a
+//   type-param bound `fn sides<T: Shape>() -> i64 { T::SIDES }` — the projection
+//   `T::SIDES` resolves per concrete T at monomorphization.
+// Tests g9/B121: generic associated-const projection `T::CONST` (previously a
+//   gap — "unknown enum 'T'"). Sema routes `T::SIDES` to a zero-arg accessor
+//   call `T__kassoc_SIDES()`; mono rewrites the `T__` prefix to the concrete
+//   type; codegen calls the per-impl accessor `Concrete__kassoc_SIDES` emitted
+//   from each impl's `const SIDES = ...`. Both the bare projection and the
+//   projection used inside an arithmetic expression are exercised, plus a
+//   supertrait-declared const reached through a sub-trait bound.
+package generic_assoc_const_projection_b121;
+
+trait Shape {
+    const SIDES: i64;
+}
+
+// Supertrait carrying the const; the bound below is the SUB-trait, so the
+// projection must walk the supertrait DAG to find SIDES.
+trait Polygon: Shape {}
+
+struct Tri {}
+struct Quad {}
+struct Pent {}
+
+impl Shape for Tri  { const SIDES: i64 = 3i64; }
+impl Shape for Quad { const SIDES: i64 = 4i64; }
+impl Shape for Pent { const SIDES: i64 = 5i64; }
+impl Polygon for Pent {}
+
+// Bare generic projection.
+fn sides<T: Shape>() -> i64 {
+    return T::SIDES;
+}
+
+// Projection inside an arithmetic expression.
+fn sides_plus_one<T: Shape>() -> i64 {
+    return T::SIDES + 1i64;
+}
+
+// Projection through a SUB-trait bound (const declared on the supertrait).
+fn sides_via_sub<T: Polygon>() -> i64 {
+    return T::SIDES;
+}
+
+fn main() -> i32 {
+    if sides::<Tri>()  != 3i64 { return 1i32; }
+    if sides::<Quad>() != 4i64 { return 2i32; }
+    if sides::<Pent>() != 5i64 { return 3i32; }
+
+    if sides_plus_one::<Tri>()  != 4i64 { return 4i32; }
+    if sides_plus_one::<Quad>() != 5i64 { return 5i32; }
+
+    if sides_via_sub::<Pent>() != 5i64 { return 6i32; }
+
+    // Concrete read still works alongside the generic path.
+    if Tri::SIDES != 3i64 { return 7i32; }
+
+    return 0i32;
+}
