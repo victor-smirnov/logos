@@ -1209,8 +1209,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
     // that IS the reference. Gated to is_mut (place writes) and to the
     // IndexRead/TupleIndex tops the per-shape handlers below don't fully
     // recurse on; FieldRead keeps its dedicated, widely-relied-on handler.
-    if (v.is_mut() && (inner_ref.kind() == ec::Code::IndexRead ||
-                       inner_ref.kind() == ec::Code::TupleIndex)) {
+    // An IndexRead place uses gen_lvalue_addr for BOTH `&` and `&mut`: it
+    // computes the real element address with the correct per-element stride
+    // (place_slot_type), which is exactly the reference. This is essential for
+    // a `&self` method on a struct-ARRAY element (`hs[i].method()`, auto-ref'd
+    // immutable) — the legacy handler below used a ptr (8-byte) stride and
+    // pointed `self` into the wrong slot for wider structs (cluster A / N2).
+    // gen_lvalue_addr returns null for shapes it doesn't cover (e.g. a `*S`
+    // pointer-field indexed), so we fall through to the legacy handler then.
+    // TupleIndex stays gated to is_mut — the immutable `&x.N` value-copy path
+    // is relied on by the variadic-tuple Eq/Debug recursion.
+    if (inner_ref.kind() == ec::Code::IndexRead ||
+        (v.is_mut() && inner_ref.kind() == ec::Code::TupleIndex)) {
         if (auto addr = gen_lvalue_addr(inner_ref))
             return addr;
     }
@@ -2181,6 +2191,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
          idx_t.kind() == LogosType::Kind::U128);
     if (idx_unsigned && idx.getType() != builder_.getI64Type())
         idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
+    // Cluster A: a struct-typed element of an ARRAY is stored INLINE
+    // (sizeof(Struct) per slot — see gen_arr_lit / gen_struct_lit). The
+    // FieldRead / IndexRead / default cases above set elem_type =
+    // logos_to_mlir(type) = `ptr` for a struct result, which both mis-strides
+    // the GEP (8 vs sizeof) and skips the inline-struct return branch below
+    // → reading `h.items[i]` (struct element) loaded pointer-bits / SIGSEGV.
+    // Use the inline struct slot type. Slices/Vec use a pointer element
+    // convention, so restrict to array / field-array (non-slice) receivers.
+    if (type && (TypeRef(type).kind() == LogosType::Kind::Struct ||
+                 TypeRef(type).kind() == LogosType::Kind::ZonedStruct) &&
+        !(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice)) {
+        if (auto st = place_slot_type(type);
+            st && mlir::isa<mlir::LLVM::LLVMStructType>(st))
+            elem_type = st;
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);

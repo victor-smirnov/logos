@@ -1,9 +1,0 @@
-package g12;
-struct Pair<T> { a: T, b: T }
-enum Holder<T> { Empty, Full(Pair<T>) }
-fn sum(h: Holder<i64>) -> i64 { match h { Holder::Empty => { return 0i64; } Holder::Full(p) => { return p.a + p.b; } } }
-fn main() -> i32 {
-    // T can't be inferred through the Pair<T> wrapper; turbofish Holder::<i64>::Full(...) works.
-    if sum(Holder::Full(Pair { a: 3i64, b: 4i64 })) != 7i64 { return 1i32; }  // error: expected Pair<T>, got Pair<i64>
-    return 0i32;
-}

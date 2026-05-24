@@ -1,6 +1,0 @@
-package g10;
-use logos.lang.ops;
-struct Meters { v: i64 }
-impl Add<i64> for Meters { type Output = i64; fn add(self: Meters, r: i64) -> i64 { return self.v + r; } }
-impl Add<Meters> for Meters { type Output = i64; fn add(self: Meters, r: Meters) -> i64 { return self.v + r.v; } }  // error: duplicate associated type 'Output'
-fn main() -> i32 { return 0i32; }

@@ -1,9 +1,0 @@
-package g2;
-struct Cell { v: i64 }
-impl Cell { fn get(self: &Self) -> i64 { return self.v; } }
-struct Row { cells: [Cell; 3] }
-fn main() -> i32 {
-    let r: Row = Row { cells: [Cell{v:10i64},Cell{v:20i64},Cell{v:30i64}] };
-    // r.cells[1].v reads 20 correctly, but .get() passes a wrong self pointer:
-    return r.cells[1i64].get() as i32;  // expected 20, prints garbage (e.g. 176)
-}

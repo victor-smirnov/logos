@@ -5976,16 +5976,21 @@ bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
     int32_t code = code_of(unwrap_paren_node(recv));
     return code == la::VAR_REF || code == la::DEREF;
 }
-// A field-read base with NO index in the chain (`s`, `*p`, `s.a.b`). A field
-// off a struct-array element (`g.rows[i].cells`) is excluded: indexing a struct
-// ARRAY element then projecting a field hits a separate pre-existing read-path
-// limitation (the struct-element stride), so its write would crash — reject it.
+// A field-read base whose address gen_lvalue_addr can compute: a bare var /
+// `*p`, a field chain, OR an index into a place — incl. a field off a
+// struct-ARRAY element (`a[i].x`, `g.rows[i].cells[j].v`). The struct-element
+// stride is now handled (gen_lvalue_addr + gen_index_read inline slot), so
+// index-then-field places lower correctly.
 bool SemaChecker::place_field_base_ok(hermes::TinyMapView recv) {
     recv = unwrap_paren_node(recv);
     int32_t c = code_of(recv);
     if (c == la::VAR_REF || c == la::DEREF) return true;
     if (c == la::FIELD_READ)
         return place_field_base_ok(map_of(recv.get(la::RECEIVER.code)));
+    if (c == la::INDEX_READ)
+        return place_write_supported(map_of(recv.get(la::RECEIVER.code)));
+    if (c == la::TUPLE_INDEX)
+        return place_recv_is_simple(map_of(recv.get(la::RECEIVER.code)));
     return false;
 }
 // Recursive: a place whose real address gen_lvalue_addr can compute. VAR_REF and

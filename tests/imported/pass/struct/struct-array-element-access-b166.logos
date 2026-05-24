@@ -1,0 +1,37 @@
+// Regression for B166 cluster A — struct-typed elements of arrays (inline
+// storage) addressed for READ, METHOD-self, and WRITE, at one and two index
+// levels. Previously: K3 two-level field read SIGSEGV'd; N2 method-self on a
+// struct-field-array element returned garbage; N1 `a[i].field = v` was rejected.
+// Root: struct array elements are stored INLINE (sizeof per slot) but the
+// struct-literal field-init stored element POINTERS, and the read/method paths
+// used a pointer stride instead of the inline-struct stride.
+package struct_array_element_access_b166;
+
+struct Big { a: i64, b: i64, c: i64 }
+impl Big { fn sum(self: &Self) -> i64 { return self.a + self.b + self.c; } }
+struct Cell { v: i64 }
+struct Row { cells: [Cell; 2] }
+struct Grid { rows: [Row; 2] }
+
+fn main() -> i32 {
+    // wide (24-byte) struct elements — exercises real inline stride
+    let mut hs: [Big; 3] = [ Big{a:1i64,b:2i64,c:3i64},
+                             Big{a:4i64,b:5i64,c:6i64},
+                             Big{a:7i64,b:8i64,c:9i64} ];
+    if hs[2i64].a != 7i64 { return 1i32; }          // field read
+    if hs[1i64].sum() != 15i64 { return 2i32; }     // method-self
+    let third: Big = hs[2i64];                       // bare element read
+    if third.b != 8i64 { return 3i32; }
+    hs[0i64].b = 20i64;                              // index-then-field write
+    if hs[0i64].b != 20i64 { return 4i32; }
+    if hs[0i64].a != 1i64 { return 5i32; }           // neighbour intact
+
+    // two-level nesting (struct-array field of a struct-array element)
+    let mut g: Grid = Grid { rows: [ Row{cells:[Cell{v:1i64},Cell{v:2i64}]},
+                                     Row{cells:[Cell{v:3i64},Cell{v:4i64}]} ] };
+    if g.rows[1i64].cells[0i64].v != 3i64 { return 6i32; }   // 2-level read
+    g.rows[1i64].cells[0i64].v = 42i64;                      // 2-level write
+    if g.rows[1i64].cells[0i64].v != 42i64 { return 7i32; }
+    if g.rows[0i64].cells[1i64].v != 2i64 { return 8i32; }   // unrelated intact
+    return 0i32;
+}

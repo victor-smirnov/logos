@@ -767,6 +767,30 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         }
         return {nullptr, {}};
     }
+    // Cluster A (K3/N2): a struct-typed element of an array — `r.cells[i]`
+    // (array field) or `a[i]` of a struct array, possibly nested
+    // (`g.rows[i].cells[j]`). Route through gen_lvalue_addr, which computes
+    // the real element ADDRESS with the correct per-element struct stride
+    // (place_slot_type). The general gen_expr(recv) path below returned a
+    // wrong pointer here → field READ SIGSEGV (K3) and method-self pointing
+    // at garbage (N2). The element's struct name comes from recv.type.
+    if (recv_kind == ec::Code::IndexRead || recv_kind == ec::Code::TupleIndex) {
+        // Peel a `&`/`&mut`/`*` wrapper: a `&self` method call auto-refs its
+        // receiver, so `hs[i]` arrives typed `&Big`. The element address that
+        // gen_lvalue_addr computes IS that reference, so treat it as a struct
+        // receiver regardless of an outer ref annotation.
+        TypeRef st = recv.type;
+        if (st && (TypeRef(st).kind() == LogosType::Kind::Ref ||
+                   TypeRef(st).kind() == LogosType::Kind::MutRef ||
+                   TypeRef(st).kind() == LogosType::Kind::Ptr) &&
+            TypeRef(st).pointee())
+            st = TypeRef(st).pointee();
+        if (st && (TypeRef(st).kind() == LogosType::Kind::Struct ||
+                   TypeRef(st).kind() == LogosType::Kind::ZonedStruct)) {
+            if (auto addr = gen_lvalue_addr(recv_ref))
+                return {addr, mlir_struct_key(st)};
+        }
+    }
     // General case: evaluate expression, derive type name from LExpr.type
     auto ptr = gen_expr(recv);
     if (!ptr) return {nullptr, {}};
@@ -846,17 +870,38 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         if (arr_llvm && fval.kind() == ec::Code::ArrLit) {
             lir_view::EArrLitView arr_view{fval};
             auto elem_type = arr_llvm.getElementType();
+            // Cluster A (K3/N2): an AGGREGATE element (inline struct or nested
+            // array) is pointer-represented by gen_expr; storing that 8-byte
+            // pointer into the (wider) inline slot left only the pointer bits
+            // in the array and 16 bytes of garbage, so reads through the real
+            // element stride saw pointer bits as the field value (SIGSEGV /
+            // miscompile). MEMCPY the element VALUE into the slot — mirrors
+            // gen_arr_lit's struct-element path.
+            bool elem_is_agg = elem_type &&
+                (mlir::isa<mlir::LLVM::LLVMStructType>(elem_type) ||
+                 mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type));
             uint64_t n = arr_view.count();
             for (uint64_t i = 0; i < n; ++i) {
                 auto er = arr_view.elem(i);
                 auto* le = lexpr_of(er); if (!le) { ok = false; return; }
                 auto val = gen_expr(*le);
                 if (!val) { ok = false; return; }
-                val = coerce_numeric(val, elem_type);
                 llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
                 auto elem_gep = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), arr_llvm, gep, idx);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
+                if (elem_is_agg && val.getType() == ptr_type()) {
+                    auto dl = mlir::DataLayout::closest(
+                        builder_.getInsertionBlock()->getParentOp());
+                    auto bytes = (int64_t)dl.getTypeSize(elem_type);
+                    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                        loc_, builder_.getI64Type(),
+                        builder_.getI64IntegerAttr(bytes));
+                    builder_.create<mlir::LLVM::MemcpyOp>(
+                        loc_, elem_gep, val, sz, /*isVolatile=*/false);
+                } else {
+                    val = coerce_numeric(val, elem_type);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, elem_gep);
+                }
             }
             return;
         }
