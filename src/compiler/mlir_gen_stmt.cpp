@@ -4032,11 +4032,31 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     mlir::Value disc_val;
     int32_t expected_disc = 0;
 
-    if (TypeRef sct(scrut_le->type); sct && sct.kind() == LogosType::Kind::Enum) {
-        te_info = resolve_tagged_enum(std::string(sct.enum_name()), scrut_le->type);
+    // Auto-deref `&Enum` / `&mut Enum` / `*Enum` (match ergonomics + nested
+    // by-ref synths) so `let Some(v) = &opt else …` works like the match path.
+    // A Logos enum value is a heap pointer, so `&Enum` is a pointer-to-slot
+    // holding that heap pointer (two levels) — load through it once to reach
+    // the enum-struct address.
+    TypeRef sct(scrut_le->type);
+    TypeRef enum_ct = sct;
+    bool sle_via_ref = false;
+    if (sct && (sct.kind() == LogosType::Kind::Ref ||
+                sct.kind() == LogosType::Kind::MutRef ||
+                sct.kind() == LogosType::Kind::Ptr) &&
+        sct.pointee() && TypeRef(sct.pointee()).kind() == LogosType::Kind::Enum) {
+        enum_ct = sct.pointee();
+        sle_via_ref = true;
+    }
+    if (enum_ct && enum_ct.kind() == LogosType::Kind::Enum) {
+        te_info = resolve_tagged_enum(std::string(enum_ct.enum_name()), enum_ct);
         if (te_info) {
-            // Spill to alloca if it's a value (not already a pointer)
-            if (scrut_val.getType() != ptr_type()) {
+            if (sle_via_ref) {
+                // scrut_val is the &Enum (ptr-to-slot-holding-heap-ptr);
+                // load the inner heap pointer to get the enum-struct address.
+                scrut_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, ptr_type(), scrut_val);
+            } else if (scrut_val.getType() != ptr_type()) {
+                // Spill a by-value enum to an alloca.
                 auto alloca = create_entry_alloca(te_info->llvm_type);
                 builder_.create<mlir::LLVM::StoreOp>(loc_, scrut_val, alloca);
                 scrut_ptr = alloca;

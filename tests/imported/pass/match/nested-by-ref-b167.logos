@@ -1,0 +1,39 @@
+// Regression (B167): nested enum-payload patterns over a BY-REFERENCE
+// scrutinee (match ergonomics). `match &opt { Some(Some(v)) => *v }` binds the
+// inner payload by-ref (v: &i64). Requires (a) deref of the &Enum in the K4
+// synth's pat_field_type + a by-ref synth binding (so extract stores the slot
+// address, two-level read), and (b) the let-else body extraction working over
+// a &Enum scrutinee (SLetElse now auto-derefs &Enum like the match path).
+// (`&mut` write-through `*v = …` is a separate pre-existing limitation that
+// affects even single-level `match &mut`, so it's not exercised here.)
+package nested_by_ref_b167;
+use logos.lang.option;
+use logos.lang.result;
+
+fn classify(o: &Option<Option<i64>>) -> i64 {
+    match o {
+        Option::Some(Option::Some(v)) => *v,
+        Option::Some(Option::None) => -1i64,
+        Option::None => -2i64,
+    }
+}
+fn res(r: &Result<Option<i64>, i64>) -> i64 {
+    match r {
+        Result::Ok(Option::Some(v)) => *v,
+        Result::Ok(Option::None) => 0i64,
+        Result::Err(e) => -*e,
+    }
+}
+fn main() -> i32 {
+    let a: Option<Option<i64>> = Option::Some(Option::Some(7i64));
+    if classify(&a) != 7i64 { return 1i32; }
+    let b: Option<Option<i64>> = Option::Some(Option::None);
+    if classify(&b) != -1i64 { return 2i32; }
+    let c: Option<Option<i64>> = Option::None;
+    if classify(&c) != -2i64 { return 3i32; }
+    let d: Result<Option<i64>, i64> = Result::Ok(Option::Some(9i64));
+    if res(&d) != 9i64 { return 4i32; }
+    let e: Result<Option<i64>, i64> = Result::Err(4i64);
+    if res(&e) != -4i64 { return 5i32; }
+    return 0i32;
+}

@@ -2448,13 +2448,33 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // binding_types pass below still runs — it's the canonical input
     // to lir_mirror_emit_pat_variant_data.)
     SemaSubst pat_subst;
-    if (vinfo && TypeRef(scrut_type).kind() == LogosType::Kind::Enum &&
-        !TypeRef(scrut_type).type_args().empty() && eit != enums_.end()) {
-        auto& einfo = eit->second;
-        for (size_t k = 0; k < einfo.type_params.size() &&
-                             k < TypeRef(scrut_type).type_args().size(); ++k)
-            pat_subst[einfo.type_params[k].name] = TypeRef(scrut_type).type_args()[k];
+    {
+        // Deref `&Enum` / `&mut Enum` / `*Enum` (match ergonomics) so the
+        // per-position payload types are concrete even for a by-ref scrutinee
+        // (needed by nested-pattern synth bindings — otherwise pat_field_type
+        // returns the bare TypeVar and the guard/extraction miscompile).
+        TypeRef pat_scrut = scrut_type;
+        if (pat_scrut &&
+            (TypeRef(pat_scrut).kind() == LogosType::Kind::Ref ||
+             TypeRef(pat_scrut).kind() == LogosType::Kind::MutRef ||
+             TypeRef(pat_scrut).kind() == LogosType::Kind::Ptr) &&
+            TypeRef(pat_scrut).pointee())
+            pat_scrut = TypeRef(pat_scrut).pointee();
+        if (vinfo && pat_scrut && TypeRef(pat_scrut).kind() == LogosType::Kind::Enum &&
+            !TypeRef(pat_scrut).type_args().empty() && eit != enums_.end()) {
+            auto& einfo = eit->second;
+            for (size_t k = 0; k < einfo.type_params.size() &&
+                                 k < TypeRef(pat_scrut).type_args().size(); ++k)
+                pat_subst[einfo.type_params[k].name] = TypeRef(pat_scrut).type_args()[k];
+        }
     }
+    // True when the scrutinee is by-reference (match ergonomics): a nested
+    // payload binding then binds by-ref (two-level), so synth types wrap in &.
+    bool pat_scrut_by_ref = scrut_type &&
+        (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(scrut_type).kind() == LogosType::Kind::MutRef);
+    bool pat_scrut_by_mut = scrut_type &&
+        TypeRef(scrut_type).kind() == LogosType::Kind::MutRef;
     auto pat_field_type = [&](size_t idx) -> TypeRef {
         if (!vinfo || idx >= vinfo->payload_types.size()) return error_t();
         auto pt = vinfo->payload_types[idx];
@@ -2469,9 +2489,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // `@`-binding — `Msg::Num(n @ 1..=5)`) and the refutable guard is built
     // against it, rather than to a fresh synth temp. The caller pushes the
     // returned name into `bindings`.
+    // Set by synth_refutable_inner when the returned synth must bind by-ref
+    // (by-ref-ergonomics nested-variant synth). The caller reads it to set
+    // binding_is_ref for that synth.
+    bool synth_wants_ref = false;
     auto synth_refutable_inner =
         [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field,
             std::string_view explicit_name = {}) -> std::string {
+        synth_wants_ref = false;
         std::string synth = explicit_name.empty()
             ? std::format("__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++)
             : std::string(explicit_name);
@@ -2517,18 +2542,21 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             if (sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) {
                 if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
                     return std::string();
-                // By-ref ergonomics (`match &enum { Some(Some(v)) }`): the synth
-                // binding + guard match assume a by-VALUE enum; a reference
-                // scrutinee is two-level (ptr-to-ptr) and miscompiles. Cleanly
-                // reject for now (the inner bind-to-name + body match workaround
-                // still applies). by-value nested patterns are the common case.
-                if (scrut_type &&
-                    (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
-                     TypeRef(scrut_type).kind() == LogosType::Kind::MutRef ||
-                     TypeRef(scrut_type).kind() == LogosType::Kind::Ptr))
+                // Raw-pointer scrutinee (`*const`/`*mut`) keeps the clean
+                // reject — match ergonomics is `&`/`&mut` only.
+                if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Ptr)
                     return std::string();
                 TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                     ? ftype : error_t();
+                // By-ref ergonomics: the outer payload binds by-reference, so
+                // the synth carrying the nested enum is `&Inner` / `&mut Inner`.
+                // The guard match + body let-else then run over a ref scrutinee
+                // (default binding modes handle that), matching the pattern
+                // binding type the binding_types pass assigns to this synth.
+                if (pat_scrut_by_ref && rt && TypeRef(rt).kind() != LogosType::Kind::Error) {
+                    rt = make_ref(pat_scrut_by_mut, rt);
+                    synth_wants_ref = true;
+                }
                 std::vector<lir::LExprPtr> inner_guards;
                 std::vector<NestedPatSub> inner_subs;   // discarded — re-extracted
                 auto* sg = current_pat_refutable_guards_;
@@ -2925,9 +2953,16 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                             bnode, pat_field_type(j),
                             std::format("{}", j));
                         if (!synth.empty()) {
+                            // By-ref ergonomics + a nested-variant synth
+                            // (`match &enum { Some(Some(v)) }`): the synth must
+                            // bind the payload slot BY REFERENCE so its `&Inner`
+                            // type (set in synth_refutable_inner) matches what
+                            // extract_payload stores (the slot address, not the
+                            // loaded value) and the guard's two-level deref is
+                            // correct. synth_refutable_inner sets the flag.
                             bindings.push_back(std::move(synth));
-                            binding_is_ref.push_back(false);
-                            binding_is_mut.push_back(false);
+                            binding_is_ref.push_back(synth_wants_ref);
+                            binding_is_mut.push_back(synth_wants_ref && pat_scrut_by_mut);
                             binding_from_wild.push_back(false);
                             continue;
                         }
