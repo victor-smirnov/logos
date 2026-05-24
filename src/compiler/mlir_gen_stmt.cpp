@@ -2254,7 +2254,12 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
              TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
             TypeRef(ty).pointee() &&
             TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum;
-        auto* te = resolve_tagged_enum(ename, ty);
+        // G160-8: resolve the tagged-enum spec off the ENUM type, not the
+        // `&Enum` ref wrapper — passing the ref makes resolve_tagged_enum miss
+        // the concrete spec (returns null) → the C-like fallback below
+        // under-derefs the two-level `&Enum` element → SIGSEGV on a tuple of
+        // `&Option<T>`.
+        auto* te = resolve_tagged_enum(ename, via_ref_enum ? TypeRef(ty).pointee() : ty);
         if (!te) {
             // C-like enum (all-nullary, no TaggedEnumInfo): the value IS the i32
             // discriminant — there is no heap struct. Load it and compare to the
@@ -2396,15 +2401,21 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     }
     case pc::Code::VariantData: {
         lir_view::PatVariantDataView pvd{pat};
-        auto* te = resolve_tagged_enum(std::string(pvd.enum_name()), ty);
+        // G160-8: a `&Enum` slot resolves its tagged-enum spec off the ENUM
+        // pointee, not the `&Enum` ref wrapper (else resolve_tagged_enum returns
+        // null and the payload bind silently no-ops / mis-derefs).
+        bool via_ref_enum = ty &&
+            (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+             TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(ty).pointee() &&
+            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum;
+        auto* te = resolve_tagged_enum(std::string(pvd.enum_name()),
+                                       via_ref_enum ? TypeRef(ty).pointee() : ty);
         if (!te) return;
         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
         // `&Enum` slot is two-level — deref once more to the enum struct (G152-9,
         // mirrors the pat_test fix) before extracting payload fields.
-        if (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
-                   TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(ty).pointee() &&
-            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum)
+        if (via_ref_enum)
             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         const TaggedEnumInfo::VariantPayload* vp = nullptr;
         for (auto& vi : te->variants) if (vi.disc == (int32_t)pvd.disc()) { vp = &vi; break; }
@@ -2834,20 +2845,26 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     auto ep = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, ei);
                     if (sp.kind() == pc::Code::VariantData) {
+                        // G160-8: a `&Enum` tuple element resolves its tagged
+                        // spec off the ENUM pointee, not the `&Enum` ref (else
+                        // te_sub is null → the payload binding silently no-ops
+                        // → arm body reads garbage → SIGSEGV).
+                        TypeRef et = btypes[idx];
+                        bool via_ref_enum = et &&
+                            (TypeRef(et).kind() == LogosType::Kind::Ref ||
+                             TypeRef(et).kind() == LogosType::Kind::MutRef) &&
+                            TypeRef(et).pointee() &&
+                            TypeRef(TypeRef(et).pointee()).kind() == LogosType::Kind::Enum;
                         auto* te_sub = resolve_tagged_enum(
                             std::string(lir_view::PatVariantDataView{sp}.enum_name()),
-                            btypes[idx]);
+                            via_ref_enum ? TypeRef(et).pointee() : et);
                         if (!te_sub) return;
                         auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
                             loc_, ptr_type(), ep);
                         // `&Enum` tuple element is two-level — deref once more to
                         // the enum struct before extracting the payload (G152-9,
                         // mirrors the pat_test / pat_bind disc fix).
-                        TypeRef et = btypes[idx];
-                        if (et && (TypeRef(et).kind() == LogosType::Kind::Ref ||
-                                   TypeRef(et).kind() == LogosType::Kind::MutRef) &&
-                            TypeRef(et).pointee() &&
-                            TypeRef(TypeRef(et).pointee()).kind() == LogosType::Kind::Enum)
+                        if (via_ref_enum)
                             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                 loc_, ptr_type(), enum_ptr);
                         bind_enum_payload(enum_ptr, te_sub,

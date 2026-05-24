@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/borrowed-ptr-pattern-option.rs
+// Modifications: isize→i64; `select` returns the chosen i64 payload (the
+//   upstream `&'r Option<isize>` return + `.unwrap()` reshaped to extract the
+//   value directly via default binding modes); `&None`/`&Some(_)` patterns →
+//   `Option::None`/`Option::Some(n)` matched through the `&Option` refs (default
+//   binding modes peel the ref); assert_eq! → return sentinels.
+// Tests matching a TUPLE of two `&Option<T>` references — the per-element disc
+//   test + payload bind must apply the two-level `&Enum` deref (G160-8, closed
+//   2026-05-23). Previously SIGSEGV'd at runtime (resolve_tagged_enum was passed
+//   the `&Option` ref wrapper → null → C-like fallback under-derefed).
+package borrowed_ptr_pattern_option_b160;
+
+use logos.lang.option;
+
+fn select(x: &Option<i64>, y: &Option<i64>) -> i64 {
+    match (x, y) {
+        (Option::None, Option::None) => { return 0i64; }
+        (Option::Some(n), _) => { return *n; }
+        (Option::None, Option::Some(m)) => { return *m; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(5i64);
+    let b: Option<i64> = Option::None;
+    if select(&a, &b) != 5i64 { return 1i32; }
+    if select(&b, &a) != 5i64 { return 2i32; }
+    if select(&b, &b) != 0i64 { return 3i32; }
+    return 0i32;
+}

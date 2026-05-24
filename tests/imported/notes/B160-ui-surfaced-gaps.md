@@ -144,25 +144,17 @@ via user `==` (where-clauses-blanket-eq).
   TRACTABLE — the lexer's string-literal scanner needs the same escape-decoding
   table the char-literal scanner already applies (`\0 \n \t \r \\ \" \xNN \u{…}`).
 
-- **G160-8** ⚠️ SILENT CRASH — matching a TUPLE OF `&Option<T>` references via
-  default binding modes SIGSEGVs at runtime (compiles + links clean). A single
-  `&Option<T>` match is fine; the crash is specific to the 2-element tuple of
-  refs. Minimal repro:
-  ```
-  fn select(x: &Option<i64>, y: &Option<i64>) -> i64 {
-      match (x, y) {                       // SIGSEGV
-          (Option::None, Option::None) => 0i64,
-          (Option::Some(n), _) => *n,
-          (Option::None, Option::Some(m)) => *m,
-      }
-  }
-  ```
-  Dropped: `binding/borrowed-ptr-pattern-option.rs`. Assessment: DEEP-ish —
-  default-binding-mode lowering for a tuple scrutinee whose elements are
-  references to enums mis-computes the per-element deref level (extracts a value
-  through a dangling/extra pointer indirection). Same family as the closed
-  default-binding-modes baghunt but for the nested-tuple-of-refs shape; needs gdb
-  on the generated match.
+- **G160-8** ✅ CLOSED (2026-05-23) — matching a TUPLE OF `&Option<T>` references
+  via default binding modes no longer SIGSEGVs. Root: the per-element disc test
+  + payload bind passed the `&Option` REF wrapper to `resolve_tagged_enum`,
+  which returned null → the C-like-enum fallback ran and under-dereferenced the
+  two-level `&Enum` element (read the heap-pointer bits as the discriminant →
+  wrong arm → payload deref on garbage). Fix (mlir_gen_stmt): three sites —
+  pat_test Variant/VariantData, pat_bind VariantData, and the tuple-element
+  nested-variant-payload bind — now resolve the tagged spec off the ENUM
+  POINTEE (`TypeRef(ty).pointee()`) when the element is `&Enum`/`&mut Enum`, so
+  the spec is found and the existing two-level via_ref deref applies. Re-imported
+  `borrowed-ptr-pattern-option`. Full suite 4866/4866.
 
 - **G160-9** ⚠️ SILENT MISCOMPILE — a write to an outer-OUTER local from inside a
   NESTED (two-level) closure is silently lost. A single-level closure write to an
