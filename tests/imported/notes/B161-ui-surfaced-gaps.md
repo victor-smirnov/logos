@@ -117,21 +117,14 @@ literals (estr-slice-cmp).
   (`store_arm_result` helper, both guarded and plain arm paths). Re-imported
   `expr-match-generic`. Full suite green.
 
-- **G161-5** TRACTABLE — functional struct update `..base` over a GENERIC struct
-  (`Partial<T>`) is rejected: the spread does not carry the remaining fields, so
-  `Partial { y: …, ..p }` errors "struct literal 'Partial': field 'x' not
-  initialized". Concrete-struct FSU `P { y: …, ..p }` works (B159
-  fsu-field-sensitivity). The original test also exercised a PARTIAL move
-  (`..p` after moving `p.y`), but the generic-FSU root fires first. Minimal repro:
-  ```
-  struct P<T> { x: T, y: T }
-  fn f<T>(b1: T, b2: T) -> P<T> { let p = P { x: b1, y: b2 }; return P { y: b2, ..p }; }  // error: field 'x' not initialized
-  ```
-  Dropped: `structs/struct-partial-move-1.rs`. Assessment: TRACTABLE — the
-  struct-literal FSU field-fill resolves the carried fields off the base type;
-  for a generic-typevar-typed base it isn't enumerating the template's remaining
-  fields. (Turbofish placeholder `f::<i64, _>(…)` — `_` in a turbofish slot — is
-  also an unrelated parse-reject seen here.)
+- **G161-5** ✅ CLOSED (2026-05-23) — functional struct update `..base` over a
+  GENERIC struct `P<T>` now carries the remaining fields. The generic-struct
+  struct-lit path validated explicit fields but lacked the `..base` field-fill
+  entirely (the non-generic path had it), so `P { y: …, ..p }` errored "field
+  'x' not initialized". Fix (sema_expr): added the FSU fill to the generic
+  block — carry each un-set field off the base via `field_read`, substituting
+  the struct's type-params into the carried field's declared type. Re-imported
+  `struct-partial-move-1`. Full suite 4909/4909.
 
 ## Other observations (NOT counted as new gaps — consistent with documented conventions/limits)
 

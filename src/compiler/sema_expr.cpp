@@ -8143,6 +8143,51 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                                   sname, fname, *v, type_str(ft)));
             }
         }
+        // G161-5: functional struct update `P { y: …, ..base }` over a GENERIC
+        // struct. The non-generic path below already fills un-set fields from
+        // the base; the generic path was missing it entirely (→ "field 'x' not
+        // initialized"). Carry each remaining field off the base, substituting
+        // the struct's type-params into the carried field's declared type.
+        if (node.has_key(la::BASE)) {
+            auto base_node = map_of(node.get(la::BASE.code));
+            auto base_expr = lower_expr(base_node);
+            if (base_expr->type) {
+                TypeRef bt = base_expr->type;
+                auto bk = bt.kind();
+                bool ok = (bk == LogosType::Kind::Struct ||
+                           bk == LogosType::Kind::ZonedStruct) &&
+                          bt.struct_name() == std::string_view(sname);
+                if (!ok)
+                    error(std::format(
+                        "struct literal '{}': '..base' must have type '{}' (got '{}')",
+                        sname, sname,
+                        (bk == LogosType::Kind::Error) ? "?" : type_str(bt)));
+            }
+            std::string base_var;
+            {
+                auto er = expr_ref_of(*base_expr);
+                if (er.kind() == lir_schema::expr::Code::VarRef)
+                    base_var = std::string(lir_view::EVarRefView{er}.name());
+            }
+            SemaSubst fsu_sb;
+            for (size_t i = 0; i < sinfo.type_params.size() && i < args.size(); ++i)
+                fsu_sb[sinfo.type_params[i].name] = args[i];
+            for (auto& [fname, inited] : initialized) {
+                if (inited) continue;
+                inited = true;
+                TypeRef ft = nullptr;
+                for (auto& ef : effective->fields)
+                    if (ef.name == fname) { ft = ef.type; break; }
+                if (ft && !fsu_sb.empty()) ft = subst_type_sema(ft, fsu_sb);
+                lir::LExprPtr recv = base_var.empty()
+                    ? lower_expr(base_node)
+                    : builder().var_ref(base_var, base_expr->type);
+                fields.push_back({std::string(fname),
+                    builder().field_read(std::move(recv), std::string(fname),
+                                         ft ? ft : error_t())});
+            }
+        }
+
         for (auto& [fname, init] : initialized)
             if (!init)
                 error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
