@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   Holder<T>::Full(Pair<T>) constructed via turbofish (inference-free path).
+package u08b;
+struct Pair<T> { a: T, b: T }
+enum Holder<T> { Empty, Full(Pair<T>) }
+fn sum(h: Holder<i64>) -> i64 {
+    match h { Holder::Empty => { return 0i64; } Holder::Full(p) => { return p.a + p.b; } }
+}
+fn main() -> i32 {
+    let pr: Pair<i64> = Pair { a: 3i64, b: 4i64 };
+    if sum(Holder::<i64>::Full(pr)) != 7i64 { return 1i32; }
+    if sum(Holder::<i64>::Empty) != 0i64 { return 2i32; }
+    return 0i32;
+}

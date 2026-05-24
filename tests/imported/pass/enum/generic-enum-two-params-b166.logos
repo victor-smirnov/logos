@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   Either<L,R> generic enum, both variants matched.
+package s05;
+enum Either<L, R> { Left(L), Right(R) }
+fn unwrap_left(e: Either<i64, i64>) -> i64 {
+    match e { Either::Left(x) => { return x; } Either::Right(y) => { return y + 1000i64; } }
+}
+fn main() -> i32 {
+    if unwrap_left(Either::Left(5i64)) != 5i64 { return 1i32; }
+    if unwrap_left(Either::Right(5i64)) != 1005i64 { return 2i32; }
+    return 0i32;
+}

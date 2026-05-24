@@ -1,0 +1,7 @@
+package g3;
+struct S { x: i64 }
+fn main() -> i32 {
+    let mut a: [S; 2] = [S{x:1i64}, S{x:2i64}];
+    a[0i64].x = 9i64;   // error: assignment target too deeply nested
+    return 0i32;
+}

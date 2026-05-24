@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   user MyIter trait with assoc Item, manual next2() loop draining a Counter.
+package u04;
+trait MyIter { type Item; fn next2(self: &mut Self) -> Option<Self::Item>; }
+struct Counter { n: i64, max: i64 }
+impl MyIter for Counter {
+    type Item = i64;
+    fn next2(self: &mut Counter) -> Option<i64> {
+        if self.n < self.max { self.n = self.n + 1i64; return Option::Some(self.n); }
+        return Option::None;
+    }
+}
+fn main() -> i32 {
+    let mut c: Counter = Counter { n: 0i64, max: 3i64 };
+    let mut s: i64 = 0i64;
+    loop {
+        match c.next2() { Option::Some(v) => { s = s + v; } Option::None => { break; } }
+    }
+    if s != 6i64 { return 1i32; }
+    return 0i32;
+}

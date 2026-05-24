@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   generic struct method taking an Fn closure param.
+package t04;
+struct Wrap<T> { v: T }
+impl Wrap<i64> { fn apply<F: Fn(i64) -> i64>(self: &Self, f: F) -> i64 { return f(self.v); } }
+fn main() -> i32 {
+    let w: Wrap<i64> = Wrap { v: 10i64 };
+    if w.apply(|x: i64| -> i64 { return x * 3i64; }) != 30i64 { return 1i32; }
+    return 0i32;
+}

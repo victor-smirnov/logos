@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   blanket impl<T:Named> Describe for T calling self.name().
+package r03;
+trait Named { fn name(self: &Self) -> i64; }
+trait Describe { fn describe(self: &Self) -> i64; }
+impl<T: Named> Describe for T { fn describe(self: &T) -> i64 { return self.name() + 1i64; } }
+struct A {}
+impl Named for A { fn name(self: &A) -> i64 { return 7i64; } }
+fn main() -> i32 {
+    let a: A = A {};
+    if a.describe() != 8i64 { return 1i32; }
+    return 0i32;
+}

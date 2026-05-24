@@ -1,0 +1,8 @@
+package g8b;
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn main() -> i32 {
+    let ops = [inc, inc];
+    // `ops[0i64](5i64)` parses as a statement/return head, but NOT as a binary operand:
+    if ops[0i64](5i64) != 6i64 { return 1i32; }   // syntax error near ']'
+    return 0i32;
+}

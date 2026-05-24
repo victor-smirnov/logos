@@ -1,0 +1,10 @@
+package g1;
+struct Cell { v: i64 }
+struct Row { cells: [Cell; 3] }
+struct Grid { rows: [Row; 2] }
+fn main() -> i32 {
+    let g: Grid = Grid { rows: [ Row { cells: [Cell{v:1i64},Cell{v:2i64},Cell{v:3i64}] }, Row { cells: [Cell{v:4i64},Cell{v:5i64},Cell{v:6i64}] } ] };
+    let i: i64 = 1i64; let j: i64 = 2i64;
+    if g.rows[i].cells[j].v != 6i64 { return 1i32; }  // runtime SIGSEGV (exit 139)
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   match binding struct fields through a &ref (default binding modes).
+package v06;
+struct P { x: i64, y: i64 }
+fn quadrant(p: &P) -> i64 {
+    match p {
+        P { x, y } => { if *x > 0i64 && *y > 0i64 { return 1i64; } return 0i64; }
+    }
+}
+fn main() -> i32 {
+    if quadrant(&P { x: 3i64, y: 4i64 }) != 1i64 { return 1i32; }
+    if quadrant(&P { x: -1i64, y: 4i64 }) != 0i64 { return 2i32; }
+    return 0i32;
+}

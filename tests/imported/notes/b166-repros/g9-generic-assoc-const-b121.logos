@@ -1,0 +1,6 @@
+package g9;
+trait Shape { const SIDES: i64; fn name(self: &Self) -> i64; }
+struct Tri {}
+impl Shape for Tri { const SIDES: i64 = 3i64; fn name(self: &Self) -> i64 { return 1i64; } }
+fn sides<T: Shape>() -> i64 { return T::SIDES; }  // error: unknown enum 'T'
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   READ r.cells[i].v in a loop (struct field that is array-of-struct).
+package p02;
+struct Cell { v: i64 }
+struct Row { cells: [Cell; 3] }
+fn main() -> i32 {
+    let r: Row = Row { cells: [Cell{v:10i64},Cell{v:20i64},Cell{v:30i64}] };
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 { s = s + r.cells[i].v; i = i + 1i64; }
+    if s != 60i64 { return 1i32; }
+    return 0i32;
+}

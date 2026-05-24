@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   trait method generic over an Fn closure, dispatched through a generic driver.
+package u09;
+trait Mapper { fn map_one<F: Fn(i64) -> i64>(self: &Self, f: F) -> i64; }
+struct Holder { v: i64 }
+impl Mapper for Holder { fn map_one<F: Fn(i64) -> i64>(self: &Holder, f: F) -> i64 { return f(self.v); } }
+fn drive<M: Mapper>(m: &M) -> i64 { return m.map_one(|x: i64| -> i64 { return x + 100i64; }); }
+fn main() -> i32 {
+    if drive(&Holder { v: 5i64 }) != 105i64 { return 1i32; }
+    return 0i32;
+}

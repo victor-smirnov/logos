@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   match &Option<UserStruct>, bind payload by ref (default binding modes).
+package p05;
+struct Pt { x: i64, y: i64 }
+fn main() -> i32 {
+    let opt: Option<Pt> = Option::Some(Pt { x: 3i64, y: 4i64 });
+    match &opt {
+        Option::Some(p) => { if p.x + p.y != 7i64 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    return 0i32;
+}

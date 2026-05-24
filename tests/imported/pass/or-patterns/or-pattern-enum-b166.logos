@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   or-pattern E::A | E::B in match arms.
+package s04;
+enum E { A, B, C, D }
+fn f(e: E) -> i64 {
+    match e { E::A | E::B => { return 1i64; } E::C | E::D => { return 2i64; } }
+}
+fn main() -> i32 {
+    if f(E::A) != 1i64 { return 1i32; }
+    if f(E::D) != 2i64 { return 2i32; }
+    return 0i32;
+}

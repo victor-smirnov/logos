@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   module const used as multi-dim [[i64;3];2] loop bounds + index write.
+package u10;
+const W: i64 = 3i64;
+const H: i64 = 2i64;
+fn main() -> i32 {
+    let mut grid: [[i64; 3]; 2] = [[0i64,0i64,0i64],[0i64,0i64,0i64]];
+    let mut r: i64 = 0i64;
+    while r < H { let mut c: i64 = 0i64; while c < W { grid[r][c] = r * 10i64 + c; c = c + 1i64; } r = r + 1i64; }
+    if grid[1i64][2i64] != 12i64 { return 1i32; }
+    return 0i32;
+}

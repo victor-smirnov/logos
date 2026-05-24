@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   &dyn Greet dispatch of a default method calling an abstract method.
+package p08;
+trait Greet { fn base(self: &Self) -> i64; fn doubled(self: &Self) -> i64 { return self.base() * 2i64; } }
+struct A {}
+impl Greet for A { fn base(self: &A) -> i64 { return 7i64; } }
+fn via(g: &dyn Greet) -> i64 { return g.doubled(); }
+fn main() -> i32 {
+    let a: A = A {};
+    if via(&a) != 14i64 { return 1i32; }
+    return 0i32;
+}

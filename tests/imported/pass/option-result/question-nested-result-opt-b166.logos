@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   ? on Result<Option<T>,E> then match the inner Option.
+package r07;
+fn inner(n: i64) -> Result<Option<i64>, i64> {
+    if n < 0i64 { return Result::Err(n); }
+    if n == 0i64 { return Result::Ok(Option::None); }
+    return Result::Ok(Option::Some(n * 2i64));
+}
+fn outer(n: i64) -> Result<i64, i64> {
+    let o: Option<i64> = inner(n)?;
+    match o { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Ok(-1i64); } }
+}
+fn main() -> i32 {
+    match outer(5i64) { Result::Ok(v) => { if v != 10i64 { return 1i32; } } Result::Err(_) => { return 2i32; } }
+    match outer(0i64) { Result::Ok(v) => { if v != -1i64 { return 3i32; } } Result::Err(_) => { return 4i32; } }
+    return 0i32;
+}

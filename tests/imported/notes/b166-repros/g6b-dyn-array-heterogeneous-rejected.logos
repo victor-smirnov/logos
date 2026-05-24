@@ -1,0 +1,12 @@
+package g6b;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+struct Ci { r: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl Sh for Ci { fn area(self: &Ci) -> i64 { return 3i64 * self.r * self.r; } }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 3i64 };
+    let b: Ci = Ci { r: 2i64 };
+    let arr: [&dyn Sh; 2] = [&a, &b];  // error: element 1 has type &Ci, expected &Sq (no unsize coercion in array literal)
+    return 0i32;
+}

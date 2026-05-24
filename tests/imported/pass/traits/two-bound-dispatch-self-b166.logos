@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   T: Foo + Bar multi-bound, both methods dispatched.
+package r10;
+trait Foo { fn foo(self: &Self) -> i64; }
+trait Bar { fn bar(self: &Self) -> i64; }
+struct S {}
+impl Foo for S { fn foo(self: &S) -> i64 { return 3i64; } }
+impl Bar for S { fn bar(self: &S) -> i64 { return 4i64; } }
+fn both<T: Foo + Bar>(t: &T) -> i64 { return t.foo() + t.bar(); }
+fn main() -> i32 {
+    if both(&S {}) != 7i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,9 @@
+package g11;
+fn f(x: Option<Option<i64>>) -> i64 {
+    match x {
+        Option::Some(Option::Some(v)) => { return v; }   // error: nested patterns inside enum-variant payloads not yet supported
+        Option::Some(Option::None) => { return -1i64; }
+        Option::None => { return -2i64; }
+    }
+}
+fn main() -> i32 { return 0i32; }

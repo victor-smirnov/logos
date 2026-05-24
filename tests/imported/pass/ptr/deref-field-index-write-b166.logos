@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   (*p).inner.a[i] = v write through &mut, field-then-index.
+package p04;
+struct Inner { a: [i64; 3] }
+struct Outer { inner: Inner }
+fn main() -> i32 {
+    let mut o: Outer = Outer { inner: Inner { a: [1i64,2i64,3i64] } };
+    let p: &mut Outer = &mut o;
+    (*p).inner.a[1i64] = 50i64;
+    if o.inner.a[1i64] != 50i64 { return 1i32; }
+    return 0i32;
+}

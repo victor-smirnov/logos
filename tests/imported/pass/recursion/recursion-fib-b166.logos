@@ -1,0 +1,7 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   recursive fib.
+package u01;
+fn fib(n: i64) -> i64 { if n < 2i64 { return n; } return fib(n-1i64) + fib(n-2i64); }
+fn main() -> i32 { if fib(10i64) != 55i64 { return 1i32; } return 0i32; }

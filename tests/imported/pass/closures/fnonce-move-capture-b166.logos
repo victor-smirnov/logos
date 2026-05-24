@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   FnOnce closure consuming a move-captured struct.
+package s01;
+struct Data { v: i64 }
+fn call_once<F: FnOnce() -> i64>(f: F) -> i64 { return f(); }
+fn main() -> i32 {
+    let d: Data = Data { v: 42i64 };
+    let f = move || -> i64 { return d.v; };
+    if call_once(f) != 42i64 { return 1i32; }
+    return 0i32;
+}

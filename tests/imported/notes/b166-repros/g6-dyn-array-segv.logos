@@ -1,0 +1,11 @@
+package g6;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 3i64 };
+    let b: Sq = Sq { s: 4i64 };
+    let arr: [&dyn Sh; 2] = [&a, &b];          // compiles (homogeneous) but...
+    if arr[0i64].area() + arr[1i64].area() != 25i64 { return 1i32; }  // SIGSEGV: stored thin ptrs, dispatched as fat
+    return 0i32;
+}

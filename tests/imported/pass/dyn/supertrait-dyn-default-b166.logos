@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   &dyn Ext supertrait, default method calling base method.
+package q07;
+trait Base { fn b(self: &Self) -> i64; }
+trait Ext: Base { fn e(self: &Self) -> i64 { return self.b() + 1i64; } }
+struct S {}
+impl Base for S { fn b(self: &S) -> i64 { return 10i64; } }
+impl Ext for S {}
+fn via(x: &dyn Ext) -> i64 { return x.e(); }
+fn main() -> i32 {
+    let s: S = S {};
+    if via(&s) != 11i64 { return 1i32; }
+    return 0i32;
+}

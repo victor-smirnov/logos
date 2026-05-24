@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   fn generic over two distinct Animal impls.
+package v04;
+trait Animal { fn legs(self: &Self) -> i64; }
+struct Dog {}
+struct Spider {}
+impl Animal for Dog { fn legs(self: &Dog) -> i64 { return 4i64; } }
+impl Animal for Spider { fn legs(self: &Spider) -> i64 { return 8i64; } }
+fn total<A: Animal, B: Animal>(a: &A, b: &B) -> i64 { return a.legs() + b.legs(); }
+fn main() -> i32 {
+    if total(&Dog {}, &Spider {}) != 12i64 { return 1i32; }
+    return 0i32;
+}

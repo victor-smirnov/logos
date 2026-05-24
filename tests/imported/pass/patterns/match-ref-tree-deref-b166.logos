@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   match &Tree enum, deref payload bindings *x/*a.
+package q01;
+enum Tree { Leaf(i64), Node(i64, i64) }
+fn sum(t: &Tree) -> i64 {
+    match t { Tree::Leaf(x) => { return *x; } Tree::Node(a, b) => { return *a + *b; } }
+}
+fn main() -> i32 {
+    let t: Tree = Tree::Node(3i64, 4i64);
+    if sum(&t) != 7i64 { return 1i32; }
+    return 0i32;
+}

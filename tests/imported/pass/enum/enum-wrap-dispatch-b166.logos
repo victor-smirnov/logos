@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   enum wrapping struct payloads, inherent area() match dispatch over an array.
+package t03;
+struct Sq { s: i64 }
+struct Ci { r: i64 }
+enum Shape { Square(Sq), Circle(Ci) }
+impl Shape {
+    fn area(self: &Self) -> i64 {
+        match self { Shape::Square(s) => { return s.s * s.s; } Shape::Circle(c) => { return 3i64 * c.r * c.r; } }
+    }
+}
+fn main() -> i32 {
+    let arr: [Shape; 2] = [ Shape::Square(Sq{s:3i64}), Shape::Circle(Ci{r:2i64}) ];
+    let mut s: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < 2i64 { s = s + arr[i].area(); i = i + 1i64; }
+    if s != 21i64 { return 1i32; }
+    return 0i32;
+}

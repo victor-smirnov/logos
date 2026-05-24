@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   bitwise &|^ and shifts on i64 (binary literals).
+package v10;
+fn main() -> i32 {
+    let a: i64 = 0b1100i64;
+    let b: i64 = 0b1010i64;
+    if (a & b) != 0b1000i64 { return 1i32; }
+    if (a | b) != 0b1110i64 { return 2i32; }
+    if (a ^ b) != 0b0110i64 { return 3i32; }
+    if (a << 2i64) != 48i64 { return 4i32; }
+    if (a >> 1i64) != 6i64 { return 5i32; }
+    return 0i32;
+}

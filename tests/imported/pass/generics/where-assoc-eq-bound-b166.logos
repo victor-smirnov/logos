@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   where C: Container<Item=i64> assoc-type-equality bound.
+package q09;
+trait Container { type Item; fn first(self: &Self) -> Self::Item; }
+struct IntBox { v: i64 }
+impl Container for IntBox { type Item = i64; fn first(self: &IntBox) -> i64 { return self.v; } }
+fn get<C: Container<Item = i64>>(c: &C) -> i64 { return c.first(); }
+fn main() -> i32 {
+    if get(&IntBox { v: 9i64 }) != 9i64 { return 1i32; }
+    return 0i32;
+}

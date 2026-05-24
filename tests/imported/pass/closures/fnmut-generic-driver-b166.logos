@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   FnMut closure threaded through a generic <F:FnMut> driver, mutating capture.
+package r06;
+fn run<F: FnMut(i64) -> i64>(mut f: F, n: i64) -> i64 {
+    let mut s: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < n { s = s + f(i); i = i + 1i64; }
+    return s;
+}
+fn main() -> i32 {
+    let mut base: i64 = 100i64;
+    let r: i64 = run(|x: i64| -> i64 { base = base + x; return base; }, 3i64);
+    if r != 304i64 { return 1i32; }
+    return 0i32;
+}

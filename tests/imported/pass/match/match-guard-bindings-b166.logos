@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ adversarial intersection (B166 depth probe, distilled).
+// Modifications: isize->i64; assert!->if-return sentinels; &self->self:&Self.
+//   match arms with  guards binding the scrutinee.
+package s03;
+fn classify(n: i64) -> i64 {
+    match n {
+        x if x < 0i64 => { return -1i64; }
+        0i64 => { return 0i64; }
+        x if x > 100i64 => { return 2i64; }
+        _ => { return 1i64; }
+    }
+}
+fn main() -> i32 {
+    if classify(-5i64) != -1i64 { return 1i32; }
+    if classify(50i64) != 1i64 { return 2i32; }
+    if classify(200i64) != 2i64 { return 3i32; }
+    return 0i32;
+}
