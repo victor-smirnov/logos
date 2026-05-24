@@ -2544,7 +2544,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 a0.pat = build_pattern(sub, rt);
                 current_pat_refutable_guards_ = sg;
                 current_pat_nested_subs_ = ssub;
-                // Deeper binding-nesting (inner_guards non-empty) → unsupported.
+                // Deeper binding-nesting (`Some(Some(Some(w)))`, inner_guards
+                // non-empty) is NOT yet robust: its body extraction emits a
+                // chain of `let <sub> = synth else { loop {} }` whose nested
+                // form miscompiles in some call contexts (e.g. multiple
+                // inline-`if f(…)` calls in sequence over a multi-param-enum
+                // nesting). Cleanly reject for now — the guard side composes
+                // fine, but the body-extraction side needs more work (see
+                // baghunt_nested_match_as_guard_cfg). One-level binding-nesting
+                // (the common case) is unaffected.
                 if (!inner_guards.empty()) return std::string();
                 define(synth, rt);
                 a0.value = builder().lit_bool(true, bool_t());
@@ -2588,8 +2596,30 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 ? ftype : error_t();
             define(synth, rt);
             lir::EMatchArm a0;
-            a0.pat   = build_pattern(sub, rt);
-            a0.value = builder().lit_bool(true, bool_t());
+            // Isolate any DEEPER refutable-inner guards produced while building
+            // the guard pattern (`Some(Some(None))` → the inner `None` test) so
+            // they become THIS guard arm's VALUE — `match synth { <sub> =>
+            // <inner_check>, _ => false }` — rather than leaking into the
+            // enclosing arm's guard list (where they'd reference synths bound
+            // only inside this guard match → wrong dispatch beyond 2 levels).
+            std::vector<lir::LExprPtr> bl_inner_guards;
+            std::vector<NestedPatSub> bl_inner_subs;   // discarded in a guard
+            auto* bl_sg = current_pat_refutable_guards_;
+            auto* bl_ssub = current_pat_nested_subs_;
+            current_pat_refutable_guards_ = &bl_inner_guards;
+            current_pat_nested_subs_ = &bl_inner_subs;
+            a0.pat = build_pattern(sub, rt);
+            current_pat_refutable_guards_ = bl_sg;
+            current_pat_nested_subs_ = bl_ssub;
+            lir::LExprPtr bl_check = nullptr;
+            for (auto& ig : bl_inner_guards) {
+                if (!ig) continue;
+                bl_check = bl_check
+                    ? builder().bin_op("&&", std::move(bl_check), std::move(ig), bool_t())
+                    : std::move(ig);
+            }
+            a0.value = bl_check ? std::move(bl_check)
+                                : builder().lit_bool(true, bool_t());
             lir::EMatchArm a1;
             a1.pat   = make_pat_wild("_");
             a1.value = builder().lit_bool(false, bool_t());
