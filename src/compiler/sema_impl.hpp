@@ -2952,6 +2952,22 @@ private:
     // emits the per-impl accessor) or nullptr if cname isn't such a projection.
     lir::LExprPtr try_lower_generic_assoc_const(const std::string& cname,
                                                 const std::string& mname);
+    // G167-1/-2: synthesize a Closure type from an Fn-family bound on a
+    // TypeVar so an untyped closure literal (`|x|`) appearing where that
+    // Fn-bounded type-param is expected (a method `F: FnMut(..)` formal, a
+    // generic struct field `f: F`) infers its parameter types from the
+    // bound's signature. `tv` is the declared (TypeVar) type; `tparams`
+    // carry the bound; `subst` is applied to the bound's param/ret types.
+    // Returns a Closure type, or null if `tv` isn't an Fn-bounded TypeVar.
+    TypeRef closure_hint_from_fn_bound(TypeRef tv,
+                                       const std::vector<TypeParam>& tparams,
+                                       const SemaSubst& subst);
+    // G167-3: peel Ref/MutRef/Ptr and single-type-arg generic wrappers
+    // (`Box<dyn Fn(..)>`) to expose an inner Closure/FnPtr signature, so a
+    // closure literal in a wrapped expected-type context (e.g. returned via
+    // `box_new(|x| ..)` where the fn returns `Box<dyn Fn(..)>`) can infer its
+    // parameter types. Returns the inner callable type, or null.
+    TypeRef peel_to_callable(TypeRef t);
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);

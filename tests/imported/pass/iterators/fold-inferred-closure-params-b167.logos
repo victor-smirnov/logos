@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: library/coretests/tests/iter/ adapter chains (distilled)
+// Modifications: custom Counter iterator; i32 suffixes; assert!->if-return;
+//   method-chain .map().filter().fold() (Logos method API).
+// G167-1 (FIXED): the fold closure's params (`a`, `x`) are INFERRED from the
+//   `FnMut(Acc, Item) -> Acc` bound, with `Acc` pinned by the `fold::<i32>`
+//   turbofish. Previously `a` stayed an unresolved `Acc` TypeVar -> "operator
+//   '+': type mismatch (Acc vs i32)". Fixed by threading the method-level
+//   turbofish args into the closure-formal hint (preload_formals binds each
+//   turbofish arg to the next method type-param not already bound by the
+//   receiver — `Acc` here, since `[I, T]` are struct-inherited).
+// Counter yields 1..=5; *3 = 3,6,9,12,15; even = 6,12; sum = 18.
+package t04_custom_iter_chain;
+
+use logos.lang.iter;
+use logos.lang.option;
+
+struct Counter { cur: i32, max: i32 }
+
+impl Iterator<i32> for Counter {
+    fn next(self: &mut Counter) -> Option<i32> {
+        if self.cur > self.max { return Option::None; }
+        let v: i32 = self.cur;
+        self.cur = self.cur + 1i32;
+        return Option::Some(v);
+    }
+}
+
+fn tripler(x: i32) -> i32 { return x * 3i32; }
+fn is_even(x: i32) -> bool { return x % 2i32 == 0i32; }
+
+fn main() -> i32 {
+    let c: Counter = Counter { cur: 1i32, max: 5i32 };
+    unsafe {
+        let s: i32 = c.map::<i32>(tripler).filter(is_even).fold::<i32>(0i32, |a, x| -> i32 { return a + x; });
+        if s != 18i32 { return 1i32; }
+    }
+    return 0i32;
+}

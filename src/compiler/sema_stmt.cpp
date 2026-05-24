@@ -2111,8 +2111,11 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // untyped closure literal (`return |x| x + 1`) infers its param
             // types from the expected signature (mirrors the call-arg path).
             auto saved_closure_hint = hint_closure_formal_;
-            if (ret_type_ && (TypeRef(ret_type_).kind() == LogosType::Kind::FnPtr ||
-                              TypeRef(ret_type_).kind() == LogosType::Kind::Closure))
+            // G167-3: also propagate the hint when the callable is WRAPPED
+            // (`-> Box<dyn Fn(..)>`), so `return box_new(|x| ..)` infers the
+            // closure's params from the inner Fn signature. peel_to_callable
+            // unwraps Box/&dyn; the closure-literal site peels again.
+            if (ret_type_ && peel_to_callable(ret_type_))
                 hint_closure_formal_ = ret_type_;
             val = lower_expr(map_of(vav));
             hint_enum_type_ = saved_hint;

@@ -1,6 +1,6 @@
 # B167 — Adversarial Depth-Probe Gap Census
 
-> STATUS 2026-05-24: 10/15 ports PASS. FIXED: G167-4 (drop×break, f719c90d), G167-5 (IndexMut compound-assign, b9ce0ee9) — both silent miscompiles. OPEN: G167-1/-2/-3 (closure-param inference from expected Fn context — one shared root, 3 sites: method Fn-bound formal / generic struct field / Box<dyn Fn> return), G167-6 (slice suffix-after-`..` + named-rest re-use), G167-7 (Vec<Box<dyn>> dispatch SIGSEGV — fat-handle round-trip through generic T). Repros in b167-repros/.
+> STATUS 2026-05-24: 13/15 ports PASS. FIXED: G167-4 (drop×break, f719c90d), G167-5 (IndexMut compound-assign, b9ce0ee9) — both silent miscompiles; G167-1/-2/-3 closure-param INFERENCE root (one fix, 3 sites). OPEN: G167-3b (capturing closure's env is stack-allocated → boxing/returning a CAPTURING closure dangles/aliases — distinct from the now-fixed inference; same fat-pointer-storage family as G167-7), G167-6 (slice suffix-after-`..` + named-rest re-use), G167-7 (Vec<Box<dyn>> dispatch SIGSEGV). Repros in b167-repros/.
 
 Provenance: rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7 (2026-05-24).
 Compiler used as-is: `build/bin/logosc` (no rebuild). Repros live in `b167-repros/<slug>.logos`.
@@ -48,33 +48,44 @@ element storage/copy assumes a thin/scalar `T` and truncates the vtable half (ga
 dispatch). **High value** — `Vec<Box<dyn Trait>>` is the canonical heterogeneous-collection
 idiom. Intersection: trait objects (fat pointer) × generic container element storage.
 
-### G167-2 — closure value stored in a generic struct field `F: Fn(..)` — CRASH (MLIR-gen)  [repro t02]
-`struct Holder<F: Fn(i64)->i64> { f: F }` with `Holder { f: |x| {..} }` fails: sema cannot
-monomorphize the closure into the field, leaving the struct type-arg as `|<error>| -> i64`;
-MLIR-gen then emits `unknown struct 'Holder$G1$|<error>| -> i64'` and a body-less `__closure_0`
-(`'llvm.return' op expected 1 operand`). A non-generic `f: fn(i64)->i64` field works fine, and
-`(h.f)(5)` calls correctly through it (contrast B166-N7, which is now improved). So closures
-only round-trip through fn-pointer-typed fields today, not generic `Fn`-bounded fields.
-Intersection: closures × generic struct fields. (Shares the closure-inference root with G167-3
-/ G167-1.)
+### G167-2 — closure value stored in a generic struct field `F: Fn(..)` — ✅ FIXED 2026-05-24  [repro t02]
+`struct Holder<F: Fn(i64)->i64> { f: F }` with `Holder { f: |x| {..} }` previously failed: the
+untyped closure left the struct type-arg `|<error>| -> i64` → MLIR-gen "unknown struct". FIXED:
+lower_struct_lit now hints the field-value closure literal from the field type-param's Fn-family
+bound (`closure_hint_from_fn_bound`), so `|x|` infers `x: i64`. Test:
+closures/closure-in-struct-field-fn-bound-b167. (NOTE: `let h: Holder<_>` with a `_` type-arg in
+a LET annotation is a separate, still-open `_`-inference-hole gap — the idiomatic no-annotation
+form works; K-misc only generalized `_` to turbofish, not let-annotations.)
 
-### G167-3 — closure literal in `box_new(..)` return position not inferred from `Box<dyn Fn>` — REJECT  [repro t03]
-`fn adder(n) -> Box<dyn Fn(i64)->i64> { return box_new(|x| { x + n }); }` →
-*"expected Box<|i64|->i64>, got Box<|<error>|->i64>"*. The closure literal's parameter types are
-not inferred from the function's `Box<dyn Fn(i64)->i64>` return type; the param defaults to
-`<error>`. Affects both capturing and non-capturing closures. Workaround (verified PASS): bind to
-a local with an explicit param type first — `let cl = |x: i64| -> i64 {..}; return box_new(cl);`.
-Intersection: closures × Box<dyn Fn> return. Same root as G167-1/G167-2.
+### G167-3 — closure literal in `box_new(..)` return not inferred from `Box<dyn Fn>` — ✅ FIXED (inference) 2026-05-24  [repro t03]
+`fn adder(n) -> Box<dyn Fn(i64)->i64> { return box_new(|x| { x + n }); }` previously →
+*"expected Box<|i64|->i64>, got Box<|<error>|->i64>"*. FIXED: `peel_to_callable` unwraps
+`Box<dyn Fn>`/`&dyn Fn` to the inner Fn signature at the closure-literal hint site + the
+return-stmt hint, so `|x|` infers `x: i64`. Test (NON-capturing):
+closures/boxed-noncapturing-closure-return-b167.
 
-### G167-1 — closure-param inference from a method's Fn-bound type (`.fold`) — REJECT  [repro t04]
-`it.fold::<i32>(0i32, |a, x| { a + x })` on a custom Iterator → *"operator '+': type mismatch
-(Acc vs i32)"* + *"return type mismatch — expected i32, got Acc"*. The fold closure's params
-(`a`, `x`) are left to infer from the `FnMut(Acc, Item) -> Acc` parameter bound (with `Acc`
-pinned by the turbofish to `i32`), but they stay unresolved type-vars in the closure body.
-Boundary: a **named fn** `fn adder(a:i32,x:i32)->i32` passed to the same `.fold::<i32>` works,
-and an explicit-typed closure `|a: i32, x: i32| {..}` works. Only inferred closure params fail.
-Intersection: iterators (method-level type-params) × closures. Same root as G167-2/G167-3:
-**no closure-parameter type inference from an expected Fn-typed context.**
+### G167-3b — a CAPTURING closure boxed/returned dangles & aliases — MISCOMPILE (NEW, exposed by G167-3)  [repro t03]
+With inference fixed, `return box_new(move |x| x + n)` now COMPILES but mis-runs: two `adder(5)`
+/`adder(10)` boxes both read `n=10`. Root (confirmed in LLVM IR): a capturing closure is a fat
+value `{fn_ptr, env_ptr}` whose env (`{i64}` holding `n`) is `alloca`'d on the **stack** of the
+creating fn; `box_new` heap-copies only the 16-byte fat handle, so `env_ptr` still points at the
+caller's stack frame → after return the slot is reused and both boxes alias the latest call.
+`move` does not help (env is still stack-resident). NON-capturing boxed closures are fine (no
+env). FIX needs escape-aware env promotion: heap-allocate (and free / RAII) a capturing closure's
+env when it escapes its frame — or make the closure value own its captures inline so boxing copies
+them. Same fat-pointer-storage family as G167-7. **High value** — returned/stored capturing
+closures (callbacks, factories) are a core idiom.
+
+### G167-1 — closure-param inference from a method's Fn-bound type (`.fold`) — ✅ FIXED 2026-05-24  [repro t04]
+`it.fold::<i32>(0i32, |a, x| { a + x })` on a custom Iterator previously → *"operator '+': type
+mismatch (Acc vs i32)"*. FIXED: `preload_formals` now threads the method-level turbofish args into
+the closure-formal hint. A trait-default method cloned into a concrete iterator stores its
+type-params as `[<struct-inherited…>, <method-level…>]` (e.g. `[I, T, Acc, FoldFn]`); the
+turbofish supplies only the method-level ones, so each turbofish arg binds to the next type-param
+NOT already bound by the receiver (`Acc` here). The Fn-bound synthesis then resolves
+`FnMut(Acc, Item)->Acc` to `FnMut(i32, i32)->i32`. Test:
+iterators/fold-inferred-closure-params-b167. **The shared closure-param-inference root behind
+G167-1/-2/-3 is now closed; only the orthogonal env-escape defect (G167-3b) remains.**
 
 ### G167-6 — slice patterns: suffix-after-`..` + local re-use of a named rest sub-slice — REJECT + CRASH  [repro t11]
 Two distinct cracks in dynamic-slice (`&[T]`) patterns:

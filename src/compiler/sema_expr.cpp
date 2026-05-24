@@ -6489,6 +6489,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
         }
+        // G167-1: bind the method's OWN type-params from an explicit turbofish
+        // (`it.fold::<i32>(..)`) so an Fn-family bound whose signature mentions
+        // a method type-param (`FoldFn: FnMut(Acc, Item) -> Acc`, with `Acc`
+        // pinned by `::<i32>`) resolves concretely for the closure-formal hint
+        // below. A trait-default method cloned into a concrete iterator stores
+        // its type-params as `[<struct-inherited…>, <method-level…>]` (e.g.
+        // `[I, T, Acc, FoldFn]`); the turbofish provides only the method-level
+        // ones, in order. The struct-inherited params are already bound in
+        // recv_subst from the receiver, so bind each turbofish arg to the next
+        // type-param NOT yet in recv_subst. Without this `Acc` stays an
+        // unresolved TypeVar and the fold closure's accumulator infers as `Acc`.
+        for (size_t uta = 0, ti = 0;
+             uta < user_type_args.size() && ti < fi->type_params.size(); ++ti) {
+            if (recv_subst.count(fi->type_params[ti].name)) continue;
+            if (user_type_args[uta])
+                recv_subst[fi->type_params[ti].name] = user_type_args[uta];
+            ++uta;
+        }
         // Skip param[0] (self); return formals for the explicit args.
         for (size_t i = 1; i < fi->param_types.size(); ++i) {
             auto pt = fi->param_types[i];
@@ -6498,26 +6516,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // -> R`) carries no closure shape on its own (it's a bare TypeVar).
             // Synthesize a Closure hint from the bound's signature so an
             // untyped closure arg (`|i|`) infers its param types from `Item`.
-            if (pt && TypeRef(pt).kind() == LogosType::Kind::TypeVar) {
-                std::string tvn(TypeRef(pt).type_var_name());
-                for (auto& tp : fi->type_params) {
-                    if (tp.name != tvn) continue;
-                    for (auto& b : tp.bounds) {
-                        if (!b.is_fn_family) continue;
-                        std::vector<TypeRef> cps;
-                        for (auto fp : b.fn_params)
-                            cps.push_back(recv_subst.empty()
-                                          ? fp : subst_type_sema(fp, recv_subst));
-                        TypeRef cret = b.fn_ret
-                            ? (recv_subst.empty() ? b.fn_ret
-                                                  : subst_type_sema(b.fn_ret, recv_subst))
-                            : void_t();
-                        pt = make_closure_type(std::move(cps), cret);
-                        break;
-                    }
-                    break;
-                }
-            }
+            if (TypeRef ch = closure_hint_from_fn_bound(pt, fi->type_params, recv_subst))
+                pt = ch;
             out.push_back(pt);
         }
         return out;
@@ -7962,7 +7962,17 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             } else if (init.has_key(la::VALUE)) {
                 TypeRef saved_eh = hint_enum_type_;
                 if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
+                // G167-2: a field typed as an Fn-bounded type-param
+                // (`struct Holder<F: Fn(i64)->i64> { f: F }`) hints an untyped
+                // closure literal field value (`Holder { f: |x| .. }`) so it
+                // infers its param types from the bound, instead of leaving
+                // them `<error>` (which poisons the struct's type-arg + mono).
+                TypeRef saved_ch = hint_closure_formal_;
+                if (TypeRef ch = closure_hint_from_fn_bound(
+                        fld_decl_ty, sinfo.type_params, SemaSubst{}))
+                    hint_closure_formal_ = ch;
                 val = lower_expr(map_of(init.get(la::VALUE.code)));
+                hint_closure_formal_ = saved_ch;
                 hint_enum_type_ = saved_eh;
                 if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
             } else {
@@ -11386,6 +11396,46 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     return builder().if_expr_v(std::move(eif), result_type);
 }
 
+TypeRef SemaChecker::closure_hint_from_fn_bound(
+        TypeRef tv, const std::vector<TypeParam>& tparams, const SemaSubst& subst) {
+    if (!tv || TypeRef(tv).kind() != LogosType::Kind::TypeVar) return nullptr;
+    std::string tvn(TypeRef(tv).type_var_name());
+    for (auto& tp : tparams) {
+        if (tp.name != tvn) continue;
+        for (auto& b : tp.bounds) {
+            if (!b.is_fn_family) continue;
+            std::vector<TypeRef> cps;
+            for (auto fp : b.fn_params)
+                cps.push_back(subst.empty() ? fp : subst_type_sema(fp, subst));
+            TypeRef cret = b.fn_ret
+                ? (subst.empty() ? b.fn_ret : subst_type_sema(b.fn_ret, subst))
+                : void_t();
+            return make_closure_type(std::move(cps), cret);
+        }
+        break;
+    }
+    return nullptr;
+}
+
+TypeRef SemaChecker::peel_to_callable(TypeRef t) {
+    using K = LogosType::Kind;
+    for (int guard = 0; guard < 8 && t; ++guard) {
+        auto k = TypeRef(t).kind();
+        if (k == K::Closure || k == K::FnPtr) return t;
+        if ((k == K::Ref || k == K::MutRef || k == K::Ptr) && TypeRef(t).pointee()) {
+            t = TypeRef(t).pointee();
+            continue;
+        }
+        if ((k == K::Struct || k == K::ZonedStruct) &&
+            TypeRef(t).type_args().size() == 1) {
+            t = TypeRef(t).type_args()[0];
+            continue;
+        }
+        break;
+    }
+    return nullptr;
+}
+
 lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto closure_id = "__closure_" + std::to_string(closure_counter_++);
     bool is_move = node.has_key(la::IS_MOVE) &&
@@ -11424,10 +11474,14 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // lower_expr'ing the closure arg.
                 std::vector<TypeRef> hint_param_types;
                 if (hint_closure_formal_) {
-                    TypeRef h(hint_closure_formal_);
-                    if (h.kind() == LogosType::Kind::FnPtr ||
-                        h.kind() == LogosType::Kind::Closure) {
-                        for (auto pt : h.closure_params())
+                    // G167-3: peel Box<dyn Fn(..)> / &dyn Fn(..) wrappers so a
+                    // closure literal in a wrapped expected-type context (e.g.
+                    // `box_new(|x| ..)` returned as `Box<dyn Fn(..)>`) still
+                    // infers its param types from the inner Fn signature.
+                    TypeRef h = peel_to_callable(hint_closure_formal_);
+                    if (h && (TypeRef(h).kind() == LogosType::Kind::FnPtr ||
+                              TypeRef(h).kind() == LogosType::Kind::Closure)) {
+                        for (auto pt : TypeRef(h).closure_params())
                             hint_param_types.push_back(pt);
                     }
                 }

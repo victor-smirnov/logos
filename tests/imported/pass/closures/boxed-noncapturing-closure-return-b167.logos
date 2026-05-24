@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-returning-closure (distilled)
+// Modifications: i64 suffixes; assert!->if-return; Box<dyn Fn> return carrier
+//   (Logos has no impl-Trait return per K5/N6).
+// G167-3 (FIXED, inference): a closure literal passed to `box_new(..)` in
+//   return position now infers its param types from the fn's
+//   `Box<dyn Fn(i64)->i64>` return type. Previously -> "expected
+//   Box<|i64|->i64>, got Box<|<error>|->i64>". Fixed by peel_to_callable
+//   (unwraps Box<dyn Fn>/&dyn Fn to the inner Fn signature) at the closure
+//   literal hint site + the return-stmt hint.
+// NOTE: this exercises a NON-CAPTURING returned boxed closure. A *capturing*
+//   returned boxed closure is a separate, deeper defect (G167-3b: a capturing
+//   closure's env is stack-allocated, so boxing/returning it dangles) tracked
+//   in the B167 census — not yet fixed.
+package t03b_boxed_noncapturing;
+
+use logos.mem.boxed;
+
+fn make_doubler() -> Box<dyn Fn(i64) -> i64> {
+    return box_new(|x| -> i64 { return x * 2i64; });
+}
+
+fn main() -> i32 {
+    let d = make_doubler();
+    let e = make_doubler();
+    if d(3i64) != 6i64 { return 1i32; }
+    if e(5i64) != 10i64 { return 2i32; }
+    return 0i32;
+}

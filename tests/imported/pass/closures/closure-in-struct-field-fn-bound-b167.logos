@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/ (closure-in-struct idiom, distilled)
+// Modifications: i64 suffixes; assert!->if-return; braced closure bodies.
+// G167-2 (FIXED): a closure VALUE stored in a generic struct field
+//   `F: Fn(i64)->i64` now infers its untyped param types from the field's
+//   Fn-family bound. Previously sema produced struct type-arg `|<error>| -> i64`
+//   and MLIR-gen failed ("unknown struct 'Holder$G1$|<error>| -> i64'"). Fixed
+//   by hinting the field-value closure literal from the field type-param's
+//   Fn bound (closure_hint_from_fn_bound) in lower_struct_lit.
+package t02_closure_in_struct;
+
+struct Holder<F: Fn(i64) -> i64> {
+    f: F,
+}
+
+fn main() -> i32 {
+    let h = Holder { f: |x| -> i64 { return x + 10i64; } };
+    let r: i64 = (h.f)(5i64);
+    if r != 15i64 { return 1i32; }
+    return 0i32;
+}
