@@ -112,7 +112,10 @@ echo "[test-levels] $LEVEL.$VARIANT — $COUNT tests selected across groups"
 # single `_(a|b|…)$` alternation over thousands of names fails ("Expression
 # too big"). Run in chunks under the cap and aggregate. Each chunk is a
 # separate `ctest -j12` invocation; failures are surfaced inline.
-CHUNK=250
+# Chunk size: as large as KWSys's regex cap allows (a single ~811-name `-R`
+# compiles; ~2594 doesn't). Bigger chunks ⇒ fewer ctest invocations ⇒ less
+# tail-idle (each chunk waits for its slowest test before the next starts).
+CHUNK=700
 mapfile -t NAMES < <(printf '%s\n' "$SELECTED" | grep .)
 tot_run=0 tot_fail=0 had_fail=0 n=${#NAMES[@]}
 echo "=== Failures ==="
