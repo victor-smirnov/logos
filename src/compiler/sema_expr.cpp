@@ -2265,12 +2265,33 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
             return nullptr;
         };
+        // K4-root: a payload-carrying enum-literal argument
+        // (`take(Option::Some(Option::None))`) needs the formal parameter's
+        // concrete enum type as `hint_enum_type_` so nested payload-less
+        // variants pin their type-args and heap-allocate correctly. Without
+        // this the arg lowers hint-less → bare C-style enum → deref garbage.
+        auto enum_hint_for = [&](size_t formal_idx) -> TypeRef {
+            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
+            TypeRef pt = hint_fi->param_types[formal_idx];
+            // Only a FULLY CONCRETE enum formal is a valid hint. A generic
+            // formal like `Option<T>` (T a fn type-param) must be inferred from
+            // the actual arg, not pinned — hinting it would type `Some(2)`'s
+            // payload as `T` instead of `i32` and break inference downstream.
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::Enum &&
+                !TypeRef(pt).type_args().empty() && !enum_arg_unresolved(pt))
+                return pt;
+            return nullptr;
+        };
         for (uint64_t i = start; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
+            TypeRef saved_eh = hint_enum_type_;
             if (TypeRef h = closure_hint_for((size_t)(i - start)))
                 hint_closure_formal_ = h;
+            if (TypeRef eh = enum_hint_for((size_t)(i - start)))
+                hint_enum_type_ = eh;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             hint_closure_formal_ = saved;
+            hint_enum_type_ = saved_eh;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -9703,9 +9724,36 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         }
     } else if (node.has_key(la::ARGS)) {
         AnyVal args_av = node.get(la::ARGS.code);
+        // K4-root: project the outer hint's type-args through this variant's
+        // payload TypeVars so a nested payload-less enum literal
+        // (`Option::Some(Option::None)` with hint `Option<Option<i64>>`) gets
+        // its OWN concrete hint (`Option<i64>`) and heap-allocates with the
+        // right monomorphisation — otherwise the inner `None` stays a bare
+        // C-style enum and the outer slot (a heap-ptr) reads garbage at deref.
+        // Mirrors lower_enum_lit_data_from_static's pre_subst narrowing.
+        SemaSubst pre_subst;
+        if (hint_enum_type_ &&
+            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
+            TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
+            !eit->second.type_params.empty()) {
+            auto hta = TypeRef(hint_enum_type_).type_args();
+            for (size_t k = 0; k < eit->second.type_params.size() && k < hta.size(); ++k) {
+                if (!hta[k] || TypeRef(hta[k]).kind() == LogosType::Kind::Error) continue;
+                pre_subst[eit->second.type_params[k].name] = hta[k];
+            }
+        }
         auto run = [&](auto items) {
             for (uint64_t i = 0; i < items.size(); ++i) {
+                TypeRef saved_hint = hint_enum_type_;
+                if (i < vinfo->payload_types.size()) {
+                    TypeRef pt_i = vinfo->payload_types[i];
+                    if (pt_i && !pre_subst.empty())
+                        pt_i = subst_type_sema(pt_i, pre_subst);
+                    if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
+                        hint_enum_type_ = pt_i;
+                }
                 auto e = lower_expr(map_of(items.get(i)));
+                hint_enum_type_ = saved_hint;
                 if (TypeRef(e->type).kind() == LogosType::Kind::Void) continue;
                 payload.push_back(std::move(e));
             }

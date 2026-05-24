@@ -1,0 +1,27 @@
+// Regression (K4-root, B166): a nested payload-less enum literal passed as a
+// call argument (`f(Option::Some(Option::None))`) must pin the inner variant's
+// type-args from the formal parameter type so it heap-allocates with the right
+// monomorphisation. Previously the inner `None` lowered to a bare C-style enum
+// (inline i32) while the outer slot was a heap pointer → deref → SIGSEGV.
+package nested_enum_arg_pin_b166;
+use logos.lang.option;
+
+fn classify(o: Option<Option<i64>>) -> i64 {
+    match o {
+        Option::Some(s) => match s {
+            Option::Some(v) => v,
+            Option::None => -1i64,
+        },
+        Option::None => -2i64,
+    }
+}
+
+fn main() -> i32 {
+    // inner Some — full nesting
+    if classify(Option::Some(Option::Some(41i64))) != 41i64 { return 1i32; }
+    // inner None — the case that used to crash (bare-enum inner)
+    if classify(Option::Some(Option::None)) != -1i64 { return 2i32; }
+    // outer None
+    if classify(Option::None) != -2i64 { return 3i32; }
+    return 0i32;
+}

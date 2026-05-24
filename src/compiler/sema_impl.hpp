@@ -395,6 +395,79 @@ private:
     // ([[baghunt-replace-ref-option-cascade]]). Only fires when the literal's
     // known (non-error) type-args already match the target's, so a genuine
     // mismatch is still rejected downstream.
+    // Recursively detect an "incomplete" type: itself a TypeVar/Error, or any
+    // nested type-arg / element / pointee that is incomplete. A nested
+    // payload-less enum literal `Option::Some(Option::None)` lowers the outer
+    // to `Option<Option<TypeVar>>` — the top-level arg is a concrete Enum, but
+    // its type-arg is incomplete, so a shallow check would miss it.
+    bool enum_arg_unresolved(TypeRef t) {
+        if (!t) return true;
+        TypeRef tr(t);
+        auto k = tr.kind();
+        if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return true;
+        if (k == LogosType::Kind::Enum) {
+            auto args = tr.type_args();
+            auto [pkg, esi] = find_enum_by_name(tr.enum_name());
+            (void)pkg;
+            // A generic enum carrying fewer type-args than its declared params
+            // (notably ZERO, e.g. a bare `Option`) is incomplete — the inner
+            // payload-less variant never had its T pinned.
+            if (esi && args.size() < esi->type_params.size()) return true;
+            for (auto ta : args)
+                if (enum_arg_unresolved(ta)) return true;
+        }
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
+            auto args = tr.type_args();
+            auto [pkg, ssi] = find_struct_by_name(tr.struct_name());
+            (void)pkg;
+            if (ssi && args.size() < ssi->type_params.size()) return true;
+            for (auto ta : args)
+                if (enum_arg_unresolved(ta)) return true;
+        }
+        if (k == LogosType::Kind::Tuple)
+            for (auto el : tr.tuple_elems())
+                if (enum_arg_unresolved(el)) return true;
+        if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) && tr.pointee())
+            return enum_arg_unresolved(tr.pointee());
+        return false;
+    }
+    // K4-root: pin a (possibly nested) enum-literal expression to a concrete
+    // enum type via the LIR mirror, then project the concrete type-args through
+    // the matched variant's payload types and recurse into each payload
+    // sub-expr that is itself an enum literal. Without recursion, the inner
+    // `Option::None` of `Option::Some(Option::None)` stays a bare C-style enum
+    // (inline i32) while the outer slot is a heap pointer — deref → SIGSEGV.
+    void retype_enum_lit_recursive(lir_view::ExprRef e, TypeRef concrete) {
+        using EC = lir_schema::expr::Code;
+        auto ek = e.kind();
+        if (ek != EC::EnumLit && ek != EC::EnumLitData) return;
+        if (!concrete || TypeRef(concrete).kind() != LogosType::Kind::Enum) return;
+        lir_mirror_retype_expr(*cur_prog_, e.offset(), concrete);
+        if (ek != EC::EnumLitData) return;
+        lir_view::EEnumLitDataView v{e};
+        std::string en(v.enum_name());
+        std::string vn(v.variant());
+        auto [pkg, esi] = find_enum_by_name(en);
+        (void)pkg;
+        if (!esi) return;
+        const SemaVariantInfo* vinfo = nullptr;
+        for (auto& vv : esi->variants) if (vv.name == vn) { vinfo = &vv; break; }
+        if (!vinfo) return;
+        SemaSubst subst;
+        auto cta = TypeRef(concrete).type_args();
+        for (size_t i = 0; i < esi->type_params.size() && i < cta.size(); ++i)
+            if (cta[i]) subst[esi->type_params[i].name] = cta[i];
+        size_t idx = 0;
+        v.each_payload([&](lir_view::ExprRef pe) {
+            if (idx < vinfo->payload_types.size()) {
+                TypeRef ptt = vinfo->payload_types[idx];
+                if (ptt && !subst.empty()) ptt = subst_type_sema(ptt, subst);
+                if (ptt && TypeRef(ptt).kind() == LogosType::Kind::Enum)
+                    retype_enum_lit_recursive(pe, ptt);
+            }
+            ++idx;
+        });
+    }
     bool try_retype_bare_enum_arg(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
         TypeRef at(arg->type), pt(expected);
@@ -407,26 +480,22 @@ private:
             rk != lir_schema::expr::Code::EnumLitData) return false;
         auto aa = at.type_args();
         auto pa = pt.type_args();
-        // "Incomplete" = no type-args, or any arg is Error / an unbound TypeVar.
-        // A bare prelude `None` lowers to `Option<TypeVar(T)>` (not Error, not
-        // empty), so the TypeVar case must count as incomplete.
-        auto is_unresolved = [](TypeRef t) {
-            return !t || TypeRef(t).kind() == LogosType::Kind::Error ||
-                   TypeRef(t).kind() == LogosType::Kind::TypeVar;
-        };
         bool incomplete = aa.empty();
         if (!incomplete)
             for (auto ta : aa)
-                if (is_unresolved(ta)) { incomplete = true; break; }
+                if (enum_arg_unresolved(ta)) { incomplete = true; break; }
         if (!incomplete) return false;
         for (auto ta : pa)
-            if (is_unresolved(ta)) return false;
+            if (enum_arg_unresolved(ta)) return false;
         if (!aa.empty()) {
             if (aa.size() != pa.size()) return false;
             for (size_t i = 0; i < aa.size(); ++i)
-                if (!is_unresolved(aa[i]) && !types_compatible(aa[i], pa[i])) return false;
+                if (!enum_arg_unresolved(aa[i]) && !types_compatible(aa[i], pa[i])) return false;
         }
+        // Retype the top node (keeps LExpr.type in sync for the post-call
+        // compat check) then recurse into nested payload enum-lits.
         builder().retype_expr(arg, pt);
+        retype_enum_lit_recursive(expr_ref_of(*arg), pt);
         return true;
     }
     // Coerce a non-capturing closure to fn ptr when target type is FnPtr.
