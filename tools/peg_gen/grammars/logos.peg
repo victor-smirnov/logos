@@ -661,6 +661,14 @@
               => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+            // Immutable module-level `static NAME: T = expr;` — same immutable
+            // storage model as `const` (a read-only global value). `static mut`
+            // (true mutable global storage) is a distinct mechanism, still
+            // rejected, so it is intentionally NOT matched here.
+               / KW_PUB KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+               / KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
     // type NAME = type_ref;

@@ -1,0 +1,20 @@
+// Regression: immutable module-level `static NAME: T = expr;` items, modelled
+// as read-only globals (same storage as `const`). Used as a value, in
+// arithmetic, and as an array length. (`static mut` remains unsupported.)
+package static_item_b166;
+
+static SIZE: i64 = 4i64;
+static GREETING_LEN: i64 = 5i64;
+pub static MAX: i64 = 100i64;
+
+fn main() -> i32 {
+    if MAX != 100i64 { return 1i32; }
+    if SIZE * 2i64 != 8i64 { return 2i32; }
+    let a: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+    let mut sum: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < SIZE { sum = sum + a[i]; i = i + 1i64; }
+    if sum != 100i64 { return 3i32; }
+    if GREETING_LEN != 5i64 { return 4i32; }
+    return 0i32;
+}
