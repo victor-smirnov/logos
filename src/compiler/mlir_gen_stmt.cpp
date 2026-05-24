@@ -1485,7 +1485,18 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
         // holds the pointer and the var is recorded in ref_param_names_ so
         // `*x` / passing `x` to a `&T` param deref correctly (mirrors a
         // `&T`-typed parameter binding).
-        scope_[s.var]          = elem_ptr;
+        // G163-1: a TUPLE element is stored BY POINTER in the buffer (a tuple
+        // value is itself a ptr-to-bytes — `[N x ptr]`), so `elem_ptr` is the
+        // address of the slot HOLDING the tuple pointer (two levels). Load it
+        // once so `s.var` is the tuple pointer itself (ptr-to-bytes) — the same
+        // one-level representation a `&(T,U)` param/local carries. This keeps
+        // `*p` a no-op deref (EDeref Tuple case) and `p.0` auto-deref both
+        // correct; without the load, `*p` GEP'd the slot-address as the tuple
+        // and read the stored pointer bits as field 0.
+        mlir::Value bound = elem_ptr;
+        if (s.elem_type && TypeRef(s.elem_type).kind() == LogosType::Kind::Tuple)
+            bound = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), elem_ptr);
+        scope_[s.var]          = bound;
         var_elem_types_[s.var] = elem_mlir;
         var_subscript_[s.var]  = elem_mlir;
         ref_param_names_.insert(s.var);

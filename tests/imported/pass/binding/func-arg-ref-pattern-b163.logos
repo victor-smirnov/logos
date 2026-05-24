@@ -1,16 +1,17 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/binding/func-arg-ref-pattern.rs (distilled).
 // Modifications: isize->i64; the String/Box facets dropped; assert->if-return
-//   sentinels. A reference to a tuple is passed as a function argument and its
-//   elements are read through the reference. RESHAPED to auto-deref field access
-//   `p.0`/`p.1` (the original `let (x,y) = *p;` explicit-deref-of-a-tuple-ref form
-//   SIGSEGVs — see G163-1 in notes/B163-ui-surfaced-gaps.md).
-// Tests reading tuple elements through a `&(i64,i64)` parameter via auto-deref
-//   field access at a function boundary (a dot product over two tuple refs).
+//   sentinels. The original `fn f(&(x, y): &(i64,i64))` ref-pattern in PARAMETER
+//   position is a parse error in Logos, so the deref-destructure is done in the
+//   body: `let (x, y) = *p;` (same effect — explicit deref of a tuple reference,
+//   G163-1) plus the auto-deref field form `q.0`/`q.1` for contrast.
+// Tests reading tuple elements through a `&(i64,i64)` parameter via explicit
+//   deref-destructure AND auto-deref field access (a dot product over tuple refs).
 package func_arg_ref_pattern_b163;
 
 fn dot(p: &(i64, i64), q: &(i64, i64)) -> i64 {
-    return p.0 * q.0 + p.1 * q.1;
+    let (px, py) = *p;
+    return px * q.0 + py * q.1;
 }
 
 fn main() -> i32 {

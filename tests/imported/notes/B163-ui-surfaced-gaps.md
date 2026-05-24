@@ -38,12 +38,29 @@ guards; type-qualified UFCS instance calls.
 
 ## Gaps surfaced
 
-- **G163-1** (⚠️ SILENT CRASH, TRACTABLE) — explicitly dereferencing a tuple-
-  REFERENCE parameter (`&(i64,i64)`) SIGSEGVs at runtime, in BOTH the copy-bind form
-  `let t = *p;` and the field-access form `(*p).0`. Auto-deref field access
-  `p.0` / `p.1` through the SAME `&(i64,i64)` parameter works fine, and the
-  analogous struct form (`let q = *p;` over a `&Struct`) ALSO works — so the crash
-  is specific to an explicit deref (`*p`) of a tuple-typed reference.
+- **G163-1** (✅ CLOSED) — explicitly dereferencing a tuple-REFERENCE
+  (`*p` over `&(i64,i64)`) SIGSEGV'd at runtime in both `let (a,b) = *p;` and
+  `(*p).0`. FIX (two parts, mlir-gen):
+  1. `gen_expr_kind(EDerefView)` now treats a **Tuple** pointee like Struct /
+     TraitObject / Array — `*p` yields the SAME pointer (tuples are
+     pointer-represented). The load branch was reading the first tuple field's
+     bytes AS a pointer (a lost indirection) → GEP through garbage → SIGSEGV.
+  2. `gen_for_each` slice path: a tuple element is stored BY POINTER in the
+     buffer (`[N x ptr]`), so the per-element GEP yields the address of the
+     SLOT holding the tuple pointer (two levels). Load it once so the loop var
+     is the tuple pointer itself (one level — same representation a `&(T,U)`
+     param/local carries), keeping `*p` (no-op) and `p.0` (auto-deref) both
+     correct. Without it, `*p` GEP'd the slot-address as the tuple.
+
+  Verified across param / local / slice-element / Vec-element refs, for both
+  `let (a,b) = *p` destructure and `(*p).0` / `p.0` field access. Restored
+  `func-arg-ref-pattern-b163` to the explicit deref-destructure form; the two
+  pre-existing slice-of-tuples by-ref tests (`fn-pattern-expected-type-2-b143`,
+  `for-destruct-range-it`) still pass.
+
+  (Historical) original symptom: the crash was specific to an explicit deref
+  (`*p`) of a tuple-typed reference; auto-deref `p.0` and the struct `*p` form
+  already worked.
 
   Minimal repro (SIGSEGV):
   ```

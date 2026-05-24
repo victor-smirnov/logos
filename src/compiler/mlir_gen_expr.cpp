@@ -1347,7 +1347,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
                  // C6-cc-08 follow-up: `*p` for `p: *const [T; N]` — the array
                  // value is too large to "load by value"; we keep it pointer-
                  // represented so subsequent `(*p)[i]` indexing GEPs into it.
-                 TypeRef(type).kind() == LogosType::Kind::Array))
+                 TypeRef(type).kind() == LogosType::Kind::Array ||
+                 // G163-1: tuples are pointer-represented too (alloca'd, passed
+                 // by pointer, indexed via GEP — see gen_expr_kind ETupleLit /
+                 // ETupleIndex). `*p` over a `&(T, U)` must yield the SAME
+                 // pointer; the load branch read the first tuple field's bytes
+                 // AS a pointer (a lost indirection level) → GEP through garbage
+                 // → SIGSEGV in `let (a,b) = *p` / `(*p).0`.
+                 TypeRef(type).kind() == LogosType::Kind::Tuple))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
