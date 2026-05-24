@@ -2508,17 +2508,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             (sc == la::PAT_OR && current_pat_refutable_guards_)) {
             // K4: nested variant pattern carrying bindings (e.g.
             // `Some(Some(v))`). Bind the outer payload to `synth`, gate the arm
-            // with a guard match `match synth { <sub> => true, _ => false }` (so
-            // sibling arms like `Some(None)` dispatch correctly), and register a
-            // body let-else that re-extracts the inner bindings from `synth`
-            // (the guard guarantees the match → the else is dead).
-            //
-            // Limited to ONE level of binding-nesting: a doubly-nested binding
-            // pattern (`Some(Some(Some(w)))`) would need the guard arm's VALUE
-            // to itself be a control-flow match expression, and gen_match's
-            // match-expr-as-guard codegen reads an uninitialised discriminant
-            // slot for that shape (see baghunt_nested_match_as_guard_cfg). Such
-            // patterns fall through to the clean "not yet supported" error.
+            // with a guard match `match synth { <sub> => <inner_check>, _ =>
+            // false }` (so sibling arms like `Some(None)` dispatch correctly),
+            // and register a body let-else that re-extracts the inner bindings
+            // from `synth` (the guard guarantees the match → the else is dead).
+            // Composes to arbitrary depth: the deeper checks ride the matching
+            // arm's VALUE (never an arm GUARD), and the body let-else recurses.
             if (sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) {
                 if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
                     return std::string();
@@ -2544,18 +2539,21 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 a0.pat = build_pattern(sub, rt);
                 current_pat_refutable_guards_ = sg;
                 current_pat_nested_subs_ = ssub;
-                // Deeper binding-nesting (`Some(Some(Some(w)))`, inner_guards
-                // non-empty) is NOT yet robust: its body extraction emits a
-                // chain of `let <sub> = synth else { loop {} }` whose nested
-                // form miscompiles in some call contexts (e.g. multiple
-                // inline-`if f(…)` calls in sequence over a multi-param-enum
-                // nesting). Cleanly reject for now — the guard side composes
-                // fine, but the body-extraction side needs more work (see
-                // baghunt_nested_match_as_guard_cfg). One-level binding-nesting
-                // (the common case) is unaffected.
-                if (!inner_guards.empty()) return std::string();
                 define(synth, rt);
-                a0.value = builder().lit_bool(true, bool_t());
+                // Deeper binding-nesting: the inner checks become this guard
+                // arm's VALUE — `match synth { <sub> => <inner_check>, _ =>
+                // false }` (an arm VALUE, not an arm GUARD, to avoid the
+                // guarded-arm slot bug). For one-level nesting inner_guards is
+                // empty → value `true`.
+                lir::LExprPtr inner_check = nullptr;
+                for (auto& ig : inner_guards) {
+                    if (!ig) continue;
+                    inner_check = inner_check
+                        ? builder().bin_op("&&", std::move(inner_check), std::move(ig), bool_t())
+                        : std::move(ig);
+                }
+                a0.value = inner_check ? std::move(inner_check)
+                                       : builder().lit_bool(true, bool_t());
                 lir::EMatchArm a1;
                 a1.pat = make_pat_wild("_");
                 a1.value = builder().lit_bool(false, bool_t());

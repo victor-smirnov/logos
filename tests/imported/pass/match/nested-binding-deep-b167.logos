@@ -1,0 +1,51 @@
+// Regression (B167): arbitrary-depth nested enum-payload BINDING patterns.
+// `Some(Some(Some(w)))`, 4-level, and Result/Option mixes — including
+// no-wildcard exhaustive matches and mixed binding/bindingless sibling arms.
+// The K4 desugar composes recursively: each level's deeper checks ride the
+// guard arm's VALUE (never an arm GUARD), and the body let-else re-extraction
+// recurses. (Earlier this was gated to one level; unblocked once the
+// bindingless guard path stopped leaking its inner guards — 3ebf88c5.)
+package nested_binding_deep_b167;
+use logos.lang.option;
+use logos.lang.result;
+
+fn d3(o: Option<Option<Option<i64>>>) -> i64 {
+    match o {
+        Option::Some(Option::Some(Option::Some(w))) => w + 1i64,
+        Option::Some(Option::Some(Option::None)) => 100i64,
+        Option::Some(Option::None) => 200i64,
+        Option::None => 300i64,
+    }
+}
+fn d4(o: Option<Option<Option<Option<i64>>>>) -> i64 {
+    match o {
+        Option::Some(Option::Some(Option::Some(Option::Some(w)))) => w + 1i64,
+        Option::Some(Option::Some(Option::Some(Option::None))) => 10i64,
+        Option::Some(Option::Some(Option::None)) => 20i64,
+        Option::Some(Option::None) => 30i64,
+        Option::None => 40i64,
+    }
+}
+fn mix(r: Result<Option<Result<i64, i64>>, i64>) -> i64 {
+    match r {
+        Result::Ok(Option::Some(Result::Ok(v))) => v,
+        Result::Ok(Option::Some(Result::Err(e))) => -e,
+        Result::Ok(Option::None) => 0i64,
+        Result::Err(x) => x * 100i64,
+    }
+}
+fn main() -> i32 {
+    if d3(Option::Some(Option::Some(Option::Some(41i64)))) != 42i64 { return 1i32; }
+    if d3(Option::Some(Option::Some(Option::None))) != 100i64 { return 2i32; }
+    if d3(Option::Some(Option::None)) != 200i64 { return 3i32; }
+    if d3(Option::None) != 300i64 { return 4i32; }
+    if d4(Option::Some(Option::Some(Option::Some(Option::Some(41i64))))) != 42i64 { return 5i32; }
+    if d4(Option::Some(Option::Some(Option::Some(Option::None)))) != 10i64 { return 6i32; }
+    if d4(Option::Some(Option::None)) != 30i64 { return 7i32; }
+    if d4(Option::None) != 40i64 { return 8i32; }
+    if mix(Result::Ok(Option::Some(Result::Ok(7i64)))) != 7i64 { return 9i32; }
+    if mix(Result::Ok(Option::Some(Result::Err(3i64)))) != -3i64 { return 10i32; }
+    if mix(Result::Ok(Option::None)) != 0i64 { return 11i32; }
+    if mix(Result::Err(5i64)) != 500i64 { return 12i32; }
+    return 0i32;
+}
