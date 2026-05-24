@@ -1307,8 +1307,21 @@ std::vector<ParsedModule> load_modules(
         // every compile that touches Vec/String was a perf regression AND
         // force-lowered mem generic templates in the consumer (exposing the
         // ObjectMap::init / Array__equal force-lower artifacts). Drop it.
-        return starts("std.lang") || starts("std.hermes")
-            || starts("logos.lang");
+        //
+        // R2 (implicit-prelude 2x regression, 2026-05-24): exclude the
+        // `logos.lang.hermes.*` genos read-substrate (anyval/view/string/
+        // scalar/array/map/objectmap/typed_value/decimal/fabric — ~40 of the
+        // ~57 lang modules). It is the HEAVY part of the lang tier, and unlike
+        // the cross-cutting TRAIT packages (marker/ops/cmp/clone/... which
+        // binary modules reference bare without a `use` edge) the substrate is
+        // ALWAYS reached via explicit `use logos.lang.hermes.*` edges (verified
+        // across stdlib). So the eager sibling auto-load of the substrate was
+        // pure waste on every compile — requesting any one lang trait dragged
+        // in the entire substrate. Let explicit-`use` recursion pull exactly
+        // the substrate modules a compile references.
+        return (starts("std.lang") || starts("std.hermes")
+                || starts("logos.lang"))
+            && !starts("logos.lang.hermes");
     };
     auto visit_binary_module = [&](const std::string& cache_key,
                                    const std::string& archive_path,
