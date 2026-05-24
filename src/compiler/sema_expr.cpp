@@ -7183,6 +7183,34 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 method_name, sname, traits_list, rit->second.front()));
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
+        // N7: not a method, but the receiver struct may carry a FIELD of this
+        // name holding a fn-pointer / closure — `h.f(args)` is then a call of
+        // that field's callable value. Lower as field-read + fn-ptr/closure call.
+        {
+            auto [fpkg, fsi] = find_struct_by_name(std::string(sname));
+            (void)fpkg;
+            if (fsi) {
+                for (auto& fld : fsi->fields) {
+                    if (fld.name != method_name) continue;
+                    TypeRef ft = fld.type;
+                    if (!recv_struct_subst.empty())
+                        ft = subst_type_sema(ft, recv_struct_subst);
+                    auto ftk = TypeRef(ft).kind();
+                    if (ftk == LogosType::Kind::FnPtr ||
+                        ftk == LogosType::Kind::Closure) {
+                        TypeRef ret = TypeRef(ft).closure_ret();
+                        auto fr = builder().field_read(
+                            std::move(recv), std::string(method_name), ft);
+                        if (ftk == LogosType::Kind::FnPtr)
+                            return builder().fn_ptr_call(
+                                std::move(fr), std::move(arg_exprs), ret);
+                        return builder().closure_call(
+                            std::move(fr), std::move(arg_exprs), ret);
+                    }
+                    break;
+                }
+            }
+        }
         error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }

@@ -1,7 +1,0 @@
-package g8;
-struct Handler { f: fn(i64) -> i64 }
-fn double(x: i64) -> i64 { return x * 2i64; }
-fn main() -> i32 {
-    let h: Handler = Handler { f: double };
-    return h.f(21i64) as i32;   // error: 'Handler' has no method 'f' ; (h.f)(21) is a parse error
-}

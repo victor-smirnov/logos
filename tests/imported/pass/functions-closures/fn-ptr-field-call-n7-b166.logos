@@ -1,0 +1,17 @@
+// Regression for B166 N7: calling a fn-pointer / closure stored in a struct
+// FIELD via method-call syntax (`h.f(args)`). Previously rejected as
+// "'Handler' has no method 'f'"; now falls back to field-read + fn-ptr call.
+package fn_ptr_field_call_n7_b166;
+
+struct Handler { f: fn(i64) -> i64 }
+struct Adder { op: fn(i64, i64) -> i64 }
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn add(a: i64, b: i64) -> i64 { return a + b; }
+
+fn main() -> i32 {
+    let h: Handler = Handler { f: inc };
+    if h.f(21i64) != 22i64 { return 1i32; }
+    let g: Adder = Adder { op: add };
+    if g.op(20i64, 22i64) != 42i64 { return 2i32; }
+    return 0i32;
+}
