@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/foreach-nested.rs
+// Modifications: isize→i64; `vec![-1,…]` → a fixed `[i64; 4]` (Vec dropped, the
+//   array is the same observable target); literals suffixed; assert_eq! →
+//   return sentinels; `p as usize` index → plain `a[p]` (i64 index).
+// Tests a 2-LEVEL nested closure both INDEXING + WRITING an outer-outer array
+//   `a[p] = …` and INCREMENTING an outer-outer counter `p += 1` — the inner
+//   closure captures `a` and `p` by-ref THROUGH the outer closure's env. This
+//   is G160-9 (closed 2026-05-23): a nested closure's mut captures now
+//   propagate as mut captures of the enclosing closure, so the by-ref chain
+//   reaches the original allocas (previously the writes landed in a copy and
+//   were silently lost).
+package foreach_nested_b160;
+
+fn two<F: FnMut(i64)>(mut it: F) { it(0i64); it(1i64); }
+
+fn main() -> i32 {
+    let mut a: [i64; 4] = [0i64, 0i64, 0i64, 0i64];
+    let mut p: i64 = 0i64;
+    two(|i: i64| {
+        two(|j: i64| { a[p] = 10i64 * i + j; p = p + 1i64; });
+    });
+    if a[0] != 0i64 { return 1i32; }
+    if a[1] != 1i64 { return 2i32; }
+    if a[2] != 10i64 { return 3i32; }
+    if a[3] != 11i64 { return 4i32; }
+    return 0i32;
+}

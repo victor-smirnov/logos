@@ -156,22 +156,17 @@ via user `==` (where-clauses-blanket-eq).
   the spec is found and the existing two-level via_ref deref applies. Re-imported
   `borrowed-ptr-pattern-option`. Full suite 4866/4866.
 
-- **G160-9** ⚠️ SILENT MISCOMPILE — a write to an outer-OUTER local from inside a
-  NESTED (two-level) closure is silently lost. A single-level closure write to an
-  outer local works (see G156-10 closed). Minimal repro:
-  ```
-  fn two<F: FnMut(i64)>(mut it: F) { it(0i64); it(1i64); }
-  let mut p: i64 = 0i64;
-  two(|i: i64| {
-      two(|j: i64| { p = p + 1i64; });   // p stays 0 — should be 4
-  });
-  // p == 0 here (expected 4)
-  ```
-  Dropped: `for-loop-while/foreach-nested.rs` (the index-counter facet).
-  Assessment: DEEP-ish — the inner closure captures `p` by-ref through the OUTER
-  closure's environment, but the chained capture (env-of-env) isn't wired so the
-  write lands in a copy. Extends the G156-10 multi-level-closure-write fix
-  (which handled one level) to ≥2 closure-nesting levels.
+- **G160-9** ✅ CLOSED (2026-05-23) — a write to an outer-OUTER local from a
+  2-level-nested closure no longer silently lost. Root: the capture scanner
+  collected a nested closure's captures transitively (the `ClosureBox` case) but
+  always via `add_capture` (BY-VALUE), so the middle closure copied `p` into its
+  env; the inner closure then captured `&(middle's copy)` and wrote the copy →
+  lost on middle return. Fix (sema_expr capture scanner): the `ClosureBox` case
+  now checks `capture_is_mut(i)` per nested capture and routes a MUT capture
+  through `mark_mut_capture` (by-ref) instead of `add_capture` — so a mutated
+  variable is threaded by-ref all the way to the original alloca. Generalises to
+  ≥3 nesting levels (each level re-propagates). Re-imported `foreach-nested`
+  (array write + counter increment from the inner closure). Full suite green.
 
 - **G160-10** — a `!`/never-typed expression is rejected in control-flow scrutinee
   positions: `if (return 7) { }` → `if condition must be bool, got !`;

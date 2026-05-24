@@ -11431,11 +11431,23 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             }
             case EC::SliceLen:     scan_captures_v(lir_view::ESliceLenView{e}.slice()); break;
             case EC::SlicePtr:     scan_captures_v(lir_view::ESlicePtrView{e}.slice()); break;
-            case EC::ClosureBox:
-                lir_view::EClosureBoxView{e}.each_capture_name([&](std::string_view n){
-                    add_capture(std::string(n));
+            case EC::ClosureBox: {
+                // A nested closure literal transitively captures its free vars
+                // from THIS closure's environment. G160-9: if the nested closure
+                // captures a variable BY-REF (mutates it), this outer closure
+                // must ALSO capture it by-ref — otherwise the outer copies the
+                // value into its env, the nested closure writes that copy, and
+                // the write never reaches the original alloca (a 2-level-nested
+                // closure write to an outer-outer local was silently lost).
+                auto cb = lir_view::EClosureBoxView{e};
+                uint64_t ci = 0;
+                cb.each_capture_name([&](std::string_view n){
+                    if (cb.capture_is_mut(ci)) mark_mut_capture(n);
+                    else                       add_capture(std::string(n));
+                    ++ci;
                 });
                 break;
+            }
             case EC::ClosureCall: {
                 auto v = lir_view::EClosureCallView{e};
                 scan_captures_v(v.callee());
