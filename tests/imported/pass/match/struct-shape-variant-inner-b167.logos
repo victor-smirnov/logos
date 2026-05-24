@@ -1,0 +1,22 @@
+// Regression (B167): struct-shape enum-variant patterns with a refutable but
+// BINDING-LESS inner pattern on a field — `Msg::Paint { c: Color::Red, n }`.
+// Routes the field's nested unit-variant through synth_refutable_inner (an arm
+// guard), in parity with the tuple-shape path. (A binding-carrying inner like
+// `{ x: Some(v) }` still cleanly rejects — the struct-shape arm body doesn't
+// yet consume the nested-subs let-else channel.)
+package struct_shape_variant_inner_b167;
+enum Color { Red, Green }
+enum Msg { Paint { c: Color, n: i64 }, Quit }
+fn f(m: Msg) -> i64 {
+    match m {
+        Msg::Paint { c: Color::Red, n } => n,
+        Msg::Paint { c: Color::Green, n } => n * 2i64,
+        Msg::Quit => -1i64,
+    }
+}
+fn main() -> i32 {
+    if f(Msg::Paint { c: Color::Red, n: 5i64 }) != 5i64 { return 1i32; }
+    if f(Msg::Paint { c: Color::Green, n: 5i64 }) != 10i64 { return 2i32; }
+    if f(Msg::Quit) != -1i64 { return 3i32; }
+    return 0i32;
+}
