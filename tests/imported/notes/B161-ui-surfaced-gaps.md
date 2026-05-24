@@ -109,26 +109,17 @@ literals (estr-slice-cmp).
   in the match_block AFTER the payload bindings are bound — branching to the
   else block on failure. Regression `let-else-refined-inner`. Full suite green.
 
-- **G161-4** ⚠️ SILENT CRASH (DEEP-ish) — a generic `T: Clone` value (instantiated
-  at a STRUCT) produced by a `match`-EXPRESSION arm whose body is a method call
-  returning `T` (e.g. `let actual: T = match true { true => expected.clone() … }`)
-  corrupts / SIGSEGVs. The bool instantiation works; the same struct value cloned
-  WITHOUT the match wrapper (`let actual: T = expected.clone();`) works — only the
-  match-expr-result + generic-typevar struct aggregate combination crashes.
-  Minimal repro:
-  ```
-  struct Pair { a: i64, b: i64 }
-  impl Clone for Pair { fn clone(self: &Self) -> Pair { return Pair { a: self.a, b: self.b }; } }
-  fn tg<T>(e: T) -> i64 where T: Clone {
-      let actual: T = match true { true => { e.clone() } _ => { e.clone() } };
-      let c2: T = actual.clone(); let _ = c2; return 1i64;
-  }
-  fn main() -> i32 { if tg::<Pair>(Pair{a:1i64,b:2i64}) != 1i64 { return 2i32; } return 0i32; }
-  ```
-  Dropped: `binding/expr-match-generic.rs` (reshaped as a probe, then removed).
-  Assessment: DEEP-ish — a match-expression yielding a monomorphized-typevar
-  aggregate (struct) value has a wrong stack slot / memcpy layout; overlaps the
-  mono aggregate-result handling. Distinct from G160-8 (tuple-of-`&Option` match).
+- **G161-4** ✅ CLOSED (2026-05-23) — a generic `T: Clone` value (instantiated at
+  a struct) produced by a `match`-EXPRESSION arm whose body is a by-value-
+  returning call (`e.clone()`) no longer corrupts/SIGSEGVs. Root (EMatchExpr
+  codegen): the result slot is `logos_to_mlir(T-after-mono=struct)` = `ptr`
+  (8B), but the arm produced the struct BY VALUE (16B) — storing the wide value
+  into the ptr slot overflowed the stack, and the merge `load ptr` read garbage.
+  A struct-LIT arm returns a pointer (worked); a call-result struct value did
+  not. Fix: when the result slot is a by-pointer aggregate but the arm value is
+  an aggregate VALUE, spill it to an alloca and store the pointer
+  (`store_arm_result` helper, both guarded and plain arm paths). Re-imported
+  `expr-match-generic`. Full suite green.
 
 - **G161-5** TRACTABLE — functional struct update `..base` over a GENERIC struct
   (`Partial<T>`) is rejected: the spread does not carry the remaining fields, so

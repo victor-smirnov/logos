@@ -2616,6 +2616,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     // Allocate result slot before the match (entry-block reachable).
     auto result_alloca = create_entry_alloca(result_type);
 
+    // G161-4: coerce an arm's value to the result-slot type. When the result is
+    // a by-pointer aggregate (struct/array → result_type == ptr) but the arm
+    // produced the aggregate BY VALUE (e.g. a call like `e.clone()` returning a
+    // struct value, not a struct-lit pointer), spill it to an alloca and store
+    // the POINTER — storing the wide value into the 8-byte ptr slot overflowed
+    // and corrupted the stack (→ SIGSEGV on the subsequent load).
+    auto store_arm_result = [&](mlir::Value val, mlir::Type rt) -> mlir::Value {
+        if (rt == ptr_type() && val && val.getType() != ptr_type() &&
+            (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) ||
+             mlir::isa<mlir::LLVM::LLVMArrayType>(val.getType())))
+            return spill_to_alloca(val);
+        return coerce_numeric(val, rt);
+    };
+
     auto* region      = builder_.getBlock()->getParent();
     auto* merge_block = new mlir::Block();
 
@@ -3193,7 +3207,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 for (auto& n : guard_added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
                 if (!is_terminated(builder_.getBlock())) {
                     if (val) {
-                        val = coerce_numeric(val, result_type);
+                        val = store_arm_result(val, result_type);
                         builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
                     }
                     builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
@@ -3208,7 +3222,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             for (auto& n : added) { scope_.erase(n); let_vars_.erase(n); var_elem_types_.erase(n); }
             if (!is_terminated(builder_.getBlock())) {
                 if (val) {
-                    val = coerce_numeric(val, result_type);
+                    val = store_arm_result(val, result_type);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, result_alloca);
                 }
                 builder_.create<mlir::cf::BranchOp>(loc_, merge_block);

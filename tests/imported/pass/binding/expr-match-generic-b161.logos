@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match-generic.rs (distilled)
+// Modifications: #[derive(Clone)] → explicit impl Clone; generic over `T: Clone`
+//   instantiated at a 2-field struct; the match-expr arm bodies are `.clone()`
+//   method calls returning T (a by-value struct).
+// Tests a generic `T: Clone` value produced by a `match`-EXPRESSION arm whose
+//   body is a by-value-returning method call — G161-4 (closed 2026-05-23). The
+//   match-expr result slot is a by-pointer aggregate (struct → `ptr`); a
+//   by-VALUE struct arm value (16B) was stored into the 8B ptr slot → stack
+//   overflow → SIGSEGV. Now an aggregate arm value is spilled to an alloca and
+//   the pointer is stored. The cloned field values must survive the match-expr.
+package expr_match_generic_b161;
+
+struct Pair { a: i64, b: i64 }
+impl Clone for Pair { fn clone(self: &Self) -> Pair { return Pair { a: self.a, b: self.b }; } }
+
+trait GetA { fn get_a(self: &Self) -> i64; }
+impl GetA for Pair { fn get_a(self: &Self) -> i64 { return self.a; } }
+
+fn pick<T>(e: T, cond: bool) -> i64 where T: Clone, T: GetA {
+    let actual: T = match cond { true => { e.clone() } _ => { e.clone() } };
+    let c2: T = actual.clone();
+    return c2.get_a();
+}
+
+fn main() -> i32 {
+    if pick::<Pair>(Pair { a: 7i64, b: 9i64 }, true) != 7i64 { return 1i32; }
+    if pick::<Pair>(Pair { a: 42i64, b: 0i64 }, false) != 42i64 { return 2i32; }
+    return 0i32;
+}
