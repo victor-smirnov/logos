@@ -2644,6 +2644,15 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 auto dp = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
                 scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            } else if (via_ref) {
+                // G165-1: a FIELDLESS / C-like enum has no TaggedEnumInfo — its
+                // by-value form is a plain i32 discriminant (not a heap ptr), so
+                // `&Enum` is a one-level ptr-to-i32. Load the disc through the ref
+                // so the scalar arm tests below compare i32==disc instead of
+                // comparing the raw `&Enum` pointer (which crashed mlir-gen:
+                // `arith.cmpi operand must be integer, got !llvm.ptr`).
+                scrut = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, builder_.getI32Type(), scrut);
             }
         }
     }

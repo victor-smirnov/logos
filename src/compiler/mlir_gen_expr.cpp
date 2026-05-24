@@ -2779,6 +2779,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 auto dp = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
                 scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            } else if (via_ref) {
+                // G165-1: a FIELDLESS / C-like enum has no TaggedEnumInfo — its
+                // by-value form is a plain i32 discriminant (not a heap ptr), so
+                // `&Enum` is a one-level ptr-to-i32. Load the disc through the ref
+                // so the scalar arm tests compare i32==disc rather than the raw
+                // `&Enum` pointer (crashed: `arith.cmpi` operand must be integer).
+                scrut = builder_.create<mlir::LLVM::LoadOp>(
+                    loc_, builder_.getI32Type(), scrut);
             }
         }
     }

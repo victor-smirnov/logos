@@ -1,0 +1,44 @@
+// Regression for G165-1: matching a FIELDLESS (C-like, plain-i32) enum through
+// a reference. The discriminant must be loaded through the `&Enum` / `&mut Enum`
+// pointer before comparison (fieldless enums have no TaggedEnumInfo, so the
+// disc-load was previously skipped and the raw pointer was compared to the disc
+// constant — `arith.cmpi operand must be integer, got !llvm.ptr`).
+package match_ref_fieldless_enum_g165;
+
+enum Dir { North, East, South, West }
+
+// match over `&Enum` param
+fn turns(d: &Dir) -> i64 {
+    match d {
+        Dir::North => { return 0i64; }
+        Dir::East  => { return 1i64; }
+        Dir::South => { return 2i64; }
+        Dir::West  => { return 3i64; }
+    }
+}
+
+// match over `&mut Enum` param
+fn rank(d: &mut Dir) -> i64 {
+    match d {
+        Dir::North => { return 10i64; }
+        Dir::East  => { return 20i64; }
+        Dir::South => { return 30i64; }
+        Dir::West  => { return 40i64; }
+    }
+}
+
+fn main() -> i32 {
+    let s: Dir = Dir::South;
+    if turns(&s) != 2i64 { return 1i32; }
+
+    let mut w: Dir = Dir::West;
+    if rank(&mut w) != 40i64 { return 2i32; }
+
+    // payload-extracted enum, then borrowed and matched through `&Enum`
+    let o: Option<Dir> = Option::Some(Dir::East);
+    match o {
+        Option::Some(d) => { if turns(&d) != 1i64 { return 3i32; } }
+        Option::None => { return 4i32; }
+    }
+    return 0i32;
+}
