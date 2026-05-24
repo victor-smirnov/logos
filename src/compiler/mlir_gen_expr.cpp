@@ -2238,7 +2238,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EArrLitView v, TypeRef type) {
             if (et) elem_type = et;
         }
     }
-    return gen_arr_lit(v, elem_type);
+    return gen_arr_lit(v, elem_type, type ? TypeRef(type).elem() : TypeRef(nullptr));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleLitView v, TypeRef type) {

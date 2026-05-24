@@ -607,7 +607,8 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         else
             elem_type = logos_to_mlir(TypeRef(s.type).elem());
         if (!elem_type) elem_type = builder_.getI32Type();
-        auto alloca = gen_arr_lit(lit, elem_type);
+        auto alloca = gen_arr_lit(lit, elem_type,
+                                  s.type ? TypeRef(s.type).elem() : TypeRef(nullptr));
         if (!alloca) return;
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);

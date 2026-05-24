@@ -981,18 +981,58 @@ mlir::Type MLIRGenImpl::subscript_elem_type(const std::string& name) {
     return builder_.getI32Type();
 }
 
-mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type) {
+mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type,
+                                     TypeRef logos_elem) {
     uint64_t n = v.count();
     auto arr_type = mlir::LLVM::LLVMArrayType::get(elem_type, n);
     auto alloca   = create_entry_alloca(arr_type);
     bool elem_is_array  = elem_type && mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type);
     bool elem_is_struct = elem_type && mlir::isa<mlir::LLVM::LLVMStructType>(elem_type);
+    // N4: `[&dyn Trait; N]` — the array element is a trait object (pointer to a
+    // fat {data, vtable} slot). The element source is a concrete `&Concrete`,
+    // so each element needs the same unsize coercion gen_struct_lit applies to
+    // a `&dyn` field — without it the raw thin `&Concrete` is stored and a
+    // later `arr[i].method()` reads a garbage vtable → SIGSEGV.
+    TypeRef dyn_trait_elem = logos_elem;
+    if (dyn_trait_elem && (TypeRef(dyn_trait_elem).kind() == LogosType::Kind::Ref ||
+                           TypeRef(dyn_trait_elem).kind() == LogosType::Kind::MutRef ||
+                           TypeRef(dyn_trait_elem).kind() == LogosType::Kind::Ptr) &&
+        TypeRef(dyn_trait_elem).pointee())
+        dyn_trait_elem = TypeRef(dyn_trait_elem).pointee();
+    bool elem_is_dyn = dyn_trait_elem &&
+        TypeRef(dyn_trait_elem).kind() == LogosType::Kind::TraitObject;
     for (uint64_t i = 0; i < n; ++i) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
         auto gep = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), arr_type, alloca, idx);
         auto er = v.elem(i);
         auto* le = lexpr_of(er); if (!le) return nullptr;
+        if (elem_is_dyn) {
+            auto val = gen_expr(*le);
+            if (!val) return nullptr;
+            // Peel the source `&Concrete` to its struct, build the fat pointer.
+            TypeRef vt(le->type);
+            if (vt && vt.kind() != LogosType::Kind::TraitObject) {
+                TypeRef pointee = vt;
+                if (pointee && (pointee.kind() == LogosType::Kind::Ref ||
+                                pointee.kind() == LogosType::Kind::MutRef ||
+                                pointee.kind() == LogosType::Kind::Ptr) &&
+                    pointee.pointee())
+                    pointee = pointee.pointee();
+                std::string src_struct;
+                if (pointee && (pointee.kind() == LogosType::Kind::Struct ||
+                                pointee.kind() == LogosType::Kind::ZonedStruct))
+                    src_struct = concrete_struct_name(pointee);
+                if (!src_struct.empty() && val.getType() == ptr_type()) {
+                    if (auto fat = coerce_to_dyn(
+                            val, std::string(TypeRef(dyn_trait_elem).trait_name()),
+                            src_struct))
+                        val = fat;
+                }
+            }
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+            continue;
+        }
         if (elem_is_struct) {
             // Element is an inline LLVM struct slot. gen_expr may return
             // either a pointer to the source struct (alloca/struct_lit) or

@@ -694,7 +694,8 @@ private:
     // MLIR slot type for one element/field of a place (struct/tuple inline
     // aggregate type, else logos_to_mlir) — the GEP stride into an aggregate.
     mlir::Type place_slot_type(TypeRef t);
-    mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type);
+    mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type,
+                            TypeRef logos_elem = TypeRef(nullptr));
 
     // ── format() built-in ─────────────────────────────────────────
     static int format_type_tag(TypeRef t) noexcept;
