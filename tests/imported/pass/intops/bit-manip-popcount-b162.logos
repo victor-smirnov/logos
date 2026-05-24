@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/ bit-manipulation shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Hand-rolled popcount
+//   (count set bits) + bit set/clear/test via `&`/`|`/`^`/`<<`/`>>` on i64.
+// Tests integer bitwise operators (`& | ^ << >>`) composed into bit-set
+//   manipulation routines.
+package bit_manip_popcount_b162;
+
+fn popcount(mut n: i64) -> i64 {
+    let mut c: i64 = 0i64;
+    while n != 0i64 {
+        c = c + (n & 1i64);
+        n = n >> 1i64;
+    }
+    return c;
+}
+
+fn set_bit(n: i64, b: i64) -> i64 { return n | (1i64 << b); }
+fn clear_bit(n: i64, b: i64) -> i64 { return n & (0i64 - 1i64 - (1i64 << b)); }
+fn test_bit(n: i64, b: i64) -> bool { return ((n >> b) & 1i64) == 1i64; }
+
+fn main() -> i32 {
+    if popcount(0i64) != 0i64 { return 1i32; }
+    if popcount(7i64) != 3i64 { return 2i32; }    // 0b111
+    if popcount(255i64) != 8i64 { return 3i32; }
+
+    let mut x: i64 = 0i64;
+    x = set_bit(x, 0i64);   // 1
+    x = set_bit(x, 3i64);   // 9
+    if x != 9i64 { return 4i32; }
+    if !test_bit(x, 3i64) { return 5i32; }
+    if test_bit(x, 1i64) { return 6i32; }
+
+    x = clear_bit(x, 0i64); // 8
+    if x != 8i64 { return 7i32; }
+
+    let y: i64 = 6i64 ^ 3i64; // 0b110 ^ 0b011 = 0b101 = 5
+    if y != 5i64 { return 8i32; }
+    return 0i32;
+}

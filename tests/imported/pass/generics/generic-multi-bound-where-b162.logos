@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clause-method-substitution.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. A generic fn carries
+//   MULTIPLE trait bounds via a `where` clause (T: Describe + Weigh); calls a
+//   method from each bound.
+// Tests multi-bound `where`-clause on a generic fn, dispatching to two distinct
+//   trait methods on the same type parameter.
+package generic_multi_bound_where_b162;
+
+trait Describe {
+    fn code(self: &Self) -> i64;
+}
+trait Weigh {
+    fn weight(self: &Self) -> i64;
+}
+
+struct Item {
+    c: i64,
+    w: i64,
+}
+
+impl Describe for Item {
+    fn code(self: &Self) -> i64 { return (*self).c; }
+}
+impl Weigh for Item {
+    fn weight(self: &Self) -> i64 { return (*self).w; }
+}
+
+fn score<T>(x: &T) -> i64
+where T: Describe + Weigh {
+    return x.code() * 100i64 + x.weight();
+}
+
+fn main() -> i32 {
+    let it: Item = Item { c: 3i64, w: 42i64 };
+    if score::<Item>(&it) != 342i64 { return 1i32; }
+    return 0i32;
+}

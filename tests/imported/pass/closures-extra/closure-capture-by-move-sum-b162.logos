@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/ capture shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A closure captures two
+//   locals BY VALUE and is invoked through a generic `Fn`-bound driver; a second
+//   closure captures a fixed array and indexes it. Distinct from FnMut-counter:
+//   pure `Fn` (read-only capture).
+// Tests `Fn`-bound closures capturing locals (scalar + array) by value, invoked
+//   through a generic `F: Fn(i64) -> i64` driver.
+package closure_capture_by_move_sum_b162;
+
+fn call_with<F: Fn(i64) -> i64>(f: F, arg: i64) -> i64 {
+    return f(arg);
+}
+
+fn main() -> i32 {
+    let base: i64 = 10i64;
+    let step: i64 = 3i64;
+    let lin = |x: i64| -> i64 { return base + step * x; };
+    if call_with::<|i64| -> i64>(lin, 4i64) != 22i64 { return 1i32; }
+
+    let table: [i64; 4] = [5i64, 6i64, 7i64, 8i64];
+    let lookup = |i: i64| -> i64 { return table[i]; };
+    if call_with::<|i64| -> i64>(lookup, 2i64) != 7i64 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/char/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. char literals incl.
+//   escapes; `char as i64` to get code points; range comparison to classify a
+//   char as digit/upper/lower without stdlib methods.
+// Tests char literals (incl `\n`, `\t`, `\u{}`), `char as i64` code-point cast,
+//   and char range comparison.
+package char_methods_classify_b162;
+
+fn is_digit(c: char) -> bool {
+    return c >= '0' && c <= '9';
+}
+fn is_upper(c: char) -> bool {
+    return c >= 'A' && c <= 'Z';
+}
+
+fn main() -> i32 {
+    let a: char = 'A';
+    if (a as i64) != 65i64 { return 1i32; }
+
+    let nl: char = '\n';
+    if (nl as i64) != 10i64 { return 2i32; }
+
+    let tab: char = '\t';
+    if (tab as i64) != 9i64 { return 3i32; }
+
+    let snow: char = '\u{2603}';
+    if (snow as i64) != 9731i64 { return 4i32; }
+
+    if !is_digit('7') { return 5i32; }
+    if is_digit('x') { return 6i32; }
+    if !is_upper('Q') { return 7i32; }
+    if is_upper('q') { return 8i32; }
+    return 0i32;
+}

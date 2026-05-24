@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/iterators/ range shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Counting-down and
+//   strided iteration expressed with `while` (mirrors `(0..n).rev()` /
+//   `(0..n).step_by(k)`), plus an INCLUSIVE-range `for x in 0..=n` accumulation.
+// Tests inclusive-range `for` loop + manual reverse/strided counting (the
+//   distinct facet vs the existing exclusive-range iterator tests).
+package for_range_step_rev_b162;
+
+use logos.lang.iter;
+use logos.lang.range;
+
+fn main() -> i32 {
+    // inclusive range 0..=5 sums 0+1+2+3+4+5 = 15
+    let mut s: i64 = 0i64;
+    for x in 0i64..=5i64 {
+        s = s + x;
+    }
+    if s != 15i64 { return 1i32; }
+
+    // reverse count 9,8,...,0 -> sequence sum 45, last value 0
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 9i64;
+    let mut last: i64 = -1i64;
+    while i >= 0i64 {
+        acc = acc + i;
+        last = i;
+        i = i - 1i64;
+    }
+    if acc != 45i64 { return 2i32; }
+    if last != 0i64 { return 3i32; }
+
+    // strided by 2 over 0..10 -> 0,2,4,6,8 sum 20
+    let mut st: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < 10i64 {
+        st = st + k;
+        k = k + 2i64;
+    }
+    if st != 20i64 { return 4i32; }
+    return 0i32;
+}

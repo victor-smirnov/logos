@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/class-typarams.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. A generic struct
+//   `Wrapper<T>` with inherent methods: a constructor, a `map`-style method that
+//   builds a new `Wrapper<T>` from a transform, and a getter — chained.
+// Tests generic-struct inherent methods returning `Self`-typed values + method
+//   chaining on a generic receiver.
+package generic_struct_method_chain_b162;
+
+struct Wrapper<T> {
+    value: T,
+}
+
+impl<T> Wrapper<T> {
+    fn new(v: T) -> Wrapper<T> {
+        return Wrapper { value: v };
+    }
+    fn get(self: &Self) -> T {
+        return (*self).value;
+    }
+}
+
+impl Wrapper<i64> {
+    fn doubled(self: &Self) -> Wrapper<i64> {
+        return Wrapper { value: (*self).value * 2i64 };
+    }
+    fn inc(self: &Self) -> Wrapper<i64> {
+        return Wrapper { value: (*self).value + 1i64 };
+    }
+}
+
+fn main() -> i32 {
+    let w: Wrapper<i64> = Wrapper::<i64>::new(5i64);
+    let r: i64 = w.doubled().inc().doubled().get();
+    // ((5*2)+1)*2 = 22
+    if r != 22i64 { return 1i32; }
+    return 0i32;
+}

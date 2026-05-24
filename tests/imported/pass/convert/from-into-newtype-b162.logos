@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/newtype-struct-with-dtor.rs shape +
+//   core::convert From/Into idiom (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Uses the stdlib
+//   `From<T>`/`Into<T>` traits — a user `impl From<i64> for Celsius` makes both
+//   `Celsius::from(n)` AND the blanket-derived `n.into()` reach the same value.
+// Tests user `From` impl + the blanket `Into` derived from it (destination
+//   inferred from the binding's declared type).
+package from_into_newtype_b162;
+
+use logos.lang.convert;
+
+struct Celsius {
+    deg: i64,
+}
+
+impl From<i64> for Celsius {
+    fn from(val: i64) -> Self { return Celsius { deg: val }; }
+}
+
+fn main() -> i32 {
+    let a: Celsius = Celsius::from(21i64);
+    if a.deg != 21i64 { return 1i32; }
+
+    let n: i64 = 37i64;
+    let b: Celsius = n.into();
+    if b.deg != 37i64 { return 2i32; }
+
+    return 0i32;
+}

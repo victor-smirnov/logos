@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-update-syntax.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. Functional struct
+//   update `S { field: new, ..base }` over a GENERIC struct `Config<T>` (the
+//   generic-FSU path; closed by G161-5) — overrides one field, carries the rest.
+// Tests `..base` functional struct update on both a concrete and a generic
+//   struct, overriding a subset of fields.
+package struct_update_generic_fsu_b162;
+
+struct Config<T> {
+    x: T,
+    y: i64,
+    z: i64,
+}
+
+fn main() -> i32 {
+    let base: Config<i64> = Config { x: 1i64, y: 2i64, z: 3i64 };
+    let upd: Config<i64> = Config { y: 20i64, ..base };
+    if upd.x != 1i64 { return 1i32; }
+    if upd.y != 20i64 { return 2i32; }
+    if upd.z != 3i64 { return 3i32; }
+
+    let b2: Config<bool> = Config { x: true, y: 5i64, z: 6i64 };
+    let u2: Config<bool> = Config { z: 60i64, ..b2 };
+    if !u2.x { return 4i32; }
+    if u2.y != 5i64 { return 5i32; }
+    if u2.z != 60i64 { return 6i32; }
+    return 0i32;
+}

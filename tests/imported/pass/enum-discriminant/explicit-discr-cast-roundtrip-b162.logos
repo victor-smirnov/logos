@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/enum-discrim-autosizing.rs shape (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; `#[repr]` dropped.
+//   Enum with EXPLICIT discriminant values incl. an EXPRESSION discriminant
+//   (`1i64 << 4i64`); each variant cast to i64 via `as` and matched back.
+// Tests explicit + expression enum discriminants and `Variant as i64` cast.
+package explicit_discr_cast_roundtrip_b162;
+
+enum Flag {
+    A = 1i64,
+    B = 2i64,
+    C = 1i64 << 4i64,
+    D = 100i64,
+}
+
+fn val(f: Flag) -> i64 {
+    return f as i64;
+}
+
+fn main() -> i32 {
+    if val(Flag::A) != 1i64 { return 1i32; }
+    if val(Flag::B) != 2i64 { return 2i32; }
+    if val(Flag::C) != 16i64 { return 3i32; }
+    if val(Flag::D) != 100i64 { return 4i32; }
+
+    let sum: i64 = (Flag::A as i64) + (Flag::C as i64) + (Flag::D as i64);
+    if sum != 117i64 { return 5i32; }
+    return 0i32;
+}

@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-order-comparisons.rs shape (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Local variables are
+//   dropped in REVERSE declaration order at end of scope. Drop modeled by the
+//   pass/drop/ convention `trait Drop { fn drop(self: Self); }` + a single
+//   `*mut i64` accumulator; each drop appends its id as a base-10 digit
+//   (`*c = *c * 10 + id`), so the final number spells the drop ORDER.
+// Tests deterministic drop order of block-scoped locals (last-declared dropped
+//   first => digits read 321).
+package drop_order_locals_b162;
+
+trait Drop {
+    fn drop(self: Self);
+}
+
+struct Marker {
+    id: i64,
+    c: *mut i64,
+}
+
+impl Drop for Marker {
+    fn drop(self: Marker) {
+        unsafe { *self.c = *self.c * 10i64 + self.id; }
+    }
+}
+
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    let c = &mut acc as *mut i64;
+    {
+        let _a: Marker = Marker { id: 1i64, c: c };
+        let _b: Marker = Marker { id: 2i64, c: c };
+        let _c: Marker = Marker { id: 3i64, c: c };
+    }
+    // dropped reverse: 3 then 2 then 1 => 0*10+3=3, 3*10+2=32, 32*10+1=321
+    unsafe { if *c != 321i64 { return 1i32; } }
+    return 0i32;
+}

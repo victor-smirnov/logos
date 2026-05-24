@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/while-let.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels; Vec -> a fixed array +
+//   length cursor modeling a stack. `while let Some(x) = pop()` drains the stack.
+// Tests `while let Some(..) = <expr>` loop draining an Option-returning source
+//   until None.
+package while_let_stack_pop_b162;
+
+use logos.lang.option;
+
+struct Stack {
+    data: [i64; 4],
+    top: i64,
+}
+
+fn pop(s: &mut Stack) -> Option<i64> {
+    if (*s).top == 0i64 {
+        return Option::None;
+    }
+    (*s).top = (*s).top - 1i64;
+    let idx: i64 = (*s).top;
+    return Option::Some((*s).data[idx]);
+}
+
+fn main() -> i32 {
+    let mut s: Stack = Stack { data: [10i64, 20i64, 30i64, 40i64], top: 4i64 };
+    let mut sum: i64 = 0i64;
+    let mut count: i64 = 0i64;
+    while let Option::Some(x) = pop(&mut s) {
+        sum = sum + x;
+        count = count + 1i64;
+    }
+    if sum != 100i64 { return 1i32; }
+    if count != 4i64 { return 2i32; }
+    if s.top != 0i64 { return 3i32; }
+    return 0i32;
+}

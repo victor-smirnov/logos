@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/enum-rec/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; Box<Tree> -> *const Tree
+//   raw-pointer payloads (B111; mirrors recursion/recursive-enum-box-b147) — the
+//   subtree nodes are stack locals whose addresses populate the Node children.
+//   This is a binary TREE (two recursive children + a recursive fold), distinct
+//   from the existing linked-list recursive enum.
+// Tests a recursive enum (binary tree) folded by a recursive fn that derefs
+//   `*const Tree` child pointers and `match`es nested variant payloads.
+package recursive_enum_tree_sum_b162;
+
+enum Tree {
+    Leaf,
+    Node(i64, *const Tree, *const Tree),
+}
+
+fn sum(t: *const Tree) -> i64 {
+    unsafe {
+        match *t {
+            Tree::Leaf => { return 0i64; }
+            Tree::Node(v, l, r) => { return v + sum(l) + sum(r); }
+        }
+    }
+}
+
+fn main() -> i32 {
+    let leaf: Tree = Tree::Leaf;
+    let lp: *const Tree = &leaf as *const Tree;
+
+    // node2 = (2 . .)
+    let node2: Tree = Tree::Node(2i64, lp, lp);
+    // node4 = (4 . .)
+    let node4: Tree = Tree::Node(4i64, lp, lp);
+    // node3 = (3 (4 . .) .)
+    let node3: Tree = Tree::Node(3i64, &node4 as *const Tree, lp);
+    // root = (1 (2 . .) (3 (4 . .) .))
+    let root: Tree = Tree::Node(1i64, &node2 as *const Tree, &node3 as *const Tree);
+
+    if sum(&root as *const Tree) != 10i64 { return 1i32; }
+    return 0i32;
+}

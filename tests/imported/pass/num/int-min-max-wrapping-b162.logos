@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/i128-2.rs / numeric edge shapes
+//   (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Signed/unsigned
+//   boundary values at fixed widths (i8/u8/i16/i32/u32 min/max) + cross-width
+//   `as` casts. The explicit u8 wraparound facet was dropped — integer overflow
+//   traps (Illegal instruction) rather than wrapping in Logos, matching Rust's
+//   debug-mode overflow check (no `wrapping_add` intrinsic ported yet).
+// Tests integer min/max boundary literals across widths and cross-width casts.
+package int_min_max_wrapping_b162;
+
+fn main() -> i32 {
+    let i8max: i8 = 127i8;
+    let i8min: i8 = -128i8;
+    if (i8max as i64) != 127i64 { return 1i32; }
+    if (i8min as i64) != -128i64 { return 2i32; }
+
+    let u8max: u8 = 255u8;
+    if (u8max as i64) != 255i64 { return 3i32; }
+
+    let i16max: i16 = 32767i16;
+    let i16min: i16 = -32768i16;
+    if (i16max as i64) != 32767i64 { return 4i32; }
+    if (i16min as i64) != -32768i64 { return 5i32; }
+
+    let i32max: i32 = 2147483647i32;
+    if (i32max as i64) != 2147483647i64 { return 6i32; }
+
+    let u32max: u32 = 4294967295u32;
+    if (u32max as i64) != 4294967295i64 { return 7i32; }
+
+    // narrowing cast truncates: 300 (i64) -> u8 keeps low 8 bits = 44
+    let big: i64 = 300i64;
+    let narrowed: u8 = big as u8;
+    if (narrowed as i64) != 44i64 { return 8i32; }
+    return 0i32;
+}

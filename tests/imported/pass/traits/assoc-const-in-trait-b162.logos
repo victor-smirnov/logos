@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-consts/associated-const-in-trait.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. A trait declares an
+//   associated const `ID: i64`; two impls give it distinct values; a generic fn
+//   `T: Tag` reads `T::ID`.
+// Tests trait-level associated constants + per-impl override + reading the
+//   assoc const through a generic type parameter.
+package assoc_const_in_trait_b162;
+
+trait Tag {
+    const ID: i64;
+    fn tag(self: &Self) -> i64;
+}
+
+struct Alpha {}
+struct Beta {}
+
+impl Tag for Alpha {
+    const ID: i64 = 7i64;
+    fn tag(self: &Self) -> i64 { return Alpha::ID; }
+}
+impl Tag for Beta {
+    const ID: i64 = 13i64;
+    fn tag(self: &Self) -> i64 { return Beta::ID; }
+}
+
+fn read_id<T: Tag>(v: &T) -> i64 {
+    return v.tag();
+}
+
+fn main() -> i32 {
+    let a: Alpha = Alpha {};
+    let b: Beta = Beta {};
+    if read_id::<Alpha>(&a) != 7i64 { return 1i32; }
+    if read_id::<Beta>(&b) != 13i64 { return 2i32; }
+    if (Alpha::ID + Beta::ID) != 20i64 { return 3i32; }
+    return 0i32;
+}

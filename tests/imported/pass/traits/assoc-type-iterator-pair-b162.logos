@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/associated-types-basic.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. A trait with an
+//   associated TYPE `Item`; an impl binds `Item = i64`; a generic fn over the
+//   trait returns `T::Item` (the projection).
+// Tests associated-type declaration + binding in an impl + assoc-type projection
+//   `T::Item` used as the return type of a generic fn.
+package assoc_type_iterator_pair_b162;
+
+trait Producer {
+    type Item;
+    fn produce(self: &Self) -> Self::Item;
+}
+
+struct IntBox {
+    v: i64,
+}
+
+impl Producer for IntBox {
+    type Item = i64;
+    fn produce(self: &Self) -> i64 { return (*self).v; }
+}
+
+fn run<T: Producer>(p: &T) -> T::Item {
+    return p.produce();
+}
+
+fn main() -> i32 {
+    let b: IntBox = IntBox { v: 42i64 };
+    let got: i64 = run::<IntBox>(&b);
+    if got != 42i64 { return 1i32; }
+    return 0i32;
+}

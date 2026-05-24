@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-autoderef-indexing.rs shape /
+//   core Index trait (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Uses the stdlib
+//   `Index<Idx, Output>` trait via an explicit method call `m.index(i)`
+//   returning `&Output` (the `[i]` sugar on user types routes through this).
+// Tests a user `Index` impl on a fixed-capacity grid newtype, returning a
+//   reference into an inner array.
+package user_index_trait_b162;
+
+use logos.lang.ops;
+
+struct Grid {
+    cells: [i64; 4],
+}
+
+impl Index<i64, i64> for Grid {
+    fn index(&self, idx: i64) -> &i64 {
+        return &(*self).cells[idx];
+    }
+}
+
+fn main() -> i32 {
+    let g: Grid = Grid { cells: [10i64, 20i64, 30i64, 40i64] };
+    let r0: &i64 = g.index(0i64);
+    if *r0 != 10i64 { return 1i32; }
+    let r2: &i64 = g.index(2i64);
+    if *r2 != 30i64 { return 2i32; }
+    let r3: &i64 = g.index(3i64);
+    if *r3 != 40i64 { return 3i32; }
+    return 0i32;
+}

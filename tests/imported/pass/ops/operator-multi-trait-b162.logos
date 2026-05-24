@@ -1,0 +1,60 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/operator-overloading.rs (distinct facet)
+// Modifications: isize->i64; assert->if-return sentinels. Logos operator traits
+//   are single-type (Self=RHS=Output), so each op is impl'd on `Mask` directly.
+//   Exercises a DIFFERENT set of operator traits than the existing
+//   operator-overloading-b133 (which covered Add/Sub/Neg): Mul/Shl/Shr/BitAnd/
+//   BitOr/BitXor over a newtype wrapping an i64 bitmask.
+// Tests user operator overloading for `*` (Mul), `<<`/`>>` (Shl/Shr),
+//   `&`/`|`/`^` (BitAnd/BitOr/BitXor).
+package operator_multi_trait_b162;
+
+use logos.lang.ops;
+
+struct Mask {
+    bits: i64,
+}
+
+impl Mul for Mask {
+    fn mul(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits * rhs.bits }; }
+}
+impl Shl for Mask {
+    fn shl(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits << rhs.bits }; }
+}
+impl Shr for Mask {
+    fn shr(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits >> rhs.bits }; }
+}
+impl BitAnd for Mask {
+    fn bitand(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits & rhs.bits }; }
+}
+impl BitOr for Mask {
+    fn bitor(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits | rhs.bits }; }
+}
+impl BitXor for Mask {
+    fn bitxor(self: Self, rhs: Self) -> Mask { return Mask { bits: self.bits ^ rhs.bits }; }
+}
+
+fn main() -> i32 {
+    let a: Mask = Mask { bits: 6i64 };
+    let b: Mask = Mask { bits: 3i64 };
+
+    let m: Mask = a * b;
+    if m.bits != 18i64 { return 1i32; }
+
+    let sl: Mask = (Mask { bits: 1i64 }) << (Mask { bits: 4i64 });
+    if sl.bits != 16i64 { return 2i32; }
+
+    let sr: Mask = (Mask { bits: 32i64 }) >> (Mask { bits: 2i64 });
+    if sr.bits != 8i64 { return 3i32; }
+
+    let an: Mask = (Mask { bits: 6i64 }) & (Mask { bits: 3i64 });
+    if an.bits != 2i64 { return 4i32; }
+
+    let orr: Mask = (Mask { bits: 4i64 }) | (Mask { bits: 1i64 });
+    if orr.bits != 5i64 { return 5i32; }
+
+    let xr: Mask = (Mask { bits: 6i64 }) ^ (Mask { bits: 3i64 });
+    if xr.bits != 5i64 { return 6i32; }
+
+    return 0i32;
+}

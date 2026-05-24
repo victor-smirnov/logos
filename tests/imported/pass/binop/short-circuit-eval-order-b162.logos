@@ -1,0 +1,43 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/binop-evaluation-order-primitive.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. `&&` and `||`
+//   short-circuit: a side-effecting fn (incrementing a `*mut i64`) on the RHS is
+//   NOT called when the LHS settles the result. Observed via the counter.
+// Tests `&&`/`||` short-circuit evaluation order: RHS side effect suppressed when
+//   LHS short-circuits.
+package short_circuit_eval_order_b162;
+
+fn bump_true(c: *mut i64) -> bool {
+    unsafe { *c = *c + 1i64; }
+    return true;
+}
+fn bump_false(c: *mut i64) -> bool {
+    unsafe { *c = *c + 1i64; }
+    return false;
+}
+
+fn main() -> i32 {
+    let mut calls: i64 = 0i64;
+    let c: *mut i64 = &mut calls as *mut i64;
+
+    // false && bump => RHS not called
+    let r1: bool = false && bump_true(c);
+    if r1 { return 1i32; }
+    unsafe { if *c != 0i64 { return 2i32; } }
+
+    // true || bump => RHS not called
+    let r2: bool = true || bump_false(c);
+    if !r2 { return 3i32; }
+    unsafe { if *c != 0i64 { return 4i32; } }
+
+    // true && bump => RHS IS called
+    let r3: bool = true && bump_true(c);
+    if !r3 { return 5i32; }
+    unsafe { if *c != 1i64 { return 6i32; } }
+
+    // false || bump => RHS IS called
+    let r4: bool = false || bump_false(c);
+    if r4 { return 7i32; }
+    unsafe { if *c != 2i64 { return 8i32; } }
+    return 0i32;
+}

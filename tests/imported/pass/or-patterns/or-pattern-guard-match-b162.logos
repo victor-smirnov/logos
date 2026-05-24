@@ -1,0 +1,50 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/or-patterns-syntactic-pass.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. Or-patterns in `match`
+//   arms over an enum: alternative variants share an arm; a nested or-pattern in
+//   a tuple position; an or-pattern combined with a guard.
+// Tests or-patterns in match (`A | B`), tuple-nested or-patterns, and an
+//   or-pattern arm carrying a guard.
+package or_pattern_guard_match_b162;
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+    Other(i64),
+}
+
+fn rank(c: Color) -> i64 {
+    match c {
+        Color::Red | Color::Blue => { return 1i64; }
+        Color::Green => { return 2i64; }
+        Color::Other(n) => {
+            match n {
+                0i64 | 1i64 | 2i64 => { return 3i64; }
+                _ => { return 4i64; }
+            }
+        }
+    }
+}
+
+fn classify(pair: (i64, i64)) -> i64 {
+    match pair {
+        (0i64, _) | (_, 0i64) => { return 10i64; }
+        (a, b) if a == b => { return 20i64; }
+        _ => { return 30i64; }
+    }
+}
+
+fn main() -> i32 {
+    if rank(Color::Red) != 1i64 { return 1i32; }
+    if rank(Color::Blue) != 1i64 { return 2i32; }
+    if rank(Color::Green) != 2i64 { return 3i32; }
+    if rank(Color::Other(2i64)) != 3i64 { return 4i32; }
+    if rank(Color::Other(9i64)) != 4i64 { return 5i32; }
+
+    if classify((0i64, 7i64)) != 10i64 { return 6i32; }
+    if classify((7i64, 0i64)) != 10i64 { return 7i32; }
+    if classify((5i64, 5i64)) != 20i64 { return 8i32; }
+    if classify((1i64, 2i64)) != 30i64 { return 9i32; }
+    return 0i32;
+}

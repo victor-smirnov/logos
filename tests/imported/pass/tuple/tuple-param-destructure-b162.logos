@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ destructuring-fn-arg shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A fn parameter is a
+//   tuple PATTERN `fn dist((x, y): (i64, i64))` destructured in the signature;
+//   plus a `let (a, b, c) = ..` 3-tuple let-destructure and a nested-tuple
+//   destructure `let (p, (q, r)) = ..`.
+// Tests tuple-pattern fn parameters and let-destructure of flat + nested tuples.
+package tuple_param_destructure_b162;
+
+fn manh((x, y): (i64, i64)) -> i64 {
+    let ax: i64 = if x < 0i64 { 0i64 - x } else { x };
+    let ay: i64 = if y < 0i64 { 0i64 - y } else { y };
+    return ax + ay;
+}
+
+fn main() -> i32 {
+    if manh((3i64, -4i64)) != 7i64 { return 1i32; }
+
+    let (a, b, c) = (1i64, 2i64, 3i64);
+    if (a + b + c) != 6i64 { return 2i32; }
+
+    let (p, (q, r)) = (10i64, (20i64, 30i64));
+    if (p + q + r) != 60i64 { return 3i32; }
+    return 0i32;
+}

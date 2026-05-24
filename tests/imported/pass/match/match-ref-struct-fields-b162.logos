@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/ match-ergonomics shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Default binding modes
+//   (RFC 2005): matching `&Struct`/`&Enum` binds fields by reference; here a
+//   `match &point { Point { x, y } => .. }` binds `x`/`y` as `&i64` and reads
+//   through them, leaving the original usable afterwards.
+// Tests default-binding-mode field binding through `match &Struct` and a
+//   `match &Enum` variant, with the matched value still live after.
+package match_ref_struct_fields_b162;
+
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+enum Shape {
+    Dot,
+    Seg(i64, i64),
+}
+
+fn main() -> i32 {
+    let p: Point = Point { x: 3i64, y: 4i64 };
+    let s: i64 = match &p {
+        Point { x, y } => { *x + *y }
+    };
+    if s != 7i64 { return 1i32; }
+    // p still usable
+    if p.x != 3i64 { return 2i32; }
+
+    let sh: Shape = Shape::Seg(10i64, 20i64);
+    let len: i64 = match &sh {
+        Shape::Dot => { 0i64 }
+        Shape::Seg(a, b) => { *b - *a }
+    };
+    if len != 10i64 { return 3i32; }
+    return 0i32;
+}

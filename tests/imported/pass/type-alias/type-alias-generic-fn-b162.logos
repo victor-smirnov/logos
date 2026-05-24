@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A `type` alias for a
+//   generic enum instantiation (`type IntOpt = Option<i64>`) and for a struct,
+//   used at binding + construction sites.
+// Tests `type` aliases for a generic-enum instantiation and a struct, used in
+//   type position and as a constructor path.
+package type_alias_generic_fn_b162;
+
+use logos.lang.option;
+
+struct Pair {
+    a: i64,
+    b: i64,
+}
+
+type IntOpt = Option<i64>;
+type Coords = Pair;
+
+fn first(o: IntOpt) -> i64 {
+    match o {
+        Option::Some(v) => { return v; }
+        Option::None => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let x: IntOpt = Option::Some(99i64);
+    if first(x) != 99i64 { return 1i32; }
+
+    let y: IntOpt = Option::None;
+    if first(y) != -1i64 { return 2i32; }
+
+    let p: Coords = Coords { a: 3i64, b: 4i64 };
+    if (p.a + p.b) != 7i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-to-slice.rs shape.
+// Modifications: isize->i64; assert->if-return sentinels. A `&[T; N]` array
+//   reference coerces to a `&[T]` slice parameter (unsized coercion), and the
+//   callee iterates/indexes the slice + reads `.len()`.
+// Tests `&[T; N]` -> `&[T]` array-to-slice coercion at a call boundary.
+package array_to_slice_arg_b162;
+
+fn sum_slice(s: &[i64]) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < (s.len() as i64) {
+        acc = acc + s[i];
+        i = i + 1i64;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    let arr: [i64; 5] = [2i64, 4i64, 6i64, 8i64, 10i64];
+    let total: i64 = sum_slice(&arr);
+    if total != 30i64 { return 1i32; }
+
+    let small: [i64; 2] = [100i64, 1i64];
+    if sum_slice(&small) != 101i64 { return 2i32; }
+    return 0i32;
+}

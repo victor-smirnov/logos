@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/supertrait shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A trait `Greet`
+//   declares a DEFAULT method that calls a required method; a SUPERTRAIT relation
+//   `Loud: Greet` adds another default method that calls the supertrait method.
+// Tests supertrait bound + default methods calling required/supertrait methods.
+package supertrait_default_method_b162;
+
+trait Greet {
+    fn name_code(self: &Self) -> i64;
+    fn greeting(self: &Self) -> i64 {
+        return self.name_code() + 1i64;
+    }
+}
+
+trait Loud: Greet {
+    fn shout(self: &Self) -> i64 {
+        return self.greeting() * 10i64;
+    }
+}
+
+struct Person {
+    code: i64,
+}
+
+impl Greet for Person {
+    fn name_code(self: &Self) -> i64 { return (*self).code; }
+}
+impl Loud for Person {}
+
+fn main() -> i32 {
+    let p: Person = Person { code: 4i64 };
+    if p.greeting() != 5i64 { return 1i32; }
+    if p.shout() != 50i64 { return 2i32; }
+    return 0i32;
+}

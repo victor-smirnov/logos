@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ Result combinator shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A custom `Result`-style
+//   pipeline expressed with explicit `match` (Logos `?` lowering / combinator
+//   methods exist, but this exercises the raw enum form): chained fallible steps
+//   short-circuit on the first Err.
+// Tests a fallible-pipeline over the stdlib `Result<T, E>` enum with explicit
+//   match-based and_then-style chaining + Ok/Err propagation.
+package result_and_then_chain_b162;
+
+use logos.lang.result;
+
+fn checked_halve(n: i64) -> Result<i64, i64> {
+    if (n % 2i64) != 0i64 {
+        return Result::Err(n);
+    }
+    return Result::Ok(n / 2i64);
+}
+
+fn pipeline(n: i64) -> Result<i64, i64> {
+    match checked_halve(n) {
+        Result::Ok(a) => {
+            match checked_halve(a) {
+                Result::Ok(b) => { return Result::Ok(b + 1i64); }
+                Result::Err(e) => { return Result::Err(e); }
+            }
+        }
+        Result::Err(e) => { return Result::Err(e); }
+    }
+}
+
+fn main() -> i32 {
+    match pipeline(8i64) {
+        Result::Ok(v) => { if v != 3i64 { return 1i32; } }
+        Result::Err(_) => { return 2i32; }
+    }
+    // 6 -> halve ok (3) -> halve fails (3 odd) -> Err(3)
+    match pipeline(6i64) {
+        Result::Ok(_) => { return 3i32; }
+        Result::Err(e) => { if e != 3i64 { return 4i32; } }
+    }
+    // 5 odd -> first step Err(5)
+    match pipeline(5i64) {
+        Result::Ok(_) => { return 5i32; }
+        Result::Err(e) => { if e != 5i64 { return 6i32; } }
+    }
+    return 0i32;
+}

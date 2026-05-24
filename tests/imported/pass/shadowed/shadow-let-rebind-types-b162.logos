@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/shadowed/shadowed-lifetime.rs neighbourhood / variable
+//   shadowing run-pass shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A `let` binding is
+//   shadowed several times, including a CHANGE OF TYPE (i64 -> bool) and a
+//   shadow that consumes the previous binding's value.
+// Tests `let`-shadowing within one block including a type-changing rebind.
+package shadow_let_rebind_types_b162;
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let x: i64 = x + 1i64;       // 6, consumes prior x
+    let x: i64 = x * 2i64;       // 12
+    if x != 12i64 { return 1i32; }
+
+    let x: bool = x > 10i64;     // type change i64 -> bool
+    if !x { return 2i32; }
+
+    let x: i64 = 100i64;         // back to i64
+    {
+        let x: i64 = x - 1i64;   // inner-scope shadow = 99
+        if x != 99i64 { return 3i32; }
+    }
+    if x != 100i64 { return 4i32; } // outer unaffected
+    return 0i32;
+}

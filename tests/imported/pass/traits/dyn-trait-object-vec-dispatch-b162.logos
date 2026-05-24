@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; Vec<Box<dyn T>> ->
+//   a fixed-size array of `&dyn Shape` references (Logos dyn passthrough). Each
+//   element is a distinct concrete type behind the same trait object; the loop
+//   dispatches `area()` dynamically and sums.
+// Tests `&dyn Trait` dynamic dispatch through an array of heterogeneous trait
+//   objects.
+package dyn_trait_object_vec_dispatch_b162;
+
+trait Shape {
+    fn area(self: &Self) -> i64;
+}
+
+struct Square {
+    side: i64,
+}
+struct Rect {
+    w: i64,
+    h: i64,
+}
+
+impl Shape for Square {
+    fn area(self: &Self) -> i64 { return (*self).side * (*self).side; }
+}
+impl Shape for Rect {
+    fn area(self: &Self) -> i64 { return (*self).w * (*self).h; }
+}
+
+fn total(shapes: &[&dyn Shape]) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < (shapes.len() as i64) {
+        acc = acc + shapes[i].area();
+        i = i + 1i64;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    let sq: Square = Square { side: 3i64 };
+    let rc: Rect = Rect { w: 4i64, h: 5i64 };
+    let objs: [&dyn Shape; 2] = [&sq as &dyn Shape, &rc as &dyn Shape];
+    if total(&objs) != 29i64 { return 1i32; }
+    return 0i32;
+}
