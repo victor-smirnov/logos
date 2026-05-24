@@ -3049,7 +3049,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         auto sv = str_of(pnode.get(la::VALUE.code));
         int64_t v = parse_int_literal(sv);
         if (pc == la::PAT_NEG_INT) v = -v;
-        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
+        if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&
+            TypeRef(scrut_type).kind() != LogosType::Kind::Never) {  // G160-10
             if (!is_integer(scrut_type))
                 error(std::format("integer pattern requires integer scrutinee, got '{}'",
                       type_str(scrut_type)));
@@ -3361,6 +3362,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
         }
         if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error &&
+            TypeRef(scrut_type).kind() != LogosType::Kind::Never &&  // G160-10
             !is_integer(scrut_type))
             error(std::format("range pattern requires integer scrutinee, got '{}'",
                   type_str(scrut_type)));
@@ -4501,7 +4503,8 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
     if (node.has_key(la::COND)) {
         cond = lower_expr(map_of(node.get(la::COND.code)));
         if (TypeRef(cond->type).kind() != LogosType::Kind::Bool &&
-            TypeRef(cond->type).kind() != LogosType::Kind::Error)
+            TypeRef(cond->type).kind() != LogosType::Kind::Error &&
+            TypeRef(cond->type).kind() != LogosType::Kind::Never)  // G160-10: `if (return x){}`
             error(std::format("if condition must be bool, got {}", type_str(cond->type)));
     } else {
         cond = error_expr();

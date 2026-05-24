@@ -2815,6 +2815,28 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             } else {
                                 self_type = make_datatype_type(target, dpkg_def);
                             }
+                        } else if (auto prim_t = lookup_type_by_name(target);
+                                   prim_t && [&]{
+                                       auto k = TypeRef(prim_t).kind();
+                                       using K = LogosType::Kind;
+                                       return k==K::I8||k==K::I16||k==K::I24||k==K::I32||
+                                              k==K::I56||k==K::I64||k==K::I128||
+                                              k==K::U8||k==K::U16||k==K::U24||k==K::U32||
+                                              k==K::U56||k==K::U64||k==K::U128||
+                                              k==K::Usize||k==K::Isize||
+                                              k==K::F32||k==K::F64||k==K::Bool||k==K::Char;
+                                   }()) {
+                            // G160-3: `impl Trait for <SCALAR primitive>` (i64/
+                            // u32/bool/char/…). Bind Self to the primitive so a
+                            // default body's `&Self` signature resolves. Without
+                            // this, every inherited default beyond the first
+                            // (which only worked by inheriting a leaked Self)
+                            // failed with "unknown type 'Self'". RESTRICTED to
+                            // scalar kinds — `str` (a slice alias) / enum targets
+                            // (Option/Result) must NOT be bound here (their
+                            // defaults rely on Self staying a TypeVar for generic
+                            // eq inference).
+                            self_type = prim_t;
                         }
                     }
                     // Blanket impl `impl<T: Bound> Trait for T {}`: the default

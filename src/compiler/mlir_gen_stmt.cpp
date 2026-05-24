@@ -1139,6 +1139,9 @@ void MLIRGenImpl::gen_if(lir_view::SIfView v) {
     auto* else_lb = lblock_of(v.else_block());  // may be null
     auto cond = gen_expr(*cond_le);
     if (!cond) return;
+    // G160-10: a diverging condition (`if (return x) {}`) already emitted a
+    // terminator — nothing in the if reachable, don't append after it.
+    if (is_terminated(builder_.getBlock())) return;
 
     auto* region      = builder_.getBlock()->getParent();
     auto* then_block  = new mlir::Block();
@@ -2574,10 +2577,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
     auto scrut = gen_expr(*scrut_le);
     if (!scrut) {
         region->push_back(merge_block);
-        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
         builder_.setInsertionPointToStart(merge_block);
         return;
     }
+    // G160-10: a diverging scrutinee (`match return x { … }`) already emitted a
+    // terminator — the arms are dead, stop.
+    if (is_terminated(builder_.getBlock())) return;
 
     // Detect tagged enum: scrut is a pointer, load discriminant.
     mlir::Value scrut_ptr = nullptr;  // non-null for tagged enums

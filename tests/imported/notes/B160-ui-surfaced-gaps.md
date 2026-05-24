@@ -59,50 +59,26 @@ via user `==` (where-clauses-blanket-eq).
 
 ## Gaps surfaced
 
-- **G160-1** — `Self::Variant` resolves only for a TUPLE variant
-  (`Self::Bar(x)`); the UNIT-variant (`Self::Qux`) and STRUCT-shaped-variant
-  (`Self::Baz { .. }`) forms fail with `unknown enum 'Self'`. The plain
-  `Enum::Variant` path works for all shapes. Minimal repro:
-  ```
-  enum Foo { Bar(i32), Baz { i: i32 }, Qux }
-  impl Foo {
-      fn bar() -> Foo { return Self::Bar(3i32); }   // OK
-      fn baz() -> Foo { return Self::Baz { i: 1i32 }; } // unknown enum 'Self'
-      fn qux() -> Foo { return Self::Qux; }             // unknown enum 'Self'
-  }
-  ```
-  Dropped from: `type-alias-enum-variants/type-alias-enum-variants-pass.rs` (the
-  `Self::Baz`/`Self::Qux` constructions; kept `Self::Bar` + explicit paths in
-  `enum-variant-self-and-paths-b160`). Assessment: TRACTABLE — the `Self`→
-  enclosing-enum resolution exists for the tuple-variant constructor arm in
-  sema/lower; extend it to the unit + struct-variant constructor arms.
+- **G160-1** ✅ CLOSED (2026-05-23) — `Self::Variant` resolves for ALL variant
+  shapes (unit `Self::Qux`, struct `Self::Baz{..}`, tuple `Self::Bar(x)`). Fix:
+  lower_enum_lit + lower_enum_lit_data resolve `Self`→the enclosing enum name
+  from `current_type_params_["Self"]` (the tuple form already worked via
+  lower_static_call). Regression `type-alias-enum-variants-pass`.
 
-- **G160-2** — a TYPE-ALIAS of an enum cannot be used as a value-namespace path
-  to construct a variant: `type FooAlias = Foo; FooAlias::Bar(1)` →
-  `call to undefined static method 'FooAlias::Bar'` / `unknown enum 'FooAlias'`.
-  Dropped from: `type-alias-enum-variants/type-alias-enum-variants-pass.rs` (the
-  alias-construction facet). Assessment: TRACTABLE — type aliases already resolve
-  in type position; the value-namespace enum-variant resolver must peel an alias
-  to its target enum before looking up the variant.
+- **G160-2** ✅ CLOSED (2026-05-23) — a non-generic type-alias of an enum is
+  usable as a value-namespace path: `type A = Foo; A::Bar(1)` / `A::Qux`. Fix:
+  the static-call enum-redirect + lower_enum_lit/data peel a type-alias→enum
+  before the variant lookup. Covered by `type-alias-enum-variants-pass`.
 
-- **G160-3** — a trait that leaves **two or more** default methods un-overridden
-  in an impl trips a `Self`-substitution failure on the SECOND (and later)
-  inherited default: `error [fn <type>__<2nd-default>]: unknown type 'Self'`.
-  One un-overridden default is fine. Minimal repro:
-  ```
-  trait Foo {
-      fn a(self: &Self) -> i64 { return 10i64; }
-      fn z(self: &Self) -> i64 { return 11i64; }
-      fn y(self: &Self) -> i64 { return 12i64; }   // 2nd inherited default
-  }
-  impl Foo for i64 { fn a(self: &Self) -> i64 { return 100i64; } }
-  // i64.z() OK; i64.y() -> "unknown type 'Self'"
-  ```
-  Reshaped in `supertrait-chain-methods-b160` to leave ≤1 default per trait
-  un-overridden. Assessment: TRACTABLE-ish — the per-impl inherited-default
-  emission loop appears to lose the `Self`→concrete binding after the first
-  emitted default (likely a stale/over-cleared substitution map between defaults
-  in the same impl). High value: blocks faithful supertrait/default-method ports.
+- **G160-3** ✅ CLOSED (2026-05-23) — a trait with ≥2 un-overridden default
+  methods on a PRIMITIVE impl now binds `Self` for every inherited default.
+  Root: collect-time default registration set `Self` only for struct/datatype
+  targets, so a primitive impl left `Self` unbound; the 1st inherited default
+  only worked by inheriting a leaked `Self`, the 2nd+ failed "unknown type
+  'Self'". Fix: bind `Self` to a SCALAR-primitive target at collect time
+  (str/enum targets deliberately excluded — they rely on a TypeVar Self for
+  generic eq inference). Regression
+  `default-methods-multi-inherited-primitive`.
 
 - **G160-4** — a byte-string pattern `b"…"` requires a `[u8; N]` scrutinee and is
   NOT auto-deref'd through a reference: `match x { b"hello" => .. }` over
@@ -168,14 +144,13 @@ via user `==` (where-clauses-blanket-eq).
   ≥3 nesting levels (each level re-propagates). Re-imported `foreach-nested`
   (array write + counter increment from the inner closure). Full suite green.
 
-- **G160-10** — a `!`/never-typed expression is rejected in control-flow scrutinee
-  positions: `if (return 7) { }` → `if condition must be bool, got !`;
-  `match return 1 { … }` → `integer pattern requires integer scrutinee, got '!'`.
-  Rust coerces `!` to any type (incl. bool) so the never-diverging condition/
-  scrutinee is accepted (the body is dead). Dropped: `expr/if/if-ret.rs`,
-  `binding/match-bot-2.rs`. Assessment: TRACTABLE — add `!`(never) → bool / →
-  scrutinee-type coercion in the if-condition and match-scrutinee type checks
-  (the operand already diverges, so the branch is provably unreachable).
+- **G160-10** ✅ CLOSED (2026-05-23) — a `!`/never-typed expression is accepted
+  in if-condition and match-scrutinee positions (`if (return x){}`,
+  `match return x { … }`). Fix: if-cond (sema_stmt + sema_expr) and the
+  match-scrutinee pattern checks (integer/range) now accept `Never` (like
+  `Error`); codegen (gen_if / gen_match) bails when the condition/scrutinee
+  already emitted a terminator (the diverging operand makes the rest dead).
+  Re-imported `if-ret` (+ match-bot facet). Full suite 4868/4868.
 
 ## Other observations (NOT counted as new gaps — consistent with documented conventions/limits)
 

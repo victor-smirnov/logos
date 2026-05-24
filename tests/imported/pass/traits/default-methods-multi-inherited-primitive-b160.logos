@@ -1,0 +1,20 @@
+// Distilled regression for G160-3 (closed 2026-05-23).
+// A trait with ≥2 un-overridden default methods on a PRIMITIVE impl now binds
+// `Self` for every inherited default (was: only the first inherited default
+// got Self bound — by leaking from a prior method — so the 2nd+ failed with
+// "unknown type 'Self'"). Fix: collect-time default registration binds Self to
+// a SCALAR primitive target (str/enum targets excluded).
+package default_methods_multi_inherited_primitive_b160;
+trait Foo {
+    fn a(self: &Self) -> i64 { return 10i64; }
+    fn z(self: &Self) -> i64 { return 11i64; }
+    fn y(self: &Self) -> i64 { return 12i64; }
+}
+impl Foo for i64 { fn a(self: &Self) -> i64 { return 100i64; } }
+fn main() -> i32 {
+    let n: i64 = 5i64;
+    if n.a() != 100i64 { return 1i32; }
+    if n.z() != 11i64 { return 2i32; }
+    if n.y() != 12i64 { return 3i32; }
+    return 0i32;
+}

@@ -9377,7 +9377,26 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
-    auto ename = str_of(node.get(la::NAME.code));
+    std::string ename_buf(str_of(node.get(la::NAME.code)));
+    // G160-1: `Self::Qux` (unit variant) inside an `impl Enum` body — resolve
+    // `Self` to the enclosing enum's name so the variant lookup succeeds (the
+    // tuple-variant form `Self::Bar(x)` already resolves via lower_static_call;
+    // the struct-shaped form is handled in the struct-lit path).
+    if (ename_buf == "Self") {
+        auto sit = current_type_params_.find("Self");
+        if (sit != current_type_params_.end() && sit->second &&
+            TypeRef(sit->second).kind() == LogosType::Kind::Enum)
+            ename_buf = std::string(TypeRef(sit->second).enum_name());
+    }
+    // G160-2: peel a non-generic type-alias to an enum (`type A = Foo; A::Qux`).
+    if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
+        auto ait = type_aliases_.find(ename_buf);
+        if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
+            ait->second.type &&
+            TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
+            ename_buf = std::string(TypeRef(ait->second.type).enum_name());
+    }
+    std::string_view ename = ename_buf;
     auto vname = str_of(node.get(la::FIELD.code));
     auto [epkg_el, esi_el] = find_enum_by_name(ename);
     auto eit = esi_el ? enums_.find(sema_key(epkg_el, std::string(ename))) : enums_.end();
@@ -9461,7 +9480,24 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
-    auto ename = str_of(node.get(la::NAME.code));
+    std::string ename_buf(str_of(node.get(la::NAME.code)));
+    // G160-1: `Self::Baz { .. }` / `Self::Bar(x)` inside an `impl Enum` body —
+    // resolve `Self` to the enclosing enum name (mirrors lower_enum_lit).
+    if (ename_buf == "Self") {
+        auto sit = current_type_params_.find("Self");
+        if (sit != current_type_params_.end() && sit->second &&
+            TypeRef(sit->second).kind() == LogosType::Kind::Enum)
+            ename_buf = std::string(TypeRef(sit->second).enum_name());
+    }
+    // G160-2: peel a non-generic type-alias to an enum.
+    if (!enums_.count(ename_buf) && !find_enum_by_name(ename_buf).second) {
+        auto ait = type_aliases_.find(ename_buf);
+        if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
+            ait->second.type &&
+            TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
+            ename_buf = std::string(TypeRef(ait->second.type).enum_name());
+    }
+    std::string_view ename = ename_buf;
     auto vname = str_of(node.get(la::FIELD.code));
     auto [epkg_eld, esi_eld] = find_enum_by_name(ename);
     auto eit = esi_eld ? enums_.find(sema_key(epkg_eld, std::string(ename))) : enums_.end();
@@ -10233,19 +10269,30 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // call on the enum (trait impl), which falls through to the regular
     // static-call resolution below.
     {
-        auto [epkg_sc, esi_sc] = find_enum_by_name(class_name);
+        // G160-2: peel a non-generic type-alias to an enum (`type FooAlias =
+        // Foo; FooAlias::Bar(1)`) so variant construction through the alias
+        // resolves to the target enum.
+        std::string enum_name(class_name);
+        {
+            auto ait = type_aliases_.find(std::string(class_name));
+            if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
+                ait->second.type &&
+                TypeRef(ait->second.type).kind() == LogosType::Kind::Enum)
+                enum_name = std::string(TypeRef(ait->second.type).enum_name());
+        }
+        auto [epkg_sc, esi_sc] = find_enum_by_name(enum_name);
         bool is_enum = esi_sc != nullptr;
-        if (!is_enum) is_enum = enums_.count(std::string(class_name)) > 0;
+        if (!is_enum) is_enum = enums_.count(enum_name) > 0;
         if (is_enum) {
             bool is_variant = false;
-            auto eit = esi_sc ? enums_.find(sema_key(epkg_sc, std::string(class_name)))
+            auto eit = esi_sc ? enums_.find(sema_key(epkg_sc, enum_name))
                               : enums_.end();
-            if (eit == enums_.end()) eit = enums_.find(std::string(class_name));
+            if (eit == enums_.end()) eit = enums_.find(enum_name);
             if (eit != enums_.end())
                 for (auto& v : eit->second.variants)
                     if (v.name == method_name) { is_variant = true; break; }
             if (is_variant) {
-                return lower_enum_lit_data_from_static(node, class_name, method_name);
+                return lower_enum_lit_data_from_static(node, enum_name, method_name);
             }
             // B97.5: not a variant — fall through. lower_static_call will
             // look up the method via fn mangle paths (which include trait-
@@ -10904,7 +10951,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     if (node.has_key(la::COND)) {
         cond = lower_expr(map_of(node.get(la::COND.code)));
         if (TypeRef(cond->type).kind() != LogosType::Kind::Bool &&
-            TypeRef(cond->type).kind() != LogosType::Kind::Error)
+            TypeRef(cond->type).kind() != LogosType::Kind::Error &&
+            TypeRef(cond->type).kind() != LogosType::Kind::Never)  // G160-10
             error(std::format("if condition must be bool, got {}", type_str(cond->type)));
     } else {
         cond = error_expr();

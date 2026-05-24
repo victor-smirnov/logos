@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias-enum-variants/type-alias-enum-variants-pass.rs
+// Modifications: isize→i64; assert_eq! → return sentinels; `Self::Bar` (tuple),
+//   `Self::Baz{..}` (struct-shape, G160-1) and `Self::Qux` (unit, G160-1) now
+//   all resolve; `FooAlias::Bar(..)` / `FooAlias::Qux` (type-alias value path,
+//   G160-2) now resolve. Both facets closed 2026-05-23.
+package type_alias_enum_variants_pass_b160;
+enum Foo { Bar(i64), Baz { i: i64 }, Qux }
+type FooAlias = Foo;
+impl Foo {
+    fn bar() -> Foo { return Self::Bar(3i64); }
+    fn baz() -> Foo { return Self::Baz { i: 1i64 }; }
+    fn qux() -> Foo { return Self::Qux; }
+}
+fn main() -> i32 {
+    match Foo::bar() { Foo::Bar(n) => { if n != 3i64 { return 1i32; } } _ => { return 9i32; } }
+    match Foo::baz() { Foo::Baz { i } => { if i != 1i64 { return 2i32; } } _ => { return 9i32; } }
+    match Foo::qux() { Foo::Qux => {} _ => { return 3i32; } }
+    match FooAlias::Bar(7i64) { Foo::Bar(n) => { if n != 7i64 { return 4i32; } } _ => { return 9i32; } }
+    match FooAlias::Qux { Foo::Qux => {} _ => { return 5i32; } }
+    return 0i32;
+}

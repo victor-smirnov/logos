@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/expr/if/if-ret.rs (+ binding/match-bot-2.rs)
+// Modifications: `pub fn main()`→`fn main()->i32`; the diverging-condition /
+//   diverging-scrutinee bodies kept; assert via return code.
+// Tests a `!`/never-typed expression in control-flow scrutinee positions:
+//   `if (return x) {}` and `match return x { … }`. Rust coerces `!` to the
+//   condition/scrutinee type (the branch is provably dead). G160-10 (closed
+//   2026-05-23): never accepted in if-cond + match-scrutinee + codegen bails
+//   when the condition/scrutinee already terminated the block.
+package if_ret_b160;
+fn diverge_if() -> i64 { if (return 7i64) { } return 0i64; }
+fn diverge_match() -> i64 { match return 1i64 { 0i64 => { return 8i64; } _ => { return 2i64; } } }
+fn main() -> i32 {
+    if diverge_if() != 7i64 { return 1i32; }
+    if diverge_match() != 1i64 { return 2i32; }
+    return 0i32;
+}
