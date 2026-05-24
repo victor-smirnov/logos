@@ -1,0 +1,19 @@
+// Regression for B166 N3 (silent miscompile): a value-producing block
+// expression must scope its own `let` bindings — an inner `let x` must not
+// leak out and clobber an outer `x`'s storage slot.
+package block_expr_shadow_n3_b166;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    // inner shadow, initializer does NOT read outer
+    let y: i64 = { let x: i64 = 100i64; x + 1i64 };
+    if x != 5i64 { return 1i32; }     // outer x preserved
+    if y != 101i64 { return 2i32; }
+    // inner shadow, initializer READS outer then shadows
+    let z: i64 = { let x: i64 = x * 20i64; x + 1i64 };
+    if x != 5i64 { return 3i32; }     // outer x still preserved
+    if z != 101i64 { return 4i32; }
+    // distinct inner name
+    let w: i64 = { let q: i64 = 7i64; q + x };
+    if w != 12i64 { return 5i32; }
+    return 0i32;
+}

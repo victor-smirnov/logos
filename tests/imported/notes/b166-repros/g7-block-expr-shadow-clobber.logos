@@ -1,8 +1,0 @@
-package g7;
-fn main() -> i32 {
-    let x: i64 = 5i64;
-    let y: i64 = { let x: i64 = 100i64; x + 1i64 };  // inner shadow writes the OUTER x's slot
-    // y == 101 (correct) but x is now 100, not 5 (WRONG)
-    if x != 5i64 { return 2i32; }  // triggers: returns 2
-    return 0i32;
-}

@@ -4375,12 +4375,68 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETypeCodeOfView, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBlockExprView v, TypeRef) {
-    if (auto br = v.block(); br) gen_block(br);
-    if (is_terminated(builder_.getBlock())) return nullptr;
-    if (auto rr = v.result(); rr) {
-        if (auto* r = lexpr_of(rr)) return gen_expr(*r);
+    // N3: a value-producing block expression scopes its own `let` bindings —
+    // an inner `let x` must NOT leak out and clobber an outer `x`'s slot
+    // (`let y = { let x = 100; x + 1 }` was silently overwriting the outer x).
+    //
+    // The restore is SURGICAL: sema reuses EBlockExpr for many *transparent*
+    // synthetic constructs (desugar temporaries, match-arm/if-branch bodies)
+    // whose bindings must LEAK to the enclosing scope, so a blanket
+    // snapshot/restore (as SBlockView does for real `{}` statement blocks)
+    // breaks them. We therefore revert ONLY the names that are re-bound by a
+    // direct `let` at this block's top level AND already existed in the outer
+    // scope — i.e. genuine user shadowing. Synthetic blocks bind fresh
+    // `__`-prefixed names (not outer shadows), so they are untouched.
+    std::vector<std::string> shadowed;
+    if (auto br = v.block(); br) {
+        br.each_stmt([&](lir_view::StmtRef s) {
+            if (s.kind() != lir_schema::stmt::Code::Let) return;
+            std::string n(lir_view::SLetView{s}.name());
+            if (scope_.count(n)) shadowed.push_back(n);
+        });
     }
-    return nullptr;
+    // Snapshot prior state for just the shadowed names.
+    struct Saved {
+        bool in_scope = false;            mlir::Value scope_val;
+        bool in_local_ptr = false;        mlir::Type  local_ptr_val;
+        bool in_struct = false;           std::string struct_val;
+        bool in_elem = false;             mlir::Type  elem_val;
+        bool in_dyn = false;              std::string dyn_val;
+        bool in_tuple = false, in_tenum = false, in_tenum_ptr = false;
+    };
+    std::unordered_map<std::string, Saved> saved;
+    for (auto& n : shadowed) {
+        Saved sv;
+        if (auto it = scope_.find(n); it != scope_.end())            { sv.in_scope=true; sv.scope_val=it->second; }
+        if (auto it = var_local_ptrs_.find(n); it != var_local_ptrs_.end()) { sv.in_local_ptr=true; sv.local_ptr_val=it->second; }
+        if (auto it = var_struct_.find(n); it != var_struct_.end())  { sv.in_struct=true; sv.struct_val=it->second; }
+        if (auto it = var_elem_types_.find(n); it != var_elem_types_.end()) { sv.in_elem=true; sv.elem_val=it->second; }
+        if (auto it = var_dyn_trait_.find(n); it != var_dyn_trait_.end()) { sv.in_dyn=true; sv.dyn_val=it->second; }
+        sv.in_tuple      = var_tuple_.count(n) > 0;
+        sv.in_tenum      = var_tagged_enum_.count(n) > 0;
+        sv.in_tenum_ptr  = var_tagged_enum_ptr_.count(n) > 0;
+        saved[n] = sv;
+    }
+    auto restore = [&]() {
+        for (auto& [n, sv] : saved) {
+            if (sv.in_scope)      scope_[n] = sv.scope_val;                 else scope_.erase(n);
+            if (sv.in_local_ptr)  var_local_ptrs_[n] = sv.local_ptr_val;    else var_local_ptrs_.erase(n);
+            if (sv.in_struct)     var_struct_[n] = sv.struct_val;           else var_struct_.erase(n);
+            if (sv.in_elem)       var_elem_types_[n] = sv.elem_val;         else var_elem_types_.erase(n);
+            if (sv.in_dyn)        var_dyn_trait_[n] = sv.dyn_val;           else var_dyn_trait_.erase(n);
+            if (sv.in_tuple)      var_tuple_.insert(n);                     else var_tuple_.erase(n);
+            if (sv.in_tenum)      var_tagged_enum_.insert(n);               else var_tagged_enum_.erase(n);
+            if (sv.in_tenum_ptr)  var_tagged_enum_ptr_.insert(n);           else var_tagged_enum_ptr_.erase(n);
+        }
+    };
+    if (auto br = v.block(); br) gen_block(br);
+    if (is_terminated(builder_.getBlock())) { restore(); return nullptr; }
+    mlir::Value result = nullptr;
+    if (auto rr = v.result(); rr) {
+        if (auto* r = lexpr_of(rr)) result = gen_expr(*r);
+    }
+    restore();
+    return result;
 }
 
 // ---------------------------------------------------------------------------
