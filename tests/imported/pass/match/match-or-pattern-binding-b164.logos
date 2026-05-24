@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests an or-pattern that binds the SAME variable across both alternatives of
+//   an enum match (each arm binds `v`), so the body uses one binding.
+package match_or_pattern_binding_b164;
+
+enum Msg {
+    Up(i64),
+    Down(i64),
+    Stop,
+}
+
+fn delta(m: Msg) -> i64 {
+    match m {
+        Msg::Up(v) | Msg::Down(v) => { return v; }
+        Msg::Stop => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    if delta(Msg::Up(5i64)) != 5i64 { return 1i32; }
+    if delta(Msg::Down(8i64)) != 8i64 { return 2i32; }
+    if delta(Msg::Stop) != 0i64 { return 3i32; }
+    return 0i32;
+}

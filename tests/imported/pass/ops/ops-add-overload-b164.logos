@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ops/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+//   Operator overloading uses Logos' `impl Add<Rhs> for T` form (a trait with the
+//   rhs as a type-arg) and `use logos.lang.ops;`, per the house idiom; the `+`
+//   operator then dispatches to it for a 2-D vector type.
+// Tests user `Add` operator overloading on a Vec2 struct so `a + b` adds fields.
+package ops_add_overload_b164;
+
+use logos.lang.ops;
+
+struct Vec2 { x: i64, y: i64 }
+
+impl Add<Vec2> for Vec2 {
+    type Output = Vec2;
+    fn add(self: Self, rhs: Vec2) -> Vec2 {
+        return Vec2 { x: self.x + rhs.x, y: self.y + rhs.y };
+    }
+}
+
+fn main() -> i32 {
+    let a: Vec2 = Vec2 { x: 1i64, y: 2i64 };
+    let b: Vec2 = Vec2 { x: 10i64, y: 20i64 };
+    let c: Vec2 = a + b;
+    if c.x != 11i64 { return 1i32; }
+    if c.y != 22i64 { return 2i32; }
+    return 0i32;
+}

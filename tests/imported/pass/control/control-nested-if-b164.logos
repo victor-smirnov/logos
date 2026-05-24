@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/control/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests `if`/`else if`/`else` chains as both statements and value-producing
+//   expressions, including a nested if inside an else branch.
+package control_nested_if_b164;
+
+fn grade(score: i64) -> i64 {
+    if score >= 90i64 {
+        return 4i64;
+    } else if score >= 80i64 {
+        return 3i64;
+    } else if score >= 70i64 {
+        return 2i64;
+    } else {
+        if score >= 60i64 { return 1i64; }
+        return 0i64;
+    }
+}
+
+fn main() -> i32 {
+    if grade(95i64) != 4i64 { return 1i32; }
+    if grade(85i64) != 3i64 { return 2i32; }
+    if grade(72i64) != 2i64 { return 3i32; }
+    if grade(65i64) != 1i64 { return 4i32; }
+    if grade(50i64) != 0i64 { return 5i32; }
+
+    // if-expression yielding a value
+    let sign: i64 = if -3i64 < 0i64 { -1i64 } else { 1i64 };
+    if sign != -1i64 { return 6i32; }
+    return 0i32;
+}

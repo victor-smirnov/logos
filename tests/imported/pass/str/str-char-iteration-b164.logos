@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/str/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; iterate the raw bytes
+//   of an ASCII &str (the point is byte access + len, not Unicode scalar
+//   iteration). In Logos a string literal binds as `str` and byte-index `s[i]`
+//   yields a u64; `s.len()` yields i64 (see str-literal-ops-b163).
+// Tests `str` length and per-byte access via indexing, summing ASCII byte codes.
+package str_char_iteration_b164;
+
+fn main() -> i32 {
+    let s: str = "abc";
+    if s.len() != 3i64 { return 1i32; }
+
+    let mut sum: u64 = 0u64;
+    let mut i: u64 = 0u64;
+    while i < 3u64 {
+        sum = sum + s[i];
+        i = i + 1u64;
+    }
+    // 'a'+'b'+'c' = 97+98+99 = 294
+    if sum != 294u64 { return 2i32; }
+
+    let empty: str = "";
+    if empty.len() != 0i64 { return 3i32; }
+    return 0i32;
+}

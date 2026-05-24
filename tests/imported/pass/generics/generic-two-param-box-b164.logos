@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests a generic struct with TWO type parameters `Entry<K, V>` (a key/value
+//   cell), inherent accessors returning each component, at a mixed instantiation.
+package generic_two_param_box_b164;
+
+struct Entry<K, V> { key: K, val: V }
+
+impl<K, V> Entry<K, V> {
+    fn make(key: K, val: V) -> Entry<K, V> { return Entry { key: key, val: val }; }
+    fn get_key(self: &Self) -> K { return self.key; }
+    fn get_val(self: &Self) -> V { return self.val; }
+}
+
+fn main() -> i32 {
+    let e: Entry<i64, bool> = Entry::make(7i64, true);
+    if e.get_key() != 7i64 { return 1i32; }
+    if e.get_val() != true { return 2i32; }
+
+    let e2: Entry<bool, i64> = Entry::make(false, 99i64);
+    if e2.get_key() != false { return 3i32; }
+    if e2.get_val() != 99i64 { return 4i32; }
+    return 0i32;
+}

@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; String moves dropped
+//   in favour of a move-only struct (no Copy) threaded by value through helpers.
+// Tests moving a non-Copy struct by value into and out of functions (ownership
+//   transfer), with the value still usable at its final destination.
+package move_out_of_fn_b164;
+
+struct Token { id: i64 }
+
+fn relabel(t: Token, new_id: i64) -> Token {
+    return Token { id: new_id + t.id };
+}
+
+fn consume(t: Token) -> i64 {
+    return t.id;
+}
+
+fn main() -> i32 {
+    let a: Token = Token { id: 5i64 };
+    let b: Token = relabel(a, 100i64);   // a moved in, new Token out
+    let c: Token = relabel(b, 1i64);     // b moved in
+    if consume(c) != 106i64 { return 1i32; }   // 1 + (100 + 5)
+    return 0i32;
+}

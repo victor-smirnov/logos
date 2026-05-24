@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/refs/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &mut self->self:&mut Self.
+// Tests mutating a local through a `&mut i64` passed to a helper, and mutating a
+//   struct field through a `&mut Self` method.
+package ref_mut_through_fn_b164;
+
+fn add_into(dst: &mut i64, by: i64) {
+    *dst = *dst + by;
+}
+
+struct Counter { n: i64 }
+
+impl Counter {
+    fn bump(self: &mut Self) {
+        self.n = self.n + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut v: i64 = 10i64;
+    add_into(&mut v, 5i64);
+    add_into(&mut v, 7i64);
+    if v != 22i64 { return 1i32; }
+
+    let mut c: Counter = Counter { n: 0i64 };
+    c.bump();
+    c.bump();
+    c.bump();
+    if c.n != 3i64 { return 2i32; }
+    return 0i32;
+}

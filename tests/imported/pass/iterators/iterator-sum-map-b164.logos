@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/iterators/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; the iterator pipeline
+//   is expressed as a manual loop over a fixed array (Vec/iterator-adapter chain
+//   reshaped to indexed iteration) computing map-then-sum and a filtered count.
+// Tests a map-then-sum and a filtered-count over a fixed array via indexed loops.
+package iterator_sum_map_b164;
+
+fn main() -> i32 {
+    let xs: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+
+    // map(|x| x*x) then sum
+    let mut sq_sum: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 5i64 {
+        sq_sum = sq_sum + xs[i] * xs[i];
+        i = i + 1i64;
+    }
+    if sq_sum != 55i64 { return 1i32; }    // 1+4+9+16+25
+
+    // filter(even).count()
+    let mut even_count: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < 5i64 {
+        if xs[j] % 2i64 == 0i64 { even_count = even_count + 1i64; }
+        j = j + 1i64;
+    }
+    if even_count != 2i64 { return 2i32; }
+    return 0i32;
+}

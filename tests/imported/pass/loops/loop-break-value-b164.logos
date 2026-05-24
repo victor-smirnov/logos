@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/ shapes (distilled).
+// Modifications: assert->if-return sentinels.
+// Tests `loop { ... break value; }` as an expression producing a value, and a
+//   nested loop where the inner break does not escape the outer loop.
+package loop_break_value_b164;
+
+fn main() -> i32 {
+    let mut i: i64 = 0i64;
+    let found: i64 = loop {
+        i = i + 1i64;
+        if i * i > 50i64 { break i; }
+    };
+    if found != 8i64 { return 1i32; }
+
+    // nested: inner break only exits inner
+    let mut total: i64 = 0i64;
+    let mut r: i64 = 0i64;
+    while r < 3i64 {
+        let mut c: i64 = 0i64;
+        loop {
+            if c >= 4i64 { break; }
+            total = total + 1i64;
+            c = c + 1i64;
+        }
+        r = r + 1i64;
+    }
+    if total != 12i64 { return 2i32; }
+    return 0i32;
+}

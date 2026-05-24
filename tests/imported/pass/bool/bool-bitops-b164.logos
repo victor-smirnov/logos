@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/bool/ shapes (distilled).
+// Modifications: assert->if-return sentinels.
+// Tests boolean bitwise operators (& | ^) versus the short-circuit forms
+//   (&& ||), and that they agree on a small truth table.
+package bool_bitops_b164;
+
+fn main() -> i32 {
+    let t: bool = true;
+    let f: bool = false;
+
+    if (t & f) != false { return 1i32; }
+    if (t | f) != true { return 2i32; }
+    if (t ^ f) != true { return 3i32; }
+    if (t ^ t) != false { return 4i32; }
+
+    if (t && f) != false { return 5i32; }
+    if (t || f) != true { return 6i32; }
+
+    // short-circuit must agree with bitwise for pure booleans
+    if (t & t) != (t && t) { return 7i32; }
+    if (f | f) != (f || f) { return 8i32; }
+    return 0i32;
+}

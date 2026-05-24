@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/shadowed/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; String shadow dropped
+//   (use a numeric->bool shadow chain to keep the type-changing-shadow point).
+// Tests `let` shadowing that changes the binding's TYPE (i64 -> bool -> i64) in
+//   the same scope, and an inner-block shadow that does not leak out.
+package shadow_type_change_b164;
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let x: bool = x > 0i64;          // shadow: type changes i64 -> bool
+    if x != true { return 1i32; }
+    let x: i64 = if x { 10i64 } else { 0i64 };   // shadow back to i64
+    if x != 10i64 { return 2i32; }
+
+    let y: i64 = 1i64;
+    {
+        let y: i64 = 99i64;          // inner shadow
+        if y != 99i64 { return 3i32; }
+    }
+    if y != 1i64 { return 4i32; }    // outer y unchanged
+    return 0i32;
+}

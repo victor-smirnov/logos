@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; by-value self builder
+//   chain (self:Self) returning Self.
+// Tests a method-chain builder where each method takes self by value and returns
+//   Self, accumulating state across the chain.
+package method_chain_builder_b164;
+
+struct Acc { sum: i64, count: i64 }
+
+impl Acc {
+    fn new() -> Acc { return Acc { sum: 0i64, count: 0i64 }; }
+    fn add(self: Self, x: i64) -> Acc {
+        return Acc { sum: self.sum + x, count: self.count + 1i64 };
+    }
+    fn mean(self: &Self) -> i64 {
+        if self.count == 0i64 { return 0i64; }
+        return self.sum / self.count;
+    }
+}
+
+fn main() -> i32 {
+    let a: Acc = Acc::new().add(10i64).add(20i64).add(30i64);
+    if a.sum != 60i64 { return 1i32; }
+    if a.count != 3i64 { return 2i32; }
+    if a.mean() != 20i64 { return 3i32; }
+    return 0i32;
+}

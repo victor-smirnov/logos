@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/range/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests `for i in a..b` exclusive and `a..=b` inclusive range iteration, and a
+//   reverse-step manual loop for contrast.
+package range_iteration_b164;
+
+fn main() -> i32 {
+    let mut sum: i64 = 0i64;
+    for i in 0i64..5i64 {
+        sum = sum + i;
+    }
+    if sum != 10i64 { return 1i32; }      // 0+1+2+3+4
+
+    let mut sum2: i64 = 0i64;
+    for i in 1i64..=4i64 {
+        sum2 = sum2 + i;
+    }
+    if sum2 != 10i64 { return 2i32; }     // 1+2+3+4
+
+    let mut count: i64 = 0i64;
+    for _ in 0i64..3i64 {
+        count = count + 1i64;
+    }
+    if count != 3i64 { return 3i32; }
+    return 0i32;
+}

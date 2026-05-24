@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mut/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests mutating array elements in place via indexed writes (`a[i] = ..`) inside
+//   a loop, then reading the mutated values back.
+package mut_array_in_place_b164;
+
+fn main() -> i32 {
+    let mut a: [i64; 5] = [0i64, 0i64, 0i64, 0i64, 0i64];
+
+    // fill a[i] = i*i
+    let mut i: i64 = 0i64;
+    while i < 5i64 {
+        a[i] = i * i;
+        i = i + 1i64;
+    }
+    if a[0] != 0i64 { return 1i32; }
+    if a[3] != 9i64 { return 2i32; }
+    if a[4] != 16i64 { return 3i32; }
+
+    // in-place doubling
+    let mut j: i64 = 0i64;
+    while j < 5i64 {
+        a[j] = a[j] * 2i64;
+        j = j + 1i64;
+    }
+    if a[4] != 32i64 { return 4i32; }
+
+    let mut sum: i64 = 0i64;
+    let mut k: i64 = 0i64;
+    while k < 5i64 {
+        sum = sum + a[k];
+        k = k + 1i64;
+    }
+    if sum != 60i64 { return 5i32; }   // (0+1+4+9+16)*2
+    return 0i32;
+}

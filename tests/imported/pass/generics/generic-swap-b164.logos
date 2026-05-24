@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests a generic `swap`-by-value function returning a swapped tuple at two
+//   monomorphizations (i64 and bool), plus a generic identity.
+package generic_swap_b164;
+
+fn swap<T, U>(a: T, b: U) -> (U, T) {
+    return (b, a);
+}
+
+fn id<T>(x: T) -> T {
+    return x;
+}
+
+fn main() -> i32 {
+    let (a, b) = swap(1i64, true);
+    if a != true { return 1i32; }
+    if b != 1i64 { return 2i32; }
+
+    let (x, y) = swap(false, 7i64);
+    if x != 7i64 { return 3i32; }
+    if y != false { return 4i32; }
+
+    if id(42i64) != 42i64 { return 5i32; }
+    if id(true) != true { return 6i32; }
+    return 0i32;
+}

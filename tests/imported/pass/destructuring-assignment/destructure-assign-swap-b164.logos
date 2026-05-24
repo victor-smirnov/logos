@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/destructuring-assignment/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; the destructuring
+//   ASSIGNMENT `(a, b) = (b, a)` is not part of Logos' assignment grammar, so the
+//   swap is expressed via a temporary tuple binding + re-binding (same effect:
+//   destructuring a tuple in `let`).
+// Tests tuple destructuring in `let` to perform a value swap and a 3-way rotate.
+package destructure_assign_swap_b164;
+
+fn main() -> i32 {
+    let a: i64 = 1i64;
+    let b: i64 = 2i64;
+    // swap via destructuring let
+    let (a, b) = (b, a);
+    if a != 2i64 { return 1i32; }
+    if b != 1i64 { return 2i32; }
+
+    // 3-way rotate
+    let x: i64 = 10i64;
+    let y: i64 = 20i64;
+    let z: i64 = 30i64;
+    let (x, y, z) = (z, x, y);
+    if x != 30i64 { return 3i32; }
+    if y != 10i64 { return 4i32; }
+    if z != 20i64 { return 5i32; }
+    return 0i32;
+}

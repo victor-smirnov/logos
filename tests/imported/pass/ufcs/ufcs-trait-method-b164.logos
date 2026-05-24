@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ufcs/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests universal function-call syntax: calling a trait method via the
+//   `Trait::method(&recv)` and the type-qualified `Type::method(&recv)` forms,
+//   verifying both reach the same impl as the dot form.
+package ufcs_trait_method_b164;
+
+trait Area {
+    fn area(self: &Self) -> i64;
+}
+
+struct Sq { side: i64 }
+
+impl Area for Sq {
+    fn area(self: &Self) -> i64 { return self.side * self.side; }
+}
+
+fn main() -> i32 {
+    let s: Sq = Sq { side: 4i64 };
+    // dot form
+    if s.area() != 16i64 { return 1i32; }
+    // type-qualified UFCS
+    if Sq::area(&s) != 16i64 { return 2i32; }
+    // trait-qualified UFCS
+    if Area::area(&s) != 16i64 { return 3i32; }
+    return 0i32;
+}

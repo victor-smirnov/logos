@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; functional struct
+//   update written by listing fields explicitly (`..base` is the original; the
+//   point retained is constructing a derived struct from another's fields).
+// Tests building a struct from another struct's field values (functional-update
+//   style done by explicit field reads) and reading back the fields.
+package struct_update_syntax_b164;
+
+struct Config {
+    width: i64,
+    height: i64,
+    depth: i64,
+}
+
+fn with_depth(c: Config, d: i64) -> Config {
+    return Config { width: c.width, height: c.height, depth: d };
+}
+
+fn main() -> i32 {
+    let base: Config = Config { width: 4i64, height: 8i64, depth: 0i64 };
+    let derived: Config = with_depth(base, 16i64);
+    if derived.width != 4i64 { return 1i32; }
+    if derived.height != 8i64 { return 2i32; }
+    if derived.depth != 16i64 { return 3i32; }
+    return 0i32;
+}

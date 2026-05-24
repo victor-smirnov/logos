@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/convert/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; the std From/Into trait
+//   reshaped to a user trait `IntoCelsius` with a single conversion method (the
+//   point retained is a value-to-value conversion dispatched by trait).
+// Tests a user conversion trait with two impls (from Fahrenheit / from Kelvin).
+package convert_into_method_b164;
+
+trait IntoCelsius {
+    fn to_celsius(self: &Self) -> i64;
+}
+
+struct Fahrenheit { deg: i64 }
+struct Kelvin { deg: i64 }
+
+impl IntoCelsius for Fahrenheit {
+    fn to_celsius(self: &Self) -> i64 { return (self.deg - 32i64) * 5i64 / 9i64; }
+}
+impl IntoCelsius for Kelvin {
+    fn to_celsius(self: &Self) -> i64 { return self.deg - 273i64; }
+}
+
+fn report<T: IntoCelsius>(t: &T) -> i64 {
+    return t.to_celsius();
+}
+
+fn main() -> i32 {
+    let f: Fahrenheit = Fahrenheit { deg: 212i64 };
+    if report(&f) != 100i64 { return 1i32; }
+
+    let k: Kelvin = Kelvin { deg: 300i64 };
+    if report(&k) != 27i64 { return 2i32; }
+    return 0i32;
+}

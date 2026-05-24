@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests a trait with a default method built on top of a required method, two
+//   impls, and a generic fn dispatching the default method through the bound.
+package trait_generic_default_b164;
+
+trait Scorable {
+    fn base(self: &Self) -> i64;
+    fn doubled(self: &Self) -> i64 {
+        return self.base() * 2i64;
+    }
+}
+
+struct A { v: i64 }
+struct B { v: i64 }
+
+impl Scorable for A {
+    fn base(self: &Self) -> i64 { return self.v; }
+}
+impl Scorable for B {
+    fn base(self: &Self) -> i64 { return self.v + 100i64; }
+}
+
+fn total<T: Scorable>(x: &T) -> i64 {
+    return x.base() + x.doubled();
+}
+
+fn main() -> i32 {
+    let a: A = A { v: 5i64 };
+    let b: B = B { v: 5i64 };
+    if total(&a) != 15i64 { return 1i32; }       // 5 + 10
+    if total(&b) != 315i64 { return 2i32; }       // 105 + 210
+    return 0i32;
+}

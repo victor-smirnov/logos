@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests operator precedence and associativity across +,-,*,/,%, shifts, and
+//   bitwise &,|,^ on integers (no parens vs explicit grouping must agree).
+package binop_precedence_b164;
+
+fn main() -> i32 {
+    if 2i64 + 3i64 * 4i64 != 14i64 { return 1i32; }
+    if (2i64 + 3i64) * 4i64 != 20i64 { return 2i32; }
+    if 20i64 / 3i64 != 6i64 { return 3i32; }
+    if 20i64 % 3i64 != 2i64 { return 4i32; }
+
+    if 1i64 << 4i64 != 16i64 { return 5i32; }
+    if 64i64 >> 2i64 != 16i64 { return 6i32; }
+
+    if (6i64 & 3i64) != 2i64 { return 7i32; }
+    if (6i64 | 1i64) != 7i64 { return 8i32; }
+    if (6i64 ^ 3i64) != 5i64 { return 9i32; }
+
+    // mixed precedence: & binds looser than +
+    if 1i64 + 2i64 & 3i64 != (3i64 & 3i64) { return 10i32; }
+    return 0i32;
+}

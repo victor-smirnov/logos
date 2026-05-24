@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cmp/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; min/max written as
+//   plain conditionals (the point is total ordering of i64, not the cmp lib).
+// Tests a generic-free min/max over i64 and the ordering relations used.
+package cmp_ord_min_max_b164;
+
+fn min2(a: i64, b: i64) -> i64 {
+    if a < b { return a; }
+    return b;
+}
+fn max2(a: i64, b: i64) -> i64 {
+    if a > b { return a; }
+    return b;
+}
+
+fn main() -> i32 {
+    if min2(3i64, 7i64) != 3i64 { return 1i32; }
+    if max2(3i64, 7i64) != 7i64 { return 2i32; }
+    if min2(-5i64, -2i64) != -5i64 { return 3i32; }
+    if max2(-5i64, -2i64) != -2i64 { return 4i32; }
+    if min2(4i64, 4i64) != 4i64 { return 5i32; }
+
+    // clamp via min/max composition
+    let clamped: i64 = max2(0i64, min2(15i64, 10i64));
+    if clamped != 10i64 { return 6i32; }
+    return 0i32;
+}

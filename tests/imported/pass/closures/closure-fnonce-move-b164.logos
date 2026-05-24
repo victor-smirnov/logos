@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; String capture dropped
+//   (use an i64 captured value to keep the FnOnce-move point).
+// Tests a `move` closure capturing a value by value and consumed once via a
+//   generic FnOnce driver, plus a plain Fn closure read twice.
+package closure_fnonce_move_b164;
+
+fn run_once<F: FnOnce() -> i64>(f: F) -> i64 {
+    return f();
+}
+
+fn run_twice<F: Fn(i64) -> i64>(f: F) -> i64 {
+    return f(1i64) + f(2i64);
+}
+
+fn main() -> i32 {
+    let base: i64 = 40i64;
+    let take = move || -> i64 { return base + 2i64; };
+    if run_once(take) != 42i64 { return 1i32; }
+
+    let mult: i64 = 10i64;
+    let scale = |x: i64| -> i64 { return x * mult; };
+    if run_twice(scale) != 30i64 { return 2i32; }
+    return 0i32;
+}

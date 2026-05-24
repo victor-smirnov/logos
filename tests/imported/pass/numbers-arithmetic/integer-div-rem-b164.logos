@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests signed integer division/remainder truncation semantics (toward zero) for
+//   negative operands, and the identity (a/b)*b + a%b == a.
+package integer_div_rem_b164;
+
+fn check(a: i64, b: i64) -> bool {
+    return (a / b) * b + (a % b) == a;
+}
+
+fn main() -> i32 {
+    if 7i64 / 2i64 != 3i64 { return 1i32; }
+    if 7i64 % 2i64 != 1i64 { return 2i32; }
+
+    // truncation toward zero for negatives
+    if -7i64 / 2i64 != -3i64 { return 3i32; }
+    if -7i64 % 2i64 != -1i64 { return 4i32; }
+    if 7i64 / -2i64 != -3i64 { return 5i32; }
+    if 7i64 % -2i64 != 1i64 { return 6i32; }
+
+    if check(17i64, 5i64) != true { return 7i32; }
+    if check(-17i64, 5i64) != true { return 8i32; }
+    if check(17i64, -5i64) != true { return 9i32; }
+    return 0i32;
+}

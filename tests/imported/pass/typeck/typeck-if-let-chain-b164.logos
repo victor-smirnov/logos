@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests `if let Some(x) = opt { ... } else { ... }` as a typed expression, with
+//   the matched binding used in the then-branch.
+package typeck_if_let_chain_b164;
+
+fn unwrap_or_zero(o: Option<i64>) -> i64 {
+    if let Option::Some(x) = o {
+        return x;
+    } else {
+        return 0i64;
+    }
+}
+
+fn main() -> i32 {
+    if unwrap_or_zero(Option::Some(42i64)) != 42i64 { return 1i32; }
+    if unwrap_or_zero(Option::None) != 0i64 { return 2i32; }
+
+    // if-let as the tested condition of a combined check
+    let o: Option<i64> = Option::Some(8i64);
+    let doubled: i64 = if let Option::Some(v) = o { v * 2i64 } else { -1i64 };
+    if doubled != 16i64 { return 3i32; }
+    return 0i32;
+}
