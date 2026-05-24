@@ -1,0 +1,45 @@
+// Regression (K4, B166): nested enum-payload BINDING patterns one level deep —
+// `Some(Some(v))`, `Ok(...)`/`Some(Result::Ok(v))`, custom `Node(Some(x))`.
+// Desugars to: bind outer payload to a synth, gate the arm with a guard match,
+// and re-extract inner bindings via a body let-else. AST-level exhaustiveness
+// covers the no-wildcard case. (Doubly-nested binding patterns like
+// `Some(Some(Some(w)))` remain a clean reject — see the gen_match guard-CFG gap.)
+package nested_enum_payload_patterns_k4_b166;
+use logos.lang.option;
+use logos.lang.result;
+
+enum Tree { Leaf(i64), Node(Option<i64>) }
+
+fn stmt_form(o: Option<Result<i64, i64>>) -> i64 {
+    let mut acc: i64 = 0i64;
+    match o {
+        Option::Some(Result::Ok(v)) => { acc = v; }
+        Option::Some(Result::Err(e)) => { acc = -e; }
+        Option::None => { acc = 999i64; }
+    }
+    return acc;
+}
+fn custom(t: Tree) -> i64 {
+    match t {
+        Tree::Node(Option::Some(x)) => x * 10i64,
+        Tree::Node(Option::None) => -7i64,
+        Tree::Leaf(n) => n,
+    }
+}
+fn twice(o: Option<Option<i64>>) -> i64 {
+    match o {
+        Option::Some(Option::Some(v)) => v + v,
+        _ => 0i64,
+    }
+}
+fn main() -> i32 {
+    if stmt_form(Option::Some(Result::Ok(5i64))) != 5i64 { return 1i32; }
+    if stmt_form(Option::Some(Result::Err(3i64))) != -3i64 { return 2i32; }
+    if stmt_form(Option::None) != 999i64 { return 3i32; }
+    if custom(Tree::Node(Option::Some(4i64))) != 40i64 { return 4i32; }
+    if custom(Tree::Node(Option::None)) != -7i64 { return 5i32; }
+    if custom(Tree::Leaf(8i64)) != 8i64 { return 6i32; }
+    if twice(Option::Some(Option::Some(11i64))) != 22i64 { return 7i32; }
+    if twice(Option::None) != 0i64 { return 8i32; }
+    return 0i32;
+}

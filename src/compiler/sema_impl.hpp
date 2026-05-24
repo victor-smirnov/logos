@@ -3093,6 +3093,20 @@ private:
         hermes::TinyMapView        sub_pat_node;
     };
     std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
+    // K4: emit `let <variant-sub-pat> = synth else { loop {} }` body-prologue
+    // stmts (into `out`) that re-extract the bindings of a nested variant
+    // payload pattern (e.g. `Some(Some(v))`), defining them in the current
+    // scope. Recurses for deeper nesting. The owning arm's guard already
+    // ensured the match, so the else block is dead.
+    void emit_nested_variant_lets(const std::string& synth_name, TypeRef synth_t,
+                                  hermes::TinyMapView sub_pat,
+                                  std::vector<lir::LStmt>& out);
+    // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
+    // The LIR-level check skips guarded arms, so a desugared nested match
+    // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
+    // verifies coverage on the original AST patterns, descending into each
+    // variant's single payload. `pats` are the unguarded arm LHS nodes.
+    bool ast_patterns_exhaustive(std::vector<hermes::TinyMapView> pats, TypeRef ty);
     // P4-pm-12: names from `mut x` patterns (`match scrut { mut z =>
     // … }`). PatWild's LIR mirror doesn't carry the mut flag, so
     // build_pattern_impl appends to this side-channel and
@@ -3148,7 +3162,8 @@ private:
     // emits a diagnostic if a non-guarded wildcard is absent and some
     // variant / bool value is uncovered. Read-only over `smatch`; factored
     // out of lower_match.
-    void check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type);
+    void check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,
+                                    bool ast_proven_exhaustive = false);
 
     // ── lower_fn and declaration lowering ───────────────────────
 

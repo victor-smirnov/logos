@@ -2484,7 +2484,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // its inner bindings through the guard — left to the existing error).
         // A bindingless variant inner check, reused for plain PAT_VARIANT_DATA
         // and for each alternative of a PAT_OR.
-        auto data_has_binding = [&](TinyMapView dn) -> bool {
+        std::function<bool(TinyMapView)> data_has_binding = [&](TinyMapView dn) -> bool {
             if (!dn.has_key(la::ARGS)) return false;
             auto av = dn.get(la::ARGS.code);
             if (av.is_null() || !av.is_pointer()) return false;
@@ -2493,18 +2493,62 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             auto items = arr_of(al.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
                 auto sn = map_of(items.get(i));
-                if (code_of(sn) == la::PAT_WILD && sn.has_key(la::NAME) &&
+                int32_t c = code_of(sn);
+                if (c == la::PAT_WILD && sn.has_key(la::NAME) &&
                     str_of(sn.get(la::NAME.code)) != "_") return true;
+                // A binding anywhere DEEPER (e.g. `Some(Some(w))`) also routes
+                // through the K4 binding-variant path so its depth gate fires.
+                if (c == la::PAT_VARIANT_DATA && data_has_binding(sn)) return true;
+                if (c == la::PAT_AT) return true;
             }
             return false;
         };
         if (sc == la::PAT_VARIANT ||
             (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_) ||
             (sc == la::PAT_OR && current_pat_refutable_guards_)) {
-            // Reject payload-binding inners (PAT_VARIANT_DATA with any non-"_"
-            // binding) — they need the nested-guard binding-export scheme.
-            if (sc == la::PAT_VARIANT_DATA) {
-                if (data_has_binding(sub)) return std::string();  // fall to error
+            // K4: nested variant pattern carrying bindings (e.g.
+            // `Some(Some(v))`). Bind the outer payload to `synth`, gate the arm
+            // with a guard match `match synth { <sub> => true, _ => false }` (so
+            // sibling arms like `Some(None)` dispatch correctly), and register a
+            // body let-else that re-extracts the inner bindings from `synth`
+            // (the guard guarantees the match → the else is dead).
+            //
+            // Limited to ONE level of binding-nesting: a doubly-nested binding
+            // pattern (`Some(Some(Some(w)))`) would need the guard arm's VALUE
+            // to itself be a control-flow match expression, and gen_match's
+            // match-expr-as-guard codegen reads an uninitialised discriminant
+            // slot for that shape (see baghunt_nested_match_as_guard_cfg). Such
+            // patterns fall through to the clean "not yet supported" error.
+            if (sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) {
+                if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
+                    return std::string();
+                TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                    ? ftype : error_t();
+                std::vector<lir::LExprPtr> inner_guards;
+                std::vector<NestedPatSub> inner_subs;   // discarded — re-extracted
+                auto* sg = current_pat_refutable_guards_;
+                auto* ssub = current_pat_nested_subs_;
+                current_pat_refutable_guards_ = &inner_guards;
+                current_pat_nested_subs_ = &inner_subs;
+                lir::EMatchArm a0;
+                a0.pat = build_pattern(sub, rt);
+                current_pat_refutable_guards_ = sg;
+                current_pat_nested_subs_ = ssub;
+                // Deeper binding-nesting (inner_guards non-empty) → unsupported.
+                if (!inner_guards.empty()) return std::string();
+                define(synth, rt);
+                a0.value = builder().lit_bool(true, bool_t());
+                lir::EMatchArm a1;
+                a1.pat = make_pat_wild("_");
+                a1.value = builder().lit_bool(false, bool_t());
+                lir::EMatchExpr me;
+                me.scrut = builder().var_ref(synth, rt);
+                me.arms.push_back(std::move(a0));
+                me.arms.push_back(std::move(a1));
+                current_pat_refutable_guards_->push_back(
+                    builder().match_expr_v(std::move(me), bool_t()));
+                current_pat_nested_subs_->push_back({synth, sub});
+                return synth;
             }
             // G139-2: or-pattern inner `Some(A | B)`. Build the same
             // `match synth { A | B => true, _ => false }` guard. Each alt must
@@ -6454,7 +6498,11 @@ lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sfiw));
 }
 
-void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type) {
+void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,
+                                             bool ast_proven_exhaustive) {
+    // K4: a desugared nested-enum match is exhaustive at the AST level but its
+    // arms carry synth guards (skipped below), so suppress the variant check.
+    if (ast_proven_exhaustive) return;
     bool has_wild = false;
     for (auto& arm : smatch.arms) {
         if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
@@ -6689,6 +6737,176 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
             }
         }
     }
+}
+
+void SemaChecker::emit_nested_variant_lets(
+        const std::string& synth_name, TypeRef synth_t,
+        hermes::TinyMapView sub_pat, std::vector<lir::LStmt>& out) {
+    namespace ps = lir_schema::pat;
+    // Build `let <sub_pat> = synth else { loop {} }`. Capture any DEEPER
+    // refutable-inner guards / nested subs locally — the guards are dead
+    // (owning arm already gated), the subs are re-extracted recursively below.
+    std::vector<lir::LExprPtr> le_guards;
+    std::vector<NestedPatSub> deeper;
+    auto* sg = current_pat_refutable_guards_;
+    auto* ssub = current_pat_nested_subs_;
+    current_pat_refutable_guards_ = &le_guards;
+    current_pat_nested_subs_ = &deeper;
+    lir::Pattern lpat = build_pattern(sub_pat, synth_t);
+    current_pat_refutable_guards_ = sg;
+    current_pat_nested_subs_ = ssub;
+    // Define this pattern's bindings in the current (arm body) scope.
+    auto* pool = cur_prog_->type_pool.impl();
+    std::function<void(lir_view::PatRef)> define_binds = [&](lir_view::PatRef pr) {
+        if (!pr) return;
+        auto k = pr.kind();
+        if (k == ps::Code::VariantData) {
+            lir_view::PatVariantDataView v{pr};
+            std::vector<std::string_view> names; std::vector<TypeRef> types;
+            v.each_binding([&](std::string_view n){ names.push_back(n); });
+            v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
+            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
+                if (names[i] != "_") define(std::string(names[i]), types[i]);
+        } else if (k == ps::Code::Tuple) {
+            lir_view::PatTupleView v{pr};
+            std::vector<std::string_view> names; std::vector<TypeRef> types;
+            v.each_binding([&](std::string_view n){ names.push_back(n); });
+            v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
+            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
+                if (names[i] != "_") define(std::string(names[i]), types[i]);
+        } else if (k == ps::Code::Wild) {
+            auto n = lir_view::PatWildView{pr}.name();
+            if (n != "_") define(std::string(n), synth_t);
+        }
+    };
+    define_binds(pat_ref_of(lpat));
+    // Emit the let-else.
+    lir::SLetElse sle;
+    sle.pat   = std::move(lpat);
+    sle.scrut = builder().var_ref(synth_name, synth_t);
+    lir::LBlock eblk;
+    lir::SLoop lp; lp.body = lir::alloc_block(*cur_prog_);
+    eblk.stmts.push_back(make_stmt_emit(node_line_, std::move(lp)));
+    sle.else_block = lir::alloc_block(*cur_prog_, std::move(eblk));
+    // No guards: the owning arm's guard already proved the FULL nested match,
+    // so this let-else is a pure extraction (its own variant-tag check + the
+    // dead else suffice). Re-checking via `le_guards` would also spuriously
+    // re-bind inner names. Deeper bindings are extracted by the recursion below.
+    (void)le_guards;
+    out.push_back(make_stmt_emit(node_line_, std::move(sle)));
+    // Deeper nesting (`Some(Some(Some(w)))`): the inner let-else reads a
+    // binding bound by THIS one, so it must come after.
+    for (auto& d : deeper) {
+        if (code_of(d.sub_pat_node) != la::PAT_VARIANT_DATA) continue;
+        TypeRef dt = lookup(d.synth_name);
+        if (!dt) continue;
+        emit_nested_variant_lets(d.synth_name, dt, d.sub_pat_node, out);
+    }
+}
+
+bool SemaChecker::ast_patterns_exhaustive(
+        std::vector<hermes::TinyMapView> pats, TypeRef ty) {
+    using K = LogosType::Kind;
+    // Peel references.
+    TypeRef t = ty;
+    for (int i = 0; i < 8 && t &&
+         (TypeRef(t).kind() == K::Ref || TypeRef(t).kind() == K::MutRef ||
+          TypeRef(t).kind() == K::Ptr) && TypeRef(t).pointee(); ++i)
+        t = TypeRef(t).pointee();
+    if (!t) return false;
+    // Flatten or-patterns; unwrap @-bindings to their sub-pattern.
+    std::vector<TinyMapView> flat;
+    std::function<void(TinyMapView)> add = [&](TinyMapView p) {
+        int32_t c = code_of(p);
+        if (c == la::PAT_OR && p.has_key(la::ITEMS)) {
+            auto alts = arr_of(p.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < alts.size(); ++i) add(map_of(alts.get(i)));
+            return;
+        }
+        if (c == la::PAT_AT && p.has_key(la::VALUE)) {
+            add(map_of(p.get(la::VALUE.code)));
+            return;
+        }
+        flat.push_back(p);
+    };
+    for (auto p : pats) add(p);
+    // A bare wildcard / name binding covers everything.
+    for (auto p : flat)
+        if (code_of(p) == la::PAT_WILD) return true;
+    // Resolve a pattern node's (enum, variant) name, applying prelude shorthand.
+    auto pat_variant = [&](TinyMapView p, std::string& en, std::string& vn) -> bool {
+        int32_t c = code_of(p);
+        if (c != la::PAT_VARIANT && c != la::PAT_VARIANT_DATA) return false;
+        en = std::string(str_of(p.get(la::NAME.code)));
+        vn = std::string(str_of(p.get(la::FIELD.code)));
+        if (vn.empty()) {
+            auto remap = [&](const char* e) -> bool {
+                auto [pkg, esi] = find_enum_by_name(e);
+                if (!esi) return false;
+                for (auto& v : esi->variants)
+                    if (v.name == en) { vn = en; en = e; return true; }
+                return false;
+            };
+            if (en == "Some" || en == "None") remap("Option");
+            else if (en == "Ok" || en == "Err") remap("Result");
+            if (vn.empty()) {
+                auto vit = cur_imports_.variant_aliases.find(en);
+                if (vit != cur_imports_.variant_aliases.end()) remap(vit->second.c_str());
+            }
+        }
+        return !vn.empty();
+    };
+    auto payload_items = [&](TinyMapView p) -> std::vector<TinyMapView> {
+        std::vector<TinyMapView> out;
+        if (!p.has_key(la::ARGS)) return out;
+        auto av = p.get(la::ARGS.code);
+        if (av.is_null()) return out;
+        ArrayView items;
+        if (av.is_pointer()) {
+            auto m = map_of(av);
+            if (m.has_key(la::ITEMS)) items = arr_of(m.get(la::ITEMS.code));
+            else                       items = arr_of(av);
+        } else items = arr_of(av);
+        for (uint64_t i = 0; i < items.size(); ++i) out.push_back(map_of(items.get(i)));
+        return out;
+    };
+    if (TypeRef(t).kind() == K::Enum) {
+        auto [pkg, esi] = find_enum_by_name(TypeRef(t).enum_name());
+        (void)pkg;
+        if (!esi) return false;
+        SemaSubst subst;
+        auto ta = TypeRef(t).type_args();
+        for (size_t i = 0; i < esi->type_params.size() && i < ta.size(); ++i)
+            if (ta[i]) subst[esi->type_params[i].name] = ta[i];
+        for (auto& V : esi->variants) {
+            bool covered = false;
+            std::vector<TinyMapView> inner;
+            for (auto p : flat) {
+                std::string en, vn;
+                if (!pat_variant(p, en, vn) || vn != V.name) continue;
+                if (code_of(p) == la::PAT_VARIANT) { covered = true; break; }
+                auto args = payload_items(p);
+                if (args.empty()) { covered = true; break; }
+                bool all_irref = true;
+                for (auto a : args)
+                    if (code_of(a) != la::PAT_WILD) { all_irref = false; break; }
+                if (all_irref) { covered = true; break; }
+                if (V.payload_types.size() == 1 && args.size() == 1)
+                    inner.push_back(args[0]);
+            }
+            if (covered) continue;
+            if (!inner.empty() && !V.payload_types.empty()) {
+                TypeRef pld = V.payload_types[0];
+                if (pld && !subst.empty()) pld = subst_type_sema(pld, subst);
+                if (pld && ast_patterns_exhaustive(inner, pld)) continue;
+            }
+            return false;
+        }
+        return true;
+    }
+    // Non-enum (bool/int/…): defer to the LIR-level checker (return false =
+    // "not proven here", which suppresses nothing).
+    return false;
 }
 
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
@@ -6954,6 +7172,11 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             for (auto& nsub : nested_subs) {
                 TypeRef synth_t = lookup(nsub.synth_name);
                 if (!synth_t) continue;
+                if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
+                    emit_nested_variant_lets(nsub.synth_name, synth_t,
+                                             nsub.sub_pat_node, nested_destructure_stmts);
+                    continue;
+                }
                 if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
                 // Field-by-field destructure: for each {name, optional sub-binding}
                 // emit `let <bind_name> = __synth.<field>;`. Sub-pat
@@ -7135,8 +7358,22 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // Merge per-arm contributions back into moved_vars_.
         moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
     }
-    // Exhaustiveness: enum/bool scrutinee must cover all cases.
-    check_match_exhaustiveness(smatch, scrut_type);
+    // Exhaustiveness: enum/bool scrutinee must cover all cases. K4: prove
+    // nested-enum-pattern exhaustiveness at the AST level (unguarded arms),
+    // since the desugar's synth guards defeat the LIR-level variant check.
+    bool ast_exh = false;
+    if (node.has_key(la::ITEMS)) {
+        std::vector<hermes::TinyMapView> lhs_pats;
+        auto arms_l = arr_of(node.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < arms_l.size(); ++i) {
+            auto arm = map_of(arms_l.get(i));
+            if (code_of(arm) != la::MATCH_ARM) continue;
+            if (arm.has_key(la::GUARD)) continue;      // user-guarded ≠ guaranteed
+            if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
+        }
+        ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type);
+    }
+    check_match_exhaustiveness(smatch, scrut_type, ast_exh);
 
     if (has_hoist_let) {
         auto blk = lir::alloc_block(*cur_prog_);
@@ -7360,6 +7597,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             for (auto& nsub : nested_subs) {
                 TypeRef synth_t = lookup(nsub.synth_name);
                 if (!synth_t) continue;
+                if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
+                    emit_nested_variant_lets(nsub.synth_name, synth_t,
+                                             nsub.sub_pat_node, nested_destructure_stmts);
+                    continue;
+                }
                 if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
                 if (!nsub.sub_pat_node.has_key(la::ITEMS)) continue;
                 auto fitems_av = nsub.sub_pat_node.get(la::ITEMS.code);
@@ -7593,7 +7835,20 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     }
 
     {
-        bool has_wild = false;
+        // K4: prove nested-enum-pattern exhaustiveness at the AST level.
+        bool ast_exh = false;
+        if (node.has_key(la::ITEMS)) {
+            std::vector<hermes::TinyMapView> lhs_pats;
+            auto arms_l = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t i = 0; i < arms_l.size(); ++i) {
+                auto arm = map_of(arms_l.get(i));
+                if (code_of(arm) != la::MATCH_ARM) continue;
+                if (arm.has_key(la::GUARD)) continue;
+                if (arm.has_key(la::LHS)) lhs_pats.push_back(map_of(arm.get(la::LHS.code)));
+            }
+            ast_exh = ast_patterns_exhaustive(std::move(lhs_pats), scrut_type);
+        }
+        bool has_wild = ast_exh;
         for (auto& arm : me.arms) {
             if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {
                 has_wild = true;
