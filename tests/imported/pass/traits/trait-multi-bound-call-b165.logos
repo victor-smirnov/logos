@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/ multi-bound shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests a generic function bounded by two traits, calling a method from each.
+package trait_multi_bound_call_b165;
+
+trait Area { fn area(self: &Self) -> i64; }
+trait Tag { fn tag(self: &Self) -> i64; }
+struct S { a: i64, n: i64 }
+impl Area for S { fn area(self: &S) -> i64 { return self.a; } }
+impl Tag for S { fn tag(self: &S) -> i64 { return self.n; } }
+fn combine<T: Area + Tag>(t: &T) -> i64 { return t.area() + t.tag(); }
+fn main() -> i32 {
+    let s = S { a: 3i64, n: 4i64 };
+    if combine(&s) != 7i64 { return 1i32; }
+    return 0i32;
+}

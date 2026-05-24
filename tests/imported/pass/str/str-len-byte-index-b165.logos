@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ str shapes (distilled).
+// Modifications: assert->if-return sentinels; `str` (not `&str`) binding; byte
+//   index yields u64.
+// Tests `str.len()` (i64) and byte indexing `s[i]` (u64) on an ASCII literal.
+package str_len_byte_index_b165;
+
+fn main() -> i32 {
+    let s: str = "hello";
+    if s.len() != 5i64 { return 1i32; }
+    if s[0u64] != 104u64 { return 2i32; }   // 'h'
+    if s[4u64] != 111u64 { return 3i32; }   // 'o'
+    return 0i32;
+}

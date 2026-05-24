@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests a mutable closure (FnMut) capturing a counter by mutable reference and a
+//   generic driver invoking it N times.
+package closure_fnmut_counter_b165;
+
+fn apply<F: FnMut() -> i64>(mut f: F, n: i64) -> i64 {
+    let mut t: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n { t = t + f(); i = i + 1i64; }
+    return t;
+}
+fn main() -> i32 {
+    let mut c: i64 = 0i64;
+    let inc = || -> i64 { c = c + 1i64; return c; };
+    if apply(inc, 3i64) != 6i64 { return 1i32; }
+    return 0i32;
+}

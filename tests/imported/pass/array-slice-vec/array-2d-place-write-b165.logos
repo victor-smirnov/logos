@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; fixed nested arrays.
+// Tests chained place-write into a 2D array `grid[i][j] = v` then read-back.
+package array_2d_place_write_b165;
+
+fn main() -> i32 {
+    let mut grid: [[i64; 3]; 2] = [[0i64, 0i64, 0i64], [0i64, 0i64, 0i64]];
+    grid[0i64][2i64] = 7i64;
+    grid[1i64][0i64] = 9i64;
+    grid[1i64][2i64] = grid[0i64][2i64] + 1i64;
+    if grid[0i64][2i64] != 7i64 { return 1i32; }
+    if grid[1i64][0i64] != 9i64 { return 2i32; }
+    if grid[1i64][2i64] != 8i64 { return 3i32; }
+    return 0i32;
+}

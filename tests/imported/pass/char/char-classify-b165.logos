@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ char shapes (distilled).
+// Modifications: assert->if-return sentinels.
+// Tests `char` classification methods is_alphabetic / is_numeric.
+package char_classify_b165;
+
+fn main() -> i32 {
+    let c: char = 'A';
+    if !c.is_alphabetic() { return 1i32; }
+    if c.is_numeric() { return 2i32; }
+    let d: char = '7';
+    if !d.is_numeric() { return 3i32; }
+    if d.is_alphabetic() { return 4i32; }
+    return 0i32;
+}

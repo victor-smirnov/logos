@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests a generic identity `id<T>` at i64/bool monomorphizations and a generic
+//   two-param function selecting the first argument.
+package generic_multi_mono_id_b165;
+
+fn id<T>(x: T) -> T { return x; }
+fn pick_first<A, B>(a: A, b: B) -> A { return a; }
+fn main() -> i32 {
+    if id(42i64) != 42i64 { return 1i32; }
+    if id(true) != true { return 2i32; }
+    if pick_first(7i64, false) != 7i64 { return 3i32; }
+    if pick_first(true, 9i64) != true { return 4i32; }
+    return 0i32;
+}

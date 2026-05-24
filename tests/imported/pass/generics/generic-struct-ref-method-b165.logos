@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests a generic struct `Pair<T>` with a method returning `&T`, instantiated at i64.
+package generic_struct_ref_method_b165;
+
+struct Pair<T> { a: T, b: T }
+impl<T> Pair<T> {
+    fn first(self: &Self) -> &T { return &self.a; }
+    fn second(self: &Self) -> &T { return &self.b; }
+}
+fn main() -> i32 {
+    let p = Pair { a: 7i64, b: 9i64 };
+    if *p.first() != 7i64 { return 1i32; }
+    if *p.second() != 9i64 { return 2i32; }
+    return 0i32;
+}

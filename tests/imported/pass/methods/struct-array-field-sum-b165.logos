@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; Vec reshaped to fixed array.
+// Tests summing a field across an array of structs by indexed access.
+package struct_array_field_sum_b165;
+
+struct Item { w: i64 }
+fn main() -> i32 {
+    let items: [Item; 3] = [Item { w: 1i64 }, Item { w: 2i64 }, Item { w: 3i64 }];
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 3i64 { total = total + items[i].w; i = i + 1i64; }
+    if total != 6i64 { return 1i32; }
+    return 0i32;
+}

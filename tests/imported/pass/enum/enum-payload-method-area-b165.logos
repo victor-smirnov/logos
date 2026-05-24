@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests an enum with mixed payload variants and an inherent method matching `self`.
+package enum_payload_method_area_b165;
+
+enum Shape { Circle(i64), Rect(i64, i64), Unit }
+impl Shape {
+    fn area(self: &Self) -> i64 {
+        match self {
+            Shape::Circle(r) => { return 3i64 * r * r; }
+            Shape::Rect(w, h) => { return w * h; }
+            Shape::Unit => { return 0i64; }
+        }
+    }
+}
+fn main() -> i32 {
+    if Shape::Circle(2i64).area() != 12i64 { return 1i32; }
+    if Shape::Rect(3i64, 4i64).area() != 12i64 { return 2i32; }
+    if Shape::Unit.area() != 0i64 { return 3i32; }
+    return 0i32;
+}

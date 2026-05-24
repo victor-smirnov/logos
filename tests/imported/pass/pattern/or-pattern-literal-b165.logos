@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/ or-pattern shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests an or-pattern `1 | 2 | 3` in a match arm over i64 literals.
+package or_pattern_literal_b165;
+
+fn f(n: i64) -> i64 {
+    match n {
+        1i64 | 2i64 | 3i64 => { return 10i64; }
+        4i64 | 5i64 => { return 20i64; }
+        _ => { return 0i64; }
+    }
+}
+fn main() -> i32 {
+    if f(2i64) != 10i64 { return 1i32; }
+    if f(5i64) != 20i64 { return 2i32; }
+    if f(9i64) != 0i64 { return 3i32; }
+    return 0i32;
+}

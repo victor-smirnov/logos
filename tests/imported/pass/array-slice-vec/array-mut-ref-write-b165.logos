@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests index-writing through a `&mut [i64; N]` function parameter.
+package array_mut_ref_write_b165;
+
+fn fill(a: &mut [i64; 4], v: i64) {
+    let mut i: i64 = 0i64;
+    while i < 4i64 { a[i] = v + i; i = i + 1i64; }
+}
+fn main() -> i32 {
+    let mut arr: [i64; 4] = [0i64, 0i64, 0i64, 0i64];
+    fill(&mut arr, 10i64);
+    if arr[0i64] != 10i64 { return 1i32; }
+    if arr[3i64] != 13i64 { return 2i32; }
+    return 0i32;
+}

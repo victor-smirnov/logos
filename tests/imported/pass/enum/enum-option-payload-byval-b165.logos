@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. The extracted enum
+//   payload is consumed BY VALUE (not by `&c`) — taking `&c` of an enum-typed
+//   payload binding and passing it to a `&Enum` param is a surfaced gap
+//   (see B165 notes); the by-value form is the tested semantics here.
+// Tests Option<UserEnum> produced by a fn, matched, the inner enum dispatched.
+package enum_option_payload_byval_b165;
+
+enum Color { Red, Green, Blue }
+fn pick(n: i64) -> Option<Color> {
+    match n {
+        0i64 => { return Option::Some(Color::Red); }
+        1i64 => { return Option::Some(Color::Green); }
+        2i64 => { return Option::Some(Color::Blue); }
+        _ => { return Option::None; }
+    }
+}
+fn code(c: Color) -> i64 {
+    match c {
+        Color::Red => { return 100i64; }
+        Color::Green => { return 200i64; }
+        Color::Blue => { return 300i64; }
+    }
+}
+fn main() -> i32 {
+    match pick(1i64) {
+        Option::Some(c) => { if code(c) != 200i64 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    match pick(9i64) {
+        Option::Some(_) => { return 3i32; }
+        Option::None => {}
+    }
+    return 0i32;
+}

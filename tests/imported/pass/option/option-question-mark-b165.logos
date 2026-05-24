@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/option/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests the `?` operator on Option<i64>: short-circuit to None on the first None.
+package option_question_mark_b165;
+
+fn first_even(a: i64, b: i64) -> Option<i64> {
+    if a % 2i64 == 0i64 { return Option::Some(a); }
+    if b % 2i64 == 0i64 { return Option::Some(b); }
+    return Option::None;
+}
+fn doubled(a: i64, b: i64) -> Option<i64> {
+    let v: i64 = first_even(a, b)?;
+    return Option::Some(v * 2i64);
+}
+fn main() -> i32 {
+    match doubled(3i64, 4i64) {
+        Option::Some(v) => { if v != 8i64 { return 1i32; } }
+        Option::None => { return 2i32; }
+    }
+    match doubled(1i64, 3i64) {
+        Option::Some(_) => { return 3i32; }
+        Option::None => {}
+    }
+    return 0i32;
+}

@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/slice/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; array coerces to `&[i64]`.
+// Tests a function taking `&[i64]`, summing via index up to `.len()`.
+package slice_param_sum_b165;
+
+fn sum(xs: &[i64]) -> i64 {
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < xs.len() { s = s + xs[i]; i = i + 1i64; }
+    return s;
+}
+fn main() -> i32 {
+    let a: [i64; 4] = [2i64, 4i64, 6i64, 8i64];
+    if sum(&a) != 20i64 { return 1i32; }
+    let b: [i64; 2] = [10i64, 20i64];
+    if sum(&b) != 30i64 { return 2i32; }
+    return 0i32;
+}

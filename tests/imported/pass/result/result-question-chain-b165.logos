@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ Result/try shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests the `?` operator chaining two fallible steps over Result<i64,i64>,
+//   short-circuiting on the first Err.
+package result_question_chain_b165;
+use logos.lang.result;
+
+fn step(n: i64) -> Result<i64, i64> {
+    if n < 0i64 { return Result::Err(n); }
+    return Result::Ok(n * 2i64);
+}
+fn run(n: i64) -> Result<i64, i64> {
+    let a: i64 = step(n)?;
+    let b: i64 = step(a)?;
+    return Result::Ok(b + 1i64);
+}
+fn main() -> i32 {
+    match run(3i64) {
+        Result::Ok(v) => { if v != 13i64 { return 1i32; } }
+        Result::Err(_) => { return 2i32; }
+    }
+    match run(-1i64) {
+        Result::Ok(_) => { return 3i32; }
+        Result::Err(e) => { if e != -1i64 { return 4i32; } }
+    }
+    return 0i32;
+}

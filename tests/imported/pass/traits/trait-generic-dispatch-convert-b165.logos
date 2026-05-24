@@ -1,0 +1,18 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/convert/ shapes (distilled into a user trait).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self;
+//   From/Into reshaped to a user trait `ToCelsius` with two impls.
+// Tests a generic function dispatching a conversion method across two impls.
+package trait_generic_dispatch_convert_b165;
+
+trait ToCelsius { fn to_c(self: &Self) -> i64; }
+struct Fahrenheit { d: i64 }
+struct Kelvin { d: i64 }
+impl ToCelsius for Fahrenheit { fn to_c(self: &Fahrenheit) -> i64 { return (self.d - 32i64) * 5i64 / 9i64; } }
+impl ToCelsius for Kelvin { fn to_c(self: &Kelvin) -> i64 { return self.d - 273i64; } }
+fn report<T: ToCelsius>(t: &T) -> i64 { return t.to_c(); }
+fn main() -> i32 {
+    if report(&Fahrenheit { d: 212i64 }) != 100i64 { return 1i32; }
+    if report(&Kelvin { d: 300i64 }) != 27i64 { return 2i32; }
+    return 0i32;
+}

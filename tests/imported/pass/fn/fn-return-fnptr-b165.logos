@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests a function returning a `fn(i64)->i64` pointer (a non-capturing closure).
+package fn_return_fnptr_b165;
+
+fn make() -> fn(i64) -> i64 {
+    return |x: i64| -> i64 { return x + 1i64; };
+}
+fn main() -> i32 {
+    let f = make();
+    if f(41i64) != 42i64 { return 1i32; }
+    if f(0i64) != 1i64 { return 2i32; }
+    return 0i32;
+}

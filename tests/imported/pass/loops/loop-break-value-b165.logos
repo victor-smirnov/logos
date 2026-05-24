@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests `loop { … break v; }` yielding a value bound by `let`.
+package loop_break_value_b165;
+
+fn main() -> i32 {
+    let mut i: i64 = 0i64;
+    let r: i64 = loop {
+        i = i + 1i64;
+        if i == 5i64 { break i * 2i64; }
+    };
+    if r != 10i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests in-place mutation of a nested struct field `o.inner.v = …` and a top field.
+package struct_nested_field_mut_b165;
+
+struct Inner { v: i64 }
+struct Outer { inner: Inner, tag: i64 }
+fn main() -> i32 {
+    let mut o = Outer { inner: Inner { v: 1i64 }, tag: 9i64 };
+    o.inner.v = 42i64;
+    o.tag = o.tag + 1i64;
+    if o.inner.v != 42i64 { return 1i32; }
+    if o.tag != 10i64 { return 2i32; }
+    return 0i32;
+}

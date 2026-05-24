@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ops/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; operator via the
+//   type-arg form `impl Add<Rhs> for T { type Output …; fn add … }`.
+// Tests a user `Add` overload on a 2D vector struct producing a new struct.
+package ops_add_overload_vec_b165;
+
+use logos.lang.ops;
+
+struct V2 { x: i64, y: i64 }
+impl Add<V2> for V2 {
+    type Output = V2;
+    fn add(self: Self, rhs: V2) -> V2 { return V2 { x: self.x + rhs.x, y: self.y + rhs.y }; }
+}
+fn main() -> i32 {
+    let a = V2 { x: 1i64, y: 2i64 };
+    let b = V2 { x: 3i64, y: 4i64 };
+    let c = a + b;
+    if c.x != 4i64 { return 1i32; }
+    if c.y != 6i64 { return 2i32; }
+    return 0i32;
+}

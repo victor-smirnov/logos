@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/ shapes (distilled).
+// Modifications: assert->if-return sentinels; binary literals suffixed u32.
+// Tests the bitwise operators &, |, ^, <<, >> on u32.
+package intops_bitwise_b165;
+
+fn main() -> i32 {
+    let a: u32 = 0b1010u32;
+    let b: u32 = 0b0110u32;
+    if (a & b) != 0b0010u32 { return 1i32; }
+    if (a | b) != 0b1110u32 { return 2i32; }
+    if (a ^ b) != 0b1100u32 { return 3i32; }
+    if (a << 1u32) != 0b10100u32 { return 4i32; }
+    if (a >> 1u32) != 0b0101u32 { return 5i32; }
+    return 0i32;
+}

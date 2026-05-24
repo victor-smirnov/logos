@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ops/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; operator via the
+//   type-arg form `impl Index<Idx> for T`.
+// Tests a user `Index` overload returning `&i64` from an inner fixed array.
+package ops_index_overload_b165;
+
+use logos.lang.ops;
+
+struct Grid { data: [i64; 4] }
+impl Index<i64> for Grid {
+    type Output = i64;
+    fn index(self: &Self, i: i64) -> &i64 { return &self.data[i]; }
+}
+fn main() -> i32 {
+    let g = Grid { data: [5i64, 6i64, 7i64, 8i64] };
+    if g[0i64] != 5i64 { return 1i32; }
+    if g[3i64] != 8i64 { return 2i32; }
+    return 0i32;
+}

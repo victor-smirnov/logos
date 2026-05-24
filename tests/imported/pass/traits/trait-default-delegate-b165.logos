@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/ default-method shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self.
+// Tests a trait default method that calls the required method on self.
+package trait_default_delegate_b165;
+
+trait Scaled {
+    fn base(self: &Self) -> i64;
+    fn doubled(self: &Self) -> i64 { return self.base() * 2i64; }
+    fn tripled(self: &Self) -> i64 { return self.base() * 3i64; }
+}
+struct A { x: i64 }
+impl Scaled for A { fn base(self: &A) -> i64 { return self.x; } }
+fn main() -> i32 {
+    let a = A { x: 5i64 };
+    if a.doubled() != 10i64 { return 1i32; }
+    if a.tripled() != 15i64 { return 2i32; }
+    return 0i32;
+}

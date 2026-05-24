@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/cmp/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels; &self->self:&Self;
+//   manual `impl PartialEq` (Logos house form, no #[derive]).
+// Tests a user PartialEq impl on a 2-field struct used via `==`/`!=`.
+package cmp_partialeq_struct_b165;
+
+use logos.lang.cmp;
+
+struct P { x: i64, y: i64 }
+impl PartialEq for P {
+    fn eq(self: &Self, o: &P) -> bool { return self.x == o.x && self.y == o.y; }
+}
+fn main() -> i32 {
+    let a = P { x: 1i64, y: 2i64 };
+    let b = P { x: 1i64, y: 2i64 };
+    let c = P { x: 1i64, y: 3i64 };
+    if !(a == b) { return 1i32; }
+    if a == c { return 2i32; }
+    if !(a != c) { return 3i32; }
+    return 0i32;
+}

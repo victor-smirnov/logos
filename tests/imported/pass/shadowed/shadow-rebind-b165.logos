@@ -1,0 +1,13 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/shadowed/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests successive `let x = …` shadowing that re-uses the previous binding.
+package shadow_rebind_b165;
+
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let x: i64 = x + 1i64;
+    let x: i64 = x * 2i64;
+    if x != 12i64 { return 1i32; }
+    return 0i32;
+}

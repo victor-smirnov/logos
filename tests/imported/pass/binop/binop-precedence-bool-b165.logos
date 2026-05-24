@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests arithmetic precedence and short-circuit && / || boolean evaluation order.
+package binop_precedence_bool_b165;
+
+fn main() -> i32 {
+    if 2i64 + 3i64 * 4i64 != 14i64 { return 1i32; }
+    if (2i64 + 3i64) * 4i64 != 20i64 { return 2i32; }
+    if 10i64 - 4i64 - 3i64 != 3i64 { return 3i32; }
+    let a: bool = true && (false || true);
+    if !a { return 4i32; }
+    let b: bool = false && (1i64 / 0i64 == 0i64);   // RHS must NOT eval (short-circuit)
+    if b { return 5i32; }
+    return 0i32;
+}

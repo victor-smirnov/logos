@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels.
+// Tests mutual recursion: is_even / is_odd over non-negative i64.
+package recursion_mutual_b165;
+
+fn is_even(n: i64) -> bool { if n == 0i64 { return true; } return is_odd(n - 1i64); }
+fn is_odd(n: i64) -> bool { if n == 0i64 { return false; } return is_even(n - 1i64); }
+fn main() -> i32 {
+    if !is_even(10i64) { return 1i32; }
+    if is_even(7i64) { return 2i32; }
+    if !is_odd(3i64) { return 3i32; }
+    return 0i32;
+}
