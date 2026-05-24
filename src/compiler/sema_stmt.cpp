@@ -2522,6 +2522,16 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             if (sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) {
                 if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
                     return std::string();
+                // By-ref ergonomics (`match &enum { Some(Some(v)) }`): the synth
+                // binding + guard match assume a by-VALUE enum; a reference
+                // scrutinee is two-level (ptr-to-ptr) and miscompiles. Cleanly
+                // reject for now (the inner bind-to-name + body match workaround
+                // still applies). by-value nested patterns are the common case.
+                if (scrut_type &&
+                    (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
+                     TypeRef(scrut_type).kind() == LogosType::Kind::MutRef ||
+                     TypeRef(scrut_type).kind() == LogosType::Kind::Ptr))
+                    return std::string();
                 TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                     ? ftype : error_t();
                 std::vector<lir::LExprPtr> inner_guards;
