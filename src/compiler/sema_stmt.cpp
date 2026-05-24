@@ -514,6 +514,12 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
 lir::LBlock SemaChecker::lower_block(TinyMapView block) {
     lir::LBlock result;
     push_scope();
+    // G167-4: if a loop just armed this, tag the body frame as the loop
+    // boundary for break/continue drop-glue (consume the one-shot flag).
+    if (pending_loop_body_scope_) {
+        scope_.back().loop_boundary = true;
+        pending_loop_body_scope_ = false;
+    }
     bool warned_dead = false;  // Sprint 5.2: B-st-08 dead-code-after-terminator lint
     if (block.has_key(la::ITEMS)) {
         auto stmts = arr_of(block.get(la::ITEMS.code));
@@ -572,7 +578,10 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                 auto term_ref = stmt_ref_of(lowered);
                 if (term_ref && (term_ref.kind() == lir_schema::stmt::Code::Break ||
                                  term_ref.kind() == lir_schema::stmt::Code::Continue)) {
-                    for (auto& d : collect_drops())
+                    // G167-4: drop every frame down to AND INCLUDING the loop
+                    // body — a break/continue nested in an `if` exits via the
+                    // loop edge, bypassing the body block's normal end drops.
+                    for (auto& d : collect_drops_to_loop())
                         result.stmts.push_back(std::move(d));
                 }
             }
@@ -4841,6 +4850,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             *then_body = lower_block(map_of(node.get(la::BODY.code)));
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
@@ -4882,6 +4892,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         *body = lower_block(map_of(node.get(la::BODY.code)));
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
@@ -4956,6 +4967,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         *body = lower_block(map_of(node.get(la::BODY.code)));
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
@@ -5019,6 +5031,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             *body = lower_block(map_of(node.get(la::BODY.code)));
             loop_break_frames_.pop_back();
             --loop_depth_;
@@ -5048,6 +5061,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             *body = lower_block(map_of(node.get(la::BODY.code)));
             loop_break_frames_.pop_back();
             --loop_depth_;
@@ -5097,6 +5111,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
                 loop_break_frames_.push_back({"", nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
                 *body = lower_block(map_of(node.get(la::BODY.code)));
                 loop_break_frames_.pop_back();
                 --loop_depth_;
@@ -5342,6 +5357,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
             *then_body = lower_block(map_of(node.get(la::BODY.code)));
             loop_break_frames_.pop_back();
             --loop_depth_;
@@ -5385,6 +5401,7 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
+        pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         *body = lower_block(map_of(node.get(la::BODY.code)));
         frame_value_type = loop_break_frames_.back().value_type;
         loop_break_frames_.pop_back();

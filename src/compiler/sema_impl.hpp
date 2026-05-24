@@ -1431,8 +1431,19 @@ private:
         // drop the enclosing function's locals — only the closure's own frames.
         // collect_all_drops stops after a boundary frame.
         bool closure_boundary = false;
+        // G167-4: the lower_block scope that IS a loop's body. A `break`/
+        // `continue` nested inside the body (e.g. in an `if`) exits via the loop
+        // edge WITHOUT falling through the body block's normal end-of-scope
+        // drops — so collect_drops_to_loop() must drop every frame from the
+        // statement down to AND INCLUDING this one. Set by lower_block when
+        // pending_loop_body_scope_ is armed by the loop lowering.
+        bool loop_boundary = false;
     };
     std::vector<Frame> scope_;
+    // G167-4: armed by while/loop/for right before lowering the body block;
+    // consumed by the next push_scope (lower_block) to tag its frame as the
+    // loop body for break/continue drop-glue.
+    bool pending_loop_body_scope_ = false;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
     // G156-7: vars moved into a `move` closure that nonetheless must still be
@@ -1613,6 +1624,10 @@ private:
     std::optional<lir::LStmt> make_drop_stmt(const std::string& name, const VarInfo& info) const;
     std::vector<lir::LStmt> collect_drops() const;
     std::vector<lir::LStmt> collect_all_drops() const;
+    // G167-4: drops for a `break`/`continue` — every frame from the innermost
+    // down to AND INCLUDING the enclosing loop-body frame (loop_boundary), so a
+    // break/continue nested in an `if` still runs the loop body's destructors.
+    std::vector<lir::LStmt> collect_drops_to_loop() const;
 
     // Recursive variant of mark_moved_expr that descends into composite
     // producer expressions (Call args, StructLit fields, TupleLit elems,

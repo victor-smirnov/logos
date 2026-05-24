@@ -2672,6 +2672,25 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
     return drops;
 }
 
+std::vector<lir::LStmt> SemaChecker::collect_drops_to_loop() const {
+    std::vector<lir::LStmt> drops;
+    for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
+        for (auto it = fit->var_order.rbegin(); it != fit->var_order.rend(); ++it) {
+            if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
+            auto vit = fit->vars.find(*it);
+            if (vit == fit->vars.end()) continue;
+            if (auto d = make_drop_stmt(*it, vit->second))
+                drops.push_back(std::move(*d));
+        }
+        // Stop AFTER dropping the loop-body frame: break/continue leaves the
+        // loop via its edge, so the iteration's locals (incl. this frame's) are
+        // released here; outer (enclosing-fn) frames stay live. A closure
+        // boundary also stops the walk (a break can't cross it).
+        if (fit->loop_boundary || fit->closure_boundary) break;
+    }
+    return drops;
+}
+
 // ── Name helpers ─────────────────────────────────────────────────────────────
 
 std::string SemaChecker::struct_name_of(std::string_view var_name) {
