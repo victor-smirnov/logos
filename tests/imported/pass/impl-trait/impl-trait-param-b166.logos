@@ -1,0 +1,24 @@
+// Regression (B166, g4): `impl Trait` at PARAMETER position. Desugars to a
+// fresh synthetic generic type-param bounded by that trait — `fn f(x: impl T)`
+// ≡ `fn f<__I: T>(x: __I)`. Covers bare traits (with method dispatch),
+// Fn-family bounds (`impl Fn(i64)->i64`) taking fn-pointers AND closures, and
+// multiple impl-Trait params in one signature.
+package impl_trait_param_b166;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+
+fn total(x: impl Sh) -> i64 { return x.area(); }
+fn apply(f: impl Fn(i64) -> i64, x: i64) -> i64 { return f(x); }
+fn combine(f: impl Fn(i64) -> i64, g: impl Fn(i64) -> i64, x: i64) -> i64 { return f(g(x)); }
+fn inc(n: i64) -> i64 { return n + 1i64; }
+fn dbl(n: i64) -> i64 { return n * 2i64; }
+
+fn main() -> i32 {
+    if total(Sq { s: 6i64 }) != 36i64 { return 1i32; }
+    if apply(inc, 41i64) != 42i64 { return 2i32; }
+    let k: i64 = 10i64;
+    if apply(|n: i64| -> i64 { return n + k; }, 32i64) != 42i64 { return 3i32; }
+    if combine(inc, dbl, 20i64) != 41i64 { return 4i32; }
+    return 0i32;
+}

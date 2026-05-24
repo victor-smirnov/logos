@@ -1,4 +1,0 @@
-package impl_trait_param;
-trait Foo { fn x(self: *const Self) -> i32 { return 0; } }
-fn helper(x: impl Foo) -> i32 { return 0; }
-fn main() -> i32 { return 0; }

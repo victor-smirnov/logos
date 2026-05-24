@@ -1873,6 +1873,15 @@ private:
     // Set by collect_impl/lower_impl_block for `impl<T>` blocks so that
     // collect_fn/lower_fn include the impl-level type params in the function.
     std::vector<TypeParam> impl_type_params_;
+    // g4/K5: `impl Trait` parameter desugar. When active (set around a
+    // function's param-type resolution in collect_fn / lower_fn), resolve_type
+    // turns each top-level `impl <bound>` param type into a fresh synthetic
+    // generic type-param (collected in pending_impl_trait_params_) and returns
+    // its TypeVar — the param is then an ordinary generic. Each site drains the
+    // pending params into the function's type_params. `impl Trait` in RETURN
+    // position keeps the existing ImplTrait handling (flag is false there).
+    bool impl_param_desugar_active_ = false;
+    std::vector<TypeParam> pending_impl_trait_params_;
     // CP-cm-16 follow-up: full impl-target pattern of the enclosing impl
     // block (set by collect_impl/lower_impl_block, cleared at block end).
     // Propagated to SemaFuncInfo::impl_target_pattern for impl methods so

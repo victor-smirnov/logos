@@ -1218,7 +1218,23 @@
 
     // ── Type reference ───────────────────────────────────────────
     // assoc_type_ref must come before simple_type to match T::Item before T
-    impl_type <- KW_IMPL IDENT
+    // `impl Trait` in a type position. Mirrors trait_bound's forms so an
+    // impl-Trait PARAMETER (`f: impl Fn(i64) -> i64`, `x: impl Display`,
+    // `it: impl Iterator<Item = i64>`) desugars to a synthetic generic param
+    // bounded by the same trait. Fn-family `(args) -> ret` lands in
+    // PARAMS/RET_TYPE; generic-trait args in TYPE_PARAMS — the same slots
+    // read_trait_bound_args() consumes.
+    impl_type <- KW_IMPL IDENT LT bound_arg_list GT_TYPE
+              => { CODE: IMPL_TYPE, NAME: $2, TYPE_PARAMS: $4 }
+               / KW_IMPL IDENT LPAREN closure_type_args RPAREN ARROW type_ref
+              => { CODE: IMPL_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+               / KW_IMPL IDENT LPAREN RPAREN ARROW type_ref
+              => { CODE: IMPL_TYPE, NAME: $2, RET_TYPE: $6 }
+               / KW_IMPL IDENT LPAREN closure_type_args RPAREN
+              => { CODE: IMPL_TYPE, NAME: $2, PARAMS: $4 }
+               / KW_IMPL IDENT LPAREN RPAREN
+              => { CODE: IMPL_TYPE, NAME: $2 }
+               / KW_IMPL IDENT
               => { CODE: IMPL_TYPE, NAME: $2 }
 
     // hstatic_lit_type intentionally absent: `@{...}` is a HermesStatic *value*,

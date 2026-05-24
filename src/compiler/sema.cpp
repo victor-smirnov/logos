@@ -4712,6 +4712,24 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::IMPL_TYPE) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
+        // g4/K5: at PARAMETER position, `impl <bound>` desugars to a fresh
+        // synthetic generic type-param bounded by <bound> — an `impl Trait`
+        // param is exactly a once-used generic. resolve_type captures the full
+        // bound (Fn-family signature / generic args) the same way a type-param
+        // bound does, via read_trait_bound_args. RETURN position (flag off)
+        // keeps the dedicated ImplTrait handling below.
+        if (impl_param_desugar_active_) {
+            TypeParam tp;
+            tp.name = "__impl_" + std::to_string(pending_impl_trait_params_.size());
+            tp.implicit_sized = true;
+            TraitBound tb;
+            tb.trait_name = tname;
+            read_trait_bound_args(node, tb);
+            tp.bounds.push_back(std::move(tb));
+            auto tv = make_typevar(tp.name);
+            pending_impl_trait_params_.push_back(std::move(tp));
+            return tv;
+        }
         LogosTypeBuilder t;
         t.kind = LogosType::Kind::ImplTrait;
         t.struct_name = tname;  // reuse struct_name to store trait name

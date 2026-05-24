@@ -3741,7 +3741,13 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     };
 
     push_type_params(info.type_params);
+    // g4/K5: desugar `impl Trait` PARAMS into synthetic generic type-params.
+    impl_param_desugar_active_ = true;
+    pending_impl_trait_params_.clear();
     read_param_types();
+    impl_param_desugar_active_ = false;
+    for (auto& tp : pending_impl_trait_params_) info.type_params.push_back(tp);
+    pending_impl_trait_params_.clear();
     info.ret_type = node.has_key(la::RET_TYPE)
         ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
         : void_t();

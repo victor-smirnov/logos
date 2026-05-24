@@ -261,6 +261,12 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     size_t decl_param_arity = 0;
     push_type_params(impl_type_params_);
     push_type_params(node_tparams);
+    // g4/K5: desugar `impl Trait` PARAMS into synthetic generic type-params —
+    // must mirror collect_fn so the synth params + typevar param types match
+    // the registered signature (fi_ptr lookup below compares node_tparams size
+    // and decl_param_types).
+    impl_param_desugar_active_ = true;
+    pending_impl_trait_params_.clear();
     if (node.has_key(la::PARAMS)) {
         auto params_av = node.get(la::PARAMS.code);
         if (params_av.is_pointer()) {
@@ -305,6 +311,9 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             }
         }
     }
+    impl_param_desugar_active_ = false;
+    for (auto& tp : pending_impl_trait_params_) node_tparams.push_back(tp);
+    pending_impl_trait_params_.clear();
     decl_param_arity = decl_param_types.size();
     // Resolve any AssocType / alias placeholders so the param signature
     // matches what sema_collect's add_func saved (collect already runs
