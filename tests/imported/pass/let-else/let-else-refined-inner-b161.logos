@@ -1,0 +1,20 @@
+// Distilled regression for G161-3 (closed 2026-05-23).
+// A let-else whose pattern is a variant carrying a REFINED literal sub-pattern
+// (`let Some(1) = Some(2) else {…}`) previously IGNORED the inner literal test
+// (only the variant discriminant was checked) and bound as if `Some(_)`
+// matched — the else never fired. Now the refutable-inner guard (`__refut == 1`)
+// is threaded onto SLetElse and tested after the bindings are bound.
+package let_else_refined_inner_b161;
+use logos.lang.option;
+fn main() -> i32 {
+    // 1 != 2 → else fires
+    let Option::Some(1i64) = Option::Some(2i64) else {
+        // matching refined literal → binds, no else
+        let Option::Some(2i64) = Option::Some(2i64) else { return 1i32; };
+        // plain binding flows out
+        let Option::Some(n) = Option::Some(7i64) else { return 2i32; };
+        if n != 7i64 { return 3i32; }
+        return 0i32;
+    };
+    return 4i32;  // unreachable: the outer let-else took the else branch
+}

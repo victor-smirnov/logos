@@ -1372,7 +1372,16 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
         auto arr = arr_of(pat_node.get(la::ITEMS.code));
         if (arr.size() == 1) pat_inner = map_of(arr.get(0));
     }
+    // G161-3: collect refutable-inner guard exprs (`__refut_N == value` for
+    // `let Some(1) = … else`). build_pattern's synth_refutable_inner pushes them
+    // here; the SLetElse carries them so codegen tests each AFTER the bindings
+    // are bound (else the inner literal test was silently dropped — only the
+    // variant discriminant was checked).
+    std::vector<lir::LExprPtr> refut_guards;
+    auto* saved_pat_refut = current_pat_refutable_guards_;
+    current_pat_refutable_guards_ = &refut_guards;
     lir::Pattern pat = build_pattern(pat_node, scrut_type);
+    current_pat_refutable_guards_ = saved_pat_refut;
 
     // 3. Lower else block in nested scope (must diverge — closes B-st-03).
     push_scope();
@@ -1435,6 +1444,7 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
     sle.pat        = std::move(pat);
     sle.scrut      = std::move(scrut);
     sle.else_block = lir::alloc_block(*cur_prog_, std::move(else_blk));
+    sle.guards     = std::move(refut_guards);   // G161-3
     return make_stmt_emit(node_line_, std::move(sle));
 }
 

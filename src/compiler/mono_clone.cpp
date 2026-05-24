@@ -3997,8 +3997,10 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto scrut = subst_child_expr(v.scrut());
         auto* else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
         lir_mirror_emit_block_node(out_, *else_block);
+        std::vector<lir::LExprPtr> guards;   // G161-3
+        v.each_guard([&](lir_view::ExprRef g){ guards.push_back(subst_child_expr(g)); });
         ns.mirror_offset_ = lir_mirror_emit_let_else(
-            out_, ns.line, pat, scrut, else_block);
+            out_, ns.line, pat, scrut, else_block, guards);
         break;
     }
     default: break;

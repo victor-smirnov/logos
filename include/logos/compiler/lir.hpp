@@ -610,6 +610,10 @@ struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
     LExprPtr              scrut = nullptr;      // scrutinee expression
     LBlockPtr             else_block = nullptr; // must-diverge block
+    // G161-3: refutable-inner guard exprs (e.g. `__refut_0 == 1` for
+    // `let Some(1) = … else`). Each must hold after the pattern's bindings are
+    // bound, else the else block runs. Empty for a plain variant/literal test.
+    std::vector<LExprPtr> guards;
 };
 
 // Auto-generated drop call: Type__drop(var) at scope exit

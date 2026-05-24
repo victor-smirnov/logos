@@ -360,6 +360,10 @@ inline constexpr Key MOVED_FIELDS      {"MOVED_FIELDS",    36};   // Array<Varch
 // (16M items/arena). Absent = not exported. This is the stable per-element
 // handle a cross-arena ExternalRef will carry instead of a name lookup.
 inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 AnyVal)
+// G161-3: refutable-inner guard exprs on a SLetElse (`let Some(1) = … else`).
+// Each must hold (after the pattern's bindings are bound) or the else block
+// runs; an empty/absent array means the disc/literal test is the whole check.
+inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPtr<LExpr>>
 } // namespace stmt_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────

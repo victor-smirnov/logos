@@ -104,22 +104,15 @@ literals (estr-slice-cmp).
   `&mut [T]` need to type as a mutable-slice iterable (yielding `&mut T`); the
   parser/typer is collapsing `&mut <array>` to `&mut <elem>`.
 
-- **G161-3** ⚠️ SILENT MISCOMPILE (TRACTABLE-ish) — a let-else whose pattern is a
-  VARIANT carrying a REFINED literal sub-pattern (`let Some(1i64) = Some(2i64)
-  else {…}`) silently IGNORES the inner literal test and binds as if `Some(_)`
-  matched — the else-branch never fires even though `1 != 2`. Variant-LEVEL
-  refutation (`let Some(_) = None else`) DOES take the else branch, and the SAME
-  literal sub-pattern inside a `match` (`match Some(2) { Some(1) => …, _ => … }`)
-  refutes correctly — so the gap is specific to let-else's lowering of a refined
-  sub-pattern. Minimal repro:
-  ```
-  let Some(1i64) = Some(2i64) else { return 5i32; };  // does NOT return 5 (binds wrongly)
-  return 7i32;                                          // observed exit = 7
-  ```
-  Dropped that facet from `let-else-nested` (kept the nested-loop integer-literal
-  let-else, which works). Assessment: TRACTABLE-ish — let-else's refutability test
-  only checks the variant discriminant, not the nested literal sub-pattern; route
-  the let-else condition through the same pattern-test path as `match`.
+- **G161-3** ✅ CLOSED (2026-05-23) — a let-else with a variant carrying a
+  REFINED literal/sub-pattern (`let Some(1) = Some(2) else {…}`) no longer
+  silently ignores the inner test. Root: the let-else codegen tested only the
+  variant discriminant; build_pattern's `synth_refutable_inner` guards
+  (`__refut_N == value`) were collected by `match` but dropped by let-else. Fix:
+  thread the refutable-inner guards onto `SLetElse` (new `guards` expr-array on
+  the LIR struct + schema key + emit/view/mono-subst), and in codegen test them
+  in the match_block AFTER the payload bindings are bound — branching to the
+  else block on failure. Regression `let-else-refined-inner`. Full suite green.
 
 - **G161-4** ⚠️ SILENT CRASH (DEEP-ish) — a generic `T: Clone` value (instantiated
   at a STRUCT) produced by a `match`-EXPRESSION arm whose body is a method call

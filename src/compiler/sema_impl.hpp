@@ -641,7 +641,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::STupleWrite>) {
                 s.mirror_offset_ = lir_mirror_emit_tuple_write(p, line, k.receiver, k.index, k.value, k.recv_type);
             } else if constexpr (std::is_same_v<KT, lir::SLetElse>) {
-                s.mirror_offset_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block);
+                s.mirror_offset_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block, k.guards);
             } else if constexpr (std::is_same_v<KT, lir::SChainFieldWrite>) {
                 s.mirror_offset_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.extras, k.field, k.value);
             } else {

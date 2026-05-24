@@ -4208,7 +4208,27 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
         }
         // PatVariant (no payload) — discriminant test was enough, no bindings
 
-        builder_.create<mlir::cf::BranchOp>(loc_, cont_block);
+        // G161-3: refutable-inner guards (`__refut_N == value` for
+        // `let Some(1) = … else`). The payload bindings (incl. the synth
+        // `__refut_N`) are now in scope_; evaluate each guard and branch to the
+        // else block if any fails — otherwise the inner literal/sub-pattern test
+        // would be silently dropped (only the variant disc was checked).
+        mlir::Value guard_cond;
+        v.each_guard([&](lir_view::ExprRef g){
+            auto* gle = lexpr_of(g);
+            if (!gle) return;
+            auto gv = gen_expr(*gle);
+            if (!gv) return;
+            if (gv.getType() != builder_.getI1Type())
+                gv = coerce_int(gv, builder_.getI1Type());
+            guard_cond = guard_cond
+                ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult()
+                : gv;
+        });
+        if (guard_cond)
+            builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_block, else_block);
+        else
+            builder_.create<mlir::cf::BranchOp>(loc_, cont_block);
     }
 
     // Continue in cont_block (bindings from match_block are now in scope_)
