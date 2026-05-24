@@ -2190,6 +2190,12 @@
     atom_ns <- primary_expr_ns
                ( DOT IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
                    => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, TYPE_PARAMS: $5, ARGS: $8 }
+               // Invoke an expression callee — `arr[i](x)`, `(get_fn())(x)`,
+               // `(|| body)(x)`. Mirrors `atom`'s INVOKE_EXPR so a call after a
+               // postfix index/field works in OPERAND position (binary / `if`
+               // condition), not just as a statement head.
+               / LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
+                   => { CODE: INVOKE_EXPR, RECEIVER: $0, ARGS: $... }
                / DOT IDENT LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
                    => { CODE: METHOD_CALL, RECEIVER: $0, NAME: $2, ARGS: $... }
                / DOT KW_NEW LPAREN (expr (COMMA expr)* COMMA?)? RPAREN
