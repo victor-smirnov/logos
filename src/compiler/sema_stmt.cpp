@@ -4769,8 +4769,35 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
 lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     auto var_name = str_of(node.get(la::NAME.code));
 
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
+    // G161-2: `for x in &mut arr` — a bare `&mut <array-var>` lowers to a thin
+    // `&mut elem` (stdlib-compat, see ADDR_OF_MUT), which isn't iterable. For
+    // the for-loop, build a mutable slice over the array and iterate yielding
+    // `&mut T` (the shared `&arr` form already slices + yields `&T`).
+    bool for_mut_ref = false;
+    lir::LExprPtr iter;
+    if (node.has_key(la::ITER)) {
+        auto inode = map_of(node.get(la::ITER.code));
+        if (code_of(inode) == la::ADDR_OF_MUT && inode.has_key(la::VALUE)) {
+            auto child = map_of(inode.get(la::VALUE.code));
+            if (code_of(child) == la::VAR_REF) {
+                auto vn = str_of(child.get(la::NAME.code));
+                auto vt = lookup(vn);
+                if (vt && TypeRef(vt).kind() == LogosType::Kind::Array) {
+                    auto addr = builder().addr_of(std::string(vn),
+                                    make_ref(true, TypeRef(vt).elem()));
+                    auto len  = builder().lit_int(
+                                    (int64_t)TypeRef(vt).arr_size(),
+                                    prim(LogosType::Kind::I64));
+                    iter = builder().slice_lit(std::move(addr), std::move(len),
+                                    make_slice_type(TypeRef(vt).elem()));
+                    for_mut_ref = true;
+                }
+            }
+        }
+        if (!iter) iter = lower_expr(inode);
+    } else {
+        iter = error_expr();
+    }
 
     TypeRef iter_type = iter->type;
 
@@ -4808,7 +4835,8 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         // `&T`, NOT `T` by value (you cannot move out of a borrow). The body
         // binding is a reference; codegen binds the element address. The raw
         // `elem_type` still flows to sfe.elem_type for the GEP stride.
-        define(var_name, make_ref(false, elem_type), false);
+        // G161-2: `for x in &mut arr` yields `&mut T` (mutable element ref).
+        define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref);
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;

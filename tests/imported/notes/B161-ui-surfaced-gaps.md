@@ -85,19 +85,15 @@ literals (estr-slice-cmp).
   the slice-param branch. Verified with multi-field (24B) struct elements.
   Re-imported `copy-out-of-array-1`.
 
-- **G161-2** TRACTABLE — a `for` loop over a MUTABLE borrow of an array/slice
-  (`for i in &mut arr`) is rejected: the scrutinee `&mut [i64; N]` is mis-typed as
-  `&mut i64` (an element ref), so for-in reports "`&mut i64` is not iterable" and
-  even `let s: &mut [i64] = &mut arr` fails "expected &[i64], got &mut i64". The
-  shared-borrow form `for i in &arr` works. Minimal repro:
-  ```
-  let mut ints: [i64; 4] = [0i64; 4];
-  for i in &mut ints { *i = *i + 22i64; }   // error: '&mut i64' is not iterable
-  ```
-  Reshaped: `mutability-through-fixed-vec` mutates via a `while`-index loop and
-  keeps the shared-borrow read-back. Assessment: TRACTABLE — `&mut [T; N]` /
-  `&mut [T]` need to type as a mutable-slice iterable (yielding `&mut T`); the
-  parser/typer is collapsing `&mut <array>` to `&mut <elem>`.
+- **G161-2** ✅ CLOSED (2026-05-23) — `for x in &mut arr` over a fixed-size
+  array now iterates by mutable reference (yields `&mut T`). A bare `&mut
+  <array>` lowers to a thin `&mut elem` (stdlib-compat, kept), which for-in
+  rejected ("'&mut i64' is not iterable"). Fix (lower_for_each): detect a
+  `&mut <array-var>` iter, build a mutable slice over the array, and bind the
+  loop var as `&mut T` (mut). The shared `for x in &arr` (`&T`) and by-value
+  forms are unchanged. Regression `for-mut-ref-array`. (Also restored the
+  `for &mut` facet in `mutability-through-fixed-vec` is left as-is — the
+  dedicated regression covers it.)
 
 - **G161-3** ✅ CLOSED (2026-05-23) — a let-else with a variant carrying a
   REFINED literal/sub-pattern (`let Some(1) = Some(2) else {…}`) no longer

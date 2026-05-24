@@ -1,0 +1,17 @@
+// Distilled regression for G161-2 (closed 2026-05-23).
+// `for x in &mut arr` over a fixed-size array now iterates by MUTABLE reference
+// (yields `&mut T`) — previously `&mut <array>` lowered to a thin `&mut elem`
+// that for-in rejected as "'&mut i64' is not iterable". The shared `for x in
+// &arr` (yields `&T`) and by-value `for x in arr` forms still work.
+package for_mut_ref_array_b161;
+fn main() -> i32 {
+    let mut ints: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    for i in &mut ints { *i = *i + 22i64; }
+    if ints[0i64] != 23i64 { return 1i32; }
+    if ints[3i64] != 26i64 { return 2i32; }
+    // shared borrow read-back still works
+    let mut total: i64 = 0i64;
+    for i in &ints { total = total + *i; }
+    if total != 23i64 + 24i64 + 25i64 + 26i64 { return 3i32; }
+    return 0i32;
+}
