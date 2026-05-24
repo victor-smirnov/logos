@@ -102,23 +102,22 @@ guards; type-qualified UFCS instance calls.
     via `&mut <place>` (EAddrOfTemp). Handles chained index, field+index, slice
     index, deref+tuple-index.
 
-  Covers `grid[0][1] = v`, `(*p).0 = v`, `s.field[i] = v`, `row[i] = v`.
-  DEEPER nestings (3-level `a[i][j][k]`, `g.rows[i].cells[j]`) are **rejected
-  with a clean diagnostic** (workaround: bind an intermediate) rather than
-  miscompiling — those hit a SEPARATE pre-existing read-side limitation (the
-  nested-index READ of `a[i][j][k]` / `g.rows[i].cells[j]` also fails today), so
-  enabling their write side waits on that read-path fix. Affected:
+  Covers `grid[0][1] = v`, arbitrary-depth index `cube[i][j][k] = v`,
+  `(*p).0 = v`, `s.field[i] = v`, `row[i] = v` (read+write). Only a field
+  projected off a struct-ARRAY element (`g.rows[i].cells[j]`) is **rejected with
+  a clean diagnostic** (workaround: bind an intermediate) — that hits the
+  separate pre-existing struct-array-element read bug below. Affected:
   `array-of-arrays-b163` RESTORED to use the chained `grid[r][c] = ..` write.
 
-- **G163-2b** (NEW, surfaced while fixing G163-2; OPEN) — nested-index READ of a
-  THREE-level array `a[i][j][k]` and a field/index mix `g.rows[i].cells[j]`
-  fail/crash today (the read-path's nested-IndexRead address computation only
-  recurses ONE level: it handles a `VarRef`/`FieldRead` index receiver but not a
-  receiver that is itself an `IndexRead`). 2-level `a[i][j]` and `s.field[i]`
-  work. This is independent of the place-write (G163-2) — it's the READ side —
-  and is what bounds G163-2's accepted shapes. Fix: make the EIndexRead receiver
-  address computation recurse (the same recursion `gen_lvalue_addr` does for the
-  write side). Tracked for a focused read-path generalization.
+- **G163-2b** (mostly CLOSED with G163-2) — nested-index READ of a THREE-level
+  array `a[i][j][k]` used to fail (the read-path's nested-IndexRead address
+  computation only recursed ONE level). FIXED: `gen_index_read`'s nested-IndexRead
+  receiver now routes through the recursive `gen_lvalue_addr`, so arbitrary index
+  depth reads (and writes) work. REMAINING (OPEN): a field projected off a
+  struct-ARRAY element (`g.rows[i].cells[j]`) still crashes on READ — the
+  struct-element stride in the FieldRead-index read path (`gen_recv_struct` →
+  struct-array element) is wrong (8-byte ptr stride vs sizeof(struct)). Separate
+  focused fix; G163-2's gate rejects its write form until then.
 
 - **G163-3** (TRACTABLE — same root as B121) — projecting a trait associated CONST
   through a generic type parameter `T::SIDES` inside a generic fn `fn f<T: Poly>()`

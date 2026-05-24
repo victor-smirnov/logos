@@ -2111,42 +2111,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
         break;
     }
     case ec::Code::IndexRead: {
-        // Nested index: matrix[i][j] — get a pointer to matrix[i] without loading it.
-        lir_view::EIndexReadView irv{recv_ref};
-        auto ir_recv  = irv.receiver();
-        auto ir_index = irv.index();
-        auto* ir_recv_le  = lexpr_of(ir_recv);
-        auto* ir_index_le = lexpr_of(ir_index);
-        mlir::Value inner_ptr;
-        mlir::Type  inner_elem_type;
-        if (ir_recv.kind() == ec::Code::VarRef) {
-            std::string vn(lir_view::EVarRefView{ir_recv}.name());
-            inner_ptr       = get_subscript_ptr(vn);
-            inner_elem_type = subscript_elem_type(vn);
-        } else if (ir_recv_le) {
-            inner_ptr       = gen_expr(*ir_recv_le);
-            inner_elem_type = inner_ptr ? logos_to_mlir(ir_recv.type(pool_impl())) : nullptr;
-        }
-        if (inner_ptr && inner_elem_type && ir_index_le) {
-            auto i_idx = gen_expr(*ir_index_le);
-            if (i_idx) {
-                TypeRef ir_idx_t = ir_index.type(pool_impl());
-                bool i_unsigned = ir_idx_t &&
-                    (ir_idx_t.kind() == LogosType::Kind::U8  ||
-                     ir_idx_t.kind() == LogosType::Kind::U16 ||
-                     ir_idx_t.kind() == LogosType::Kind::U32 ||
-                     ir_idx_t.kind() == LogosType::Kind::U24 ||
-                     ir_idx_t.kind() == LogosType::Kind::U56 ||
-                     ir_idx_t.kind() == LogosType::Kind::U64 ||
-                     ir_idx_t.kind() == LogosType::Kind::U128);
-                if (i_unsigned && i_idx.getType() != builder_.getI64Type())
-                    i_idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), i_idx);
-                llvm::SmallVector<mlir::LLVM::GEPArg> inner_indices{i_idx};
-                arr_ptr   = builder_.create<mlir::LLVM::GEPOp>(
-                                loc_, ptr_type(), inner_elem_type, inner_ptr, inner_indices);
-                elem_type = logos_to_mlir(type);
-                if (!elem_type) elem_type = builder_.getI32Type();
-            }
+        // Nested index `matrix[i][j]` (and deeper, `cube[i][j][k]`): the address
+        // of the receiver place `matrix[i]` is computed RECURSIVELY by
+        // gen_lvalue_addr (G163-2b); the outer GEP below then strides into it by
+        // the result element type. (The old one-level form gen_expr'd a 2-deep
+        // receiver, loading the inner array BY VALUE → bad GEP base → crash.)
+        if (auto a = gen_lvalue_addr(recv_ref)) {
+            arr_ptr   = a;
+            elem_type = logos_to_mlir(type);
+            if (!elem_type) elem_type = builder_.getI32Type();
         }
         break;
     }

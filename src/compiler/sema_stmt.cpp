@@ -5976,20 +5976,33 @@ bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
     int32_t code = code_of(unwrap_paren_node(recv));
     return code == la::VAR_REF || code == la::DEREF;
 }
+// A field-read base with NO index in the chain (`s`, `*p`, `s.a.b`). A field
+// off a struct-array element (`g.rows[i].cells`) is excluded: indexing a struct
+// ARRAY element then projecting a field hits a separate pre-existing read-path
+// limitation (the struct-element stride), so its write would crash — reject it.
+bool SemaChecker::place_field_base_ok(hermes::TinyMapView recv) {
+    recv = unwrap_paren_node(recv);
+    int32_t c = code_of(recv);
+    if (c == la::VAR_REF || c == la::DEREF) return true;
+    if (c == la::FIELD_READ)
+        return place_field_base_ok(map_of(recv.get(la::RECEIVER.code)));
+    return false;
+}
+// Recursive: a place whose real address gen_lvalue_addr can compute. VAR_REF and
+// `*p` bottom out; index chains recurse (gen_lvalue_addr strides each level by
+// the full element aggregate type, so arbitrary index depth + struct/tuple array
+// elements are fine); tuple-index and field reads are bounded to the shapes the
+// address machinery + the read path both handle correctly.
 bool SemaChecker::place_write_supported(TinyMapView place) {
     place = unwrap_paren_node(place);
     int32_t pc = code_of(place);
-    if (pc == la::DEREF) return true;
-    if (pc == la::TUPLE_INDEX || pc == la::FIELD_READ)
+    if (pc == la::VAR_REF || pc == la::DEREF) return true;
+    if (pc == la::INDEX_READ)
+        return place_write_supported(map_of(place.get(la::RECEIVER.code)));
+    if (pc == la::TUPLE_INDEX)
         return place_recv_is_simple(map_of(place.get(la::RECEIVER.code)));
-    if (pc == la::INDEX_READ) {
-        auto recv = unwrap_paren_node(map_of(place.get(la::RECEIVER.code)));
-        int32_t rc = code_of(recv);
-        if (rc == la::VAR_REF || rc == la::DEREF) return true;  // a[i], (*p)[i]
-        if (rc == la::FIELD_READ || rc == la::INDEX_READ)       // s.f[i], a[i][j]
-            return place_recv_is_simple(map_of(recv.get(la::RECEIVER.code)));
-        return false;
-    }
+    if (pc == la::FIELD_READ)
+        return place_field_base_ok(map_of(place.get(la::RECEIVER.code)));
     return false;
 }
 
