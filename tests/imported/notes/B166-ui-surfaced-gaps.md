@@ -122,10 +122,12 @@ G162-1 fix, which handled `Variant(n @ range)` but not a nested *enum* sub-patte
 an explicit generic … or '&dyn Sh'"*. Documented restriction (distinct from N6's parse-level
 Fn-sugar failure); listed for completeness.
 
-### K-misc — `_` inference placeholder in turbofish — REJECT  [repro g13]
-`apply::<i64, _>(...)` → *"unknown type '_'"*. Rust permits partial turbofish with `_`.
-Minor; full turbofish (`::<i64, i64>`) or full inference both work. (Borderline NEW/known —
-recorded here as a small surface gap.)
+### K-misc — `_` inference placeholder in turbofish — ✅ CLOSED 2026-05-24  [repro g13]
+`apply::<i64, _>(...)` previously → *"unknown type '_'"*. FIXED: a `_` turbofish arg is emitted
+as the sentinel TypeVar("_") (not resolved as a type), and finish_generic_call infers those
+positions from the actual argument types — generalizing its tail-inference to interior holes.
+Works for trailing/leading holes, all-explicit, and full inference. Test:
+inference/partial-turbofish-underscore-b166.
 
 ---
 

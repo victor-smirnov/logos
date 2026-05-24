@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/inference/ partial-turbofish shapes (distilled).
+// Modifications: isize->i64; assert->if-return.
+// Tests B166 K-misc: a `_` inference placeholder in a partial turbofish
+//   (`apply::<i64, _>(…)`) previously errored "unknown type '_'". Now `_`
+//   positions are inference holes filled from the actual argument types, per
+//   Rust. Exercises trailing hole, leading hole, all-explicit, and full
+//   inference (no turbofish) — all must agree.
+package partial_turbofish_underscore_b166;
+
+fn apply<A, B>(f: fn(A) -> B, x: A) -> B { return f(x); }
+
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+
+fn main() -> i32 {
+    if apply::<i64, _>(dbl, 5i64) != 10i64 { return 1i32; }   // trailing hole
+    if apply::<_, i64>(dbl, 3i64) != 6i64  { return 2i32; }   // leading hole
+    if apply::<i64, i64>(dbl, 4i64) != 8i64 { return 3i32; }  // all explicit
+    if apply(dbl, 7i64) != 14i64 { return 4i32; }             // full inference
+    return 0i32;
+}

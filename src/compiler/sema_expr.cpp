@@ -3037,7 +3037,15 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // be supplied explicitly and trailing ones inferred. Common case for
     // multi-arg generic fns where one type-param (e.g. CFG) is in the
     // return type and the other (e.g. STORE_CFG) is in an arg type.
+    // K-misc: `_` placeholders (from partial turbofish like `apply::<i64, _>`)
+    // arrive as the sentinel TypeVar("_") — positions to infer from args.
+    auto is_infer_hole = [](TypeRef t) {
+        return t && TypeRef(t).kind() == LogosType::Kind::TypeVar &&
+               TypeRef(t).type_var_name() == "_";
+    };
     if (!fi.type_params.empty()) {
+        bool has_infer_hole = false;
+        for (auto t : type_args) if (is_infer_hole(t)) { has_infer_hole = true; break; }
         if (has_variadic) {
                 if (type_args.size() < non_variadic_count)
                     error(std::format("call to '{}': expected at least {} type arg(s), got {}",
@@ -3045,7 +3053,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         } else if (type_args.size() > fi.type_params.size()) {
             error(std::format("call to '{}': expected {} type arg(s), got {}",
                   callee_diag, fi.type_params.size(), type_args.size()));
-        } else if (type_args.size() < fi.type_params.size()) {
+        } else if (type_args.size() < fi.type_params.size() || has_infer_hole) {
             // Pre-bind explicit head; infer the rest from arg types and
             // (if available) the let-binding's annotated type as the
             // expected return type.
@@ -3077,7 +3085,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             }
             for (size_t i = used_impl_pattern_head ? impl_head_n : 0;
                  i < type_args.size(); ++i)
-                bindings[fi.type_params[i].name] = type_args[i];
+                if (!is_infer_hole(type_args[i]))  // skip `_` holes — infer below
+                    bindings[fi.type_params[i].name] = type_args[i];
             for (size_t i = 0; i < fi.param_types.size() && i < arg_exprs.size(); ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], bindings);
                 unify_types(pt, arg_exprs[i]->type, bindings);
@@ -3089,8 +3098,10 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 auto rt = subst_type_sema(fi.ret_type, bindings);
                 unify_types(rt, hint_call_return_type_, bindings);
             }
-            // Append inferred tail.
-            for (size_t i = type_args.size(); i < fi.type_params.size(); ++i) {
+            // Fill interior `_` holes (rewrite in place) + append inferred tail.
+            for (size_t i = 0; i < fi.type_params.size(); ++i) {
+                if (i < type_args.size() && !is_infer_hole(type_args[i]))
+                    continue;  // explicitly supplied, keep
                 auto it = bindings.find(fi.type_params[i].name);
                 if (it == bindings.end()) {
                     error(std::format("call to '{}': could not infer type arg '{}' "
@@ -3098,7 +3109,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                           callee_diag, fi.type_params[i].name));
                     return error_expr();
                 }
-                type_args.push_back(it->second);
+                if (i < type_args.size()) type_args[i] = it->second;  // fill hole
+                else                      type_args.push_back(it->second);  // tail
             }
         }
     }
@@ -3726,8 +3738,18 @@ std::vector<TypeRef> SemaChecker::collect_type_args(TinyMapView node) {
     auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
     if (!tplist.has_key(la::ITEMS)) return out;
     auto items = arr_of(tplist.get(la::ITEMS.code));
-    for (size_t i = 0; i < items.size(); ++i)
-        out.push_back(resolve_type(map_of(items.get(i))));
+    for (size_t i = 0; i < items.size(); ++i) {
+        // K-misc: a `_` placeholder in a (partial) turbofish — e.g.
+        // `apply::<i64, _>(…)` — is an inference hole, not a type. Emit the
+        // sentinel TypeVar("_") so resolve_type doesn't reject it as
+        // "unknown type '_'"; finish_generic_call infers these positions from
+        // the actual argument types (Rust permits partial turbofish with `_`).
+        auto it = map_of(items.get(i));
+        if (code_of(it) == la::TYPE_REF && str_of(it.get(la::NAME.code)) == "_")
+            out.push_back(make_typevar("_"));
+        else
+            out.push_back(resolve_type(it));
+    }
     return out;
 }
 
@@ -4798,7 +4820,14 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                         !fi_ptr->type_params[i].implicit_sized) {
                         unsized_ok_ = true;
                     }
-                    type_args.push_back(resolve_type(map_of(items.get(i))));
+                    // K-misc: `_` placeholder → inference hole (sentinel
+                    // TypeVar("_")); finish_generic_call infers it from args.
+                    auto tn = map_of(items.get(i));
+                    if (code_of(tn) == la::TYPE_REF &&
+                        str_of(tn.get(la::NAME.code)) == "_")
+                        type_args.push_back(make_typevar("_"));
+                    else
+                        type_args.push_back(resolve_type(tn));
                     unsized_ok_ = was_ok;
                 }
             }
