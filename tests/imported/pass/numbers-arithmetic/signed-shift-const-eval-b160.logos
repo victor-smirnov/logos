@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/signed-shift-const-eval.rs
+// Modifications: isize->i64; `1_usize`->`1u64`; the enum discriminant
+//   expression `-5 >> 1` kept (expression discriminants land via G159-3 / CTFE);
+//   assert_eq! -> early-return sentinel; `pub fn main()` -> `fn main()->i32`.
+// Tests an enum discriminant defined by a SIGNED arithmetic-shift constant
+//   expression `-5 >> 1` (== -3), read back via `as i64`.
+package signed_shift_const_eval_b160;
+
+enum Test { Thing = -5i64 >> 1u64 }
+
+fn main() -> i32 {
+    if (Test::Thing as i64) != -3i64 { return 1i32; }
+    return 0i32;
+}

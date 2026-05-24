@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/irrefutable-let-patterns.rs
+// Modifications: `pub fn main()` -> `fn main()->i32`; literals suffixed; added a
+//   counter so the loop body is observable; `if let _ = 5 {}` / `while let _ = 5
+//   { break }` kept verbatim.
+// Tests irrefutable wildcard patterns in `if let _ = e {}` and `while let _ = e {}`.
+package irrefutable_let_patterns_b160;
+
+fn main() -> i32 {
+    if let _ = 5i64 {}
+
+    let mut n = 0i64;
+    while let _ = 5i64 {
+        n = n + 1i64;
+        break;
+    }
+    if n != 1i64 { return 1i32; }
+    return 0i32;
+}

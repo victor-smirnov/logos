@@ -1,0 +1,46 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift.rs
+// Modifications: kept test_misc (left-assoc chained `<<`) and test_expr (shift
+//   with the RHS being an `as usize`-cast value across u8/i8/usize/isize/i64
+//   widths: u64/u8/i64); dropped test_const (module statics unsupported —
+//   G153-3) and the i8 facet (literal `160i8` overflows i8 — Logos rejects
+//   out-of-range literals, the original relied on `#![allow(overflowing_literals)]`);
+//   isize/usize->i64/u64; assert_eq! -> early-return sentinels; literals
+//   suffixed; `as usize`->`as u64` for shift counts.
+// Tests shift operators: left-associative chaining `1<<1<<1<<1<<1<<1` and `<<`/
+//   `>>` whose right operand is produced by an `as`-cast across integer widths.
+package shift_various_b160;
+
+fn test_misc() -> i32 {
+    if (1i64 << 1i64 << 1i64 << 1i64 << 1i64 << 1i64) != 32i64 { return 1i32; }
+    return 0i32;
+}
+
+fn test_expr() -> i32 {
+    let v10 = 10u64;
+    let v4 = 4u8;
+    let v2 = 2u8;
+    if (v10 >> (v2 as u64)) != (v2 as u64) { return 2i32; }
+    if (v10 << (v4 as u64)) != 160u64 { return 3i32; }
+
+    let w10 = 10u8;
+    let w4 = 4u64;
+    let w2 = 2u64;
+    if (w10 >> (w2 as u64)) != (w2 as u8) { return 4i32; }
+    if (w10 << (w4 as u64)) != 160u8 { return 5i32; }
+
+    let x10 = 10i64;
+    let x4 = 4i8;
+    let x2 = 2i8;
+    if (x10 >> (x2 as u64)) != (x2 as i64) { return 6i32; }
+    if (x10 << (x4 as u64)) != 160i64 { return 7i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let a = test_misc();
+    if a != 0i32 { return a; }
+    let b = test_expr();
+    if b != 0i32 { return b; }
+    return 0i32;
+}

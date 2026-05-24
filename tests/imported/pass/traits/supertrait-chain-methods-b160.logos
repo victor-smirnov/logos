@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/trait-upcasting/basic.rs
+// Modifications: dropped the `&dyn` trait-object upcasting (`&dyn Baz` ->
+//   `&dyn Bar` -> `&dyn Foo`) — out of scope; kept the 3-level supertrait chain
+//   `Baz: Bar: Foo` exercised on a CONCRETE i64 receiver, with the impl
+//   overriding each required method `a`/`b`/`c` and inheriting ONE default
+//   method per trait (`z` from Foo, `w` from Bar). Dropped the second Foo default
+//   `y` because a trait that leaves >=2 default methods un-overridden in an impl
+//   trips a `Self`-substitution gap (G160-3) on the 2nd inherited default.
+//   Dropped the PartialEq<i32>/Debug/Send/Sync supertraits; isize->i64,
+//   `&self`->`self: &Self`; assert_eq! -> early-return sentinels.
+// Tests method resolution over a 3-level supertrait chain on a concrete receiver:
+//   overridden required methods plus one inherited default method per trait.
+package supertrait_chain_methods_b160;
+
+trait Foo {
+    fn a(self: &Self) -> i64 { return 10i64; }
+    fn z(self: &Self) -> i64 { return 11i64; }
+}
+
+trait Bar: Foo {
+    fn b(self: &Self) -> i64 { return 20i64; }
+    fn w(self: &Self) -> i64 { return 21i64; }
+}
+
+trait Baz: Bar {
+    fn c(self: &Self) -> i64 { return 30i64; }
+}
+
+impl Foo for i64 {
+    fn a(self: &Self) -> i64 { return 100i64; }
+}
+impl Bar for i64 {
+    fn b(self: &Self) -> i64 { return 200i64; }
+}
+impl Baz for i64 {
+    fn c(self: &Self) -> i64 { return 300i64; }
+}
+
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    if x.a() != 100i64 { return 1i32; }
+    if x.b() != 200i64 { return 2i32; }
+    if x.c() != 300i64 { return 3i32; }
+    if x.z() != 11i64 { return 4i32; }
+    if x.w() != 21i64 { return 5i32; }
+    return 0i32;
+}

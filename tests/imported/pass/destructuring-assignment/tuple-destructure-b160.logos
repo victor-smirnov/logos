@@ -1,0 +1,37 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/destructuring-assignment/tuple_destructure.rs
+// Modifications: declared the deferred locals with explicit types
+//   (`let mut a: i64;` instead of `let (mut a, mut b);`); kept the tuple
+//   destructuring-assignment forms `(a,b)=`, swap `(b,a)=(a,b)`, rest
+//   `(a, .., b)=`, leading-rest `(.., a)=`, `(b, ..)=` over a longer RHS,
+//   wildcard `(a, _)=`; dropped the String (non-Copy) facet, the `(..)=` ignore-
+//   all facet, and the nested-parenthesised forms `((a,b))=` / `(((a,b)),(c))=`
+//   (extra parens around a place tuple are unsupported — G160-6). assert_eq! ->
+//   early-return sentinels; literals suffixed.
+// Tests tuple destructuring-assignment to pre-declared mutable locals, including
+//   element swap, rest patterns (leading/trailing), longer-RHS rest, and `_`.
+package tuple_destructure_b160;
+
+fn main() -> i32 {
+    let mut a: i64;
+    let mut b: i64;
+    (a, b) = (0i64, 1i64);
+    if a != 0i64 || b != 1i64 { return 1i32; }
+
+    (b, a) = (a, b);
+    if a != 1i64 || b != 0i64 { return 2i32; }
+
+    (a, .., b) = (1i64, 2i64);
+    if a != 1i64 || b != 2i64 { return 3i32; }
+
+    (.., a) = (1i64, 2i64);
+    if a != 2i64 || b != 2i64 { return 4i32; }
+
+    (b, ..) = (5i64, 6i64, 7i64);
+    if b != 5i64 { return 5i32; }
+
+    (a, _) = (8i64, 9i64);
+    if a != 8i64 { return 6i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,62 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_augmented_assignments.rs
+// Modifications: derive(Debug,PartialEq) dropped; assert_eq! -> early-return
+//   sentinels comparing the inner i32; dropped the indexed-LHS Vec facet and the
+//   unsized-RHS Slice/transmute facet (out of scope); also dropped the
+//   ShlAssign/ShrAssign (u8/u16 RHS) facets — compound-assign overloading with a
+//   RHS type that differs from Self is unsupported (G160-5); the *Assign traits
+//   are declared locally (`self: &mut Self`); i32 fields, literals suffixed.
+// Tests user-defined compound-assignment operator overloading on a struct via
+//   AddAssign/BitAndAssign/BitOrAssign/BitXorAssign/DivAssign/MulAssign/
+//   RemAssign/SubAssign (all with Int = Self RHS).
+package mir_augmented_assignments_b160;
+
+struct Int { v: i32 }
+
+trait AddAssign { fn add_assign(self: &mut Self, rhs: Int); }
+trait BitAndAssign { fn bitand_assign(self: &mut Self, rhs: Int); }
+trait BitOrAssign { fn bitor_assign(self: &mut Self, rhs: Int); }
+trait BitXorAssign { fn bitxor_assign(self: &mut Self, rhs: Int); }
+trait DivAssign { fn div_assign(self: &mut Self, rhs: Int); }
+trait MulAssign { fn mul_assign(self: &mut Self, rhs: Int); }
+trait RemAssign { fn rem_assign(self: &mut Self, rhs: Int); }
+trait SubAssign { fn sub_assign(self: &mut Self, rhs: Int); }
+
+impl AddAssign for Int { fn add_assign(self: &mut Self, rhs: Int) { self.v = self.v + rhs.v; } }
+impl BitAndAssign for Int { fn bitand_assign(self: &mut Self, rhs: Int) { self.v = self.v & rhs.v; } }
+impl BitOrAssign for Int { fn bitor_assign(self: &mut Self, rhs: Int) { self.v = self.v | rhs.v; } }
+impl BitXorAssign for Int { fn bitxor_assign(self: &mut Self, rhs: Int) { self.v = self.v ^ rhs.v; } }
+impl DivAssign for Int { fn div_assign(self: &mut Self, rhs: Int) { self.v = self.v / rhs.v; } }
+impl MulAssign for Int { fn mul_assign(self: &mut Self, rhs: Int) { self.v = self.v * rhs.v; } }
+impl RemAssign for Int { fn rem_assign(self: &mut Self, rhs: Int) { self.v = self.v % rhs.v; } }
+impl SubAssign for Int { fn sub_assign(self: &mut Self, rhs: Int) { self.v = self.v - rhs.v; } }
+
+fn main() -> i32 {
+    let mut x = Int { v: 1i32 };
+
+    x += Int { v: 2i32 };
+    if x.v != 3i32 { return 1i32; }
+
+    x &= Int { v: 1i32 };
+    if x.v != 1i32 { return 2i32; }
+
+    x |= Int { v: 2i32 };
+    if x.v != 3i32 { return 3i32; }
+
+    x ^= Int { v: 1i32 };
+    if x.v != 2i32 { return 4i32; }
+
+    x /= Int { v: 2i32 };
+    if x.v != 1i32 { return 5i32; }
+
+    x *= Int { v: 3i32 };
+    if x.v != 3i32 { return 6i32; }
+
+    x %= Int { v: 2i32 };
+    if x.v != 1i32 { return 7i32; }
+
+    x -= Int { v: 1i32 };
+    if x.v != 0i32 { return 8i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/where-clauses.rs
+// Modifications: dropped the method-level-generic `equals<T,U> where T: Eq, U:
+//   Eq` (extra generic params on a trait method with separate bounds) and the
+//   &str receiver facets; kept the blanket `impl<T: Eq> Equal for T` with the
+//   single required method, a free fn `equal<T: Eq>`, and method/free-fn calls
+//   on a primitive (i64); println! -> early-return sentinels comparing bools.
+// Tests a blanket trait impl bounded on `Eq` (`impl<T: Eq> Equal for T`) plus a
+//   `where`/bound-constrained free function, both exercised on a primitive
+//   receiver via the user `==`.
+package where_clauses_blanket_eq_b160;
+
+trait Equal {
+    fn equal(self: &Self, other: &Self) -> bool;
+}
+
+impl<T: Eq> Equal for T {
+    fn equal(self: &Self, other: &T) -> bool { return self == other; }
+}
+
+fn equal<T: Eq>(x: &T, y: &T) -> bool { return x == y; }
+
+fn main() -> i32 {
+    if equal(&1i64, &2i64) != false { return 1i32; }
+    if equal(&1i64, &1i64) != true { return 2i32; }
+    if (5i64).equal(&5i64) != true { return 3i32; }
+    if (5i64).equal(&6i64) != false { return 4i32; }
+    return 0i32;
+}

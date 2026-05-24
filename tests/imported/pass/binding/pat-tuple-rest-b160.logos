@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/pat-tuple-5.rs
+// Modifications: unit structs `struct S;` -> `struct S {}` (Logos needs braces);
+//   nested fns hoisted to module scope; arms made observable with sentinel
+//   returns; `pub fn main()` -> `fn main()->i32`. The rest-pattern forms
+//   `(S, ..)`, `(.., W)`, `(S, .., W)`, `(.., Z, _)` are kept verbatim over both
+//   a plain tuple and a tuple struct.
+// Tests `..` rest-patterns in tuple and tuple-struct match positions: leading,
+//   trailing, middle, and rest-then-fixed-then-wildcard.
+package pat_tuple_rest_b160;
+
+struct S {}
+struct Z {}
+struct W {}
+struct SS(S, Z, W);
+
+fn tuple() -> i32 {
+    let x = (S {}, Z {}, W {});
+    match x { (S {}, ..) => {} }
+    match x { (.., W {}) => {} }
+    match x { (S {}, .., W {}) => {} }
+    match x { (.., Z {}, _) => {} }
+    return 0i32;
+}
+
+fn tuple_struct() -> i32 {
+    let x = SS(S {}, Z {}, W {});
+    match x { SS(S {}, ..) => {} }
+    match x { SS(.., W {}) => {} }
+    match x { SS(S {}, .., W {}) => {} }
+    match x { SS(.., Z {}, _) => {} }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let a = tuple();
+    if a != 0i32 { return 1i32; }
+    let b = tuple_struct();
+    if b != 0i32 { return 2i32; }
+    return 0i32;
+}

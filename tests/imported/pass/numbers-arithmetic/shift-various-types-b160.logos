@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/shift-various-types.rs
+// Modifications: isize/usize->i64/u64; dropped the isize/usize struct fields
+//   (folded into i64/u64); assert_eq! -> early-return sentinels; literals
+//   suffixed; `&self`-free (free fn takes `&Panoply`).
+// Tests that `>>` shift accepts a right-hand operand of any integral width
+//   (i8/i16/i32/i64, u8/u16/u32/u64) read out of struct fields.
+package shift_various_types_b160;
+
+struct Panoply {
+    i8v: i8,
+    i16v: i16,
+    i32v: i32,
+    i64v: i64,
+    u8v: u8,
+    u16v: u16,
+    u32v: u32,
+    u64v: u64,
+}
+
+fn foo(p: &Panoply) -> i32 {
+    if 22i64 >> p.i8v != 11i64 { return 1i32; }
+    if 22i64 >> p.i16v != 11i64 { return 2i32; }
+    if 22i64 >> p.i32v != 11i64 { return 3i32; }
+    if 22i64 >> p.i64v != 11i64 { return 4i32; }
+    if 22i64 >> p.u8v != 11i64 { return 5i32; }
+    if 22i64 >> p.u16v != 11i64 { return 6i32; }
+    if 22i64 >> p.u32v != 11i64 { return 7i32; }
+    if 22i64 >> p.u64v != 11i64 { return 8i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let p = Panoply {
+        i8v: 1i8,
+        i16v: 1i16,
+        i32v: 1i32,
+        i64v: 1i64,
+        u8v: 1u8,
+        u16v: 1u16,
+        u32v: 1u32,
+        u64v: 1u64,
+    };
+    return foo(&p);
+}

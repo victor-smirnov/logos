@@ -1,0 +1,64 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/mir_codegen_calls.rs
+// Modifications: kept the call-dispatch facets that map to Logos: nested fn
+//   call, inherent method, default trait method via `impl Bar for Foo {}`,
+//   trait-object method call (`&dyn Bar`), generic-callee extension method,
+//   impl static method, trait static method via UFCS `<isize as One>::one()`.
+//   Dropped the fat-pointer/extern-C/closure-as-Fn-object/transmute-ZST/
+//   const-by-ref facets (out of scope or covered elsewhere). Unit structs
+//   `struct Foo;`/`struct Two;` -> `struct Foo {}`/`struct Two {}` (Logos unit
+//   structs need braces). isize->i64,
+//   `&self`->`self: &Self`; assert_eq! -> early-return sentinels; literals
+//   suffixed; nested fns hoisted to module scope.
+// Tests MIR call lowering across nested-fn, inherent-method, default-trait-method,
+//   trait-object dispatch, generic-callee dispatch, impl-static, and UFCS
+//   trait-static (`<T as Trait>::m()`).
+package mir_codegen_calls_dispatch_b160;
+
+struct Foo {}
+
+impl Foo {
+    fn inherent_method(self: &Self, a: i64) -> i64 { return a; }
+}
+
+trait Bar {
+    fn extension_method(self: &Self, a: i64) -> i64 { return a; }
+}
+impl Bar for Foo {}
+
+fn callee2(a: i64) -> i64 { return a; }
+fn test2(a: i64) -> i64 { return callee2(a); }
+
+fn test3(x: &Foo, a: i64) -> i64 { return x.inherent_method(a); }
+
+fn test4(x: &Foo, a: i64) -> i64 { return x.extension_method(a); }
+
+fn test5(x: &dyn Bar, a: i64) -> i64 { return x.extension_method(a); }
+
+fn test6<T: Bar>(x: &T, a: i64) -> i64 { return x.extension_method(a); }
+
+trait One {
+    fn one() -> i64;
+}
+impl One for i64 {
+    fn one() -> i64 { return 1i64; }
+}
+fn test7() -> i64 { return <i64 as One>::one(); }
+
+struct Two {}
+impl Two {
+    fn two() -> i64 { return 2i64; }
+}
+fn test8() -> i64 { return Two::two(); }
+
+fn main() -> i32 {
+    if test2(98i64) != 98i64 { return 1i32; }
+    let f = Foo {};
+    if test3(&f, 42i64) != 42i64 { return 2i32; }
+    if test4(&f, 970i64) != 970i64 { return 3i32; }
+    if test5(&f, 8576i64) != 8576i64 { return 4i32; }
+    if test6(&f, 12367i64) != 12367i64 { return 5i32; }
+    if test7() != 1i64 { return 6i32; }
+    if test8() != 2i64 { return 7i32; }
+    return 0i32;
+}

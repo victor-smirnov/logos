@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/u8-incr-decr.rs
+// Modifications: literals suffixed; assert_eq! -> early-return; `pub fn main()`.
+// Tests u8 increment and decrement converge to the same value (19+7 == 35-9).
+package u8_incr_decr_b160;
+
+fn main() -> i32 {
+    let mut x: u8 = 19u8;
+    let mut y: u8 = 35u8;
+    x = x + 7u8;
+    y = y - 9u8;
+    if x != y { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/str/nul-char-equivalence.rs
+// Modifications: distilled the CHARACTER-LITERAL facets only (the string facets
+//   hit a separate string-escape-decoding gap — G160-7 — where `"\0".len()`
+//   counts literal chars, not the decoded NUL). Kept NUL escape equivalence
+//   (`'\0' == '\x00' == '\u{0}'`) and added the common ASCII escapes
+//   (`\n \t \r \\ \'`) plus a `\x` and a `\u{}` code-point check, compared via
+//   `as u32`; assert_eq! -> early-return sentinels.
+// Tests character-literal escape decoding: NUL via `\0`/`\x00`/`\u{0}`, the
+//   control/quote escapes, and `\xNN` / `\u{NN}` hex code points (`as u32`).
+package char_escape_equivalence_b160;
+
+fn main() -> i32 {
+    // NUL written three ways is the same character.
+    if '\0' != '\x00' { return 1i32; }
+    if '\u{0}' != '\x00' { return 2i32; }
+    if '\u{0}' != '\u{0}' { return 3i32; }
+
+    // common escapes -> their code points
+    if ('\n' as u32) != 10u32 { return 4i32; }
+    if ('\t' as u32) != 9u32 { return 5i32; }
+    if ('\r' as u32) != 13u32 { return 6i32; }
+    if ('\\' as u32) != 92u32 { return 7i32; }
+    if ('\'' as u32) != 39u32 { return 8i32; }
+
+    // hex byte + unicode code point escapes
+    if ('\x41' as u32) != 65u32 { return 9i32; }
+    if ('\u{1F}' as u32) != 31u32 { return 10i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/arith-unsigned.rs
+// Modifications: assert!/assert_eq! -> early-return sentinels; `pub fn main()` ->
+//   `fn main()->i32`. Literals already suffixed in original.
+// Tests unsigned integer comparisons (< <= > >=) and div/rem across u8/u16/u32.
+package arith_unsigned_b160;
+
+fn main() -> i32 {
+    if !(0u8 < 255u8) { return 1i32; }
+    if !(0u8 <= 255u8) { return 2i32; }
+    if !(255u8 > 0u8) { return 3i32; }
+    if !(255u8 >= 0u8) { return 4i32; }
+    if 250u8 / 10u8 != 25u8 { return 5i32; }
+    if 255u8 % 10u8 != 5u8 { return 6i32; }
+    if !(0u16 < 60000u16) { return 7i32; }
+    if !(0u16 <= 60000u16) { return 8i32; }
+    if !(60000u16 > 0u16) { return 9i32; }
+    if !(60000u16 >= 0u16) { return 10i32; }
+    if 60000u16 / 10u16 != 6000u16 { return 11i32; }
+    if 60005u16 % 10u16 != 5u16 { return 12i32; }
+    if !(0u32 < 4000000000u32) { return 13i32; }
+    if !(0u32 <= 4000000000u32) { return 14i32; }
+    if !(4000000000u32 > 0u32) { return 15i32; }
+    if !(4000000000u32 >= 0u32) { return 16i32; }
+    if 4000000000u32 / 10u32 != 400000000u32 { return 17i32; }
+    if 4000000005u32 % 10u32 != 5u32 { return 18i32; }
+    return 0i32;
+}

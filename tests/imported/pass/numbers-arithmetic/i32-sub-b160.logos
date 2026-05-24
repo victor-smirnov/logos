@@ -1,0 +1,12 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/i32-sub.rs
+// Modifications: literals suffixed; assert_eq! -> early-return; `pub fn main()`.
+// Tests negation-by-subtraction `0 - x` on i32.
+package i32_sub_b160;
+
+fn main() -> i32 {
+    let mut x: i32 = -400i32;
+    x = 0i32 - x;
+    if x != 400i32 { return 1i32; }
+    return 0i32;
+}

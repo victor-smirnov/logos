@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/integer-literal-radix.rs
+// Modifications: isize->i64; literal-suffix `_isize`->`i64`; assert_eq! ->
+//   early-return sentinels; `pub fn main()` -> `fn main()->i32`.
+// Tests hex (0x), octal (0o), binary (0b) integer literals with `_` separators,
+//   including negated forms.
+package integer_literal_radix_b160;
+
+fn main() -> i32 {
+    let a = 0xBEEFi64;
+    let b = 0o755i64;
+    let c = 0b10101i64;
+    let d = -0xBEEFi64;
+    let e = -0o755i64;
+    let f = -0b10101i64;
+
+    if a != 48879i64 { return 1i32; }
+    if b != 493i64 { return 2i32; }
+    if c != 21i64 { return 3i32; }
+    if d != -48879i64 { return 4i32; }
+    if e != -493i64 { return 5i32; }
+    if f != -21i64 { return 6i32; }
+    return 0i32;
+}

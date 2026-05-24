@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/struct_variant_xc_match.rs
+// Modifications: dropped the cross-crate aux-build (the Enum is declared locally);
+//   the tuple variant `Variant` gets an explicit i64 payload; assert_eq! ->
+//   early-return sentinel; `pub fn main()` -> `fn main()->i32`; literals suffixed.
+// Tests matching an enum struct-shaped variant `StructVariant { arg }` as a
+//   match expression, extracting the named field, with a non-matching tuple
+//   variant arm.
+package struct_variant_match_b160;
+
+enum Enum { Variant(i64), StructVariant { arg: i64 } }
+
+fn main() -> i32 {
+    let arg = match (Enum::StructVariant { arg: 42i64 }) {
+        Enum::Variant(_) => { -1i64 }
+        Enum::StructVariant { arg } => { arg }
+    };
+    if arg != 42i64 { return 1i32; }
+    return 0i32;
+}

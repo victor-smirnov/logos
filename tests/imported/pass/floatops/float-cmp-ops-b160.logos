@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float.rs
+// Modifications: dropped println!; the disjunction of comparisons becomes
+//   explicit equality/early-return checks; literals suffixed (f64 with decimal
+//   point); `pub fn main()` -> `fn main()->i32`. Placed in floatops/ (the source
+//   `float.rs` is exclusively float comparison + arithmetic).
+// Tests f64 arithmetic and the full comparison set (== < <= != >= >).
+package float_cmp_ops_b160;
+
+fn main() -> i32 {
+    let pi = 3.1415927f64;
+    // arithmetic combining mul/add/div
+    let v = -pi * (pi + 2.0f64 / pi) - pi * 5.0f64;
+    if !(v < 0.0f64) { return 1i32; }
+    // comparison set
+    if pi == 5.0f64 { return 2i32; }
+    if !(pi < 10.0f64) { return 3i32; }
+    if pi <= 2.0f64 { return 4i32; }
+    if !(pi != 22.0f64) { return 5i32; }
+    if pi >= 10.0f64 { return 6i32; }
+    if !(pi > 1.0f64) { return 7i32; }
+    return 0i32;
+}

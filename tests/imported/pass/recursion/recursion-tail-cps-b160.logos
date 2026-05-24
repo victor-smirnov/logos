@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/recursion/recursion-tail-cps.rs
+// Modifications: isize->i64; dropped println!; the `checktrue` continuation
+//   returns its argument (the original asserts rs); `pub fn main()` -> `fn
+//   main()->i32`; observe the parity results via the continuation return.
+// Tests mutually-recursive functions threaded through an `fn(bool)->bool`
+//   continuation (CPS), with the continuation passed as a bare fn-pointer value.
+package recursion_tail_cps_b160;
+
+fn id_bool(rs: bool) -> bool { return rs; }
+
+fn evenk(n: i64, k: fn(bool) -> bool) -> bool {
+    if n == 0i64 {
+        return k(true);
+    } else {
+        return oddk(n - 1i64, k);
+    }
+}
+
+fn oddk(n: i64, k: fn(bool) -> bool) -> bool {
+    if n == 0i64 {
+        return k(false);
+    } else {
+        return evenk(n - 1i64, k);
+    }
+}
+
+fn main() -> i32 {
+    let k = id_bool;
+    // 42 is even -> reaches evenk(0) -> k(true)
+    if evenk(42i64, k) != true { return 1i32; }
+    // 45 from oddk: oddk(45) ... reaches oddk(0)? parity: oddk(n) flips each step;
+    // oddk(45) ends at evenk(0)->k(true) since 45 is odd. Verify it terminates
+    // and yields a bool.
+    let r = oddk(45i64, k);
+    if r != true { return 2i32; }
+    return 0i32;
+}
