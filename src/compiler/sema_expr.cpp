@@ -9805,6 +9805,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     }
                 }
                 subst[tvn] = inferred;
+            } else if (pt) {
+                // N8: the declared payload type is a STRUCTURAL type that
+                // mentions the enum's type params (e.g. `Full(Pair<T>)`), not a
+                // bare TypeVar. Unify it against the actual arg type to extract
+                // the nested bindings (`Pair<T>` vs `Pair<i64>` → T=i64) so a
+                // turbofish/annotation isn't required for inference.
+                unify_types(pt, payload[i]->type, subst);
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
@@ -10110,6 +10117,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 // missing after the explicit turbofish pass above.
                 auto& slot = subst[tvn];
                 if (!slot) slot = inferred;
+            } else if (pt) {
+                // N8: structural payload type mentioning the enum's type params
+                // (`Full(Pair<T>)`) — unify against the actual arg type to
+                // extract nested bindings (`Pair<T>` vs `Pair<i64>` → T=i64) so
+                // pure inference (no turbofish/annotation) resolves them.
+                unify_types(pt, payload[i]->type, subst);
             }
         }
         // SL-sl-03 follow-up: when the let / return context hint says

@@ -1,0 +1,23 @@
+// Regression for B166 N8: a generic enum whose variant payload is a generic
+// STRUCT wrapper (`enum Holder<T> { Full(Pair<T>) }`). Constructing
+// `Holder::Full(Pair{a:3,b:4})` with NO turbofish/annotation now infers T=i64
+// by unifying the declared payload type `Pair<T>` against the arg `Pair<i64>`.
+package generic_enum_struct_payload_infer_n8_b166;
+
+struct Pair<T> { a: T, b: T }
+enum Holder<T> { Full(Pair<T>), Empty }
+
+fn main() -> i32 {
+    let h = Holder::Full(Pair { a: 3i64, b: 4i64 });   // pure inference
+    match h {
+        Holder::Full(p) => { if p.a + p.b != 7i64 { return 1i32; } }
+        Holder::Empty => { return 2i32; }
+    }
+    // also via a fn return-type annotation context
+    let h2: Holder<i64> = Holder::Full(Pair { a: 10i64, b: 20i64 });
+    match h2 {
+        Holder::Full(p) => { if p.a != 10i64 { return 3i32; } }
+        Holder::Empty => { return 4i32; }
+    }
+    return 0i32;
+}
