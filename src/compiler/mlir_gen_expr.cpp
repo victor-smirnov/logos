@@ -4568,14 +4568,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
             auto dst_fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dst_ps, rpp, fi);
             builder_.create<mlir::LLVM::StoreOp>(loc_, err_val, dst_fp);
         }
-        // Return: enums are returned as *ptr; struct-return is also handled
+        // Return: enums are returned as *ptr; struct-return is also handled.
+        // N5: when `?` appears inside a CLOSURE, the body is lowered into an
+        // `llvm.func` (in_llvm_func_), so the early-return must be an
+        // llvm.return, not a func.return (which only parents under func.func).
+        mlir::Value ret_operand;
         if (cur_ret_type_ == ptr_type()) {
-            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{ret_alloca});
+            ret_operand = ret_alloca;
         } else if (cur_ret_type_ && mlir::isa<mlir::LLVM::LLVMStructType>(cur_ret_type_)) {
-            auto ret_val = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, ret_alloca);
-            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{ret_val});
+            ret_operand = builder_.create<mlir::LLVM::LoadOp>(loc_, cur_ret_type_, ret_alloca);
+        }
+        if (in_llvm_func_) {
+            if (ret_operand)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{ret_operand});
+            else
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
         } else {
-            builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
+            if (ret_operand)
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{ret_operand});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{});
         }
     }
 

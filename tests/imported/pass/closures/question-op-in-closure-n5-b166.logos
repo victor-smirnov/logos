@@ -1,0 +1,18 @@
+// Regression for B166 N5 (MLIR-gen crash): the `?` operator inside a closure.
+// Closures lower to an `llvm.func`, so the `?`-desugar's early-return must emit
+// an llvm.return (not func.return, which only parents under func.func) —
+// previously crashed with `'func.return' op expects parent op 'func.func'`.
+package question_op_in_closure_n5_b166;
+fn check(n: i64) -> Result<i64, i64> { if n < 0i64 { return Result::Err(n); } return Result::Ok(n); }
+fn main() -> i32 {
+    let f = |n: i64| -> Result<i64, i64> { let v: i64 = check(n)?; return Result::Ok(v + 1i64); };
+    match f(5i64) {
+        Result::Ok(x) => { if x != 6i64 { return 1i32; } }
+        Result::Err(_) => { return 2i32; }
+    }
+    match f(-3i64) {
+        Result::Ok(_) => { return 3i32; }
+        Result::Err(e) => { if e != -3i64 { return 4i32; } }
+    }
+    return 0i32;
+}

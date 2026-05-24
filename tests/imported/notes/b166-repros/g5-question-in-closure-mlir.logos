@@ -1,6 +1,0 @@
-package g5;
-fn check(n: i64) -> Result<i64, i64> { if n < 0i64 { return Result::Err(n); } return Result::Ok(n); }
-fn main() -> i32 {
-    let f = |n: i64| -> Result<i64, i64> { let v: i64 = check(n)?; return Result::Ok(v); };  // 'func.return' op expects parent op 'func.func'
-    return 0i32;
-}
