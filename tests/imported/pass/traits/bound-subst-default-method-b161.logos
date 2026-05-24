@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/default-method/bound-subst.rs
+// Modifications: i32 → i64; `&self` → `self: &Self`; the second blanket
+//   `impl<T> A<T> for u32` dropped (only the `i32` impl is exercised); `f`'s
+//   bound moved to a where-clause; `assert_eq!` → early-return sentinels; the
+//   call repeated like upstream.
+// Tests a trait DEFAULT method that is itself METHOD-GENERIC over `U` on a
+//   trait generic over `T` (`fn g<U>(&self, x: T, y: U) -> (T, U)`), invoked
+//   through a generic dispatcher `f<T,U,V: A<T>>` — the default body returns the
+//   tuple `(x, y)`.
+package bound_subst_default_method_b161;
+
+trait A<T> {
+    fn g<U>(self: &Self, x: T, y: U) -> (T, U) { return (x, y); }
+}
+
+impl A<i64> for i64 {}
+
+fn f<T, U, V>(i: V, j: T, k: U) -> (T, U) where V: A<T> {
+    return i.g(j, k);
+}
+
+fn main() -> i32 {
+    let r = f::<i64, i64, i64>(0i64, 1i64, 2i64);
+    if r.0 != 1i64 { return 1i32; }
+    if r.1 != 2i64 { return 2i32; }
+
+    let r2 = f::<i64, i64, i64>(0i64, 1i64, 2i64);
+    if r2.0 != 1i64 { return 3i32; }
+    if r2.1 != 2i64 { return 4i32; }
+    return 0i32;
+}

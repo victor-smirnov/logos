@@ -1,0 +1,45 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/issue-5530.rs
+// Modifications: usize → i64; `assert_eq!` → early-return sentinels; kept fun1's
+//   full 4-arm cross product over a tuple of two `&Enum` struct-variant patterns
+//   with wildcard fields, plus fun2's wildcard-fallback arms `(&Foo{..}, _)`.
+// Tests matching a TUPLE of two `&Enum` references against explicit
+//   `&Enum::Variant { field: _ }` struct-variant patterns (full cross product and
+//   wildcard-fallback arms).
+package match_tuple_of_enum_refs_b161;
+
+enum E { Foo { foo: i64 }, Bar { bar: i64 } }
+
+fn fun1(e1: &E, e2: &E) -> i64 {
+    match (e1, e2) {
+        (&E::Foo { foo: _ }, &E::Foo { foo: _ }) => { return 0i64; }
+        (&E::Foo { foo: _ }, &E::Bar { bar: _ }) => { return 1i64; }
+        (&E::Bar { bar: _ }, &E::Bar { bar: _ }) => { return 2i64; }
+        (&E::Bar { bar: _ }, &E::Foo { foo: _ }) => { return 3i64; }
+    }
+}
+
+fn fun2(e1: &E, e2: &E) -> i64 {
+    match (e1, e2) {
+        (&E::Foo { foo: _ }, &E::Foo { foo: _ }) => { return 0i64; }
+        (&E::Foo { foo: _ }, _) => { return 1i64; }
+        (&E::Bar { bar: _ }, &E::Bar { bar: _ }) => { return 2i64; }
+        (&E::Bar { bar: _ }, _) => { return 3i64; }
+    }
+}
+
+fn main() -> i32 {
+    let foo = E::Foo { foo: 1i64 };
+    let bar = E::Bar { bar: 1i64 };
+
+    if fun1(&foo, &foo) != 0i64 { return 1i32; }
+    if fun1(&foo, &bar) != 1i64 { return 2i32; }
+    if fun1(&bar, &bar) != 2i64 { return 3i32; }
+    if fun1(&bar, &foo) != 3i64 { return 4i32; }
+
+    if fun2(&foo, &foo) != 0i64 { return 5i32; }
+    if fun2(&foo, &bar) != 1i64 { return 6i32; }
+    if fun2(&bar, &bar) != 2i64 { return 7i32; }
+    if fun2(&bar, &foo) != 3i64 { return 8i32; }
+    return 0i32;
+}

@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/exhaustive-bool-match-sanity.rs
+// Modifications: u32 → i64; `assert_eq!` → early-return sentinels; the tuple-of-
+//   two-bools match with a wildcard in each arm kept verbatim.
+// Tests exhaustive match over a tuple of two bools `(x, y)` with wildcard arms
+//   `(false, _)` / `(_, false)` / `(true, true)`.
+package exhaustive_bool_match_b161;
+
+fn foo(x: bool, y: bool) -> i64 {
+    match (x, y) {
+        (false, _) => { return 0i64; }
+        (_, false) => { return 1i64; }
+        (true, true) => { return 2i64; }
+    }
+}
+
+fn main() -> i32 {
+    if foo(false, true) != 0i64 { return 1i32; }
+    if foo(false, false) != 0i64 { return 2i32; }
+    if foo(true, false) != 1i64 { return 3i32; }
+    if foo(true, true) != 2i64 { return 4i32; }
+    return 0i32;
+}

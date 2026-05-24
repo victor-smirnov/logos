@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/fixed_length_copy.rs
+// Modifications: ints suffixed; `assert_eq!` → early-return sentinels.
+// Tests that a fixed-size array is Copy (`let arr2 = arr;` copies, original still
+//   readable) and that both copies index correctly.
+package fixed_length_copy_b161;
+
+fn main() -> i32 {
+    let arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let arr2 = arr;
+    if arr[1] != 2i64 { return 1i32; }
+    if arr2[2] != 3i64 { return 2i32; }
+    return 0i32;
+}

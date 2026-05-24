@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/struct-order-of-eval-2.rs
+// Modifications: `String` field via to_string(); struct literal lists fields
+//   OUT of declaration order (`f1` before `f0`) and moves `s` into `f0`; isize →
+//   i64 (the f1 field uses str); `assert_eq!` → early-return sentinel using
+//   str_eq.
+// Tests struct-literal field initialization listed OUT of declaration order,
+//   with one field consuming a moved String binding.
+package struct_order_of_eval_b161;
+
+use logos.lang.str;
+use logos.mem.string;
+
+struct S { f0: String, f1: String }
+
+fn main() -> i32 {
+    let s: String = "Hello, world!".to_string();
+    let v = S {
+        f1: "tail".to_string(),
+        f0: s
+    };
+    if !str_eq(v.f0.as_str(), "Hello, world!") { return 1i32; }
+    return 0i32;
+}

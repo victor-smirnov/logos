@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/match-on-negative-integer-ranges.rs
+// Modifications: `assert_eq!` → early-return sentinels; the negative inclusive
+//   i8 range pattern `-128i8..=-101i8` in both a `match` and an `if let` kept;
+//   added a positive-side check so both the non-matching and matching cases of
+//   the negative range are exercised.
+// Tests inclusive-range patterns over NEGATIVE signed integers (`-128i8..=-101i8`)
+//   in `match` and `if let` positions.
+package match_negative_int_ranges_b161;
+
+fn classify(v: i8) -> bool {
+    match v {
+        -128i8..=-101i8 => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    // -50 is outside [-128, -101]
+    if classify(-50i8) != false { return 1i32; }
+    // -120 is inside
+    if classify(-120i8) != true { return 2i32; }
+
+    let r = if let -128i8..=-101i8 = -50i8 { true } else { false };
+    if r != false { return 3i32; }
+
+    let r2 = if let -128i8..=-101i8 = -110i8 { true } else { false };
+    if r2 != true { return 4i32; }
+    return 0i32;
+}

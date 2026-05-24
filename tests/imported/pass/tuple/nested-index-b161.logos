@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/nested-index.rs
+// Modifications: ints suffixed; `assert_eq!` → early-return sentinels; dropped
+//   the trailing `0.0..1.1` range-expr line (incidental).
+// Tests chained positional indexing into NESTED tuples (`(1,(2,3)).1.1` and
+//   `(1,(2,(3,4))).1.1.1`).
+package nested_index_b161;
+
+fn main() -> i32 {
+    let n = (1i64, (2i64, 3i64)).1.1;
+    if n != 3i64 { return 1i32; }
+
+    let m = (1i64, (2i64, (3i64, 4i64))).1.1.1;
+    if m != 4i64 { return 2i32; }
+    return 0i32;
+}

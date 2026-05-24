@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-autoderef-order.rs
+// Modifications: `#[derive(Copy, Clone)]`, the `priv_test` module, and the Rc
+//   indirection level dropped (Rc out of scope); the generic `DerefWrapper<X,Y>`
+//   reshaped to a concrete `Wrapper { x: bool, y: Inner }` with `Deref<Inner>`,
+//   where the inner `Inner` also has an `x` field. isize → i64; `&self` →
+//   `self: &Self`; `assert_eq!` → early-return sentinels.
+// Tests overloaded-autoderef ORDER: a field/method access prefers the wrapper's
+//   OWN member over the Deref-target's, while an explicit `(*w).x` reaches the
+//   target's field one level down.
+package overloaded_autoderef_order_b161;
+
+use logos.lang.ops;
+
+struct Inner { x: i64, y: i64 }
+struct Wrapper { x: bool, y: Inner }
+
+impl Deref<Inner> for Wrapper {
+    fn deref(self: &Self) -> &Inner { return &self.y; }
+}
+
+impl Wrapper {
+    fn get_x(self: &Self) -> bool { return self.x; }
+}
+
+fn main() -> i32 {
+    let nested = Wrapper { x: true, y: Inner { x: 7i64, y: 9i64 } };
+    // nested.x finds the wrapper's OWN field first (bool)
+    if nested.x != true { return 1i32; }
+    // (*nested).x derefs to Inner, then its x field (i64)
+    if (*nested).x != 7i64 { return 2i32; }
+    // method resolution likewise prefers the wrapper's own method
+    if nested.get_x() != true { return 3i32; }
+    return 0i32;
+}

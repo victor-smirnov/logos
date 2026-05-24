@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/mutability-inherits-through-fixed-length-vec.rs
+// Modifications: array repeat `[0; 32]` kept; test1 = indexed compound-assign on
+//   an element (mutability inherits through the array). test2's mutating
+//   `for x in &mut ints { *x += 22 }` is rewritten to a `while`-index mutation
+//   loop because Logos's `for` over `&mut [T; N]` (mutable-borrow iteration) is
+//   not yet wired (G161-2); the read-back `for i in &ints` (shared-borrow
+//   iteration) is kept verbatim. ints suffixed; `assert_eq!` → early-return
+//   sentinels.
+// Tests that mutability inherits through a fixed-length array: indexed
+//   compound-assign, then a shared-borrow `for i in &arr` read-back.
+package mutability_through_fixed_vec_b161;
+
+use logos.lang.iter;
+
+fn test1() -> i32 {
+    let mut ints: [i64; 32] = [0i64; 32];
+    ints[0i64] = ints[0i64] + 1i64;
+    if ints[0i64] != 1i64 { return 1i32; }
+    return 0i32;
+}
+
+fn test2() -> i32 {
+    let mut ints: [i64; 32] = [0i64; 32];
+    let mut k: i64 = 0i64;
+    while k < 32i64 {
+        ints[k] = ints[k] + 22i64;
+        k = k + 1i64;
+    }
+    for i in &ints { if *i != 22i64 { return 2i32; } }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r1 = test1();
+    if r1 != 0i32 { return r1; }
+    let r2 = test2();
+    if r2 != 0i32 { return r2; }
+    return 0i32;
+}

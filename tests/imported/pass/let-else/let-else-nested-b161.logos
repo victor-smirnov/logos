@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/let-else-run-pass.rs
+// Modifications: dropped the leading or-pattern-bind facet `let (A(ref x) |
+//   B{f:ref x}) = … else {…}` — an OR-pattern in a let-(else) BINDING position
+//   is a syntax error in Logos (or-patterns work in match/if-let; same shape as
+//   the B160 for-loop or-binding limit); String/ref dropped. Also dropped the
+//   final `let Some(1) = Some(2) else { return }` facet — a let-else whose
+//   pattern is a VARIANT carrying a refined literal sub-pattern (`Some(1i64)`)
+//   silently ignores the inner literal test and binds as if `Some(_)` matched
+//   (G161-3, silent miscompile; variant-LEVEL refutation `let Some(_)=None else`
+//   works, and the same literal sub-pattern in `match` refutes correctly).
+//   isize → i64; `assert_eq!` → early-return sentinels.
+// Tests NESTED refutable let-else over integer-literal scrutinee patterns inside
+//   a `loop` where the inner else-branch drives `continue`/`break`.
+package let_else_nested_b161;
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    loop {
+        let 4i64 = x else {
+            let 3i64 = x else {
+                x = x + 1i64;
+                continue;
+            };
+            break;
+        };
+        return 1i32;
+    }
+    if x != 3i64 { return 2i32; }
+    return 0i32;
+}

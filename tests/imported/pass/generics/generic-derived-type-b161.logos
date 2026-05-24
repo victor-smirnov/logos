@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/generic-derived-type.rs
+// Modifications: `#[derive(Clone)]` → an explicit `impl<T: Clone> Clone for
+//   Pair<T>` (Logos's Clone trait, logos.lang.clone); isize → i64; println!
+//   dropped; `assert_eq!` → early-return sentinels.
+// Tests a generic identity fn `g<X>` and a `Clone`-bounded `f<T>` that builds a
+//   generic `Pair<T>` (cloning a value into both fields) and threads it through
+//   the identity fn with a turbofish `g::<Pair<T>>(x)`.
+package generic_derived_type_b161;
+
+use logos.lang.clone;
+
+struct Pair<T> { a: T, b: T }
+
+impl<T: Clone> Clone for Pair<T> {
+    fn clone(self: &Self) -> Pair<T> {
+        return Pair { a: self.a.clone(), b: self.b.clone() };
+    }
+}
+
+fn g<X>(x: X) -> X { return x; }
+
+fn f<T: Clone>(t: T) -> Pair<T> {
+    let x: Pair<T> = Pair { a: t.clone(), b: t };
+    return g::<Pair<T>>(x);
+}
+
+fn main() -> i32 {
+    let b = f::<i64>(10i64);
+    if b.a != 10i64 { return 1i32; }
+    if b.b != 10i64 { return 2i32; }
+    return 0i32;
+}

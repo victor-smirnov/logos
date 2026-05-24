@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/large-records.rs
+// Modifications: isize → i64; the 12-field struct kept; a couple of fields read
+//   back so the layout is observable; `pub fn main()` → `fn main()->i32`.
+// Tests construction and field access of a LARGE struct (12 scalar fields) —
+//   exercises wide struct-literal layout and field offsets.
+package large_records_b161;
+
+struct Large {
+    a: i64, b: i64, c: i64, d: i64,
+    e: i64, f: i64, g: i64, h: i64,
+    i: i64, j: i64, k: i64, l: i64
+}
+
+fn main() -> i32 {
+    let foo: Large = Large {
+        a: 0i64, b: 1i64, c: 2i64, d: 3i64,
+        e: 4i64, f: 5i64, g: 6i64, h: 7i64,
+        i: 8i64, j: 9i64, k: 10i64, l: 11i64
+    };
+    if foo.a != 0i64 { return 1i32; }
+    if foo.f != 5i64 { return 2i32; }
+    if foo.l != 11i64 { return 3i32; }
+    return 0i32;
+}

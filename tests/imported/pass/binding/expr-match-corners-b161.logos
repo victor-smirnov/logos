@@ -1,0 +1,50 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/expr-match.rs
+// Modifications: `assert!` → early-return sentinels; arms return bool values; a
+//   match used as a match-scrutinee (`match match … {} {}`) and as a block result
+//   kept verbatim.
+// Tests `match` used as an expression in several positions: let-init, reassign,
+//   as the HEAD of another match, and as a block result.
+package expr_match_corners_b161;
+
+fn test_basic() -> i32 {
+    let mut rs: bool = match true { true => { true } false => { false } };
+    if !rs { return 1i32; }
+    rs = match false { true => { false } false => { true } };
+    if !rs { return 2i32; }
+    return 0i32;
+}
+
+fn test_inferrence() -> i32 {
+    let rs = match true { true => { true } false => { false } };
+    if !rs { return 3i32; }
+    return 0i32;
+}
+
+fn test_alt_as_alt_head() -> i32 {
+    let rs =
+        match match false { true => { true } false => { false } } {
+          true => { false }
+          false => { true }
+        };
+    if !rs { return 4i32; }
+    return 0i32;
+}
+
+fn test_alt_as_block_result() -> i32 {
+    let rs =
+        match false {
+          true => { false }
+          false => { match true { true => { true } false => { false } } }
+        };
+    if !rs { return 5i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    let r1 = test_basic(); if r1 != 0i32 { return r1; }
+    let r2 = test_inferrence(); if r2 != 0i32 { return r2; }
+    let r3 = test_alt_as_alt_head(); if r3 != 0i32 { return r3; }
+    let r4 = test_alt_as_block_result(); if r4 != 0i32 { return r4; }
+    return 0i32;
+}

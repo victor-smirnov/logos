@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/estr-slice.rs
+// Modifications: println! dropped; `assert!`/`assert_eq!`/`assert_ne!` →
+//   early-return sentinels; Logos string literals are `str` (not `&str`), so the
+//   annotations use `str`; equality via `str_eq` (Logos's `str` value-equality,
+//   `==` on `str` is byte/pointer-level), `.as_bytes()[i]` rewritten to direct
+//   byte indexing `x[i]` (Logos `str` indexes to its bytes); `'h' as u8`
+//   char-cast kept; lexicographic `< <= > >=` over `str` exercised.
+// Tests `str` byte indexing plus value-equality (`str_eq`) and the lexicographic
+//   comparison set (`< <= > >=`) over string literals of differing length/content.
+package estr_slice_cmp_b161;
+
+use logos.lang.str;
+
+fn main() -> i32 {
+    let x: str = "hello";
+    let v: str = "hello";
+    let z: str = "thing";
+
+    if x[0i64] != ('h' as u8) { return 1i32; }
+    if x[4i64] != ('o' as u8) { return 2i32; }
+
+    if !str_eq(v, x) { return 3i32; }
+    if str_eq(x, z) { return 4i32; }
+
+    let a: str = "aaaa";
+    let b: str = "bbbb";
+    let c: str = "cccc";
+    let cc: str = "ccccc";
+
+    if !(a < b) { return 5i32; }
+    if !(a <= b) { return 6i32; }
+    if !(b >= a) { return 7i32; }
+    if !(b > a) { return 8i32; }
+
+    if !(a < c) { return 9i32; }
+    if !(c > a) { return 10i32; }
+
+    if !(c < cc) { return 11i32; }
+    if !(cc > c) { return 12i32; }
+    return 0i32;
+}

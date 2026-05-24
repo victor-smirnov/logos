@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/tuple-index.rs
+// Modifications: isize → i64; tuple-struct `Point(a, b)` field access `.0`/`.1`,
+//   compound-assign on a tuple-struct field, and `&mut x.1` then deref-write
+//   inside a nested block; same set repeated for a plain 2-tuple; `assert_eq!` →
+//   early-return sentinels.
+// Tests tuple-struct AND plain-tuple positional field indexing (`.0`/`.1`),
+//   indexed compound-assign, and a `&mut` borrow of one field while mutating the
+//   other in a nested scope.
+package tuple_index_mut_b161;
+
+struct Point(i64, i64);
+
+fn main() -> i32 {
+    let mut x = Point(3i64, 2i64);
+    if x.0 != 3i64 { return 1i32; }
+    if x.1 != 2i64 { return 2i32; }
+    x.0 = x.0 + 5i64;
+    if x.0 != 8i64 { return 3i32; }
+    {
+        let ry = &mut x.1;
+        *ry = *ry - 2i64;
+        x.0 = x.0 + 3i64;
+        if x.0 != 11i64 { return 4i32; }
+    }
+    if x.1 != 0i64 { return 5i32; }
+
+    let mut t = (3i64, 2i64);
+    if t.0 != 3i64 { return 6i32; }
+    if t.1 != 2i64 { return 7i32; }
+    t.0 = t.0 + 5i64;
+    if t.0 != 8i64 { return 8i32; }
+    {
+        let rz = &mut t.1;
+        *rz = *rz - 2i64;
+        t.0 = t.0 + 3i64;
+        if t.0 != 11i64 { return 9i32; }
+    }
+    if t.1 != 0i64 { return 10i32; }
+    return 0i32;
+}

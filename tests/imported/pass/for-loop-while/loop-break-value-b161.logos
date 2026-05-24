@@ -1,0 +1,30 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/for-loop-while/loop-break-value.rs
+// Modifications: isize → i64; the `!`/never + slice-coercion + trait-unification
+//   facets dropped (out of scope); kept the value-carrying `break`: a labeled
+//   `'outer: loop { … break 'outer V; }` used as an expression, a plain
+//   `loop { break V; }` expression, and a NESTED inner loop whose break value
+//   feeds the outer break; `assert_eq!` → early-return sentinels.
+// Tests `loop` used as an EXPRESSION via value-carrying `break` (plain and
+//   labeled `break 'outer V`), including a nested loop forwarding its value.
+package loop_break_value_b161;
+
+fn main() -> i32 {
+    let value = 'outer: loop {
+        if 1i64 == 1i64 {
+            break 'outer 13i64;
+        }
+        break 'outer 99i64;
+    };
+    if value != 13i64 { return 1i32; }
+
+    let plain = loop { break 7i64; };
+    if plain != 7i64 { return 2i32; }
+
+    let nested = 'top: loop {
+        let inner = loop { break 5i64; };
+        break 'top inner + 1i64;
+    };
+    if nested != 6i64 { return 3i32; }
+    return 0i32;
+}

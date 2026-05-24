@@ -1,0 +1,42 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/methods/method-self-arg-trait.rs
+// Modifications: `static mut COUNT` → a `*mut i64` counter threaded through the
+//   struct (no module statics — G153-3/G158-3); the `self: Box<Self>` receivers
+//   dropped (Box out of scope) leaving `&self` and by-value `self` UFCS forms;
+//   trait default methods `bar1`/`bar2` kept; UFCS calls `Bar::foo1(&x)` /
+//   `Bar::foo2(x)` and inherent `Foo::baz(x)`; `assert_eq!` → early-return.
+// Tests UFCS method calls passing self explicitly: trait `&self` (`Bar::foo1(&x)`)
+//   and by-value-self (`Bar::foo2(x)`), trait DEFAULT methods, plus an inherent
+//   by-value-self method — each multiplies a shared counter so the call set is
+//   observable.
+package method_self_arg_ufcs_b161;
+
+struct Foo { c: *mut i64 }
+
+trait Bar {
+    fn foo1(self: &Self);
+    fn foo2(self: Self);
+    fn bar1(self: &Self);
+}
+
+impl Bar for Foo {
+    fn foo1(self: &Self) { unsafe { *self.c = *self.c * 2i64; } }
+    fn foo2(self: Self)  { unsafe { *self.c = *self.c * 3i64; } }
+    fn bar1(self: &Self) { unsafe { *self.c = *self.c * 7i64; } }
+}
+
+impl Foo {
+    fn baz(self: Self) { unsafe { *self.c = *self.c * 17i64; } }
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 1i64;
+    let c = &mut counter as *mut i64;
+    let x = Foo { c: c };
+    Bar::foo1(&x);   // *2
+    Bar::bar1(&x);   // *7 (default-less required here, but trait method)
+    Bar::foo2(Foo { c: c }); // *3
+    Foo::baz(Foo { c: c });  // *17
+    unsafe { if *c != (2i64 * 7i64 * 3i64 * 17i64) { return 1i32; } }
+    return 0i32;
+}

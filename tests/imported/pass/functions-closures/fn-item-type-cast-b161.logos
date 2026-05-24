@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/fn-item-type-cast.rs
+// Modifications: isize → i64; dropped the module `static TEST` (no module
+//   statics — G153-3/G158-3) and the empty generic `eq` call; `IntMap` type
+//   alias kept; `as IntMap` fn-item-to-fn-ptr casts kept; `assert_eq!` →
+//   early-return sentinel.
+// Tests explicit coercion of a fn ITEM to a fn-pointer TYPE (`foo as IntMap`),
+//   incl. the LUB coercion of two distinct fn items in an if/else.
+package fn_item_type_cast_b161;
+
+fn foo(x: i64) -> i64 { return x * 2i64; }
+fn bar(x: i64) -> i64 { return x * 4i64; }
+
+type IntMap = fn(i64) -> i64;
+
+fn main() -> i32 {
+    let f: IntMap = if true { foo as IntMap } else { bar as IntMap };
+    if f(4i64) != 8i64 { return 1i32; }
+    let g: IntMap = bar as IntMap;
+    if g(4i64) != 16i64 { return 2i32; }
+    return 0i32;
+}

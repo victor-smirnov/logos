@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/closure-returning-closure.rs
+// Modifications: the original `let f = |_||x, y| x+y;` returns a closure from a
+//   closure and calls it `f(())(1, 2)`. Reshaped to a named outer closure that
+//   takes a unit-like arg and returns an inner two-arg adder; `assert_eq!` →
+//   early-return sentinel; ints suffixed.
+// Tests a closure that, when invoked, returns another closure that is then
+//   immediately invoked (closure-returning-closure).
+package closure_returning_closure_b161;
+
+fn main() -> i32 {
+    let f = |_z: i64| {
+        let g = |x: i64, y: i64| { return x + y; };
+        return g;
+    };
+    let inner = f(0i64);
+    if inner(1i64, 2i64) != 3i64 { return 1i32; }
+    return 0i32;
+}

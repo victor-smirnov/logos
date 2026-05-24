@@ -1,0 +1,49 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binding/if-let.rs
+// Modifications: usize → i64; the panic arms become early-return sentinels; the
+//   String/Foo-enum tail facets dropped; kept the if-let success bind, the
+//   wildcard if-let, a deferred-assignment `else if`/`else if let` chain landing
+//   on the final else, and a refutable literal `if let 1 = 2` that must NOT fire.
+// Tests `if let` binding + else-if-let chains: a successful Some-bind, a wildcard
+//   bind, a multi-branch `else if`/`else if let` chain resolving to the last
+//   else, and a non-matching literal `if let 1 = 2`.
+package if_let_chains_b161;
+
+use logos.lang.option;
+use logos.lang.result;
+
+fn main() -> i32 {
+    let x = Some(3i64);
+    if let Some(y) = x {
+        if y != 3i64 { return 1i32; }
+    } else {
+        return 2i32;
+    }
+
+    let mut worked = false;
+    if let Some(_) = x {
+        worked = true;
+    }
+    if !worked { return 3i32; }
+
+    // Logos requires `let mut` for deferred (branch-filled) assignment
+    // (matches the B159 `let x:&T;`-then-assign observation).
+    let mut clause: i64 = 0i64;
+    if let None = Some(7i64) {
+        clause = 1i64;
+    } else if 4i64 > 5i64 {
+        clause = 2i64;
+    } else if let Ok(_) = Err::<i64, i64>(9i64) {
+        clause = 3i64;
+    } else {
+        clause = 4i64;
+    }
+    if clause != 4i64 { return 4i32; }
+
+    if 3i64 > 4i64 {
+        return 5i32;
+    } else if let 1i64 = 2i64 {
+        return 6i32;
+    }
+    return 0i32;
+}

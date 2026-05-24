@@ -1,0 +1,34 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/basic-newtype-pattern.rs
+// Modifications: isize → i64; `#[derive(Copy, Clone)]` dropped (Copy by layout);
+//   the newtype `Counter(CounterData)` and inner `CounterData { compute: fn(...),
+//   val }` kept; tuple-struct destructure `let Counter(data) = counter` and the
+//   fn-pointer FIELD call `(data.compute)(my_counter)` kept; `assert_eq!` →
+//   early-return sentinels.
+// Tests a newtype tuple-struct wrapping a struct that holds a fn-pointer field:
+//   destructure the newtype `let Counter(data) = …` and call through the
+//   fn-pointer field (bound to a local `let f = data.compute; f(receiver)` — the
+//   parenthesized `(data.compute)(…)` call form is a parse limit in Logos).
+package basic_newtype_pattern_b161;
+
+struct CounterData {
+    compute: fn(Counter) -> i64,
+    val: i64,
+}
+
+struct Counter(CounterData);
+
+fn compute_value(counter: Counter) -> i64 {
+    let Counter(data) = counter;
+    return data.val + 20i64;
+}
+
+fn main() -> i32 {
+    let my_counter = Counter(CounterData { compute: compute_value, val: 30i64 });
+    let Counter(data) = my_counter;
+    let f = data.compute;
+    if f(Counter(CounterData { compute: compute_value, val: 30i64 })) != 50i64 {
+        return 1i32;
+    }
+    return 0i32;
+}

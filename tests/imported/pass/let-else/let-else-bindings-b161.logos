@@ -1,0 +1,54 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/let-else/let-else-bindings.rs
+// Modifications: isize → i64; the or-pattern / String-payload Foo arms reshaped;
+//   `none()`/`ok()` use Option/Result `let …else { return true }`; closure
+//   `let 1 = 2 else { return true }` kept; `assert!`/`assert_eq!` → early-return
+//   sentinels; nested-fn enum `Foo` hoisted to module scope.
+// Tests let-else binding: refutable `let Some(y) = x else {…}` that succeeds, a
+//   wildcard success, a failing `let None = Some(_)` taking the else branch, a
+//   failing literal `let 1 = 2 else {…}` in a closure, and an enum-variant bind.
+package let_else_bindings_b161;
+
+use logos.lang.option;
+use logos.lang.result;
+
+fn none_takes_else() -> bool {
+    let None = Some(7i64) else {
+        return true;
+    };
+    return false;
+}
+
+fn ok_takes_else() -> bool {
+    let Ok(_z) = Err::<i64, i64>(5i64) else {
+        return true;
+    };
+    return false;
+}
+
+fn closure_lit_else() -> bool {
+    let f = || -> bool {
+        let 1i64 = 2i64 else {
+            return true;
+        };
+        return false;
+    };
+    return f();
+}
+
+fn main() -> i32 {
+    let x = Some(3i64);
+    let Some(y) = x else {
+        return 1i32;
+    };
+    if y != 3i64 { return 2i32; }
+
+    let Some(_) = x else {
+        return 3i32;
+    };
+
+    if !none_takes_else() { return 4i32; }
+    if !ok_takes_else() { return 5i32; }
+    if !closure_lit_else() { return 6i32; }
+    return 0i32;
+}

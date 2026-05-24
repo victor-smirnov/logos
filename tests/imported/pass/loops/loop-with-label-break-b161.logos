@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/loops/loop-with-label-9047.rs
+// Modifications: String return → i64 sentinel; the labeled `'outer: loop { …
+//   break 'outer; }` then a post-loop value kept; println! dropped; observed via
+//   the returned value.
+// Tests a labeled `loop` with `break 'outer` exiting to the enclosing fn body,
+//   followed by a normal return after the loop.
+package loop_with_label_break_b161;
+
+fn decode() -> i64 {
+    'outer: loop {
+        let mut _ch_start: i64 = 0i64;
+        break 'outer;
+    }
+    return 42i64;
+}
+
+fn main() -> i32 {
+    if decode() != 42i64 { return 1i32; }
+    return 0i32;
+}

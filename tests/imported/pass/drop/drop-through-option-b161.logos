@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/issue-979.rs
+// Modifications: the `Cell<isize>` drop-counter → a `*mut i64` threaded into the
+//   struct (no Cell/named-lifetimes); the Drop impl uses the distilled local
+//   `trait Drop { fn drop(self: &mut Self); }`; a value wrapped in `Some(r(b))`
+//   is dropped at the end of an inner block, bumping the counter once; isize →
+//   i64; `assert_eq!` → early-return sentinel.
+// Tests that a Drop value moved into an `Option` (`Some(r(b))`) has its
+//   destructor run exactly once when the Option binding leaves scope.
+package drop_through_option_b161;
+
+use logos.lang.option;
+
+trait Drop { fn drop(self: &mut Self); }
+
+struct R { b: *mut i64 }
+impl Drop for R {
+    fn drop(self: &mut Self) { unsafe { *self.b = *self.b + 1i64; } }
+}
+
+fn r(b: *mut i64) -> R { return R { b: b }; }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    {
+        let _p = Some(r(c));
+    }
+    unsafe { if *c != 1i64 { return 1i32; } }
+    return 0i32;
+}

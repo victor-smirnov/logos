@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/issue-23304-2.rs
+// Modifications: a C-like enum `Y::A` whose discriminant is computed from another
+//   enum's discriminant via an `as`-cast expression `X::A as isize`. isize →
+//   i64; `assert_eq!` → early-return sentinels; the `as isize` casts of the
+//   discriminant values kept.
+// Tests an enum discriminant defined by an `as`-cast of ANOTHER enum's
+//   discriminant (chained constant-eval `Y::A = X::A as i64`).
+package enum_discrim_chained_b161;
+
+enum X { A = 42i64 }
+enum Y { A = X::A as i64 }
+
+fn main() -> i32 {
+    let x = X::A;
+    let xi = x as i64;
+    if xi != 42i64 { return 1i32; }
+    if (Y::A as i64) != 42i64 { return 2i32; }
+    return 0i32;
+}

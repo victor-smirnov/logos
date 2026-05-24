@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/autoref-autoderef/auto-ref.rs
+// Modifications: isize → i64; `&self` → `self: &Self`; the trait method
+//   `printme` (which only println!'d) returns the field value so the auto-ref
+//   call result is observable; println! dropped; assert via early-return.
+// Tests auto-ref of an owned value `x` (type Foo) at a `&self` trait-method call
+//   site `x.printme()` (no explicit `&`).
+package auto_ref_printme_b161;
+
+struct Foo { x: i64 }
+
+trait Stuff {
+    fn printme(self: &Self) -> i64;
+}
+
+impl Stuff for Foo {
+    fn printme(self: &Self) -> i64 { return self.x; }
+}
+
+fn main() -> i32 {
+    let x = Foo { x: 3i64 };
+    if x.printme() != 3i64 { return 1i32; }
+    return 0i32;
+}

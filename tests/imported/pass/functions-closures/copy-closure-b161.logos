@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/copy-closure.rs
+// Modifications: isize → i64; println! dropped; `assert_eq!` → early-return
+//   sentinels; dropped the `hello.clone()` facet — a closure value has no
+//   `.clone()` method in Logos (it isn't a struct receiver); kept the COPY facet:
+//   a non-capturing-mutation closure passed BY VALUE to a FnOnce-bounded `call`
+//   twice (the closure is Copy, so each pass copies it).
+// Tests that a closure is Copy — passing it by value to a `FnOnce`-bounded fn
+//   multiple times reuses it without a move error.
+package copy_closure_b161;
+
+fn call<T, F>(f: F) -> T where F: FnOnce() -> T { return f(); }
+
+fn main() -> i32 {
+    let a: i64 = 5i64;
+    let hello = || -> i64 { return a; };
+    if call(hello) != 5i64 { return 1i32; }
+    if call(hello) != 5i64 { return 2i32; }
+    if call(hello) != 5i64 { return 3i32; }
+    return 0i32;
+}
