@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/slice-patterns (first/middle/last rest, distilled)
+// Modifications: i64 suffixes; assert!->if-return.
+// Tests pattern matching × slice patterns: a `[first, .., last]` middle-rest
+//   pattern binds the head and tail elements while skipping the middle. Also a
+//   `[a, b, rest @ ..]` form binding two heads + a named rest.
+// GAP (G167-6a): `[first, .., last]` (suffix elems AFTER `..`) is a clean REJECT
+//   for dynamic slices ("suffix after '..' not supported for dynamic slices").
+// GAP (G167-6b): binding a named rest `rest @ ..` then USING the rest sub-slice
+//   locally (rest.len() OR re-matching `match rest {...}`) -> MLIR-gen CRASH
+//   (GEP on a {ptr,i64} slice value). Passing rest to a SEPARATE fn works
+//   (the existing slice-pattern-recursion test), so the crack is local re-use
+//   of the rest sub-slice as a slice place.
+package t11_slice_middle_rest;
+
+fn first_last_sum(v: &[i64]) -> i64 {
+    match v {
+        [] => { return 0i64; }
+        [x] => { return x; }
+        [first, .., last] => { return first + last; }
+    }
+}
+
+fn head_rest_len(v: &[i64]) -> i64 {
+    match v {
+        [a, b, rest @ ..] => { return a + b + (rest.len() as i64); }
+        _ => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    let arr: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+    if first_last_sum(&arr) != 50i64 { return 1i32; }
+    if head_rest_len(&arr) != 32i64 { return 2i32; }
+    return 0i32;
+}

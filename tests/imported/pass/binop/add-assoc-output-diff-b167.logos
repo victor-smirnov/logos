@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/binop/ Add with associated Output (distilled)
+// Modifications: i64 suffixes; assert!->if-return. Logos ops traits are
+//   single-type (Self=RHS) per the documented divergence; this probes whether
+//   the Output associated type can differ from Self (Point + Point -> i64 dist).
+// Tests operator overloading × associated Output type: `impl Add for Point`
+//   with `type Output = i64` (Output != Self). `a + b` should yield an i64.
+package t14_add_assoc_output;
+
+use logos.lang.ops;
+
+struct Point { x: i64, y: i64 }
+
+impl Add for Point {
+    type Output = i64;
+    fn add(self: Self, rhs: Point) -> i64 { return (self.x + rhs.x) + (self.y + rhs.y); }
+}
+
+fn main() -> i32 {
+    let a = Point { x: 1i64, y: 2i64 };
+    let b = Point { x: 3i64, y: 4i64 };
+    let s: i64 = a + b;
+    if s != 10i64 { return 1i32; }
+    return 0i32;
+}

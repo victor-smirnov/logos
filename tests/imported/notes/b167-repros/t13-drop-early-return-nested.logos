@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-on-early-return + nested-field (distilled)
+// Modifications: i64 suffixes; *mut i64 counter idiom.
+// Tests Drop × early return × nesting: a function early-returns while holding a
+//   nested droppable (Outer{Inner}). Both Drops must run on the early-return
+//   path (inner +1, outer +100 => 101) before control leaves.
+package t13_drop_early_return_nested;
+
+trait Drop { fn drop(self: Self); }
+
+struct Inner { c: *mut i64 }
+impl Drop for Inner { fn drop(self: Inner) { unsafe { *self.c = *self.c + 1i64; } } }
+struct Outer { inner: Inner }
+impl Drop for Outer { fn drop(self: Outer) { unsafe { *self.inner.c = *self.inner.c + 100i64; } } }
+
+fn run(c: *mut i64, early: bool) -> i64 {
+    let _o = Outer { inner: Inner { c: c } };
+    if early { return 7i64; }
+    return 8i64;
+}
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    let r = run(c, true);
+    if r != 7i64 { return 1i32; }
+    unsafe { if *c != 101i64 { return 2i32; } }
+    return 0i32;
+}

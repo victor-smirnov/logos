@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-in-loop + break-with-value (distilled)
+// Modifications: i64 suffixes; *mut i64 counter idiom (matches drop-in-loop-iterations-dr).
+// Tests Drop × loops × break: a droppable bound fresh each iteration drops at
+//   the end of EACH iteration. With `loop { let _g = ..; if .. break; }` and 3
+//   iterations the counter should be 3.
+// GAP (G167-4) MISCOMPILE: observed counter == 2, not 3. The iteration that
+//   executes `break` SKIPS its local's destructor. A `while i<3 { let _g=.. }`
+//   loop (no break) correctly drops 3 times. So the break edge of a `loop`
+//   bypasses the loop-body scope's drop glue. Silent (no crash). Intersection:
+//   Drop × loop/break.
+package t06_drop_loop_break;
+
+trait Drop { fn drop(self: Self); }
+
+struct Guard { c: *mut i64 }
+impl Drop for Guard { fn drop(self: Guard) { unsafe { *self.c = *self.c + 1i64; } } }
+
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    let mut i: i64 = 0i64;
+    loop {
+        let _g = Guard { c: c };
+        i = i + 1i64;
+        if i == 3i64 { break; }
+    }
+    // 3 iterations, each drops its own _g => counter == 3.
+    unsafe { if *c != 3i64 { return 1i32; } }
+    return 0i32;
+}

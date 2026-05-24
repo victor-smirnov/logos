@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/try-trait/ + error-conversion idiom (distilled)
+// Modifications: i64 suffixes; assert!->if-return; no Box<dyn Error>.
+// Tests error-handling × From between TWO distinct custom error types:
+//   inner returns Result<_, ParseErr>; outer returns Result<_, AppErr>;
+//   `?` must invoke AppErr::from(ParseErr) to convert error variant→variant.
+//   (Distinct from the known qmark_from test which only converts i32->struct.)
+package t05_qmark_custom_to_custom;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.convert;
+
+struct ParseErr { code: i64 }
+struct AppErr { code: i64 }
+
+impl From<ParseErr> for AppErr {
+    fn from(e: ParseErr) -> AppErr { return AppErr { code: e.code + 1000i64 }; }
+}
+
+fn parse(x: i64) -> Result<i64, ParseErr> {
+    if x < 0i64 { return Result::Err(ParseErr { code: 5i64 }); }
+    return Result::Ok(x + 1i64);
+}
+
+fn app(x: i64) -> Result<i64, AppErr> {
+    let y: i64 = parse(x)?;
+    return Result::Ok(y * 2i64);
+}
+
+fn main() -> i32 {
+    match app(3i64) {
+        Result::Ok(v) => { if v != 8i64 { return 1i32; } }
+        Result::Err(_) => { return 2i32; }
+    }
+    match app(-1i64) {
+        Result::Ok(_) => { return 3i32; }
+        Result::Err(e) => { if e.code != 1005i64 { return 4i32; } }
+    }
+    return 0i32;
+}

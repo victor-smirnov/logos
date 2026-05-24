@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/supertrait-method-call (distilled)
+// Modifications: i64 suffixes; assert!->if-return; &self->self:&Self.
+// Tests generics × supertrait: trait Named: Base; a generic fn bounded on the
+//   SUB-trait calls a method declared on the SUPER-trait through the bound.
+//   describe<T: Named>(t) calls t.tag() (from Base) + t.name_len() (from Named).
+package t09_supertrait_generic_bound;
+
+trait Base { fn tag(self: &Self) -> i64; }
+trait Named: Base { fn name_len(self: &Self) -> i64; }
+
+struct Widget { id: i64 }
+impl Base for Widget { fn tag(self: &Widget) -> i64 { return self.id; } }
+impl Named for Widget { fn name_len(self: &Widget) -> i64 { return 6i64; } }
+
+fn describe<T: Named>(t: &T) -> i64 {
+    return t.tag() + t.name_len();
+}
+
+fn main() -> i32 {
+    let w = Widget { id: 100i64 };
+    if describe::<Widget>(&w) != 106i64 { return 1i32; }
+    return 0i32;
+}

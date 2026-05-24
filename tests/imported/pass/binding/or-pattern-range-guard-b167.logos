@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/ + tests/ui/match/match-range (distilled)
+// Modifications: i64 suffixes; assert!->if-return.
+// Tests pattern matching × or-patterns × ranges × guards: a match with an
+//   or-pattern (1 | 2 | 3), a range arm (4..=10), a binding+guard arm
+//   (n if n > 100), and a wildcard. Exercises arm selection across all forms.
+package t07_or_pattern_range_guard;
+
+fn classify(x: i64) -> i64 {
+    match x {
+        1i64 | 2i64 | 3i64 => { return 10i64; }
+        4i64..=10i64 => { return 20i64; }
+        n if n > 100i64 => { return n + 1i64; }
+        _ => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    if classify(2i64) != 10i64 { return 1i32; }
+    if classify(7i64) != 20i64 { return 2i32; }
+    if classify(150i64) != 151i64 { return 3i32; }
+    if classify(50i64) != 0i64 { return 4i32; }
+    return 0i32;
+}

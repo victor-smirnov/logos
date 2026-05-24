@@ -1,0 +1,40 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/object/ Vec<Box<dyn Trait>> idiom (distilled)
+// Modifications: i64 suffixes; assert!->if-return; &self->self:&Self.
+//   Logos Vec API is .length()/.get(i) (no Index/.len()), so the loop uses those.
+// Tests trait objects × Vec × Box: build a Vec<Box<dyn Shape>>, push two
+//   distinct concrete types, then loop dispatching area() dynamically and sum.
+//   (B162 covered &dyn arrays; this is the heap Vec<Box<dyn>> growable form.)
+// GAP (G167-7) CRASH (SIGSEGV): a Vec whose element is a fat-pointer Box<dyn>
+//   crashes — even a single push+get+dispatch SIGSEGVs. Isolated: Vec<Box<i64>>
+//   (thin) works, and a bare `Box<dyn Shape>` dispatch works; only the fat
+//   Box<dyn> element through Vec's generic T slot fails to round-trip. Vec
+//   element storage assumes a thin/scalar T. Intersection: trait objects (fat
+//   ptr) × generic container element storage.
+package t10_vec_box_dyn;
+
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+
+trait Shape { fn area(self: &Self) -> i64; }
+
+struct Square { side: i64 }
+struct Rect { w: i64, h: i64 }
+
+impl Shape for Square { fn area(self: &Square) -> i64 { return self.side * self.side; } }
+impl Shape for Rect { fn area(self: &Rect) -> i64 { return self.w * self.h; } }
+
+fn main() -> i32 {
+    let mut v: Vec<Box<dyn Shape>> = vec_new::<Box<dyn Shape>>();
+    v.push(box_new(Square { side: 3i64 }));
+    v.push(box_new(Rect { w: 4i64, h: 5i64 }));
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.length() {
+        let b: Box<dyn Shape> = v.get(i);
+        acc = acc + b.area();
+        i = i + 1i64;
+    }
+    if acc != 29i64 { return 1i32; }
+    return 0i32;
+}

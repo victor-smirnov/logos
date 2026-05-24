@@ -1,0 +1,29 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/where-clauses/ + generic-method-on-generic-struct (distilled)
+// Modifications: i64 suffixes; assert!->if-return; &self->self:&Self.
+// Tests generics × generic-method-on-generic-struct × compound bounds: a generic
+//   struct Wrap<T> with a generic method combine<U: Tag>(self, u) where its OWN
+//   type param T is also bounded T: Tag. Both bounds drive .tag() dispatch.
+package t15_generic_method_compound;
+
+trait Tag { fn tag(self: &Self) -> i64; }
+
+struct Wrap<T: Tag> { v: T }
+
+impl<T: Tag> Wrap<T> {
+    fn combine<U: Tag>(self: &Wrap<T>, u: &U) -> i64 {
+        return self.v.tag() + u.tag();
+    }
+}
+
+struct A { n: i64 }
+struct B { m: i64 }
+impl Tag for A { fn tag(self: &A) -> i64 { return self.n; } }
+impl Tag for B { fn tag(self: &B) -> i64 { return self.m * 10i64; } }
+
+fn main() -> i32 {
+    let w = Wrap::<A> { v: A { n: 5i64 } };
+    let b = B { m: 4i64 };
+    if w.combine::<B>(&b) != 45i64 { return 1i32; }
+    return 0i32;
+}
