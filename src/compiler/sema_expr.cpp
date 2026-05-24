@@ -679,14 +679,15 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
             }
-            // For arrays, produce &mut elem (reference to first element).
-            // Asymmetric with `&arr` (which produces a slice fat-pointer)
-            // for backward compatibility; tests / stdlib rely on the
-            // thin-pointer form here. Phase 1B-12 unsize coercion at
-            // fn-arg site (try_coerce_array_ref_to_slice) lifts this to
-            // a `&mut [T]` slice when needed.
+            // G162-2: `&mut arr` produces `&mut [T; N]` (a mutable
+            // reference to the WHOLE array), so it satisfies a `&mut [T; N]`
+            // parameter and indexed read/write through it work. The value is
+            // the array base pointer either way (an array ref and a ref to its
+            // first element are the same address); only the static type
+            // differs. A `&mut [T]` slice param is reached via the
+            // array-ref→slice coercion at the call site.
             if (TypeRef(vt).kind() == LogosType::Kind::Array)
-                return builder().addr_of(std::string(var_name), make_ref(true, TypeRef(vt).elem()));
+                return builder().addr_of(std::string(var_name), make_ref(true, vt));
             return builder().addr_of(std::string(var_name), make_ref(true, vt));
         }
         // `&mut *ptr` — short-circuit to ptr with re-typed reference.

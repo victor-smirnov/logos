@@ -5934,6 +5934,7 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
                TypeRef(arr_type).kind() != LogosType::Kind::Ptr &&
                TypeRef(arr_type).kind() != LogosType::Kind::Ref &&
                TypeRef(arr_type).kind() != LogosType::Kind::MutRef &&
+               TypeRef(arr_type).kind() != LogosType::Kind::Slice &&
                TypeRef(arr_type).kind() != LogosType::Kind::Error) {
         error(std::format("index write: '{}' is not an array or pointer (got {})",
               arr_name, type_str(arr_type)));
@@ -5955,9 +5956,22 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     TypeRef elem_type = nullptr;
     if (arr_type) {
         if (TypeRef(arr_type).kind() == LogosType::Kind::Array) elem_type = TypeRef(arr_type).elem();
+        // G162-2: `&mut [T]` slice — the indexed element is the slice's elem.
+        // (Logos does not track slice mutability at the type level — `&[T]`
+        // and `&mut [T]` both canonicalise to Kind::Slice — so write-through
+        // an immutable slice is not rejected here. See DIVERGENCES: slice
+        // mutability tracking is a separate type-system feature.)
+        else if (TypeRef(arr_type).kind() == LogosType::Kind::Slice) elem_type = TypeRef(arr_type).elem();
         else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
                  TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
-                 TypeRef(arr_type).kind() == LogosType::Kind::MutRef) elem_type = TypeRef(arr_type).pointee();
+                 TypeRef(arr_type).kind() == LogosType::Kind::MutRef) {
+            elem_type = TypeRef(arr_type).pointee();
+            // G162-2: `&mut [T; N]` param — the pointee is the ARRAY, so the
+            // indexed element is its element type, not the array itself.
+            if (elem_type && TypeRef(elem_type).kind() == LogosType::Kind::Array &&
+                TypeRef(elem_type).elem())
+                elem_type = TypeRef(elem_type).elem();
+        }
     }
 
     lir::LExprPtr val = node.has_key(la::VALUE)

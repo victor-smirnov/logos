@@ -222,6 +222,11 @@ private:
     std::unordered_map<std::string, mlir::Type>   var_elem_types_;
     std::unordered_map<std::string, std::string>  var_struct_;
     std::unordered_map<std::string, mlir::Type>   var_subscript_;
+    // Slice-typed variables/params (`&[T]` / `&mut [T]` — Kind::Slice). scope_
+    // holds a pointer to the fat `{ptr, len}` descriptor, so indexed read/write
+    // must GEP field 0 + load the data pointer before striding by element.
+    // Maps name → element MLIR type (the GEP stride for the data array).
+    std::unordered_map<std::string, mlir::Type>   var_slice_;
     std::unordered_set<std::string>              var_tuple_;
     std::unordered_set<std::string>              var_tagged_enum_;
     // Mutable tagged-enum variables use a pointer slot (alloca-of-ptr) for rebinding.

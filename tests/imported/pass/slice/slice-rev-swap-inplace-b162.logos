@@ -1,26 +1,30 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/slice/ in-place reverse shapes (distilled).
 // Modifications: isize->i64; assert->if-return sentinels. In-place reversal of a
-//   mutable fixed-size array via two-index swap through a temporary, done INLINE
-//   in `main`. The original `fn reverse(a: &mut [i64])` factoring was dropped —
-//   index-WRITE through a `&mut [T;N]`/`&mut [T]` parameter is rejected
-//   (`&mut <array>` lowers to a thin `&mut i64`, then `a[i] = ..` errors; G162-2),
-//   so the swap loop runs directly over the local array.
-// Tests in-place mutation of a mutable array via index-swap (two-pointer reverse)
-//   and read-back.
+//   mutable array factored through a `fn reverse(a: &mut [i64])` slice parameter
+//   (the original Rust shape — G162-2 enables index-WRITE through a `&mut [T]`
+//   slice param: `&mut <array>` coerces to a `&mut [T]` fat pointer, and
+//   `a[i] = ..` GEPs through the slice's data field). The two-index swap loop
+//   reverses the slice in place.
+// Tests in-place mutation of a slice via index-swap (two-pointer reverse) through
+//   a `&mut [T]` parameter, plus read-back of the reversed array.
 package slice_rev_swap_inplace_b162;
 
-fn main() -> i32 {
-    let mut arr: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+fn reverse(a: &mut [i64], n: i64) {
     let mut i: i64 = 0i64;
-    let mut j: i64 = 4i64;
+    let mut j: i64 = n - 1i64;
     while i < j {
-        let tmp: i64 = arr[i];
-        arr[i] = arr[j];
-        arr[j] = tmp;
+        let tmp: i64 = a[i];
+        a[i] = a[j];
+        a[j] = tmp;
         i = i + 1i64;
         j = j - 1i64;
     }
+}
+
+fn main() -> i32 {
+    let mut arr: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    reverse(&mut arr, 5i64);
     if arr[0] != 5i64 { return 1i32; }
     if arr[1] != 4i64 { return 2i32; }
     if arr[2] != 3i64 { return 3i32; }

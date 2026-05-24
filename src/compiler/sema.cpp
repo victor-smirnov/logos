@@ -1644,6 +1644,27 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
           TypeRef(from).pointee() &&
           TypeRef(from).pointee().kind() == LogosType::Kind::Struct)))
         return true;
+    // Array-to-pointer decay: `&[T; N]` / `&mut [T; N]` → `*const T` / `*mut T`
+    // (and `&T` / `&mut T`). The reference's runtime value IS the array base
+    // pointer, which equals a pointer to element 0, so the decay is a no-op at
+    // the LLVM level (no retype/codegen needed — both flow as `ptr`). This
+    // restores the historical `&mut arr` thin-pointer form as a coercion now
+    // that `&mut arr` is lowered to the precise `&mut [T; N]` (G162-2). Must
+    // not WIDEN mutability: a shared `&[T; N]` only decays to a const/shared
+    // element pointer.
+    if ((from.kind() == LogosType::Kind::Ref || from.kind() == LogosType::Kind::MutRef) &&
+        from.pointee() && from.pointee().kind() == LogosType::Kind::Array &&
+        from.pointee().elem()) {
+        bool from_mut = from.kind() == LogosType::Kind::MutRef;
+        TypeRef aelem = from.pointee().elem();
+        if (to.kind() == LogosType::Kind::Ptr && to.pointee() &&
+            (from_mut || !to.mut_ptr()))
+            return types_compatible(aelem, to.pointee());
+        if ((to.kind() == LogosType::Kind::Ref || to.kind() == LogosType::Kind::MutRef) &&
+            to.pointee() &&
+            (from_mut || to.kind() == LogosType::Kind::Ref))
+            return types_compatible(aelem, to.pointee());
+    }
     // &T / &mut T → *const T / *mut T coercions (for backward compat with existing raw-ptr code)
     if ((TypeRef(from).kind() == LogosType::Kind::Ref || TypeRef(from).kind() == LogosType::Kind::MutRef) &&
         TypeRef(to).kind() == LogosType::Kind::Ptr &&

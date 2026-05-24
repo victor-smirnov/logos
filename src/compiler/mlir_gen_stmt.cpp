@@ -1955,7 +1955,17 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
     mlir::Value base_ptr;
     mlir::Type  elem_type;
     auto lpit = var_local_ptrs_.find(arr);
-    if (lpit != var_local_ptrs_.end()) {
+    auto slit = var_slice_.find(arr);
+    if (slit != var_slice_.end()) {
+        // G162-2: slice (`&mut [T]`) param/var — scope_ holds a pointer to the
+        // fat `{ptr, len}` descriptor. GEP field 0 + load the data pointer,
+        // then stride by the element type (mirror of ESliceIndexView read).
+        auto stype = slice_llvm_type();  // { ptr, i64 }
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, it->second, pi);
+        base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+        elem_type = slit->second;
+    } else if (lpit != var_local_ptrs_.end()) {
         base_ptr  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
         elem_type = lpit->second;
     } else {

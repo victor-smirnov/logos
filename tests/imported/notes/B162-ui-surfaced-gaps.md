@@ -101,32 +101,30 @@ call boundary (array-to-slice-arg); char literals incl. `\n`/`\t`/`\u{2603}` +
   `@`-binding facet was DROPPED; `binding-at-pattern-b162` was KEPT covering the
   TOP-LEVEL `n @ range` form (which works).
 
-- **G162-2** (TRACTABLE) — an indexed WRITE through a `&mut [T;N]` / `&mut [T]`
-  function parameter is rejected. A `&mut <array-local>` argument lowers to a thin
-  `&mut elem` (`&mut i64`), so at the call site `expected &mut [i64; 5], got
-  &mut i64`, and inside the callee `a[i] = v` errors "index write to 'a':
-  expected [i64; 5], got i64" (or for a `&[i64]` param "index write: 'a' is not an
-  array or pointer (got &[i64])"). This is the SAME root as B161's G161-2 (`for x
-  in &mut arr` mis-typed the array reference) — `&mut <array>` does not yet carry
-  the array shape across a parameter boundary. Indexed write through a `&mut [T;N]`
-  is the un-fixed sibling of G161-2 (which fixed the for-loop iter form only).
-  In-place index-write over a LOCAL array (no fn boundary) works. MINIMAL repro:
+- **G162-2** (CLOSED) — an indexed WRITE through a `&mut [T;N]` / `&mut [T]`
+  function parameter is now supported. Three sub-fixes:
+  1. `&mut <array-local>` now lowers to `&mut [T;N]` (a ref to the WHOLE array)
+     instead of a thin `&mut elem` (`sema_expr.cpp` ADDR_OF_MUT array case), so it
+     satisfies a `&mut [T;N]` parameter and the array-ref→slice coercion can lift
+     it to `&mut [T]`.
+  2. The index-write sema check (`sema_stmt.cpp lower_index_write`) accepts a
+     `Kind::Slice` receiver and a `&mut/&/*[T;N]`-pointee (peels the Array pointee
+     to its element for the write type).
+  3. mlir-gen: a `&[T;N]`-pointer param strides the GEP by the ELEMENT type (peel
+     the Array pointee — `mlir_gen_fn.cpp`); a `&mut [T]` SLICE param is recorded
+     in `var_slice_` so `gen_index_write` GEPs field 0 of the fat `{ptr, len}`
+     descriptor + loads the data pointer before striding by element
+     (mirror of the `ESliceIndexView` read path).
 
-  ```
-  fn rev(a: &mut [i64; 5]) {
-      let mut i: i64 = 0i64;
-      while i < 5i64 { a[i] = a[i] + 100i64; i = i + 1i64; }  // rejected
-  }
-  fn main() -> i32 {
-      let mut arr: [i64; 5] = [1i64,2i64,3i64,4i64,5i64];
-      rev(&mut arr);  // call: expected &mut [i64;5], got &mut i64
-      return 0i32;
-  }
-  ```
+  Both the `&mut [T;N]` array-param and the `&mut [T]` slice-param forms work.
+  Original test restored: `slice-rev-swap-inplace-b162` now factors the swap loop
+  into `fn reverse(a: &mut [i64], n: i64)` (the original Rust shape).
 
-  Original test affected: `slice/` in-place reverse shape — the `fn reverse(a:
-  &mut [i64])` factoring was DROPPED; `slice-rev-swap-inplace-b162` was KEPT with
-  the swap loop run INLINE over the local array.
+  KNOWN DIVERGENCE (separate, broad type-system feature — NOT introduced by this
+  fix): Logos does not track slice mutability at the type level — `&[T]` and
+  `&mut [T]` both canonicalise to `Kind::Slice` — so an indexed WRITE through an
+  immutable `&[T]` is not rejected. This matches the existing (loose) slice model
+  (Logos has never tracked slice mutability). Recorded in DIVERGENCES.
 
 ## Other observations (NOT counted as new gaps — consistent with documented conventions/limits)
 
@@ -156,8 +154,9 @@ call boundary (array-to-slice-arg); char literals incl. `\n`/`\t`/`\u{2603}` +
 
 - `pattern/bindings-after-at` (enum-payload `@`-binding facet) — G162-1. KEPT
   `binding-at-pattern-b162` with the top-level `n @ range` form.
-- `slice/` in-place reverse (`fn reverse(a: &mut [i64])` factoring) — G162-2. KEPT
-  `slice-rev-swap-inplace-b162` with the swap loop inline in `main`.
+- `slice/` in-place reverse (`fn reverse(a: &mut [i64])` factoring) — G162-2 CLOSED.
+  `slice-rev-swap-inplace-b162` RESTORED to the original Rust shape with the swap
+  loop factored into `fn reverse(a: &mut [i64], n: i64)`.
 - `impl-trait/universal_in_parameters` shape — `impl Trait` at parameter position
   is a deliberate Logos rejection (workaround named in the diagnostic). Dropped
   wholesale; not counted as a gap (the generic-bound facet is covered by

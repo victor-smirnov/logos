@@ -204,6 +204,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     var_struct_.clear();
     var_class_.clear();
     var_subscript_.clear();
+    var_slice_.clear();
     var_tuple_.clear();
     var_tagged_enum_.clear();
     var_tagged_enum_ptr_.clear();
@@ -240,6 +241,12 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 // reads it directly off the SSA arg) — not var_local_ptrs_,
                 // which would trigger a spurious LoadOp.
                 TypeRef pe = pv.pointee();
+                // G162-2: a `&/&mut/*[T; N]` param indexes by the ELEMENT type
+                // (the pointee is the whole array — `logos_to_mlir(array)` is
+                // the `[N x T]` aggregate, which would stride the GEP by
+                // sizeof(array) → OOB write/read). Peel to the element.
+                if (pe.kind() == LogosType::Kind::Array && pe.elem())
+                    pe = pe.elem();
                 mlir::Type et;
                 if (pe.kind() == LogosType::Kind::Struct ||
                     pe.kind() == LogosType::Kind::ZonedStruct) {
@@ -249,6 +256,23 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 }
                 if (!et) et = logos_to_mlir(pe);
                 if (et) var_subscript_[p.name] = et;
+            } else if (pv.kind() == LogosType::Kind::Slice && pv.elem()) {
+                // G162-2: a `&[T]` / `&mut [T]` slice param arrives as a
+                // pointer to the fat `{ptr, len}` descriptor. Indexed
+                // read/write must deref field 0 to the data pointer first
+                // (gen_index_write / EIndexRead consult var_slice_), then
+                // stride by the element type. Struct elements lay out inline,
+                // so use the struct's full LLVM type for the stride.
+                TypeRef se = pv.elem();
+                mlir::Type et;
+                if (se.kind() == LogosType::Kind::Struct ||
+                    se.kind() == LogosType::Kind::ZonedStruct) {
+                    auto cname = mlir_struct_key(se);
+                    auto sit = struct_types_.find(cname);
+                    if (sit != struct_types_.end()) et = sit->second.llvm_type;
+                }
+                if (!et) et = logos_to_mlir(se);
+                if (et) var_slice_[p.name] = et;
             } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
                 // Array params arrive as `ptr` (per make_fn_type). Without an
                 // explicit subscript entry, gen_index_read's
