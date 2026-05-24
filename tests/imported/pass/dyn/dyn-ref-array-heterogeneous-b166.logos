@@ -1,0 +1,21 @@
+// Regression (B166, g6b): a HETEROGENEOUS array of distinct `&Concrete` refs
+// unifies to `[&dyn Trait; N]` when the let annotation says so — each element
+// is unsize-coerced to the fat `&dyn` pointer. Previously rejected with
+// "element 1 has type &Ci, expected &Sq" (no unsize in array literals).
+package dyn_ref_array_heterogeneous_b166;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+struct Ci { r: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl Sh for Ci { fn area(self: &Ci) -> i64 { return 3i64 * self.r * self.r; } }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 3i64 };
+    let b: Ci = Ci { r: 2i64 };
+    let arr: [&dyn Sh; 2] = [&a, &b];
+    if arr[0i64].area() + arr[1i64].area() != 21i64 { return 1i32; }  // 9 + 12
+    // three distinct types
+    let c: Sq = Sq { s: 2i64 };
+    let arr3: [&dyn Sh; 3] = [&a, &b, &c];
+    if arr3[0i64].area() + arr3[1i64].area() + arr3[2i64].area() != 25i64 { return 2i32; }  // 9+12+4
+    return 0i32;
+}

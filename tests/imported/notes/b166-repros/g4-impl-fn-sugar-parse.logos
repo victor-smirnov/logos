@@ -1,3 +1,0 @@
-package g4;
-fn apply(f: impl Fn(i64) -> i64, x: i64) -> i64 { return f(x); }  // syntax error
-fn main() -> i32 { return 0i32; }

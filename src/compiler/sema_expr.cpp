@@ -8632,7 +8632,39 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         elems.push_back(lower_expr(map_of(items.get(i))));
 
     TypeRef elem_type = elems[0]->type;
-    for (uint64_t i = 1; i < elems.size(); ++i) {
+    // g6b: a `[&dyn Trait; N]` annotation lets a HETEROGENEOUS array of distinct
+    // `&Concrete` refs unify to `&dyn Trait`. When the expected element type is
+    // known and every element coerces to it (with at least one needing the
+    // `&Concrete → &dyn` unsize), adopt the hint as the element type and skip
+    // the homogeneity checks below — codegen builds each fat pointer per-element.
+    bool dyn_elem_hint = false;
+    if (hint_arr_elem_type_ &&
+        TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
+        TypeRef he = hint_arr_elem_type_;
+        // ref_arg_satisfies_dyn wants the bare TraitObject; `he` is the ref form
+        // `&dyn Trait` (Ref→TraitObject) when from a `[&dyn Trait; N]` annotation.
+        TypeRef he_dyn = he;
+        if ((TypeRef(he).kind() == LogosType::Kind::Ref ||
+             TypeRef(he).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(he).pointee() &&
+            TypeRef(TypeRef(he).pointee()).kind() == LogosType::Kind::TraitObject)
+            he_dyn = TypeRef(he).pointee();
+        // A `[&dyn Trait; N]` hint (element type is a TraitObject) wants every
+        // element coerced to the fat `&dyn` pointer. Engage when each element is
+        // compatible with, or unsize-coercible to, that dyn element type.
+        bool he_is_dyn = TypeRef(he_dyn).kind() == LogosType::Kind::TraitObject;
+        if (he_is_dyn) {
+            bool all_coerce = true;
+            for (auto& e : elems) {
+                TypeRef et = e->type;
+                if (TypeRef(et).kind() == LogosType::Kind::Error) continue;
+                if (types_compatible(et, he) || ref_arg_satisfies_dyn(et, he_dyn)) continue;
+                all_coerce = false; break;
+            }
+            if (all_coerce) { elem_type = he; dyn_elem_hint = true; }
+        }
+    }
+    for (uint64_t i = 1; !dyn_elem_hint && i < elems.size(); ++i) {
         auto t = elems[i]->type;
         if (TypeRef(t).kind() != LogosType::Kind::Error && TypeRef(elem_type).kind() != LogosType::Kind::Error) {
             if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
@@ -8716,7 +8748,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // If a later element has a concrete narrow type, element 0 (which set
     // elem_type initially) was never range-checked against it.
     // Find the first concrete anchor from elements 1+ and check element 0.
-    if (elems.size() > 1) {
+    if (!dyn_elem_hint && elems.size() > 1) {
         // Locate the first element whose type is concrete (not purely IntLit-typed).
         TypeRef anchor = nullptr;
         for (size_t i = 1; i < elems.size() && !anchor; ++i) {

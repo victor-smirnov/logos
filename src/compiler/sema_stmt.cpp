@@ -1500,6 +1500,13 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && (TypeRef(ann).kind() == LogosType::Kind::FnPtr ||
                 TypeRef(ann).kind() == LogosType::Kind::Closure))
         hint_closure_formal_ = ann;
+    // g6b: `[T; N]` / `[T]` annotation hints the array literal's element type
+    // so a heterogeneous `[&dyn Trait]` (distinct concrete refs) is accepted.
+    auto saved_arr_elem_hint = hint_arr_elem_type_;
+    if (ann && (TypeRef(ann).kind() == LogosType::Kind::Array ||
+                TypeRef(ann).kind() == LogosType::Kind::Slice) &&
+        TypeRef(ann).elem())
+        hint_arr_elem_type_ = TypeRef(ann).elem();
 
     // C6-cc-04: `let p = &<scalar literal>;` — Rust extends the
     // temporary's lifetime to the enclosing scope; Logos previously
@@ -1611,6 +1618,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     hint_struct_type_ = saved_struct_hint;
     hint_call_return_type_ = saved_ret_hint;
     hint_closure_formal_ = saved_closure_hint;
+    hint_arr_elem_type_ = saved_arr_elem_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred
