@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-consts/ shapes (distilled).
+// Modifications: isize->i64; `&self`->`self:&Self`; assert->if-return. A trait
+//   declares an associated const `SIDES: i64`, overridden in two impls. Read via
+//   the CONCRETE type path `Tri::SIDES`/`Quad::SIDES` (projecting through a generic
+//   bound `T::SIDES` is a known gap — G163-3 / B121); each impl also exposes the
+//   const through a `&self` method `sides()`.
+// Tests a trait associated const overridden per-impl, read both via the concrete
+//   type path and via a per-impl `&self` method returning the const.
+package assoc_const_per_impl_b163;
+
+trait Poly {
+    const SIDES: i64;
+    fn sides(self: &Self) -> i64;
+}
+
+struct Tri {}
+struct Quad {}
+
+impl Poly for Tri {
+    const SIDES: i64 = 3i64;
+    fn sides(self: &Self) -> i64 { return Tri::SIDES; }
+}
+impl Poly for Quad {
+    const SIDES: i64 = 4i64;
+    fn sides(self: &Self) -> i64 { return Quad::SIDES; }
+}
+
+fn main() -> i32 {
+    if Tri::SIDES != 3i64 { return 1i32; }
+    if Quad::SIDES != 4i64 { return 2i32; }
+    let t: Tri = Tri {};
+    let q: Quad = Quad {};
+    if t.sides() != 3i64 { return 3i32; }
+    if q.sides() != 4i64 { return 4i32; }
+    if (Tri::SIDES + Quad::SIDES) != 7i64 { return 5i32; }
+    return 0i32;
+}

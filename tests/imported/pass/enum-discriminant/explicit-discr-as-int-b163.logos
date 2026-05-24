@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum-discriminant/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return. A C-like enum with explicit
+//   discriminants cast to i64 via `Variant as i64`, including a gap and a negative.
+// Tests explicit enum discriminants and the `EnumVariant as i64` discriminant cast.
+package explicit_discr_as_int_b163;
+
+enum Code { Ok = 0i64, NotFound = 404i64, Teapot = 418i64, Custom = -1i64 }
+
+fn main() -> i32 {
+    if (Code::Ok as i64) != 0i64 { return 1i32; }
+    if (Code::NotFound as i64) != 404i64 { return 2i32; }
+    if (Code::Teapot as i64) != 418i64 { return 3i32; }
+    if (Code::Custom as i64) != -1i64 { return 4i32; }
+    return 0i32;
+}

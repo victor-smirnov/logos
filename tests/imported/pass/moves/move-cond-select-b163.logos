@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/moves/move-4.rs (distilled).
+// Modifications: isize->i64; Box dropped; assert->if-return sentinels. Selecting
+//   one of two owned struct values into a destination by a runtime condition, then
+//   reading the survivor's field.
+// Tests conditional ownership transfer: a `Triple` chosen by branch, the unchosen
+//   one left untouched, the chosen one's fields summed.
+package move_cond_select_b163;
+
+struct Triple { a: i64, b: i64, c: i64 }
+
+fn sum(t: Triple) -> i64 { return t.a + t.b + t.c; }
+
+fn pick(flag: bool) -> i64 {
+    let x: Triple = Triple { a: 1i64, b: 2i64, c: 3i64 };
+    let y: Triple = Triple { a: 10i64, b: 20i64, c: 30i64 };
+    let z: Triple = if flag { x } else { y };
+    return sum(z);
+}
+
+fn main() -> i32 {
+    if pick(true) != 6i64 { return 1i32; }
+    if pick(false) != 60i64 { return 2i32; }
+    return 0i32;
+}

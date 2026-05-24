@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/deref/ shapes (distilled).
+// Modifications: isize->i64; `&self`->`self:&Self`; assert->if-return. A newtype
+//   `Wrap` implements `Deref<Inner>` so a method of `Inner` is reachable via
+//   autoderef on the wrapper, and `*w` reads the inner value.
+// Tests user `Deref` impl: method autoderef from the wrapper to the Deref target's
+//   inherent method, plus explicit `*w` read.
+package user_deref_target_method_b163;
+
+use logos.lang.ops;
+
+struct Inner { v: i64 }
+impl Inner {
+    fn doubled(self: &Self) -> i64 { return self.v * 2i64; }
+}
+
+struct Wrap { inner: Inner }
+impl Deref<Inner> for Wrap {
+    fn deref(self: &Self) -> &Inner { return &self.inner; }
+}
+
+fn main() -> i32 {
+    let w: Wrap = Wrap { inner: Inner { v: 21i64 } };
+    if w.doubled() != 42i64 { return 1i32; }
+    if (*w).v != 21i64 { return 2i32; }
+    return 0i32;
+}

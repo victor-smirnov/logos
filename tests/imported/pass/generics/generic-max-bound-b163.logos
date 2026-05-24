@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A generic `max<T: Ord2>`
+//   over a user comparison trait `Ord2` implemented for i64, returning the larger.
+// Tests a generic fn bounded by a user trait, dispatching the bound method through
+//   the type parameter at a concrete instantiation (i64).
+package generic_max_bound_b163;
+
+trait Ord2 {
+    fn lt2(self: &Self, other: &Self) -> bool;
+}
+
+impl Ord2 for i64 {
+    fn lt2(self: &Self, other: &Self) -> bool { return *self < *other; }
+}
+
+fn max2<T: Ord2>(a: T, b: T) -> T {
+    if a.lt2(&b) { return b; }
+    return a;
+}
+
+fn main() -> i32 {
+    if max2::<i64>(3i64, 7i64) != 7i64 { return 1i32; }
+    if max2::<i64>(9i64, 2i64) != 9i64 { return 2i32; }
+    if max2::<i64>(5i64, 5i64) != 5i64 { return 3i32; }
+    return 0i32;
+}

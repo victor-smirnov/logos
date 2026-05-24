@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/range/range-1.rs shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Iterates an exclusive
+//   `for i in lo..hi` and an inclusive `for i in lo..=hi`, accumulating a sum, plus
+//   an empty range producing zero.
+// Tests half-open and inclusive `for`-range iteration with computed bounds, and an
+//   empty range (lo == hi) iterating zero times.
+package range_sum_bounds_b163;
+
+fn sum_excl(lo: i64, hi: i64) -> i64 {
+    let mut s: i64 = 0i64;
+    for i in lo..hi { s = s + i; }
+    return s;
+}
+
+fn sum_incl(lo: i64, hi: i64) -> i64 {
+    let mut s: i64 = 0i64;
+    for i in lo..=hi { s = s + i; }
+    return s;
+}
+
+fn main() -> i32 {
+    if sum_excl(1i64, 5i64) != 10i64 { return 1i32; }
+    if sum_incl(1i64, 5i64) != 15i64 { return 2i32; }
+    if sum_excl(3i64, 3i64) != 0i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/match/ guard shapes (distilled).
+// Modifications: isize->i64; assert->if-return. Match a struct, binding fields and
+//   using a guard over the bound values; ordering of overlapping guarded arms.
+// Tests struct-pattern field bindings + arm guards over those bindings, with
+//   correct first-match ordering across overlapping arms.
+package match_guard_struct_bind_b163;
+
+struct Pt { x: i64, y: i64 }
+
+fn quad(p: Pt) -> i64 {
+    match p {
+        Pt { x, y } if x > 0i64 && y > 0i64 => { return 1i64; }
+        Pt { x, y } if x < 0i64 && y > 0i64 => { return 2i64; }
+        Pt { x, y } if x == 0i64 || y == 0i64 => { return 0i64; }
+        _ => { return 9i64; }
+    }
+}
+
+fn main() -> i32 {
+    if quad(Pt { x: 1i64, y: 2i64 }) != 1i64 { return 1i32; }
+    if quad(Pt { x: -1i64, y: 2i64 }) != 2i64 { return 2i32; }
+    if quad(Pt { x: 0i64, y: 5i64 }) != 0i64 { return 3i32; }
+    if quad(Pt { x: -1i64, y: -1i64 }) != 9i64 { return 4i32; }
+    return 0i32;
+}

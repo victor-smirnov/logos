@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/tuple/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A fn returns a 3-tuple;
+//   the caller destructures it. A swap is expressed by returning the elements in
+//   reversed positions.
+// Tests returning a tuple from a function, let-destructuring the result, and a
+//   reorder/swap performed by tuple construction.
+package tuple_return_swap_b163;
+
+fn minmax(a: i64, b: i64) -> (i64, i64) {
+    if a < b { return (a, b); }
+    return (b, a);
+}
+
+fn swap(a: i64, b: i64) -> (i64, i64) { return (b, a); }
+
+fn main() -> i32 {
+    let (lo, hi) = minmax(8i64, 3i64);
+    if lo != 3i64 { return 1i32; }
+    if hi != 8i64 { return 2i32; }
+    let (p, q) = swap(1i64, 2i64);
+    if p != 2i64 { return 3i32; }
+    if q != 1i64 { return 4i32; }
+    return 0i32;
+}

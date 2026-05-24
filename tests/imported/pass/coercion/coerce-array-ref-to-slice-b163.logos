@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/coercion/coerce-reborrow-imm-vec-arg.rs (distilled).
+// Modifications: isize->i64; Vec dropped for a fixed array; assert->if-return.
+//   A `&[i64; N]` array reference coerces to a `&[i64]` slice at the call boundary,
+//   and the slice is summed by indexing 0..len.
+// Tests array-ref->slice coercion at a fn argument and indexing the slice param.
+package coerce_array_ref_to_slice_b163;
+
+fn sum_slice(s: &[i64], n: i64) -> i64 {
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        acc = acc + s[i];
+        i = i + 1i64;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    let a: [i64; 4] = [10i64, 20i64, 30i64, 40i64];
+    if sum_slice(&a, 4i64) != 100i64 { return 1i32; }
+    let b: [i64; 2] = [7i64, 8i64];
+    if sum_slice(&b, 2i64) != 15i64 { return 2i32; }
+    return 0i32;
+}

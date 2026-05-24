@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/option/ shapes (distilled).
+// Modifications: isize->i64; method combinators expanded to explicit match;
+//   assert->if-return sentinels. Build `Option<i64>`, match Some/None, and a fn
+//   that maps over the Some payload by hand.
+// Tests `Option<i64>` construction, Some/None matching, and a hand-written map
+//   that adds to the payload or passes None through.
+package option_match_mapsum_b163;
+
+fn add_one(o: Option<i64>) -> Option<i64> {
+    match o {
+        Some(x) => { return Some(x + 1i64); }
+        None => { return None; }
+    }
+}
+
+fn unwrap_or(o: Option<i64>, d: i64) -> i64 {
+    match o {
+        Some(x) => { return x; }
+        None => { return d; }
+    }
+}
+
+fn main() -> i32 {
+    let a: Option<i64> = Some(41i64);
+    let b: Option<i64> = add_one(a);
+    if unwrap_or(b, 0i64) != 42i64 { return 1i32; }
+    let n: Option<i64> = None;
+    let m: Option<i64> = add_one(n);
+    if unwrap_or(m, -1i64) != -1i64 { return 2i32; }
+    return 0i32;
+}

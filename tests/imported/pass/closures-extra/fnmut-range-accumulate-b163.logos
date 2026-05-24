@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A generic driver calls a
+//   `FnMut(i64)` closure once per value in 0..n; the closure mutates a captured
+//   accumulator.
+// Tests a `FnMut(i64)` closure capturing + mutating an outer accumulator, invoked
+//   N times through a generic `for_each<F: FnMut(i64)>` driver.
+package fnmut_range_accumulate_b163;
+
+fn for_each<F: FnMut(i64)>(n: i64, mut f: F) {
+    let mut i: i64 = 0i64;
+    while i < n {
+        f(i);
+        i = i + 1i64;
+    }
+}
+
+fn main() -> i32 {
+    let mut total: i64 = 0i64;
+    for_each(5i64, |x| { total = total + x; });
+    // 0+1+2+3+4 = 10
+    if total != 10i64 { return 1i32; }
+    let mut count: i64 = 0i64;
+    for_each(3i64, |_| { count = count + 1i64; });
+    if count != 3i64 { return 2i32; }
+    return 0i32;
+}

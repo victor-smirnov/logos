@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/char/ shapes (distilled).
+// Modifications: assert->if-return sentinels. Classify a char by comparing it to
+//   range bounds using `char as i64` code-point ordering: digit / lower / upper /
+//   other. Char literals incl. escapes.
+// Tests `char as i64` code-point cast + ordering comparisons for character
+//   classification across digit, lowercase, uppercase, and other.
+package char_range_classify_b163;
+
+fn classify(c: char) -> i64 {
+    let n: i64 = c as i64;
+    if n >= 48i64 && n <= 57i64 { return 1i64; }
+    if n >= 97i64 && n <= 122i64 { return 2i64; }
+    if n >= 65i64 && n <= 90i64 { return 3i64; }
+    return 0i64;
+}
+
+fn main() -> i32 {
+    if classify('7') != 1i64 { return 1i32; }
+    if classify('q') != 2i64 { return 2i32; }
+    if classify('Z') != 3i64 { return 3i32; }
+    if classify(' ') != 0i64 { return 4i32; }
+    if classify('\n') != 0i64 { return 5i32; }
+    if ('a' as i64) != 97i64 { return 6i32; }
+    return 0i32;
+}

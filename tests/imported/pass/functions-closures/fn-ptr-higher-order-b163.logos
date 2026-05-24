@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/functions-closures/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Bare fn items passed as
+//   `fn(i64)->i64` arguments to a higher-order `apply_twice`.
+// Tests passing fn items as fn-pointer arguments and composing them (apply a fn
+//   twice; pick a fn by branch then call it).
+package fn_ptr_higher_order_b163;
+
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn sq(x: i64) -> i64 { return x * x; }
+
+fn apply_twice(f: fn(i64) -> i64, x: i64) -> i64 { return f(f(x)); }
+
+fn pick(flag: bool) -> fn(i64) -> i64 {
+    if flag { return inc; }
+    return sq;
+}
+
+fn main() -> i32 {
+    if apply_twice(inc, 5i64) != 7i64 { return 1i32; }
+    if apply_twice(sq, 3i64) != 81i64 { return 2i32; }
+    let f: fn(i64) -> i64 = pick(true);
+    if f(10i64) != 11i64 { return 3i32; }
+    let g: fn(i64) -> i64 = pick(false);
+    if g(6i64) != 36i64 { return 4i32; }
+    return 0i32;
+}

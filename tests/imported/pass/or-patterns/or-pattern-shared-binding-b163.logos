@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Top-level literal
+//   or-patterns `1 | 2 | 3 => ..`, and a guarded or-pattern arm.
+// Tests or-patterns in match arms: multi-literal alternatives collapsing to one
+//   arm, plus an or-pattern combined with a guard.
+package or_pattern_shared_binding_b163;
+
+fn bucket(n: i64) -> i64 {
+    match n {
+        0i64 | 1i64 | 2i64 => { return 100i64; }
+        3i64 | 4i64 => { return 200i64; }
+        x if x < 0i64 => { return -1i64; }
+        _ => { return 300i64; }
+    }
+}
+
+fn main() -> i32 {
+    if bucket(0i64) != 100i64 { return 1i32; }
+    if bucket(2i64) != 100i64 { return 2i32; }
+    if bucket(4i64) != 200i64 { return 3i32; }
+    if bucket(-5i64) != -1i64 { return 4i32; }
+    if bucket(99i64) != 300i64 { return 5i32; }
+    return 0i32;
+}

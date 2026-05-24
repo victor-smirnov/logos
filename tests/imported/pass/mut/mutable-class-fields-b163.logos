@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mut/mutable-class-fields.rs (distilled).
+// Modifications: isize->i64; `&mut self`->`self:&mut Self`; assert->if-return.
+// Tests in-place mutation of multiple struct fields through a `&mut self` method,
+//   observed by reading the fields back afterwards.
+package mutable_class_fields_b163;
+
+struct Cat { meows: i64, how_hungry: i64 }
+
+fn eat(c: &mut Cat) {
+    c.how_hungry = c.how_hungry - 5i64;
+    c.meows = c.meows + 1i64;
+}
+
+fn main() -> i32 {
+    let mut nyan: Cat = Cat { meows: 0i64, how_hungry: 10i64 };
+    eat(&mut nyan);
+    eat(&mut nyan);
+    if nyan.meows != 2i64 { return 1i32; }
+    if nyan.how_hungry != 0i64 { return 2i32; }
+    return 0i32;
+}

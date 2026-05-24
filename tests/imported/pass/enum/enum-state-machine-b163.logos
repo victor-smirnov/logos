@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/enum/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A small state-machine
+//   enum with payload-carrying and unit variants stepped through a transition fn.
+// Tests an enum with mixed unit + payload variants driven through a transition
+//   function returning the next state, matched to read out a final value.
+package enum_state_machine_b163;
+
+enum State { Start, Running(i64), Done(i64) }
+
+fn step(s: State) -> State {
+    match s {
+        State::Start => { return State::Running(0i64); }
+        State::Running(n) => {
+            if n >= 3i64 { return State::Done(n); }
+            return State::Running(n + 1i64);
+        }
+        State::Done(n) => { return State::Done(n); }
+    }
+}
+
+fn run() -> i64 {
+    let mut s: State = State::Start;
+    let mut guard: i64 = 0i64;
+    while guard < 100i64 {
+        match s {
+            State::Done(n) => { return n; }
+            _ => { s = step(s); }
+        }
+        guard = guard + 1i64;
+    }
+    return -1i64;
+}
+
+fn main() -> i32 {
+    if run() != 3i64 { return 1i32; }
+    return 0i32;
+}

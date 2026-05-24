@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A fixed 2-D array
+//   `[[i64; 3]; 2]` indexed by row+col and summed. The in-place chained two-level
+//   indexed WRITE `grid[0][1] = ..` is a parse error (G163-2 — two-level indexed
+//   READ parses fine), so the mutation facet is expressed via a single-level write
+//   into an extracted row binding.
+// Tests nested fixed-array (`[[i64;N];M]`) construction, two-level indexing READ,
+//   and a single-level indexed write into an extracted row.
+package array_of_arrays_b163;
+
+fn main() -> i32 {
+    let grid: [[i64; 3]; 2] = [[1i64, 2i64, 3i64], [4i64, 5i64, 6i64]];
+    if grid[0][0] != 1i64 { return 1i32; }
+    if grid[1][2] != 6i64 { return 2i32; }
+    let mut sum: i64 = 0i64;
+    let mut r: i64 = 0i64;
+    while r < 2i64 {
+        let mut c: i64 = 0i64;
+        while c < 3i64 {
+            sum = sum + grid[r][c];
+            c = c + 1i64;
+        }
+        r = r + 1i64;
+    }
+    if sum != 21i64 { return 3i32; }
+    let mut row: [i64; 3] = grid[0];
+    row[1] = 20i64;
+    if row[1] != 20i64 { return 4i32; }
+    if row[0] != 1i64 { return 5i32; }
+    return 0i32;
+}

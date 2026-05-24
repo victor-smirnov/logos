@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A `type` alias for a fn
+//   pointer `fn(i64)->i64` used to type a local holding a fn item, plus a tuple
+//   type alias destructured.
+// Tests type aliases for a fn-pointer type (call through the aliased local) and a
+//   tuple type (let-destructure of an aliased tuple).
+package alias_fnptr_and_tuple_b163;
+
+type IntOp = fn(i64) -> i64;
+type Pair = (i64, i64);
+
+fn inc(x: i64) -> i64 { return x + 1i64; }
+fn dbl(x: i64) -> i64 { return x * 2i64; }
+
+fn main() -> i32 {
+    let f: IntOp = inc;
+    let g: IntOp = dbl;
+    if f(4i64) != 5i64 { return 1i32; }
+    if g(4i64) != 8i64 { return 2i32; }
+    let p: Pair = (3i64, 9i64);
+    let (a, b) = p;
+    if a + b != 12i64 { return 3i32; }
+    return 0i32;
+}

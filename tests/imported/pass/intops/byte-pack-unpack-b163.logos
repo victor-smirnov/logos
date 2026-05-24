@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/ bit shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Pack four bytes into a
+//   u32 via `<<` / `|` and unpack them back via `>>` / `&` masks.
+// Tests bit-level packing/unpacking on u32: shift-left + or to compose, shift-right
+//   + and-mask to extract, round-tripping.
+package byte_pack_unpack_b163;
+
+fn pack(a: u32, b: u32, c: u32, d: u32) -> u32 {
+    return (a << 24u32) | (b << 16u32) | (c << 8u32) | d;
+}
+
+fn byte_at(v: u32, idx: u32) -> u32 {
+    return (v >> (idx * 8u32)) & 255u32;
+}
+
+fn main() -> i32 {
+    let v: u32 = pack(0x12u32, 0x34u32, 0x56u32, 0x78u32);
+    if byte_at(v, 3u32) != 0x12u32 { return 1i32; }
+    if byte_at(v, 2u32) != 0x34u32 { return 2i32; }
+    if byte_at(v, 1u32) != 0x56u32 { return 3i32; }
+    if byte_at(v, 0u32) != 0x78u32 { return 4i32; }
+    return 0i32;
+}

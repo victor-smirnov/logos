@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/generics/ generic-struct shapes (distilled).
+// Modifications: isize->i64; `&self`->`self:&Self`; assert->if-return. A generic
+//   `Pair<T>` with inherent methods, instantiated at i64 and bool.
+// Tests a generic struct with inherent `&self` methods (swap-via-rebuild, accessors)
+//   exercised at two distinct concrete type-args (i64, bool).
+package generic_pair_methods_b163;
+
+struct Pair<T> { a: T, b: T }
+
+impl Pair<i64> {
+    fn sum(self: &Self) -> i64 { return self.a + self.b; }
+}
+
+fn first<T>(p: &Pair<T>) -> T { return p.a; }
+
+fn main() -> i32 {
+    let p: Pair<i64> = Pair { a: 3i64, b: 4i64 };
+    if p.sum() != 7i64 { return 1i32; }
+    if first::<i64>(&p) != 3i64 { return 2i32; }
+    let q: Pair<bool> = Pair { a: true, b: false };
+    if !first::<bool>(&q) { return 3i32; }
+    return 0i32;
+}

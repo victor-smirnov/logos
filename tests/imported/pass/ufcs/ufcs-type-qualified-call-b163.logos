@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/ufcs/ shapes (distilled).
+// Modifications: isize->i64; `&self`->`self:&Self`; assert->if-return sentinels.
+//   Calling an inherent method through the type-qualified UFCS path
+//   `Counter::get(&c)` (G159-2: trait-qualified instance UFCS is unresolved; the
+//   type-qualified form works) and via the normal `.get()` receiver form.
+// Tests type-qualified UFCS instance-method calls `Type::method(&recv)` alongside
+//   the equivalent method-call sugar.
+package ufcs_type_qualified_call_b163;
+
+struct Counter { n: i64 }
+
+impl Counter {
+    fn get(self: &Self) -> i64 { return self.n; }
+    fn bump(self: &mut Self) { self.n = self.n + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut c: Counter = Counter { n: 10i64 };
+    Counter::bump(&mut c);
+    if Counter::get(&c) != 11i64 { return 1i32; }
+    if c.get() != 11i64 { return 2i32; }
+    c.bump();
+    if Counter::get(&c) != 12i64 { return 3i32; }
+    return 0i32;
+}

@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/return/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return. Early `return` from inside nested
+//   loops/conditionals, and parity between a tail-expression result and an explicit
+//   `return`.
+// Tests early `return` from a nested loop (linear search) and tail-expr vs explicit
+//   `return` producing the same value.
+package early_return_nested_b163;
+
+fn find_pair(target: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < 10i64 {
+        let mut j: i64 = 0i64;
+        while j < 10i64 {
+            if i * j == target { return i * 100i64 + j; }
+            j = j + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn tail(x: i64) -> i64 { x + 1i64 }
+fn ret(x: i64) -> i64 { return x + 1i64; }
+
+fn main() -> i32 {
+    if find_pair(12i64) != 206i64 { return 1i32; }
+    if find_pair(97i64) != -1i64 { return 2i32; }
+    if tail(5i64) != ret(5i64) { return 3i32; }
+    return 0i32;
+}

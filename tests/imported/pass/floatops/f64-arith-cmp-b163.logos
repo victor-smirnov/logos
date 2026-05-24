@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/float shapes (distilled).
+// Modifications: f32->f64; assert->if-return. f64 add/sub/mul/div + full ordering
+//   set + a hand-rolled abs and an epsilon-tolerant equality.
+// Tests f64 arithmetic, all six comparison operators, and a branch-based fabs over
+//   positive/negative inputs.
+package f64_arith_cmp_b163;
+
+fn fabs(x: f64) -> f64 { if x < 0.0f64 { return -x; } return x; }
+
+fn close(a: f64, b: f64) -> bool {
+    let d: f64 = fabs(a - b);
+    return d < 0.0001f64;
+}
+
+fn main() -> i32 {
+    if !close(1.5f64 + 2.5f64, 4.0f64) { return 1i32; }
+    if !close(10.0f64 / 4.0f64, 2.5f64) { return 2i32; }
+    if !(1.0f64 < 2.0f64) { return 3i32; }
+    if !(2.0f64 >= 2.0f64) { return 4i32; }
+    if 3.0f64 > 3.5f64 { return 5i32; }
+    if !close(fabs(-7.25f64), 7.25f64) { return 6i32; }
+    return 0i32;
+}

@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. A tuple struct
+//   `Vec2(i64,i64)` destructured in a `let` pattern and in a match arm.
+// Tests tuple-struct construction + positional destructuring in both a `let`
+//   binding and a `match` arm.
+package tuple_struct_destructure_b163;
+
+struct Vec2(i64, i64);
+
+fn len_sq(v: Vec2) -> i64 {
+    let Vec2(x, y) = v;
+    return x * x + y * y;
+}
+
+fn quadrant(v: Vec2) -> i64 {
+    match v {
+        Vec2(0i64, 0i64) => { return 0i64; }
+        Vec2(x, y) => {
+            if x > 0i64 && y > 0i64 { return 1i64; }
+            return 9i64;
+        }
+    }
+}
+
+fn main() -> i32 {
+    if len_sq(Vec2(3i64, 4i64)) != 25i64 { return 1i32; }
+    if quadrant(Vec2(0i64, 0i64)) != 0i64 { return 2i32; }
+    if quadrant(Vec2(2i64, 5i64)) != 1i64 { return 3i32; }
+    if quadrant(Vec2(-1i64, 3i64)) != 9i64 { return 4i32; }
+    return 0i32;
+}

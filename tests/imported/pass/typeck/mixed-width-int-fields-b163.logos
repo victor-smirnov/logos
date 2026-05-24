@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/typeck/ shapes (distilled).
+// Modifications: isize->i64; assert->if-return. A struct with i8/i16/u32/i64 fields
+//   read + combined with same-width arithmetic, then widened via `as` to compare.
+// Tests a struct carrying mixed-width integer fields, per-field arithmetic at the
+//   field's own width, and `as`-widening for the final comparison.
+package mixed_width_int_fields_b163;
+
+struct Mixed { a: i8, b: i16, c: u32, d: i64 }
+
+fn main() -> i32 {
+    let m: Mixed = Mixed { a: 5i8, b: 300i16, c: 70000u32, d: 9000000000i64 };
+    let aa: i8 = m.a + 2i8;
+    let bb: i16 = m.b + 1i16;
+    let cc: u32 = m.c + 1u32;
+    let dd: i64 = m.d + 1i64;
+    if (aa as i64) != 7i64 { return 1i32; }
+    if (bb as i64) != 301i64 { return 2i32; }
+    if (cc as i64) != 70001i64 { return 3i32; }
+    if dd != 9000000001i64 { return 4i32; }
+    return 0i32;
+}

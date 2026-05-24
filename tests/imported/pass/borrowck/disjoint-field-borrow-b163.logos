@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/borrowck/ disjoint-borrow shapes (distilled).
+// Modifications: isize->i64; assert->if-return. Borrow one field of a struct
+//   mutably via `&mut s.a` while reading another field `s.b` (disjoint fields).
+// Tests disjoint-field borrows: a `&mut` to one field and a read of another in the
+//   same scope, with the write observed afterwards.
+package disjoint_field_borrow_b163;
+
+struct Both { a: i64, b: i64 }
+
+fn add_b_into_a(s: &mut Both) {
+    let pa: &mut i64 = &mut s.a;
+    *pa = *pa + s.b;
+}
+
+fn main() -> i32 {
+    let mut s: Both = Both { a: 10i64, b: 5i64 };
+    add_b_into_a(&mut s);
+    if s.a != 15i64 { return 1i32; }
+    if s.b != 5i64 { return 2i32; }
+    return 0i32;
+}

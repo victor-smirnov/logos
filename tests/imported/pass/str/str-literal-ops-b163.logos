@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/str/ shapes (distilled).
+// Modifications: assert->if-return sentinels. String-literal `.len()`, byte
+//   indexing, and lexicographic comparison via the built-in operators on `&str`.
+//   NOTE: in Logos `s.len()` yields i64 while byte-index `s[i]` yields u64, so the
+//   comparisons are typed accordingly.
+// Tests `&str` length, byte-index access, value equality, and `<`/`>`
+//   lexicographic ordering over string literals.
+package str_literal_ops_b163;
+
+fn main() -> i32 {
+    let s: str = "hello";
+    if s.len() != 5i64 { return 1i32; }
+    if s[0] != 104u64 { return 2i32; }
+    if s[4] != 111u64 { return 3i32; }
+    if !("abc" < "abd") { return 4i32; }
+    if !("zoo" > "zone") { return 5i32; }
+    if "same" != "same" { return 6i32; }
+    return 0i32;
+}

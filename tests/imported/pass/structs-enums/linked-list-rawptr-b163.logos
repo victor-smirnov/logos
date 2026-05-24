@@ -1,0 +1,31 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs-enums/ recursive-struct shapes (distilled).
+// Modifications: isize->i64; Box replaced by `*const Node` raw-pointer links;
+//   assert->if-return sentinels. A singly-linked list built from stack nodes whose
+//   `next` is a `*const Node` (null-terminated), summed via a recursive walk.
+// Tests a recursive struct via raw-pointer indirection: build a chain of stack
+//   nodes, walk it under `unsafe` deref accumulating a sum + length.
+package linked_list_rawptr_b163;
+
+struct Node { val: i64, next: *const Node }
+
+fn null_node() -> *const Node {
+    let p: *const Node = 0i64 as *const Node;
+    return p;
+}
+
+fn sum_from(p: *const Node) -> i64 {
+    if (p as i64) == 0i64 { return 0i64; }
+    unsafe {
+        let n: &Node = &*p;
+        return n.val + sum_from(n.next);
+    }
+}
+
+fn main() -> i32 {
+    let a: Node = Node { val: 1i64, next: null_node() };
+    let b: Node = Node { val: 2i64, next: &a as *const Node };
+    let c: Node = Node { val: 3i64, next: &b as *const Node };
+    if sum_from(&c as *const Node) != 6i64 { return 1i32; }
+    return 0i32;
+}

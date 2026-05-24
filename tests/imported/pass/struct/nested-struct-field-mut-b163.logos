@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/ nested-field shapes (distilled).
+// Modifications: isize->i64; `&mut self`->`self:&mut Self`; assert->if-return.
+//   A struct holds another struct; mutate the inner struct's field through a
+//   multi-level field path on a `&mut` receiver, and read it back.
+// Tests multi-level field write `outer.inner.field = ..` on a `&mut Outer`
+//   parameter plus read-back of the nested value.
+package nested_struct_field_mut_b163;
+
+struct Point { x: i64, y: i64 }
+struct Line { start: Point, end: Point }
+
+fn shift_end(l: &mut Line, dx: i64, dy: i64) {
+    l.end.x = l.end.x + dx;
+    l.end.y = l.end.y + dy;
+}
+
+fn main() -> i32 {
+    let mut ln: Line = Line {
+        start: Point { x: 0i64, y: 0i64 },
+        end: Point { x: 1i64, y: 1i64 },
+    };
+    shift_end(&mut ln, 4i64, 5i64);
+    if ln.end.x != 5i64 { return 1i32; }
+    if ln.end.y != 6i64 { return 2i32; }
+    if ln.start.x != 0i64 { return 3i32; }
+    return 0i32;
+}

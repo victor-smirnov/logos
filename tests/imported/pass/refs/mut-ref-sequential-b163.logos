@@ -1,0 +1,20 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mut/mut-ref.rs (distilled).
+// Modifications: isize->i64; assert->if-return sentinels. Take a `&mut i64`, write
+//   through it; sequential (non-overlapping) mutable borrows of the same local.
+// Tests writing through a `&mut i64` parameter and re-borrowing the same local
+//   mutably in sequence (each borrow ends before the next).
+package mut_ref_sequential_b163;
+
+fn add_into(p: &mut i64, k: i64) { *p = *p + k; }
+
+fn main() -> i32 {
+    let mut x: i64 = 10i64;
+    add_into(&mut x, 5i64);
+    add_into(&mut x, 7i64);
+    if x != 22i64 { return 1i32; }
+    let r: &mut i64 = &mut x;
+    *r = *r * 2i64;
+    if x != 44i64 { return 2i32; }
+    return 0i32;
+}

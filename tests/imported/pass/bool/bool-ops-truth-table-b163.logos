@@ -1,0 +1,22 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/bool/ shapes (distilled).
+// Modifications: assert->if-return sentinels. Exhaustive truth tables for `&&`,
+//   `||`, `!`, plus the bitwise `&`/`|`/`^` over bool.
+// Tests boolean logical + bitwise operators over all input combinations.
+package bool_ops_truth_table_b163;
+
+fn b2i(b: bool) -> i64 { if b { return 1i64; } return 0i64; }
+
+fn main() -> i32 {
+    if b2i(true && true) != 1i64 { return 1i32; }
+    if b2i(true && false) != 0i64 { return 2i32; }
+    if b2i(false || true) != 1i64 { return 3i32; }
+    if b2i(false || false) != 0i64 { return 4i32; }
+    if b2i(!true) != 0i64 { return 5i32; }
+    if b2i(!false) != 1i64 { return 6i32; }
+    if b2i(true & false) != 0i64 { return 7i32; }
+    if b2i(true | false) != 1i64 { return 8i32; }
+    if b2i(true ^ true) != 0i64 { return 9i32; }
+    if b2i(true ^ false) != 1i64 { return 10i32; }
+    return 0i32;
+}

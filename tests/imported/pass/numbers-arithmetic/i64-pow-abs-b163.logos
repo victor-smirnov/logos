@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/numbers-arithmetic/ shapes (abs/pow distilled).
+// Modifications: isize->i64; literals suffixed; assert->if-return sentinels.
+//   Hand-rolled integer power + absolute value (no method calls on the integer)
+//   to stay within the portable primitive surface.
+// Tests integer exponentiation by repeated multiplication and a branch-based abs
+//   over signed i64 across positive/negative/zero inputs.
+package i64_pow_abs_b163;
+
+fn ipow(base: i64, exp: i64) -> i64 {
+    let mut acc: i64 = 1i64;
+    let mut e: i64 = exp;
+    while e > 0i64 {
+        acc = acc * base;
+        e = e - 1i64;
+    }
+    return acc;
+}
+
+fn iabs(x: i64) -> i64 {
+    if x < 0i64 { return -x; }
+    return x;
+}
+
+fn main() -> i32 {
+    if ipow(2i64, 10i64) != 1024i64 { return 1i32; }
+    if ipow(3i64, 4i64) != 81i64 { return 2i32; }
+    if ipow(5i64, 0i64) != 1i64 { return 3i32; }
+    if iabs(-7i64) != 7i64 { return 4i32; }
+    if iabs(7i64) != 7i64 { return 5i32; }
+    if iabs(0i64) != 0i64 { return 6i32; }
+    return 0i32;
+}
