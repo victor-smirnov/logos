@@ -3053,6 +3053,10 @@ private:
     lir::LStmt lower_deref_field_write(hermes::TinyMapView node);
     lir::LStmt lower_deref_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_index_write(hermes::TinyMapView node);
+    lir::LStmt lower_place_assign(hermes::TinyMapView node);
+    bool place_write_supported(hermes::TinyMapView place);
+    bool place_recv_is_simple(hermes::TinyMapView recv);
+    hermes::TinyMapView unwrap_paren_node(hermes::TinyMapView n);
     lir::LStmt lower_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_field_index_write(hermes::TinyMapView node);
     lir::LStmt lower_field_index_compound_assign(hermes::TinyMapView node);

@@ -87,30 +87,38 @@ guards; type-qualified UFCS instance calls.
   RESHAPED to auto-deref field access (`p.0`/`p.1`) — the explicit-deref destructure
   facet dropped.
 
-- **G163-2** (TRACTABLE — parse) — a CHAINED two-level indexed WRITE
-  `grid[0][1] = ..` is a syntax error (`syntax error near ']'`), although the
-  matching two-level indexed READ `grid[0][1]` parses + runs fine, and a
-  single-level indexed write `row[1] = ..` works. The parser appears to reject an
-  index-suffix that immediately follows another index-suffix on the LHS of an
-  assignment (the assignment-target grammar only admits one trailing `[..]`).
+- **G163-2** (✅ CLOSED) — a CHAINED two-level indexed WRITE `grid[0][1] = ..`
+  was a syntax error (the assignment-target grammar was a fixed enumeration of
+  specialized productions, each admitting one trailing suffix), as was the
+  deref + tuple-index write `(*p).0 = ..`. FIX = a GENERAL place-write:
+  - Grammar: a new `place_assign_stmt <- atom ASSIGN expr SEMI` (CODE
+    PLACE_ASSIGN, RECEIVER = the place as a normal postfix read-expr), ordered
+    after the specialized writes so they keep their fast paths.
+  - Sema (`lower_place_assign`): lowers `place = rhs` to
+    `deref_write(&mut <place>, rhs)`, reusing the existing SDerefWrite — no new
+    LIR node.
+  - mlir-gen: a recursive `gen_lvalue_addr` computes the real element address of
+    a place (VarRef / IndexRead / FieldRead / TupleIndex / Deref chain), reached
+    via `&mut <place>` (EAddrOfTemp). Handles chained index, field+index, slice
+    index, deref+tuple-index.
 
-  Minimal repro (parse error):
-  ```
-  let mut grid: [[i64; 3]; 2] = [[1i64,2i64,3i64],[4i64,5i64,6i64]];
-  grid[0][1] = 20i64;   // syntax error near ']'
-  ```
-  Works:
-  ```
-  let _ = grid[0][1];       // two-level READ ok
-  let mut row = grid[0];    // extract row
-  row[1] = 20i64;           // single-level write ok
-  ```
-  Hypothesis: the place-expression / lvalue production in the grammar accepts a
-  primary + a SINGLE index/field suffix but does not recurse for a second index
-  suffix when the whole thing is an assignment target (the READ path uses the full
-  postfix-expr grammar). Affected: `array-of-arrays-b163` RESHAPED — the in-place
-  mutation goes through an extracted `row` binding instead of `grid[0][1] = ..`;
-  the two-level READ facet is KEPT.
+  Covers `grid[0][1] = v`, `(*p).0 = v`, `s.field[i] = v`, `row[i] = v`.
+  DEEPER nestings (3-level `a[i][j][k]`, `g.rows[i].cells[j]`) are **rejected
+  with a clean diagnostic** (workaround: bind an intermediate) rather than
+  miscompiling — those hit a SEPARATE pre-existing read-side limitation (the
+  nested-index READ of `a[i][j][k]` / `g.rows[i].cells[j]` also fails today), so
+  enabling their write side waits on that read-path fix. Affected:
+  `array-of-arrays-b163` RESTORED to use the chained `grid[r][c] = ..` write.
+
+- **G163-2b** (NEW, surfaced while fixing G163-2; OPEN) — nested-index READ of a
+  THREE-level array `a[i][j][k]` and a field/index mix `g.rows[i].cells[j]`
+  fail/crash today (the read-path's nested-IndexRead address computation only
+  recurses ONE level: it handles a `VarRef`/`FieldRead` index receiver but not a
+  receiver that is itself an `IndexRead`). 2-level `a[i][j]` and `s.field[i]`
+  work. This is independent of the place-write (G163-2) — it's the READ side —
+  and is what bounds G163-2's accepted shapes. Fix: make the EIndexRead receiver
+  address computation recurse (the same recursion `gen_lvalue_addr` does for the
+  write side). Tracked for a focused read-path generalization.
 
 - **G163-3** (TRACTABLE — same root as B121) — projecting a trait associated CONST
   through a generic type parameter `T::SIDES` inside a generic fn `fn f<T: Poly>()`

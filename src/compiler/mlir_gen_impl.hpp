@@ -685,6 +685,15 @@ private:
     // ── Array helpers ─────────────────────────────────────────────
     mlir::Value get_subscript_ptr(const std::string& name);
     mlir::Type subscript_elem_type(const std::string& name);
+    // G163-2: recursively compute the ADDRESS of an lvalue place expression
+    // (VarRef / IndexRead / FieldRead / TupleIndex / Deref chain) — the real
+    // storage address, not a value copy. Returns null for shapes it can't
+    // address (callers must treat null as "not a place"). Used by the general
+    // place-write (`a[i][j] = v`, `(*p).0 = v`, deep mixes) and `&mut <place>`.
+    mlir::Value gen_lvalue_addr(lir_view::ExprRef e);
+    // MLIR slot type for one element/field of a place (struct/tuple inline
+    // aggregate type, else logos_to_mlir) — the GEP stride into an aggregate.
+    mlir::Type place_slot_type(TypeRef t);
     mlir::Value gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_type);
 
     // ── format() built-in ─────────────────────────────────────────

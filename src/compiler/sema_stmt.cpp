@@ -231,6 +231,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     if (c == la::TUPLE_FIELD_COMPOUND_ASSIGN) return lower_tuple_field_compound_assign(stmt);
     if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
     if (c == la::DEREF_FIELD_COMPOUND_ASSIGN) return lower_deref_field_compound_assign(stmt);
+    if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
     if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
     if (c == la::INDEX_COMPOUND_ASSIGN) return lower_index_compound_assign(stmt);
     if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
@@ -5950,6 +5951,101 @@ lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
     sdfw.field     = std::string(field_name);
     sdfw.value     = std::move(val);
     return make_stmt_emit(node_line_, std::move(sdfw));
+}
+
+// G163-2: general place write — `<postfix-lvalue> = rhs` for any place the
+// specialized write productions don't cover (chained index `a[i][j]`, deref +
+// tuple index `(*p).0`, deep mixes). Lowers to `deref_write(&mut <place>, rhs)`:
+// the place is a normal read-expr (IndexRead/FieldRead/TupleIndex/Deref tree),
+// `&mut <place>` computes its real element address (EAddrOfTemp's place-aware
+// GEP paths in mlir-gen), and the deref-write stores through it.
+// A place receiver simple enough that the address-of machinery
+// (gen_lvalue_addr) can compute a real address for it: a bare variable, a
+// `*p` deref, or a single field/index off one of those. Used to bound the
+// general place-write to shapes that lower correctly — deeper nestings
+// (3-level `a[i][j][k]`, `g.rows[i].cells[j]`) hit a pre-existing read-side
+// limitation, so they're rejected with a clean diagnostic instead of a crash.
+// Strip a `( … )` PAREN_EXPR wrapper (the lowered LExpr is transparent, but
+// the AST keeps the grouping node — e.g. `(*p).0` is TUPLE_INDEX(PAREN_EXPR(*p))).
+hermes::TinyMapView SemaChecker::unwrap_paren_node(hermes::TinyMapView n) {
+    while (code_of(n) == la::PAREN_EXPR && n.has_key(la::VALUE))
+        n = map_of(n.get(la::VALUE.code));
+    return n;
+}
+bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
+    int32_t code = code_of(unwrap_paren_node(recv));
+    return code == la::VAR_REF || code == la::DEREF;
+}
+bool SemaChecker::place_write_supported(TinyMapView place) {
+    place = unwrap_paren_node(place);
+    int32_t pc = code_of(place);
+    if (pc == la::DEREF) return true;
+    if (pc == la::TUPLE_INDEX || pc == la::FIELD_READ)
+        return place_recv_is_simple(map_of(place.get(la::RECEIVER.code)));
+    if (pc == la::INDEX_READ) {
+        auto recv = unwrap_paren_node(map_of(place.get(la::RECEIVER.code)));
+        int32_t rc = code_of(recv);
+        if (rc == la::VAR_REF || rc == la::DEREF) return true;  // a[i], (*p)[i]
+        if (rc == la::FIELD_READ || rc == la::INDEX_READ)       // s.f[i], a[i][j]
+            return place_recv_is_simple(map_of(recv.get(la::RECEIVER.code)));
+        return false;
+    }
+    return false;
+}
+
+lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
+    auto place_node = map_of(node.get(la::RECEIVER.code));
+    int32_t pc = code_of(place_node);
+    // Only genuine lvalue shapes are assignable. A bare VarRef is handled by
+    // assign_stmt; anything else (call result, literal, arithmetic, …) is not
+    // a place.
+    if (pc != la::INDEX_READ && pc != la::FIELD_READ &&
+        pc != la::TUPLE_INDEX && pc != la::DEREF) {
+        error("invalid assignment target: left side is not an assignable place");
+        lir::SExprStmt es; es.expr = error_expr();
+        return make_stmt_emit(node_line_, std::move(es));
+    }
+    // Bound to the place shapes the address-of machinery lowers correctly;
+    // deeper nestings hit a pre-existing read-side limitation — reject cleanly
+    // (with a workaround) rather than miscompile/crash.
+    if (!place_write_supported(place_node)) {
+        error("assignment target too deeply nested to assign in place yet; "
+              "bind an intermediate (e.g. `let r = &mut <inner>; r[i] = …`)");
+        lir::SExprStmt es; es.expr = error_expr();
+        return make_stmt_emit(node_line_, std::move(es));
+    }
+    auto place = lower_expr(place_node);
+    TypeRef pt = place->type;
+    // Propagate the place's type as an enum/struct RHS hint so a bare
+    // `None` / struct-literal resolves to the slot's concrete type (mirrors
+    // DEREF_WRITE).
+    auto saved_enum_hint   = hint_enum_type_;
+    auto saved_struct_hint = hint_struct_type_;
+    if (pt && TypeRef(pt).kind() == LogosType::Kind::Enum &&
+        !TypeRef(pt).type_args().empty())
+        hint_enum_type_ = pt;
+    else if (pt && (TypeRef(pt).kind() == LogosType::Kind::Struct ||
+                    TypeRef(pt).kind() == LogosType::Kind::ZonedStruct) &&
+             !TypeRef(pt).type_args().empty())
+        hint_struct_type_ = pt;
+    lir::LExprPtr val = node.has_key(la::VALUE)
+        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+    hint_enum_type_   = saved_enum_hint;
+    hint_struct_type_ = saved_struct_hint;
+
+    if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
+        val && TypeRef(val->type).kind() != LogosType::Kind::Error &&
+        !types_compatible(val->type, pt))
+        error(std::format("assignment to place: expected {}, got {}",
+              type_str(pt), type_str(val->type)));
+    widen_int_expr(val, pt, builder());
+
+    // Address of the place: `&mut <place>`. EAddrOfTemp recognises the place
+    // read-expr kind and returns the real element GEP (not a temp copy).
+    auto addr = builder().addr_of_temp(std::move(place), /*is_mut=*/true,
+                                       make_ref(true, pt ? pt : error_t()));
+    track_write_move(val);
+    return builder().stmt_deref_write(std::move(addr), std::move(val), node_line_);
 }
 
 lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {

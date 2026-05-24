@@ -1022,6 +1022,116 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EUnaryView v, TypeRef) {
 // AddrOf / Deref
 // ---------------------------------------------------------------------------
 
+mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
+    if (!t) return builder_.getI32Type();
+    auto k = TypeRef(t).kind();
+    if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
+        auto sit = struct_types_.find(mlir_struct_key(t));
+        if (sit != struct_types_.end()) return sit->second.llvm_type;
+    }
+    if (k == LogosType::Kind::Tuple) {
+        if (auto tt = tuple_llvm_type(t)) return tt;
+    }
+    auto m = logos_to_mlir(t);
+    return m ? m : builder_.getI32Type();
+}
+
+// G163-2: recursively compute the address of an lvalue place expression.
+mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
+    namespace ec = lir_schema::expr;
+    auto* le = lexpr_of(e);
+    if (!le) return nullptr;
+    switch (e.kind()) {
+    case ec::Code::VarRef: {
+        std::string vn(lir_view::EVarRefView{e}.name());
+        // Local pointer var (*mut/*const): scope_ holds an alloca(ptr) — the
+        // place lives at the loaded pointer, so load it.
+        auto lpit = var_local_ptrs_.find(vn);
+        if (lpit != var_local_ptrs_.end()) {
+            auto slot = get_subscript_ptr(vn);
+            return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+        }
+        // Aggregate / scalar local or ref/ptr param: scope_ entry is the
+        // storage address (arrays/structs/tuples) or the pointer value
+        // (ref/ptr params) — either way it is the address to GEP from.
+        return get_subscript_ptr(vn);
+    }
+    case ec::Code::Deref: {
+        // `*op` — the pointer operand IS the place address.
+        auto* op = lexpr_of(lir_view::EDerefView{e}.operand());
+        return op ? gen_expr(*op) : nullptr;
+    }
+    case ec::Code::FieldRead: {
+        lir_view::EFieldReadView frv{e};
+        auto* recv_le = lexpr_of(frv.receiver());
+        if (!recv_le) return nullptr;
+        auto [struct_ptr, sname] = gen_recv_struct(*recv_le);
+        if (!struct_ptr || sname.empty()) return nullptr;
+        auto sit = struct_types_.find(sname);
+        if (sit == struct_types_.end()) return nullptr;
+        return gep_field(struct_ptr, sit->second, std::string(frv.field()));
+    }
+    case ec::Code::TupleIndex: {
+        lir_view::ETupleIndexView tv{e};
+        auto* recv_le = lexpr_of(tv.receiver());
+        if (!recv_le) return nullptr;
+        TypeRef recv_t = recv_le->type;
+        if (recv_t && TypeRef(recv_t).pointee() &&
+            TypeRef(recv_t).pointee().kind() == LogosType::Kind::Tuple &&
+            (TypeRef(recv_t).kind() == LogosType::Kind::Ref ||
+             TypeRef(recv_t).kind() == LogosType::Kind::MutRef ||
+             TypeRef(recv_t).kind() == LogosType::Kind::Ptr))
+            recv_t = TypeRef(recv_t).pointee();
+        // Tuple base address: for a Deref/ref receiver it is the pointer value;
+        // otherwise the receiver's own place address.
+        mlir::Value tup_ptr = (tv.receiver().kind() == ec::Code::Deref)
+            ? gen_expr(*recv_le)
+            : gen_lvalue_addr(tv.receiver());
+        if (!tup_ptr) tup_ptr = gen_expr(*recv_le);
+        auto stype = tuple_llvm_type(recv_t);
+        if (!tup_ptr || !stype) return nullptr;
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(tv.index())};
+        return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, tup_ptr, idx);
+    }
+    case ec::Code::IndexRead: {
+        lir_view::EIndexReadView irv{e};
+        auto recv     = irv.receiver();
+        auto* idx_le  = lexpr_of(irv.index());
+        if (!idx_le) return nullptr;
+        TypeRef recv_t = recv.type(pool_impl());
+        mlir::Value base = gen_lvalue_addr(recv);
+        if (!base) return nullptr;
+        // Element stride = the receiver's element type's slot type.
+        TypeRef elem_t = recv_t ? TypeRef(recv_t).elem() : TypeRef(nullptr);
+        // Slice receiver: `base` is the fat {ptr,len} descriptor — load data ptr.
+        if (recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice) {
+            auto stype = slice_llvm_type();
+            llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+            auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, base, pi);
+            base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+        } else if (!(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Array)) {
+            // Only array / slice receivers are indexable places here.
+            return nullptr;
+        }
+        mlir::Type stride = place_slot_type(elem_t);
+        auto idx = gen_expr(*idx_le);
+        if (!idx) return nullptr;
+        TypeRef it = irv.index().type(pool_impl());
+        bool uns = it &&
+            (it.kind() == LogosType::Kind::U8  || it.kind() == LogosType::Kind::U16 ||
+             it.kind() == LogosType::Kind::U32 || it.kind() == LogosType::Kind::U24 ||
+             it.kind() == LogosType::Kind::U56 || it.kind() == LogosType::Kind::U64 ||
+             it.kind() == LogosType::Kind::U128);
+        if (uns && idx.getType() != builder_.getI64Type())
+            idx = builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), idx);
+        llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
+        return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stride, base, gi);
+    }
+    default:
+        return nullptr;
+    }
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     // Address-of: return the alloca pointer directly.
     std::string var_name{v.var_name()};
@@ -1092,6 +1202,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
     auto* inner_le = lexpr_of(inner_ref);
     if (!inner_le) return nullptr;
     TypeRef inner_t = inner_ref.type(pool_impl());
+
+    // G163-2: `&mut <place>` over a chained index / deref-tuple-index place —
+    // `&mut a[i][j]`, `&mut (*p).0`, deep field+index mixes. The recursive
+    // place-address helper computes the real element address; if it succeeds,
+    // that IS the reference. Gated to is_mut (place writes) and to the
+    // IndexRead/TupleIndex tops the per-shape handlers below don't fully
+    // recurse on; FieldRead keeps its dedicated, widely-relied-on handler.
+    if (v.is_mut() && (inner_ref.kind() == ec::Code::IndexRead ||
+                       inner_ref.kind() == ec::Code::TupleIndex)) {
+        if (auto addr = gen_lvalue_addr(inner_ref))
+            return addr;
+    }
 
     // Special case: &mut <field_read> on an inline struct field must return a
     // GEP into the original struct, NOT a copy.  gen_expr(EFieldRead) always
