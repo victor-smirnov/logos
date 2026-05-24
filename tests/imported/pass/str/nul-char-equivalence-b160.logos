@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/str/nul-char-equivalence.rs (string facets)
+// Modifications: `.len()` byte-length checks; assert → sentinels.
+// Tests STRING-literal escape decoding (G160-7, closed 2026-05-23): `\0`,
+//   `\x00`, control/quote escapes, `\xNN`, and `\u{NN}` (UTF-8 encoded) are
+//   decoded in string literals (previously the raw backslash-escape text was
+//   kept — `"\0\x00".len()` was 5, not 2).
+package nul_char_equivalence_b160;
+use logos.lang.str;
+fn main() -> i32 {
+    if "\0\x00".len() != 2i64 { return 1i32; }
+    if "a\nb".len() != 3i64 { return 2i32; }
+    if "\u{41}".len() != 1i64 { return 3i32; }   // 'A' = 1 byte
+    if "\u{2764}".len() != 3i64 { return 4i32; } // heart = 3 UTF-8 bytes
+    if "\x41".len() != 1i64 { return 5i32; }
+    return 0i32;
+}

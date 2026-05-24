@@ -3683,7 +3683,13 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             else_block = test_block;
         } else if (arm_kind == pc::Code::Slice &&
                    scrut_le->type &&
-                   TypeRef(scrut_le->type).kind() == LogosType::Kind::Array) {
+                   (TypeRef(scrut_le->type).kind() == LogosType::Kind::Array ||
+                    // G160-4: a `&[u8; N]` / `&mut [u8; N]` scrutinee (byte-string
+                    // pattern over a ref-to-array) — peel the ref below.
+                    ((TypeRef(scrut_le->type).kind() == LogosType::Kind::Ref ||
+                      TypeRef(scrut_le->type).kind() == LogosType::Kind::MutRef) &&
+                     TypeRef(scrut_le->type).pointee() &&
+                     TypeRef(TypeRef(scrut_le->type).pointee()).kind() == LogosType::Kind::Array))) {
             // P4-pm-04: refutable slice pattern on fixed-size array.
             // GEP each scalar sub-element and AND-chain equality tests.
             // PatWild sub-patterns contribute no constraint. Suffix
@@ -3691,7 +3697,14 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             // (Dynamic slice scrutinees deferred — would need length
             // check and runtime-known arr_size.)
             lir_view::PatSliceView sv{arm_pat};
+            // G160-4: peel a `&[u8; N]` ref — the ref value IS the array base
+            // pointer (one level, like `&struct`), so `aptr` below works for
+            // both the by-value array and the ref forms.
             TypeRef atyp = scrut_le->type;
+            if ((TypeRef(atyp).kind() == LogosType::Kind::Ref ||
+                 TypeRef(atyp).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(atyp).pointee())
+                atyp = TypeRef(atyp).pointee();
             auto elem_mlir = logos_to_mlir(TypeRef(atyp).elem());
             auto arr_mlir  = logos_to_mlir(atyp);
             size_t total   = (size_t)TypeRef(atyp).arr_size();

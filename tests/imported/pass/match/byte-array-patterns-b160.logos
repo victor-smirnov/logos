@@ -1,16 +1,23 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/match/issue-46920-byte-array-patterns.rs
 // Modifications: kept the fixed-size-array facet `match x: [u8; 5] { b"hello"
-//   => .. }`; dropped the `&[u8]` slice + module-const byte-string-pattern facets
-//   (a byte-string pattern needs a `[u8; N]` scrutinee — matching it against
-//   `&[u8; N]` is unsupported, G160-4 — and module consts aren't supported); the
-//   scrutinee is taken by value `[u8; 5]`; assert_eq! -> early-return sentinels;
-//   byte literals written numerically when building the input arrays.
+//   => .. }` AND the `&[u8; 5]` ref facet (G160-4, closed 2026-05-23 — a
+//   byte-string pattern now auto-derefs a `&[u8; N]` scrutinee); the `&[u8]`
+//   dynamic-slice + module-const facets stay dropped (module consts
+//   unsupported); assert_eq! -> early-return sentinels; byte literals written
+//   numerically when building the input arrays.
 // Tests a byte-string literal pattern `b"hello"` matched against a fixed-size
-//   `[u8; 5]` array.
+//   `[u8; 5]` array, by value AND through a `&[u8; 5]` reference.
 package byte_array_patterns_b160;
 
 fn match_array(x: [u8; 5]) -> bool {
+    match x {
+        b"hello" => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn match_ref(x: &[u8; 5]) -> bool {
     match x {
         b"hello" => { return true; }
         _ => { return false; }
@@ -24,5 +31,10 @@ fn main() -> i32 {
     // b"hella"
     let no: [u8; 5] = [104u8, 101u8, 108u8, 108u8, 97u8];
     if match_array(no) != false { return 2i32; }
+    // &[u8; 5] ref form (G160-4)
+    let yes2: [u8; 5] = [104u8, 101u8, 108u8, 108u8, 111u8];
+    if match_ref(&yes2) != true { return 3i32; }
+    let no2: [u8; 5] = [104u8, 101u8, 108u8, 108u8, 97u8];
+    if match_ref(&no2) != false { return 4i32; }
     return 0i32;
 }

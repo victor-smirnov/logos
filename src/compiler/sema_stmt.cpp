@@ -785,6 +785,17 @@ lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
             bool src_is_array = TypeRef(src_ty).kind() == LogosType::Kind::Array;
             size_t arity = src_is_tuple ? TypeRef(src_ty).tuple_elems().size()
                          : src_is_array ? (size_t)TypeRef(src_ty).arr_size() : 0;
+            // G160-6: redundant parens around a tuple place — `((a, b)) = …` is
+            // equivalent to `(a, b) = …`. When the place-list is a single nested
+            // tuple and the source arity isn't 1 (so the 1-tuple reading can't
+            // be intended), unwrap the outer parens and recurse on the inner.
+            if (arr.size() == 1 && arity != 1) {
+                auto only = map_of(arr.get(0));
+                if (code_of(only) == la::PAT_TUPLE && only.has_key(la::NAMES)) {
+                    bind_list(map_of(only.get(la::NAMES.code)), std::move(src), src_ty);
+                    return;
+                }
+            }
             // A single `..` rest absorbs the unmatched middle positions; places
             // before it map to low positions, places after it to the tail.
             int rest_idx = -1;
@@ -1862,8 +1873,18 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
                 auto mangled = type_name + "__" + assign_method;
                 auto mut_ref_t = make_ref(true, var_type);
                 auto recv = builder().addr_of(std::string(name), mut_ref_t);
+                // G160-5: the `*Assign<Rhs>` method's second param is the
+                // trait's Rhs type-arg, which need NOT equal Self. Look it up by
+                // the actual rhs operand type (`x <<= 1u8` over `impl
+                // ShlAssign<u8> for Int` → `Int__shl_assign(&mut Int, u8)`).
+                // Fall back to the Self-RHS signature if the rhs-typed one
+                // doesn't resolve (covers an IntLit rhs against a Self-RHS impl).
+                TypeRef rhs_ty = rhs ? TypeRef(rhs->type) : TypeRef(var_type);
                 auto fit = find_func_by_base_and_signature(
-                    mangled, {mut_ref_t, var_type}, false);
+                    mangled, {mut_ref_t, rhs_ty}, false);
+                if (!fit && !types_equal(rhs_ty, var_type))
+                    fit = find_func_by_base_and_signature(
+                        mangled, {mut_ref_t, var_type}, false);
                 if (fit) {
                     std::vector<lir::LExprPtr> args;
                     args.push_back(std::move(recv));
@@ -2916,13 +2937,22 @@ lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_t
     } else {
         error(std::format("byte-string pattern: malformed literal '{}'", sv));
     }
-    if (scrut_type && TypeRef(scrut_type).kind() != LogosType::Kind::Error) {
-        auto sk = TypeRef(scrut_type).kind();
+    // G160-4: a byte-string pattern over a `&[u8; N]` / `&mut [u8; N]` scrutinee
+    // — peel the reference (default binding modes auto-deref the `&array`, so
+    // the pattern just needs to see through the ref).
+    TypeRef bs_scrut = scrut_type;
+    if (bs_scrut && (TypeRef(bs_scrut).kind() == LogosType::Kind::Ref ||
+                     TypeRef(bs_scrut).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(bs_scrut).pointee() &&
+        TypeRef(TypeRef(bs_scrut).pointee()).kind() == LogosType::Kind::Array)
+        bs_scrut = TypeRef(bs_scrut).pointee();
+    if (bs_scrut && TypeRef(bs_scrut).kind() != LogosType::Kind::Error) {
+        auto sk = TypeRef(bs_scrut).kind();
         bool ok = false;
-        if (sk == LogosType::Kind::Array && TypeRef(scrut_type).elem() &&
-            TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8) {
+        if (sk == LogosType::Kind::Array && TypeRef(bs_scrut).elem() &&
+            TypeRef(bs_scrut).elem().kind() == LogosType::Kind::U8) {
             ok = true;
-            size_t n = (size_t)TypeRef(scrut_type).arr_size();
+            size_t n = (size_t)TypeRef(bs_scrut).arr_size();
             if (n != bytes.size())
                 error(std::format(
                     "byte-string pattern: literal length {} does not match "
@@ -2931,7 +2961,7 @@ lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_t
         if (!ok)
             error(std::format(
                 "byte-string pattern requires `[u8; N]` scrutinee, got '{}'",
-                type_str(scrut_type)));
+                type_str(scrut_type)));  // report the original (pre-peel) type
     }
     std::vector<lir::Pattern> prefix;
     for (auto b : bytes) {

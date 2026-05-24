@@ -218,6 +218,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
     if (is_raw) {
         text = raw;
     } else {
+        auto hexval = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
         for (size_t i = 0; i < raw.size(); ++i) {
             if (raw[i] == '\\' && i + 1 < raw.size()) {
                 switch (raw[i + 1]) {
@@ -227,6 +233,50 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
                     case '\\': text.push_back('\\'); ++i; break;
                     case '0':  text.push_back('\0'); ++i; break;
                     case '"':  text.push_back('"');  ++i; break;
+                    case '\'': text.push_back('\''); ++i; break;
+                    // G160-7: `\xNN` byte escape (mirrors the char-literal
+                    // decoder). Exactly two hex digits.
+                    case 'x': {
+                        int hi = (i + 2 < raw.size()) ? hexval(raw[i + 2]) : -1;
+                        int lo = (i + 3 < raw.size()) ? hexval(raw[i + 3]) : -1;
+                        if (hi >= 0 && lo >= 0) {
+                            text.push_back(static_cast<char>((hi << 4) | lo));
+                            i += 3;
+                        } else { text.push_back(raw[i]); }
+                        break;
+                    }
+                    // G160-7: `\u{NN..}` unicode escape → UTF-8 bytes.
+                    case 'u': {
+                        size_t j = i + 2;
+                        if (j < raw.size() && raw[j] == '{') {
+                            ++j;
+                            uint32_t cp = 0; bool any = false;
+                            while (j < raw.size() && raw[j] != '}') {
+                                int h = hexval(raw[j]);
+                                if (h < 0) break;
+                                cp = (cp << 4) | (uint32_t)h; any = true; ++j;
+                            }
+                            if (any && j < raw.size() && raw[j] == '}') {
+                                // UTF-8 encode cp.
+                                if (cp <= 0x7F) text.push_back((char)cp);
+                                else if (cp <= 0x7FF) {
+                                    text.push_back((char)(0xC0 | (cp >> 6)));
+                                    text.push_back((char)(0x80 | (cp & 0x3F)));
+                                } else if (cp <= 0xFFFF) {
+                                    text.push_back((char)(0xE0 | (cp >> 12)));
+                                    text.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+                                    text.push_back((char)(0x80 | (cp & 0x3F)));
+                                } else {
+                                    text.push_back((char)(0xF0 | (cp >> 18)));
+                                    text.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+                                    text.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+                                    text.push_back((char)(0x80 | (cp & 0x3F)));
+                                }
+                                i = j;  // consumed through '}'
+                            } else { text.push_back(raw[i]); }
+                        } else { text.push_back(raw[i]); }
+                        break;
+                    }
                     default:   text.push_back(raw[i]); break;
                 }
             } else {

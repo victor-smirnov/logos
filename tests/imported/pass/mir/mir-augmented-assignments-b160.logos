@@ -2,13 +2,14 @@
 // Original path: tests/ui/mir/mir_augmented_assignments.rs
 // Modifications: derive(Debug,PartialEq) dropped; assert_eq! -> early-return
 //   sentinels comparing the inner i32; dropped the indexed-LHS Vec facet and the
-//   unsized-RHS Slice/transmute facet (out of scope); also dropped the
-//   ShlAssign/ShrAssign (u8/u16 RHS) facets — compound-assign overloading with a
-//   RHS type that differs from Self is unsupported (G160-5); the *Assign traits
-//   are declared locally (`self: &mut Self`); i32 fields, literals suffixed.
+//   unsized-RHS Slice/transmute facet (out of scope); the ShlAssign/ShrAssign
+//   facets with a `u8` RHS (≠ Self) are KEPT (G160-5, closed 2026-05-23 —
+//   compound-assign overload resolves by the rhs operand type); the *Assign
+//   traits are declared locally (`self: &mut Self`); i32 fields, literals suffixed.
 // Tests user-defined compound-assignment operator overloading on a struct via
 //   AddAssign/BitAndAssign/BitOrAssign/BitXorAssign/DivAssign/MulAssign/
-//   RemAssign/SubAssign (all with Int = Self RHS).
+//   RemAssign/SubAssign (Int = Self RHS) AND ShlAssign<u8>/ShrAssign<u8>
+//   (RHS ≠ Self).
 package mir_augmented_assignments_b160;
 
 struct Int { v: i32 }
@@ -21,6 +22,11 @@ trait DivAssign { fn div_assign(self: &mut Self, rhs: Int); }
 trait MulAssign { fn mul_assign(self: &mut Self, rhs: Int); }
 trait RemAssign { fn rem_assign(self: &mut Self, rhs: Int); }
 trait SubAssign { fn sub_assign(self: &mut Self, rhs: Int); }
+trait ShlAssign<Rhs> { fn shl_assign(self: &mut Self, rhs: Rhs); }
+trait ShrAssign<Rhs> { fn shr_assign(self: &mut Self, rhs: Rhs); }
+
+impl ShlAssign<u8> for Int { fn shl_assign(self: &mut Self, rhs: u8) { self.v = self.v << (rhs as i32); } }
+impl ShrAssign<u8> for Int { fn shr_assign(self: &mut Self, rhs: u8) { self.v = self.v >> (rhs as i32); } }
 
 impl AddAssign for Int { fn add_assign(self: &mut Self, rhs: Int) { self.v = self.v + rhs.v; } }
 impl BitAndAssign for Int { fn bitand_assign(self: &mut Self, rhs: Int) { self.v = self.v & rhs.v; } }
@@ -57,6 +63,13 @@ fn main() -> i32 {
 
     x -= Int { v: 1i32 };
     if x.v != 0i32 { return 8i32; }
+
+    // G160-5: compound-assign overload with a RHS type (u8) that differs from Self.
+    let mut y = Int { v: 1i32 };
+    y <<= 4u8;
+    if y.v != 16i32 { return 9i32; }
+    y >>= 2u8;
+    if y.v != 4i32 { return 10i32; }
 
     return 0i32;
 }

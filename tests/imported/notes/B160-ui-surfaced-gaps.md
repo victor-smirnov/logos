@@ -80,45 +80,30 @@ via user `==` (where-clauses-blanket-eq).
   generic eq inference). Regression
   `default-methods-multi-inherited-primitive`.
 
-- **G160-4** — a byte-string pattern `b"…"` requires a `[u8; N]` scrutinee and is
-  NOT auto-deref'd through a reference: `match x { b"hello" => .. }` over
-  `x: &[u8; 5]` → `byte-string pattern requires `[u8; N]` scrutinee, got
-  '&[u8; 5]'`. Over `[u8; 5]` (by value) it works. Dropped from:
-  `match/issue-46920-byte-array-patterns.rs` (the `&[u8]` slice + `&[u8; N]`
-  facets; kept the by-value `[u8; 5]` facet in `byte-array-patterns-b160`).
-  Assessment: TRACTABLE — extend the default-binding-mode peeling (already done
-  for struct/enum/tuple patterns, see closed `default binding modes` baghunt) to
-  byte-string patterns so a `&[u8; N]` scrutinee auto-derefs.
+- **G160-4** ✅ CLOSED (2026-05-23) — a byte-string pattern `b"…"` over a
+  `&[u8; N]` / `&mut [u8; N]` scrutinee now auto-derefs the reference (sema
+  byte-string check peels the ref; the array-slice-pattern match arm peels
+  `atyp`/uses the ref value as the array base). The `&[u8]` dynamic-slice form
+  stays out of scope. Restored the `&[u8; 5]` arm in `byte-array-patterns`.
 
-- **G160-5** — user compound-assignment operator overloading only resolves when
-  the RHS type EQUALS Self. `impl ShlAssign<u8> for Int { fn shl_assign(self:
-  &mut Self, rhs: u8) … }` then `x <<= 1u8` (x: Int) →
-  `compound assignment to 'x': type mismatch — expected Int, got u8`. With
-  `rhs: Int` (== Self) it works. Dropped from:
-  `mir/mir_augmented_assignments.rs` (the Shl/ShrAssign<u8|u16> facets; kept the
-  Add/Sub/Mul/Div/Rem/BitAnd/BitOr/BitXor-Assign Int-RHS facets in
-  `mir-augmented-assignments-b160`). Assessment: TRACTABLE — the compound-assign
-  overload resolver hardcodes RHS==LHS; thread the trait's RHS type-arg through
-  so `<lhs> op= <rhs>` selects the `*Assign<RhsTy>` impl by the rhs operand type.
+- **G160-5** ✅ CLOSED (2026-05-23) — user compound-assignment overloading with
+  a RHS type ≠ Self (`impl ShlAssign<u8> for Int; x <<= 1u8`). The compound-
+  assign resolver looked up `<Type>__<op>_assign(&mut Self, Self)` — hardcoding
+  RHS = Self. Now it looks up by the actual rhs operand type (`{&mut Int, u8}`),
+  falling back to the Self-RHS signature. Restored the ShlAssign<u8>/ShrAssign<u8>
+  facets in `mir-augmented-assignments`.
 
-- **G160-6** — extra parentheses around a destructuring-assignment place tuple
-  are not seen through: `((a, b)) = (3i64, 4i64)` →
-  `destructuring assignment: expected 2 places, got 1` (it treats `((a,b))` as a
-  single place). The unparenthesised `(a, b) = …` works. Dropped from:
-  `destructuring-assignment/tuple_destructure.rs` (the `((a,b))=` / `(((a,b)),(c))=`
-  facets; kept the bare-tuple forms in `tuple-destructure-b160`). Assessment:
-  TRACTABLE (minor) — the place-expression parser for assignment LHS should
-  unwrap redundant parens around a tuple place.
+- **G160-6** ✅ CLOSED (2026-05-23) — redundant parens around a destructuring-
+  assignment place tuple `((a, b)) = …` (≡ `(a, b) = …`). bind_list unwraps a
+  single nested-tuple place when the source arity isn't 1. Restored the
+  `((a,b))=` facet in `tuple-destructure`.
 
-- **G160-7** — string-literal escape sequences are NOT decoded: `"\0".len()`
-  returns the SOURCE character count (e.g. `"\0\x00".len()` == 5, not 2), so a
-  string literal with `\0`/`\x00`/`\u{0}` carries the literal backslash-escape
-  text rather than the decoded byte. (CHARACTER-literal escapes ARE decoded
-  correctly — see `char-escape-equivalence-b160`.) Dropped from:
-  `str/nul-char-equivalence.rs` (all the string-length / string-equality facets;
-  kept the char-literal facets as `char-escape-equivalence-b160`). Assessment:
-  TRACTABLE — the lexer's string-literal scanner needs the same escape-decoding
-  table the char-literal scanner already applies (`\0 \n \t \r \\ \" \xNN \u{…}`).
+- **G160-7** ✅ CLOSED (2026-05-23) — STRING-literal escape decoding. The
+  string-literal lexer handled `\n \t \r \\ \0 \"` but not `\xNN`,
+  `\u{NN}`, or `\'` — so `"\0\x00".len()` was 5, not 2. Added `\x` (1 byte),
+  `\u{…}` (UTF-8 encoded), and `\'` to the string-literal escape switch
+  (mirrors the char-literal decoder). Re-imported `nul-char-equivalence` (string
+  facet). Full suite 4871/4871.
 
 - **G160-8** ✅ CLOSED (2026-05-23) — matching a TUPLE OF `&Option<T>` references
   via default binding modes no longer SIGSEGVs. Root: the per-element disc test
