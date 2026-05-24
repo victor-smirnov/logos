@@ -1,0 +1,33 @@
+// Regression (B167): write-back through a `match &mut`/`match &mut`-nested
+// payload binding — `match &mut opt { Some(v) => *v = … }`. Under a `&mut`
+// scrutinee a CONCRETE (incl. Copy) payload is now auto-`&mut`-bound (matching
+// Rust match ergonomics) so `*v = …` mutates in place; previously Copy
+// payloads bound by-value, so the write hit "raw pointer requires unsafe".
+// (Shared `&` still binds Copy by-value for read ergonomics.)
+package match_mut_ref_writeback_b167;
+use logos.lang.option;
+
+fn bump(o: &mut Option<i64>) {
+    match o { Option::Some(v) => { *v = *v + 100i64; } Option::None => {} }
+}
+fn bump_nested(o: &mut Option<Option<i64>>) {
+    match o {
+        Option::Some(Option::Some(v)) => { *v = *v * 2i64; }
+        _ => {}
+    }
+}
+fn get(o: &Option<i64>) -> i64 {
+    match o { Option::Some(v) => *v, Option::None => -1i64 }
+}
+fn get2(o: &Option<Option<i64>>) -> i64 {
+    match o { Option::Some(Option::Some(v)) => *v, _ => -1i64 }
+}
+fn main() -> i32 {
+    let mut a: Option<i64> = Option::Some(5i64);
+    bump(&mut a);
+    if get(&a) != 105i64 { return 1i32; }
+    let mut b: Option<Option<i64>> = Option::Some(Option::Some(7i64));
+    bump_nested(&mut b);
+    if get2(&b) != 14i64 { return 2i32; }
+    return 0i32;
+}

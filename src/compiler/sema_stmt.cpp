@@ -3069,7 +3069,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             binding_types[k] = make_ref(is_mut, binding_types[k]);
         } else if (default_ref && !tv_payload &&
                    k < binding_from_wild.size() && binding_from_wild[k] &&
-                   is_move_type(binding_types[k])) {
+                   (is_move_type(binding_types[k]) || default_mut)) {
+            // Under a SHARED `&` scrutinee, only move-only payloads are
+            // auto-ref'd (Copy stays by-value for read ergonomics, since `&T`
+            // operator auto-deref isn't implemented). Under a `&mut` scrutinee
+            // a CONCRETE payload (incl. Copy) is auto-`&mut`-bound so write-back
+            // `*v = …` works — matching Rust ergonomics; reads then use `*v`.
             binding_types[k] = make_ref(default_mut, binding_types[k]);
         }
     }
