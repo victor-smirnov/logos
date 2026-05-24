@@ -96,9 +96,15 @@ emits a per-impl `Concrete__kassoc_CONST` accessor, and mono's existing `T__m`�
 rewrite resolves it. Test: associated-consts/generic-assoc-const-projection-b121 (bare +
 arithmetic + supertrait-bound projection). Out of scope: generic-TARGET impls + const-in-type.
 
-### K2 — two impls of `Trait<T>` for one type at distinct `T` (= G156-1 / G157-2)  [repro g10]
-`impl Add<i64> for Meters` + `impl Add<Meters> for Meters` → *"duplicate associated type
-'Output'"* (mangling keys on trait NAME only). Matches the OPEN G156-1 note.
+### K2 — two impls of `Trait<T>` for one type at distinct `T` (= G156-1 / G157-2)  [repro g10]  ✅ FULLY CLOSED 2026-05-24
+METHOD mangling + dispatch closed 2026-05-23 (aeae8ac5). ASSOC-TYPE half closed 2026-05-24:
+`impl Producer<i64> for Gen` + `impl Producer<bool> for Gen` (each `type Item = …`) coexist;
+each impl's `Self::Item` resolves to its own value; generic-bound projection
+`fn f<P: Producer<i64>>(p:&P) -> P::Item` resolves to the right impl at mono. Keyed by the same
+`$G<n>$<args>` trait-arg suffix as the method fix, threaded through collect / resolve_type /
+method-call-return / mono indexing; root bug was `ib.trait_type_args` + `ib.assoc_types` seeded
+from the last-wins coherence map (wrong impl's args for duals). Test:
+associated-types/dual-trait-impl-assoc-type-g156. See [[baghunt_trait_typearg_mangling]].
 
 ### K3 — struct-array-element field READ, 2-level — SIGSEGV (= B121 note (b))  [repro g1]
 `g.rows[i].cells[j].v` (struct-field array, two index levels) → runtime SIGSEGV (exit 139).

@@ -131,9 +131,27 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             info.extra_assoc_eqs = impl.extra_assoc_eqs;
             blanket_impls_.push_back(std::move(info));
         } else {
+            // G156-1: index assoc types by the trait's concrete type-args
+            // (suffixed) so a suffixed AssocType node `<P as Trait<i64>>::A`
+            // (two `Trait<T>` impls for one type) resolves to the right impl;
+            // keep the plain key (first-wins) for bare / non-generic
+            // projections. Suffix format is byte-identical to sema's
+            // SemaChecker::trait_targ_suffix.
+            std::string targ_sfx;
+            if (!impl.trait_type_args.empty()) {
+                targ_sfx = "$G" + std::to_string(impl.trait_type_args.size());
+                for (auto a : impl.trait_type_args) {
+                    targ_sfx += "$";
+                    std::string ts = a ? type_str(a) : std::string("?");
+                    for (char& c : ts)
+                        if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
+                    targ_sfx += ts;
+                }
+            }
             for (auto& [aname, atype] : impl.assoc_types) {
-                std::string key = impl.trait_name + "::" + impl.target_type + "::" + aname;
-                assoc_impls_[key] = atype;
+                assoc_impls_[impl.trait_name + targ_sfx + "::" + impl.target_type + "::" + aname] = atype;
+                if (!targ_sfx.empty())
+                    assoc_impls_.emplace(impl.trait_name + "::" + impl.target_type + "::" + aname, atype);
             }
             if (!impl.trait_name.empty())
                 concrete_impls_.insert(impl.trait_name + "::" + impl.target_type);

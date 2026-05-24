@@ -6238,6 +6238,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], arg_exprs[i]->type);
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
+            // G156-1: the trait method's `Self::Item` was resolved bare at the
+            // trait declaration; stamp the BOUND's concrete trait type-args onto
+            // the substituted return projection so it matches both the args-
+            // suffixed assoc-type impl (two `Trait<T>` impls for one type) and
+            // the caller's declared `-> P::Item` (resolved via the same bound).
+            if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::AssocType) {
+                if (auto bitr = current_type_bounds_.find(recv_bound_key);
+                    bitr != current_type_bounds_.end()) {
+                    for (auto& b : bitr->second) {
+                        if (b.trait_name != chosen_trait || b.type_args.empty()) continue;
+                        std::string want_tn = chosen_trait + trait_targ_suffix(b.type_args);
+                        if (std::string(TypeRef(ret_type).trait_name()) != want_tn) {
+                            LogosTypeBuilder rt;
+                            rt.kind            = LogosType::Kind::AssocType;
+                            rt.assoc_base      = TypeRef(ret_type).assoc_base();
+                            rt.trait_name      = want_tn;
+                            rt.assoc_type_name = std::string(TypeRef(ret_type).assoc_type_name());
+                            for (auto g : TypeRef(ret_type).gat_args()) rt.gat_args.push_back(g);
+                            ret_type = pool_->alloc(std::move(rt));
+                        }
+                        break;
+                    }
+                }
+            }
 
             // T9-tr-02: auto-ref the receiver if the impl method expects
             // `&self` / `&mut self`. For TypeVar receivers, recv is just the

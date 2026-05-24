@@ -3179,6 +3179,19 @@ private:
     // bare_fn_name preserves it (a plain `$` is stripped as a pkg separator).
     // Empty for no args. Must be byte-identical across collect/lower/dispatch.
     std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
+    // G156-1: strip a `$G<n>$...` trait-type-arg suffix baked into an
+    // AssocType's trait_name, recovering the bare trait name. No-op when absent.
+    static std::string strip_trait_targ_suffix(std::string_view s) {
+        auto d = s.find('$');
+        return std::string(d == std::string_view::npos ? s : s.substr(0, d));
+    }
+    // G156-1: look up an assoc-type impl, preferring the trait-type-arg-suffixed
+    // key (dual `Trait<T>` impls for one type) when the args are known from the
+    // current impl context (current_impl_trait_args_); falls back to the plain
+    // (single-impl / non-generic-trait) key. Returns nullptr if neither exists.
+    const AssocTypeEntry* find_assoc_type_entry(const std::string& trait_name,
+                                                const std::string& target,
+                                                const std::string& aname) const;
     // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
     // emits a diagnostic if a non-guarded wildcard is absent and some
     // variant / bool value is uncovered. Read-only over `smatch`; factored

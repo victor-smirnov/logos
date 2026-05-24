@@ -2564,6 +2564,22 @@ std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) con
     return s;
 }
 
+const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
+        const std::string& trait_name, const std::string& target,
+        const std::string& aname) const {
+    // G156-1: prefer the trait-arg-suffixed key when the args are known from
+    // the current impl context (two `Trait<T>` impls for one type at distinct T
+    // register their assoc types under distinct suffixed keys).
+    if (current_impl_trait_name_ == trait_name && !current_impl_trait_args_.empty()) {
+        auto it = assoc_type_impls_.find(
+            trait_name + trait_targ_suffix(current_impl_trait_args_)
+            + "::" + target + "::" + aname);
+        if (it != assoc_type_impls_.end()) return &it->second;
+    }
+    auto it = assoc_type_impls_.find(trait_name + "::" + target + "::" + aname);
+    return it != assoc_type_impls_.end() ? &it->second : nullptr;
+}
+
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
@@ -3805,15 +3821,20 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 // Build a flat set of bound trait names for this typevar.
                 StrSet tv_bound_set;
                 for (auto& tb : bit->second) tv_bound_set.insert(tb.trait_name);
+                // G156-1: t.trait_name() may carry a `$G…` trait-arg suffix; the
+                // key PREFIX keeps it (matches the suffixed registration), but
+                // the `$blanket$<trait>` target segment uses the BARE name.
+                std::string full_tn(t.trait_name());
+                std::string bare_tn = strip_trait_targ_suffix(full_tn);
                 for (auto& bi : blanket_impls_) {
-                    if (bi.trait_name != t.trait_name()) continue;
+                    if (bi.trait_name != bare_tn) continue;
                     if (!tv_bound_set.count(bi.bound_trait)) continue;
                     bool all_extra = true;
                     for (auto& eb : bi.extra_bounds)
                         if (!tv_bound_set.count(eb)) { all_extra = false; break; }
                     if (!all_extra) continue;
-                    std::string blanket_key = std::string(t.trait_name()) + "::$blanket$"
-                        + std::string(t.trait_name()) + "$" + bi.bound_trait
+                    std::string blanket_key = full_tn + "::$blanket$"
+                        + bare_tn + "$" + bi.bound_trait
                         + "$" + bi.target_typevar
                         + "::" + std::string(t.assoc_type_name());
                     auto bait = assoc_type_impls_.find(blanket_key);
@@ -3840,25 +3861,23 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             };
 
             // 1. Direct lookup (non-generic impls: key stored under concrete name).
-            std::string key = std::string(t.trait_name()) + "::" + concrete_name + "::" + std::string(t.assoc_type_name());
-            auto ait = assoc_type_impls_.find(key);
-            if (ait != assoc_type_impls_.end()) {
-                return subst_type_sema(ait->second.type, make_subst(ait->second));
-            }
+            //    G156-1: find_assoc_type_entry prefers the trait-arg-suffixed key
+            //    (dual `Trait<T>` impls) when args are known from the impl ctx.
+            std::string tn(t.trait_name()), an(t.assoc_type_name());
+            if (auto* e = find_assoc_type_entry(tn, concrete_name, an))
+                return subst_type_sema(e->type, make_subst(*e));
             // 2. Base-name fallback (generic impls).
             std::string base_name = (TypeRef(concrete).kind() == LogosType::Kind::Struct)
                                     ? std::string(TypeRef(concrete).struct_name()) : "";
             if (!base_name.empty() && base_name != concrete_name) {
-                std::string base_key = std::string(t.trait_name()) + "::" + base_name
-                                      + "::" + std::string(t.assoc_type_name());
-                auto ait2 = assoc_type_impls_.find(base_key);
-                if (ait2 != assoc_type_impls_.end())
-                    return subst_type_sema(ait2->second.type, make_subst(ait2->second));
+                if (auto* e2 = find_assoc_type_entry(tn, base_name, an))
+                    return subst_type_sema(e2->type, make_subst(*e2));
             }
             // 3. Blanket-impl fallback: `impl<T: Bound> Trait for T` provides
             // `type Assoc = …`.  Use it when `concrete` satisfies Bound.
+            std::string bare_tn3 = strip_trait_targ_suffix(tn);
             for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != t.trait_name()) continue;
+                if (bi.trait_name != bare_tn3) continue;
                 // Concrete type must implement every bound of the blanket.
                 auto bound_satisfied = [&](const std::string& bt) {
                     if (impls_.count(bt + "::" + concrete_name)) return true;
@@ -3871,8 +3890,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 for (auto& eb : bi.extra_bounds)
                     if (!bound_satisfied(eb)) { all_extra = false; break; }
                 if (!all_extra) continue;
-                std::string blanket_key = std::string(t.trait_name()) + "::$blanket$"
-                    + std::string(t.trait_name()) + "$" + bi.bound_trait
+                std::string blanket_key = tn + "::$blanket$"
+                    + bare_tn3 + "$" + bi.bound_trait
                     + "$" + bi.target_typevar
                     + "::" + std::string(t.assoc_type_name());
                 auto bait = assoc_type_impls_.find(blanket_key);
@@ -4081,6 +4100,10 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         }
     }
     std::string trait_for_assoc;
+    // G156-1: the trait's concrete type-args at this projection site (from the
+    // type-var bound or the current impl). Used to disambiguate two
+    // `Trait<T>` impls for one type (each declaring the same assoc type).
+    std::vector<TypeRef> trait_args_for_assoc;
 
     if (TypeRef(base_type).kind() == LogosType::Kind::TypeVar) {
         auto tp_name = TypeRef(base_type).type_var_name();
@@ -4093,20 +4116,32 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 // the assoc type. A `Container: Datatype` bound pulls in
                 // Datatype's `View` through the supertrait edge.
                 std::vector<std::string> worklist;
+                std::vector<std::vector<TypeRef>> worklist_args;  // parallel: bound's trait args
                 StrSet seen;
-                for (auto& b : bit->second) worklist.push_back(b.trait_name);
+                for (auto& b : bit->second) {
+                    worklist.push_back(b.trait_name);
+                    worklist_args.push_back(b.type_args);
+                }
                 while (!worklist.empty() && trait_for_assoc.empty()) {
                     std::string tn = std::move(worklist.back());
                     worklist.pop_back();
+                    std::vector<TypeRef> targs = std::move(worklist_args.back());
+                    worklist_args.pop_back();
                     if (!seen.insert(tn).second) continue;
                     auto tit = find_trait_iter_scoped(tn);
                     if (tit == traits_.end()) continue;
                     for (auto& at : tit->second.assoc_types) {
-                        if (at.name == assoc) { trait_for_assoc = tn; break; }
+                        if (at.name == assoc) {
+                            trait_for_assoc = tn;
+                            trait_args_for_assoc = targs;
+                            break;
+                        }
                     }
                     if (!trait_for_assoc.empty()) break;
-                    for (auto& sup : tit->second.supertraits)
+                    for (auto& sup : tit->second.supertraits) {
                         worklist.push_back(sup.trait_name);
+                        worklist_args.push_back(sup.type_args);
+                    }
                 }
             }
         }
@@ -4148,6 +4183,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             for (auto& at : tit->second.assoc_types) {
                 if (at.name == assoc) {
                     trait_for_assoc = current_impl_trait_name_;
+                    // G156-1: inside `impl Trait<Args> for C`, `Self::Assoc`
+                    // belongs to THIS impl's trait instantiation.
+                    trait_args_for_assoc = current_impl_trait_args_;
                     break;
                 }
             }
@@ -4196,10 +4234,50 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             }
         }
     }
+    // G156-1: when the base is already CONCRETE and the trait has type-args
+    // (so two `Trait<T>` impls could declare the same-named assoc type),
+    // resolve the projection NOW using the args from the impl/bound context.
+    // Otherwise a deferred AssocType node {base, trait, name} would intern
+    // identically across the two impls (it carries no trait args) and collapse
+    // to one — the wrong one. Gated to generic traits (non-empty suffix); the
+    // legacy deferred path is unchanged for non-generic traits and TypeVar
+    // bases. The suffixed key is registered by collect_impl (ASSOC_TYPE_IMPL).
+    if (gat_args.empty() &&
+        TypeRef(base_type).kind() != LogosType::Kind::TypeVar &&
+        TypeRef(base_type).kind() != LogosType::Kind::ConstVar &&
+        TypeRef(base_type).kind() != LogosType::Kind::CfgSlotType &&
+        TypeRef(base_type).kind() != LogosType::Kind::AssocType) {
+        std::string sfx = trait_targ_suffix(trait_args_for_assoc);
+        if (!sfx.empty()) {
+            std::string cn = type_str(base_type);
+            auto it = assoc_type_impls_.find(trait_for_assoc + sfx + "::" + cn + "::" + assoc);
+            if (it == assoc_type_impls_.end() &&
+                (TypeRef(base_type).kind() == LogosType::Kind::Struct ||
+                 TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)) {
+                std::string bn(TypeRef(base_type).struct_name());
+                if (!bn.empty() && bn != cn)
+                    it = assoc_type_impls_.find(trait_for_assoc + sfx + "::" + bn + "::" + assoc);
+            }
+            if (it != assoc_type_impls_.end()) {
+                SemaSubst sub;
+                for (size_t i = 0; i < it->second.impl_type_params.size() &&
+                                   i < TypeRef(base_type).type_args().size(); ++i)
+                    sub[it->second.impl_type_params[i].name] = TypeRef(base_type).type_args()[i];
+                return subst_type_sema(it->second.type, sub);
+            }
+        }
+    }
     LogosTypeBuilder t;
     t.kind            = LogosType::Kind::AssocType;
     t.assoc_base      = base_type;
-    t.trait_name      = trait_for_assoc;
+    // G156-1: bake the trait's concrete type-args into the deferred node's
+    // trait_name (e.g. "Producer$G1$i64") so a TypeVar-base projection like
+    // `P::Item` for `P: Producer<i64>` resolves to the right impl once P is
+    // substituted at mono — two `Trait<T>` impls would otherwise intern to one
+    // identical node and collapse. Empty suffix (non-generic traits) leaves
+    // trait_name bare, preserving legacy behaviour. Bare-name consumers strip
+    // the suffix via strip_trait_targ_suffix().
+    t.trait_name      = trait_for_assoc + trait_targ_suffix(trait_args_for_assoc);
     t.assoc_type_name = assoc;
     t.gat_args        = std::move(gat_args);
     // B88: stash GAT lifetime args on lifetime_args field — distinct

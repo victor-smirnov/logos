@@ -1440,6 +1440,13 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // G156-1: expose the impl's concrete trait type-args to lower_fn (mangling).
     current_impl_trait_args_ = impl_trait_args;
+    // G156-1: ib.trait_type_args was seeded (line ~1316) from
+    // impls_["Trait::Target"], which for two `Trait<T>` impls of one type holds
+    // only the LAST-inserted impl's args (coherence map is last-wins). Override
+    // with THIS impl's own resolved args so mono keys the assoc-type impls under
+    // the correct `Trait$G..$Args` suffix.
+    if (!impl_trait_args.empty())
+        ib.trait_type_args = impl_trait_args;
     // Propagate type_code from a genos-specialization decl:
     // `#[type_code=100] pub genos Array<AnyVal>;` + `impl Array<AnyVal> for E`
     // → E inherits type_code 100.  Only fires if the direct trait didn't
@@ -1780,7 +1787,12 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         std::string stored_target = ib.is_blanket
             ? ("$blanket$" + trait_name + "$" + ib.bound_trait + "$" + target)
             : target;
-        auto prefix = trait_name + "::" + stored_target + "::";
+        // G156-1: assoc-type impls are registered under a trait-arg-suffixed key
+        // (e.g. "Producer$G1$i64::Gen::Item"); for two `Trait<T>` impls of one
+        // type the bare plain key is erased, so match THIS impl's suffixed
+        // prefix. Empty suffix (non-generic trait) → bare prefix, unchanged.
+        auto prefix = trait_name + trait_targ_suffix(impl_trait_args)
+                    + "::" + stored_target + "::";
         for (auto& [key, entry] : assoc_type_impls_) {
             if (key.rfind(prefix, 0) == 0) {
                 auto assoc_name = key.substr(prefix.size());

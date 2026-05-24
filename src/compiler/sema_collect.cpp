@@ -2551,8 +2551,21 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 std::string key_target = is_blanket
                     ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
                     : target;
-                // Bug 3 fix: detect duplicate assoc type impl for the same trait+type+name.
-                std::string key = trait_name + "::" + key_target + "::" + aname;
+                // G156-1: key by the trait's concrete type-args so two impls of
+                // a generic trait `Trait<T>` for ONE type at distinct T (each
+                // declaring the same-named assoc type) coexist. The SUFFIXED key
+                // (empty suffix for non-generic traits → identical to the legacy
+                // key) is always stored; the PLAIN key is stored first-impl-wins
+                // for backward-compat + unambiguous single-impl lookups, and
+                // ERASED once a second distinct-args impl appears so a bare
+                // ambiguous `X::Assoc` lookup fails loud (Rust requires
+                // `<X as Trait<T>>::Assoc`). Resolution prefers the suffixed key
+                // when the trait args are known from the impl context
+                // (current_impl_trait_args_). A true duplicate (same
+                // trait+args+target+name) still collides on the suffixed key.
+                std::string targ_sfx = trait_targ_suffix(trait_type_args);
+                std::string key  = trait_name + targ_sfx + "::" + key_target + "::" + aname;
+                std::string pkey = trait_name + "::" + key_target + "::" + aname;
                 if (assoc_type_impls_.count(key))
                     error(std::format("impl {} for {}: duplicate associated type '{}'",
                                       trait_name, target, aname));
@@ -2582,8 +2595,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 pop_type_params(gat_tps);
                 AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
-                assoc_type_impls_[key] = std::move(ate);
+                assoc_type_impls_[key] = ate;
                 if (!cur_from_binary_) user_assoc_type_impl_keys_.insert(key);
+                // Plain key: first-impl-wins; erase on a second distinct-args
+                // impl so bare ambiguous lookups fail loud (G156-1). When
+                // targ_sfx is empty (non-generic trait) key==pkey already —
+                // nothing more to do.
+                if (!targ_sfx.empty()) {
+                    if (!assoc_type_impls_.count(pkey)) {
+                        assoc_type_impls_[pkey] = std::move(ate);
+                        if (!cur_from_binary_) user_assoc_type_impl_keys_.insert(pkey);
+                    } else {
+                        // A different-args impl already claimed the plain key →
+                        // the bare projection is now ambiguous. Drop it.
+                        assoc_type_impls_.erase(pkey);
+                        user_assoc_type_impl_keys_.erase(pkey);
+                    }
+                }
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 std::string assoc_doc = std::move(pending_doc_);
@@ -2894,7 +2922,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
         auto tit = find_trait_iter_scoped(trait_name);
         if (tit != traits_.end()) {
             for (auto& at : tit->second.assoc_types) {
-                std::string key = trait_name + "::" + target + "::" + at.name;
+                // G156-1: this impl's assoc types are keyed by the trait's
+                // type-args (suffixed); the plain key may have been erased by a
+                // sibling dual impl. Check the suffixed key for THIS impl.
+                std::string key = trait_name + trait_targ_suffix(trait_type_args)
+                                + "::" + target + "::" + at.name;
                 if (!assoc_type_impls_.count(key))
                     error(std::format("impl {} for {}: missing associated type '{}'",
                           trait_name, target, at.name));

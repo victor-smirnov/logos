@@ -1,0 +1,48 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/associated-types/ multidispatch shapes (distilled).
+// Modifications: isize->i64; assert->if-return. Two impls of ONE generic trait
+//   `Producer<T>` for ONE type `Gen`, at distinct T (i64 / bool), EACH declaring
+//   the same-named associated type `Item` with a different concrete value.
+// Tests g156-1 / K2 (assoc-type half): previously `impl Producer<i64> for Gen`
+//   + `impl Producer<bool> for Gen` collided with "duplicate associated type
+//   'Item'" (assoc-type registration keyed on trait NAME only). Now the impls
+//   coexist (keyed by the trait's concrete type-args), each impl's `Self::Item`
+//   resolves to its own value, and a generic-bound projection `P::Item` for
+//   `P: Producer<i64>` resolves to the right impl at monomorphization. The bare
+//   `Trait::Target::Item` is intentionally ambiguous (Rust requires the bound
+//   to disambiguate), which the generic-bound functions below supply.
+package dual_trait_impl_assoc_type_g156;
+
+trait Producer<T> {
+    type Item;
+    fn produce(self: &Self) -> Self::Item;
+}
+
+struct Gen { base: i64 }
+
+impl Producer<i64> for Gen {
+    type Item = i64;
+    fn produce(self: &Gen) -> Self::Item { return self.base; }
+}
+impl Producer<bool> for Gen {
+    type Item = bool;
+    fn produce(self: &Gen) -> Self::Item { return self.base != 0i64; }
+}
+
+// Generic-bound projection: the bound selects which impl's Item is meant.
+fn use_i64<P: Producer<i64>>(p: &P)  -> P::Item { return p.produce(); }
+fn use_bool<P: Producer<bool>>(p: &P) -> P::Item { return p.produce(); }
+
+fn main() -> i32 {
+    let g: Gen = Gen { base: 5i64 };
+    // Producer<i64>::Item == i64
+    if use_i64::<Gen>(&g) != 5i64 { return 1i32; }
+    // Producer<bool>::Item == bool
+    if !use_bool::<Gen>(&g) { return 2i32; }
+
+    let z: Gen = Gen { base: 0i64 };
+    if use_bool::<Gen>(&z) { return 3i32; }
+    if use_i64::<Gen>(&z) != 0i64 { return 4i32; }
+
+    return 0i32;
+}
