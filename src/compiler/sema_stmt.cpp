@@ -6412,6 +6412,83 @@ lir::LStmt SemaChecker::lower_index_compound_assign(TinyMapView node) {
         if (node.has_key(la::VALUE)) lower_expr(map_of(node.get(la::VALUE.code)));
         return builder().stmt_break(nullptr, "", node_line_);
     }
+
+    // G167-5: user-defined IndexMut dispatch for `a[i] OP= v` — mirror
+    // lower_index_write (plain `a[i] = v`), which lower_index_compound_assign
+    // previously LACKED. Without this, a compound-assign on a struct that impls
+    // IndexMut fell through to the builtin-array SIndexWrite path below, which
+    // silently no-op'd for any index_mut whose returned place came from a
+    // non-first branch (`if i==0 {&mut self.a} else {&mut self.b}`). Desugar to
+    // `*index_mut(&mut a, i) = *index_mut(&mut a, i) OP v` — two pure index_mut
+    // calls (the existing array path likewise lowers the index expr twice).
+    if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
+        if (!lookup_is_mut(arr_name))
+            error(std::format("index compound assign to immutable struct '{}'", arr_name));
+        auto type_name = concrete_struct_name(arr_type);
+        auto base_name = std::string(TypeRef(arr_type).struct_name());
+        bool has_im = impls_.count("IndexMut::" + type_name) ||
+                      (!base_name.empty() && impls_.count("IndexMut::" + base_name));
+        if (has_im) {
+            const SemaFuncInfo* fit_im = nullptr;
+            for (auto* c : find_func_candidates(type_name + "__index_mut"))
+                if (c->param_types.size() == 2) { fit_im = c; break; }
+            // Read through the shared `index` (&self) so the read borrow does not
+            // overlap the `index_mut` (&mut) write borrow (two &mut would be a
+            // borrow-check conflict). Index is IndexMut's supertrait, so a
+            // candidate exists in practice; fall back to index_mut if absent.
+            const SemaFuncInfo* fit_rd = nullptr;
+            for (auto* c : find_func_candidates(type_name + "__index"))
+                if (c->param_types.size() == 2) { fit_rd = c; break; }
+            if (fit_im) {
+                TypeRef ref_o = fit_im->ret_type;               // &mut O
+                TypeRef out_t = TypeRef(ref_o).pointee()
+                              ? TypeRef(ref_o).pointee() : error_t();
+                auto lower_idx = [&](const SemaFuncInfo* f) -> lir::LExprPtr {
+                    lir::LExprPtr idx_e = node.has_key(la::LHS)
+                        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
+                    widen_int_expr(idx_e, f->param_types[1], builder());
+                    return idx_e;
+                };
+                auto rhs = node.has_key(la::VALUE)
+                    ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+                if (TypeRef(out_t).kind() != LogosType::Kind::Error &&
+                    TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
+                    !types_compatible(rhs->type, out_t))
+                    error(std::format("compound assignment to '{}[i]': type mismatch — expected {}, got {}",
+                          arr_name, type_str(out_t), type_str(rhs->type)));
+                // cur = *index(&a, i)  (shared) — or *index_mut if no Index impl.
+                lir::LExprPtr cur;
+                if (fit_rd) {
+                    std::vector<lir::LExprPtr> ra;
+                    ra.push_back(builder().addr_of(std::string(arr_name), make_ref(false, arr_type)));
+                    ra.push_back(lower_idx(fit_rd));
+                    auto rc = builder().call(fit_rd->symbol_name.empty()
+                                  ? (type_name + "__index") : fit_rd->symbol_name,
+                              {}, std::move(ra), fit_rd->ret_type);
+                    cur = builder().deref(std::move(rc), out_t);
+                } else {
+                    std::vector<lir::LExprPtr> ra;
+                    ra.push_back(builder().addr_of(std::string(arr_name), make_ref(true, arr_type)));
+                    ra.push_back(lower_idx(fit_im));
+                    auto rc = builder().call(fit_im->symbol_name.empty()
+                                  ? (type_name + "__index_mut") : fit_im->symbol_name,
+                              {}, std::move(ra), ref_o);
+                    cur = builder().deref(std::move(rc), out_t);
+                }
+                auto combined = builder().bin_op(base_op, std::move(cur),
+                                                 std::move(rhs), out_t);
+                // *index_mut(&mut a, i) = combined
+                std::vector<lir::LExprPtr> wa;
+                wa.push_back(builder().addr_of(std::string(arr_name), make_ref(true, arr_type)));
+                wa.push_back(lower_idx(fit_im));
+                auto wc = builder().call(fit_im->symbol_name.empty()
+                              ? (type_name + "__index_mut") : fit_im->symbol_name,
+                          {}, std::move(wa), ref_o);
+                return builder().stmt_deref_write(std::move(wc), std::move(combined), node_line_);
+            }
+        }
+    }
+
     if (TypeRef(arr_type).kind() == LogosType::Kind::Array && !lookup_is_mut(arr_name))
         error(std::format("index compound assign to immutable array '{}'", arr_name));
 

@@ -1,0 +1,39 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/overloaded/overloaded-index.rs (compound-assign facet)
+// Modifications: i64 suffixes; assert!->if-return; &self->self:&Self.
+// Tests operator overloading × Index/IndexMut × compound-assign: a custom
+//   container indexed with `c[i] += v` should desugar to IndexMut and mutate
+//   in place. (B166/N1 covered struct-array-element place writes; this is the
+//   user-Index trait compound-assign LHS.)
+// GAP (G167-5) MISCOMPILE: `g[i] op= v` works ONLY when index_mut returns its
+//   FIRST conditional branch (`&mut self.a`, index 0). When index_mut returns
+//   the `else`-branch place (`&mut self.b`, index 1), the compound-assign is
+//   silently lost AND adjacent state is corrupted (probe: `g[1] += 100` left
+//   g.b unchanged and zeroed g.a). Plain `g[1] = v` and read `g[1]` BOTH work;
+//   only the read-modify-write compound path through a conditional index_mut
+//   return mis-targets. Silent. Intersection: operator-overload Index/IndexMut
+//   × compound-assign × conditional-return place.
+package t08_index_compound_assign;
+
+struct Grid { a: i64, b: i64 }
+
+impl Index<i64> for Grid {
+    type Output = i64;
+    fn index(self: &Grid, i: i64) -> &i64 {
+        if i == 0i64 { &self.a } else { &self.b }
+    }
+}
+impl IndexMut<i64> for Grid {
+    fn index_mut(self: &mut Grid, i: i64) -> &mut i64 {
+        if i == 0i64 { &mut self.a } else { &mut self.b }
+    }
+}
+
+fn main() -> i32 {
+    let mut g = Grid { a: 1i64, b: 2i64 };
+    g[0i64] += 10i64;
+    g[1i64] *= 5i64;
+    if g[0i64] != 11i64 { return 1i32; }
+    if g[1i64] != 10i64 { return 2i32; }
+    return 0i32;
+}
