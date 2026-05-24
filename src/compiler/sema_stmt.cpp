@@ -2464,10 +2464,16 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // in `bindings`). Caller must also have `current_pat_refutable_guards_`
     // wired or guard generation is silently skipped (then the pattern
     // becomes too permissive — caller already errored).
+    // explicit_name: when non-empty, the payload is bound to THAT name (an
+    // `@`-binding — `Msg::Num(n @ 1..=5)`) and the refutable guard is built
+    // against it, rather than to a fresh synth temp. The caller pushes the
+    // returned name into `bindings`.
     auto synth_refutable_inner =
-        [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field) -> std::string {
-        std::string synth = std::format(
-            "__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++);
+        [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field,
+            std::string_view explicit_name = {}) -> std::string {
+        std::string synth = explicit_name.empty()
+            ? std::format("__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++)
+            : std::string(explicit_name);
         int32_t sc = code_of(sub);
         // Nested VARIANT inner pattern, e.g. `Some(Color::Red)` /
         // `Ok(Status::Done)`. Bind the payload to `synth`, and gate the arm
@@ -2540,6 +2546,47 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 builder().match_expr_v(std::move(me), bool_t()));
             return synth;
         }
+        // G162-1: range inner `Num(1..=5)` / `Num(n @ 1..=5)`. Bind the
+        // payload to `synth` (or the @-name) and gate the arm with
+        // `synth >= lo && synth <= hi` (exclusive `lo..hi` lowers to
+        // `lo..=(hi-1)`). Mirrors the PAT_RANGE handling in build_pattern.
+        if (sc == la::PAT_RANGE && sub.has_key(la::LHS) && sub.has_key(la::RHS)) {
+            int64_t lo = parse_int_literal(str_of(sub.get(la::LHS.code)));
+            int64_t hi = parse_int_literal(str_of(sub.get(la::RHS.code)));
+            if (sub.has_key(la::LO_NEG)) {
+                AnyVal av = sub.get(la::LO_NEG.code);
+                if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) lo = -lo;
+            }
+            if (sub.has_key(la::HI_NEG)) {
+                AnyVal av = sub.get(la::HI_NEG.code);
+                if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
+            }
+            bool inclusive = true;
+            if (sub.has_key(la::INCLUSIVE)) {
+                AnyVal av = sub.get(la::INCLUSIVE.code);
+                if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
+            }
+            if (!inclusive) hi = hi - 1;
+            if (current_pat_refutable_guards_) {
+                TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                    ? ftype : prim(LogosType::Kind::I64);
+                auto lo_lit = builder().lit_int(lo, rt);
+                auto hi_lit = builder().lit_int(hi, rt);
+                auto ge = builder().bin_op(">=", builder().var_ref(synth, rt),
+                                           std::move(lo_lit), bool_t());
+                auto le = builder().bin_op("<=", builder().var_ref(synth, rt),
+                                           std::move(hi_lit), bool_t());
+                auto guard = builder().bin_op("&&", std::move(ge), std::move(le), bool_t());
+                current_pat_refutable_guards_->push_back(std::move(guard));
+            }
+            return synth;
+        }
+        // G162-1: `Num(n @ _)` — an @-binding with a wildcard sub binds the
+        // payload to the name with no guard (only meaningful with an explicit
+        // name; a bare synth `_` would be a plain wildcard).
+        if (sc == la::PAT_WILD && !explicit_name.empty() &&
+            (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
+            return synth;
         lir::LExprPtr value;
         if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
             auto sv = str_of(sub.get(la::VALUE.code));
@@ -2762,12 +2809,33 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         current_pat_nested_subs_->push_back({synth, bnode});
                         continue;
                     }
+                    // G162-1: `Num(n @ <sub>)` — an @-binding inside the
+                    // payload. Bind the payload to the @-name AND gate the arm
+                    // with the sub-pattern's refutable guard (range / literal /
+                    // variant), built against that name. PAT_WILD sub (`n @ _`)
+                    // binds with no guard.
+                    if (bc == la::PAT_AT && bnode.has_key(la::NAME) &&
+                        bnode.has_key(la::VALUE)) {
+                        auto atname = std::string(str_of(bnode.get(la::NAME.code)));
+                        auto subnode = map_of(bnode.get(la::VALUE.code));
+                        std::string r = synth_refutable_inner(
+                            subnode, pat_field_type(j),
+                            std::format("{}", j), atname);
+                        if (!r.empty()) {
+                            bindings.push_back(atname);
+                            binding_is_ref.push_back(false);
+                            binding_is_mut.push_back(false);
+                            binding_from_wild.push_back(true);  // named binding
+                            continue;
+                        }
+                    }
                     // P4-pm-01 refutable inner (tuple-shape parallel) —
-                    // `Option::Some(1)` / `Result::Err(false)`. Synth a
-                    // binding + emit `__refut_… == <value>` as an arm
-                    // guard.
+                    // `Option::Some(1)` / `Result::Err(false)` / `Num(1..=5)`.
+                    // Synth a binding + emit `__refut_… == <value>` (or a range
+                    // `>= && <=`) as an arm guard.
                     if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
                         bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
+                        bc == la::PAT_RANGE ||
                         bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
                         bc == la::PAT_OR) {
                         std::string synth = synth_refutable_inner(

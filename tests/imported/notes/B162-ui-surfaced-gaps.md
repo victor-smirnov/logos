@@ -75,31 +75,24 @@ call boundary (array-to-slice-arg); char literals incl. `\n`/`\t`/`\u{2603}` +
 
 ## Gaps surfaced
 
-- **G162-1** (TRACTABLE) — a nested pattern inside an enum-variant payload is
-  rejected: `match m { Msg::Num(n @ 1i64..=5i64) => … }` errors
-  "pattern Msg::Num: nested patterns inside enum-variant payloads are not yet
-  supported; bind to a name and match in the body" (plus the follow-on
-  "expected 1 bindings, got 0" / "undefined variable 'n'"). This is a clean
-  compile-time diagnostic (not a crash) and the error already points at the
-  workaround. The variant payload binding currently only accepts a bare name; the
-  fix is to recurse `build_pattern` into the payload sub-pattern (the same
-  machinery already supported at let-else after G161-3 and in tuple/struct
-  positions). MINIMAL repro:
+- **G162-1** (CLOSED) — a nested refutable pattern inside an enum-variant payload
+  (`match m { Msg::Num(n @ 1i64..=5i64) => … }`) now works. Two sub-fixes in the
+  variant-payload nested-pattern path (`sema_stmt.cpp build_pattern`):
+  1. `synth_refutable_inner` gained a **PAT_RANGE** arm — binds the payload to a
+     synth (or @-name) and emits a `synth >= lo && synth <= hi` arm guard
+     (exclusive `lo..hi` → `lo..=(hi-1)`), mirroring `build_pattern`'s PAT_RANGE.
+  2. `synth_refutable_inner` gained an optional `explicit_name` parameter, and a
+     **PAT_AT** dispatch case extracts the `@`-name + sub-pattern, binds the
+     payload to that name, and builds the sub-pattern's refutable guard against
+     it (range / literal / variant; `n @ _` binds with no guard).
 
-  ```
-  enum M { Num(i64), Nil }
-  fn d(m: M) -> i64 {
-      match m {
-          M::Num(n @ 1i64..=5i64) => { return 1000i64 + n; }  // rejected
-          M::Num(n) => { return n; }
-          M::Nil => { return -1i64; }
-      }
-  }
-  ```
+  Covers bare range payloads (`Num(1..=5)`), `@`-literal (`Num(n @ 10)`), and
+  `@`-range (`Num(n @ 1..=5)`) across multiple variants. Reuses the existing
+  `current_pat_refutable_guards_` plumbing (same as `Some(1)` literal inners).
 
-  Original test affected: `pattern/bindings-after-at` shape — the enum-payload
-  `@`-binding facet was DROPPED; `binding-at-pattern-b162` was KEPT covering the
-  TOP-LEVEL `n @ range` form (which works).
+  Original test restored: `pattern/binding-at-pattern-b162` now exercises the
+  enum-payload `@`-binding facet (`Msg::Num(n @ 1..=5)`) alongside the top-level
+  `x @ range` form.
 
 - **G162-2** (CLOSED) — an indexed WRITE through a `&mut [T;N]` / `&mut [T]`
   function parameter is now supported. Three sub-fixes:
@@ -152,8 +145,9 @@ call boundary (array-to-slice-arg); char literals incl. `\n`/`\t`/`\u{2603}` +
 
 ## Dropped tests (and the gap/limit that caused each drop)
 
-- `pattern/bindings-after-at` (enum-payload `@`-binding facet) — G162-1. KEPT
-  `binding-at-pattern-b162` with the top-level `n @ range` form.
+- `pattern/bindings-after-at` (enum-payload `@`-binding facet) — G162-1 CLOSED.
+  `binding-at-pattern-b162` RESTORED with the enum-payload `Msg::Num(n @ 1..=5)`
+  facet alongside the top-level `x @ range` form.
 - `slice/` in-place reverse (`fn reverse(a: &mut [i64])` factoring) — G162-2 CLOSED.
   `slice-rev-swap-inplace-b162` RESTORED to the original Rust shape with the swap
   loop factored into `fn reverse(a: &mut [i64], n: i64)`.
@@ -164,9 +158,10 @@ call boundary (array-to-slice-arg); char literals incl. `\n`/`\t`/`\u{2603}` +
 - `numbers-arithmetic/` u8-wraparound facet — integer overflow traps (matches Rust
   debug). Facet dropped from `int-min-max-wrapping-b162`; boundary/cast facets kept.
 
-Total: **33 KEPT / passing** tests. The two surfaced gaps (G162-1 nested enum-
-payload pattern, G162-2 indexed write through a `&mut [T;N]`/`&mut [T]` parameter)
-are both clean compile-time diagnostics with named workarounds — TRACTABLE, no
-silent miscompiles or crashes in this batch. Each affected only one facet of an
-otherwise-portable test, so those tests were kept with the unsupported facet
-reshaped.
+Total: **33 KEPT / passing** tests. Both surfaced gaps are now CLOSED: G162-1
+(nested refutable pattern in an enum-variant payload — PAT_RANGE + PAT_AT) and
+G162-2 (indexed write through a `&mut [T;N]`/`&mut [T]` parameter). Both affected
+tests were RESTORED to their original Rust shapes (`Msg::Num(n @ 1..=5)` and
+`fn reverse(a: &mut [i64])`). One residual divergence recorded: slice mutability
+is not tracked at the type level (DIVERGENCES B6 — does not affect any imported
+run-pass test).

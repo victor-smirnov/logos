@@ -1,13 +1,15 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/pattern/bindings-after-at/ shapes (distilled).
 // Modifications: isize->i64; assert->if-return sentinels. The `name @ subpattern`
-//   binding form at TOP level of a match scrutinee: bind the whole value while
-//   ALSO matching its structure (integer range pattern). The enum-payload-nested
-//   `@`-binding facet (`Msg::Num(n @ 1..=5)`) is DROPPED — nested patterns inside
-//   enum-variant payloads are not yet supported (G162-1); covered separately by a
-//   body-side range check.
-// Tests top-level `@`-bindings: `n @ 1..=5` range capture and a `_`-fallback.
+//   binding form, both at TOP level of a match scrutinee and NESTED inside an
+//   enum-variant payload (`Msg::Num(n @ 1..=5)` — G162-1): bind the value while
+//   ALSO matching its structure (integer range pattern).
+// Tests `@`-bindings: top-level `x @ 1..=9` range capture + `_`-fallback, and
+//   enum-payload-nested `n @ 1..=5` (bind + range guard) with a bare-bind
+//   fallback arm.
 package binding_at_pattern_b162;
+
+enum Msg { Num(i64), Nil }
 
 fn band(v: i64) -> i64 {
     match v {
@@ -17,9 +19,20 @@ fn band(v: i64) -> i64 {
     }
 }
 
+fn classify(m: Msg) -> i64 {
+    match m {
+        Msg::Num(n @ 1i64..=5i64) => { return 5000i64 + n; }
+        Msg::Num(n) => { return n; }
+        Msg::Nil => { return -1i64; }
+    }
+}
+
 fn main() -> i32 {
     if band(3i64) != 1003i64 { return 1i32; }
     if band(42i64) != 2042i64 { return 2i32; }
     if band(500i64) != 500i64 { return 3i32; }
+    if classify(Msg::Num(4i64)) != 5004i64 { return 4i32; }
+    if classify(Msg::Num(8i64)) != 8i64 { return 5i32; }
+    if classify(Msg::Nil) != -1i64 { return 6i32; }
     return 0i32;
 }
