@@ -7884,6 +7884,18 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             int32_t ic = code_of(init);
             if (ic != la::FIELD_INIT && ic != la::FIELD_SHORTHAND) continue;
             auto fname = str_of(init.get(la::NAME.code));
+            // The field's declared type — a CONCRETE enum is used as the
+            // expected-type hint so a payload-less enum-literal field value
+            // (`S { x: Option::None }`) pins its type-args and heap-allocates,
+            // instead of lowering as a bare C-style enum (inline disc) that the
+            // field's heap-ptr slot then mis-reads. Mirrors the call-arg path.
+            TypeRef fld_decl_ty = nullptr;
+            for (auto& f : sinfo.fields)
+                if (f.name == fname) { fld_decl_ty = f.type; break; }
+            bool fld_concrete_enum = fld_decl_ty &&
+                TypeRef(fld_decl_ty).kind() == LogosType::Kind::Enum &&
+                !TypeRef(fld_decl_ty).type_args().empty() &&
+                !enum_arg_unresolved(fld_decl_ty);
             lir::LExprPtr val = nullptr;
             if (ic == la::FIELD_SHORTHAND) {
                 // Point { x, y } — same as Point { x: x, y: y }
@@ -7894,10 +7906,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 } else {
                     val = builder().var_ref(std::string(fname), t);
                 }
+            } else if (init.has_key(la::VALUE)) {
+                TypeRef saved_eh = hint_enum_type_;
+                if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
+                val = lower_expr(map_of(init.get(la::VALUE.code)));
+                hint_enum_type_ = saved_eh;
+                if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
             } else {
-                val = init.has_key(la::VALUE)
-                    ? lower_expr(map_of(init.get(la::VALUE.code)))
-                    : error_expr();
+                val = error_expr();
             }
             fields.push_back({std::string(fname), std::move(val)});
         }
@@ -9682,10 +9698,32 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 }
                 // FIELD_INIT carries VALUE; FIELD_SHORTHAND is `name` only —
                 // synthesise an EVarRef of the same name.
+                // The variant field's declared payload type — a CONCRETE enum
+                // hints a payload-less enum-literal value (`E::V { f: None }`)
+                // so it heap-allocates with the right monomorphisation instead
+                // of lowering as a bare C-style enum the heap-ptr slot mis-reads.
+                TypeRef fld_decl_ty = (idx < vinfo->payload_types.size())
+                    ? vinfo->payload_types[idx] : TypeRef(nullptr);
+                if (fld_decl_ty && !eit->second.type_params.empty() && hint_enum_type_ &&
+                    TypeRef(hint_enum_type_).enum_name() == ename) {
+                    SemaSubst fs;
+                    auto hta = TypeRef(hint_enum_type_).type_args();
+                    for (size_t k = 0; k < eit->second.type_params.size() && k < hta.size(); ++k)
+                        if (hta[k]) fs[eit->second.type_params[k].name] = hta[k];
+                    if (!fs.empty()) fld_decl_ty = subst_type_sema(fld_decl_ty, fs);
+                }
+                bool fld_concrete_enum = fld_decl_ty &&
+                    TypeRef(fld_decl_ty).kind() == LogosType::Kind::Enum &&
+                    !TypeRef(fld_decl_ty).type_args().empty() &&
+                    !enum_arg_unresolved(fld_decl_ty);
                 lir::LExprPtr val;
                 int32_t fcode = code_of(fnode);
                 if (fnode.has_key(la::VALUE)) {
+                    TypeRef saved_eh = hint_enum_type_;
+                    if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
                     val = lower_expr(map_of(fnode.get(la::VALUE.code)));
+                    hint_enum_type_ = saved_eh;
+                    if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
                 } else if (fcode == la::FIELD_SHORTHAND) {
                     TypeRef rt = lookup(fname);
                     if (!rt) {

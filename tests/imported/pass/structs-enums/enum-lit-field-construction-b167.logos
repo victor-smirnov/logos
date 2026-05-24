@@ -1,0 +1,28 @@
+// Regression (B167): a payload-less enum-literal as a STRUCT / struct-shape
+// enum-variant FIELD value (`S { x: Option::None }`, `Msg::Move { x:
+// Option::None, .. }`) must heap-allocate with the field's concrete
+// monomorphisation. Previously it lowered as a bare C-style enum (inline disc)
+// while the field slot is a heap pointer → deref garbage → SIGSEGV. Same class
+// as the K4-root call-arg fix, applied to struct/variant literal fields.
+package enum_lit_field_construction_b167;
+use logos.lang.option;
+struct S { x: Option<i64>, y: i64 }
+enum Msg { Move { x: Option<i64>, y: i64 }, Quit }
+fn use_s(s: S) -> i64 {
+    match s.x { Option::Some(v) => v + s.y, Option::None => s.y }
+}
+fn use_m(m: Msg) -> i64 {
+    match m {
+        Msg::Move { x: Option::Some(v), y } => v + y,
+        Msg::Move { x: Option::None, y } => y,
+        Msg::Quit => -1i64,
+    }
+}
+fn main() -> i32 {
+    if use_s(S { x: Option::None, y: 7i64 }) != 7i64 { return 1i32; }
+    if use_s(S { x: Option::Some(5i64), y: 3i64 }) != 8i64 { return 2i32; }
+    if use_m(Msg::Move { x: Option::Some(5i64), y: 3i64 }) != 8i64 { return 3i32; }
+    if use_m(Msg::Move { x: Option::None, y: 9i64 }) != 9i64 { return 4i32; }
+    if use_m(Msg::Quit) != -1i64 { return 5i32; }
+    return 0i32;
+}

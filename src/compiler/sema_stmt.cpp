@@ -2800,14 +2800,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         by_pos[idx] = bn;
                     } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
                                sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
-                               sc == la::PAT_RANGE || sc == la::PAT_VARIANT) {
-                        // P4-pm-01: refutable inner that binds NOTHING (literal,
-                        // range, or a unit variant) — synth a binding + an arm
-                        // guard. Binding-carrying nested variants
-                        // (`Move { x: Some(v), .. }`) need a body let-else, but
-                        // the struct-shape arm body doesn't yet consume the
-                        // nested-subs side channel (unlike the tuple-shape path)
-                        // — those still fall through to the clean reject below.
+                               sc == la::PAT_RANGE || sc == la::PAT_VARIANT ||
+                               sc == la::PAT_VARIANT_DATA) {
+                        // P4-pm-01 / K4: refutable inner on a struct-shape
+                        // variant field — literal, range, unit variant, OR a
+                        // binding-carrying nested variant (`Move { x: Some(v),
+                        // .. }`). synth_refutable_inner synthesises the binding +
+                        // arm guard and (for binding variants) registers the
+                        // body let-else via the nested-subs channel that the arm
+                        // body consumes — same as the tuple-shape path.
                         std::string synth = synth_refutable_inner(
                             sub, pat_field_type(idx), fname);
                         if (synth.empty()) {
