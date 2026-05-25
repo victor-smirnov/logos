@@ -1894,7 +1894,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     }
     if (!tag_system.empty())
         return gen_tagged_dispatch(v, ret_logos_type);
-    if (recv_t && recv_t.kind() == LogosType::Kind::TraitObject && vtable_index >= 0)
+    // G168-A (g6/g2): a `&dyn Trait` receiver is a TraitObject; a `&(dyn Trait)`
+    // (`Ref<TraitObject>`) routes to the same vtable dispatch (gen_dyn_dispatch
+    // loads the handle once).
+    if (recv_t && vtable_index >= 0 &&
+        (recv_t.kind() == LogosType::Kind::TraitObject ||
+         ((recv_t.kind() == LogosType::Kind::Ref ||
+           recv_t.kind() == LogosType::Kind::MutRef) && recv_t.pointee() &&
+          TypeRef(recv_t.pointee()).kind() == LogosType::Kind::TraitObject)))
         return gen_dyn_dispatch(v, ret_logos_type);
     // Primitive receiver fast-path: when the receiver isn't a struct
     // but `resolved_symbol` is supplied, emit a direct func.call to

@@ -5537,8 +5537,17 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
 std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
     TypeRef rt(recv->type);
-    if (!(rt && rt.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
-    auto tname = std::string(rt.trait_name());
+    // G168-A (g6/g2): also accept a `&(dyn Trait)` receiver — `Ref<TraitObject>`
+    // (e.g. `v.borrow(i).area()`, a `let rd: &Box<dyn> = ..` binding, or the
+    // `for b in &Vec<Box<dyn>>` loop var). Keep `recv` as the ref; gen_dyn_dispatch
+    // loads the handle once. trait_name comes from the peeled TraitObject.
+    TypeRef dyn_t = rt;
+    if (rt && (rt.kind() == LogosType::Kind::Ref ||
+               rt.kind() == LogosType::Kind::MutRef) && rt.pointee() &&
+        TypeRef(rt.pointee()).kind() == LogosType::Kind::TraitObject)
+        dyn_t = TypeRef(rt.pointee());
+    if (!(dyn_t && dyn_t.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
+    auto tname = std::string(dyn_t.trait_name());
     // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled as
     // `$dyn$Foo__method` (Phase 1B-10 collection). Try this BEFORE vtable
     // dispatch so impls override / extend trait-method resolution.

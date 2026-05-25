@@ -785,9 +785,16 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         if (!data_ptr) return;
         mlir::Value alloca;
         TypeRef src_vt(s.value->type);
-        // Source may also be `*mut dyn Trait` — peel for the "already fat"
-        // shortcut.
-        if (src_vt && src_vt.kind() == LogosType::Kind::Ptr &&
+        // Source may also be `*mut dyn Trait` / `&dyn Trait` (e.g. a value
+        // returned by `Vec::borrow(i) -> &T` where T is a trait object) — peel
+        // for the "already fat" shortcut so we store the existing handle/ref
+        // directly instead of mis-rebuilding a fat slot from it (G168-A g6/g2:
+        // the missing Ref/MutRef peel here made `let rd: &Box<dyn> = v.borrow(0)`
+        // store a bogus {ptr-to-handle, garbage-vtable} slot → dispatch crash).
+        if (src_vt && (src_vt.kind() == LogosType::Kind::Ptr ||
+                       src_vt.kind() == LogosType::Kind::Ref ||
+                       src_vt.kind() == LogosType::Kind::MutRef) &&
+            src_vt.pointee() &&
             TypeRef(src_vt.pointee()).kind() == LogosType::Kind::TraitObject) {
             src_vt = src_vt.pointee();
         }

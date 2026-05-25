@@ -52,9 +52,25 @@ the in-place relabel-without-fatten.
   - `let b = *p; b.area()` (explicit deref) → COMPILES but **SIGSEGVs at runtime** — the SAME
     receiver-indirection root as **g6**: `gen_dyn_dispatch` materialises the handle at the wrong
     indirection level for a deref/VarRef receiver (an inline-expr receiver works).
-  CONVERGES with g6 on one focused mlir-gen sub-sprint: normalise how a dyn handle is
-  materialised across receiver forms (inline-expr vs VarRef vs `*ptr`/`&` indirection).
-- **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** (clean) — ESCALATED 2026-05-24, not fixed.
+  PARTIALLY FIXED 2026-05-24 — see g6 below: borrowed-trait-object dispatch now works for
+  inline + let-bound receivers; the `*p`/`p[0]` raw-ptr forms still need work (g2 facets).
+- **g6/dispatch-indirection** — ✅ PARTIALLY FIXED 2026-05-24. ROOT: `mlir_gen_stmt.cpp` gen_let's
+  "already-a-fat-pointer" check peeled only `Ptr`, not `Ref`/`MutRef` — so `let rd: &Box<dyn> =
+  v.borrow(0)` mis-REBUILT a bogus `{ptr-to-handle, garbage-vtable}` slot instead of storing the
+  borrowed handle, and every dispatch combo read garbage. Fix: peel Ref/MutRef there; accept a
+  `Ref<TraitObject>` receiver in sema `try_method_on_dyn`, the dispatch gate, and load the handle
+  once in `gen_dyn_dispatch`. Now **borrowed-trait-object dispatch works** for inline
+  (`v.borrow(i).area()` = 13) AND let-bound (`let rd = v.borrow(0); rd.area()` = 4) receivers.
+  Test: traits/borrowed-dyn-dispatch-b168. Full suite 5162/5162.
+  STILL OPEN (separate roots, not the dispatch-receiver indirection):
+  - **for-each / `v.iter()` over `Vec<Box<dyn>>`** still SIGSEGVs — `for b in &v` AND
+    `for b in v.iter()` both crash, so the iterator/for-each path yields a CORRUPT dyn handle
+    (a VecIter/slice-iter-over-dyn-element codegen bug), independent of the now-fixed dispatch.
+    Workaround: the `while i<len { v.get(i).area() }` form (banked vec-box-dyn-dispatch-b167)
+    or `while … v.borrow(i).area()` (banked borrowed-dyn-dispatch-b168).
+  - **g2 `p[0].area()`** (raw-ptr INDEX of `*const Box<dyn>`) — MLIR-gen verify crash, a
+    raw-ptr-index-of-TraitObject codegen bug; `*p` deref now works via the dispatch fix.
+- (was) **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** (clean) — superseded by the entry above.
   for-by-ref yields `&Element` = `&Box<dyn>` which erases to `&&dyn Sh` (`Ref<TraitObject>`);
   the dispatcher only accepted a bare `TraitObject` receiver. Plumbed acceptance of a
   `Ref<TraitObject>` receiver through sema (`try_method_on_dyn`), the dispatch gate

@@ -1215,6 +1215,20 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     }
     if (!recv_alloca) return nullptr;
 
+    // G168-A (g6/g2): a `&(dyn Trait)` receiver (`Ref<TraitObject>`) holds a
+    // pointer to the dyn handle (the ref value), one level above the
+    // {data,vtable} handle. Load once to reach the handle. A bare `&dyn`/`dyn`
+    // (TraitObject) receiver is already the handle. (Storage of ref-to-dyn vars
+    // was fixed in gen_let so scope_/gen_expr both yield ptr-to-handle here.)
+    if (recv_le->type) {
+        TypeRef rlt(recv_le->type);
+        if ((rlt.kind() == LogosType::Kind::Ref ||
+             rlt.kind() == LogosType::Kind::MutRef) && rlt.pointee() &&
+            TypeRef(rlt.pointee()).kind() == LogosType::Kind::TraitObject)
+            recv_alloca = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, ptr_type(), recv_alloca);
+    }
+
     auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), ptr_type()});
 
