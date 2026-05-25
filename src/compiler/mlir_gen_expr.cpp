@@ -1477,8 +1477,19 @@ bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(const LExpr& operand) {
     if (!ref) return false;
     using C = lir_schema::expr::Code;
     if (ref.kind() == C::MethodCall) {
+        // A method returning `*const/*mut dyn` (Ptr<TraitObject>) OR
+        // `&(&dyn)` / `&mut (&dyn)` (Ref/MutRef<TraitObject>) is a pointer
+        // INTO storage holding a dyn handle — `*p` must LOAD it. The latter
+        // is the `Vec<&dyn>::index/borrow` shape (`fn index(&self) -> &T`
+        // with T = `&dyn`, so the return is Ref<TraitObject>). A method that
+        // returns `&dyn` DIRECTLY has kind TraitObject (the handle itself),
+        // not Ref<TraitObject>, so it is unaffected by the Ref/MutRef arm.
         TypeRef rt(operand.type);
-        return rt && rt.kind() == LogosType::Kind::Ptr && rt.pointee() &&
+        return rt &&
+               (rt.kind() == LogosType::Kind::Ptr ||
+                rt.kind() == LogosType::Kind::Ref ||
+                rt.kind() == LogosType::Kind::MutRef) &&
+               rt.pointee() &&
                TypeRef(rt.pointee()).kind() == LogosType::Kind::TraitObject;
     }
     if (ref.kind() == C::VarRef) {

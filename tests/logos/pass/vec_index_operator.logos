@@ -4,6 +4,8 @@
 // symbol doesn't exist at sema — only the template), routing through the
 // normal method-call machinery and deriving Output from the impl's trait args.
 package vec_index_operator;
+trait Describe { fn d(self: &Self) -> i64; }
+impl Describe for i64 { fn d(self: &Self) -> i64 { return *self; } }
 fn main() -> i32 {
     let mut v: Vec<i64> = vec![10i64, 20i64, 30i64];
     if v[1i64] != 20i64 { return 1i32; }   // read, suffixed index
@@ -17,5 +19,17 @@ fn main() -> i32 {
     let mut s: Vec<String> = vec_new::<String>();
     s.push(String::from("ab"));
     if s[0i64] != "ab" { return 5i32; }
+
+    // Index a Vec of FAT (&dyn) elements: read must LOAD the 8-byte handle (a
+    // no-op handle deref returned the slot pointer → bad vtable → SIGSEGV).
+    let mut dynv: Vec<&dyn Describe> = vec_new::<&dyn Describe>();
+    let n1: i64 = 7i64;
+    let n2: i64 = 11i64;
+    dynv.push(&n1 as &dyn Describe);
+    dynv.push(&n2 as &dyn Describe);
+    if dynv[0i64].d() != 7i64 { return 6i32; }
+    if dynv[1i64].d() != 11i64 { return 7i32; }
+    dynv[0i64] = &n2 as &dyn Describe;       // fat-element index write
+    if dynv[0i64].d() != 11i64 { return 8i32; }
     return 0i32;
 }
