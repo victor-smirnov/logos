@@ -2564,6 +2564,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                         TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
             src_struct = concrete_struct_name(pointee);
+        else if (pointee)
+            // Primitive pointee (`&i64 as &dyn Trait` via a blanket impl): the
+            // vtable keys on the primitive's bare type name (`i64`), not "" —
+            // an empty key makes build_inline_vtable return null → no vtable
+            // stored → SIGSEGV on dispatch.
+            src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }
@@ -2584,6 +2590,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                         TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct))
             src_struct = concrete_struct_name(pointee);
+        else if (pointee)
+            // Primitive pointee (`&i64 as &dyn Trait` via a blanket impl): the
+            // vtable keys on the primitive's bare type name (`i64`), not "" —
+            // an empty key makes build_inline_vtable return null → no vtable
+            // stored → SIGSEGV on dispatch.
+            src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(type).trait_name());
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }
