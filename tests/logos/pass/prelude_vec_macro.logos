@@ -37,5 +37,11 @@ fn main() -> i32 {
     let implicit: Vec<&dyn Sh> = vec![&q3, &q4];
     if implicit.get(0i64).area() != 25i64 { return 6i32; }
     if implicit.get(1i64).area() != 36i64 { return 7i32; }
+
+    // NON-COPY elements (`Vec<String>`): vec! lowers to a push-block that moves
+    // each element in — `vec_from_arr<T: Copy>` can't build this.
+    let strs: Vec<String> = vec![String::from("ab"), String::from("cd")];
+    if strs[0i64] != "ab" { return 8i32; }
+    if strs[1i64] != "cd" { return 9i32; }
     return 0i32;
 }

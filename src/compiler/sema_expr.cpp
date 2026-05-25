@@ -15138,26 +15138,29 @@ lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body
         if (arr->size() == 0) return AnyVal{};
         return arr->get(arr->size() - 1, const_cast<uint8_t*>(src_base));
     };
+    (void)nav_array_last_av;
     auto* module_tom = const_cast<TinyObjectMap*>(root.ptr());
     auto* fn_def  = nav_array_first(module_tom, la::ITEMS.code);
-    auto* fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : nullptr;
-    AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
-    if (!last_av.is_pointer()) {
-        error(std::format("{}: does not parse as a single expression", err_ctx));
+    if (!fn_def || !fn_def->has_key(la::BODY.code)) {
+        error(std::format("{}: arguments do not parse as an expression", err_ctx));
         return error_expr();
     }
-    auto inc_holder = doc.holder();
-    TinyMapView last_view(last_av.to_offset(), inc_holder);
-    int32_t lc = code_of(last_view);
-    if ((lc == la::TAIL_EXPR || lc == la::EXPR_STMT) && last_view.has_key(la::VALUE)) {
-        auto prev = holder_;
-        holder_ = inc_holder;
-        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
-        holder_ = prev;
-        return r;
+    AnyVal body_av = fn_def->get(la::BODY.code, const_cast<uint8_t*>(src_base));
+    if (!body_av.is_pointer()) {
+        error(std::format("{}: arguments do not parse as an expression", err_ctx));
+        return error_expr();
     }
-    error(std::format("{}: last item is not an expression", err_ctx));
-    return error_expr();
+    // Lower the WHOLE fn body block as a block-expression: its statements run
+    // and its tail expression is the value. Handles both a single tail expr
+    // (include!) and a multi-statement push-block (vec! of non-Copy elements:
+    // `{ let mut __v = …; __v.push(e0); …; __v }`).
+    auto inc_holder = doc.holder();
+    TinyMapView body_view(body_av.to_offset(), inc_holder);
+    auto prev = holder_;
+    holder_ = inc_holder;
+    auto r = lower_expr(body_view);   // la::BLOCK → lower_block_expr
+    holder_ = prev;
+    return r;
 }
 
 lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
@@ -15410,6 +15413,32 @@ lir::LExprPtr SemaChecker::lower_macro_concat_bytes(TinyMapView node) {
     return builder().arr_lit(std::move(elems), arr_t);
 }
 
+// Split a macro arg string on TOP-LEVEL commas (depth 0), respecting
+// parentheses / brackets / braces and string + char literals. Used by the
+// `vec!` builtin's push-block lowering. Note: angle brackets are intentionally
+// NOT tracked (a `<` is ambiguous between generics and comparison), so a
+// top-level comma inside a turbofish's type-arg list (`vec!(f::<A, B>(), …)`)
+// is a known niche limitation — rare in vec! element position.
+static std::vector<std::string> split_top_level_commas(const std::string& s) {
+    std::vector<std::string> out;
+    std::string cur;
+    int depth = 0;
+    bool in_str = false, in_chr = false, esc = false;
+    for (char c : s) {
+        if (esc) { cur += c; esc = false; continue; }
+        if (in_str) { cur += c; if (c == '\\') esc = true; else if (c == '"') in_str = false; continue; }
+        if (in_chr) { cur += c; if (c == '\\') esc = true; else if (c == '\'') in_chr = false; continue; }
+        if (c == '"') { in_str = true; cur += c; continue; }
+        if (c == '\'') { in_chr = true; cur += c; continue; }
+        if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
+        if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
+        if (c == ',' && depth == 0) { out.push_back(cur); cur.clear(); continue; }
+        cur += c;
+    }
+    out.push_back(cur);
+    return out;
+}
+
 std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, const std::string& callee_name) {
     using logos::hermes::AnyVal;
     using logos::hermes::HermesAccess;
@@ -15450,24 +15479,57 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
             auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
             while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
             while (!raw.empty() && ws(raw.back()))  raw.pop_back();
-            // `vec!()` with no elements needs a type annotation Rust can't infer
-            // here either; route to `vec_new::<_>()` so the `let v: Vec<T>` hint
-            // supplies T (empty array would leave the element type unknown).
-            std::string body = raw.empty()
-                ? std::string("vec_new::<_>()")
-                : std::format("vec_from_arr([{}])", raw);
-            // Propagate the surrounding `let v: Vec<E> = …` element type into
-            // the synthesized array literal so a heterogeneous `[&dyn Trait]`
-            // (distinct `&Concrete` elements) coerces — `vec_from_arr`'s generic
-            // `[T; N]` param can't pin T=E before its array arg is lowered, so
-            // without this the array infers from element 0 and rejects the rest.
-            // `hint_call_return_type_` is the let/return annotation (set by
-            // lower_let); when it is `Vec<E>`, hint the array's element type E.
-            auto saved_arr_elem = hint_arr_elem_type_;
+            // Element type from the surrounding `let v: Vec<E> = …` annotation
+            // (hint_call_return_type_, set by lower_let). When known + renderable
+            // we lower via a PUSH-BLOCK; otherwise fall back to vec_from_arr.
+            TypeRef elem_hint = nullptr;
             if (hint_call_return_type_ &&
                 is_named_struct(hint_call_return_type_, "Vec") &&
                 TypeRef(hint_call_return_type_).type_args().size() == 1)
-                hint_arr_elem_type_ = TypeRef(hint_call_return_type_).type_args()[0];
+                elem_hint = TypeRef(hint_call_return_type_).type_args()[0];
+            std::string elem_str = elem_hint ? type_str(elem_hint) : std::string{};
+            bool elem_renderable = !elem_str.empty() &&
+                elem_str.find("<error>") == std::string::npos &&
+                elem_str.find('?') == std::string::npos &&
+                (!elem_hint || TypeRef(elem_hint).kind() != LogosType::Kind::TypeVar);
+
+            // Push-block lowering: `{ let mut __v: Vec<E> = vec_new::<E>();
+            // __v.push(e0); __v.push(e1); …; __v }`. Unlike `vec_from_arr`
+            // (whose `T: Copy` bound rejects e.g. `Vec<String>`, and which would
+            // need array-element move-out anyway), pushing each element
+            // EXPRESSION moves it directly — no Copy requirement, no array. The
+            // per-`push` arg also runs `coerce_arg_to_dyn`, so a `Vec<&dyn Tr>`
+            // gets the implicit `&Concrete → &dyn` coercion for free. Needs the
+            // element type spelled (from the annotation); without it we can't
+            // write `vec_new::<E>()`, so fall back to the inference-driven
+            // `vec_from_arr`.
+            if (!raw.empty() && elem_renderable) {
+                // Statements form the synthetic fn body directly (no extra
+                // braces — lower_reparsed_tail_expr lowers the whole body block).
+                std::string body = "let mut __vecm: Vec<" + elem_str +
+                                   "> = vec_new::<" + elem_str + ">();";
+                for (auto& piece : split_top_level_commas(raw)) {
+                    std::string e = piece;
+                    auto ws2 = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
+                    while (!e.empty() && ws2(e.front())) e.erase(0, 1);
+                    while (!e.empty() && ws2(e.back()))  e.pop_back();
+                    if (e.empty()) continue;
+                    body += " __vecm.push(" + e + ");";
+                }
+                body += " __vecm";
+                return lower_reparsed_tail_expr(body, "vec!");
+            }
+
+            // Fallback: no usable element-type annotation. Lower via
+            // `vec_from_arr([…])` (inference-driven; requires `T: Copy`).
+            // `vec!()` with no elements → `vec_new::<_>()` so the hint supplies T.
+            std::string body = raw.empty()
+                ? std::string("vec_new::<_>()")
+                : std::format("vec_from_arr([{}])", raw);
+            // Still propagate the `[&dyn Trait; N]` element coercion hint into the
+            // array literal for the no-annotation heterogeneous-dyn case.
+            auto saved_arr_elem = hint_arr_elem_type_;
+            if (elem_hint) hint_arr_elem_type_ = elem_hint;
             auto r = lower_reparsed_tail_expr(body, "vec!");
             hint_arr_elem_type_ = saved_arr_elem;
             return r;
