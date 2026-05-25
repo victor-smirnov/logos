@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/codegen/issue-82859-slice-miscompile.rs
+// Modifications: `usize`→`u64`; `&'static [T]`→`&[T]`; `assert_eq!`→return-code
+// check; `pub fn main()`→`fn main()->i32`; `#[inline(always)]` dropped.
+// Exercises returning an EMPTY slice literal `&[]` from a function whose result
+// type is `&[u64]`. The empty array literal `[]` has no element type of its own;
+// it must pick up the element hint from the (Ref-wrapped) return type and build
+// an empty `[u64; 0]` so the borrow coerces to an empty slice — previously this
+// lowered to an i32 zero and failed MLIR verification (return-type mismatch).
+package av_empty_slice_return;
+
+fn indirect_get_slice() -> &[u64] {
+    return &[];
+}
+
+fn get_slice() -> &[u64] {
+    let ret: &[u64] = indirect_get_slice();
+    return ret;
+}
+
+fn main() -> i32 {
+    let output: i64 = get_slice().len();
+    if output != 0i64 { return 1i32; }
+    return 0i32;
+}

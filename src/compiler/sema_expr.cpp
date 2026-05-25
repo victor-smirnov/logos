@@ -8873,15 +8873,26 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
 }
 
 lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
-    if (!node.has_key(la::ITEMS)) {
+    // Empty array literal `[]` / `&[]`. The element type is unknown from the
+    // literal itself, but a `[T; N]` / `[T]` / `&[T]` annotation (or return
+    // type) supplies it via hint_arr_elem_type_. Build an empty `[T; 0]` so a
+    // borrow coerces to an empty slice `&[T]` (Rust `let s: &[u64] = &[];`).
+    // Without a hint there is genuinely nothing to infer → keep the warning.
+    bool no_items = !node.has_key(la::ITEMS);
+    if (!no_items) {
+        auto items0 = arr_of(node.get(la::ITEMS.code));
+        no_items = (items0.size() == 0);
+    }
+    if (no_items) {
+        if (hint_arr_elem_type_ &&
+            TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
+            auto ty = make_array(hint_arr_elem_type_, 0);
+            return builder().arr_lit(std::vector<lir::LExprPtr>{}, ty);
+        }
         warn("empty array literal: element type unknown");
         return error_expr();
     }
     auto items = arr_of(node.get(la::ITEMS.code));
-    if (items.size() == 0) {
-        warn("empty array literal: element type unknown");
-        return error_expr();
-    }
     std::vector<lir::LExprPtr> elems;
     for (uint64_t i = 0; i < items.size(); ++i)
         elems.push_back(lower_expr(map_of(items.get(i))));
