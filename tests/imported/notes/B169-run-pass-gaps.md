@@ -40,9 +40,9 @@ rustc-UI run-pass corpus is heavily mined; ~50% of fresh candidates surface a ga
    during a statement (Rust temporary scope = end of statement) and drop them, not
    just the result. Architectural drop-insertion extension. rustc:
    drop/drop-immediate-non-box-ty-9446.rs.
-3. **`impl Trait for &[T]`** (impl on a reference/slice type) — rejected: "the type
+3. ✅ FIXED (a4b58786) **`impl Trait for &[T]`** (impl on a reference/slice type) — rejected: "the type
    `[i64]` is unsized: cannot be used by value". rustc: array-slice-vec/rcvr-borrowed-to-slice.rs.
-4. **Blanket default method via generic `Box<dyn>` cast** — `impl<A> Hax for A {}`
+4. PARTIALLY FIXED **Blanket default method via generic `Box<dyn>` cast** — `impl<A> Hax for A {}`
    default method, dispatched after `box_new(x) as Box<dyn Hax>` where x is generic
    — SIGSEGV at dispatch (vtable for the blanket-over-concrete not built on the
    generic cast path). Cf. [[baghunt_blanket_default_method_dispatch]] (CLOSED for

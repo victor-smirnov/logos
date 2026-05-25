@@ -2588,6 +2588,51 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
     }
 
+    // `box_new(x) as Box<dyn Trait>` (and `concrete as dyn`/`*dyn`): the source is
+    // a Box<concrete> / concrete struct VALUE (Kind::Struct), not a Ref/Ptr, so
+    // the two branches above don't fire — they require a reference source. In
+    // RETURN / arg / any non-let position the cast must coerce itself (a `let b:
+    // Box<dyn> = …` works only because gen_let's TraitObject path coerces). Mirror
+    // that path here: unwrap a Box<T> to its inner concrete T for the vtable key,
+    // pass the box value as the data pointer, and build the fat handle.
+    if (target == ptr_type() && op_le->type &&
+        TypeRef(op_le->type).kind() == LogosType::Kind::Struct &&
+        TypeRef(op_le->type).struct_name() == "Box" &&
+        TypeRef(op_le->type).type_args().size() == 1) {
+        TypeRef tgt_to(type);
+        if (tgt_to.kind() == LogosType::Kind::Ptr && tgt_to.pointee())
+            tgt_to = tgt_to.pointee();
+        TypeRef boxed = TypeRef(op_le->type).type_args()[0];
+        // A dyn-payload box (`Box<dyn>`) is already a handle — don't re-wrap.
+        if (tgt_to && tgt_to.kind() == LogosType::Kind::TraitObject &&
+            boxed && TypeRef(boxed).kind() != LogosType::Kind::TraitObject) {
+            // Box<T> is `{ *mut T }`. The trait object's data pointer is the box's
+            // heap pointer (field 0). Extract it (val may be the box struct VALUE
+            // — box_new returns by value — or a pointer to it), then build the fat
+            // handle keyed on the concrete boxed type T.
+            mlir::Value data_ptr;
+            if (val.getType() == ptr_type()) {
+                auto bt = struct_types_.find(concrete_struct_name(op_le->type));
+                mlir::Type box_ty = bt != struct_types_.end() ? bt->second.llvm_type
+                    : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {ptr_type()});
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
+                auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), box_ty, val, gi);
+                data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+            } else {
+                // SSA struct value: field 0 is the heap data pointer.
+                data_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(
+                    loc_, val, llvm::ArrayRef<int64_t>{0});
+            }
+            std::string src_struct =
+                (TypeRef(boxed).kind() == LogosType::Kind::Struct ||
+                 TypeRef(boxed).kind() == LogosType::Kind::ZonedStruct)
+                    ? concrete_struct_name(boxed)
+                    : type_str(boxed);
+            std::string trait = std::string(tgt_to.trait_name());
+            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct)) return alloca;
+        }
+    }
+
     // C6-cc-08 follow-up: fat-pointer → thin-pointer cast.
     //
     //   * `*mut dyn Trait` / `*const dyn Trait` (Ptr<TraitObject>) → `*mut ()`

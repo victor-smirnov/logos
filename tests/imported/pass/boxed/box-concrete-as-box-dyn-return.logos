@@ -1,0 +1,25 @@
+// `box_new(x) as Box<dyn Trait>` coercion in RETURN / generic position. A
+// `Box<concrete>` cast to `Box<dyn Trait>` must build the dyn fat handle itself
+// (extract the box's heap data pointer = field 0, pair with the concrete type's
+// vtable) — previously only a `let b: Box<dyn> = …` annotation triggered the
+// coercion (via gen_let), so the cast in a `return`/arg/generic position emitted
+// the raw box pointer and dispatch crashed. Covers struct + i64 payloads and a
+// generic `fn<T>` boxing site.
+// Distilled from rust-lang/rust drop/issue-2734.rs (the trait-object boxing form).
+package box_concrete_as_box_dyn_return;
+use logos.mem.boxed;
+
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+
+fn make(n: i64) -> Box<dyn Shape> { return box_new(Sq { s: n }) as Box<dyn Shape>; }
+fn make_generic<T>(x: T) -> Box<dyn Shape> { return box_new(x) as Box<dyn Shape>; }
+
+fn main() -> i32 {
+    let b = make(5i64);
+    if b.area() != 25i64 { return 1i32; }
+    let c = make_generic::<Sq>(Sq { s: 7i64 });
+    if c.area() != 49i64 { return 2i32; }
+    return 0i32;
+}
