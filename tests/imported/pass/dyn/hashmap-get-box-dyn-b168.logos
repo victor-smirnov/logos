@@ -1,0 +1,34 @@
+// B168 (G168 census, HashMap-get-of-dyn): a `HashMap<K, Box<dyn Trait>>` whose
+// accessor `get(&k) -> *const Box<dyn>` hands back a POINTER-TO-HANDLE. Reading
+// the stored trait object through `*p` must LOAD the handle out of the container
+// slot and then dispatch — unlike a raw `*const dyn Trait` (dst-raw-trait-object)
+// where the pointer IS the handle and `*p` is a no-op. Both share the Logos type
+// Ptr<TraitObject>; mlir-gen discriminates by provenance (param / coercion =
+// handle → no-op; container-accessor let-var = ptr-to-handle → load).
+//
+// No direct rustc twin; the closest UI test stores trait objects in a HashMap and
+// dispatches through `&*get`. Asserts via sentinel exit codes.
+package hashmap_get_box_dyn_b168;
+use logos.mem.boxed;
+use logos.mem.collections.hashmap;
+
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+struct Rect { w: i64, h: i64 }
+impl Sh for Sq   { fn area(self: &Sq)   -> i64 { return self.s * self.s; } }
+impl Sh for Rect { fn area(self: &Rect) -> i64 { return self.w * self.h; } }
+
+fn main() -> i32 {
+    let mut m: HashMap<i64, Box<dyn Sh>> = hashmap_new::<i64, Box<dyn Sh>>();
+    unsafe {
+        m.insert(1i64, box_new(Sq { s: 3i64 }));
+        m.insert(2i64, box_new(Rect { w: 4i64, h: 5i64 }));
+        // get returns `*const Box<dyn Sh>` (pointer-to-handle); `*p` loads the
+        // stored handle, then `.area()` dispatches through its vtable.
+        let b1: Box<dyn Sh> = *m.get(&1i64);
+        let b2: Box<dyn Sh> = *m.get(&2i64);
+        if b1.area() != 9i64  { return 1i32; }
+        if b2.area() != 20i64 { return 2i32; }
+    }
+    return 0i32;
+}

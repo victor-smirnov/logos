@@ -1344,13 +1344,14 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         auto saved_te_ptr     = var_tagged_enum_ptr_;
         auto saved_local_ptrs = var_local_ptrs_;
         auto saved_dyn_trait  = var_dyn_trait_;
+        auto saved_dyn_coerced = dyn_ptr_to_handle_vars_;
         auto saved_loop_stack = loop_stack_;
         auto saved_entry_block = cur_entry_block_;
         cur_entry_block_ = entry;
         scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
         var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
         var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
-        var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
+        var_local_ptrs_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
         cur_ret_type_ = ret_t ? llvm_fn_ret_type(ret_t) : mlir::Type{};
         // Bind params starting from arg 0 (no env_ptr)
         for (size_t i = 0; i < params.size(); ++i)
@@ -1373,6 +1374,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         var_tagged_enum_ptr_ = saved_te_ptr;
         var_local_ptrs_     = saved_local_ptrs;
         var_dyn_trait_      = saved_dyn_trait;
+        dyn_ptr_to_handle_vars_ = saved_dyn_coerced;
         loop_stack_         = saved_loop_stack;
         cur_entry_block_    = saved_entry_block;
         builder_.restoreInsertionPoint(save_pt);
@@ -1481,13 +1483,14 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     auto saved_te_ptr      = var_tagged_enum_ptr_;
     auto saved_local_ptrs  = var_local_ptrs_;
     auto saved_dyn_trait   = var_dyn_trait_;
+    auto saved_dyn_coerced = dyn_ptr_to_handle_vars_;
     auto saved_loop_stack  = loop_stack_;
     auto saved_entry_block = cur_entry_block_;
     cur_entry_block_ = entry;
     scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
     var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
     var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
-    var_local_ptrs_.clear(); var_dyn_trait_.clear(); loop_stack_.clear();
+    var_local_ptrs_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
 
     bool ret_is_void = mlir::isa<mlir::LLVM::LLVMVoidType>(llvm_ret);
     cur_ret_type_ = ret_is_void ? mlir::Type{} : llvm_ret;
@@ -1572,6 +1575,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     var_tagged_enum_ptr_ = saved_te_ptr;
     var_local_ptrs_     = saved_local_ptrs;
     var_dyn_trait_      = saved_dyn_trait;
+    dyn_ptr_to_handle_vars_ = saved_dyn_coerced;
     loop_stack_         = saved_loop_stack;
     cur_entry_block_    = saved_entry_block;
     builder_.restoreInsertionPoint(save_pt);

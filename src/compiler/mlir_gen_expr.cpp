@@ -1463,6 +1463,31 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
     return alloca;
 }
 
+bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(const LExpr& operand) {
+    // A `*const/*mut dyn Trait` value is a HANDLE by default (the raw fat
+    // pointer — Rust's `*const dyn T`): `&concrete as *const dyn` coercions,
+    // `*const dyn` params, and `*mut dyn` fields all HOLD the handle, so `*p`
+    // is a no-op reinterpret. The exception is a genuine pointer-INTO-storage:
+    // a container accessor (`HashMap::get(&k) -> *const V` where V = Box<dyn>)
+    // returns the ADDRESS of a stored handle, so `*p` must LOAD it out. The two
+    // are type-indistinguishable (both Ptr<TraitObject>); the discriminator is
+    // that the ptr-to-handle is the RESULT of such an accessor — i.e. a method
+    // call returning `*const/*mut dyn`, or a let-var bound directly from one.
+    auto ref = expr_ref_of(operand);
+    if (!ref) return false;
+    using C = lir_schema::expr::Code;
+    if (ref.kind() == C::MethodCall) {
+        TypeRef rt(operand.type);
+        return rt && rt.kind() == LogosType::Kind::Ptr && rt.pointee() &&
+               TypeRef(rt.pointee()).kind() == LogosType::Kind::TraitObject;
+    }
+    if (ref.kind() == C::VarRef) {
+        lir_view::EVarRefView vr(ref);
+        return dyn_ptr_to_handle_vars_.count(std::string(vr.name())) > 0;
+    }
+    return false;
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     auto* operand = lexpr_of(v.operand());
     if (!operand) return nullptr;
@@ -1474,12 +1499,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
     // (Previously only Struct was covered here — Datatype fell through to
     // the load branch, producing a bogus double-load through pass-by-ptr
     // parameters: `*const V3` was treated as `ptr-to-ptr-to-V3`.)
+    // `*p` over a `*const/*mut dyn Trait` (Ptr<TraitObject>): the result type is
+    // TraitObject (the dyn handle). A `*const/*mut dyn` is a HANDLE by default
+    // (the raw fat pointer), so `*p` is a no-op reinterpret — UNLESS p is a
+    // genuine pointer-INTO-storage (a container accessor return, `HashMap::get →
+    // *const Box<dyn>`), in which case `*p` must LOAD the stored handle. See
+    // deref_operand_is_ptr_to_dyn_handle for the provenance discriminator.
+    if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
+        deref_operand_is_ptr_to_dyn_handle(*operand)) {
+        auto pointee = logos_to_mlir(type);
+        if (!pointee) pointee = ptr_type();
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, pointee, ptr);
+    }
     if (type && (TypeRef(type).kind() == LogosType::Kind::Struct ||
                  TypeRef(type).kind() == LogosType::Kind::ZonedStruct ||
-                 // Trait objects are fat-pointer-represented; the dyn-pair
-                 // {data,vtable} lives in memory and dispatch reads fields
-                 // through a pointer to it, so `*p` for `*const dyn T`
-                 // should yield the same pointer (no double-load).
+                 // Trait objects are fat-pointer-represented; the dyn handle is
+                 // pointer-to-fatslot, so `*p` for a `*const dyn T` HANDLE yields
+                 // the same pointer (no load). (The container-accessor exception
+                 // is handled above.)
                  TypeRef(type).kind() == LogosType::Kind::TraitObject ||
                  // C6-cc-08 follow-up: `*p` for `p: *const [T; N]` — the array
                  // value is too large to "load by value"; we keep it pointer-

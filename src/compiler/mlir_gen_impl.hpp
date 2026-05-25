@@ -219,6 +219,13 @@ private:
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;
     std::unordered_set<std::string>               let_vars_;
+    // Per-function: let-vars bound directly from a container accessor returning
+    // `*const/*mut dyn` (e.g. `let p = map.get(&k);` → `*const Box<dyn>`). Such a
+    // var holds a pointer-INTO-storage, so `*p` must LOAD the stored handle —
+    // unlike a coerced `*const dyn` handle / param / field, where `*p` is a no-op.
+    // The two are type-indistinguishable (both `Ptr<TraitObject>`); we track the
+    // accessor-return provenance here. See gen_expr_kind(EDerefView).
+    std::unordered_set<std::string>               dyn_ptr_to_handle_vars_;
     std::unordered_map<std::string, mlir::Type>   var_elem_types_;
     std::unordered_map<std::string, std::string>  var_struct_;
     std::unordered_map<std::string, mlir::Type>   var_subscript_;
@@ -622,6 +629,11 @@ private:
     mlir::Value gen_expr_kind(lir_view::EAddrOfView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EDerefView v, TypeRef type);
+    // True when `*operand` over a `*const/*mut dyn` is a genuine pointer-INTO-
+    // storage (a container accessor return, e.g. `HashMap::get → *const Box<dyn>`)
+    // and must LOAD the stored handle — as opposed to the default, where the
+    // value already IS the dyn handle (the raw fat pointer) and `*p` is a no-op.
+    bool deref_operand_is_ptr_to_dyn_handle(const LExpr& operand);
     mlir::Value gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_type);
     mlir::Value gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_expr_kind(lir_view::EFieldReadView v, TypeRef type);

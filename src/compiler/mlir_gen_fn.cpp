@@ -210,6 +210,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     var_tagged_enum_ptr_.clear();
     var_local_ptrs_.clear();
     var_dyn_trait_.clear();
+    dyn_ptr_to_handle_vars_.clear();
     ref_param_names_.clear();
     loop_stack_.clear();
 
@@ -319,6 +320,10 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
                 trait_t = pv.pointee();
             if (trait_t) {
                 var_dyn_trait_[p.name] = std::string(TypeRef(trait_t).trait_name());
+                // A `*const/*mut dyn Trait` PARAM holds the raw trait-object fat
+                // pointer (the handle) by value — the Rust raw-fat-ptr, not a
+                // pointer-to-handle — so `*p` is the no-op default in EDeref
+                // (raw-ptr-dyn-trait). No ptr-to-handle marking needed.
                 continue;
             }
         }

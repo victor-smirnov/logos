@@ -72,8 +72,24 @@ the in-place relabel-without-fatten.
   Now `for b in &v` AND `for b in v.iter()` over `Vec<Box<dyn>>` dispatch correctly. Test:
   traits/foreach-vec-box-dyn-b168. This also explains the earlier "2-level for-each storage"
   red herring — the storage was fine; the slice data pointer was corrupt.
+  - **g2 HashMap<_, Box<dyn>>::get** — ✅ FIXED 2026-05-25 (provenance discriminator). `*m.get(&k)`
+    now LOADs the stored handle and dispatches. Test: pass/dyn/hashmap-get-box-dyn-b168. 5164/5164,
+    no regressions (incl. dst-raw-trait-object-b158, raw-ptr-dyn-trait, persistent, the whole fmt
+    family). KEY INSIGHT that unblocked it (bird's-eye reframe): the `*const dyn` overload is NOT a
+    type-representation problem requiring the un-collapse-Box<dyn> sprint — it is a PROVENANCE
+    distinction resolvable locally at EDeref. A `*const/*mut dyn` is a HANDLE by default (the raw
+    fat-ptr — coercions, `*const dyn` params, `*mut dyn` fields like Formatter's sink all HOLD the
+    handle, so `*p` is a no-op), and the ONLY pointer-INTO-storage case is a CONTAINER ACCESSOR
+    return (`HashMap::get → *const V`, a method call returning `Ptr<TraitObject>`). So: EDeref over
+    `TraitObject` stays a no-op EXCEPT when the operand is a method-call returning `*const/*mut dyn`
+    (or a let-var bound directly from one, tracked in `dyn_ptr_to_handle_vars_`) → then it LOADs.
+    Three small edits: `deref_operand_is_ptr_to_dyn_handle` helper + the EDeref gate (mlir_gen_expr),
+    the let-var marking (mlir_gen_stmt). persistent's NodeARC `*mut dyn`=fatslot invariant is
+    untouched (it never `*`-derefs through a method-call return). The earlier "needs cast-spill /
+    un-collapse Box<dyn>" verdict below was the WRONG framing — superseded.
   STILL OPEN (one ARCHITECTURAL root — the `*const dyn` representation overload):
-  - **g2 HashMap<_, Box<dyn>>::get** — `*m.get(&k)` SIGSEGVs at dispatch. ISOLATED 2026-05-25:
+  - ~~**g2 HashMap<_, Box<dyn>>::get**~~ — SUPERSEDED by the FIXED entry above. Original isolation
+    notes (2026-05-25) retained for the reasoning trail:
     `get` returns `*const V` = a pointer to the value slot holding the 8-byte dyn HANDLE, so
     `*p` must LOAD the handle. But `EDeref` of a `TraitObject` is a NO-OP — because the SAME
     `*const dyn`/`Ptr<TraitObject>` type is ALSO produced by `&concrete as *const dyn`

@@ -781,6 +781,13 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         _peeled_st = _peeled_st.pointee();
     }
     if (TypeRef st(_peeled_st); st && st.kind() == LogosType::Kind::TraitObject) {
+        // Is the declared type a RAW pointer to dyn (`*const/*mut dyn Trait` =
+        // Ptr<TraitObject>)? Only these are subject to a later `*z` deref, and
+        // only these need the handle-vs-ptr-to-handle provenance bookkeeping.
+        bool is_raw_ptr_dyn =
+            TypeRef(s.type) && TypeRef(s.type).kind() == LogosType::Kind::Ptr &&
+            TypeRef(s.type).pointee() &&
+            TypeRef(TypeRef(s.type).pointee()).kind() == LogosType::Kind::TraitObject;
         auto data_ptr = gen_expr(*s.value);
         if (!data_ptr) return;
         mlir::Value alloca;
@@ -833,6 +840,29 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
         var_dyn_trait_[s.name] = std::string(st.trait_name());
+        // Provenance bookkeeping for raw `*const/*mut dyn` (Ptr<TraitObject>):
+        // a `*const dyn` returned by a CONTAINER ACCESSOR (`HashMap::get →
+        // *const Box<dyn>`) is a pointer-INTO-storage, so a later `*p` must LOAD
+        // the stored handle. A coerced `*const dyn` handle / param / field is the
+        // raw fat-ptr itself (`*z` no-op, the EDeref default). Both share the
+        // type Ptr<TraitObject>; only provenance distinguishes them. Mark the
+        // accessor-return case (source is a method call returning `*const dyn`,
+        // or a chained copy of such a var) so EDeref takes the LOAD branch.
+        if (is_raw_ptr_dyn && s.value) {
+            auto sv_ref = expr_ref_of(*s.value);
+            bool src_is_accessor_ret = false;
+            if (sv_ref) {
+                if (sv_ref.kind() == lir_schema::expr::Code::MethodCall) {
+                    src_is_accessor_ret = true;
+                } else if (sv_ref.kind() == lir_schema::expr::Code::VarRef) {
+                    lir_view::EVarRefView vr(sv_ref);
+                    src_is_accessor_ret =
+                        dyn_ptr_to_handle_vars_.count(std::string(vr.name())) > 0;
+                }
+            }
+            if (src_is_accessor_ret)
+                dyn_ptr_to_handle_vars_.insert(s.name);
+        }
         return;
     }
 
