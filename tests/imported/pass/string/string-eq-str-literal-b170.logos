@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-19367.rs (extracted facet)
+// Focused regression for comparing a `String` to a `str` literal with `==`/`!=`
+// in either operand order (Rust's `impl PartialEq<str> for String`). A string
+// literal is `str` (Slice<u8>) in Logos; `lower_binop` now views the `String`
+// operand via `.as_str()` and routes through the `str_eq` path.
+package string_eq_str_literal_b170;
+fn main() -> i32 {
+    let s: String = String::from("right");
+    if s != "right" { return 1i32; }   // String == str
+    if s == "wrong" { return 2i32; }
+    if "right" != s { return 3i32; }   // str == String
+    if "wrong" == s { return 4i32; }
+    let empty: String = String::new();
+    if empty != "" { return 5i32; }
+    return 0i32;
+}

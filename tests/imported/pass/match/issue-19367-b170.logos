@@ -1,0 +1,35 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-19367.rs
+// Modifications:
+//   • `pub fn main()` → `fn main() -> i32 { …; return 0i32; }`.
+//   • `println!` dropped; the `assert_eq!(b, "right")` checks become
+//     early-return sentinels (`if b != "right" { return N; }`).
+//   • `.to_string()` → `String::from(...)`.
+// Tests that matching on a struct/tuple FIELD by value (moving the payload
+// out) while RE-ASSIGNING that same field inside the match body does not
+// reuse the field's alloca — the moved-out binding must keep the original
+// value. Also exercises `String == str`-literal comparison.
+package issue_19367_b170;
+struct S { o: Option<String> }
+fn main() -> i32 {
+    let mut a = (0i64, Some(String::from("right")));
+    let b = match a.1 {
+        Some(v) => {
+            a.1 = Some(String::from("wrong"));
+            v
+        }
+        None => { String::new() }
+    };
+    if b != "right" { return 1i32; }
+
+    let mut s = S { o: Some(String::from("right")) };
+    let b2 = match s.o {
+        Some(v) => {
+            s.o = Some(String::from("wrong"));
+            v
+        }
+        None => { String::new() }
+    };
+    if b2 != "right" { return 2i32; }
+    return 0i32;
+}

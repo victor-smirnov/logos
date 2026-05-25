@@ -1280,6 +1280,40 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                                       make_ref(false, vty));
     };
 
+    // B170: `String == str` / `str == String` (+ `!=`). A string LITERAL is
+    // `str` (Slice<u8>); a `String` is a struct. Neither the struct-Eq path
+    // (wants a String/String `eq`) nor the `str_eq` path (wants both operands
+    // `str`) fires, so `s == "lit"` errored "type mismatch (String vs &[u8])".
+    // View the `String` operand as a `str` via `.as_str()` and fall through to
+    // the `str_eq` path below. Mirrors Rust's `impl PartialEq<str> for String`.
+    if (op == "==" || op == "!=") {
+        auto is_str_slice = [](TypeRef t) {
+            return t && TypeRef(t).kind() == LogosType::Kind::Slice &&
+                   TypeRef(t).elem() &&
+                   TypeRef(t).elem().kind() == LogosType::Kind::U8;
+        };
+        auto view_as_str = [&](TinyMapView child, lir::LExprPtr e,
+                               TypeRef vty) -> lir::LExprPtr {
+            auto recv = take_operand_ref(child, std::move(e), vty);  // &String
+            lir::EMethodCall mc;
+            mc.receiver = std::move(recv);
+            mc.method = "as_str";
+            mc.type_args = {};
+            mc.args = {};
+            mc.vtable_index = -1;
+            mc.resolved_type = "";
+            return builder().method_call_v(
+                std::move(mc), make_slice_type(prim(LogosType::Kind::U8)));
+        };
+        if (is_named_struct(lt, "String") && is_str_slice(rt)) {
+            lhs = view_as_str(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
+            lt = lhs->type;
+        } else if (is_str_slice(lt) && is_named_struct(rt, "String")) {
+            rhs = view_as_str(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
+            rt = rhs->type;
+        }
+    }
+
     TypeRef result_type = error_t();
 
     // CP-cm-08b: tuple `==` / `!=` desugars to Eq-trait method call on
