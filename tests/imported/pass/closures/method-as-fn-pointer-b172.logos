@@ -1,0 +1,36 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-18412.rs
+// Modifications: tuple struct `A(usize)` → named-field `A { v: i64 }`; the
+// trait-qualified `Foo::foo` → the type-qualified `A::foo` (Logos resolves a
+// method path on a concrete type; the bare trait-qualified form would need
+// Self-inference); `assert_eq!`→return-code check; `pub fn main()`→
+// `fn main()->i32`.
+//
+// G172-12 (FIXED): a non-call method path in value position (`let f = A::bar;`)
+// becomes a fn-pointer. Previously `A::bar` (no payload, value position) parsed
+// as an enum-variant access and errored "unknown enum 'A'". lower_enum_lit's
+// fallback now resolves an inherent/impl method symbol `A__bar` to a FnPtr
+// var-ref (mirroring the bare-fn-name path), so the call site dispatches it as a
+// fn-ptr call.
+package closures_method_fn_pointer;
+
+trait Foo { fn foo(&self) -> i64; }
+
+struct A { v: i64 }
+
+impl A {
+    fn bar(&self) -> i64 { return self.v; }
+}
+
+impl Foo for A {
+    fn foo(&self) -> i64 { return self.bar(); }
+}
+
+fn main() -> i32 {
+    let f = A::bar;
+    let g = A::foo;
+    let a: A = A { v: 42i64 };
+    if f(&a) != g(&a) { return 1i32; }
+    if f(&a) != 42i64 { return 2i32; }
+    return 0i32;
+}

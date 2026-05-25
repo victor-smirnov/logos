@@ -9900,6 +9900,25 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
             return acc;
+        // Method as a fn-pointer value: `let f = A::bar;` — an INHERENT method
+        // path in value position (not a call). Resolve `A__bar` and emit a FnPtr
+        // var-ref over its signature, mirroring the bare-fn-name path in
+        // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
+        {
+            std::string msym = cname_str + "__" + mname_str;
+            const SemaFuncInfo* mfi = nullptr;
+            auto mcands = find_func_candidates(msym);
+            if (mcands.size() == 1) mfi = mcands[0];
+            if (mfi && mfi->type_params.empty()) {
+                LogosTypeBuilder ft;
+                ft.kind = LogosType::Kind::FnPtr;
+                for (auto pt : mfi->param_types) ft.closure_params.push_back(pt);
+                ft.closure_ret = mfi->ret_type ? mfi->ret_type : void_t();
+                auto fn_type = pool_->alloc(std::move(ft));
+                return builder().var_ref(
+                    mfi->symbol_name.empty() ? msym : mfi->symbol_name, fn_type);
+            }
+        }
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
@@ -9992,6 +10011,25 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
             return acc;
+        // Method as a fn-pointer value: `let f = A::bar;` — an INHERENT method
+        // path in value position (not a call). Resolve `A__bar` and emit a FnPtr
+        // var-ref over its signature, mirroring the bare-fn-name path in
+        // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
+        {
+            std::string msym = cname_str + "__" + mname_str;
+            const SemaFuncInfo* mfi = nullptr;
+            auto mcands = find_func_candidates(msym);
+            if (mcands.size() == 1) mfi = mcands[0];
+            if (mfi && mfi->type_params.empty()) {
+                LogosTypeBuilder ft;
+                ft.kind = LogosType::Kind::FnPtr;
+                for (auto pt : mfi->param_types) ft.closure_params.push_back(pt);
+                ft.closure_ret = mfi->ret_type ? mfi->ret_type : void_t();
+                auto fn_type = pool_->alloc(std::move(ft));
+                return builder().var_ref(
+                    mfi->symbol_name.empty() ? msym : mfi->symbol_name, fn_type);
+            }
+        }
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
