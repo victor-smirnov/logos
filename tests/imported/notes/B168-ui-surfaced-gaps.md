@@ -120,7 +120,9 @@ the in-place relabel-without-fatten.
     as *const dyn` + `(*z).foo()` coerced-handle pattern) — a 1-test tradeoff, not taken.
   - (the cast fix DID make a raw `let p: *const Box<dyn>=&bx; (*p).area()` work for a stack
     handle; the regression surfaces specifically when `*const dyn` must mean ptr-to-handle.)
-  - **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>` — MLIR-gen GEP crash; `*p` works.
+  - **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>` — ✅ FIXED 2026-05-25 (EIndexRead
+    VarRef branch for `Ptr<TraitObject>`: stride by the 8-byte handle + load; `p[0]` is the
+    index form of `*p`). Test: pass/dyn/hashmap-get-box-dyn-index-b168. 5165/5165.
   (was) **for-each** — superseded by the entry above. Original note kept:
   - ~~for-each over `Vec<Box<dyn>>` still SIGSEGVs~~ — gdb-isolated 2026-05-24: the for-each
     slice-binding stores `scope_[b]` at a **2-level** indirection (`&(&buffer[i])`) for a

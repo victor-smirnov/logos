@@ -2211,6 +2211,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
             }
             break;
         }
+        // `p[i]` over a `*const/*mut dyn Trait` (Ptr<TraitObject>): p holds a
+        // pointer-INTO-storage (e.g. `HashMap::get → *const Box<dyn>`); each slot
+        // is an 8-byte dyn handle. Stride by `ptr` and load the handle. (`p[0]`
+        // is the index form of `*p`; mirrors the EDeref ptr-to-handle LOAD.)
+        if (recv_t && recv_t.kind() == LogosType::Kind::Ptr && recv_t.pointee() &&
+            recv_t.pointee().kind() == LogosType::Kind::TraitObject) {
+            arr_ptr   = gen_expr(*recv_le);
+            elem_type = ptr_type();
+            break;
+        }
         auto lpit = var_local_ptrs_.find(name);
         if (lpit != var_local_ptrs_.end()) {
             auto alloca = get_subscript_ptr(name);
