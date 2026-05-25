@@ -89,6 +89,19 @@ the in-place relabel-without-fatten.
     (persistent/NodeARC). Deferred as its own sprint. Workaround: dispatch through a value
     binding obtained another way, or `&dyn`/`Box<dyn>` by value (`for`/`get`/`borrow`), all of
     which now work.
+    UPDATE 2026-05-25 (sprint attempted): the consistent-repr change is NOT contained — there
+    are ~51 `*const/*mut dyn` sites, and the **persistent** subsystem (B-tree / NodeARC, 7
+    files) HAND-MANAGES `*mut dyn BTreeNode` as the handle = fatslot pointer (e.g.
+    `handle.logos:98` does `*(handle as *mut u64)` to read fatslot[0] and refcounts it
+    manually). Making `*const/*mut dyn` a ptr-to-handle (cast-spill) breaks those manual
+    fatslot reads (regresses `persistent_for_each_block`). So `*const/*mut dyn` = handle =
+    fatslot-ptr is a load-bearing invariant of persistent's NodeARC. The clean fix would
+    additionally require NOT collapsing `Box<dyn>` into `TraitObject` (keep it a distinct
+    wrapper) so `*const Box<dyn>` (ptr-to-handle) is type-distinct from `*const dyn` (handle) —
+    a foundational type-representation change. Verdict: disproportionate to the HashMap-get-of-
+    dyn idiom; left as a documented architectural item. EDeref-load alone fixes HashMap-get +
+    keeps persistent/containers but regresses only `dst-raw-trait-object-b158` (the `&concrete
+    as *const dyn` + `(*z).foo()` coerced-handle pattern) — a 1-test tradeoff, not taken.
   - (the cast fix DID make a raw `let p: *const Box<dyn>=&bx; (*p).area()` work for a stack
     handle; the regression surfaces specifically when `*const dyn` must mean ptr-to-handle.)
   - **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>` — MLIR-gen GEP crash; `*p` works.
