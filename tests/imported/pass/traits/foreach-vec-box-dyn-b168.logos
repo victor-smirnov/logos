@@ -1,0 +1,28 @@
+// B168 G168-A: iterate a `Vec<Box<dyn Trait>>` and dispatch through each
+// element — both `for b in &v` (slice/as_slice path) and `for b in v.iter()`
+// (VecIter path). ROOT was a mis-fired dyn→dyn pointer-cast coercion in
+// `as_slice`/`VecIter` (`self.ptr as *const T` with T a trait object wrongly
+// built a fat slot, corrupting the data pointer). Now the canonical
+// heterogeneous-collection iteration idiom works.
+package foreach_vec_box_dyn_b168;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+struct Rect { w: i64, h: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl Sh for Rect { fn area(self: &Rect) -> i64 { return self.w * self.h; } }
+fn main() -> i32 {
+    let mut v: Vec<Box<dyn Sh>> = vec_new::<Box<dyn Sh>>();
+    v.push(box_new(Sq { s: 3i64 }));
+    v.push(box_new(Rect { w: 4i64, h: 5i64 }));
+    // for b in &v
+    let mut a: i64 = 0i64;
+    for b in &v { a = a + b.area(); }
+    if a != 29i64 { return 1i32; }
+    // for b in v.iter()
+    let mut c: i64 = 0i64;
+    for b in v.iter() { c = c + b.area(); }
+    if c != 29i64 { return 2i32; }
+    return 0i32;
+}

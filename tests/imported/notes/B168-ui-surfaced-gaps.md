@@ -62,8 +62,19 @@ the in-place relabel-without-fatten.
   once in `gen_dyn_dispatch`. Now **borrowed-trait-object dispatch works** for inline
   (`v.borrow(i).area()` = 13) AND let-bound (`let rd = v.borrow(0); rd.area()` = 4) receivers.
   Test: traits/borrowed-dyn-dispatch-b168. Full suite 5162/5162.
-  STILL OPEN (separate roots, not the dispatch-receiver indirection):
-  - **for-each over `Vec<Box<dyn>>`** still SIGSEGVs — gdb-isolated 2026-05-24: the for-each
+  ✅ for-each FIXED 2026-05-24 (bird's-eye root): the real bug was NOT the dispatch nor the
+  for-each binding — it was a **mis-fired dyn→dyn pointer-cast coercion**. `Vec<&dyn T>::as_slice`
+  (and `VecIter`) do `self.ptr as *const T`; with `T` a trait object the `*X as *const dyn`
+  cast branch ran `coerce_to_dyn` even though the SOURCE pointee was already a TraitObject —
+  building a bogus fat slot and so storing `slice.data` at a 2-level indirection (`&(buffer)`),
+  which is why every downstream read landed one level off. Fix: gate both `as *dyn` / `as &dyn`
+  coercion branches on the source pointee being CONCRETE (a dyn→dyn reinterpret is a no-op).
+  Now `for b in &v` AND `for b in v.iter()` over `Vec<Box<dyn>>` dispatch correctly. Test:
+  traits/foreach-vec-box-dyn-b168. This also explains the earlier "2-level for-each storage"
+  red herring — the storage was fine; the slice data pointer was corrupt.
+  STILL OPEN (separate root): **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>`.
+  (was) **for-each** — superseded by the entry above. Original note kept:
+  - ~~for-each over `Vec<Box<dyn>>` still SIGSEGVs~~ — gdb-isolated 2026-05-24: the for-each
     slice-binding stores `scope_[b]` at a **2-level** indirection (`&(&buffer[i])`) for a
     dyn element while typing `b` as `Ref<TraitObject>` (one level), so the single dispatch
     load lands on the buffer base, not the handle (gdb: `self=&buffer[0]`, `vtable=null`). The

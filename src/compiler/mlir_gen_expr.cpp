@@ -2504,7 +2504,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         op_le->type &&
         (TypeRef(op_le->type).kind() == LogosType::Kind::Ptr ||
          TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
-         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef)) {
+         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef) &&
+        // G168-A: only UNSIZE a pointer to a CONCRETE pointee (`*Node as *dyn T`).
+        // If the source pointee is ALREADY a trait object (`*mut dyn` /
+        // `*(&dyn)` — e.g. `Vec<&dyn T>::as_slice`'s `self.ptr as *const T`),
+        // this is a dyn→dyn pointer REINTERPRET (no-op), not a coercion —
+        // building a fat slot here corrupts the pointer (2-level indirection).
+        TypeRef(op_le->type).pointee() &&
+        TypeRef(TypeRef(op_le->type).pointee()).kind() != LogosType::Kind::TraitObject) {
         auto pointee = TypeRef(op_le->type).pointee();
         std::string src_struct;
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
@@ -2520,7 +2527,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
         op_le->type &&
         (TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
-         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef)) {
+         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef) &&
+        // G168-A: only unsize a ref to a CONCRETE pointee; a `&dyn`→`dyn`
+        // reinterpret (source pointee already a trait object) is a no-op.
+        TypeRef(op_le->type).pointee() &&
+        TypeRef(TypeRef(op_le->type).pointee()).kind() != LogosType::Kind::TraitObject) {
         auto pointee = TypeRef(op_le->type).pointee();
         std::string src_struct;
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
