@@ -1945,6 +1945,16 @@
         => { CODE: PAT_BOOL, VALUE: true }
         / KW_FALSE
         => { CODE: PAT_BOOL, VALUE: false }
+        // Parenthesised (grouping) pattern: `(P)` / `(P | Q | ...)`. Rust treats
+        // `(P)` as exactly P and `(P | Q)` as a grouped or-pattern (needed for
+        // `n @ (1 | 2 | 3)` and nested alternatives). We inline the alternatives
+        // straight into a PAT_OR — making the group structurally identical to a
+        // bare or-pattern at this position, so all existing PAT_OR handling (arm
+        // expansion, `@`-binding, single-alt unwrap) applies with no sema change.
+        // Must precede the tuple alternatives; on a COMMA this alt fails the
+        // trailing RPAREN and PEG backtracks to the tuple productions below.
+        / LPAREN pat_single (PIPE pat_single)* RPAREN
+        => { CODE: PAT_OR, ITEMS: $... }
         // P4-pm-20: tuple pattern with optional `..` rest at any
         // single position. `pat_tuple_elem` admits either PAT_REST
         // (the `..` skip-marker) or a regular pat_single.

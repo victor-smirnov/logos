@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/inner-or-pat.rs (or1 run-pass revision)
+// Modifications: string scrutinee → i64 (Logos string-literal patterns separate);
+//   the run-pass revision only exercises the binding `x @ (... | ...)` form, which
+//   is the imported facet. assert → sentinel exit codes.
+// Tests an `@`-binding over a parenthesised/nested or-pattern: `n @ (1 | 2 | 3)`.
+//   The whole value binds to `n` and the arm is gated on the OR of each
+//   alternative's test (int alternatives + an inclusive-range alternative).
+package at_binding_paren_or;
+
+fn pick(x: i64) -> i64 {
+    match x {
+        n @ (1 | 2 | 3)   => { return n * 10i64; }
+        n @ (10..=20 | 25) => { return n + 1000i64; }
+        _                  => { return -1i64; }
+    }
+}
+
+fn main() -> i32 {
+    if pick(2i64)  != 20i64   { return 1i32; }   // n=2 via int alt
+    if pick(3i64)  != 30i64   { return 2i32; }
+    if pick(15i64) != 1015i64 { return 3i32; }   // n=15 via range alt
+    if pick(25i64) != 1025i64 { return 4i32; }   // n=25 via int alt
+    if pick(99i64) != -1i64   { return 5i32; }
+    return 0i32;
+}

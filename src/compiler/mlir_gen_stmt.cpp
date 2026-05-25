@@ -3585,7 +3585,50 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             // PatAt with refutable sub-pattern: dispatch on sub-pattern.
             auto sub = lir_view::PatAtView{arm_pat}.sub();
             if (sub) {
-                if (sub.kind() == pc::Code::Range) {
+                if (sub.kind() == pc::Code::Or) {
+                    // `n @ (1 | 2 | 3)` / `n @ (lo..=hi | …)` — bind the whole
+                    // value to `n` (handled by the PatAt binding path) and gate
+                    // the arm on the OR of each alternative's test. Mirrors the
+                    // tuple-element or-pattern OR-chain; supports int/bool/range
+                    // alternatives (the scalar pattern kinds an at-binding admits).
+                    auto* test_block = new mlir::Block();
+                    region->push_back(test_block);
+                    {
+                        mlir::OpBuilder::InsertionGuard ig(builder_);
+                        builder_.setInsertionPointToStart(test_block);
+                        auto at_pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge
+                                                          : mlir::arith::CmpIPredicate::sge;
+                        auto at_pred_le = scrut_unsigned() ? mlir::arith::CmpIPredicate::ule
+                                                          : mlir::arith::CmpIPredicate::sle;
+                        mlir::Value alt_or =
+                            builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+                        lir_view::PatOrView{sub}.each_alt([&](lir_view::PatRef alt) {
+                            if (alt.kind() == pc::Code::Range) {
+                                lir_view::PatRangeView pr{alt};
+                                auto lo_val = coerce_int(
+                                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.lo(), 64), scrut_type);
+                                auto hi_val = coerce_int(
+                                    builder_.create<mlir::arith::ConstantIntOp>(loc_, pr.hi(), 64), scrut_type);
+                                auto ge = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_ge, scrut, lo_val);
+                                auto le = builder_.create<mlir::arith::CmpIOp>(loc_, at_pred_le, scrut, hi_val);
+                                auto both = builder_.create<mlir::arith::AndIOp>(loc_, ge, le);
+                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, both);
+                                return;
+                            }
+                            int64_t av = 0;
+                            if (alt.kind() == pc::Code::Int)       av = lir_view::PatIntView{alt}.value();
+                            else if (alt.kind() == pc::Code::Bool) av = lir_view::PatBoolView{alt}.value() ? 1 : 0;
+                            else return;  // skip unsupported alt kind
+                            auto cv = coerce_int(
+                                builder_.create<mlir::arith::ConstantIntOp>(loc_, av, 64), scrut_type);
+                            auto eq = builder_.create<mlir::arith::CmpIOp>(
+                                loc_, mlir::arith::CmpIPredicate::eq, scrut, cv);
+                            alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, eq);
+                        });
+                        builder_.create<mlir::cf::CondBranchOp>(loc_, alt_or, arm_entry, else_block);
+                    }
+                    else_block = test_block;
+                } else if (sub.kind() == pc::Code::Range) {
                     // C2: same unsigned predicate fix for PatAt + PatRange.
                     lir_view::PatRangeView pr{sub};
                     auto at_pred_ge = scrut_unsigned() ? mlir::arith::CmpIPredicate::uge

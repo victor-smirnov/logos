@@ -1,0 +1,23 @@
+// Parenthesised (grouping) patterns `(P)` / `(P | Q | ...)`. Rust treats `(P)`
+// as exactly P and `(P | Q)` as a grouped or-pattern. Previously a hard syntax
+// error (no parenthesised-pattern grammar production); now inlined into a PAT_OR
+// so all existing or-pattern machinery applies. Companion to at-binding-paren-or.
+// Distilled from rust-lang/rust tests/ui/or-patterns/* (grouping facet).
+package paren_or_pattern;
+
+fn classify(x: i64) -> i64 {
+    match x {
+        (1 | 2 | 3) => { return 10i64; }
+        (4 | 5)     => { return 20i64; }
+        (6)         => { return 30i64; }   // `(P)` single == P
+        _           => { return 0i64; }
+    }
+}
+
+fn main() -> i32 {
+    if classify(2i64) != 10i64 { return 1i32; }
+    if classify(5i64) != 20i64 { return 2i32; }
+    if classify(6i64) != 30i64 { return 3i32; }
+    if classify(9i64) != 0i64  { return 4i32; }
+    return 0i32;
+}
