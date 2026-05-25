@@ -1,6 +1,6 @@
 # B167 — Adversarial Depth-Probe Gap Census
 
-> STATUS 2026-05-24: 13/15 ports PASS. FIXED: G167-4 (drop×break, f719c90d), G167-5 (IndexMut compound-assign, b9ce0ee9) — both silent miscompiles; G167-1/-2/-3 closure-param INFERENCE root (one fix, 3 sites). OPEN: G167-3b (capturing closure's env is stack-allocated → boxing/returning a CAPTURING closure dangles/aliases — distinct from the now-fixed inference; same fat-pointer-storage family as G167-7), G167-6 (slice suffix-after-`..` + named-rest re-use), G167-7 (Vec<Box<dyn>> dispatch SIGSEGV). Repros in b167-repros/.
+> STATUS 2026-05-24: **ALL gaps CLOSED.** FIXED: G167-4 (drop×break, f719c90d), G167-5 (IndexMut compound-assign, b9ce0ee9) — both silent miscompiles; G167-1/-2/-3 closure-param INFERENCE root (0b68aed1, one fix/3 sites); G167-3b capturing-closure env escape (3961c1e4, heap-promote boxed env); G167-6 dynamic-slice suffix-after-`..` + named-rest sub-slice place (8d9168ec); G167-7 Vec<Box<dyn>> dispatch (8d9168ec, concrete→dyn coercion through generic container element). Full suite 5158/5158. Repros in b167-repros/.
 
 Provenance: rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7 (2026-05-24).
 Compiler used as-is: `build/bin/logosc` (no rebuild). Repros live in `b167-repros/<slug>.logos`.
