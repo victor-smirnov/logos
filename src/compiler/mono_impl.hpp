@@ -287,13 +287,16 @@ private:
     };
     std::vector<BlanketImplInfo> blanket_impls_;
 
-    // PRIMITIVE types coerced to `dyn <Trait>` somewhere in the program (collected
-    // by scan_expr). A blanket `impl<A> Trait for A` covers primitives, but the
-    // eager blanket pass only instantiates for structs/enums; eagerly cloning for
-    // ALL primitives is unsafe (an integer-bodied blanket fails to verify on
-    // f32/f64). So after the worklist drain we instantiate the blanket only for
-    // these actually-coerced primitives. Keyed by trait name → {primitive names}.
-    StrMap<StrSet> dyn_coerced_prims_;
+    // Concrete types coerced to `dyn <Trait>` somewhere in the program that the
+    // eager blanket pass does NOT cover: PRIMITIVES (`&i64 as &dyn`) and GENERIC
+    // STRUCT INSTANTIATIONS (`&Box<i64> as &dyn` — created post-blanket-loop by
+    // instantiate_struct_templates). Collected by scan_expr from `as dyn` casts.
+    // Eagerly cloning a blanket for ALL primitives is unsafe (an integer-bodied
+    // blanket fails to verify on f32/f64), so after the drain we instantiate each
+    // blanket ONLY for these actually-coerced targets. trait → {concrete name →
+    // its TypeRef} (the TypeRef drives the blanket substitution directly, so the
+    // target struct need not yet be in out_.structs).
+    StrMap<StrMap<TypeRef>> dyn_coerced_targets_;
     // Enqueue every `$blanket$…__method` template (matching tmpl_prefix) cloned
     // for `concrete` (candidate_t) into the worklist as `concrete__method`.
     void enqueue_blanket_concrete(const BlanketImplInfo& bi,

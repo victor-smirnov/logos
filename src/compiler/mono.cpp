@@ -542,22 +542,23 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
     depth_ = 0;
 
-    // Supplementary blanket-on-PRIMITIVE pass: scan_fn (above) recorded every
-    // primitive coerced to a `dyn Trait` (`&i64 as &dyn Any`). The eager blanket
-    // pass skipped primitives (cloning ALL of them breaks integer-bodied blankets
-    // on f32/f64). Now instantiate each blanket only for the primitives actually
-    // coerced to its trait — a sema-validated coercion means the primitive
-    // satisfies any bound, so no extra bound-check is needed here. Then drain the
-    // new worklist items (their bodies may reference further instantiations).
-    if (entry_points_.empty() && !dyn_coerced_prims_.empty()) {
+    // Supplementary blanket pass: scan_fn (above) recorded every concrete type
+    // coerced to a `dyn Trait` that the eager blanket pass misses — PRIMITIVES
+    // (`&i64 as &dyn Any`) and GENERIC STRUCT INSTANTIATIONS (`&Box<i64> as &dyn`,
+    // created later by instantiate_struct_templates). Instantiate each blanket
+    // ONLY for those actually-coerced targets (a sema-validated coercion means the
+    // type satisfies any bound; done_ dedups types the eager loop already did).
+    // The collected TypeRef drives the substitution directly, so the target need
+    // not yet exist in out_.structs. Then drain the new worklist items.
+    if (entry_points_.empty() && !dyn_coerced_targets_.empty()) {
         for (auto& bi : blanket_impls_) {
-            auto pit = dyn_coerced_prims_.find(bi.trait_name);
-            if (pit == dyn_coerced_prims_.end()) continue;
+            auto pit = dyn_coerced_targets_.find(bi.trait_name);
+            if (pit == dyn_coerced_targets_.end()) continue;
             std::string tmpl_prefix =
                 "$blanket$" + bi.trait_name + "$" + bi.bound_trait
                 + "$" + bi.target_typevar + "__";
-            for (auto& pn : pit->second)
-                enqueue_blanket_concrete(bi, tmpl_prefix, pn, build_concrete_typeref(pn));
+            for (auto& [nm, tref] : pit->second)
+                enqueue_blanket_concrete(bi, tmpl_prefix, nm, tref);
         }
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());

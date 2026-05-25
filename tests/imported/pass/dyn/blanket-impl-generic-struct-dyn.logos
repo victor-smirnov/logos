@@ -1,0 +1,20 @@
+// Blanket `impl<A> Trait for A {}` covering a GENERIC STRUCT INSTANTIATION behind
+// dyn: `&Box<i64> as &dyn` (single box) and `box(box i64) as Box<dyn>` (double box,
+// rust drop/issue-2734 shape). The boxed/referenced value is `Box<i64>` — a generic
+// instantiation created post-blanket-loop, which the eager blanket pass misses. mono
+// now collects the actual coerced concrete TypeRef (matching the ECast Self-type
+// derivation: ref-source → pointee, box-value source → unwrap one Box) and
+// instantiates the blanket for it after the worklist drain.
+package blanket_impl_generic_struct_dyn;
+use logos.mem.boxed;
+trait Hax { fn dummy(self: &Self) -> i64 { return 7i64; } }
+impl<A> Hax for A {}
+fn dispatch(h: &dyn Hax) -> i64 { return h.dummy(); }
+fn perform<T>(x: Box<T>) -> Box<dyn Hax> { return box_new(x) as Box<dyn Hax>; }
+fn main() -> i32 {
+    let b: Box<i64> = box_new(42i64);
+    if dispatch(&b as &dyn Hax) != 7i64 { return 1i32; }   // &Box<i64> as &dyn
+    let bb = perform::<i64>(box_new(7i64));                 // box(box i64) as Box<dyn>
+    if bb.dummy() != 7i64 { return 2i32; }
+    return 0i32;
+}

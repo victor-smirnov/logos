@@ -233,31 +233,39 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         if (tgt && TypeRef(tgt).kind() == LogosType::Kind::Ptr && TypeRef(tgt).pointee())
             tgt = TypeRef(tgt).pointee();
         if (tgt && TypeRef(tgt).kind() == LogosType::Kind::TraitObject) {
+            // Mirror the ECast dyn-coercion's Self-type derivation EXACTLY so the
+            // blanket instance name matches the vtable key:
+            //   • `&X as &dyn` / `*X as *dyn` → Self = the pointee X (NO Box
+            //     unwrap — `&Box<i64> as &dyn` keys on `Box$G1$i64`).
+            //   • `box X as Box<dyn>` (source is a Box<…> VALUE) → Self = the
+            //     boxed type (unwrap ONE Box — `box i64 → Box<i64>` keys on `i64`).
             TypeRef src = cv.operand().type(out_.type_pool.impl());
-            while (src && (TypeRef(src).kind() == LogosType::Kind::Ptr ||
-                           TypeRef(src).kind() == LogosType::Kind::Ref ||
-                           TypeRef(src).kind() == LogosType::Kind::MutRef) &&
-                   TypeRef(src).pointee())
-                src = TypeRef(src).pointee();
-            if (src && TypeRef(src).kind() == LogosType::Kind::Struct &&
-                TypeRef(src).struct_name() == "Box" &&
-                TypeRef(src).type_args().size() == 1)
-                src = TypeRef(src).type_args()[0];
-            const char* pn = nullptr;
-            if (src) switch (TypeRef(src).kind()) {
-                case LogosType::Kind::I8: pn="i8"; break;   case LogosType::Kind::I16: pn="i16"; break;
-                case LogosType::Kind::I32: pn="i32"; break; case LogosType::Kind::I64: pn="i64"; break;
-                case LogosType::Kind::I128: pn="i128"; break;
-                case LogosType::Kind::U8: pn="u8"; break;   case LogosType::Kind::U16: pn="u16"; break;
-                case LogosType::Kind::U32: pn="u32"; break; case LogosType::Kind::U64: pn="u64"; break;
-                case LogosType::Kind::U128: pn="u128"; break;
-                case LogosType::Kind::F32: pn="f32"; break; case LogosType::Kind::F64: pn="f64"; break;
-                case LogosType::Kind::Bool: pn="bool"; break; case LogosType::Kind::Char: pn="char"; break;
-                case LogosType::Kind::Usize: pn="usize"; break; case LogosType::Kind::Isize: pn="isize"; break;
-                default: break;
+            if (src && (TypeRef(src).kind() == LogosType::Kind::Ptr ||
+                        TypeRef(src).kind() == LogosType::Kind::Ref ||
+                        TypeRef(src).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(src).pointee()) {
+                src = TypeRef(src).pointee();   // ref/ptr source: pointee IS Self
+            } else if (src && TypeRef(src).kind() == LogosType::Kind::Struct &&
+                       TypeRef(src).struct_name() == "Box" &&
+                       TypeRef(src).type_args().size() == 1) {
+                src = TypeRef(src).type_args()[0];  // box-value source: unwrap once
             }
-            if (pn)
-                dyn_coerced_prims_[std::string(TypeRef(tgt).trait_name())].insert(pn);
+            // Record the concrete coercion target keyed by its name. Primitives
+            // (i64/bool/…) and GENERIC STRUCT INSTANTIATIONS (Box$G1$i64) are the
+            // cases the eager blanket pass misses; plain non-generic structs are
+            // also recorded but the supplementary pass dedups them via done_.
+            if (src) {
+                auto k = TypeRef(src).kind();
+                std::string nm;
+                if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+                    nm = concrete_struct_name(src);
+                else if (k != LogosType::Kind::TraitObject &&
+                         k != LogosType::Kind::TypeVar && k != LogosType::Kind::Error)
+                    nm = type_str(src);   // primitives, etc.
+                if (!nm.empty())
+                    dyn_coerced_targets_[std::string(TypeRef(tgt).trait_name())]
+                        .emplace(std::move(nm), src);
+            }
         }
         break;
     }
