@@ -1,0 +1,28 @@
+// Regression (B171): `Copy` is built-in for the bitwise-copyable handle kinds —
+// a shared reference `&T` (including `&dyn Trait`), a raw pointer, a slice, a
+// fn pointer, and a trait-object fat pointer. None require an explicit
+// `impl Copy`. Surfaced by `vec_from_arr::<&dyn Sh, N>` (whose `T: Copy` bound
+// rejected `&dyn Sh`); also needed for any generic `fn f<T: Copy>(…)` invoked
+// with such a handle. `&mut T` stays move-only (NOT Copy), matching Rust.
+package copy_for_ref_and_dyn;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Self) -> i64 { return self.s * self.s; } }
+fn dup<T: Copy>(x: T) -> i64 {
+    let _a: T = x;
+    let _b: T = x;   // x used twice — requires T: Copy
+    return 1i64;
+}
+fn main() -> i32 {
+    let q: Sq = Sq { s: 3i64 };
+    // `&dyn Sh` is Copy → satisfies vec_from_arr's `T: Copy`.
+    let arr: [&dyn Sh; 2] = [&q as &dyn Sh, &q as &dyn Sh];
+    let v: Vec<&dyn Sh> = vec_from_arr::<&dyn Sh, 2>(arr);
+    if v.get(0i64).area() != 9i64 { return 1i32; }
+    // `&T` and `*const T` are Copy.
+    let r: &i64 = &q.s;
+    let _ = dup::<&i64>(r);
+    let p: *const i64 = &q.s as *const i64;
+    let _ = dup::<*const i64>(p);
+    return 0i32;
+}

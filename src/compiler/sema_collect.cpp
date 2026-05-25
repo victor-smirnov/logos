@@ -745,6 +745,21 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // bound is admitted as a no-op (matches `T: Sized` being
             // implicit in Rust). `?Sized` opt-out isn't expressible yet.
             if (bound.trait_name == "Sized") continue;
+            // `Copy` is built-in for the bitwise-copyable handle kinds: a shared
+            // reference `&T` (incl. `&dyn Trait`), a raw pointer `*const/*mut T`,
+            // a slice `&[T]`, a fn pointer, and a trait-object fat pointer — none
+            // need an explicit `impl Copy`. `&mut T` is an exclusive (move-only)
+            // borrow and is NOT Copy (falls through → impl lookup → error, as in
+            // Rust). Concrete `impl Copy for <T>` types are handled below.
+            if (bound.trait_name == "Copy") {
+                auto ck = cv.kind();
+                if (ck == LogosType::Kind::Ref ||
+                    ck == LogosType::Kind::Ptr ||
+                    ck == LogosType::Kind::Slice ||
+                    ck == LogosType::Kind::FnPtr ||
+                    ck == LogosType::Kind::TraitObject)
+                    continue;
+            }
             // G158-6: a `where &T: Trait` bound (on_ref_subject) is satisfied by
             // an `impl Trait for &Concrete` (registered under `$ref_<C>` /
             // `$mut_ref_<C>`), NOT `impl Trait for Concrete`. Check that impl
