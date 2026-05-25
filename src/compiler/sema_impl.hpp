@@ -3076,6 +3076,7 @@ private:
     // ── lower_stmt and friends ───────────────────────────────────
 
     lir::LStmt lower_stmt(hermes::TinyMapView stmt);
+    lir::LStmt lower_stmt_inner(hermes::TinyMapView stmt);
     lir::LBlock lower_block(hermes::TinyMapView block);
     lir::LStmt lower_let_destruct(hermes::TinyMapView node);
     lir::LStmt lower_let_pat(hermes::TinyMapView node);
@@ -3171,6 +3172,25 @@ private:
     // binding name `build_pattern` chose for that payload slot. Match
     // arm builder consumes the list, AND-combines into the arm's guard.
     std::vector<lir::LExprPtr>* current_pat_refutable_guards_ = nullptr;
+
+    // Temporary-scope drop (Rust temporary scope = end of statement). When a
+    // DROPPABLE rvalue is auto-ref'd as a `&self`/`&mut self` method receiver
+    // (`W::mk(…).get()`), the materialized temporary must live to the end of the
+    // enclosing statement and then drop. lower_stmt installs this collector; the
+    // auto-ref site hoists such a temp into it (name, type, value); lower_stmt
+    // then wraps the statement in an SBlock with those hoisted `let`s prepended,
+    // so the block's scope-exit drop runs the destructors (no explicit drop
+    // emission — reuses the normal scope-drop machinery). nullptr ⇒ not in a
+    // statement context (or nested expr already inside one). Save/restore across
+    // lower_stmt recursion.
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>>* cur_stmt_temp_hoist_ = nullptr;
+    bool is_hoistable_temp_rvalue(const lir::LExpr& e);
+    // Auto-ref a method receiver to `&self`/`&mut self`. When `recv` is a fresh
+    // DROPPABLE rvalue and a statement temp-scope is active, hoist it to a named
+    // local (so its scope-exit drop runs at end of statement — Rust temporary
+    // scope) and borrow that; otherwise spill via addr_of_temp as before.
+    lir::LExprPtr materialize_recv_ref(lir::LExprPtr recv, bool is_mut, TypeRef ref_type);
+
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);

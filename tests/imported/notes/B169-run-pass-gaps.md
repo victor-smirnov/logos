@@ -15,6 +15,16 @@ rustc-UI run-pass corpus is heavily mined; ~50% of fresh candidates surface a ga
 - drop/newtype-struct-drop-run, drop/drop-scope-exit (tuple/struct Drop at scope exit).
 - or-patterns/paren-or-pattern, or-patterns/at-binding-paren-or (8a6ce442).
 
+## CLOSED (follow-up pass, in priority order)
+- **Temporary-scope Drop for a method receiver** — ✅ FIXED 2026-05-25. A droppable
+  fresh rvalue auto-ref'd as `&self`/`&mut self` (`W::mk(…).get()`) is now hoisted
+  into the enclosing statement's wrapping SBlock as a named local + an explicit
+  scope-end SDrop (Rust temporary scope). `materialize_recv_ref` (sema_expr,
+  replaces the 20 receiver addr_of_temp sites) + lower_stmt wrap (sema_stmt). Test:
+  drop/drop-temporary-method-receiver-9446. 5173/5173. KEY: drops are explicit
+  SDrop stmts inserted by sema (mlir-gen does NOT auto-drop block locals), so the
+  wrap must emit make_drop_stmt, not rely on scope-exit.
+
 ## OPEN gaps surfaced (not yet fixed — candidates for a focused pass)
 1. **Tuple or-pattern alternatives with bindings** — `(a,0)|(a,1)` / `(0,a)|(a,0)`
    silently never match. See [[baghunt_tuple_or_pattern_binding]]. (variant-or

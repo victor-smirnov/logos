@@ -40,6 +40,26 @@ lir::LExprPtr SemaChecker::lower_int_lit(TinyMapView expr) {
     return lit_int_from_text(str_of(expr.get(la::VALUE.code)), /*negate=*/false);
 }
 
+lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
+                                                TypeRef ref_type) {
+    // Temporary scope (Rust): a DROPPABLE fresh rvalue receiver auto-ref'd to
+    // `&self`/`&mut self` (`W::mk(…).get()`) must live to the end of the
+    // enclosing statement, then drop — otherwise the materialized temp leaks
+    // (never dropped). Hoist it into the statement's wrapping block as a named
+    // local (lower_stmt collects + prepends the `let`s); the block's scope-exit
+    // drop then runs the destructor. `&self` borrows that local. Only for a
+    // fresh owned rvalue (not a place/borrow) of a move type; everything else
+    // keeps the plain addr_of_temp spill (unchanged behaviour).
+    if (cur_stmt_temp_hoist_ && recv && recv->type &&
+        is_move_type(recv->type) && is_hoistable_temp_rvalue(*recv)) {
+        std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+        TypeRef rt = recv->type;
+        cur_stmt_temp_hoist_->push_back({nm, rt, std::move(recv)});
+        recv = builder().var_ref(nm, rt);
+    }
+    return builder().addr_of_temp(std::move(recv), is_mut, ref_type);
+}
+
 // Shared integer-literal builder. `negate` folds a leading unary minus into
 // the literal (so `-128i8` is the i8 minimum, not neg-of-out-of-range-128i8):
 // the range check then bounds the magnitude by |min| instead of max.
@@ -5243,7 +5263,7 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
                 TypeRef(recv->type).kind() != LogosType::Kind::MutRef &&
                 TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                 bool is_mut = TypeRef(target_self).kind() == LogosType::Kind::MutRef;
-                auto addr = builder().addr_of_temp(std::move(recv), is_mut, target_self);
+                auto addr = materialize_recv_ref(std::move(recv), is_mut, target_self);
                 recv = std::move(addr);
             }
         }
@@ -5815,7 +5835,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
         if (formal_is_ref && !recv_is_ref) {
             bool is_mut = (TypeRef(formal0).kind() == LogosType::Kind::MutRef);
             auto rty = make_ref(is_mut, tup_t);
-            recv = builder().addr_of_temp(std::move(recv), is_mut, rty);
+            recv = materialize_recv_ref(std::move(recv), is_mut, rty);
         } else if (!formal_is_ref && recv_is_ref) {
             recv = builder().deref(std::move(recv), tup_t);
         }
@@ -5901,7 +5921,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto ref_t = make_ref(false, rt);
         auto* fit = find_func_by_base_and_signature(mangled_d, {ref_t}, false);
         if (!fit) break;
-        auto recv_ref = builder().addr_of_temp(std::move(recv), false, ref_t);
+        auto recv_ref = materialize_recv_ref(std::move(recv), false, ref_t);
         std::vector<lir::LExprPtr> dargs;
         dargs.push_back(std::move(recv_ref));
         auto call_e = builder().call(
@@ -6369,7 +6389,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto ref_ty = make_ref(is_mut, recv->type);
-                    recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+                    recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty);
                 }
             }
 
@@ -6699,7 +6719,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                         bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                         auto __ty_recv = make_ref(is_mut, recv->type);
-                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                        auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv);
                         recv = std::move(addr);
                     } else if (formal0 && TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
                                recv->type &&
@@ -6707,7 +6727,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                !is_ref_like(TypeRef(recv->type).kind())) {
                         bool is_mut = TypeRef(formal0).mut_ptr();
                         auto __ty_recv = make_ptr(is_mut, recv->type);
-                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                        auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv);
                         recv = std::move(addr);
                     }
                 }
@@ -6774,13 +6794,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (auto pfit = find_func_by_base_and_signature(rkey, types_ref, false)) {
                         fi_ptr = pfit;
                         auto ty = make_ref(false, recv->type);
-                        recv = builder().addr_of_temp(std::move(recv), false, ty);
+                        recv = materialize_recv_ref(std::move(recv), false, ty);
                     } else {
                         auto types_mut = types; types_mut[0] = make_ref(true, recv->type);
                         if (auto pfit = find_func_by_base_and_signature(rkey, types_mut, false)) {
                             fi_ptr = pfit;
                             auto ty = make_ref(true, recv->type);
-                            recv = builder().addr_of_temp(std::move(recv), true, ty);
+                            recv = materialize_recv_ref(std::move(recv), true, ty);
                         }
                     }
                 }
@@ -6795,7 +6815,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (auto git = find_generic_func(blanket_key)) {
                     auto T_bound = TypeRef(recv->type).pointee();
                     auto ty = make_ref(false, recv->type);
-                    auto autoref_recv = builder().addr_of_temp(std::move(recv), false, ty);
+                    auto autoref_recv = materialize_recv_ref(std::move(recv), false, ty);
                     std::vector<TypeRef> m_type_args;
                     for (auto& tp : git->type_params) {
                         if (tp.name == "T") m_type_args.push_back(T_bound);
@@ -6919,7 +6939,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                         auto __ty_recv = make_ref(is_mut, recv->type);
 
-                        auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                        auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv);
                         recv = std::move(addr);
                     }
                 }
@@ -6939,7 +6959,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto __ty_recv = make_ref(is_mut, recv->type);
 
-                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                    auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv);
                     recv = std::move(addr);
                 }
                 // B-it-09: also auto-addr when method expects *const Self / *mut Self.
@@ -6948,7 +6968,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                          !is_ref_like(TypeRef(recv->type).kind())) {
                     bool is_mut = TypeRef(formal0).mut_ptr();
                     auto __ty_recv = make_ptr(is_mut, recv->type);
-                    auto addr = builder().addr_of_temp(std::move(recv), is_mut, __ty_recv);
+                    auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv);
                     recv = std::move(addr);
                 }
             }
@@ -7043,10 +7063,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             // addr-of-temp wrapping the original ref value.
             if (matched_auto_ref == 1) {
                 auto ty = make_ref(false, recv->type);
-                recv = builder().addr_of_temp(std::move(recv), false, ty);
+                recv = materialize_recv_ref(std::move(recv), false, ty);
             } else if (matched_auto_ref == 2) {
                 auto ty = make_ref(true, recv->type);
-                recv = builder().addr_of_temp(std::move(recv), true, ty);
+                recv = materialize_recv_ref(std::move(recv), true, ty);
             }
             // Build subst: bind impl/struct type params to pointee's type args
             // so generic ref-impls (`impl<T> Foo for &Pair<T>`) get T → i32 etc.
@@ -7211,7 +7231,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
         auto __ty_recv = make_ref(auto_ref_mut, recv->type);
 
-        auto addr = builder().addr_of_temp(std::move(recv), auto_ref_mut, __ty_recv);
+        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv);
         recv = std::move(addr);
     }
 
@@ -7292,7 +7312,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
         auto __ty_recv = make_ref(auto_ref_mut, recv->type);
 
-        auto addr = builder().addr_of_temp(std::move(recv), auto_ref_mut, __ty_recv);
+        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv);
         recv = std::move(addr);
     }
 
@@ -7626,7 +7646,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto ref_ty = make_ref(is_mut, recv->type);
-                    recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+                    recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty);
                 }
             }
             track_args_moved(arg_exprs);
@@ -7715,7 +7735,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             TypeRef(recv->type).kind() != LogosType::Kind::Ptr) {
             bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
             auto ref_ty = make_ref(is_mut, recv->type);
-            recv = builder().addr_of_temp(std::move(recv), is_mut, ref_ty);
+            recv = materialize_recv_ref(std::move(recv), is_mut, ref_ty);
         }
     }
     track_args_moved(arg_exprs);
@@ -8649,7 +8669,7 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
         // Receiver is already a reference/pointer to the struct — pass through.
         recv_ref = std::move(recv);
     } else {
-        recv_ref = builder().addr_of_temp(std::move(recv), is_mut, self_ref_t);
+        recv_ref = materialize_recv_ref(std::move(recv), is_mut, self_ref_t);
     }
     std::vector<lir::LExprPtr> args;
     args.push_back(std::move(recv_ref));
@@ -8689,7 +8709,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             }
             if (fit) {
                 widen_int_expr(idx, fit->param_types[1], builder());
-                auto recv_ref = builder().addr_of_temp(std::move(recv), false, ref_t);
+                auto recv_ref = materialize_recv_ref(std::move(recv), false, ref_t);
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(recv_ref));
                 args.push_back(std::move(idx));

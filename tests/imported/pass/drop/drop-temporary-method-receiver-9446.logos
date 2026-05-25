@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-immediate-non-box-ty-9446.rs
+// Modifications: String → i64 field + `*mut i64` drop counter (Logos drop
+//   convention); say_hi (println) → a `&self` accessor returning the field.
+// Tests Rust's TEMPORARY SCOPE: a droppable temporary used as an autoref'd
+//   `&self` method receiver (`W::mk(...).get()`) must be dropped at the END of
+//   the enclosing statement (not leaked). The #9446 ICE was about dropping such
+//   a non-box temporary; here we assert the destructor actually runs.
+package drop_temporary_method_receiver_9446;
+trait Drop { fn drop(self: Self); }
+struct W { v: i64, c: *mut i64 }
+impl Drop for W { fn drop(self: W) { unsafe { *self.c = *self.c + 1i64; } } }
+impl W {
+    fn mk(v: i64, c: *mut i64) -> W { return W { v: v, c: c }; }
+    fn get(self: &W) -> i64 { return self.v; }
+}
+fn main() -> i32 {
+    let mut counter: i64 = 0i64;
+    let c = &mut counter as *mut i64;
+    { let x = W::mk(10i64, c); if x.get() != 10i64 { return 1i32; } }  // x drops here
+    if W::mk(20i64, c).get() != 20i64 { return 2i32; }                 // temp drops at stmt end
+    unsafe { if *c != 2i64 { return 3i32; } }                          // both dropped
+    return 0i32;
+}

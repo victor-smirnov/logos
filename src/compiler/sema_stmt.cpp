@@ -191,7 +191,56 @@ bool SemaChecker::block_always_diverts(TinyMapView block) {
     return false;
 }
 
+// A fresh owned rvalue (not a place / borrow) — the kinds whose materialized
+// temporary needs a statement-scope drop. Mirrors the B140-G1 is_place check.
+bool SemaChecker::is_hoistable_temp_rvalue(const lir::LExpr& e) {
+    namespace ec = lir_schema::expr;
+    auto k = expr_ref_of(e).kind();
+    switch (k) {
+        case ec::Code::VarRef: case ec::Code::FieldRead: case ec::Code::IndexRead:
+        case ec::Code::Deref:  case ec::Code::TupleIndex: case ec::Code::SliceIndex:
+        case ec::Code::SlicePtr: case ec::Code::AddrOf: case ec::Code::AddrOfTemp:
+            return false;   // a place / existing-owned borrow — not a fresh temp
+        default:
+            return true;    // Call / MethodCall / StructLit / EnumLitData / …
+    }
+}
+
 lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
+    // Install a temporary-scope collector for this statement (save/restore across
+    // the recursion below — LABELED_LOOP and loop bodies re-enter lower_stmt).
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>> hoisted;
+    auto* saved_hoist = cur_stmt_temp_hoist_;
+    cur_stmt_temp_hoist_ = &hoisted;
+    lir::LStmt s = lower_stmt_inner(stmt);
+    cur_stmt_temp_hoist_ = saved_hoist;
+    if (hoisted.empty()) return s;
+    // Wrap: `{ let __t0 = v0; …; <stmt>; drop __tN; … drop __t0; }`. The hoisted
+    // temporaries are bound to fresh locals, the statement runs (borrowing them),
+    // then their destructors run at the end of this statement — Rust's temporary
+    // scope. Drops are emitted in REVERSE binding order. (The drop convention is
+    // explicit SDrop statements inserted by sema — mlir-gen does not auto-drop
+    // block-scoped locals — so we must emit them here.)
+    auto blk = lir::alloc_block(*cur_prog_);
+    std::vector<lir::LStmt> drops;
+    for (auto& h : hoisted) {
+        std::string nm = std::move(std::get<0>(h));
+        TypeRef ty = std::get<1>(h);
+        lir::SLet sl;
+        sl.name = nm; sl.type = ty; sl.is_mut = false;
+        sl.value = std::move(std::get<2>(h));
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
+            drops.push_back(std::move(*d));
+    }
+    blk->stmts.push_back(std::move(s));
+    for (auto it = drops.rbegin(); it != drops.rend(); ++it)
+        blk->stmts.push_back(std::move(*it));
+    lir::SBlock sb; sb.body = std::move(blk);
+    return make_stmt_emit(node_line_, std::move(sb));
+}
+
+lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     node_line_ = get_line(stmt);
     int32_t c = code_of(stmt);
 
