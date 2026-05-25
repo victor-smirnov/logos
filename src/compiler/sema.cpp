@@ -5698,11 +5698,18 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
     // (`<Struct>__<method>__[fg]__<sig>`) whose <Struct> exists as a
     // generic template in prog.structs. Move into struct.methods.
     {
-        // O(1) lookup: bare struct name → template LStructDef*.
-        std::unordered_map<std::string, lir::LStructDef*> templates_by_name;
+        // Bare struct name → all generic templates of that name (there may be
+        // same-named generic templates in distinct packages, e.g. stdlib
+        // `Rc<T>` vs a user struct also named `Rc`). We disambiguate by package
+        // at lookup so a user struct's impl method is NEVER mis-hosted into a
+        // stdlib generic template of the same bare name (which would drop it
+        // from prog.functions AND from the user struct's own emission → a `&user
+        // Rc as &dyn Trait` vtable slot then references an un-emitted method →
+        // SIGSEGV). Fixes user-struct-shadows-stdlib (Rc/Arc/Box/Vec/…).
+        std::unordered_map<std::string, std::vector<lir::LStructDef*>> templates_by_name;
         for (auto& sd : prog.structs) {
             if (sd.type_params.empty()) continue;
-            templates_by_name.emplace(sd.name, &sd);  // first wins
+            templates_by_name[sd.name].push_back(&sd);
         }
         auto is_impl_method_shape = [](std::string_view nm) -> std::string_view {
             if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
@@ -5726,7 +5733,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
             lir::LStructDef* host = nullptr;
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));
-                if (it != templates_by_name.end()) host = it->second;
+                if (it != templates_by_name.end()) {
+                    // Only adopt the method into a generic template in the SAME
+                    // package as the method (declared in `impl … for <Struct>`).
+                    // A cross-package bare-name match (user `Rc` vs stdlib
+                    // `Rc<T>`) must NOT move it. Prefer exact-pkg; if the method
+                    // carries no package, fall back to a sole candidate.
+                    for (auto* cand : it->second)
+                        if (cand->pkg == fp->package) { host = cand; break; }
+                    if (!host && fp->package.empty() && it->second.size() == 1)
+                        host = it->second.front();
+                }
             }
             if (host) host->methods.push_back(std::move(fp));
             else      kept.push_back(std::move(fp));

@@ -1,0 +1,21 @@
+// User struct whose bare name collides with a stdlib GENERIC template (e.g. `Rc`,
+// matching stdlib `Rc<T>`), used behind `&dyn Trait`. The sema impl-method→struct-
+// template adoption filter keyed on the BARE name, mis-hosting the user struct's
+// `Rc__area` into stdlib's generic `Rc<T>` template → dropped from emission → the
+// dyn vtable referenced an un-emitted method → SIGSEGV. Fixed by matching the
+// template's PACKAGE to the method's. Two distinct concrete types behind one
+// trait object (the case that surfaced it).
+package user_struct_shadows_stdlib_dyn;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+struct Rc { w: i64, h: i64 }   // bare-name collision with stdlib Rc<T>
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl Sh for Rc { fn area(self: &Rc) -> i64 { return self.w * self.h; } }
+fn dispatch(s: &dyn Sh) -> i64 { return s.area(); }
+fn main() -> i32 {
+    let sq = Sq { s: 3i64 };
+    let rc = Rc { w: 2i64, h: 5i64 };
+    if dispatch(&sq as &dyn Sh) != 9i64  { return 1i32; }
+    if dispatch(&rc as &dyn Sh) != 10i64 { return 2i32; }   // the type that was dropped
+    return 0i32;
+}
