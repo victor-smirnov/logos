@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/type-alias-enum-variants/issue-61801-path-pattern-can-infer.rs
+// Modifications: `check-pass` → run-pass with sentinels; the `<OptAlias<_>>::N`
+// qualified-path pattern form is dropped (Logos has no `<T>::V` path syntax);
+// a data-variant arm added for run coverage.
+// G172-3: matching an enum variant through a TYPE ALIAS (`OptAlias::N` /
+// `OptAlias::S(v)` where `type OptAlias<T> = Opt<T>`) errored "unknown enum
+// 'OptAlias'" — the pattern resolver didn't peel the alias to the base enum
+// (construction did, G160-2). Now both unit- and data-variant patterns peel a
+// (possibly generic) type-alias to its target enum.
+package type_alias_variant_pattern_b172;
+enum Opt<T> { N, S(T) }
+type OptAlias<T> = Opt<T>;
+fn check(x: Opt<u8>) -> i32 {
+    match x {
+        OptAlias::S(v) => { return v as i32; }
+        OptAlias::N => { return 0i32; }
+    }
+}
+fn main() -> i32 {
+    if check(Opt::N) != 0i32 { return 1i32; }
+    if check(Opt::S(7u8)) != 7i32 { return 2i32; }
+    return 0i32;
+}

@@ -2396,6 +2396,18 @@ lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut
                 prelude_remap(vit->second.c_str());
         }
     }
+    // G172-3: peel a type-alias to an enum in a variant pattern (`OptAlias::N`
+    // where `type OptAlias<T> = Opt<T>`). Mirrors the construction-side peel
+    // (G160-2) but also handles GENERIC aliases — the variant resolves on the
+    // base enum name; the type-args are irrelevant to which variant matches.
+    if (!enums_.count(pename) && !find_enum_by_name(pename).second) {
+        auto ait = type_aliases_.find(pename);
+        if (ait != type_aliases_.end() && ait->second.type &&
+            TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
+            std::string tgt(TypeRef(ait->second.type).enum_name());
+            if (!tgt.empty()) pename = std::move(tgt);
+        }
+    }
     int32_t disc = 0;
     auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
     auto eit = esi_pv ? enums_.find(sema_key(epkg_pv, pename)) : enums_.end();
@@ -2513,6 +2525,17 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             lir::Pattern p_;
             p_.mirror_offset_ = mo;
             return p_;
+        }
+    }
+    // G172-3: peel a (possibly generic) type-alias to an enum in a data-variant
+    // pattern (`OptAlias::S(v)` where `type OptAlias<T> = Opt<T>`). Mirrors the
+    // unit-variant peel in build_pattern_variant.
+    if (!pvname.empty() && !enums_.count(pename) && !find_enum_by_name(pename).second) {
+        auto ait = type_aliases_.find(pename);
+        if (ait != type_aliases_.end() && ait->second.type &&
+            TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
+            std::string tgt(TypeRef(ait->second.type).enum_name());
+            if (!tgt.empty()) pename = std::move(tgt);
         }
     }
     int32_t disc = 0;
