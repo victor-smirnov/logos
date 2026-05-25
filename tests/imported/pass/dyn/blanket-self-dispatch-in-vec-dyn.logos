@@ -1,0 +1,36 @@
+// Regression (B171): a blanket-impl method whose body calls ANOTHER trait
+// method on `self`, placed in a `Vec<&dyn Trait>`. The Vec's internal raw
+// byte-buffer reinterpret (`*const u8 as &dyn Describe`) was over-collected by
+// mono's dyn-coercion scan as a coercion target, and the supplementary blanket
+// pass then instantiated the blanket for `u8` WITHOUT checking the bound
+// `T: Tag` — cloning `u8__d` whose inner `self.tag()` resolved to a
+// nonexistent `u8__tag` (MLIR verify failure: "'u8__tag' does not reference a
+// valid function"). Fix: the supplementary pass mirrors the eager pass's bound
+// filter, so only targets that actually satisfy the blanket bound instantiate.
+// Reproduces only at the intersection of {Vec container} × {blanket method
+// with a nested self-dispatch}; neither alone triggered it.
+package blanket_self_dispatch_in_vec_dyn;
+trait Tag { fn tag(self: &Self) -> i64; }
+trait Describe { fn d(self: &Self) -> i64; }
+impl<T: Tag> Describe for T {
+    fn d(self: &Self) -> i64 { return self.tag() + 100i64; }
+}
+struct S { v: i64 }
+impl Tag for S { fn tag(self: &Self) -> i64 { return self.v; } }
+impl Tag for i64 { fn tag(self: &Self) -> i64 { return *self; } }
+impl Tag for f64 { fn tag(self: &Self) -> i64 { return *self as i64; } }
+fn main() -> i32 {
+    let s: S = S { v: 41i64 };
+    let a: i64 = 7i64;
+    let b: f64 = 3.0f64;
+    // Heterogeneous trait objects (struct + two primitives), each dispatching
+    // the blanket `d` which in turn dispatches `tag` on the concrete Self.
+    let mut items: Vec<&dyn Describe> = vec_new::<&dyn Describe>();
+    items.push(&s as &dyn Describe);
+    items.push(&a as &dyn Describe);
+    items.push(&b as &dyn Describe);
+    if items.get(0i64).d() != 141i64 { return 1i32; }
+    if items.get(1i64).d() != 107i64 { return 2i32; }
+    if items.get(2i64).d() != 103i64 { return 3i32; }
+    return 0i32;
+}

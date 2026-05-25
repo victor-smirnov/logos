@@ -557,8 +557,30 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             std::string tmpl_prefix =
                 "$blanket$" + bi.trait_name + "$" + bi.bound_trait
                 + "$" + bi.target_typevar + "__";
-            for (auto& [nm, tref] : pit->second)
+            for (auto& [nm, tref] : pit->second) {
+                // The scan over-collects coerced targets: generic container
+                // code (Vec etc.) emits raw-buffer reinterprets like
+                // `*const u8 as &dyn Trait` that look like a dyn-coercion but
+                // are not — their pointee (u8) does NOT satisfy the blanket's
+                // bound. Instantiating the blanket for it clones e.g. `u8__d`
+                // whose `self.tag()` resolves to a nonexistent `u8__tag` →
+                // MLIR verify failure. Mirror the eager pass's bound filter:
+                // instantiate only for targets that actually satisfy the bound.
+                if (tref) {
+                    if (!bi.bound_trait.empty()) {
+                        StrSet seen;
+                        if (!mono_concrete_satisfies_bound(bi.bound_trait, tref, seen))
+                            continue;
+                    }
+                    bool extra_ok = true;
+                    for (auto& eb : bi.extra_bounds) {
+                        StrSet seen;
+                        if (!mono_concrete_satisfies_bound(eb, tref, seen)) { extra_ok = false; break; }
+                    }
+                    if (!extra_ok) continue;
+                }
                 enqueue_blanket_concrete(bi, tmpl_prefix, nm, tref);
+            }
         }
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());
