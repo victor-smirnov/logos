@@ -3451,10 +3451,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // an UNSUPPORTED nesting (e.g. a tuple element `("foo", _)`): reject
         // cleanly rather than fall through to a wildcard (which would silently
         // match any string). Tracked as G172-1b.
-        error("string-literal patterns are only supported as a whole match arm "
-              "(`match s { \"foo\" => … }`) or directly inside an enum-variant "
-              "payload (`Some(\"foo\")`); in a tuple/other position, bind a name "
-              "and compare in the body (`(x, _) if x == \"foo\"`)");
+        error("string-literal patterns are supported as a whole match arm "
+              "(`match s { \"foo\" => … }`), inside an enum-variant payload "
+              "(`Some(\"foo\")`), and as a tuple element (`(\"foo\", _)`), but "
+              "not in this position (e.g. an array/slice pattern); bind a name "
+              "and compare in the body (`x if x == \"foo\"`)");
         lir::Pattern p_;
         p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
         return p_;
@@ -3698,6 +3699,22 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 // case below.
                 pt.bindings.push_back("_");
                 pt.subs.push_back(build_pattern(sub, elem_ty));
+            } else if (sc == la::PAT_STR.code && current_pat_refutable_guards_) {
+                // G172-1b: string-literal tuple element (`("foo", _)`). The
+                // tuple-arm codegen has no str_eq dispatch, so instead bind the
+                // element to a synth name and gate the arm with
+                // `str_eq(synth, "foo")` (a raw `==` would pointer-compare).
+                std::string synth = std::format("__tstr_{}_{}", i, tmp_var_count_++);
+                pt.bindings.push_back(synth);
+                pt.subs.push_back(make_pat_wild(synth));
+                TypeRef str_t = make_slice_type(u8_t());
+                auto strlit = builder().lit_str(
+                    std::string(str_of(sub.get(la::VALUE.code))), str_t);
+                auto g = make_str_eq_guard(
+                    builder().var_ref(synth,
+                        (elem_ty && TypeRef(elem_ty).kind() != LogosType::Kind::Error) ? elem_ty : str_t),
+                    std::move(strlit));
+                if (g) current_pat_refutable_guards_->push_back(std::move(g));
             } else if (sc == la::PAT_OR.code) {
                 // P4-pm-03: or-pattern as tuple element. Grammar always
                 // emits PAT_OR (even for a single sub-pattern with no
@@ -3729,6 +3746,23 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         } else if (isc == la::PAT_VARIANT_DATA.code) {
                             pt.bindings.push_back("_");
                             pt.subs.push_back(build_pattern(inner, elem_ty));
+                            single = true;
+                        } else if (isc == la::PAT_STR.code &&
+                                   current_pat_refutable_guards_) {
+                            // G172-1b: string-literal tuple element (wrapped in
+                            // the grammar's single-alt PAT_OR). Bind + str_eq
+                            // guard (the tuple-arm codegen has no str_eq path).
+                            std::string synth = std::format("__tstr_{}_{}", i, tmp_var_count_++);
+                            pt.bindings.push_back(synth);
+                            pt.subs.push_back(make_pat_wild(synth));
+                            TypeRef str_t = make_slice_type(u8_t());
+                            auto strlit = builder().lit_str(
+                                std::string(str_of(inner.get(la::VALUE.code))), str_t);
+                            auto g = make_str_eq_guard(
+                                builder().var_ref(synth,
+                                    (elem_ty && TypeRef(elem_ty).kind() != LogosType::Kind::Error) ? elem_ty : str_t),
+                                std::move(strlit));
+                            if (g) current_pat_refutable_guards_->push_back(std::move(g));
                             single = true;
                         }
                     }

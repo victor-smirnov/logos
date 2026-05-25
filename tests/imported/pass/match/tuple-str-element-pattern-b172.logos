@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/issue-78549-ref-pat-and-str.rs
+//   (the `("foo", _, "bar")` tuple-element string-pattern facet).
+// G172-1b: a string-literal pattern as a tuple element. The tuple-arm codegen
+// has no str_eq dispatch, so each `"lit"` element binds the element to a synth
+// name and adds a `str_eq(synth, "lit")` arm guard (handling both the bare and
+// the grammar's single-alt PAT_OR-wrapped form). Mixed with int elements.
+// (The `&_` / `&"foo"` ref-pattern-over-str facets of the original test are a
+//  separate niche — Logos's `str` is a slice, not a reference, so a `&` pattern
+//  has no reference to peel.)
+package tuple_str_element_pattern_b172;
+fn f(t: (str, i64, str)) -> i32 {
+    match t {
+        ("foo", 0i64, "bar") => { return 1i32; }
+        ("foo", _, "bar") => { return 2i32; }
+        _ => { return 0i32; }
+    }
+}
+fn main() -> i32 {
+    if f(("foo", 0i64, "bar")) != 1i32 { return 1i32; }
+    if f(("foo", 5i64, "bar")) != 2i32 { return 2i32; }
+    if f(("x", 0i64, "bar")) != 0i32 { return 3i32; }
+    if f(("foo", 0i64, "x")) != 0i32 { return 4i32; }
+    return 0i32;
+}
