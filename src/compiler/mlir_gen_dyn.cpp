@@ -1525,8 +1525,21 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     cur_entry_block_    = saved_entry_block;
     builder_.restoreInsertionPoint(save_pt);
 
-    // At the creation site: alloca capture struct, store captures
-    auto env_alloca = create_entry_alloca(cap_struct);
+    // At the creation site: allocate the capture struct, store captures.
+    // G167-3b: an ESCAPING closure (one that is boxed) must heap-allocate its
+    // env — the fat value `{fn, env_ptr}` outlives this frame, so a stack
+    // `alloca` env would dangle. Non-escaping closures keep the cheap stack
+    // env (the common iterator-adapter / local-callback case). Empty-env
+    // closures stay on the stack regardless (nothing to outlive).
+    bool heap_env = v.escapes() && !captures.empty();
+    mlir::Value env_alloca;
+    if (heap_env) {
+        auto sz = sizeof_struct(cap_struct);
+        env_alloca = call_malloc(sz);
+        if (!env_alloca) env_alloca = create_entry_alloca(cap_struct);
+    } else {
+        env_alloca = create_entry_alloca(cap_struct);
+    }
     for (size_t i = 0; i < captures.size(); ++i) {
         auto it = scope_.find(captures[i]);
         if (it == scope_.end()) continue;

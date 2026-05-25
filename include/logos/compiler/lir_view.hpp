@@ -866,6 +866,15 @@ public:
         return av.as_value<uint8_t>() != 0;
     }
 
+    // G167-3b: closure value is boxed → its env must be heap-allocated.
+    bool escapes() const noexcept {
+        auto* m = cl_map();
+        if (!m) return false;
+        auto av = m->get(lir_schema::closure_keys::ESCAPES.code, self.base());
+        if (av.is_null()) return false;
+        return av.as_value<uint8_t>() != 0;
+    }
+
     TypeRef ret_type(const TypePoolImpl* pool) const noexcept {
         auto* m = cl_map();
         if (!m) return {};

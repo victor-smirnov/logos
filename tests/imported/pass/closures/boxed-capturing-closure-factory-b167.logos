@@ -1,0 +1,28 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/closures/closure-returning-closure (distilled)
+// Modifications: i64 suffixes; assert!->if-return; Box<dyn Fn> return carrier
+//   (Logos has no impl-Trait return per K5/N6); `move` capture.
+// G167-3b (FIXED): a CAPTURING closure boxed and returned now survives the
+//   creating fn's return — two factory calls (`adder(5)`, `adder(10)`) keep
+//   independent captured `n`. Previously both boxes aliased the latest call's
+//   STACK env (`adder(5)(1)` and `adder(10)(1)` both returned 11). Fixed by
+//   heap-allocating a boxed closure's env (escape flag on the closure node,
+//   set when lowered into a `Box<dyn Fn>` context, malloc'd at the creation
+//   site) instead of stack-`alloca`. Exercises closures × Box<dyn Fn> return
+//   × captured state surviving the frame.
+package t03_boxed_capturing_factory;
+
+use logos.mem.boxed;
+
+fn adder(n: i64) -> Box<dyn Fn(i64) -> i64> {
+    return box_new(move |x| -> i64 { return x + n; });
+}
+
+fn main() -> i32 {
+    let add5 = adder(5i64);
+    let add10 = adder(10i64);
+    if add5(1i64) != 6i64 { return 1i32; }
+    if add10(1i64) != 11i64 { return 2i32; }
+    if add5(100i64) != 105i64 { return 3i32; }
+    return 0i32;
+}

@@ -3525,6 +3525,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_mirror_emit_block_node(out_, nc->body);
             nc->is_move   = v.is_move();
             nc->as_fn_ptr = v.as_fn_ptr();
+            nc->escapes   = v.escapes();  // G167-3b: preserve heap-env flag
             v.each_capture_name([&](std::string_view cn) {
                 nc->captures.push_back(std::string(cn));
             });

@@ -11978,6 +11978,19 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->ret_type      = ret_type;
     ec->body          = std::move(body);
     ec->is_move       = is_move;
+    // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
+    // being BOXED — its captured env must live on the heap (boxing confers
+    // heap lifetime; a stack env would dangle once the creating fn returns).
+    // The Box wrapper is detected via hint_closure_formal_ peeling to a
+    // callable THROUGH a struct (Box) wrapper, NOT a bare/Ref-wrapped Fn
+    // (those are borrowed/in-frame: iterator-adapter args keep a stack env).
+    if (hint_closure_formal_) {
+        TypeRef hk(hint_closure_formal_);
+        if ((hk.kind() == LogosType::Kind::Struct ||
+             hk.kind() == LogosType::Kind::ZonedStruct) &&
+            peel_to_callable(hint_closure_formal_))
+            ec->escapes = true;
+    }
 
     {
         // Scan ec->body's mirror after the move so &ec->body is the stable

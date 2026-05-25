@@ -670,6 +670,13 @@ struct EClosure {
     std::vector<bool>               mut_captures;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
+    // G167-3b: the closure value escapes its creating frame (it is BOXED —
+    // lowered where the expected type is `Box<…Fn…>`). Its captured-env must
+    // be HEAP-allocated rather than stack-`alloca`'d, else the env pointer
+    // dangles once the creating fn returns (boxing gives the closure heap
+    // lifetime). Non-escaping closures (iterator-adapter args, locals) keep
+    // the cheap stack env.
+    bool                            escapes = false;
 };
 
 struct LFunction {
