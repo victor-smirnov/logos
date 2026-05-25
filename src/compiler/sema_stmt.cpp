@@ -3952,12 +3952,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 error(std::format("slice pattern: {} + {} elements exceed array size {}",
                       psl.prefix.size(), psl.suffix.size(), arr_size));
         }
-        // NG2: Dynamic slices (Slice kind) don't have a known length at compile time.
-        // Suffix elements after .. require computing total-N indices, which needs runtime
-        // length. Reject suffix patterns on dynamic slices; codegen would produce wrong code.
-        if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Slice &&
-            found_rest && !psl.suffix.empty())
-            error("slice pattern: suffix after '..' not supported for dynamic slices");
+        // G167-6a: suffix elements after `..` on a dynamic slice ARE supported —
+        // codegen indexes them from the runtime length (`len - suf_n + i`) and
+        // gates the arm on `len >= prefix + suffix`. (Previously rejected.)
         auto mo = lir_mirror_emit_pat_slice(*cur_prog_, psl.prefix, psl.rest, psl.suffix);
         lir::Pattern p_;
         p_.mirror_offset_ = mo;

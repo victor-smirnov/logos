@@ -39,14 +39,20 @@ else-branch place. The compound desugar appears to reuse the index-0 / first-bra
 the write-back. Silent. **High value.** Intersection: operator-overload Index/IndexMut ×
 compound-assign × conditional-return place.
 
-### G167-7 — `Vec<Box<dyn Trait>>` (fat-pointer element) — CRASH (SIGSEGV)  [repro t10]
-A Vec whose element type is a fat-pointer `Box<dyn Shape>` SIGSEGVs at runtime — even a single
-`push` + `get` + `area()` dispatch crashes (exit 139). Isolated: `Vec<Box<i64>>` (thin element)
-works end-to-end, and a bare `let b: Box<dyn Shape> = box_new(..); b.area()` dispatch works.
-Only the fat `Box<dyn>` stored through Vec's generic `T` element slot fails to round-trip — Vec
-element storage/copy assumes a thin/scalar `T` and truncates the vtable half (garbage vtable on
-dispatch). **High value** — `Vec<Box<dyn Trait>>` is the canonical heterogeneous-collection
-idiom. Intersection: trait objects (fat pointer) × generic container element storage.
+### G167-7 — `Vec<Box<dyn Trait>>` (fat-pointer element) — ✅ FIXED 2026-05-24  [repro t10]
+A `Vec<Box<dyn Shape>>` SIGSEGV'd: `v.push(box_new(Square{..}))` stored a THIN `Box<Square>`
+handle (no `{data,vtable}` fat slot), so later `v.get(i).area()` dispatch read a garbage vtable.
+Root: the unsize coercion `Box<Concrete> → Box<dyn Trait>` was applied only when the formal was
+SYNTACTICALLY a trait object (a concrete `Box<dyn>`/`&dyn` param, e.g. a plain fn arg); it was
+NOT applied when the formal was a GENERIC param `T` later bound to `Box<dyn Trait>` (Vec::push's
+`val: T`). Diagnosis matrix: push ✓, get ✓, dispatch ✗; `disp(box_new(Square))` ✓ (concrete
+formal); coercing to dyn BEFORE push ✓. Fix (mlir_gen_expr): (1) the method-call arg path now
+does concrete→dyn coercion at all (it did none before), looking up the callee's Logos param
+types by the RESOLVED FuncOp name (which carries the `__g__<arg>` generic-instance suffix), not
+the un-suffixed base; (2) both the method and free-fn arg paths peel a `Box<TraitObject>` formal
+to its inner `TraitObject` so a generic param that resolved to `Box<dyn>` is recognized. Test:
+traits/vec-box-dyn-dispatch-b167 (push two distinct concrete types, loop-dispatch `area()`, sum).
+**High value** — `Vec<Box<dyn Trait>>` is the canonical heterogeneous-collection idiom.
 
 ### G167-2 — closure value stored in a generic struct field `F: Fn(..)` — ✅ FIXED 2026-05-24  [repro t02]
 `struct Holder<F: Fn(i64)->i64> { f: F }` with `Holder { f: |x| {..} }` previously failed: the
@@ -87,18 +93,18 @@ NOT already bound by the receiver (`Acc` here). The Fn-bound synthesis then reso
 iterators/fold-inferred-closure-params-b167. **The shared closure-param-inference root behind
 G167-1/-2/-3 is now closed; only the orthogonal env-escape defect (G167-3b) remains.**
 
-### G167-6 — slice patterns: suffix-after-`..` + local re-use of a named rest sub-slice — REJECT + CRASH  [repro t11]
-Two distinct cracks in dynamic-slice (`&[T]`) patterns:
-- **G167-6a (REJECT):** `[first, .., last]` (binding elements AFTER the `..` rest) →
-  *"slice pattern: suffix after '..' not supported for dynamic slices"*. Only prefix elements
-  before a trailing `..` are supported.
-- **G167-6b (CRASH, MLIR-gen):** binding a named rest `[a, rest @ ..]` and then USING the rest
-  sub-slice locally — `rest.len()` OR re-matching `match rest { [x, ..] => .. }` — fails
-  MLIR-gen: *"'llvm.getelementptr' op operand #0 must be LLVM pointer type … but got
-  '!llvm.struct<(ptr, i64)>'"* (GEP applied to a `{ptr,i64}` slice value instead of its data
-  pointer). Boundary: passing the rest sub-slice to a **separate function** works (the existing
-  `slice-pattern-recursion-15104` test recurses that way); the crack is treating the bound rest
-  as a slice **place** in the same function. Intersection: slice patterns × sub-slice place use.
+### G167-6 — slice patterns: suffix-after-`..` + local re-use of a named rest sub-slice — ✅ FIXED 2026-05-24  [repro t11]
+Two distinct cracks in dynamic-slice (`&[T]`) patterns, both fixed:
+- **G167-6a:** `[first, .., last]` (binding elements AFTER the `..` rest) was REJECTED at sema.
+  Now supported: sema reject removed; codegen gates the arm on `len >= prefix + suffix` (already
+  did) and binds/checks each suffix element from the runtime length at `len - suf_n + i`.
+- **G167-6b:** binding a named rest `[a, rest @ ..]` and USING the rest sub-slice locally
+  (`rest.len()`, re-match) crashed MLIR-gen (GEP on a `{ptr,i64}` slice value). Root: the
+  statement-match binder typed the rest as `var_elem_types_=<{ptr,i64} struct>` (a let-scalar)
+  instead of `var_slice_=<elem>` (a first-class slice place), so `.len()` GEP'd the struct value.
+  Now bound as a proper `&[T]` place {data + pre_n, len - pre_n - suf_n}; suffix accounted for in
+  the rest length. Both the statement-match (mlir_gen_stmt) and value-match (mlir_gen_expr) paths
+  fixed in parallel. Test: slice/slice-suffix-and-named-rest-b167.
 
 ---
 

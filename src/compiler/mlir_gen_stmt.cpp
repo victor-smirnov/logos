@@ -3236,11 +3236,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, li);
                     auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
                     lir_view::PatSliceView psl{p};
-                    int32_t pre_n = 0;
-                    psl.each_prefix([&](lir_view::PatRef sp){
-                        int32_t idx = pre_n++;
+                    auto bind_at = [&](lir_view::PatRef sp, mlir::Value idx) {
                         if (!sp) return;
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
                         if (sp.kind() == pc::Code::Wild) {
                             std::string pwn(lir_view::PatWildView{sp}.name());
@@ -3258,26 +3256,45 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             scope_[prbn] = a; let_vars_.insert(prbn);
                             var_elem_types_[prbn] = ptr_type();
                         }
-                    });
-                    // Named rest → sub-slice {data + pre_n, len - pre_n}.
+                    };
+                    auto i64c = [&](int64_t k){
+                        return builder_.create<mlir::arith::ConstantIntOp>(loc_, k, 64).getResult();
+                    };
+                    int32_t pre_n = 0;
+                    psl.each_prefix([&](lir_view::PatRef sp){ bind_at(sp, i64c(pre_n++)); });
+                    // G167-6a: suffix elements bind from the tail at `len - suf_n + i`.
+                    size_t suf_n = psl.suffix_count();
+                    {
+                        size_t i = 0;
+                        psl.each_suffix([&](lir_view::PatRef sp){
+                            mlir::Value idx = builder_.create<mlir::arith::SubIOp>(
+                                loc_, slen, i64c((int64_t)(suf_n - i)));
+                            bind_at(sp, idx);
+                            ++i;
+                        });
+                    }
+                    // G167-6b: named rest → sub-slice {data + pre_n, len - pre_n - suf_n}
+                    // bound as a first-class `&[T]` PLACE (var_slice_, NOT a raw
+                    // struct value) so `rest.len()` / re-matching `rest` work —
+                    // previously typed as the {ptr,i64} struct, so a `.len()` GEP
+                    // hit the struct value and crashed MLIR-gen.
                     if (auto rest = psl.rest()) {
                         std::string rn(lir_view::PatWildView{rest}.name());
                         if (!rn.empty() && rn != "_") {
-                            llvm::SmallVector<mlir::LLVM::GEPArg> ri{int32_t(pre_n)};
                             auto rdata = builder_.create<mlir::LLVM::GEPOp>(
-                                loc_, ptr_type(), elem_mlir, data, ri);
-                            auto pc_v = builder_.create<mlir::arith::ConstantIntOp>(
-                                loc_, (int64_t)pre_n, 64);
-                            auto rlen = builder_.create<mlir::arith::SubIOp>(loc_, slen, pc_v);
+                                loc_, ptr_type(), elem_mlir, data,
+                                llvm::SmallVector<mlir::LLVM::GEPArg>{i64c((int64_t)pre_n)});
+                            auto rlen = builder_.create<mlir::arith::SubIOp>(
+                                loc_, slen, i64c((int64_t)(pre_n + (int)suf_n)));
                             auto sub = create_entry_alloca(sdtype);
-                            llvm::SmallVector<mlir::LLVM::GEPArg> sd0{int32_t(0), int32_t(0)};
-                            auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub, sd0);
+                            auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+                                llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
                             builder_.create<mlir::LLVM::StoreOp>(loc_, rdata, sdp);
-                            llvm::SmallVector<mlir::LLVM::GEPArg> sd1{int32_t(0), int32_t(1)};
-                            auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub, sd1);
+                            auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+                                llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
                             builder_.create<mlir::LLVM::StoreOp>(loc_, rlen, slp);
-                            scope_[rn] = sub; let_vars_.insert(rn);
-                            var_elem_types_[rn] = sdtype;
+                            scope_[rn] = sub;
+                            var_slice_[rn] = elem_mlir;
                         }
                     }
                 }

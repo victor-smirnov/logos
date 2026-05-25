@@ -1782,8 +1782,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {
             auto param_lt = fpit->second[i];
             auto arg_lt = arg_refs[i].type(pool_impl());
-            if (param_lt && TypeRef(param_lt).kind() == LogosType::Kind::TraitObject &&
-                arg_lt && TypeRef(arg_lt).kind() != LogosType::Kind::TraitObject) {
+            // G167-7: peel a `Box<TraitObject>` formal (and arg) so a concrete
+            // `Box<Square>` passed where a generic param resolved to
+            // `Box<dyn Shape>` (e.g. `Vec<Box<dyn Shape>>::push`) is unsize-
+            // coerced into a fat `{data, vtable}` handle. Without peeling, the
+            // formal looked like `Box<TraitObject>` (Struct), the check below
+            // (bare TraitObject only) missed it, and a THIN handle was stored →
+            // garbage vtable on later dispatch (SIGSEGV).
+            TypeRef ptl = param_lt, alt = arg_lt;
+            auto unbox = [](TypeRef& t){
+                if (t && TypeRef(t).kind() == LogosType::Kind::Struct &&
+                    TypeRef(t).struct_name() == "Box" &&
+                    TypeRef(t).type_args().size() == 1)
+                    t = TypeRef(t).type_args()[0];
+            };
+            unbox(ptl); unbox(alt);
+            if (ptl && TypeRef(ptl).kind() == LogosType::Kind::TraitObject &&
+                alt && TypeRef(alt).kind() != LogosType::Kind::TraitObject) {
+                param_lt = ptl;  // use peeled trait object for trait_name below
                 TypeRef vt_type = arg_lt;
                 // C6-cc-09: `&T` / `&mut T` over a struct → &dyn Trait. The
                 // ref value is already a data pointer at the LLVM level; unwrap
@@ -1996,10 +2012,64 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     llvm::SmallVector<mlir::Value> args;
     args.push_back(ptr);
     auto param_types = callee_fn.getFunctionType().getInputs();
+    // G167-7: Logos-level param types of the (mono'd) callee, for concrete→dyn
+    // coercion. Keyed by the mangled symbol; index 0 is `self`, so arg i maps
+    // to param i+1.
+    // Look up by the RESOLVED FuncOp name (carries the `__g__<arg-mangle>`
+    // generic-instance suffix), not the un-suffixed callee_name base.
+    auto m_fpit = fn_param_types_.find(callee_fn.getName().str());
     for (size_t i = 0; i < arg_les.size(); ++i) {
         auto val = gen_expr(*arg_les[i]);
         if (!val) return nullptr;
         size_t pi = i + 1;
+        // G167-7: a concrete `Box<T>` / `&T` / struct argument passed where the
+        // (mono'd) param is a trait object — possibly a GENERIC param `T` later
+        // bound to `Box<dyn Trait>` (e.g. `Vec<Box<dyn Shape>>::push`) — must be
+        // unsize-coerced into a fat `{data, vtable}` handle. The method-call
+        // path previously skipped this entirely (only the free-fn path coerced),
+        // so a thin `Box<Square>` was stored and later dispatch read a garbage
+        // vtable → SIGSEGV. Mirrors the free-fn coercion; also peels a
+        // `Box<TraitObject>` formal to its inner TraitObject.
+        if (m_fpit != fn_param_types_.end() && pi < m_fpit->second.size()) {
+            auto param_lt = m_fpit->second[pi];
+            auto arg_lt   = arg_refs[i].type(pool_impl());
+            TypeRef ptl = param_lt;
+            if (ptl && TypeRef(ptl).kind() == LogosType::Kind::Struct &&
+                TypeRef(ptl).struct_name() == "Box" &&
+                TypeRef(ptl).type_args().size() == 1)
+                ptl = TypeRef(ptl).type_args()[0];
+            TypeRef alt = arg_lt;
+            if (alt && TypeRef(alt).kind() == LogosType::Kind::Struct &&
+                TypeRef(alt).struct_name() == "Box" &&
+                TypeRef(alt).type_args().size() == 1)
+                alt = TypeRef(alt).type_args()[0];
+            if (ptl && TypeRef(ptl).kind() == LogosType::Kind::TraitObject &&
+                alt && TypeRef(alt).kind() != LogosType::Kind::TraitObject) {
+                TypeRef vt_type = arg_lt;
+                if (TypeRef(vt_type).kind() == LogosType::Kind::Ref ||
+                    TypeRef(vt_type).kind() == LogosType::Kind::MutRef)
+                    vt_type = TypeRef(vt_type).pointee();
+                if (TypeRef(vt_type).kind() == LogosType::Kind::Struct &&
+                    TypeRef(vt_type).struct_name() == "Box" &&
+                    TypeRef(vt_type).type_args().size() == 1)
+                    vt_type = TypeRef(vt_type).type_args()[0];
+                if (val.getType() != ptr_type() &&
+                    TypeRef(arg_lt).kind() != LogosType::Kind::Ref &&
+                    TypeRef(arg_lt).kind() != LogosType::Kind::MutRef &&
+                    !(TypeRef(arg_lt).kind() == LogosType::Kind::Struct &&
+                      TypeRef(arg_lt).struct_name() == "Box"))
+                    val = spill_to_alloca(val);
+                std::string vt_name =
+                    (TypeRef(vt_type).kind() == LogosType::Kind::Struct ||
+                     TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
+                        ? concrete_struct_name(vt_type)
+                        : type_str(vt_type);
+                if (auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name)) {
+                    args.push_back(fat);
+                    continue;
+                }
+            }
+        }
         if (pi < param_types.size()) {
             if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
@@ -3067,9 +3137,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
                     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, di);
                     auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
-                    auto bind_slice_elem = [&](lir_view::PatRef sp, int32_t idx) {
+                    // Runtime length — needed to index suffix elements from the
+                    // tail and to size the named-rest sub-slice.
+                    llvm::SmallVector<mlir::LLVM::GEPArg> lgi{int32_t(0), int32_t(1)};
+                    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, lgi);
+                    auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+                    auto bind_slice_elem = [&](lir_view::PatRef sp, mlir::Value idx) {
                         if (!sp) return;
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
                         if (sp.kind() == pc::Code::Wild) {
                             std::string pwn(lir_view::PatWildView{sp}.name());
@@ -3093,8 +3168,49 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         }
                     };
                     lir_view::PatSliceView psl{pat_ref};
-                    int32_t idx = 0;
-                    psl.each_prefix([&](lir_view::PatRef sp){ bind_slice_elem(sp, idx++); });
+                    auto i64c = [&](int64_t k){
+                        return builder_.create<mlir::arith::ConstantIntOp>(loc_, k, 64).getResult();
+                    };
+                    size_t pre_n = 0, suf_n = psl.suffix_count();
+                    psl.each_prefix([&](lir_view::PatRef){ ++pre_n; });
+                    {
+                        int64_t idx = 0;
+                        psl.each_prefix([&](lir_view::PatRef sp){ bind_slice_elem(sp, i64c(idx++)); });
+                    }
+                    // G167-6a: suffix elements bind from the tail at `len - suf_n + i`.
+                    {
+                        size_t i = 0;
+                        psl.each_suffix([&](lir_view::PatRef sp){
+                            mlir::Value idx = builder_.create<mlir::arith::SubIOp>(
+                                loc_, len, i64c((int64_t)(suf_n - i)));
+                            bind_slice_elem(sp, idx);
+                            ++i;
+                        });
+                    }
+                    // G167-6b: a named rest (`rest @ ..`) binds a sub-slice
+                    // descriptor {data + pre_n, len - pre_n - suf_n} so it can be
+                    // used locally (`rest.len()`, re-match) as a first-class
+                    // `&[T]` place — not just forwarded to another fn.
+                    psl.each_rest([&](lir_view::PatRef rp){
+                        if (!rp || rp.kind() != pc::Code::Wild) return;
+                        std::string rn(lir_view::PatWildView{rp}.name());
+                        if (rn == "_" || rn.empty()) return;
+                        auto rest_data = builder_.create<mlir::LLVM::GEPOp>(
+                            loc_, ptr_type(), elem_mlir, data,
+                            llvm::SmallVector<mlir::LLVM::GEPArg>{i64c((int64_t)pre_n)});
+                        mlir::Value rest_len = builder_.create<mlir::arith::SubIOp>(
+                            loc_, len, i64c((int64_t)(pre_n + suf_n)));
+                        auto desc = create_entry_alloca(stype);
+                        auto d0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, desc,
+                            llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, rest_data, d0);
+                        auto d1 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, desc,
+                            llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
+                        builder_.create<mlir::LLVM::StoreOp>(loc_, rest_len, d1);
+                        scope_[rn] = desc;
+                        var_slice_[rn] = elem_mlir;
+                        added.push_back(rn);
+                    });
                 }
             }
         } else if (pat_ref.kind() == pc::Code::Struct) {
@@ -3770,6 +3886,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             auto stype     = slice_llvm_type();
             std::vector<lir_view::PatRef> prefix;
             sv.each_prefix([&](lir_view::PatRef sp){ prefix.push_back(sp); });
+            // G167-6a: suffix elements after `..` are gated/checked from the
+            // runtime length (`len - suf_n + i`).
+            std::vector<lir_view::PatRef> suffix;
+            sv.each_suffix([&](lir_view::PatRef sp){ suffix.push_back(sp); });
             bool has_rest = (bool)sv.rest();
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
@@ -3787,21 +3907,22 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, li);
                     auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
                     auto nconst = builder_.create<mlir::arith::ConstantIntOp>(
-                        loc_, (int64_t)prefix.size(), 64);
+                        loc_, (int64_t)(prefix.size() + suffix.size()), 64);
+                    // With a rest `..`, the slice may be longer (len >= fixed);
+                    // without it, length must equal the fixed element count.
                     auto pred = has_rest ? mlir::arith::CmpIPredicate::sge
                                          : mlir::arith::CmpIPredicate::eq;
                     mlir::Value cond = builder_.create<mlir::arith::CmpIOp>(loc_, pred, len, nconst);
                     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
                     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, sptr, di);
                     auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
-                    if (elem_mlir) for (size_t i = 0; i < prefix.size(); ++i) {
-                        auto sp = prefix[i];
-                        if (!sp || sp.kind() == pc::Code::Wild) continue;
+                    auto chk = [&](lir_view::PatRef sp, mlir::Value idx) {
+                        if (!sp || sp.kind() == pc::Code::Wild) return;
                         int64_t sub_val = 0;
                         if      (sp.kind() == pc::Code::Int)  sub_val = lir_view::PatIntView{sp}.value();
                         else if (sp.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sp}.value() ? 1 : 0;
-                        else continue;
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(i)};
+                        else return;
+                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
                         auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
                         auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
                         auto cv = coerce_int(
@@ -3809,6 +3930,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                         auto eq = builder_.create<mlir::arith::CmpIOp>(
                             loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
                         cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
+                    };
+                    if (elem_mlir) {
+                        for (size_t i = 0; i < prefix.size(); ++i)
+                            chk(prefix[i], builder_.create<mlir::arith::ConstantIntOp>(
+                                loc_, (int64_t)i, 64));
+                        // Suffix index = len - suf_n + i (from the tail).
+                        for (size_t i = 0; i < suffix.size(); ++i) {
+                            auto off = builder_.create<mlir::arith::ConstantIntOp>(
+                                loc_, (int64_t)(suffix.size() - i), 64);
+                            mlir::Value idx = builder_.create<mlir::arith::SubIOp>(loc_, len, off);
+                            chk(suffix[i], idx);
+                        }
                     }
                     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
                 } else {
