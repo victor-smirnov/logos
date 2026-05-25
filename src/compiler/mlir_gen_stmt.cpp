@@ -1033,6 +1033,24 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
         return;
     }
+    // Whole-array rebind (`t = [a, b]` / `t = other_arr`): arrays are
+    // pointer-represented, so `val` is a pointer to the source array storage
+    // and `it->second` is the destination array alloca. A plain StoreOp would
+    // write only the source POINTER into the first 8 bytes of the slot (leaving
+    // the elements stale → `t[i]` reads the old value). Memcpy the whole array,
+    // like the struct/fat-pointer rebinds above.
+    if (val_t && TypeRef(val_t).kind() == LogosType::Kind::Array &&
+        val.getType() == ptr_type()) {
+        auto arr_ll = logos_to_mlir(val_t);
+        if (arr_ll) {
+            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+            auto bytes = (int64_t)dl.getTypeSize(arr_ll);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+            return;
+        }
+    }
     auto et = var_elem_types_.find(name);
     if (et != var_elem_types_.end())
         val = coerce_int(val, et->second);
