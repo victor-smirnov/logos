@@ -1,0 +1,17 @@
+package g1_vec_ref_dyn;
+use logos.mem.collections.vec;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s*self.s; } }
+fn main() -> i32 {
+    let a = Sq { s: 3i64 };
+    let b = Sq { s: 4i64 };
+    let mut v: Vec<&dyn Sh> = vec_new::<&dyn Sh>();
+    v.push(&a);
+    v.push(&b);
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.length() { acc = acc + v.get(i).area(); i = i + 1i64; }
+    if acc != 25i64 { return 1i32; }
+    return 0i32;
+}

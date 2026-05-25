@@ -1,0 +1,12 @@
+package g5_option_box_dyn;
+use logos.mem.boxed;
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Sq) -> i64 { return self.s*self.s; } }
+fn main() -> i32 {
+    let o: Option<Box<dyn Sh>> = Option::Some(box_new(Sq { s: 5i64 }));
+    match o {
+        Option::Some(b) => { return b.area() as i32; }
+        Option::None => { return -1i32; }
+    }
+}

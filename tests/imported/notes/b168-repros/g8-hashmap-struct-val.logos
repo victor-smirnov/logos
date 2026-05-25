@@ -1,0 +1,11 @@
+package g8_hashmap_struct_val;
+use logos.mem.collections.hashmap;
+struct Point { x: i64, y: i64 }
+fn main() -> i32 {
+    let mut m: HashMap<i64, Point> = hashmap_new::<i64, Point>();
+    unsafe {
+        m.insert(7i64, Point { x: 3i64, y: 4i64 });
+        let p = m.get(&7i64);
+        return (p[0].x + p[0].y) as i32;
+    }
+}

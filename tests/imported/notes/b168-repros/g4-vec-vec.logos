@@ -1,0 +1,14 @@
+package g4_vec_vec;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut outer: Vec<Vec<i64>> = vec_new::<Vec<i64>>();
+    let mut a: Vec<i64> = vec_new::<i64>();
+    a.push(10i64); a.push(20i64);
+    let mut b: Vec<i64> = vec_new::<i64>();
+    b.push(5i64);
+    outer.push(a);
+    outer.push(b);
+    let r0 = outer.get(0i64);
+    let r1 = outer.get(1i64);
+    return (r0.get(0i64) + r0.get(1i64) + r1.get(0i64)) as i32;
+}

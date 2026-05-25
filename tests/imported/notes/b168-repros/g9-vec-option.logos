@@ -1,0 +1,16 @@
+package g9_vec_option;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<Option<i64>> = vec_new::<Option<i64>>();
+    v.push(Option::Some(10i64));
+    v.push(Option::None);
+    v.push(Option::Some(20i64));
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.length() {
+        match v.get(i) { Option::Some(x) => { acc = acc + x; } Option::None => {} }
+        i = i + 1i64;
+    }
+    if acc != 30i64 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+package g3_vec_tuple_string;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut v: Vec<(i64, String)> = vec_new::<(i64, String)>();
+    v.push((1i64, String::from("ab")));
+    v.push((2i64, String::from("cde")));
+    let t0 = v.get(0i64);
+    let t1 = v.get(1i64);
+    return (t0.0 + t1.0 + (t0.1.len() as i64) + (t1.1.len() as i64)) as i32;
+}
