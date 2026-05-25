@@ -49,7 +49,12 @@ the in-place relabel-without-fatten.
   `*mut self` raw-ptr method — a different arg path than G167-7's method coercion.)
 - **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** *"method call: receiver is not a struct
   (got &&dyn Sh)"*. for-by-ref yields `&Element` = `&Box<dyn>` which erases to `&&dyn Sh`;
-  `b.area()` doesn't deref+dispatch the boxed trait object.
+  `b.area()` doesn't deref+dispatch the boxed trait object. PROBED 2026-05-24: adding a
+  `&TraitObject`→`TraitObject` auto-deref in `try_method_on_dyn` unblocks SEMA (compiles)
+  but then SIGSEGVs at runtime — the crash is DEEPER, in the for-each / VecIter-over-dyn
+  element addressing (the `while i<len { v.get(i).area() }` form works — banked
+  vec-box-dyn-dispatch-b167). Reverted (a clean reject beats a silent crash). Root: VecIter
+  yielding a `&`(dyn-handle) element + dispatch. Separate sub-sprint.
 
 **Fix direction (one root, multiple sites):** make unsize coercion *fatten the value*
 wherever it currently only relabels — the let-binding-into-generic, enum-variant
