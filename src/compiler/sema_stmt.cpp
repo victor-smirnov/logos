@@ -2959,6 +2959,18 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 auto bitems = arr_of(blist.get(la::ITEMS.code));
                 for (uint64_t j = 0; j < bitems.size(); ++j) {
                     auto bnode = map_of(bitems.get(j));
+                    // B170-E: or-distribution. When lower_match fanned this arm
+                    // out per payload-or alternative, replace a multi-alt PAT_OR
+                    // arg with the selected alternative so the rest of the loop
+                    // handles it like a plain payload sub-pattern (each fanned
+                    // arm re-runs the guard with its own bindings). Mirrors the
+                    // grammar's single-alt PAT_OR unwrap, generalised to N alts.
+                    if (payload_or_alt_ >= 0 &&
+                        code_of(bnode) == la::PAT_OR && bnode.has_key(la::ITEMS)) {
+                        auto oalts = arr_of(bnode.get(la::ITEMS.code));
+                        if ((uint64_t)payload_or_alt_ < oalts.size())
+                            bnode = map_of(oalts.get((uint64_t)payload_or_alt_));
+                    }
                     // B-pt-04: variant-payload args now parse as full
                     // patterns, but only PAT_WILD bindings (or PAT_UNIT
                     // skip) are codegen'd today.  Anything else (struct,
@@ -7329,7 +7341,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // normal single-arm path with its own refutable-inner guard
         // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
         // and same-variant-with-bindings or-patterns stay merged.
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; };
+        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         // An or-pattern alternative is "merge-safe" only if it is a pure
         // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
         // The merged PatOr codegen treats each alt as a scalar discriminant
@@ -7351,6 +7363,39 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                 if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
             return false;
         };
+        // B170-E: a variant whose SINGLE payload arg is a multi-alt PAT_OR
+        // (`Some((a,_) | (_,a))`) fans out one arm per alternative — i.e.
+        // or-distribution `Some(P|Q)` → `Some(P) | Some(Q)`. Each fanned arm
+        // re-evaluates the guard with its own bindings (Rust backtracks alts
+        // under a failing guard). Returns the alt count (≥2) or 0. Restricted to
+        // a single payload arg (the realistic class); a multi-arg variant with
+        // ors in several positions would need a cartesian product — out of
+        // scope, left to the merged path / a clean reject downstream.
+        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+            // The grammar wraps a whole arm pattern in a single-alt PAT_OR
+            // (`pat_single (PIPE …)*`); unwrap it to reach the variant.
+            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
+                auto a = arr_of(lhs.get(la::ITEMS.code));
+                if (a.size() == 1) lhs = map_of(a.get(0));
+            }
+            if (code_of(lhs) != la::PAT_VARIANT_DATA) return 0;
+            if (!lhs.has_key(la::ARGS)) return 0;
+            AnyVal aav = lhs.get(la::ARGS.code);
+            if (aav.is_null() || !aav.is_pointer()) return 0;
+            auto blist = map_of(aav);
+            if (!blist.has_key(la::ITEMS)) return 0;
+            auto items = arr_of(blist.get(la::ITEMS.code));
+            if (items.size() != 1) return 0;
+            auto arg = map_of(items.get(0));
+            if (code_of(arg) != la::PAT_OR || !arg.has_key(la::ITEMS)) return 0;
+            auto alts = arr_of(arg.get(la::ITEMS.code));
+            // Only fan out when an alternative binds / is non-scalar — a pure
+            // scalar or (`Some(1|2)`) is handled by the refutable-inner guard.
+            bool needs = false;
+            for (uint64_t k = 0; k < alts.size(); ++k)
+                if (!alt_is_merge_safe(code_of(map_of(alts.get(k))))) { needs = true; break; }
+            return (alts.size() >= 2 && needs) ? (int)alts.size() : 0;
+        };
         std::vector<EffArm> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
@@ -7364,6 +7409,11 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
                         eff_arms.push_back({arm, (int32_t)k});
+                    continue;
+                }
+                if (int n = variant_payload_or_alts(lhs); n > 0) {
+                    for (int k = 0; k < n; ++k)
+                        eff_arms.push_back({arm, -1, k});
                     continue;
                 }
             }
@@ -7426,9 +7476,13 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             std::vector<lir::LExprPtr> refut_guards;
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
+            // B170-E: select this fanned arm's payload-or alternative.
+            int32_t saved_payload_or_alt = payload_or_alt_;
+            payload_or_alt_ = eff_arms[i].payload_alt;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
                 : make_pat_wild("_");
+            payload_or_alt_ = saved_payload_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_hermes_ctx_ = false;
@@ -7443,13 +7497,27 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             }
             // P4-pm-02: for each nested struct sub-pat, emit field-by-
             // field SLet stmts that destructure the synth payload slot.
-            std::vector<lir::LStmt> nested_destructure_stmts;
+            // Factored into a lambda so a GUARDED arm can get a SECOND,
+            // independent copy for the guard (B170-D/E): the body keeps its
+            // own copy and a guard block-expr gets a fresh one — a single
+            // shared/leaked copy is unreliable because the block-expr's
+            // shadow-restore reverts a binding already in scope from a sibling
+            // fanned or-arm.
+            auto build_nested_destructure =
+                [&](std::vector<lir::LStmt>& nested_destructure_stmts, bool for_guard) {
             for (auto& nsub : nested_subs) {
                 TypeRef synth_t = lookup(nsub.synth_name);
                 if (!synth_t) continue;
                 if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
-                    emit_nested_variant_lets(nsub.synth_name, synth_t,
-                                             nsub.sub_pat_node, nested_destructure_stmts);
+                    // A nested-variant payload destructure uses a refutable
+                    // `let … else { loop {} }` that ASSUMES the arm already
+                    // matched (its own synth guard ran). It must NOT be hoisted
+                    // into the guard (for_guard) — running it before the synth
+                    // guard confirms the variant would hit `loop {}` on a
+                    // non-matching scrutinee (infinite loop).
+                    if (!for_guard)
+                        emit_nested_variant_lets(nsub.synth_name, synth_t,
+                                                 nsub.sub_pat_node, nested_destructure_stmts);
                     continue;
                 }
                 // B170: nested TUPLE sub-pattern in a variant payload
@@ -7548,6 +7616,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
             }
+            };  // build_nested_destructure
+            std::vector<lir::LStmt> nested_destructure_stmts;
+            build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
+            bool arm_has_user_guard = arm.has_key(la::GUARD);
 
             // Optional guard: `pattern if expr =>`
             std::optional<lir::LExprPtr> guard;
@@ -7581,6 +7653,27 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                     guard = std::move(merged);
                 } else {
                     guard = std::move(rg);
+                }
+            }
+            // B170-D/E guards: a guarded arm with nested-payload destructure
+            // lets (`Some((a, b)) if a > 0`, or-distributed `Some((a,_)|(_,a))
+            // if a > 10`) must compute those bindings BEFORE the guard runs —
+            // gen_match evaluates the guard in a block that precedes the body,
+            // so a guard reading `a` would otherwise hit an undefined value
+            // (compiler crash). Wrap the guard in a block-expr that runs the
+            // destructure first; the bindings are fresh names, so the block-expr
+            // leaks them into scope for the body too (the body prologue prepend
+            // below then sees an empty list).
+            if (guard && arm_has_user_guard) {
+                // Build the SAFE (unconditional field/element) destructure for
+                // the guard — never the refutable nested-variant let-else.
+                std::vector<lir::LStmt> guard_destructure;
+                build_nested_destructure(guard_destructure, /*for_guard=*/true);
+                if (!guard_destructure.empty()) {
+                    auto gblk = lir::alloc_block(*cur_prog_);
+                    gblk->stmts = std::move(guard_destructure);
+                    TypeRef gt = (*guard)->type;
+                    guard = builder().block_expr(std::move(gblk), std::move(*guard), gt);
                 }
             }
 
@@ -7836,7 +7929,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
         // variant codegen mishandled bindings — e.g. dispatched on the
         // scrutinee pointer (`arith.cmpi ptr, 0`).
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; };
+        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
@@ -7849,6 +7942,29 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
             return false;
         };
+        // B170-E: variant whose single payload arg is a multi-alt PAT_OR — see
+        // the lower_match twin for the rationale (or-distribution fan-out).
+        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
+                auto a = arr_of(lhs.get(la::ITEMS.code));
+                if (a.size() == 1) lhs = map_of(a.get(0));
+            }
+            if (code_of(lhs) != la::PAT_VARIANT_DATA) return 0;
+            if (!lhs.has_key(la::ARGS)) return 0;
+            AnyVal aav = lhs.get(la::ARGS.code);
+            if (aav.is_null() || !aav.is_pointer()) return 0;
+            auto blist = map_of(aav);
+            if (!blist.has_key(la::ITEMS)) return 0;
+            auto items = arr_of(blist.get(la::ITEMS.code));
+            if (items.size() != 1) return 0;
+            auto arg = map_of(items.get(0));
+            if (code_of(arg) != la::PAT_OR || !arg.has_key(la::ITEMS)) return 0;
+            auto alts = arr_of(arg.get(la::ITEMS.code));
+            bool needs = false;
+            for (uint64_t k = 0; k < alts.size(); ++k)
+                if (!alt_is_merge_safe(code_of(map_of(alts.get(k))))) { needs = true; break; }
+            return (alts.size() >= 2 && needs) ? (int)alts.size() : 0;
+        };
         std::vector<EffArm> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = map_of(arms.get(i));
@@ -7859,6 +7975,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
                         eff_arms.push_back({arm, (int32_t)k});
+                    continue;
+                }
+                if (int n = variant_payload_or_alts(lhs); n > 0) {
+                    for (int k = 0; k < n; ++k)
+                        eff_arms.push_back({arm, -1, k});
                     continue;
                 }
             }
@@ -7911,9 +8032,13 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             std::vector<lir::LExprPtr> refut_guards;
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
+            // B170-E: select this fanned arm's payload-or alternative.
+            int32_t saved_payload_or_alt = payload_or_alt_;
+            payload_or_alt_ = eff_arms[i].payload_alt;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
                 : make_pat_wild("_");
+            payload_or_alt_ = saved_payload_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_hermes_ctx_ = false;
@@ -7924,14 +8049,24 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             for (const auto& b : body_binds) {
                 define(b.name, anyval_t, /*is_mut=*/false);
             }
-            // P4-pm-02: nested struct sub-pat destructure stmts.
-            std::vector<lir::LStmt> nested_destructure_stmts;
+            // P4-pm-02: nested struct sub-pat destructure stmts. Factored into
+            // a lambda so a guarded arm can get an independent copy for its
+            // guard (B170-D/E) — see the lower_match twin.
+            auto build_nested_destructure =
+                [&](std::vector<lir::LStmt>& nested_destructure_stmts, bool for_guard) {
             for (auto& nsub : nested_subs) {
                 TypeRef synth_t = lookup(nsub.synth_name);
                 if (!synth_t) continue;
                 if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
-                    emit_nested_variant_lets(nsub.synth_name, synth_t,
-                                             nsub.sub_pat_node, nested_destructure_stmts);
+                    // A nested-variant payload destructure uses a refutable
+                    // `let … else { loop {} }` that ASSUMES the arm already
+                    // matched (its own synth guard ran). It must NOT be hoisted
+                    // into the guard (for_guard) — running it before the synth
+                    // guard confirms the variant would hit `loop {}` on a
+                    // non-matching scrutinee (infinite loop).
+                    if (!for_guard)
+                        emit_nested_variant_lets(nsub.synth_name, synth_t,
+                                                 nsub.sub_pat_node, nested_destructure_stmts);
                     continue;
                 }
                 // B170: nested TUPLE sub-pattern in a variant payload
@@ -8023,6 +8158,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
             }
+            };  // build_nested_destructure
+            std::vector<lir::LStmt> nested_destructure_stmts;
+            build_nested_destructure(nested_destructure_stmts, /*for_guard=*/false);
+            bool arm_has_user_guard = arm.has_key(la::GUARD);
 
             std::optional<lir::LExprPtr> guard;
             if (arm.has_key(la::GUARD)) {
@@ -8054,6 +8193,27 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     guard = std::move(merged);
                 } else {
                     guard = std::move(rg);
+                }
+            }
+            // B170-D/E guards: a guarded arm with nested-payload destructure
+            // lets (`Some((a, b)) if a > 0`, or-distributed `Some((a,_)|(_,a))
+            // if a > 10`) must compute those bindings BEFORE the guard runs —
+            // gen_match evaluates the guard in a block that precedes the body,
+            // so a guard reading `a` would otherwise hit an undefined value
+            // (compiler crash). Wrap the guard in a block-expr that runs the
+            // destructure first; the bindings are fresh names, so the block-expr
+            // leaks them into scope for the body too (the body prologue prepend
+            // below then sees an empty list).
+            if (guard && arm_has_user_guard) {
+                // Build the SAFE (unconditional field/element) destructure for
+                // the guard — never the refutable nested-variant let-else.
+                std::vector<lir::LStmt> guard_destructure;
+                build_nested_destructure(guard_destructure, /*for_guard=*/true);
+                if (!guard_destructure.empty()) {
+                    auto gblk = lir::alloc_block(*cur_prog_);
+                    gblk->stmts = std::move(guard_destructure);
+                    TypeRef gt = (*guard)->type;
+                    guard = builder().block_expr(std::move(gblk), std::move(*guard), gt);
                 }
             }
 

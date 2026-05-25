@@ -3152,6 +3152,12 @@ private:
         hermes::TinyMapView        sub_pat_node;
     };
     std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
+    // B170-E: when ≥0, build_pattern_variant selects this alternative index of a
+    // multi-alt PAT_OR appearing as a variant payload arg (`Some((a,_)|(_,a))`).
+    // Set per fanned-out effective arm so the or distributes into one arm per
+    // alternative (`Some(P|Q)` → `Some(P) | Some(Q)`), each re-evaluating the
+    // guard with its own bindings (rustc backtracks alts under a failing guard).
+    int32_t payload_or_alt_ = -1;
     // K4: emit `let <variant-sub-pat> = synth else { loop {} }` body-prologue
     // stmts (into `out`) that re-extract the bindings of a nested variant
     // payload pattern (e.g. `Some(Some(v))`), defining them in the current

@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/issue-70413-no-unreachable-pat-and-guard.rs
+// Modifications:
+//   • `fn main()` → `fn main() -> i32 { …; return 0i32; }`.
+//   • `unreachable!()` arms → distinct early-return sentinels (each match's
+//     `_` arm must not fire; a non-zero exit pins which one did).
+//   • literals suffixed `i64`.
+// Tests or-patterns with a guard where the bound name appears at DIFFERENT
+// positions per alternative, so the guard must be re-evaluated per alt (Rust
+// backtracks alternatives under a failing guard):
+//   • `(a, _) | (_, a)` — bare tuple, top-level or.
+//   • `Some((a, _)) | Some((_, a))` — or of two `Some(tuple)` alternatives.
+//   • `Some((a, _) | (_, a))` — multi-alt or INSIDE the variant payload
+//     (or-distribution `Some(P|Q)` → `Some(P) | Some(Q)`).
+package issue_70413_b170;
+fn main() -> i32 {
+    match (3i64, 42i64) {
+        (a, _) | (_, a) if a > 10i64 => {}
+        _ => { return 1i32; }
+    }
+
+    match Some((3i64, 42i64)) {
+        Some((a, _)) | Some((_, a)) if a > 10i64 => {}
+        _ => { return 2i32; }
+    }
+
+    match Some((3i64, 42i64)) {
+        Some((a, _) | (_, a)) if a > 10i64 => {}
+        _ => { return 3i32; }
+    }
+    return 0i32;
+}
