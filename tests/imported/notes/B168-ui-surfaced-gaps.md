@@ -35,11 +35,14 @@ reads a garbage vtable → crash. Confirmed: coercing to `dyn` BEFORE the
 container op (g5a: `let b: Box<dyn> = ..; Some(b)`) works → the defect is purely
 the in-place relabel-without-fatten.
 
-- **g5** `Option<Box<dyn Sh>>` ← `Some(box_new(Sq{..}))` — **CRASH (SIGSEGV)** at `b.area()`.
-  At the mlir-gen enum-payload store the payload's Logos type is already `&dyn Sh`
-  (sema relabeled it at the let-binding coercion `Option<Box<Sq>>`→`Option<Box<dyn Sh>>`),
-  so a consumer-side `coerce_value_to_dyn_if_needed` can't tell it's concrete.
-  Fix must FATTEN at the unsize-coercion site (let/payload), not just relabel.
+- **g5** `Option<Box<dyn Sh>>` ← `Some(box_new(Sq{..}))` — ✅ FIXED 2026-05-24.
+  `Option::Some(..)` lowers via `lower_enum_lit_data_from_static`; its TypeVar
+  inference now records the enum's type-arg as the DYN type from the hint
+  (projected into `pre_subst`) when the arg is a concrete coercible value, while
+  leaving the payload expr concrete — so mlir-gen's enum-payload store
+  unsize-fattens (`coerce_value_to_dyn_if_needed`) the concrete `Box<Sq>` into the
+  `Box<dyn Sh>` slot instead of storing a thin handle. Test:
+  traits/option-box-dyn-dispatch-b168.
 - **g2** `HashMap<i64, Box<dyn Sh>>` ← `insert(k, box_new(Sq{..}))` — **CRASH (MLIR-gen**,
   `getelementptr operand #0 must be pointer, got i32`). Same family: the `insert`
   arg (generic `V`=`Box<dyn>`) gets a concrete `Box<Sq>` not fattened. (insert is a

@@ -10031,6 +10031,29 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                                    ? prim(LogosType::Kind::F64) : i32_t();
                     }
                 }
+                // G168-A: when the hint pins this type-param to a trait object
+                // (`Option<Box<dyn Sh>>`) but the arg is a CONCRETE coercible
+                // value (`Box<Sq>`), record the enum's type-arg as the DYN type
+                // — so the constructed enum is genuinely `Option<Box<dyn Sh>>` —
+                // while leaving the payload expr concrete. mlir-gen's
+                // enum-payload store then unsize-fattens the concrete payload
+                // into the dyn slot; otherwise a thin `Box<Sq>` is stored and
+                // dispatch reads a garbage vtable (SIGSEGV).
+                auto wraps_dyn = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    TypeRef u(t);
+                    if ((u.kind() == LogosType::Kind::Ref ||
+                         u.kind() == LogosType::Kind::MutRef) && u.pointee())
+                        u = u.pointee();
+                    if (u.kind() == LogosType::Kind::Struct &&
+                        u.struct_name() == "Box" && u.type_args().size() == 1)
+                        u = u.type_args()[0];
+                    return u.kind() == LogosType::Kind::TraitObject;
+                };
+                if (auto h = hint_for_param(tvn))
+                    if (wraps_dyn(h) && !wraps_dyn(inferred) &&
+                        types_compatible(inferred, h))
+                        inferred = h;
                 subst[tvn] = inferred;
             } else if (pt) {
                 // N8: the declared payload type is a STRUCTURAL type that
@@ -10340,10 +10363,35 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                                    ? prim(LogosType::Kind::F64) : i32_t();
                     }
                 }
+                // G168-A: when the hint (projected into pre_subst) pins this
+                // type-param to a trait object (`Option<Box<dyn Sh>>`) but the
+                // payload arg is a CONCRETE coercible value (`Box<Sq>`), record
+                // the enum's type-arg as the DYN type — so the constructed enum
+                // is genuinely `Option<Box<dyn Sh>>` — while leaving the payload
+                // expr concrete. mlir-gen's enum-payload store unsize-fattens the
+                // concrete payload into the dyn slot; else a thin `Box<Sq>` is
+                // stored and dispatch reads a garbage vtable (SIGSEGV).
+                auto wraps_dyn = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    TypeRef u(t);
+                    if ((u.kind() == LogosType::Kind::Ref ||
+                         u.kind() == LogosType::Kind::MutRef) && u.pointee())
+                        u = u.pointee();
+                    if (u.kind() == LogosType::Kind::Struct &&
+                        u.struct_name() == "Box" && u.type_args().size() == 1)
+                        u = u.type_args()[0];
+                    return u.kind() == LogosType::Kind::TraitObject;
+                };
+                if (auto psit2 = pre_subst.find(tvn);
+                    psit2 != pre_subst.end() && psit2->second &&
+                    wraps_dyn(psit2->second) && !wraps_dyn(inferred) &&
+                    types_compatible(inferred, psit2->second))
+                    inferred = psit2->second;
                 // Payload-derived inference fills any slot still
                 // missing after the explicit turbofish pass above.
                 auto& slot = subst[tvn];
                 if (!slot) slot = inferred;
+                else if (wraps_dyn(inferred) && !wraps_dyn(slot)) slot = inferred;
             } else if (pt) {
                 // N8: structural payload type mentioning the enum's type params
                 // (`Full(Pair<T>)`) — unify against the actual arg type to

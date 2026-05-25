@@ -948,6 +948,43 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
     return alloca;
 }
 
+mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
+        mlir::Value val, TypeRef slot_lt, TypeRef val_lt) {
+    using K = LogosType::Kind;
+    if (!val || !slot_lt || !val_lt) return val;
+    auto unbox = [](TypeRef t) -> TypeRef {
+        if (t && TypeRef(t).kind() == K::Struct &&
+            TypeRef(t).struct_name() == "Box" &&
+            TypeRef(t).type_args().size() == 1)
+            return TypeRef(t).type_args()[0];
+        return t;
+    };
+    TypeRef ptl = unbox(slot_lt), alt = unbox(val_lt);
+    if (!(ptl && TypeRef(ptl).kind() == K::TraitObject)) return val;
+    if (alt && TypeRef(alt).kind() == K::TraitObject) return val;  // already dyn
+    TypeRef vt_type = val_lt;
+    if (TypeRef(vt_type).kind() == K::Ref || TypeRef(vt_type).kind() == K::MutRef)
+        vt_type = TypeRef(vt_type).pointee();
+    if (vt_type && TypeRef(vt_type).kind() == K::Struct &&
+        TypeRef(vt_type).struct_name() == "Box" &&
+        TypeRef(vt_type).type_args().size() == 1)
+        vt_type = TypeRef(vt_type).type_args()[0];
+    if (!vt_type) return val;
+    if (val.getType() != ptr_type() &&
+        TypeRef(val_lt).kind() != K::Ref &&
+        TypeRef(val_lt).kind() != K::MutRef &&
+        !(TypeRef(val_lt).kind() == K::Struct &&
+          TypeRef(val_lt).struct_name() == "Box"))
+        val = spill_to_alloca(val);
+    std::string vt_name =
+        (TypeRef(vt_type).kind() == K::Struct ||
+         TypeRef(vt_type).kind() == K::ZonedStruct)
+            ? concrete_struct_name(vt_type)
+            : type_str(vt_type);
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name);
+    return fat ? fat : val;
+}
+
 // ---------------------------------------------------------------------------
 // Indirect call through &tagged<TS> Trait dispatch.
 //

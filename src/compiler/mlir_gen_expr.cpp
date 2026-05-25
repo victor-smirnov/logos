@@ -487,6 +487,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                         val = spill_to_alloca(val);
                     builder_.create<mlir::LLVM::MemcpyOp>(loc_, fp, val, sz_val, false);
                 } else {
+                    // G168-A: an enum-variant payload typed as a trait object
+                    // (`Option<Box<dyn Sh>>::Some`) built from a CONCRETE
+                    // `Box<Sq>` must unsize-fatten before storing — else a thin
+                    // handle is stored and dispatch reads a garbage vtable.
+                    val = coerce_value_to_dyn_if_needed(val, lt, pl_le->type);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, vp->field_types[i]), fp);
                 }
             }
