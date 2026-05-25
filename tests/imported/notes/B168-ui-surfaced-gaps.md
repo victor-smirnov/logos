@@ -63,11 +63,16 @@ the in-place relabel-without-fatten.
   (`v.borrow(i).area()` = 13) AND let-bound (`let rd = v.borrow(0); rd.area()` = 4) receivers.
   Test: traits/borrowed-dyn-dispatch-b168. Full suite 5162/5162.
   STILL OPEN (separate roots, not the dispatch-receiver indirection):
-  - **for-each / `v.iter()` over `Vec<Box<dyn>>`** still SIGSEGVs — `for b in &v` AND
-    `for b in v.iter()` both crash, so the iterator/for-each path yields a CORRUPT dyn handle
-    (a VecIter/slice-iter-over-dyn-element codegen bug), independent of the now-fixed dispatch.
-    Workaround: the `while i<len { v.get(i).area() }` form (banked vec-box-dyn-dispatch-b167)
-    or `while … v.borrow(i).area()` (banked borrowed-dyn-dispatch-b168).
+  - **for-each over `Vec<Box<dyn>>`** still SIGSEGVs — gdb-isolated 2026-05-24: the for-each
+    slice-binding stores `scope_[b]` at a **2-level** indirection (`&(&buffer[i])`) for a
+    dyn element while typing `b` as `Ref<TraitObject>` (one level), so the single dispatch
+    load lands on the buffer base, not the handle (gdb: `self=&buffer[0]`, `vtable=null`). The
+    let-bound (`var_dyn_trait_`, 1-level) and inline (expr) forms are 1-level and work; the
+    for-each (`var_subscript_`/`ref_param_names_`) path needs its element-storage indirection
+    reconciled with its declared type — a focused for-each-binding fix, distinct from the
+    (now-fixed) dispatch site. `for b in v.iter()` (VecIter) is yet another binding path.
+    Workaround: `while i<len { v.get(i).area() }` (banked vec-box-dyn-dispatch-b167) or
+    `while … v.borrow(i).area()` (banked borrowed-dyn-dispatch-b168).
   - **g2 `p[0].area()`** (raw-ptr INDEX of `*const Box<dyn>`) — MLIR-gen verify crash, a
     raw-ptr-index-of-TraitObject codegen bug; `*p` deref now works via the dispatch fix.
 - (was) **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** (clean) — superseded by the entry above.
