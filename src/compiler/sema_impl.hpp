@@ -2745,6 +2745,12 @@ private:
     TypeRef impl_ret_type_inferred_ = nullptr;
     TypeRef hint_enum_type_ = nullptr;
     TypeRef hint_struct_type_ = nullptr;
+    // Expected TUPLE type for a tuple-literal in value position (a `(i64,i64)`
+    // param/let). Without it, untyped int-literal elements default to i32 — so
+    // `f((7, 2))` against a `(i64, i64)` param built an `{i32,i32}` buffer the
+    // callee then read as `{i64,i64}` (silent garbage). TUPLE_LIT lowering widens
+    // each element to the matching expected element type.
+    TypeRef hint_tuple_type_ = nullptr;
     // Set by lower_let when the let binding has an explicit type annotation,
     // so a generic-call rhs with insufficient turbofish can unify the fn's
     // return type against the expected type and fill missing type-args.

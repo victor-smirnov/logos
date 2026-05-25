@@ -1565,6 +1565,12 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                 TypeRef(ann).kind() == LogosType::Kind::Slice) &&
         TypeRef(ann).elem())
         hint_arr_elem_type_ = TypeRef(ann).elem();
+    // A `(i64, i64)` annotation hints a tuple-literal rhs's element types so
+    // untyped int literals widen instead of defaulting to i32 (`let p:(i64,i64)
+    // = (7, 2)`). Mirrors the call-arg tuple hint; consumed by TUPLE_LIT lowering.
+    auto saved_tuple_hint = hint_tuple_type_;
+    if (ann && TypeRef(ann).kind() == LogosType::Kind::Tuple)
+        hint_tuple_type_ = ann;
 
     // C6-cc-04: `let p = &<scalar literal>;` — Rust extends the
     // temporary's lifetime to the enclosing scope; Logos previously
@@ -1627,6 +1633,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                     hint_struct_type_ = saved_struct_hint;
                     hint_call_return_type_ = saved_ret_hint;
                     hint_closure_formal_ = saved_closure_hint;
+                    hint_tuple_type_ = saved_tuple_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
                 }
             }
@@ -1677,6 +1684,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     hint_call_return_type_ = saved_ret_hint;
     hint_closure_formal_ = saved_closure_hint;
     hint_arr_elem_type_ = saved_arr_elem_hint;
+    hint_tuple_type_ = saved_tuple_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred

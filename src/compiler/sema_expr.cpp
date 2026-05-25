@@ -1125,10 +1125,30 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         if (!expr.has_key(la::ITEMS))
             return builder().tuple_lit({}, void_t());  // () — unit value
         auto items = arr_of(expr.get(la::ITEMS.code));
+        // Expected tuple type (from a `(i64,i64)` param/let): widen each element
+        // to the matching expected element type so untyped int literals don't
+        // default to i32 (silent {i32,i32}-vs-{i64,i64} miscompile). Consumed
+        // once here; cleared for the element lowerings so it doesn't leak into a
+        // nested non-tuple expression.
+        TypeRef tuple_hint = hint_tuple_type_;
+        std::vector<TypeRef> hint_elems;
+        if (tuple_hint && TypeRef(tuple_hint).kind() == LogosType::Kind::Tuple) {
+            for (auto e : TypeRef(tuple_hint).tuple_elems()) hint_elems.push_back(e);
+            if (hint_elems.size() != items.size()) hint_elems.clear();
+        }
         std::vector<lir::LExprPtr> elems;
         std::vector<TypeRef> elem_types;
         for (uint64_t i = 0; i < items.size(); ++i) {
+            // Nested tuple element inherits its own slice of the hint; a
+            // non-tuple element clears it (a scalar/struct element below).
+            hint_tuple_type_ = (i < hint_elems.size() && hint_elems[i] &&
+                                TypeRef(hint_elems[i]).kind() == LogosType::Kind::Tuple)
+                               ? hint_elems[i] : TypeRef(nullptr);
             auto e = lower_expr(map_of(items.get(i)));
+            hint_tuple_type_ = tuple_hint;
+            // Widen an int-literal element to the expected element type.
+            if (i < hint_elems.size() && hint_elems[i])
+                widen_int_expr(e, hint_elems[i], builder());
             // Upgrade IntLit element type to i64 if the literal overflows i32.
             TypeRef et = e->type;
             if (TypeRef(et).kind() == LogosType::Kind::IntLit) {
@@ -2327,16 +2347,29 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 return pt;
             return nullptr;
         };
+        // A tuple formal hints a tuple-literal arg's element types so untyped int
+        // literals don't default to i32 (`f((7, 2))` against `(i64, i64)`).
+        auto tuple_hint_for = [&](size_t formal_idx) -> TypeRef {
+            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
+            TypeRef pt = hint_fi->param_types[formal_idx];
+            if (pt && TypeRef(pt).kind() == LogosType::Kind::Tuple)
+                return pt;
+            return nullptr;
+        };
         for (uint64_t i = start; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
             TypeRef saved_eh = hint_enum_type_;
+            TypeRef saved_th = hint_tuple_type_;
             if (TypeRef h = closure_hint_for((size_t)(i - start)))
                 hint_closure_formal_ = h;
             if (TypeRef eh = enum_hint_for((size_t)(i - start)))
                 hint_enum_type_ = eh;
+            if (TypeRef th = tuple_hint_for((size_t)(i - start)))
+                hint_tuple_type_ = th;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             hint_closure_formal_ = saved;
             hint_enum_type_ = saved_eh;
+            hint_tuple_type_ = saved_th;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -6611,6 +6644,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef saved_closure = hint_closure_formal_;
         TypeRef saved_enum    = hint_enum_type_;
         TypeRef saved_struct  = hint_struct_type_;
+        TypeRef saved_tuple   = hint_tuple_type_;
         if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
             TypeRef f = formals_hint[arg_idx];
             // Strip a single Ref/MutRef/Ptr wrapper for hint purposes;
@@ -6630,11 +6664,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                       k == LogosType::Kind::ZonedStruct) &&
                      !TypeRef(f).type_args().empty())
                 hint_struct_type_ = f;
+            else if (k == LogosType::Kind::Tuple)
+                hint_tuple_type_ = f;
         }
         auto out = lower_expr(arg_node);
         hint_closure_formal_ = saved_closure;
         hint_enum_type_      = saved_enum;
         hint_struct_type_    = saved_struct;
+        hint_tuple_type_     = saved_tuple;
         return out;
     };
     std::vector<lir::LExprPtr> arg_exprs;

@@ -1,0 +1,24 @@
+// Tuple-literal element type coercion (silent-miscompile guard). An untyped int
+// literal in a tuple literal must take its element type from the expected tuple
+// type (a `(i64,i64)` param / let), not default to i32 — otherwise `f((7, 2))`
+// built an `{i32,i32}` buffer the callee read as `{i64,i64}` (adjacent-stack
+// garbage). Covers the call-arg path, the let-annotation path, and nesting.
+// Distilled from rust-lang/rust tuple/numeric-literal-inference behaviour.
+package tuple_literal_int_coercion;
+
+fn add(p: (i64, i64)) -> i64 { return p.0 + p.1; }
+
+fn main() -> i32 {
+    // call-arg hint
+    if add((7, 2)) != 9i64 { return 1i32; }
+    // let-annotation hint
+    let p: (i64, i64) = (10, 20);
+    if p.0 + p.1 != 30i64 { return 2i32; }
+    // nested tuple hint
+    let n: (i64, (i64, i64)) = (1, (2, 3));
+    if n.1.0 + n.1.1 != 5i64 { return 3i32; }
+    // mixed widths inferred per element
+    let m: (u8, i64) = (255, 1000);
+    if m.1 != 1000i64 { return 4i32; }
+    return 0i32;
+}
