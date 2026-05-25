@@ -19,10 +19,17 @@ rustc-UI run-pass corpus is heavily mined; ~50% of fresh candidates surface a ga
 1. **Tuple or-pattern alternatives with bindings** — `(a,0)|(a,1)` / `(0,a)|(a,0)`
    silently never match. See [[baghunt_tuple_or_pattern_binding]]. (variant-or
    `Ok(x)|Err(x)` WORKS.) rustc: or-patterns/search-via-bindings.rs, inner-or-pat.rs.
-2. **Temporary rvalue Drop not run** — `Wrapper::new(…).method()` (a temporary
-   receiver) is NOT dropped at end of statement (counter short by one). rustc:
-   drop/drop-immediate-non-box-ty-9446.rs. Fundamental Drop-of-temporaries gap;
-   likely high-value (affects any `f(g())`/`expr.method()` with a droppable temp).
+2. **Temporary rvalue Drop not run for a method receiver** — `W::mk(…).get()` (a
+   droppable temporary used as an autoref'd `&self` receiver) is NOT dropped at end
+   of statement. ISOLATED 2026-05-25: bare `mk(c);` (temp_stmt) and `consume(mk(c))`
+   (temp moved into fn) BOTH drop correctly — only the method-receiver temp leaks.
+   ROOT: the B140-G1 statement-temp drop (sema_stmt.cpp ~240-272) binds+drops only
+   the TOP-LEVEL discarded rvalue; here the statement result is `i64` (get's return),
+   so the inner materialized receiver temp (addr_of_temp of the droppable `W`) is
+   never registered. FIX SCOPE: collect ALL droppable temporaries materialized
+   during a statement (Rust temporary scope = end of statement) and drop them, not
+   just the result. Architectural drop-insertion extension. rustc:
+   drop/drop-immediate-non-box-ty-9446.rs.
 3. **`impl Trait for &[T]`** (impl on a reference/slice type) — rejected: "the type
    `[i64]` is unsized: cannot be used by value". rustc: array-slice-vec/rcvr-borrowed-to-slice.rs.
 4. **Blanket default method via generic `Box<dyn>` cast** — `impl<A> Hax for A {}`
