@@ -5721,6 +5721,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
                         widen_int_expr(arg_exprs[i], pt, builder());
+                        coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
                         auto at = arg_exprs[i]->type;
                         if (TypeRef(at).kind() != LogosType::Kind::Error &&
                             TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -6278,6 +6279,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
                     widen_int_expr(arg_exprs[i], pt, builder());
+                    coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
                     auto at = arg_exprs[i]->type;
                     if (TypeRef(at).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -7569,6 +7571,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 widen_int_expr(arg_exprs[i], pt, builder());
                 // CP-cm-14: closure→fn-ptr coercion at struct-method args.
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
+                // B171: implicit `&Concrete → &dyn Trait` unsize at struct-method
+                // args (`v.push(&42i64)` into `Vec<&dyn Tr>`).
+                coerce_arg_to_dyn(arg_exprs[i], pt);
             }
             auto at = arg_exprs[i]->type;
             if (pi < fi.param_types.size()) {
@@ -8791,6 +8796,38 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                     ? TypeRef(call_e->type).pointee()
                     : error_t();
                 return builder().deref(std::move(call_e), pointee);
+            }
+            // Generic-struct Index impl (`impl<T> Index for Vec<T>`): the
+            // concrete `Vec$G1$i64__index` symbol doesn't exist at sema (only
+            // the template), so the concrete-symbol path above misses. Route
+            // `v[i]` → `*v.index(i)` through the normal method-call machinery
+            // (which dispatches generic-struct methods + instantiates at mono).
+            // Output = the impl's `Index<Idx, Output>` 2nd trait-arg, with the
+            // struct's type-args substituted for the impl's type params.
+            const SemaImplInfo* ii = nullptr;
+            if (auto it = impls_.find("Index::" + type_name); it != impls_.end()) ii = &it->second;
+            else if (auto it2 = impls_.find("Index::" + base_name); it2 != impls_.end()) ii = &it2->second;
+            if (ii && ii->trait_type_args.size() >= 2) {
+                SemaSubst subst;
+                if (ii->target_typeref) {
+                    auto pat = TypeRef(ii->target_typeref).type_args();
+                    auto cur = TypeRef(arr_type).type_args();
+                    for (size_t k = 0; k < pat.size() && k < cur.size(); ++k)
+                        if (pat[k] && TypeRef(pat[k]).kind() == LogosType::Kind::TypeVar)
+                            subst[std::string(TypeRef(pat[k]).type_var_name())] = cur[k];
+                }
+                TypeRef idx_t = subst_type_sema(ii->trait_type_args[0], subst);
+                TypeRef out_t = subst_type_sema(ii->trait_type_args[1], subst);
+                if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
+                    widen_int_expr(idx, idx_t, builder());
+                lir::EMethodCall mc;
+                mc.receiver = materialize_recv_ref(std::move(recv), false, ref_t);
+                mc.method = "index";
+                mc.args.push_back(std::move(idx));
+                mc.vtable_index = -1;
+                mc.resolved_type = "";
+                auto call_e = builder().method_call_v(std::move(mc), make_ref(false, out_t));
+                return builder().deref(std::move(call_e), out_t);
             }
         }
     }
@@ -10783,6 +10820,22 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     if (bare.empty()) return false;
     logos::compiler::StrSet seen2;
     return sema_has_impl_recursive(trait, concrete, bare, seen2);
+}
+
+bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
+    if (!arg || !pt) return false;
+    if (TypeRef(arg->type).kind() == LogosType::Kind::Error) return false;
+    if (types_compatible(arg->type, pt)) return false;  // already fits
+    // Peel a `&dyn` / `&mut dyn` param to the bare TraitObject.
+    TypeRef pdyn = pt;
+    auto pk = TypeRef(pt).kind();
+    if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+        TypeRef(pt).pointee())
+        pdyn = TypeRef(pt).pointee();
+    if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return false;
+    if (!ref_arg_satisfies_dyn(arg->type, pdyn)) return false;
+    arg = builder().cast(std::move(arg), pt);
+    return true;
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {

@@ -1,0 +1,23 @@
+// Regression (B171): IMPLICIT `&Concrete → &dyn Trait` unsize coercion in
+// generic-METHOD argument position (`v.push(&42i64)` into `Vec<&dyn Tr>`,
+// no `as &dyn`). The array-element coercion (a4d23821) covered the
+// `vec_from_arr([...])` path; this generalises the same coercion (new helper
+// `coerce_arg_to_dyn`) to any call/method-arg position, incl. the
+// generic-struct method site (the one that names `Vec__push` in errors).
+// Works for a struct (direct impl) and a primitive (blanket impl).
+package implicit_ref_to_dyn_method_arg;
+trait Tag { fn tag(self: &Self) -> i64; }
+trait Describe { fn d(self: &Self) -> i64; }
+impl<T: Tag> Describe for T { fn d(self: &Self) -> i64 { return self.tag(); } }
+impl Tag for i64 { fn tag(self: &Self) -> i64 { return *self; } }
+struct Sq { s: i64 }
+impl Tag for Sq { fn tag(self: &Self) -> i64 { return self.s; } }
+fn main() -> i32 {
+    let q: Sq = Sq { s: 7i64 };
+    let mut items: Vec<&dyn Describe> = vec_new::<&dyn Describe>();
+    items.push(&q);          // &Sq  → &dyn Describe (direct impl)
+    items.push(&42i64);      // &i64 → &dyn Describe (blanket impl), literal borrow
+    if items.get(0i64).d() != 7i64 { return 1i32; }
+    if items.get(1i64).d() != 42i64 { return 2i32; }
+    return 0i32;
+}

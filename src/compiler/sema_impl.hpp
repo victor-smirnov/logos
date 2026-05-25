@@ -386,6 +386,15 @@ private:
     // sema_expr.cpp (needs find_trait_iter_scoped / impls_).
     bool ref_arg_satisfies_dyn(TypeRef at, TypeRef pt);
 
+    // If param `pt` is a trait-object (`&dyn Trait` / `&mut dyn Trait`) and
+    // `arg` is a `&Concrete`/`&mut Concrete` that satisfies the trait (directly
+    // or via a blanket impl), wrap `arg` in an explicit dyn-coercion cast so it
+    // unsizes to the fat pointer — Rust's implicit unsized coercion in argument
+    // position. Returns true if it coerced. Generalises the array-element
+    // coercion (a4d23821) to any call/method-arg position. No-op when `arg`
+    // already fits `pt` or `pt` is not a trait object.
+    bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
+
     // Retype an incompletely-typed generic enum-literal argument to the
     // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
     // `Opt::Some(3)` passed directly as a call argument carries no (or
