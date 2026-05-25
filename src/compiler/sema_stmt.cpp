@@ -2811,6 +2811,22 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
             return synth;
         lir::LExprPtr value;
+        // G172-1: nested string-literal pattern (`Some("foo")`, `("foo", _)`).
+        // Bind the element to `synth`, gate with `str_eq(synth, "foo")` (a raw
+        // `==` would pointer-compare the slices).
+        if (sc == la::PAT_STR && sub.has_key(la::VALUE)) {
+            if (current_pat_refutable_guards_) {
+                TypeRef str_t = make_slice_type(u8_t());
+                auto strlit = builder().lit_str(
+                    std::string(str_of(sub.get(la::VALUE.code))), str_t);
+                auto g = make_str_eq_guard(
+                    builder().var_ref(synth,
+                        (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error) ? ftype : str_t),
+                    std::move(strlit));
+                if (g) current_pat_refutable_guards_->push_back(std::move(g));
+            }
+            return synth;
+        }
         if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
             auto sv = str_of(sub.get(la::VALUE.code));
             int64_t v = parse_int_literal(sv);
@@ -2912,7 +2928,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         by_pos[idx] = bn;
                     } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
                                sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
-                               sc == la::PAT_RANGE || sc == la::PAT_VARIANT ||
+                               sc == la::PAT_RANGE || sc == la::PAT_STR ||
+                               sc == la::PAT_VARIANT ||
                                sc == la::PAT_VARIANT_DATA) {
                         // P4-pm-01 / K4: refutable inner on a struct-shape
                         // variant field — literal, range, unit variant, OR a
@@ -3078,7 +3095,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     // `>= && <=`) as an arm guard.
                     if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
                         bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
-                        bc == la::PAT_RANGE ||
+                        bc == la::PAT_RANGE || bc == la::PAT_STR ||
                         bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
                         bc == la::PAT_OR) {
                         std::string synth = synth_refutable_inner(
@@ -3426,6 +3443,22 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         return p_;
     }
     if (pc == la::PAT_BYTES) return build_pattern_bytes(pnode, scrut_type);
+    if (pc == la::PAT_STR) {
+        // G172-1: string-literal patterns are handled WITHOUT a PatStr LIR node
+        // — top-level arms via the lower_match/lower_match_expr str_eq-guard
+        // intercept, and variant-payload nesting (`Some("foo")`) via
+        // synth_refutable_inner. A PAT_STR reaching build_pattern is therefore
+        // an UNSUPPORTED nesting (e.g. a tuple element `("foo", _)`): reject
+        // cleanly rather than fall through to a wildcard (which would silently
+        // match any string). Tracked as G172-1b.
+        error("string-literal patterns are only supported as a whole match arm "
+              "(`match s { \"foo\" => … }`) or directly inside an enum-variant "
+              "payload (`Some(\"foo\")`); in a tuple/other position, bind a name "
+              "and compare in the body (`(x, _) if x == \"foo\"`)");
+        lir::Pattern p_;
+        p_.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, "_");
+        return p_;
+    }
     if (pc == la::PAT_INT || pc == la::PAT_NEG_INT) {
         auto sv = str_of(pnode.get(la::VALUE.code));
         int64_t v = parse_int_literal(sv);

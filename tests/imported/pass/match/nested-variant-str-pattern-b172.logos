@@ -1,0 +1,18 @@
+// G172-1 (extension): string-literal pattern directly inside an enum-variant
+// payload (`Some("foo")`). synth_refutable_inner binds the payload and gates
+// the arm with `str_eq(payload, "foo")`. (Tuple-element str like `("foo", _)`
+// is a clean compile error — see fail/match/tuple-str-pattern-unsupported.)
+package nested_variant_str_pattern_b172;
+fn f(o: Option<str>) -> i32 {
+    match o {
+        Some("foo") => { return 1i32; }
+        Some(_) => { return 2i32; }
+        None => { return 0i32; }
+    }
+}
+fn main() -> i32 {
+    if f(Some("foo")) != 1i32 { return 1i32; }
+    if f(Some("bar")) != 2i32 { return 2i32; }
+    if f(None) != 0i32 { return 3i32; }
+    return 0i32;
+}

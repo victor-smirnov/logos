@@ -1,0 +1,11 @@
+// G172-1b: a string-literal pattern as a TUPLE element (`("foo", _)`) is not
+// yet supported (the tuple-arm codegen has no str_eq dispatch). It must be a
+// CLEAN compile error, not a silent wildcard match. Use a guard instead.
+package tuple_str_pattern_unsupported_b172;
+fn main() -> i32 {
+    let t: (str, i64) = ("foo", 1i64);
+    match t {
+        ("foo", _) => { return 1i32; }
+        _ => { return 0i32; }
+    }
+}
