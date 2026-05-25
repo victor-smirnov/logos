@@ -1,0 +1,17 @@
+// A closure that captures a struct and mutates it through a `&mut self` METHOD
+// (`c.inc()`) must capture it BY REFERENCE — otherwise the method mutates a
+// by-value copy in the closure env and the change is lost. The capture-mode scan
+// marked FieldWrite/IndexWrite/Assign receivers mut but not a `&mut self` method
+// receiver (auto-ref'd to AddrOfTemp{is_mut}); now it does. (Distilled — closure
+// capture × &mut-self-method intersection.)
+package closure_captured_struct_mut_method;
+struct Stack { top: i64, count: i64 }
+impl Stack { fn push(self: &mut Stack, v: i64) { self.top = v; self.count = self.count + 1i64; } }
+fn main() -> i32 {
+    let mut s = Stack { top: 0i64, count: 0i64 };
+    let mut p = || { s.push(7i64); };
+    p(); p(); p();
+    if s.count != 3i64 { return 1i32; }
+    if s.top != 7i64 { return 2i32; }
+    return 0i32;
+}

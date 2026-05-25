@@ -11966,6 +11966,21 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             // `&x` resolves to the address of the unpacked capture
             // alloca — same as if it had been read directly.
             case EC::AddrOf:       add_capture(std::string(lir_view::EAddrOfView{e}.var_name())); break;
+            // A method receiver / `&mut <expr>` materialised as AddrOfTemp. When
+            // it's `&mut` over a captured VarRef — e.g. a closure body calling a
+            // `&mut self` method on a captured struct (`c.inc()` → `&mut c`) — the
+            // capture MUST be by-reference, else the method mutates a by-value
+            // copy in the env and the change is lost (i3c). Recurse for capture
+            // collection; mark the base var mut when the auto-ref is `&mut`.
+            case EC::AddrOfTemp: {
+                auto v = lir_view::EAddrOfTempView{e};
+                auto inner = v.inner();
+                if (v.is_mut() && inner &&
+                    inner.kind() == lir_schema::expr::Code::VarRef)
+                    mark_mut_capture(lir_view::EVarRefView{inner}.name());
+                scan_captures_v(inner);
+                break;
+            }
             case EC::Cast:         scan_captures_v(lir_view::ECastView{e}.operand()); break;
             case EC::EnumLitData:
                 lir_view::EEnumLitDataView{e}.each_payload([&](lir_view::ExprRef p){ scan_captures_v(p); });
