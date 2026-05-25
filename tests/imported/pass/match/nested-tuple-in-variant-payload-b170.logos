@@ -1,0 +1,38 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/or-patterns/issue-70413-no-unreachable-pat-and-guard.rs
+//   (the `Some((a, _)) | Some((_, a))` facet) + general nested-tuple coverage.
+// Regression for destructuring a TUPLE-typed variant payload by pattern:
+// `Some((a, b))`, `Some((a, _))`, nested `Ok((a, (b, c)))`, and an OR of two
+// `Some(tuple)` alternatives binding the same name at different tuple
+// positions. Previously a nested tuple sub-pattern inside a variant payload
+// was registered but never destructured (only struct / nested-variant subs
+// were), leaving the bindings undefined.
+package nested_tuple_in_variant_payload_b170;
+fn main() -> i32 {
+    // Single Some(tuple).
+    match Some((3i64, 42i64)) {
+        Some((a, b)) => { if a != 3i64 { return 1i32; } if b != 42i64 { return 2i32; } }
+        _ => { return 3i32; }
+    }
+    // Wildcard element.
+    match Some((7i64, 8i64)) {
+        Some((a, _)) => { if a != 7i64 { return 4i32; } }
+        _ => { return 5i32; }
+    }
+    // Nested tuple inside the payload.
+    match Ok((1i64, (2i64, 3i64))) {
+        Ok((a, (b, c))) => {
+            if a != 1i64 { return 6i32; }
+            if b != 2i64 { return 7i32; }
+            if c != 3i64 { return 8i32; }
+        }
+        Err(_) => { return 9i32; }
+    }
+    // OR of two Some(tuple) alternatives binding `a` at different positions
+    // (no guard → first alt wins; `a` = first element).
+    match Some((11i64, 22i64)) {
+        Some((a, _)) | Some((_, a)) => { if a != 11i64 { return 10i32; } }
+        _ => { return 11i32; }
+    }
+    return 0i32;
+}

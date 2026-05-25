@@ -7452,6 +7452,63 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                                              nsub.sub_pat_node, nested_destructure_stmts);
                     continue;
                 }
+                // B170: nested TUPLE sub-pattern in a variant payload
+                // (`Some((a, b))`, `Some((a, _))`, `Ok((a, (b, c)))`). The
+                // synth holds the payload tuple; emit `let <name> = __synth.<i>`
+                // element reads (recursing into nested tuples). Previously only
+                // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
+                // so a tuple-payload binding was left undefined.
+                if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
+                    std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+                    emit_tuple_lets =
+                        [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                        if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
+                        if (!tnode.has_key(la::ITEMS)) return;
+                        auto items = arr_of(tnode.get(la::ITEMS.code));
+                        auto elems = TypeRef(tty).tuple_elems();
+                        // Spill the source to a temp so each element read
+                        // references it once.
+                        std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
+                        define(stmp, tty);
+                        {
+                            lir::SLet s; s.name = stmp; s.type = tty;
+                            s.is_mut = false; s.value = std::move(src);
+                            nested_destructure_stmts.push_back(
+                                make_stmt_emit(node_line_, std::move(s)));
+                        }
+                        for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
+                            auto en = map_of(items.get(i));
+                            auto et = elems[i];
+                            auto elem_expr = builder().tuple_index(
+                                builder().var_ref(stmp, tty), (uint32_t)i, et);
+                            // Tuple elements are wrapped in a (usually single-alt)
+                            // PAT_OR by the grammar (`pat_single (PIPE pat_single)*`).
+                            // Unwrap a single alternative to reach the bare binding.
+                            if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
+                                auto alts = arr_of(en.get(la::ITEMS.code));
+                                if (alts.size() == 1) en = map_of(alts.get(0));
+                            }
+                            int32_t ec = code_of(en);
+                            if (ec == la::PAT_TUPLE) {
+                                emit_tuple_lets(std::move(elem_expr), et, en);
+                            } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
+                                std::string nm(str_of(en.get(la::NAME.code)));
+                                if (nm == "_") continue;
+                                define(nm, et);
+                                lir::SLet el; el.name = nm; el.type = et;
+                                el.is_mut = false; el.value = std::move(elem_expr);
+                                nested_destructure_stmts.push_back(
+                                    make_stmt_emit(node_line_, std::move(el)));
+                            }
+                            // Other element kinds (struct/refutable) inside a
+                            // payload tuple are handled by build_pattern's own
+                            // synth/guard channels, not here.
+                        }
+                    };
+                    emit_tuple_lets(builder().var_ref(nsub.synth_name, synth_t),
+                                    synth_t, nsub.sub_pat_node);
+                    continue;
+                }
                 if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
                 // Field-by-field destructure: for each {name, optional sub-binding}
                 // emit `let <bind_name> = __synth.<field>;`. Sub-pat
@@ -7875,6 +7932,63 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 if (code_of(nsub.sub_pat_node) == la::PAT_VARIANT_DATA) {
                     emit_nested_variant_lets(nsub.synth_name, synth_t,
                                              nsub.sub_pat_node, nested_destructure_stmts);
+                    continue;
+                }
+                // B170: nested TUPLE sub-pattern in a variant payload
+                // (`Some((a, b))`, `Some((a, _))`, `Ok((a, (b, c)))`). The
+                // synth holds the payload tuple; emit `let <name> = __synth.<i>`
+                // element reads (recursing into nested tuples). Previously only
+                // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
+                // so a tuple-payload binding was left undefined.
+                if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
+                    std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+                    emit_tuple_lets =
+                        [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                        if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
+                        if (!tnode.has_key(la::ITEMS)) return;
+                        auto items = arr_of(tnode.get(la::ITEMS.code));
+                        auto elems = TypeRef(tty).tuple_elems();
+                        // Spill the source to a temp so each element read
+                        // references it once.
+                        std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
+                        define(stmp, tty);
+                        {
+                            lir::SLet s; s.name = stmp; s.type = tty;
+                            s.is_mut = false; s.value = std::move(src);
+                            nested_destructure_stmts.push_back(
+                                make_stmt_emit(node_line_, std::move(s)));
+                        }
+                        for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
+                            auto en = map_of(items.get(i));
+                            auto et = elems[i];
+                            auto elem_expr = builder().tuple_index(
+                                builder().var_ref(stmp, tty), (uint32_t)i, et);
+                            // Tuple elements are wrapped in a (usually single-alt)
+                            // PAT_OR by the grammar (`pat_single (PIPE pat_single)*`).
+                            // Unwrap a single alternative to reach the bare binding.
+                            if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
+                                auto alts = arr_of(en.get(la::ITEMS.code));
+                                if (alts.size() == 1) en = map_of(alts.get(0));
+                            }
+                            int32_t ec = code_of(en);
+                            if (ec == la::PAT_TUPLE) {
+                                emit_tuple_lets(std::move(elem_expr), et, en);
+                            } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
+                                std::string nm(str_of(en.get(la::NAME.code)));
+                                if (nm == "_") continue;
+                                define(nm, et);
+                                lir::SLet el; el.name = nm; el.type = et;
+                                el.is_mut = false; el.value = std::move(elem_expr);
+                                nested_destructure_stmts.push_back(
+                                    make_stmt_emit(node_line_, std::move(el)));
+                            }
+                            // Other element kinds (struct/refutable) inside a
+                            // payload tuple are handled by build_pattern's own
+                            // synth/guard channels, not here.
+                        }
+                    };
+                    emit_tuple_lets(builder().var_ref(nsub.synth_name, synth_t),
+                                    synth_t, nsub.sub_pat_node);
                     continue;
                 }
                 if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
