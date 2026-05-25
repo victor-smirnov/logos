@@ -72,7 +72,12 @@ the in-place relabel-without-fatten.
   Now `for b in &v` AND `for b in v.iter()` over `Vec<Box<dyn>>` dispatch correctly. Test:
   traits/foreach-vec-box-dyn-b168. This also explains the earlier "2-level for-each storage"
   red herring — the storage was fine; the slice data pointer was corrupt.
-  STILL OPEN (separate root): **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>`.
+  STILL OPEN (separate roots):
+  - **g2 HashMap<_, Box<dyn>>** — the cast fix made the RAW-ptr deref dispatch work
+    (`let p: *const Box<dyn>=&bx; (*p).area()` ✓), but `*m.get(&k)` (HashMap's `*const V`
+    value slot of a dyn) still SIGSEGVs at dispatch (1 insert, let-bound). A HashMap
+    value-slot/insert-coercion-for-a-dyn-value root, distinct from the Vec/cast fix.
+  - **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>` — MLIR-gen GEP crash; `*p` works.
   (was) **for-each** — superseded by the entry above. Original note kept:
   - ~~for-each over `Vec<Box<dyn>>` still SIGSEGVs~~ — gdb-isolated 2026-05-24: the for-each
     slice-binding stores `scope_[b]` at a **2-level** indirection (`&(&buffer[i])`) for a
