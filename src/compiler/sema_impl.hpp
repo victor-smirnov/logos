@@ -1622,6 +1622,45 @@ private:
                 mark_moved(path);
             }
         }
+        // Moving a Drop-bearing element OUT of a fixed-size array by index
+        // (`let s = arr[i]`, `return arr[i]`, `f(arr[i])`) aliases the array's
+        // storage: Logos can't mark a single array slot moved, so the array
+        // still drops the element at scope end → DOUBLE-FREE. Rust rejects this
+        // ("cannot move out of index"). Only reject when the element actually
+        // needs a Drop — plain value structs / primitives (e.g. metaprog `Type`)
+        // shallow-copy safely. Borrows / autoref (`&arr[i]`, `arr[i].m()`) do
+        // not move and never reach mark_moved_expr, so they are unaffected.
+        if (er.kind() == C::IndexRead) {
+            auto et = er.type(cur_prog_->type_pool.impl());
+            // Only CONCRETE Drop-bearing elements. A generic `[T; N]` (TypeVar
+            // element) can't be classified at sema — and generic stdlib code
+            // legitimately moves `arr[i]` out while managing the array's drop
+            // (ArrayIntoIter / MapWindowsIter consume the whole array). Defer
+            // those; reject only the unmanaged concrete `let s = arr[i]` move.
+            if (et && TypeRef(et).kind() != LogosType::Kind::TypeVar &&
+                TypeRef(et).kind() != LogosType::Kind::AssocType &&
+                TypeRef(et).kind() != LogosType::Kind::ImplTrait &&
+                needs_drop(et)) {
+                lir_view::EIndexReadView iv{er};
+                auto recv = iv.receiver();
+                auto rt = recv ? recv.type(cur_prog_->type_pool.impl()) : TypeRef{};
+                bool from_array = rt &&
+                    (TypeRef(rt).kind() == LogosType::Kind::Array ||
+                     ((TypeRef(rt).kind() == LogosType::Kind::Ref ||
+                       TypeRef(rt).kind() == LogosType::Kind::MutRef ||
+                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
+                      TypeRef(rt).pointee() &&
+                      TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Array));
+                if (from_array)
+                    error(std::format(
+                        "cannot move a Drop-bearing element (type `{}`) out of an "
+                        "array by index — `arr[i]` shallow-copies it while the "
+                        "array still drops it (double-free). Use `&arr[i]` for a "
+                        "reference, destructure (`let [a, b] = arr;`), or "
+                        "`arr[i].clone()`.",
+                        type_str(et)));
+            }
+        }
     }
 
     std::string drop_fn_for(TypeRef t) const;

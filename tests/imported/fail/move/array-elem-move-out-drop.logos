@@ -1,0 +1,14 @@
+// Rust parity (B171): `let s = arr[i]` cannot MOVE a Drop-bearing element out
+// of a fixed-size array by index — "cannot move out of index". Logos can't
+// statically track which (runtime-indexed) array slot was moved, so a by-value
+// read shallow-copies the element while the array still drops it → double-free.
+// Must be a clean compile error, not a silent abort. (Non-Drop elements copy
+// safely; use `&arr[i]`, `let [a, b] = arr;`, or `arr[i].clone()` instead.)
+package array_elem_move_out_drop;
+struct S { v: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let arr: [S; 2] = [S { v: 1i64 }, S { v: 2i64 }];
+    let s: S = arr[0i64];
+    return s.v as i32;
+}
