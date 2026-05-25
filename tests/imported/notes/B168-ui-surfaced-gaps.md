@@ -43,10 +43,17 @@ the in-place relabel-without-fatten.
   unsize-fattens (`coerce_value_to_dyn_if_needed`) the concrete `Box<Sq>` into the
   `Box<dyn Sh>` slot instead of storing a thin handle. Test:
   traits/option-box-dyn-dispatch-b168.
-- **g2** `HashMap<i64, Box<dyn Sh>>` ← `insert(k, box_new(Sq{..}))` — **CRASH (MLIR-gen**,
-  `getelementptr operand #0 must be pointer, got i32`). Same family: the `insert`
-  arg (generic `V`=`Box<dyn>`) gets a concrete `Box<Sq>` not fattened. (insert is a
-  `*mut self` raw-ptr method — a different arg path than G167-7's method coercion.)
+- **g2** `HashMap<i64, Box<dyn Sh>>` — bisected 2026-05-24: `insert` ✓ and `get` ✓ both work
+  (the dyn coercion at insert is fine). The crash is the **dispatch** on the retrieved element,
+  in two facets — both about dispatching a trait object reached through EXTRA indirection:
+  - `p[0].area()` (raw-ptr INDEX of `*const Box<dyn>`, what `m.get` returns) → MLIR-gen
+    verify failure (`getelementptr operand #0 … got i32`): a raw-ptr-index-of-TraitObject
+    codegen bug.
+  - `let b = *p; b.area()` (explicit deref) → COMPILES but **SIGSEGVs at runtime** — the SAME
+    receiver-indirection root as **g6**: `gen_dyn_dispatch` materialises the handle at the wrong
+    indirection level for a deref/VarRef receiver (an inline-expr receiver works).
+  CONVERGES with g6 on one focused mlir-gen sub-sprint: normalise how a dyn handle is
+  materialised across receiver forms (inline-expr vs VarRef vs `*ptr`/`&` indirection).
 - **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** (clean) — ESCALATED 2026-05-24, not fixed.
   for-by-ref yields `&Element` = `&Box<dyn>` which erases to `&&dyn Sh` (`Ref<TraitObject>`);
   the dispatcher only accepted a bare `TraitObject` receiver. Plumbed acceptance of a
