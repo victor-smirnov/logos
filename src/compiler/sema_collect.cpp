@@ -2160,7 +2160,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
             target_resolved = resolved;
             std::string prefix = (code_of(tnode) == la::MUT_REF_TYPE) ? "$mut_ref_" : "$ref_";
             TypeRef pointee = resolved ? TypeRef(resolved).pointee() : TypeRef(nullptr);
-            if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+            // `impl Trait for &[T]` / `&mut [T]`: the reference-to-slice
+            // canonicalises to Kind::Slice (a fat pointer — Logos ABI). Register
+            // it under the SAME `$slice$<elem>` / `$slice$T` key as a bare
+            // `impl Trait for [T]`, so the slice-receiver dispatch
+            // (try_method_on_slice) finds it (`self: &[T]` ≡ Slice<T>).
+            if (resolved && TypeRef(resolved).kind() == LogosType::Kind::Slice) {
+                TypeRef selem = TypeRef(resolved).elem();
+                target = (selem && TypeRef(selem).kind() == LogosType::Kind::TypeVar)
+                         ? std::string("$slice$T")
+                         : "$slice$" + (selem ? type_str(selem) : std::string("?"));
+                // Treat `impl Trait for &[T]` exactly like `impl Trait for [T]`:
+                // bind Self to the UnsizedSlice form so `&Self` canonicalises to
+                // Slice and the method body emits under the same `$slice$` symbol
+                // the slice-receiver dispatch calls (otherwise Self=Slice diverges
+                // and the body is never emitted under the expected name).
+                target_resolved = make_unsized_slice_type(selem);
+            } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
                 bool has_tvar = false;
                 for (auto a : TypeRef(pointee).type_args())

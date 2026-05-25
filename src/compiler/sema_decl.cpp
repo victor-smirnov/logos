@@ -1189,7 +1189,16 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             target_resolved = resolved;
             std::string prefix = (code_of(tnode) == la::MUT_REF_TYPE) ? "$mut_ref_" : "$ref_";
             TypeRef pointee = resolved ? TypeRef(resolved).pointee() : TypeRef(nullptr);
-            if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
+            // `impl Trait for &[T]` / `&mut [T]` → Kind::Slice (fat ptr): mangle
+            // under the same `$slice$<elem>` / `$slice$T` key as bare `[T]` and
+            // bind Self to the UnsizedSlice form. MUST mirror sema_collect.cpp.
+            if (resolved && TypeRef(resolved).kind() == LogosType::Kind::Slice) {
+                TypeRef selem = TypeRef(resolved).elem();
+                target = (selem && TypeRef(selem).kind() == LogosType::Kind::TypeVar)
+                         ? std::string("$slice$T")
+                         : "$slice$" + (selem ? type_str(selem) : std::string("?"));
+                target_resolved = make_unsized_slice_type(selem);
+            } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
                 bool has_tvar = false;
                 for (auto a : TypeRef(pointee).type_args())

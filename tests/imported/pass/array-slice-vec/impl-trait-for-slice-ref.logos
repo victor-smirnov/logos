@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/array-slice-vec/rcvr-borrowed-to-slice.rs
+// Modifications: isize→i64; iter().fold → explicit for-loop sum (fold-on-slice is
+//   a separate facet); println assert → sentinel exit.
+// Tests `impl Trait for &[T]` — a trait impl whose Self is a reference-to-slice.
+//   Logos canonicalises `&[T]` to the Slice fat-pointer ABI, so this registers /
+//   dispatches under the same `$slice$<elem>` key as `impl Trait for [T]`, and a
+//   slice-typed receiver `x.sum_()` finds it.
+package impl_trait_for_slice_ref;
+trait Sum { fn sum_(self: Self) -> i64; }
+impl Sum for &[i64] {
+    fn sum_(self: &[i64]) -> i64 {
+        let mut a: i64 = 0i64;
+        for b in self { a = a + *b; }
+        return a;
+    }
+}
+fn call_sum(x: &[i64]) -> i64 { return x.sum_(); }
+fn main() -> i32 {
+    let x: [i64; 3] = [1i64, 2i64, 3i64];
+    if call_sum(&x) != 6i64 { return 1i32; }
+    return 0i32;
+}

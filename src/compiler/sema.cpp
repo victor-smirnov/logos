@@ -4587,9 +4587,26 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::REF_TYPE) {
+        // A reference legitimately wraps an UNSIZED pointee (`&[T]`, `&dyn`) —
+        // it's a fat pointer. Permit the bare `[T]` / `dyn` pointee here (the
+        // canonicalisation below folds `&UnsizedSlice`→`Slice` etc.). Needed
+        // because the impl-target grammar resolves `impl Tr for &[T]` through
+        // ref_type (not type_ref's slice_type alt), so the pointee arrives as
+        // UNSIZED_SLICE_TYPE. Gate on the IMMEDIATE pointee node being a bare
+        // unsized form — otherwise `unsized_ok_` would leak into nested type-arg
+        // resolution (`&Box<dyn>` would let `dyn` inside Box resolve as unsized
+        // and break the Box<T: Sized> bound check).
+        bool ref_pointee_unsized = false;
+        if (node.has_key(la::POINTEE)) {
+            int32_t pc = code_of(map_of(node.get(la::POINTEE.code)));
+            ref_pointee_unsized = (pc == la::UNSIZED_SLICE_TYPE || pc == la::DYN_TYPE);
+        }
+        bool was_ok = unsized_ok_;
+        if (ref_pointee_unsized) unsized_ok_ = true;
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
+        unsized_ok_ = was_ok;
         std::string lt;
         if (node.has_key(la::LIFETIME))
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
@@ -4623,9 +4640,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::MUT_REF_TYPE) {
+        // `&mut [T]` / `&mut dyn` — same gated unsized-pointee allowance as `&`.
+        bool ref_pointee_unsized = false;
+        if (node.has_key(la::POINTEE)) {
+            int32_t pc = code_of(map_of(node.get(la::POINTEE.code)));
+            ref_pointee_unsized = (pc == la::UNSIZED_SLICE_TYPE || pc == la::DYN_TYPE);
+        }
+        bool was_ok = unsized_ok_;
+        if (ref_pointee_unsized) unsized_ok_ = true;
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
+        unsized_ok_ = was_ok;
         std::string lt;
         if (node.has_key(la::LIFETIME))
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
