@@ -1,0 +1,26 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41888.rs (extracted facet)
+// Focused regression for binding a UNIT (`()`) enum payload field BY NAME.
+// The variant's `()` field is zero-sized and elided from the enum layout, so
+// `Err(err)` binds `err : ()` as a (value-less) unit local — re-wrapping it
+// `Err(err)` ignores the value. Previously only a bare `_` was accepted
+// against a unit payload; a named binding errored ("expected 0 bindings,
+// got 1").
+package unit_payload_named_binding_b170;
+fn propagate(r: Result<(), ()>) -> Result<(), ()> {
+    match r {
+        Err(err) => { return Err(err); }
+        Ok(unit) => { return Ok(unit); }
+    }
+}
+fn main() -> i32 {
+    match propagate(Err(())) {
+        Err(_) => {}
+        Ok(_) => { return 1i32; }
+    }
+    match propagate(Ok(())) {
+        Ok(_) => {}
+        Err(_) => { return 2i32; }
+    }
+    return 0i32;
+}

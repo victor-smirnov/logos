@@ -1,0 +1,50 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41888.rs
+// Modifications:
+//   • `pub fn main()` → `fn main() -> i32 { …; return 0i32; }`.
+//   • Dropped the never-constructed recursive `G(Box<E>, Box<E>)` variant
+//     (allow(dead_code) in the original; Box-of-recursive-enum is a separate
+//     facet and the variant is irrelevant to the test's purpose).
+//   • Match-statement trailing `;` removed (Logos parses `match` as a
+//     statement, no terminating semicolon).
+// Exercises two facets this test was minimised for, plus two gaps it surfaced
+// in Logos:
+//   • `E::F(_op)` payload must be captured BY VALUE inside a nested match.
+//   • `status = None` re-assignment inside a `loop`, then re-matched — needs
+//     the assignment enum-hint so the bare `None` lowers as `Option<E>` (else
+//     SIGSEGV on the next match).
+//   • `Err(err) => return Err(err)` over `Result<(), ()>` — binding a UNIT
+//     (`()`) payload field by name (the variant's unit field is elided from
+//     the layout, so `err : ()` is a zero-sized local).
+package issue_41888_b170;
+struct K {}
+enum E { F(K) }
+fn translate(x: Result<(), ()>) -> Result<(), ()> { return x; }
+fn g(mut status: Option<E>) -> Result<(), ()> {
+    loop {
+        match status {
+            Some(infix_or_postfix) => {
+                match infix_or_postfix {
+                    E::F(_op) => {
+                        match Ok(()) {
+                            Err(err) => { return Err(err); }
+                            Ok(_) => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                match translate(Err(())) {
+                    Err(err) => { return Err(err); }
+                    Ok(_) => {}
+                }
+            }
+        }
+        status = None;
+    }
+}
+fn main() -> i32 {
+    let _ = g(Some(E::F(K{})));
+    return 0i32;
+}
