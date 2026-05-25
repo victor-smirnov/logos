@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-27401-dropflag-reinit.rs
+// Modifications: lifetime param `A<'a>(&'a mut i32)` → struct `A { p: &mut i64 }`
+// (named field; `isize`→`i64`); `assert_eq!`→return-code check; `pub fn main()`
+// →`fn main()->i32`. Exercises a `let`-binding inside a loop whose value is
+// EITHER moved out via `drop(a)` (loop iter 0) OR left to drop at scope end on
+// `break` (iter 1). The drop-flag must be reinitialized each iteration so that
+// exactly one drop runs per iteration — cnt must end at 2, not 1 (missed
+// break-path drop) or 3 (double-drop after the explicit move).
+//
+// Also exercises the free `drop()` function (core::mem::drop): it takes its
+// argument by value and drops it when it returns, forcing an early drop.
+package drop_dropflag_reinit;
+
+struct A { p: &mut i64 }
+
+impl Drop for A {
+    fn drop(&mut self) { *self.p = *self.p + 1i64; }
+}
+
+fn main() -> i32 {
+    let mut cnt: i64 = 0i64;
+    for i in 0i64..2i64 {
+        let a: A = A { p: &mut cnt };
+        if i == 1i64 {
+            break;
+        }
+        drop(a);
+    }
+    if cnt != 2i64 { return 1i32; }
+    return 0i32;
+}
