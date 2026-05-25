@@ -1,0 +1,32 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/issue-78496.rs
+// Modifications: lifetime params on the recursive enum dropped (`E<'a>` →`E`,
+// `Some(&'a E<'a>)` → `Some(&E)`); `u32`-faithful; `assert_eq!`→return-code
+// check; `pub fn main()`→`fn main()->i32`.
+//
+// G172-11 (FIXED): nested enum-variant payload patterns in `if let`
+// (`if let E::Some(E::Some(_)) = e`). `if let`/`while let` previously called
+// build_pattern WITHOUT match's refutable-guard + nested-sub channels, so any
+// nested payload pattern errored "nested patterns inside enum-variant payloads
+// are not yet supported". They now share lower_match's machinery (factored
+// emit_nested_pat_destructure + refutable-guard merge), so nested variant /
+// tuple / struct payload patterns work in if-let and while-let too.
+package match_if_let_nested;
+
+enum E { Empty, Some(&E) }
+
+fn f(e: &E) -> u32 {
+    if let E::Some(E::Some(_)) = e { return 1u32; } else { return 2u32; }
+}
+
+fn main() -> i32 {
+    // E::Empty — outer Some doesn't match → else (2).
+    if f(&E::Empty) != 2u32 { return 1i32; }
+    // E::Some(E::Empty) — outer Some matches, inner Some doesn't → else (2).
+    let empty: E = E::Empty;
+    if f(&E::Some(&empty)) != 2u32 { return 2i32; }
+    // E::Some(E::Some(E::Empty)) — both match → 1.
+    let lvl1: E = E::Some(&empty);
+    if f(&E::Some(&lvl1)) != 1u32 { return 3i32; }
+    return 0i32;
+}

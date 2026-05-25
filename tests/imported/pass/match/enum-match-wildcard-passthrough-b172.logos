@@ -1,0 +1,23 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/issue-76803-branches-not-same.rs
+// Modifications: `#[derive(Debug, Eq, PartialEq)]` dropped; `assert_eq!`→a match
+// on the result; `pub fn main()`→`fn main()->i32`. Works as-is — a regression
+// guard for a `match` whose wildcard arm returns the (by-value, moved) scrutinee
+// unchanged while a specific arm maps one variant to another.
+package match_enum_wildcard_passthrough;
+
+enum Type { A, B }
+
+fn encode(v: Type) -> Type {
+    match v {
+        Type::A => { return Type::B; }
+        _ => { return v; }
+    }
+}
+
+fn main() -> i32 {
+    match encode(Type::A) {
+        Type::B => { return 0i32; }
+        _ => { return 1i32; }
+    }
+}

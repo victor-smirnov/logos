@@ -3232,6 +3232,13 @@ private:
     void emit_nested_variant_lets(const std::string& synth_name, TypeRef synth_t,
                                   hermes::TinyMapView sub_pat,
                                   std::vector<lir::LStmt>& out);
+    // Emit body-prologue `let` destructures for the nested sub-patterns
+    // collected in `nested_subs` (tuple/struct/variant payloads). Shared by
+    // match arms and if-let/while-let so all three handle nested payload
+    // patterns identically. `for_guard` skips the refutable nested-variant
+    // let-else (used when building a guard prologue, not the arm body).
+    void emit_nested_pat_destructure(const std::vector<NestedPatSub>& nested_subs,
+                                     std::vector<lir::LStmt>& out, bool for_guard);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
     // The LIR-level check skips guarded arms, so a desugared nested match
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
