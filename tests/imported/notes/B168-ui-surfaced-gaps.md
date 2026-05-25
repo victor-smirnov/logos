@@ -47,14 +47,21 @@ the in-place relabel-without-fatten.
   `getelementptr operand #0 must be pointer, got i32`). Same family: the `insert`
   arg (generic `V`=`Box<dyn>`) gets a concrete `Box<Sq>` not fattened. (insert is a
   `*mut self` raw-ptr method — a different arg path than G167-7's method coercion.)
-- **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** *"method call: receiver is not a struct
-  (got &&dyn Sh)"*. for-by-ref yields `&Element` = `&Box<dyn>` which erases to `&&dyn Sh`;
-  `b.area()` doesn't deref+dispatch the boxed trait object. PROBED 2026-05-24: adding a
-  `&TraitObject`→`TraitObject` auto-deref in `try_method_on_dyn` unblocks SEMA (compiles)
-  but then SIGSEGVs at runtime — the crash is DEEPER, in the for-each / VecIter-over-dyn
-  element addressing (the `while i<len { v.get(i).area() }` form works — banked
-  vec-box-dyn-dispatch-b167). Reverted (a clean reject beats a silent crash). Root: VecIter
-  yielding a `&`(dyn-handle) element + dispatch. Separate sub-sprint.
+- **g6** `for b in &Vec<Box<dyn Sh>>` — **REJECT** (clean) — ESCALATED 2026-05-24, not fixed.
+  for-by-ref yields `&Element` = `&Box<dyn>` which erases to `&&dyn Sh` (`Ref<TraitObject>`);
+  the dispatcher only accepted a bare `TraitObject` receiver. Plumbed acceptance of a
+  `Ref<TraitObject>` receiver through sema (`try_method_on_dyn`), the dispatch gate
+  (`gen_expr_kind(EMethodCallView)`), and `gen_dyn_dispatch` (load the handle once before the
+  {data,vtable} GEP). RESULT: the **inline-expr** form `v.borrow(i).area()` then dispatches
+  CORRECTLY (=13). But ANY **VarRef** receiver of `Ref<TraitObject>` type — a `let rd =
+  v.borrow(0); rd.area()` binding OR the `for b in &v` loop var — SIGSEGVs: the var's storage
+  in `scope_` carries a different indirection level than the inline-expr value, and none of the
+  four {scope_-shortcut, gen_expr} × {load, no-load} combinations is correct for both paths at
+  once. Root = how a `&`(pointer-repr) local is stored/materialised (scope_ alloca vs value)
+  for VarRef vs expression receivers — a focused mlir-gen var-indirection sub-sprint, NOT a
+  dispatch-site patch. Reverted (a clean reject beats a silent crash). Workaround: the
+  `while i<len { v.get(i).area() }` form (get returns the handle by value — `Box<dyn>` is
+  non-Drop so the G168-B guard allows it) — banked & passing as vec-box-dyn-dispatch-b167.
 
 **Fix direction (one root, multiple sites):** make unsize coercion *fatten the value*
 wherever it currently only relabels — the let-binding-into-generic, enum-variant
