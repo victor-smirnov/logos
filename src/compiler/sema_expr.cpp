@@ -8879,7 +8879,24 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 if (types_compatible(et, he) || ref_arg_satisfies_dyn(et, he_dyn)) continue;
                 all_coerce = false; break;
             }
-            if (all_coerce) { elem_type = he; dyn_elem_hint = true; }
+            if (all_coerce) {
+                elem_type = he;
+                dyn_elem_hint = true;
+                // Wrap each not-already-`&dyn` element in an explicit
+                // dyn-coercion cast so codegen builds the fat pointer (vtable)
+                // per element AND mono's scan collects the concrete coercion
+                // target (so its blanket method instantiates). Adopting the hint
+                // TYPE alone leaves a thin `&Concrete` in the `&dyn` slot —
+                // reading the (absent) vtable SIGSEGVs. The explicit-cast form
+                // (`&x as &dyn`) already produced this ECast; the implicit form
+                // (bare `&x` under a `[&dyn; N]` hint) did not.
+                for (auto& e : elems) {
+                    if (!e || TypeRef(e->type).kind() == LogosType::Kind::Error)
+                        continue;
+                    if (types_compatible(e->type, he)) continue;  // already &dyn
+                    e = builder().cast(std::move(e), he);
+                }
+            }
         }
     }
     for (uint64_t i = 1; !dyn_elem_hint && i < elems.size(); ++i) {
@@ -10745,19 +10762,27 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         return false;
     }
 
-    // (b) pointee is a concrete struct/enum implementing the trait.
+    // (b) pointee is a concrete type — struct / enum / PRIMITIVE — implementing
+    //     the trait, DIRECTLY or via a blanket impl (`impl<T: Bound> Trait for
+    //     T`). sema_has_impl_recursive walks direct + blanket + bound chains, so
+    //     `&i64 as &dyn Describe` works when `i64: Tag` and
+    //     `impl<T: Tag> Describe for T` is in scope. Primitives were previously
+    //     unhandled (only Struct/Enum), and blanket satisfaction was ignored.
     std::string bare, concrete;
-    if (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
-        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct) {
+    auto pk = TypeRef(pointee).kind();
+    if (pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct) {
         bare = std::string(TypeRef(pointee).struct_name());
         concrete = concrete_struct_name(pointee);
-    } else if (TypeRef(pointee).kind() == LogosType::Kind::Enum) {
+    } else if (pk == LogosType::Kind::Enum) {
         bare = std::string(TypeRef(pointee).enum_name());
+        concrete = bare;
+    } else {
+        bare = type_str(pointee);   // primitives (i64/f64/bool/…) and others
         concrete = bare;
     }
     if (bare.empty()) return false;
-    return impls_.count(trait + "::" + bare) ||
-           (!concrete.empty() && impls_.count(trait + "::" + concrete));
+    logos::compiler::StrSet seen2;
+    return sema_has_impl_recursive(trait, concrete, bare, seen2);
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
@@ -15016,6 +15041,72 @@ lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     return error_expr();
 }
 
+lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body,
+                                                    std::string_view err_ctx) {
+    using logos::hermes::AnyVal;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::TinyObjectMap;
+    std::string wrap_src = std::format(
+        "package __reparsed_expr;\nfn __f() -> i32 {{ {} }}\n", wrap_body);
+    logos::compiler::LogosParser parser(wrap_src);
+    auto doc = parser.parse_module();
+    if (doc.is_null() || !parser.at_eof()) {
+        error(std::format("{}: arguments do not parse as an expression", err_ctx));
+        return error_expr();
+    }
+    const uint8_t* src_base = HermesAccess::base(doc);
+    auto root = doc.root_object().as_tiny_map();
+    if (root.is_null()) { error(std::format("{}: parse produced null module", err_ctx)); return error_expr(); }
+    auto nav_key = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom || !tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+    };
+    auto nav_array_first = [&](TinyObjectMap* tom, uint8_t key) -> TinyObjectMap* {
+        if (!tom || !tom->has_key(key)) return nullptr;
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return nullptr;
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return nullptr;
+        AnyVal el = arr->get(0, const_cast<uint8_t*>(src_base));
+        if (!el.is_pointer()) return nullptr;
+        return reinterpret_cast<TinyObjectMap*>(
+            const_cast<uint8_t*>(src_base) + el.to_offset().value());
+    };
+    auto nav_array_last_av = [&](TinyObjectMap* tom, uint8_t key) -> AnyVal {
+        if (!tom || !tom->has_key(key)) return AnyVal{};
+        AnyVal av = tom->get(key, const_cast<uint8_t*>(src_base));
+        if (!av.is_pointer()) return AnyVal{};
+        auto* arr = reinterpret_cast<logos::hermes::ObjectArray*>(
+            const_cast<uint8_t*>(src_base) + av.to_offset().value());
+        if (arr->size() == 0) return AnyVal{};
+        return arr->get(arr->size() - 1, const_cast<uint8_t*>(src_base));
+    };
+    auto* module_tom = const_cast<TinyObjectMap*>(root.ptr());
+    auto* fn_def  = nav_array_first(module_tom, la::ITEMS.code);
+    auto* fn_body = fn_def ? nav_key(fn_def, la::BODY.code) : nullptr;
+    AnyVal last_av = fn_body ? nav_array_last_av(fn_body, la::ITEMS.code) : AnyVal{};
+    if (!last_av.is_pointer()) {
+        error(std::format("{}: does not parse as a single expression", err_ctx));
+        return error_expr();
+    }
+    auto inc_holder = doc.holder();
+    TinyMapView last_view(last_av.to_offset(), inc_holder);
+    int32_t lc = code_of(last_view);
+    if ((lc == la::TAIL_EXPR || lc == la::EXPR_STMT) && last_view.has_key(la::VALUE)) {
+        auto prev = holder_;
+        holder_ = inc_holder;
+        auto r = lower_expr(map_of(last_view.get(la::VALUE.code)));
+        holder_ = prev;
+        return r;
+    }
+    error(std::format("{}: last item is not an expression", err_ctx));
+    return error_expr();
+}
+
 lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
     using logos::hermes::AnyVal;
     using logos::hermes::HermesAccess;
@@ -15275,6 +15366,59 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     if (callee_name == "cfg") {
         bool result = evaluate_cfg_predicate(node);
         return builder().lit_int(result ? 1LL : 0LL, prim(LogosType::Kind::Bool));
+    }
+
+    // `vec!(a, b, c)` / `vec![a, b, c]` — the prelude list-literal macro
+    // (Rust parity), available everywhere as a compiler builtin. It is NOT a
+    // metaprog `#[fn_macro]` in the prelude: the macro body would need
+    // `quote_expr!` from the metaprog layer, but metaprog itself uses the
+    // implicit prelude → the prelude depending on metaprog forms an import
+    // cycle (and over-expands the wildcard-imported prelude surface, which
+    // regressed trait resolution). Instead, lower `vec!(…)` to
+    // `vec_from_arr([…])` by re-parsing the raw args and lowering the
+    // synthesized call through the normal path — so element-type/length
+    // inference and the `[&dyn Trait; N]` element coercion all apply. A
+    // user-defined `vec` fn_macro in scope takes precedence (override-able).
+    if (callee_name == "vec") {
+        bool user_vec = false;
+        if (auto ov = func_overloads_.find("vec"); ov != func_overloads_.end())
+            for (auto& sym : ov->second) {
+                auto fit = funcs_.find(sym);
+                if (fit != funcs_.end() &&
+                    (fit->second.is_fn_macro || fit->second.is_token_macro)) {
+                    user_vec = true; break;
+                }
+            }
+        if (!user_vec) {
+            std::string raw;
+            if (node.has_key(la::RAW_TEXT))
+                raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+            // Trim outer whitespace.
+            auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
+            while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
+            while (!raw.empty() && ws(raw.back()))  raw.pop_back();
+            // `vec!()` with no elements needs a type annotation Rust can't infer
+            // here either; route to `vec_new::<_>()` so the `let v: Vec<T>` hint
+            // supplies T (empty array would leave the element type unknown).
+            std::string body = raw.empty()
+                ? std::string("vec_new::<_>()")
+                : std::format("vec_from_arr([{}])", raw);
+            // Propagate the surrounding `let v: Vec<E> = …` element type into
+            // the synthesized array literal so a heterogeneous `[&dyn Trait]`
+            // (distinct `&Concrete` elements) coerces — `vec_from_arr`'s generic
+            // `[T; N]` param can't pin T=E before its array arg is lowered, so
+            // without this the array infers from element 0 and rejects the rest.
+            // `hint_call_return_type_` is the let/return annotation (set by
+            // lower_let); when it is `Vec<E>`, hint the array's element type E.
+            auto saved_arr_elem = hint_arr_elem_type_;
+            if (hint_call_return_type_ &&
+                is_named_struct(hint_call_return_type_, "Vec") &&
+                TypeRef(hint_call_return_type_).type_args().size() == 1)
+                hint_arr_elem_type_ = TypeRef(hint_call_return_type_).type_args()[0];
+            auto r = lower_reparsed_tail_expr(body, "vec!");
+            hint_arr_elem_type_ = saved_arr_elem;
+            return r;
+        }
     }
 
     // MC-mc-03 positional builtins. line!() / file!() / module_path!() /

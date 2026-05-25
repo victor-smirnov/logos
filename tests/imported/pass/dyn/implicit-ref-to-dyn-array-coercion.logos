@@ -1,0 +1,30 @@
+// Regression (B171): IMPLICIT `&T → &dyn Trait` coercion of array elements
+// under a `[&dyn Trait; N]` expected type — including HETEROGENEOUS primitive
+// elements whose `Trait` impl is via a blanket `impl<T: Bound> Trait for T`.
+// Two fixes combine here:
+//   • `ref_arg_satisfies_dyn` now recognises a primitive pointee (`&i64`) and
+//     blanket-impl satisfaction (i64: Tag ⇒ i64: Describe), not just direct
+//     impls on structs/enums.
+//   • the `[&dyn; N]` element-hint branch now WRAPS each not-already-`&dyn`
+//     element in an explicit dyn-coercion cast, so codegen builds the fat
+//     pointer per element (adopting the hint type alone stored a thin
+//     `&Concrete` → garbage vtable → SIGSEGV).
+package implicit_ref_to_dyn_array_coercion;
+trait Tag { fn tag(self: &Self) -> i64; }
+trait Describe { fn d(self: &Self) -> i64; }
+impl<T: Tag> Describe for T { fn d(self: &Self) -> i64 { return self.tag(); } }
+impl Tag for i64 { fn tag(self: &Self) -> i64 { return *self; } }
+impl Tag for f64 { fn tag(self: &Self) -> i64 { return *self as i64; } }
+fn main() -> i32 {
+    let a: i64 = 42i64;
+    let b: f64 = 3.0f64;
+    // Direct `[&dyn Describe; N]` annotation, implicit element coercion.
+    let arr: [&dyn Describe; 2] = [&a, &b];
+    if arr[0].d() != 42i64 { return 1i32; }
+    if arr[1].d() != 3i64 { return 2i32; }
+    // Literal borrows + implicit coercion (no `as &dyn`).
+    let lits: [&dyn Describe; 2] = [&7i64, &8i64];
+    if lits[0].d() != 7i64 { return 3i32; }
+    if lits[1].d() != 8i64 { return 4i32; }
+    return 0i32;
+}

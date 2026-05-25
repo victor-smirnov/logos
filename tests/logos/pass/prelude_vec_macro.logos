@@ -1,0 +1,41 @@
+// `vec!` is a compiler-builtin prelude macro (Rust parity): available in every
+// file with no import, in all three delimiter forms `vec!(…)` / `vec![…]` /
+// `vec!{…}`, lowering to `vec_from_arr([…])`. (It can't be a metaprog
+// `#[fn_macro]` in the prelude — that would make the prelude depend on
+// metaprog, which itself uses the prelude → import cycle.) A user-defined
+// `vec` fn_macro still takes precedence; see fn_macro_vec_basic for that path.
+package prelude_vec_macro;
+
+trait Sh { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn area(self: &Self) -> i64 { return self.s * self.s; } }
+
+fn main() -> i32 {
+    // Homogeneous, both delimiter forms, no import.
+    let a: Vec<i64> = vec!(1i64, 2i64, 3i64);
+    let b: Vec<i64> = vec![10i64, 20i64, 30i64];
+    if a.get(0i64) + a.get(1i64) + a.get(2i64) != 6i64 { return 1i32; }
+    if b.get(2i64) != 30i64 { return 2i32; }
+
+    // Heterogeneous trait objects via explicit `as &dyn` coercion (vec! lowers
+    // to vec_from_arr, whose `[&dyn Sh; N]` array coerces each element).
+    let q1: Sq = Sq { s: 3i64 };
+    let q2: Sq = Sq { s: 4i64 };
+    let shapes: Vec<&dyn Sh> = vec![&q1 as &dyn Sh, &q2 as &dyn Sh];
+    if shapes.get(0i64).area() != 9i64 { return 3i32; }
+    if shapes.get(1i64).area() != 16i64 { return 4i32; }
+
+    // Literal borrows inside vec! (no `unsafe` needed).
+    let nums: Vec<&i64> = vec![&7i64, &8i64];
+    if *nums.get(0i64) + *nums.get(1i64) != 15i64 { return 5i32; }
+
+    // IMPLICIT `&T → &dyn` coercion (no `as &dyn`): the `Vec<&dyn Sh>`
+    // annotation flows the element type into the synthesized array literal,
+    // and each `&Concrete` element is coerced to the fat `&dyn` pointer.
+    let q3: Sq = Sq { s: 5i64 };
+    let q4: Sq = Sq { s: 6i64 };
+    let implicit: Vec<&dyn Sh> = vec![&q3, &q4];
+    if implicit.get(0i64).area() != 25i64 { return 6i32; }
+    if implicit.get(1i64).area() != 36i64 { return 7i32; }
+    return 0i32;
+}

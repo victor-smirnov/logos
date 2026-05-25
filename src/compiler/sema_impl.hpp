@@ -2991,6 +2991,13 @@ private:
         hermes::TinyMapView node, const std::string& callee_name);
     // Large individual built-in macro handlers split out of lower_builtin_macro.
     lir::LExprPtr lower_macro_include(hermes::TinyMapView node);
+    // Parse `wrap_body` as the tail expression of a synthetic
+    // `fn __f() -> i32 { <wrap_body> }`, then lower that expression in the
+    // current context (holder swapped to the freshly-parsed doc). Used by
+    // the `vec!` builtin to re-parse + lower a synthesized `vec_from_arr([…])`
+    // call. Returns error_expr() (after a diagnostic) on parse failure.
+    lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,
+                                           std::string_view err_ctx);
     lir::LExprPtr lower_macro_concat(hermes::TinyMapView node);
     lir::LExprPtr lower_macro_concat_bytes(hermes::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
