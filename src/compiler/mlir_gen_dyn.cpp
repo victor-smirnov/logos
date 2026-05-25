@@ -1313,11 +1313,35 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
 
     auto body_blk = v.body();
 
+    // Array params arrive as `ptr` (matching make_fn_type's plain-fn ABI: the
+    // call site materialises an array literal to a stack slot and passes its
+    // address). Register var_subscript_ so a body `u[i]` strides by the element
+    // type instead of GEP-ing a (non-pointer) array aggregate value — without
+    // this the closure body fails MLIR verification on `[T; N]` params.
+    auto register_array_param_subscript = [&](const std::string& name, TypeRef pt) {
+        if (!pt || TypeRef(pt).kind() != LogosType::Kind::Array || !TypeRef(pt).elem())
+            return;
+        TypeRef ae = TypeRef(pt).elem();
+        mlir::Type et;
+        if (ae.kind() == LogosType::Kind::Struct ||
+            ae.kind() == LogosType::Kind::ZonedStruct) {
+            auto cname = mlir_struct_key(ae);
+            auto sit = struct_types_.find(cname);
+            if (sit != struct_types_.end()) et = sit->second.llvm_type;
+        }
+        if (!et) et = logos_to_mlir(ae);
+        if (et) var_subscript_[name] = et;
+    };
+
     // Non-capturing closure coerced to fn ptr: emit as plain function (no env_ptr).
     if (as_fn_ptr_flag) {
         // Build function type without env_ptr: (params...) -> ret
         llvm::SmallVector<mlir::Type> fn_params;
         for (auto& [_, pt_type] : params) {
+            if (pt_type && TypeRef(pt_type).kind() == LogosType::Kind::Array) {
+                fn_params.push_back(ptr_type());  // arrays passed by pointer
+                continue;
+            }
             auto pt = logos_to_mlir(pt_type);
             if (pt) fn_params.push_back(pt);
         }
@@ -1354,8 +1378,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         var_local_ptrs_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
         cur_ret_type_ = ret_t ? llvm_fn_ret_type(ret_t) : mlir::Type{};
         // Bind params starting from arg 0 (no env_ptr)
-        for (size_t i = 0; i < params.size(); ++i)
+        for (size_t i = 0; i < params.size(); ++i) {
             scope_[params[i].first] = entry->getArgument(i);
+            register_array_param_subscript(params[i].first, params[i].second);
+        }
         bool saved_in_llvm = in_llvm_func_;
         in_llvm_func_ = true;
         if (body_blk) gen_block(body_blk);
@@ -1452,6 +1478,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     llvm::SmallVector<mlir::Type> fn_params;
     fn_params.push_back(ptr_type());  // env pointer
     for (auto& [_, pt_type] : params) {
+        if (pt_type && TypeRef(pt_type).kind() == LogosType::Kind::Array) {
+            fn_params.push_back(ptr_type());  // arrays passed by pointer
+            continue;
+        }
         auto pt = logos_to_mlir(pt_type);
         if (pt) fn_params.push_back(pt);
     }
@@ -1552,6 +1582,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // Bind params (starting from arg 1)
     for (size_t i = 0; i < params.size(); ++i) {
         scope_[params[i].first] = entry->getArgument(i + 1);
+        register_array_param_subscript(params[i].first, params[i].second);
     }
 
     // Generate body (inside llvm.func — use llvm.return)

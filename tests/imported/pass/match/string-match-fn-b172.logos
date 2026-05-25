@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-3574.rs
+// Modifications: `&str`→`str`; `assert!`→return-code checks; `pub fn main()`→
+// `fn main()->i32`. A faithful run-pass companion to the G172-1 string-literal
+// pattern work: matching a `str` parameter against literal arms inside a
+// function, with a wildcard fallthrough.
+package match_string_fn;
+
+fn compare(x: str, y: str) -> bool {
+    match x {
+        "foo" => { return y == "foo"; }
+        _ => { return y == "bar"; }
+    }
+}
+
+fn main() -> i32 {
+    if !compare("foo", "foo") { return 1i32; }
+    if compare("foo", "bar") { return 2i32; }
+    if !compare("zzz", "bar") { return 3i32; }
+    return 0i32;
+}

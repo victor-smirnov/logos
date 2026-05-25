@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-27054-primitive-binary-ops.rs
+// Modifications: `&mut 1` temporary → an explicit `let mut x`; `assert_eq!`→
+// return-code check; `pub fn main()`→`fn main()->i32`. Works as-is — kept as a
+// regression guard for left-to-right operand evaluation order with a
+// side-effecting block in the right operand:
+//   x + { x = 2; 1 }   reads the OLD x (1) for the left operand, THEN runs the
+// block (sets x=2, yields 1) → 1 + 1 == 2.
+package binop_eval_order_block;
+
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let r: i64 = x + { x = 2i64; 1i64 };
+    if r != 2i64 { return 1i32; }
+    if x != 2i64 { return 2i32; }
+    return 0i32;
+}
