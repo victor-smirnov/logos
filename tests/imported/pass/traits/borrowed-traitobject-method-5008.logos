@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-5008-borrowed-traitobject-method-call.rs
+// Modifications: String debug_name → i64 field accessor (Logos string return is
+//   incidental to the bug); println assertion → sentinel exit. The regression
+//   (#5008) was a segfault dispatching a method through a `&dyn Trait` cast from
+//   `&Concrete`; this exercises that exact cast + dispatch.
+package borrowed_traitobject_method_5008;
+trait Debuggable { fn val(self: &Self) -> i64; }
+struct Thing { n: i64 }
+impl Debuggable for Thing { fn val(self: &Thing) -> i64 { return self.n; } }
+fn print_name(x: &dyn Debuggable) -> i64 { return x.val(); }
+fn main() -> i32 {
+    let thing = Thing { n: 42i64 };
+    if print_name(&thing as &dyn Debuggable) != 42i64 { return 1i32; }
+    return 0i32;
+}

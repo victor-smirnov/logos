@@ -2102,6 +2102,24 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         callee_is_box_closure = true;
     }
 
+    // `x(args)` where `x: &fn(…)->R` / `&mut fn(…)` (or `&` to a closure) — the
+    // call operator auto-derefs a reference to a callable (unboxed-closures-call-
+    // fn-autoderef). Peel the Ref/MutRef to expose the inner FnPtr/Closure and
+    // mark the callee for an extra Deref (load the fn-ptr / closure handle out of
+    // the reference slot before calling).
+    bool callee_is_ref_fn = false;
+    if (callee_type &&
+        (TypeRef(callee_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(callee_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(callee_type).pointee() &&
+        (TypeRef(TypeRef(callee_type).pointee()).kind() == LogosType::Kind::FnPtr ||
+         TypeRef(TypeRef(callee_type).pointee()).kind() == LogosType::Kind::Closure)) {
+        callee_type = TypeRef(callee_type).pointee();
+        is_fn_ptr  = TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
+        is_closure = TypeRef(callee_type).kind() == LogosType::Kind::Closure;
+        callee_is_ref_fn = true;
+    }
+
     // Sprint 5.7c: callee is a generic-typed local `f: F` where
     // F is a TypeVar bounded by Fn / FnMut / FnOnce. The bound
     // carries `fn_params` / `fn_ret`; treat the call exactly like a
@@ -2190,6 +2208,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             ? builder().deref(
                   builder().var_ref(std::string(callee),
                                     make_ptr(/*is_mut=*/true, callee_type)),
+                  callee_type)
+            : callee_is_ref_fn
+            // `&fn`/`&mut fn` (or `&closure`): the var is a reference slot; deref
+            // it to load the callable, then fn-ptr/closure-call through the result.
+            ? builder().deref(
+                  builder().var_ref(std::string(callee),
+                                    make_ref(/*is_mut=*/false, callee_type)),
                   callee_type)
             : builder().var_ref(std::string(callee), vr_type);
         TypeRef ret = TypeRef(callee_type).closure_ret() ? TypeRef(callee_type).closure_ret() : void_t();

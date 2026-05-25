@@ -1,0 +1,14 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-call-fn-autoderef.rs
+// Modifications: isize → i64; `&fn(isize)->isize` param kept verbatim. assert →
+//   sentinel exit. Tests that the call operator auto-derefs a reference to a
+//   callable: `x(2)` where `x: &fn(i64)->i64` (no explicit `*`).
+package call_fn_ref_autoderef;
+fn call_with_2(x: &fn(i64) -> i64) -> i64 { return x(2i64); }
+fn subtract_22(x: i64) -> i64 { return x - 22i64; }
+fn main() -> i32 {
+    let f: fn(i64) -> i64 = subtract_22;
+    let z = call_with_2(&f);
+    if z != -20i64 { return 1i32; }
+    return 0i32;
+}

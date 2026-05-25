@@ -1,0 +1,15 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/unboxed-closures/unboxed-closures-sugar-object.rs
+// Modifications: the test's `&dyn Getter<(i32,), (i32,)>` 1-tuple args are
+//   simplified to scalar i64 (Logos 1-tuple `(T,)` is a separate facet); the
+//   imported essence is a GENERIC trait object `&dyn Getter<A, R>` with a generic
+//   blanket-ish impl dispatched through the vtable. assert → sentinel exit.
+package generic_dyn_getter_sugar_object;
+trait Getter<A, R> { fn get(self: &Self, arg: A) -> R; }
+struct Identity {}
+impl Getter<i64, i64> for Identity { fn get(self: &Identity, arg: i64) -> i64 { return arg; } }
+fn main() -> i32 {
+    let x: &dyn Getter<i64, i64> = &Identity {} as &dyn Getter<i64, i64>;
+    if x.get(22i64) != 22i64 { return 1i32; }
+    return 0i32;
+}
