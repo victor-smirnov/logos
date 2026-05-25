@@ -1,0 +1,27 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/mir/issue-77002.rs
+// Modifications: `i64`/`usize`-faithful; `assert_eq!`→return-code check;
+// `pub fn main()`→`fn main()->i32`; `let mut b: M = M::default()` kept verbatim;
+// the `b` tail-expr return → explicit `return b;`.
+//
+// Exercises: (a) `M::default()` where `M` is a type alias for `[i64; 2]` —
+// arrays carry no `__default` symbol, so it synthesizes `[i64::default(); 2]`
+// (G172-10); (b) returning an array by value from a function and reassigning
+// it into the same variable (`a = f(&a)`), the MIR copy-propagation regression
+// the original test guards.
+package av_array_alias_default;
+
+type M = [i64; 2];
+
+fn f(a: &M) -> M {
+    let mut b: M = M::default();
+    b[0] = a[0] * a[0];
+    return b;
+}
+
+fn main() -> i32 {
+    let mut a: M = [1i64, 1i64];
+    a = f(&a);
+    if a[0] != 1i64 { return 1i32; }
+    return 0i32;
+}

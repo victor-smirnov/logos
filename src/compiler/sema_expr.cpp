@@ -10845,6 +10845,38 @@ lir::LExprPtr SemaChecker::make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b) {
     return builder().call(sym, {}, std::move(args), bool_t());
 }
 
+lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
+    if (!t) return nullptr;
+    TypeRef tt(t);
+    // [E; N]::default() → [E::default(); N] (Rust: [T; N]: Default where T: Default).
+    if (tt.kind() == LogosType::Kind::Array && tt.elem()) {
+        uint64_t n = tt.arr_size();
+        if (n == 0) return builder().arr_lit(std::vector<lir::LExprPtr>{}, t);
+        std::vector<lir::LExprPtr> elems;
+        for (uint64_t i = 0; i < n; ++i) {
+            auto e = default_value_for(tt.elem());
+            if (!e) return nullptr;
+            elems.push_back(std::move(e));
+        }
+        return builder().arr_lit(std::move(elems), t);
+    }
+    // Scalar / struct: emit a call to its resolved `__default` symbol.
+    std::string base;
+    if (tt.kind() == LogosType::Kind::Struct ||
+        tt.kind() == LogosType::Kind::ZonedStruct)
+        base = tt.type_args().empty()
+            ? std::string(tt.struct_name())
+            : concrete_struct_name(t);
+    else
+        base = type_str(t);  // primitive keyword (i64, bool, …)
+    const SemaFuncInfo* fi = nullptr;
+    for (auto* c : find_func_candidates(base + "__default"))
+        if (c && c->param_types.empty()) { fi = c; break; }
+    if (!fi) return nullptr;
+    std::string sym = fi->symbol_name.empty() ? base + "__default" : fi->symbol_name;
+    return builder().call(sym, {}, {}, t);
+}
+
 bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
     if (TypeRef(arg->type).kind() == LogosType::Kind::Error) return false;
@@ -10945,6 +10977,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 for (uint64_t i = 0; i < items.size(); ++i)
                     arg_exprs.push_back(lower_expr(map_of(items.get(i))));
             }
+        }
+    }
+
+    // `<[E; N]>::default()` — arrays have no `__default` symbol (they can't carry
+    // a user impl over a const-generic N), so synthesize `[E::default(); N]`.
+    // class_name is most plausibly a type alias for the array (`type M = [E;N]`);
+    // also handle a generic-free alias chain. Mirrors Rust `[T; N]: Default`.
+    if (method_name == "default" && arg_exprs.empty()) {
+        TypeRef arr_t = nullptr;
+        auto ait = type_aliases_.find(std::string(class_name));
+        if (ait != type_aliases_.end() && ait->second.type_params.empty() &&
+            ait->second.type &&
+            TypeRef(ait->second.type).kind() == LogosType::Kind::Array)
+            arr_t = ait->second.type;
+        if (arr_t) {
+            if (auto def = default_value_for(arr_t)) return def;
+            error(std::format("no Default impl for array element type of '{}'",
+                  class_name));
+            return error_expr();
         }
     }
 

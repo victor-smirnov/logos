@@ -400,6 +400,12 @@ private:
     // does a content compare. Returns null if `str_eq` isn't in scope.
     lir::LExprPtr make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b);
 
+    // Synthesize a default value for `t` (the body of `<t>::default()`). For an
+    // array `[E; N]` this builds `[E::default(); N]` (recursing on E); for a
+    // primitive/struct it emits a call to `<t>::default()`'s resolved symbol.
+    // Returns null if `t` (or an element) has no Default impl in scope.
+    lir::LExprPtr default_value_for(TypeRef t);
+
     // Retype an incompletely-typed generic enum-literal argument to the
     // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
     // `Opt::Some(3)` passed directly as a call argument carries no (or
