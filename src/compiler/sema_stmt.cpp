@@ -2009,9 +2009,21 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     if (!lookup_is_mut(name))
         error(std::format("assignment to immutable variable '{}'", name));
 
+    // Pin the LHS type as the enum hint while lowering the RHS, exactly as the
+    // `let x: T = …` path does (lower_let). Without this, `status = None` lowers
+    // the bare `None` literal with no expected type → a C-style i32 discriminant
+    // baked into the pointer slot; the post-hoc retype below stamps the right
+    // TypeRef but cannot un-bake the wrong codegen, so a later `match status`
+    // derefs a bogus pointer → SIGSEGV. Setting the hint up front makes the
+    // literal lower as the correct concrete enum spec from the start. (B170 —
+    // rustc issue-41888: `status = None` in a loop, then re-matched.)
+    auto saved_assign_hint = hint_enum_type_;
+    if (var_type && TypeRef(var_type).kind() == LogosType::Kind::Enum)
+        hint_enum_type_ = var_type;
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+    hint_enum_type_ = saved_assign_hint;
     // Retype an incompletely-typed generic enum literal in `a = <enum-lit>`
     // to the LHS's concrete enum spec. A literal lowered without the expected
     // type carries either NO type-args (no-payload `Opt::VNone` → bare `Opt`)
@@ -3091,16 +3103,34 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             binding_types.push_back(ct);
         }
     }
-    // S8-en-03: a single `_` placeholder against a unit-payload
-    // variant (`Either::Right(_)` where `U == ()`) is accepted as
-    // the bare-variant form. `binding_types` filters Void out, so
-    // a `Right<U=()>` ends up with 0 expected bindings; if the
-    // user supplied exactly one `_`, drop it silently.
-    if (binding_types.empty() && bindings.size() == 1 && bindings[0] == "_") {
-        bindings.clear();
-        binding_is_ref.clear();
-        binding_is_mut.clear();
-        binding_from_wild.clear();
+    // S8-en-03 / B170: bindings against an ALL-UNIT payload variant
+    // (`Right(_)` / `Err(err)` where the payload type(s) are `()`).
+    // `binding_types` filters Void out, so an all-unit payload ends up with
+    // 0 expected types while the user may have written `_`, a `()` literal
+    // (already skipped at collection), or a NAMED binding.
+    //   • `_`           → drop silently (bare-variant form).
+    //   • named `err`   → keep, with a Void binding type, so bind_pattern
+    //                     defines `err : ()` as a (zero-sized) unit local.
+    //                     The variant's unit field is elided from the enum
+    //                     layout (mlir_gen_types skips Void), so re-wrapping
+    //                     `Err(err)` ignores the value — the name only needs
+    //                     to type-check + be in scope. (rustc issue-41888:
+    //                     `Err(err) => return Err(err)` over Result<(),()>.)
+    if (binding_types.empty() && !bindings.empty()) {
+        std::vector<std::string> kb;
+        std::vector<bool> kr, km, kw;
+        for (size_t i = 0; i < bindings.size(); ++i) {
+            if (bindings[i] == "_") continue;  // wildcard: no local
+            kb.push_back(bindings[i]);
+            kr.push_back(i < binding_is_ref.size() && binding_is_ref[i]);
+            km.push_back(i < binding_is_mut.size() && binding_is_mut[i]);
+            kw.push_back(false);
+            binding_types.push_back(void_t());
+        }
+        bindings = std::move(kb);
+        binding_is_ref = std::move(kr);
+        binding_is_mut = std::move(km);
+        binding_from_wild = std::move(kw);
     }
     if (bindings.size() != binding_types.size())
         error(std::format("pattern {}::{}: expected {} bindings, got {}",

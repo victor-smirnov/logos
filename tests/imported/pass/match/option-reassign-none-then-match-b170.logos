@@ -1,0 +1,24 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41888.rs (reduced regression)
+// Focused regression for the assignment enum-hint fix: re-assigning a bare
+// `None` (or any incompletely-typed enum literal) to an existing `Option<T>`
+// local must lower the literal as the concrete `Option<T>` spec — not a
+// C-style i32 discriminant in the pointer slot. A subsequent `match` that
+// extracts the `Some(_)` payload would otherwise deref a bogus pointer and
+// SIGSEGV. `lower_assign` now pins `hint_enum_type_` to the LHS type while
+// lowering the RHS, exactly as `let x: T = …` does.
+package option_reassign_none_then_match_b170;
+fn main() -> i32 {
+    let mut status: Option<i64> = Some(7i64);
+    // First match consumes the Some; then re-assign None and re-match.
+    match status { Some(x) => {} _ => { return 1i32; } }
+    status = None;
+    match status { Some(x) => { return 2i32; } _ => {} }
+    // Re-assign a Some back and confirm the slot is still well-formed.
+    status = Some(99i64);
+    match status {
+        Some(v) => { if v != 99i64 { return 3i32; } }
+        _ => { return 4i32; }
+    }
+    return 0i32;
+}
