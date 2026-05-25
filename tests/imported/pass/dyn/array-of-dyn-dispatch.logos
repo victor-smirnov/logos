@@ -1,0 +1,16 @@
+// Adversarial intersection (B169): a fixed array of `&dyn Trait` (homogeneous),
+// indexed + dispatched in a loop. Companion to B166 g6 `[&dyn;N]`.
+package array_of_dyn_dispatch;
+trait Sh { fn a(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Sh for Sq { fn a(self: &Sq) -> i64 { return self.s * self.s; } }
+fn main() -> i32 {
+    let x = Sq { s: 3i64 };
+    let y = Sq { s: 4i64 };
+    let arr: [&dyn Sh; 2] = [&x as &dyn Sh, &y as &dyn Sh];
+    let mut total: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < 2i64 { total = total + arr[i].a(); i = i + 1i64; }
+    if total != 25i64 { return 1i32; }
+    return 0i32;
+}

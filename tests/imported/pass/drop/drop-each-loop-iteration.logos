@@ -1,0 +1,20 @@
+// Adversarial intersection (B169): Drop × loop — a droppable bound fresh each
+// iteration drops at the end of every iteration (5 iters → 5 drops); and Drop ×
+// early `break` drops the live binding once before exiting.
+package drop_each_loop_iteration;
+trait Drop { fn drop(self: Self); }
+struct R { c: *mut i64 }
+impl Drop for R { fn drop(self: R) { unsafe { *self.c = *self.c + 1i64; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0i64;
+    let c = &mut n as *mut i64;
+    let mut i: i64 = 0i64;
+    while i < 5i64 { let _r = R { c: c }; i = i + 1i64; }
+    unsafe { if *c != 5i64 { return 1i32; } }
+    let mut m: i64 = 0i64;
+    let d = &mut m as *mut i64;
+    let mut j: i64 = 0i64;
+    while j < 10i64 { let _r = R { c: d }; if j == 2i64 { break; } j = j + 1i64; }
+    unsafe { if *d != 3i64 { return 2i32; } }
+    return 0i32;
+}
