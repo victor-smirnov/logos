@@ -631,7 +631,7 @@ impl<T: Debug> Debug for Vec<T> {
         let mut i: i64 = 0i64;
         while i < n {
             if i > 0i64 { let _ = f.write_str(", "); }
-            let v: T = self.get(i);
+            let v: &T = self.borrow(i);
             let _ = v.fmt(f);
             i = i + 1i64;
         }

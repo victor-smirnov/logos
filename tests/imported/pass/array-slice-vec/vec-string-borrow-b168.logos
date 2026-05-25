@@ -1,0 +1,17 @@
+// B168 G168-B: reading a move-type Vec element. `Vec::get(i)` would move a
+// non-Copy element out of a shared borrow (alias → double-free); Rust forbids
+// it ("cannot move out of index"). The sound idiom is `borrow(i) -> &T`
+// (= Rust `&v[i]`); `.len()` auto-derefs through the `&`. Mirrors the rustc
+// behavior of indexing a `Vec<String>` by reference.
+package vec_string_borrow_b168;
+use logos.mem.collections.vec;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut v: Vec<String> = vec_new::<String>();
+    v.push(String::from("hello"));
+    v.push(String::from("hi"));
+    let a: &String = v.borrow(0i64);
+    let b: &String = v.borrow(1i64);
+    if a.len() + b.len() != 7i64 { return 1i32; }
+    return 0i32;
+}

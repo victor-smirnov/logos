@@ -24,7 +24,7 @@ fn main() -> i32 {
 
     let mut i: i64 = 0i64;
     while i < ts.length() {
-        let t: TokenTree = ts.trees.get(i);
+        let t: &TokenTree = ts.trees.borrow(i);
         match t {
             TokenTree::Ident(_, _)        => { idents = idents + 1i32; }
             TokenTree::Punct(_, _, _)     => { puncts = puncts + 1i32; }

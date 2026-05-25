@@ -5813,6 +5813,36 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
+    // G168-B: `Vec::get(i) -> T` reads `self.ptr[i]` BY VALUE behind a shared
+    // `&self`. For a move/Drop element that is a move-OUT of a borrow (Rust's
+    // "cannot move out of index"): the returned copy aliases the still-owned
+    // Vec element, so both the binding's Drop and the Vec's element-Drop free
+    // the same buffer → double-free. Reject it with a fix-it to the existing
+    // by-ref / owning accessors. Copy elements are unaffected (a Copy read is
+    // sound). Mirrors the rule for fixed arrays would-be; scoped to Vec::get.
+    if (method_name == "get" && recv && recv->type) {
+        TypeRef rvt(recv->type);
+        if ((rvt.kind() == LogosType::Kind::Ref ||
+             rvt.kind() == LogosType::Kind::MutRef) && rvt.pointee())
+            rvt = TypeRef(rvt.pointee());
+        if ((rvt.kind() == LogosType::Kind::Struct ||
+             rvt.kind() == LogosType::Kind::ZonedStruct) &&
+            rvt.struct_name() == "Vec" && rvt.type_args().size() == 1) {
+            TypeRef elem = rvt.type_args()[0];
+            if (elem && is_move_type(elem)) {
+                error(std::format(
+                    "cannot move a non-Copy element out of `Vec` via `get` "
+                    "(element type `{}` is not `Copy`): this would alias the "
+                    "Vec's storage and double-free on drop. Use `.borrow({})` "
+                    "for a `&{}` reference, or `.remove(..)` / `.pop()` to take "
+                    "ownership.",
+                    type_str(elem),
+                    "i", type_str(elem)));
+                return error_expr();
+            }
+        }
+    }
+
     // Method autoderef through a user `Deref` impl: if the receiver is a
     // struct with no DIRECT method `method_name` but it impls `Deref<Target>`,
     // deref to `Target` and retry — Rust performs this as part of method

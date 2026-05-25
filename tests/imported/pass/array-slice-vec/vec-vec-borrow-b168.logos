@@ -1,0 +1,18 @@
+// B168 G168-B: nested `Vec<Vec<i64>>`. `outer.get(i)` would move the inner Vec
+// out of a shared borrow (alias → double-free); read it by reference with
+// `borrow(i) -> &Vec<i64>` (Rust `&v[i]`), then index the inner (Copy i64) Vec.
+package vec_vec_borrow_b168;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut outer: Vec<Vec<i64>> = vec_new::<Vec<i64>>();
+    let mut a: Vec<i64> = vec_new::<i64>();
+    a.push(10i64); a.push(20i64);
+    let mut b: Vec<i64> = vec_new::<i64>();
+    b.push(5i64);
+    outer.push(a);
+    outer.push(b);
+    let r0: &Vec<i64> = outer.borrow(0i64);
+    let r1: &Vec<i64> = outer.borrow(1i64);
+    if r0.get(0i64) + r0.get(1i64) + r1.get(0i64) != 35i64 { return 1i32; }
+    return 0i32;
+}

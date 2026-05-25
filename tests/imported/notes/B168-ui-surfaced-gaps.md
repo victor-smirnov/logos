@@ -83,12 +83,17 @@ Boundary: `Vec<Option<i64>>` (g9) and `HashMap<i64,Point>` (g8) work — element
 Drop. `Vec<(i64,String)>` (g3) returned cleanly — a separate subtlety (tuple-element
 Drop glue over Vec may not be wired, so no double-free fires; needs follow-up).
 
-**Fix direction:** either (a) `Vec::get` returns `&T` (Rust semantics) and callers
-borrow — broad API change; or (b) the by-value `get` of a move-type element returns
-a *deep clone* (requires `Clone`); or (c) suppress the Vec's element-Drop for an
-element whose ownership was handed out by `get` (move-out tracking). Rust's answer is
-(a) `&T` + a separate `swap_remove`/`remove` for by-value. Intersects Vec Drop glue ×
-move-type element × get-by-value API.
+✅ FIXED 2026-05-24 (clean-error guard + existing `borrow`). Logos already has the
+Rust-parity accessors: `borrow(i) -> &T` (= Rust `&v[i]`), `remove(i)`/`pop() -> T`
+(owning, decrement `len` so no double-drop). `get(i) -> T` stays the Copy-convenience
+by-value read. The fix: `lower_method_call` now rejects `Vec::get` on a NON-Copy
+(move) element — *"cannot move a non-Copy element out of `Vec` via `get` … use
+`.borrow(i)` / `.remove(..)` / `.pop()`"* — exactly Rust's "cannot move out of index."
+This converts the silent double-free into a clean compile error; Copy-element `get`
+(the ~225 existing callers) is unaffected. The only stdlib site that moved a move-type
+out via `get` was `Debug for Vec<T>` (latently double-freeing for `Vec<String>`) — now
+reads via `borrow`. Tests: array-slice-vec/vec-string-borrow-b168,
+array-slice-vec/vec-vec-borrow-b168 (the read idiom via `borrow`).
 
 ---
 
