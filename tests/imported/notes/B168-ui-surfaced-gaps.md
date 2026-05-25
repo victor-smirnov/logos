@@ -72,11 +72,25 @@ the in-place relabel-without-fatten.
   Now `for b in &v` AND `for b in v.iter()` over `Vec<Box<dyn>>` dispatch correctly. Test:
   traits/foreach-vec-box-dyn-b168. This also explains the earlier "2-level for-each storage"
   red herring — the storage was fine; the slice data pointer was corrupt.
-  STILL OPEN (separate roots):
-  - **g2 HashMap<_, Box<dyn>>** — the cast fix made the RAW-ptr deref dispatch work
-    (`let p: *const Box<dyn>=&bx; (*p).area()` ✓), but `*m.get(&k)` (HashMap's `*const V`
-    value slot of a dyn) still SIGSEGVs at dispatch (1 insert, let-bound). A HashMap
-    value-slot/insert-coercion-for-a-dyn-value root, distinct from the Vec/cast fix.
+  STILL OPEN (one ARCHITECTURAL root — the `*const dyn` representation overload):
+  - **g2 HashMap<_, Box<dyn>>::get** — `*m.get(&k)` SIGSEGVs at dispatch. ISOLATED 2026-05-25:
+    `get` returns `*const V` = a pointer to the value slot holding the 8-byte dyn HANDLE, so
+    `*p` must LOAD the handle. But `EDeref` of a `TraitObject` is a NO-OP — because the SAME
+    `*const dyn`/`Ptr<TraitObject>` type is ALSO produced by `&concrete as *const dyn`
+    (dst-raw-trait-object-b158), where the value IS the handle (a fatslot ptr) and `*z` must be
+    a no-op. The two meanings — "handle" vs "pointer-to-handle" — are INDISTINGUISHABLE by type
+    (`Box<dyn>`/`dyn`/`&dyn` all collapse to `TraitObject`; `*const X` of either is
+    `Ptr<TraitObject>`). Local fixes trade one for the other: making `EDeref(TraitObject)` LOAD
+    fixes HashMap (g2x/g2v ✓) but regresses dst (and a raw `&bx`→`*const Box<dyn>` probe);
+    spilling the `as *const dyn` cast to a ptr-to-handle (to keep both) regresses the container
+    cases. The proper fix is a CONSISTENT representation — make `*const/*mut dyn` UNIFORMLY a
+    pointer-to-handle (the cast spills the handle; all `*p` load) — a focused but multi-site
+    architectural change touching `coerce_to_dyn` cast sites + every `*const/*mut dyn` user
+    (persistent/NodeARC). Deferred as its own sprint. Workaround: dispatch through a value
+    binding obtained another way, or `&dyn`/`Box<dyn>` by value (`for`/`get`/`borrow`), all of
+    which now work.
+  - (the cast fix DID make a raw `let p: *const Box<dyn>=&bx; (*p).area()` work for a stack
+    handle; the regression surfaces specifically when `*const dyn` must mean ptr-to-handle.)
   - **g2 `p[0].area()`** raw-ptr INDEX of `*const Box<dyn>` — MLIR-gen GEP crash; `*p` works.
   (was) **for-each** — superseded by the entry above. Original note kept:
   - ~~for-each over `Vec<Box<dyn>>` still SIGSEGVs~~ — gdb-isolated 2026-05-24: the for-each
