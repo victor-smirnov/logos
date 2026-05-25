@@ -1,0 +1,19 @@
+// Blanket `impl<A> Trait for A {}` covering a PRIMITIVE, coerced to `&dyn Trait`
+// (`&i64 as &dyn`). The eager blanket instantiation clones the blanket method
+// only for structs/enums — not primitives — so `i64__dummy` was never emitted,
+// and the dyn vtable referenced an un-emitted method → SIGSEGV. Eagerly cloning
+// for ALL primitives is unsafe (an integer-bodied blanket fails to verify on
+// f32/f64), so mono now TARGETS only the primitives actually coerced to the
+// trait (collected by scan_expr from `as dyn` cast sites) and instantiates the
+// blanket for them after the worklist drain.
+package blanket_impl_primitive_dyn;
+trait Hax { fn dummy(self: &Self) -> i64 { return 7i64; } }
+impl<A> Hax for A {}
+fn dispatch(h: &dyn Hax) -> i64 { return h.dummy(); }
+fn main() -> i32 {
+    let x: i64 = 42i64;
+    if dispatch(&x as &dyn Hax) != 7i64 { return 1i32; }
+    let b: bool = true;
+    if dispatch(&b as &dyn Hax) != 7i64 { return 2i32; }
+    return 0i32;
+}

@@ -24,6 +24,52 @@
 
 namespace logos::compiler {
 
+void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
+                                    const std::string& tmpl_prefix,
+                                    const std::string& concrete, TypeRef candidate_t) {
+    if (!candidate_t) return;
+    for (auto& tfn_up : in_.functions) {
+        auto& tfn = *tfn_up;
+        // Strip pkg prefix (`pkg.`) before matching the synthetic
+        // `$blanket$...` template prefix.
+        std::string tn = tfn.name;
+        if (auto dot = tn.rfind('.'); dot != std::string::npos)
+            tn = tn.substr(dot + 1);
+        if (tn.rfind(tmpl_prefix, 0) != 0) continue;
+        // Method may carry `__f__sig` / `__g__sig`. Preserve sig in dest so
+        // subsequent enqueues that mangle with type_args produce matching names.
+        std::string method = tn.substr(tmpl_prefix.size());
+        std::string concrete_pkg;
+        for (auto& sd : out_.structs)
+            if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
+        if (concrete_pkg.empty())
+            for (auto& ed : out_.enums)
+                if (ed.name == concrete) { concrete_pkg = ed.pkg; break; }
+        std::string bare_dest = concrete + "__" + method;
+        std::string dest = concrete_pkg.empty() ? bare_dest
+                                                : concrete_pkg + "." + bare_dest;
+        if (done_.count(dest)) continue;
+        SubstMap subst;
+        subst[bi.target_typevar] = candidate_t;
+        // Skip blanket methods carrying type-params the target binding can't
+        // supply (e.g. the OUTPUT `D` in `impl<S, D: From<S>> Into<D> for S`) —
+        // those instantiate at the real call site with full type_args.
+        bool all_tp_bound = true;
+        for (auto& tp : tfn.type_params) {
+            if (tp.is_variadic) continue;
+            if (!subst.count(tp.name)) { all_tp_bound = false; break; }
+        }
+        if (!all_tp_bound) continue;
+        WorkItem wi;
+        wi.mangled = dest;
+        wi.tmpl    = &tfn;
+        wi.subst   = std::move(subst);
+        wi.depth   = 0;
+        worklist_.push_back(std::move(wi));
+        done_.insert(dest);
+    }
+}
+
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
@@ -412,58 +458,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             // done_ memo (cycle protection), and the same depth_
             // counter; new bodies that the drain discovers are
             // automatically enqueued.
-            for (auto& tfn_up : in_.functions) {
-                auto& tfn = *tfn_up;
-                // Strip pkg prefix (`pkg.`) before matching the
-                // synthetic `$blanket$...` template prefix.
-                std::string tn = tfn.name;
-                if (auto dot = tn.rfind('.'); dot != std::string::npos)
-                    tn = tn.substr(dot + 1);
-                if (tn.rfind(tmpl_prefix, 0) != 0) continue;
-                // Method may carry `__f__sig` / `__g__sig`. Preserve sig in
-                // dest_name so subsequent enqueues that mangle with type_args
-                // produce matching final names.
-                std::string method = tn.substr(tmpl_prefix.size());
-                std::string concrete_pkg;
-                // Reuse candidate_t built once at the candidate loop
-                // top. Recover pkg from the struct/enum entry for the
-                // dest qualifier; primitives have no pkg.
-                TypeRef concrete_t = candidate_t;
-                for (auto& sd : out_.structs)
-                    if (sd.name == concrete) { concrete_pkg = sd.pkg; break; }
-                if (concrete_pkg.empty())
-                    for (auto& ed : out_.enums)
-                        if (ed.name == concrete) { concrete_pkg = ed.pkg; break; }
-                if (!concrete_t) continue;
-                std::string bare_dest = concrete + "__" + method;
-                std::string dest = concrete_pkg.empty()
-                                       ? bare_dest
-                                       : concrete_pkg + "." + bare_dest;
-                if (done_.count(dest)) continue;
-                SubstMap subst;
-                subst[bi.target_typevar] = concrete_t;
-                // Skip blanket methods carrying type-params the target binding
-                // can't supply — e.g. the OUTPUT `D` in
-                // `impl<S, D: From<S>> Into<D> for S`. This eager per-concrete
-                // pass knows only the target (S=concrete); `D` is determined by
-                // the call's expected return type, not by the target. Cloning
-                // with `D` unbound emits an unsubstituted `D::method`
-                // (`@D__myfrom`) that can't lower. Such methods are instantiated
-                // at the real call site (record_needed, full type_args).
-                bool all_tp_bound = true;
-                for (auto& tp : tfn.type_params) {
-                    if (tp.is_variadic) continue;
-                    if (!subst.count(tp.name)) { all_tp_bound = false; break; }
-                }
-                if (!all_tp_bound) continue;
-                WorkItem wi;
-                wi.mangled = dest;
-                wi.tmpl    = &tfn;
-                wi.subst   = std::move(subst);
-                wi.depth   = 0;
-                worklist_.push_back(std::move(wi));
-                done_.insert(dest);
-            }
+            enqueue_blanket_concrete(bi, tmpl_prefix, concrete, candidate_t);
         }
     }
 
@@ -546,6 +541,42 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         note_fn_worklist_size(worklist_.size());
     }
     depth_ = 0;
+
+    // Supplementary blanket-on-PRIMITIVE pass: scan_fn (above) recorded every
+    // primitive coerced to a `dyn Trait` (`&i64 as &dyn Any`). The eager blanket
+    // pass skipped primitives (cloning ALL of them breaks integer-bodied blankets
+    // on f32/f64). Now instantiate each blanket only for the primitives actually
+    // coerced to its trait — a sema-validated coercion means the primitive
+    // satisfies any bound, so no extra bound-check is needed here. Then drain the
+    // new worklist items (their bodies may reference further instantiations).
+    if (entry_points_.empty() && !dyn_coerced_prims_.empty()) {
+        for (auto& bi : blanket_impls_) {
+            auto pit = dyn_coerced_prims_.find(bi.trait_name);
+            if (pit == dyn_coerced_prims_.end()) continue;
+            std::string tmpl_prefix =
+                "$blanket$" + bi.trait_name + "$" + bi.bound_trait
+                + "$" + bi.target_typevar + "__";
+            for (auto& pn : pit->second)
+                enqueue_blanket_concrete(bi, tmpl_prefix, pn, build_concrete_typeref(pn));
+        }
+        while (!worklist_.empty()) {
+            auto item = std::move(worklist_.back());
+            worklist_.pop_back();
+            depth_ = item.depth;
+            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(item.mangled)) {
+                auto stub = clone_fn_signature(*item.tmpl, item.subst, item.packs);
+                stub.name = item.mangled; stub.type_params.clear();
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                continue;
+            }
+            auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
+            auto& fn_ref = *out_.functions.back();
+            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+            scan_fn(fn_ref);
+        }
+        depth_ = 0;
+    }
 
     // Demand instantiation of generic structs declared via #[type_code=N] eidos Foo<T>;
     // even when no Logos code directly references Foo<T> as a variable type.

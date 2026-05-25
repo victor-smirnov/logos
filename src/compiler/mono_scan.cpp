@@ -221,9 +221,46 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         lir_view::EArrLitView{e}.each_elem(
             [&](lir_view::ExprRef el) { scan_expr(el); });
         break;
-    case ECode::Cast:
-        scan_expr(lir_view::ECastView{e}.operand());
+    case ECode::Cast: {
+        lir_view::ECastView cv{e};
+        scan_expr(cv.operand());
+        // `&prim as &dyn Trait` / `box prim as Box<dyn Trait>`: record the
+        // PRIMITIVE→trait coercion so the post-drain pass can instantiate the
+        // blanket impl for that primitive (the eager blanket pass skips
+        // primitives; eagerly cloning ALL of them breaks integer-bodied blankets
+        // on f32/f64 — so we target only actually-coerced primitives).
+        TypeRef tgt = e.type(out_.type_pool.impl());
+        if (tgt && TypeRef(tgt).kind() == LogosType::Kind::Ptr && TypeRef(tgt).pointee())
+            tgt = TypeRef(tgt).pointee();
+        if (tgt && TypeRef(tgt).kind() == LogosType::Kind::TraitObject) {
+            TypeRef src = cv.operand().type(out_.type_pool.impl());
+            while (src && (TypeRef(src).kind() == LogosType::Kind::Ptr ||
+                           TypeRef(src).kind() == LogosType::Kind::Ref ||
+                           TypeRef(src).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(src).pointee())
+                src = TypeRef(src).pointee();
+            if (src && TypeRef(src).kind() == LogosType::Kind::Struct &&
+                TypeRef(src).struct_name() == "Box" &&
+                TypeRef(src).type_args().size() == 1)
+                src = TypeRef(src).type_args()[0];
+            const char* pn = nullptr;
+            if (src) switch (TypeRef(src).kind()) {
+                case LogosType::Kind::I8: pn="i8"; break;   case LogosType::Kind::I16: pn="i16"; break;
+                case LogosType::Kind::I32: pn="i32"; break; case LogosType::Kind::I64: pn="i64"; break;
+                case LogosType::Kind::I128: pn="i128"; break;
+                case LogosType::Kind::U8: pn="u8"; break;   case LogosType::Kind::U16: pn="u16"; break;
+                case LogosType::Kind::U32: pn="u32"; break; case LogosType::Kind::U64: pn="u64"; break;
+                case LogosType::Kind::U128: pn="u128"; break;
+                case LogosType::Kind::F32: pn="f32"; break; case LogosType::Kind::F64: pn="f64"; break;
+                case LogosType::Kind::Bool: pn="bool"; break; case LogosType::Kind::Char: pn="char"; break;
+                case LogosType::Kind::Usize: pn="usize"; break; case LogosType::Kind::Isize: pn="isize"; break;
+                default: break;
+            }
+            if (pn)
+                dyn_coerced_prims_[std::string(TypeRef(tgt).trait_name())].insert(pn);
+        }
         break;
+    }
     case ECode::New:
         lir_view::ENewView{e}.each_field_value(
             [&](lir_view::ExprRef fv) { scan_expr(fv); });
