@@ -199,6 +199,16 @@ impl<T> Vec<T> {
     }
 }
 
+// `v[i]` / `v[i] = x` (Rust parity). `Index`/`IndexMut` route to the existing
+// bounds-checked `borrow` / `borrow_mut`; the `a[i]` lowering derefs the
+// returned `&T` (read) or writes through the `&mut T` place.
+impl<T> Index<i64, T> for Vec<T> {
+    fn index(&self, idx: i64) -> &T { return self.borrow(idx); }
+}
+impl<T> IndexMut<i64, T> for Vec<T> {
+    fn index_mut(&mut self, idx: i64) -> &mut T { return self.borrow_mut(idx); }
+}
+
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
 
 pub struct VecIter<T> {

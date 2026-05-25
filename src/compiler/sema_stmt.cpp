@@ -6361,6 +6361,36 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
                 return builder().stmt_deref_write(
                     std::move(call_e), std::move(val_e), node_line_);
             }
+            // Generic-struct IndexMut impl (`impl<T> IndexMut for Vec<T>`):
+            // concrete symbol absent at sema → route `v[i] = x` →
+            // `*v.index_mut(i) = x` through the method-call machinery.
+            const SemaImplInfo* ii = nullptr;
+            if (auto it = impls_.find("IndexMut::" + type_name); it != impls_.end()) ii = &it->second;
+            else if (auto it2 = impls_.find("IndexMut::" + base_name); it2 != impls_.end()) ii = &it2->second;
+            if (ii && ii->trait_type_args.size() >= 2) {
+                SemaSubst subst;
+                if (ii->target_typeref) {
+                    auto pat = TypeRef(ii->target_typeref).type_args();
+                    auto cur = TypeRef(arr_type).type_args();
+                    for (size_t k = 0; k < pat.size() && k < cur.size(); ++k)
+                        if (pat[k] && TypeRef(pat[k]).kind() == LogosType::Kind::TypeVar)
+                            subst[std::string(TypeRef(pat[k]).type_var_name())] = cur[k];
+                }
+                TypeRef idx_t = subst_type_sema(ii->trait_type_args[0], subst);
+                TypeRef out_t = subst_type_sema(ii->trait_type_args[1], subst);
+                if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
+                    widen_int_expr(idx_e, idx_t, builder());
+                lir::EMethodCall mc;
+                mc.receiver = builder().addr_of(std::string(arr_name), make_ref(true, arr_type));
+                mc.method = "index_mut";
+                mc.args.push_back(std::move(idx_e));
+                mc.vtable_index = -1;
+                mc.resolved_type = "";
+                auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
+                track_write_move(val_e);
+                return builder().stmt_deref_write(
+                    std::move(call_e), std::move(val_e), node_line_);
+            }
         }
     }
 
