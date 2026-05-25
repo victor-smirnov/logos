@@ -395,6 +395,11 @@ private:
     // already fits `pt` or `pt` is not a trait object.
     bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
 
+    // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
+    // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`
+    // does a content compare. Returns null if `str_eq` isn't in scope.
+    lir::LExprPtr make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b);
+
     // Retype an incompletely-typed generic enum-literal argument to the
     // parameter's concrete enum spec. A bare `Opt::None` / partially-inferred
     // `Opt::Some(3)` passed directly as a call argument carries no (or

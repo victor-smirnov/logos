@@ -1,0 +1,41 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/pattern/usefulness/issue-78549-ref-pat-and-str.rs
+//   (top-level string-literal-pattern facet) + general coverage.
+// G172-1: string-literal patterns in `match` (`match s { "foo" => … }`) were a
+// parse error — the grammar had no string-literal pattern. Added `PAT_STR`;
+// sema hoists the scrutinee into a temp and lowers each `"lit"` arm to a
+// wildcard guarded by `str_eq(__smatch, "lit")` (str `==` content-compares).
+// Works in statement and expression position, multi-arm, and via or-patterns
+// (`"a" | "b"`, which fan out per alternative).
+// (The `&_` ref-pattern and nested str-in-tuple/variant facets of the original
+//  test are tracked separately as G172-1b — not yet supported.)
+package string_literal_patterns_b172;
+
+fn classify(s: str) -> i32 {
+    match s {
+        "yes" => { return 1i32; }
+        "no" => { return 2i32; }
+        "y" | "n" => { return 3i32; }   // or-of-strings
+        _ => { return 0i32; }
+    }
+}
+
+fn main() -> i32 {
+    if classify("yes") != 1i32 { return 1i32; }
+    if classify("no") != 2i32 { return 2i32; }
+    if classify("y") != 3i32 { return 3i32; }
+    if classify("n") != 3i32 { return 4i32; }
+    if classify("other") != 0i32 { return 5i32; }
+
+    // Expression-position str match.
+    let s: str = "b";
+    let x: i32 = match s { "a" => 10i32, "b" => 20i32, _ => 99i32 };
+    if x != 20i32 { return 6i32; }
+
+    // Match directly on a string literal scrutinee.
+    match "foo" {
+        "foo" => {}
+        _ => { return 7i32; }
+    }
+    return 0i32;
+}

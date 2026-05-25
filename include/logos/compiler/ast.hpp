@@ -282,6 +282,7 @@ inline constexpr Code GENERIC_REF          {"GENERIC_REF",         214};
 inline constexpr Code PAT_UNIT             {"PAT_UNIT",            149}; // `()` unit pattern in let-destruct / match
 inline constexpr Code PAT_FLOAT            {"PAT_FLOAT",           215}; // float literal pattern: `match x { 3.14 => ... }`. VALUE(7) = float source text.
 inline constexpr Code PAT_BYTES            {"PAT_BYTES",           216};
+inline constexpr Code PAT_STR              {"PAT_STR",             245}; // string-literal pattern: `match s { "foo" => ... }`. VALUE(7) = string source text (incl. quotes).
 inline constexpr Code LET_PAT              {"LET_PAT",             217}; // `let <pat> = expr;` — irrefutable destructure beyond simple ident/tuple.
 inline constexpr Code DOUBLE_REF_TYPE      {"DOUBLE_REF_TYPE",     218}; // `&&T` resolved by sema as nested REF_TYPE.
 inline constexpr Code DOUBLE_REF_MUT_TYPE  {"DOUBLE_REF_MUT_TYPE", 219}; // `&&mut T`.

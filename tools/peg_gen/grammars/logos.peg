@@ -301,6 +301,7 @@
     USE_VARIANTS                = 241   // CP-cm-02 + GR-gp-02: `use pkg.Path.X.{V1, V2, …};`. Same shape as USE but with extra TYPE_NAME (last dotted segment, either enum Type when uppercase or pkg sub-name when lowercase) and VARIANTS (list of bare-ident TomVs each holding a NAME). Sema disambiguates by TYPE_NAME's first-character case: uppercase → enum-variant bare-name shorthand; lowercase → grouped sub-package import (`use std.lang.{option, result};`).
     INNER_ANNOTATION            = 242   // Three-layer split Phase 3.2: `#![name]` / `#![name(args)]` / `#![name=val]` — file/module-level inner attribute. Currently used only for `#![no_implicit_prelude]`. Payload shape identical to ANNOTATION; differing CODE lets sema pick out module-level attrs from per-item attrs.
     DESTRUCTURE_ASSIGN          = 243   // G149-7 (RFC 2909): destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` into EXISTING places. OP=0 tuple (NAMES=pat_binding_list), 1 array (NAMES), 2 struct (NAME=struct, FIELDS=pat_field_list); VALUE=rhs. Sema desugars to `let __da=rhs;` + per-place assigns.
+    PAT_STR                     = 245   // G172-1: string-literal pattern `match s { "foo" => … }`. VALUE = string source. Sema lowers to a `str_eq` guard.
     PLACE_ASSIGN                = 244   // G163-2: general place write — a postfix-chain lvalue (`a[i][j]`, `(*p).0`, `m.f[i].g`, deep mixes) on the assignment LHS that the specialized write productions don't cover. RECEIVER = the place (a postfix read-expr: IndexRead/FieldRead/TupleIndex/Deref chain), VALUE = rhs. Sema lowers to `deref_write(&mut <place>, rhs)`.
 }
 
@@ -1941,6 +1942,10 @@
         // rejects until codegen for &[u8] equality matching lands).
         / BYTE_STRING
         => { CODE: PAT_BYTES, VALUE: $1 }
+        // String-literal pattern: `match s { "foo" => … }`. Sema lowers it to a
+        // refutable `str_eq(scrut, "foo")` guard over a wildcard binding.
+        / STRING
+        => { CODE: PAT_STR, VALUE: $1 }
         / KW_TRUE
         => { CODE: PAT_BOOL, VALUE: true }
         / KW_FALSE

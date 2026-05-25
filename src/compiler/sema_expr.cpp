@@ -10822,6 +10822,18 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     return sema_has_impl_recursive(trait, concrete, bare, seen2);
 }
 
+lir::LExprPtr SemaChecker::make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b) {
+    const SemaFuncInfo* fi = nullptr;
+    for (auto* c : find_func_candidates("str_eq"))
+        if (c && c->param_types.size() == 2) { fi = c; break; }
+    if (!fi) return nullptr;
+    std::vector<lir::LExprPtr> args;
+    args.push_back(std::move(a));
+    args.push_back(std::move(b));
+    std::string sym = fi->symbol_name.empty() ? std::string("str_eq") : fi->symbol_name;
+    return builder().call(sym, {}, std::move(args), bool_t());
+}
+
 bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
     if (TypeRef(arg->type).kind() == LogosType::Kind::Error) return false;
