@@ -1,0 +1,17 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/structs/newtype-struct-drop-run.rs
+// Modifications: Cell<isize> → `*mut i64` counter idiom (Logos has no Cell, drop
+//   convention across pass/drop/); tuple-struct Foo(&Cell) → struct Foo{i:*mut i64}
+//   (the destructor still runs at scope exit and writes through the pointer).
+// Tests that a struct's Drop destructor runs when the value goes out of scope.
+package newtype_struct_drop_run;
+trait Drop { fn drop(self: Self); }
+struct Foo { i: *mut i64 }
+impl Drop for Foo { fn drop(self: Foo) { unsafe { *self.i = 23i64; } } }
+fn main() -> i32 {
+    let mut cell: i64 = 32i64;
+    let p = &mut cell as *mut i64;
+    { let _x = Foo { i: p }; }
+    unsafe { if *p != 23i64 { return 1i32; } }
+    return 0i32;
+}

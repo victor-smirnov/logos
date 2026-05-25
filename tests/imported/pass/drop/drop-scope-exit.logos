@@ -1,0 +1,16 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/drop/drop-scope-exit.rs
+// Modifications: Cell<isize> → `*mut i64` counter (Logos drop convention); the
+//   `shrinky_pointer` Drop decrements the counter at scope exit. assert → sentinel.
+// Checks that Drop runs exactly at the close of the enclosing block, not before.
+package drop_scope_exit;
+trait Drop { fn drop(self: Self); }
+struct Shrink { i: *mut i64 }
+impl Drop for Shrink { fn drop(self: Shrink) { unsafe { *self.i = *self.i - 1i64; } } }
+fn main() -> i32 {
+    let mut total: i64 = 10i64;
+    let t = &mut total as *mut i64;
+    { let _pt = Shrink { i: t }; unsafe { if *t != 10i64 { return 1i32; } } }
+    unsafe { if *t != 9i64 { return 2i32; } }
+    return 0i32;
+}
