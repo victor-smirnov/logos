@@ -416,8 +416,11 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    `expr_ns` (multi-`&&` ok). Top-level + tuple/struct-nested payload bindings
    visible to the guard (guard-prologue re-extract); nested ENUM-VARIANT binding
    in the guard rejects cleanly (no miscompile). Additive — pure-bool `if a && b`
-   untouched. FOLLOW-UPS: `while let … && …`, match-guard chains, cond-first
-   (`if cond && let P = e`), nested-variant-binding-in-guard.
+   untouched. ✅ **`while let P = e && cond` DONE (77c53390)** — same desugar in
+   lower_while (`loop { match e { P if cond => BODY, _ => break } }`); pattern-fail
+   OR guard-fail ends the loop. Test `while_let_chain`. FOLLOW-UPS: match-guard
+   chains, cond-first (`if cond && let P = e`), nested-variant-binding-in-guard,
+   multi-let chains (`let .. && let ..`).
 5. ~~**Half-open range patterns** `a..`, `..b`, `..=b`~~ ✅ **DONE** (3097f848) —
    open side clamps to scrutinee type min/max (closed range at the boundary).
    Nested-in-payload half-open (`Num(1..)`) still a follow-up.
