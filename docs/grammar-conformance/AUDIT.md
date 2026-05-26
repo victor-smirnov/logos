@@ -290,6 +290,22 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
      for its chain write, and teach `gen_lvalue_addr`/`gen_recv_struct` the missing AnyVal/RelPtr handling
      (this IS the `place_write_addr` work). Only then retire the chain writer. Chain writes WORK today
      via the dedicated writer — do NOT ship the grammar removal until the place path is representation-complete.
+   **✅ CHAIN RETIREMENT LANDED 2026-05-26 (d5840c27), 5228/5228 with chain writer REMOVED.** The
+   precise root (4th attempt, MLIR-traced on a minimal `#[zoned] struct Hdr { root: AnyVal }` +
+   `h.root.raw = v` repro): a scalar-represented named field (AnyVal lowered as i32) is tagged with an
+   EMPTY `struct_name` in the LLVM struct registry, so `gen_recv_struct`'s FieldRead branch hit the
+   "not a struct" path and returned null → `EAddrOfTemp` fell back to a TEMP COPY and the write was
+   silently dropped (NOT a layout/offset bug — the address, once resolved, is correct). Fix
+   (3b4f739a + 7d47afd6): `gen_recv_struct` resolves an unrecorded-struct_name field's logical type
+   via `all_struct_defs_` (the authoritative LIR struct def, same source `gen_chain_field_write`
+   used) and treats a non-pointer named field as in-place. Plus the `check_place_writable` `*mut`-root
+   branch and the SDerefWrite aggregate-by-value fix (7c33525a). Removed: `chain_path_id`,
+   `chain_field_path`, `chain_field_write_stmt` productions, stmt dispatch, 114-line lowering, decl.
+   SChainFieldWrite LIR node KEPT (closure-capture compound still uses it). Regression test:
+   `chain_field_write_scalar_named`. **Lesson:** the earlier "hermes repr special-case" framing was
+   right in spirit but the mechanism was narrower & cheaper than feared — a missing struct_name tag,
+   fixed by consulting the LIR def. NEXT writers to retire (same place path, likely same-or-less work):
+   `tuple_field_write`, `deref_field_write`, `field_index_write`, then `index_write`/IndexMut + DataRef.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
