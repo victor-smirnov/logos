@@ -762,6 +762,28 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                                        loc_, ptr_type(), gep);
                     return {obj_ptr, f.struct_name};
                 }
+                // struct_name not recorded in the LLVM struct registry: a
+                // scalar-represented named type (e.g. AnyVal lowered as i32,
+                // RelPtr as a bare offset) tags its field with an EMPTY
+                // struct_name. Resolve the field's logical type from the
+                // authoritative LIR struct def (same source gen_chain_field_write
+                // uses), so a chain access can descend into it. The field lives
+                // in-place (scalar) — the GEP is already its address.
+                if (auto cdi = all_struct_defs_.find(base_sname);
+                    cdi != all_struct_defs_.end()) {
+                    for (auto& lf : cdi->second->fields) {
+                        if (lf.name == field && lf.type) {
+                            auto cn = concrete_struct_name(lf.type);
+                            if (!cn.empty() && struct_types_.count(cn)) {
+                                if (!mlir::isa<mlir::LLVM::LLVMPointerType>(f.type))
+                                    return {gep, cn};
+                                auto obj_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                                                   loc_, ptr_type(), gep);
+                                return {obj_ptr, cn};
+                            }
+                        }
+                    }
+                }
                 std::fprintf(stderr, "mlir_gen: field '%s' is not a struct/class type\n",
                              field.c_str());
                 return {nullptr, {}};
