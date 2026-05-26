@@ -431,6 +431,16 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    representation (size==16 fat slot AND value is a fresh fat temp), matching how the READ sizes that
    slot — not the type KIND alone. Buggy SDerefWrite-fat commit DROPPED (git reset to cac93782); steps
    1-2 remain (green 5231). NEXT: find that discriminator, then re-attempt step 3.
+   **✅ index_write RETIRED 2026-05-26 (826ba525), 5232/5232 — 5th of 6 writers.** The discriminator
+   turned out to be simply **Closure-KIND only**: the 8 broken tests were Slice/TraitObject thin-dyn
+   deref-writes, so gating SDerefWrite's fat-memcpy to `Closure` (the only value whose deref-write
+   genuinely copies a 16-byte fat handle into a fat slot) fixes the 5 closures and touches nothing
+   else. Retirement = the unified gen_lvalue_addr (steps 1-2) + try_index_mut_assign (IndexMut desugar,
+   concrete+generic) + check_place_writable Slice-allow & pointer-boundary + the Closure-only
+   SDerefWrite fat-memcpy. Removed index_write_stmt production/dispatch/200-line lowering/decl; 5
+   diagnostic fail-tests reworded; test index_write_unified. **5 of 6 retired** (chain, tuple,
+   deref_field, field_index, index). ONLY field_write (`a.b=v`) remains — DataRef ergonomic desugar +
+   pub-check relocation + huge blast radius + `field write` diagnostic-wording churn.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
