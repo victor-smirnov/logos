@@ -171,7 +171,19 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
 
 ## Prioritized fix queue (gaps, generalize each)
 
-1. **🔧 Assignment over-enumeration → place-expression collapse** (flagship; ~17→2; high payoff, higher risk).
+1. **🔧 Assignment over-enumeration** (flagship). **Investigated 2026-05-25: NOT a
+   pure-grammar collapse.** The ~17 grammar productions mirror ~9 distinct sema
+   lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
+   `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
+   `lower_destructure_assign`/`lower_place_assign`/inline DEREF_WRITE) that carry
+   REAL differences the general `lower_place_assign` (addr_of_temp + deref_write)
+   does NOT cover: user-defined `IndexMut` dispatch (`a[i]=v` on a struct),
+   deeply-nested places (it rejects via `place_write_supported`), compound-assign
+   (`+=`), and per-shape mutability diagnostics. So this is a **sema-unification
+   sprint**, not a grammar tweak: first extend the general place-write path to
+   subsume every case (IndexMut, deep-nest, compound, diagnostics), THEN retire
+   the specialized productions+lowerings one at a time, each gated. High payoff,
+   genuinely high risk — sequence deliberately, not as a quick win.
 2. **❌ Range value expressions** `a..b` etc. (medium; needs Range types + grammar).
 3. **❌ Default type parameters** `<T = Type>` (small-medium).
 4. **❌ Let-chains** `if a && let P = e` / match-guard let-chains (medium).
