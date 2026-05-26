@@ -1646,7 +1646,6 @@
           / if_expr
           / match_stmt
 
-          / field_write_stmt
           / destructure_assign_stmt
           / assign_stmt
           / compound_assign_stmt
@@ -2082,8 +2081,6 @@
     compound_assign_stmt <- atom compound_assign_op expr SEMI
                          => { CODE: COMPOUND_ASSIGN, RECEIVER: $1, OP: $2, VALUE: $3 }
 
-    field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
-                     => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
 
     // (*ptr).field = val;  — field write through a dereferenced pointer
 

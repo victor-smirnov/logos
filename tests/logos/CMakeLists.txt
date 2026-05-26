@@ -411,7 +411,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
     atomic_basic mutex_basic
     box_basic rc_basic arc_basic bytes_basic box_dyn_trait_basic
     chain_field_write chain_field_write_deep chain_field_write_scalar_named
-    field_index_write_generic_tuple index_write_unified
+    field_index_write_generic_tuple index_write_unified field_write_unified
     meta_traits_basic
     utf8_basic
     time_basic

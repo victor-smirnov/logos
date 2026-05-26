@@ -569,6 +569,27 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
         return;
     }
+    // Heap-promote an Enum value before storing into an enum-slot place (pointee
+    // is the heap-ptr Enum convention). gen_expr of a let-bound / call-returned
+    // enum yields its on-stack alloca pointer; if the destination outlives the fn
+    // (a struct FIELD via the retired field_write, e.g. `self.next_val = succ(v)`
+    // in SuccessorsIter) the field would dangle. Copy the enum struct to the heap
+    // so the stored pointer stays valid. Mirrors gen_field_write's promotion.
+    {
+        TypeRef pe = (pt && pt.pointee()) ? pt.pointee() : TypeRef(nullptr);
+        TypeRef vlt(val_le->type);
+        if (pe && TypeRef(pe).kind() == LogosType::Kind::Enum &&
+            vlt && TypeRef(vlt).kind() == LogosType::Kind::Enum &&
+            val.getType() == ptr_type()) {
+            if (auto* te = resolve_tagged_enum(std::string(TypeRef(vlt).enum_name()), vlt)) {
+                auto size = sizeof_struct(te->llvm_type);
+                if (auto heap = call_malloc(size)) {
+                    builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size, false);
+                    val = heap;
+                }
+            }
+        }
+    }
     val = coerce_int(val, elem_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr);
 }

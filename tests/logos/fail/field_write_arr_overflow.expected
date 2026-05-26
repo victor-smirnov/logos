@@ -1,1 +1,1 @@
-field write 's.data': array element 1: value 200 does not fit in i8
+assignment to 's.data': array element 1: value 200 does not fit in i8

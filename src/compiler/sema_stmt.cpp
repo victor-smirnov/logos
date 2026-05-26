@@ -272,7 +272,6 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::FOR)          return lower_for(stmt);
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
-    if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
     if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
@@ -6045,209 +6044,6 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sl));
 }
 
-lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
-    auto recv_name  = str_of(node.get(la::RECEIVER.code));
-    auto field_name = str_of(node.get(la::FIELD.code));
-
-    // DataRef<T> ergonomic write: p.field = val → { let __tmp = p.mut_ptr(); (*__tmp).field = val; }
-    {
-        TypeRef recv_type = lookup(recv_name);
-        if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Struct &&
-            is_dataref(recv_type) &&
-            TypeRef(recv_type).type_args().size() == 1) {
-            TypeRef T = TypeRef(recv_type).type_args()[0];
-            if (T && TypeRef(T).kind() == LogosType::Kind::ZonedStruct) {
-                auto ft = field_type_of_for_type(T, field_name);
-                if (ft) {
-                    if (!inside_unsafe_)
-                        error(std::format("DataRef<T>.{}: field write requires unsafe context",
-                                          field_name));
-                    if (!lookup_is_mut(recv_name))
-                        error(std::format("field write to immutable DataRef variable '{}'",
-                                          recv_name));
-                    // Lower value before generating the block.
-                    lir::LExprPtr val = node.has_key(la::VALUE)
-                        ? lower_expr(map_of(node.get(la::VALUE.code)))
-                        : error_expr();
-                    if (TypeRef(val->type).kind() != LogosType::Kind::Error &&
-                        !types_compatible(val->type, ft)) {
-                        auto [es, gs] = type_str_pair(ft, val->type);
-                        error(std::format("field write '{}.{}': expected {}, got {}",
-                              recv_name, field_name, es, gs));
-                    }
-                    // Synthesize: let __dr_tmp = p.mut_ptr();
-                    TypeRef mut_ptr_T = make_ptr(true, T);
-                    std::string tmp = "__dr_tmp_" + std::string(recv_name);
-                    auto recv_expr = builder().var_ref(std::string(recv_name), recv_type);
-                    lir::SLet let_s;
-                    let_s.name   = tmp;
-                    let_s.type   = mut_ptr_T;
-                    let_s.is_mut = false;
-                    let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
-                    // Synthesize: (*__dr_tmp).field = val
-                    track_write_move(val);
-                    lir::SDerefFieldWrite dfw;
-                    dfw.receiver  = tmp;
-                    dfw.type_name = concrete_struct_name(T);
-                    dfw.field     = std::string(field_name);
-                    dfw.value     = std::move(val);
-                    lir::LBlock inner;
-                    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(let_s)));
-                    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(dfw)));
-                    return make_stmt_emit(node_line_,
-                        lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
-                }
-            }
-        }
-    }
-
-    auto sname = struct_name_of(recv_name);
-    if (sname.empty()) {
-        // Metaprog discovery: receivers that resolve to <error> (typically
-        // a *mut to a not-yet-derived struct) are silently propagated;
-        // post-dispatch sema will surface a real error.
-        auto rt = lookup(recv_name);
-        bool sname_via_error = false;
-        if (rt) {
-            TypeRef t = rt;
-            if (TypeRef(t).kind() == LogosType::Kind::Ptr ||
-                is_ref_like(TypeRef(t).kind())) t = TypeRef(t).pointee();
-            if (t && TypeRef(t).kind() == LogosType::Kind::Error)
-                sname_via_error = true;
-        }
-        if (!(metaprog_mode_ && sname_via_error))
-            error(std::format("field write: '{}' is not a struct", recv_name));
-    } else {
-        auto recv_type = lookup(recv_name);
-        if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr) {
-            if (!TypeRef(recv_type).mut_ptr())
-                error(std::format("field write to '{}': receiver is *const pointer", recv_name));
-        } else if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref) {
-            error(std::format("field write to '{}': receiver is &T (shared reference)", recv_name));
-        } else if (!lookup_is_mut(recv_name) &&
-                   !(recv_type && TypeRef(recv_type).kind() == LogosType::Kind::MutRef)) {
-            error(std::format("field write to immutable variable '{}'", recv_name));
-        }
-    }
-    TypeRef recv_struct_t = sname.empty() ? nullptr : lookup(recv_name);
-    if (recv_struct_t && TypeRef(recv_struct_t).kind() == LogosType::Kind::Ptr) {
-        if (!inside_unsafe_)
-            error("field write through raw pointer requires unsafe context");
-        recv_struct_t = TypeRef(recv_struct_t).pointee();
-    } else if (recv_struct_t && is_ref_like(TypeRef(recv_struct_t).kind())) {
-        recv_struct_t = TypeRef(recv_struct_t).pointee();
-    }
-    TypeRef ft = nullptr;
-    if (recv_struct_t) {
-        ft = field_type_of_for_type(recv_struct_t, field_name);
-    }
-    if (!sname.empty() && !ft)
-        error(std::format("field write: struct '{}' has no field '{}'", sname, field_name));
-    // Pub check for struct/datatype field writes.
-    if (!sname.empty() && ft) {
-        SemaStructInfo* si = nullptr;
-        { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
-        if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
-        if (si) {
-            for (auto& f : si->fields) {
-                if (f.name == field_name) {
-                    check_pub_access(f.is_pub, si->package, field_name);
-                    break;
-                }
-            }
-        }
-    }
-
-    auto saved_struct_hint = hint_struct_type_;
-    if (ft && (TypeRef(ft).kind() == LogosType::Kind::Struct ||
-               TypeRef(ft).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ft).type_args().empty())
-        hint_struct_type_ = ft;
-    lir::LExprPtr val = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
-        : error_expr();
-    hint_struct_type_ = saved_struct_hint;
-    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(val->type, ft)) {
-        auto [es, gs] = type_str_pair(ft, val->type);
-        error(std::format("field write '{}.{}': expected {}, got {}",
-              recv_name, field_name, es, gs));
-    }
-    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() == LogosType::Kind::IntLit)
-        if (auto v = get_intlit_value(val))
-            if (!intlit_fits(*v, TypeRef(ft).kind()))
-                error(std::format("field write '{}.{}': value {} does not fit in {}",
-                      recv_name, field_name, *v, type_str(ft)));
-    // Check array literal elements against narrow array field type.
-    if (ft && TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
-        TypeRef(val->type).kind() == LogosType::Kind::Array) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-            lir_view::EArrLitView al{vr};
-            for (uint64_t i = 0; i < al.count(); ++i) {
-                auto el = al.elem(i);
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
-                            error(std::format("field write '{}.{}': array element {}: value {} does not fit in {}",
-                                  recv_name, field_name, i, *v, type_str(TypeRef(ft).elem())));
-            }
-        }
-    }
-    // Check tuple literal elements against narrow tuple field element types.
-    if (ft && TypeRef(ft).kind() == LogosType::Kind::Tuple && TypeRef(val->type).kind() == LogosType::Kind::Tuple) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-            lir_view::ETupleLitView tl{vr};
-            uint64_t i = 0;
-            tl.each_elem([&](lir_view::ExprRef el) {
-                if (i >= TypeRef(ft).tuple_elems().size()) { ++i; return; }
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (TypeRef(ft).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).kind()))
-                            error(std::format("field write '{}.{}': tuple element {}: value {} does not fit in {}",
-                                  recv_name, field_name, i, *v, type_str(TypeRef(ft).tuple_elems()[i])));
-                if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                    TypeRef(TypeRef(ft).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                    el.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView ial{el};
-                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                        auto iel = ial.elem(ii);
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
-                                    error(std::format("field write '{}.{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                          recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
-                    }
-                }
-                if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                    el.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView itl{el};
-                    uint64_t ii = 0;
-                    itl.each_elem([&](lir_view::ExprRef iel) {
-                        if (ii >= TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                    error(std::format("field write '{}.{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                          recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii])));
-                        ++ii;
-                    });
-                }
-                ++i;
-            });
-        }
-    }
-    track_write_move(val);
-    lir::SFieldWrite sfw;
-    sfw.receiver = std::string(recv_name);
-    sfw.field    = std::string(field_name);
-    sfw.value    = std::move(val);
-    return make_stmt_emit(node_line_, std::move(sfw));
-}
-
 // G163-2: general place write — `<postfix-lvalue> = rhs` for any place the
 // specialized write productions don't cover (chained index `a[i][j]`, deref +
 // tuple index `(*p).0`, deep mixes). Lowers to `deref_write(&mut <place>, rhs)`:
@@ -6502,6 +6298,54 @@ std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
     return std::nullopt;
 }
 
+// `p.field = v` where p is a DataRef<ZonedStruct>: ergonomic smart-pointer write
+// (Logos's DerefMut analog) desugars to `{ let __t = p.mut_ptr(); (*__t).field = v; }`.
+// Returns the lowered block if p is such a DataRef, else nullopt (caller falls
+// through to the plain field place-write). Relocated from the retired
+// lower_field_write.
+std::optional<lir::LStmt> SemaChecker::try_dataref_field_write(
+    const std::string& recv_name, const std::string& field_name,
+    hermes::TinyMapView val_node) {
+    TypeRef recv_type = lookup(recv_name);
+    if (!recv_type || TypeRef(recv_type).kind() != LogosType::Kind::Struct ||
+        !is_dataref(recv_type) || TypeRef(recv_type).type_args().size() != 1)
+        return std::nullopt;
+    TypeRef T = TypeRef(recv_type).type_args()[0];
+    if (!T || TypeRef(T).kind() != LogosType::Kind::ZonedStruct) return std::nullopt;
+    auto ft = field_type_of_for_type(T, field_name);
+    if (!ft) return std::nullopt;
+    if (!inside_unsafe_)
+        error(std::format("DataRef<T>.{}: field write requires unsafe context", field_name));
+    if (!lookup_is_mut(recv_name))
+        error(std::format("field write to immutable DataRef variable '{}'", recv_name));
+    lir::LExprPtr val = lower_expr(val_node);
+    if (TypeRef(val->type).kind() != LogosType::Kind::Error &&
+        !types_compatible(val->type, ft)) {
+        auto [es, gs] = type_str_pair(ft, val->type);
+        error(std::format("field write '{}.{}': expected {}, got {}",
+              recv_name, field_name, es, gs));
+    }
+    TypeRef mut_ptr_T = make_ptr(true, T);
+    std::string tmp = "__dr_tmp_" + recv_name;
+    auto recv_expr = builder().var_ref(recv_name, recv_type);
+    lir::SLet let_s;
+    let_s.name   = tmp;
+    let_s.type   = mut_ptr_T;
+    let_s.is_mut = false;
+    let_s.value  = builder().method_call(std::move(recv_expr), "mut_ptr", "", {}, {}, -1, mut_ptr_T);
+    track_write_move(val);
+    lir::SDerefFieldWrite dfw;
+    dfw.receiver  = tmp;
+    dfw.type_name = concrete_struct_name(T);
+    dfw.field     = field_name;
+    dfw.value     = std::move(val);
+    lir::LBlock inner;
+    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(let_s)));
+    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(dfw)));
+    return make_stmt_emit(node_line_,
+        lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+}
+
 lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     auto place_node = map_of(node.get(la::RECEIVER.code));
     int32_t pc = code_of(place_node);
@@ -6522,6 +6366,19 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
             auto an = std::string(str_of(recv.get(la::NAME.code)));
             if (auto s = try_index_mut_assign(an, lookup(an),
                     map_of(place_node.get(la::VALUE.code)),
+                    map_of(node.get(la::VALUE.code))))
+                return std::move(*s);
+        }
+    }
+    // Smart-pointer field write (Logos's DerefMut analog): `p.field = v` where
+    // p is a DataRef<ZonedStruct> ergonomically desugars to
+    // `(*p.mut_ptr()).field = v`. Handle before the generic place path.
+    if (pc == la::FIELD_READ) {
+        auto recv = map_of(place_node.get(la::RECEIVER.code));
+        if (code_of(recv) == la::VAR_REF) {
+            auto rn = std::string(str_of(recv.get(la::NAME.code)));
+            if (auto s = try_dataref_field_write(rn,
+                    std::string(str_of(place_node.get(la::FIELD.code))),
                     map_of(node.get(la::VALUE.code))))
                 return std::move(*s);
         }
@@ -6616,11 +6473,41 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
             for (uint64_t i = 0; i < tl.count() && i < elems.size(); ++i) {
                 auto el = tl.elem(i);
                 TypeRef et = elems[i];
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                if (!et) continue;
+                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit) {
                     if (auto v = get_intlit_value(el))
                         if (!intlit_fits(*v, TypeRef(et).kind()))
                             error(std::format("assignment to '{}': tuple element {}: value {} does not fit in {}",
                                   render_place_node(place_node), i, *v, type_str(et)));
+                }
+                // Nested: a tuple element that is itself an ARRAY literal.
+                else if (TypeRef(et).kind() == LogosType::Kind::Array && TypeRef(et).elem() &&
+                         el.kind() == lir_schema::expr::Code::ArrLit) {
+                    lir_view::EArrLitView ial{el};
+                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
+                        auto iel = ial.elem(ii);
+                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(iel))
+                                if (!intlit_fits(*v, TypeRef(TypeRef(et).elem()).kind()))
+                                    error(std::format("assignment to '{}': tuple element {}: array element {}: value {} does not fit in {}",
+                                          render_place_node(place_node), i, ii, *v, type_str(TypeRef(et).elem())));
+                    }
+                }
+                // Nested: a tuple element that is itself a TUPLE literal.
+                else if (TypeRef(et).kind() == LogosType::Kind::Tuple &&
+                         el.kind() == lir_schema::expr::Code::TupleLit) {
+                    lir_view::ETupleLitView itl{el};
+                    auto subelems = TypeRef(et).tuple_elems();
+                    for (uint64_t ii = 0; ii < itl.count() && ii < subelems.size(); ++ii) {
+                        auto iel = itl.elem(ii);
+                        if (subelems[ii] &&
+                            iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
+                            if (auto v = get_intlit_value(iel))
+                                if (!intlit_fits(*v, TypeRef(subelems[ii]).kind()))
+                                    error(std::format("assignment to '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
+                                          render_place_node(place_node), i, ii, *v, type_str(subelems[ii])));
+                    }
+                }
             }
         }
     }

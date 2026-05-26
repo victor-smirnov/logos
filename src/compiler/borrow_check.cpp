@@ -1703,9 +1703,14 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     root = std::string(EVarRefView{cur}.name());
                     // B93.2: if root has raw-pointer type, skip mut-binding +
                     // field-borrow tracking — borrow goes through pointer
-                    // deref, doesn't constrain the binding itself.
+                    // deref, doesn't constrain the binding itself. Same for a
+                    // `&mut T` root: `r.field = v` / `&mut r.field` writes
+                    // THROUGH the reference and needs no `mut r` binding (Rust
+                    // parity) — the place path's AddrOfTemp now reaches here for
+                    // every `a.b = v`, so a `&mut` receiver must be skipped too.
                     auto rt = cur.type(pool);
-                    if (rt && rt.kind() == LogosType::Kind::Ptr)
+                    if (rt && (rt.kind() == LogosType::Kind::Ptr ||
+                               rt.kind() == LogosType::Kind::MutRef))
                         root_is_raw_ptr = true;
                     for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
                         if (!path.empty()) path.push_back('.');

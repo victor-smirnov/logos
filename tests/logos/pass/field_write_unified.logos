@@ -1,0 +1,24 @@
+// Regression: `a.b = v` (field_write) retired onto the general place path.
+// Pins the two non-trivial fixes: (1) writing a field THROUGH a `&mut` ref needs
+// no `mut` binding (borrow-check skips the binding-mut requirement for a MutRef
+// root); (2) an ENUM-valued field store heap-promotes the enum so the field
+// doesn't dangle past the fn (the SuccessorsIter `self.next_val = ...` shape).
+package field_write_unified;
+
+struct Cell { v: i64, tag: Option<i64>, }
+
+fn set_through_ref(c: &mut Cell, x: i64) {
+    c.v = x;                 // field write through &mut ref (no `mut c` needed)
+    c.tag = Option::Some(x); // enum-valued field store (heap-promote)
+}
+
+fn main() -> i32 {
+    let mut c: Cell = Cell { v: 0i64, tag: Option::None, };
+    set_through_ref(&mut c, 42i64);
+    if c.v != 42i64 { return 1i32; }
+    match c.tag {
+        Option::Some(t) => { if t != 42i64 { return 2i32; } }
+        Option::None    => { return 3i32; }
+    }
+    return 42i32;
+}
