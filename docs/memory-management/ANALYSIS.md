@@ -313,26 +313,38 @@ The 5th (`json_parse`) exposed the **deeper, decisive wall**:
   internally CONSISTENT (enum = heap ptr everywhere, moved by ptr-transfer, move-tracking
   suppresses the source); inlining SOME enums while the rest of the model stores enums
   **by-pointer** breaks that consistency.
-- **The by-pointer storage is pervasive and is the real blocker (Category C):** enum-typed
-  struct fields (`register_struct` else-branch → `logos_to_mlir(Enum)=ptr`, NOT inline-
-  embedded like nested struct fields), tuple elements (`tuple_llvm_type`), and **Vec /
-  generic-container elements (pointer-element convention, `mlir_gen_expr.cpp:2426`
-  "Slices/Vec use a pointer element convention")**. Value-repr requires converting ALL of
-  these to inline — and the Vec/HashMap element model (size + memcpy vs store-ptr) is a
-  large, separate feature touching stdlib-generic codegen. **THIS is the wall the
-  representation flip is gated on.**
+- **CORRECTED scope of the blocker (verified by disasm + repros, 2026-05-26):** my first
+  read ("Vec uses a pointer-element convention → a separate large prerequisite") was
+  WRONG. `Vec` stores aggregates **inline by `sizeof::<T>()` + memcpy** already — disasm of
+  `Vec<P>::push` (P={i64,i64}) shows a ×16 element stride + memcpy `call`; `Vec<Struct>` is
+  a true inline value container. Enums land in a Vec **by-pointer today ONLY because
+  `sizeof::<Enum>()`=8 (ptr) and construction heap-allocates** — once the repr flips
+  (`sizeof` returns the inline `4+payload`, construction→alloca, value=inline bytes), the
+  generic Vec/HashMap machinery stores enums inline **automatically** (it already memcpy's
+  `sizeof` bytes). So the container model is NOT a separate wall. The line-2426
+  "pointer element convention" comment is narrower than it reads (user-level `v[i]`
+  IndexRead stride, not the buffer storage).
+- **The actual hard part is MOVE/DROP suppression for inline enums.** Repro: a
+  struct-with-`String` moved into a `Vec` via `?` TWICE does NOT double-free — inline
+  STRUCT moves already suppress the source's drop correctly. Step A's json_parse
+  double-free is the SAME mechanism MISSING for inline enums: extracting/`?`-moving an
+  inline enum must mark the source slot moved so the parent's drop-glue (and the `?`-source
+  temporary) skip it. This is a fixable gap (wire enum move-tracking like struct
+  move-tracking), not an architectural wall.
 
-**Revised conclusion:** the enum value-repr flip is genuinely all-or-nothing AND is
-itself gated on first converting the generic-container element model away from the
-pointer-element convention (so `Vec<Enum>`/`Vec<Struct>` store inline + memcpy). There is
-no sound partial enum-only slice. Sequencing for the next attempt:
-  1. **Container element model first**: make `Vec`/array/HashMap store aggregates (struct
-     AND enum) INLINE by element size with memcpy push/pop/index (today struct elements are
-     inline in *arrays* but Vec uses ptr-elements — unify on inline). This also makes
-     `Vec<Struct>` a true value container (removes its reliance on heap-stable struct ptrs).
-  2. Inline enums in struct fields + tuple elements (Category C).
-  3. Then the enum representation flip (construction→alloca, one-level `&`, inline
-     payload, memcpy stores, delete heap-promotion) lands cleanly because every storage
-     site is already inline + move = memcpy + parent-drop-skips-moved works uniformly
-     (exactly as it already does for inline structs).
-The attempt-1 mlir-gen diffs were reverted to the green baseline (commit 2ffa009a).
+**Revised conclusion:** the enum value-repr flip is still genuinely all-or-nothing (every
+indirection-level site must agree at once), but it is MORE tractable than the "container
+wall" framing — no separate container-model rewrite is needed. The coordinated change for
+the next focused session:
+  1. `sizeof::<Enum>()` returns inline `4+payload` (verify the `sizeof` intrinsic uses
+     `logos_abi_byte_size`, which is already inline-correct).
+  2. Construction → alloca; one-level `&Enum` (delete `var_tagged_enum_ptr_`); inline
+     payload; memcpy stores; delete heap-promotion (the §8 #1 touch-point list).
+  3. Inline-embed enums in struct fields + tuple elements (Category C — mirror the nested-
+     struct inline-embed in `register_struct` / `tuple_llvm_type`).
+  4. **Wire enum move/drop suppression to match inline structs** (the json_parse lesson):
+     match-extract / `?` / let-destructure of an inline enum marks the source moved so the
+     parent drop-glue skips it. Gate on a `Vec<Json>`-shaped recursive-droppable round-trip.
+The attempt-1 mlir-gen diffs were reverted to the green baseline (commit 2ffa009a); the
+4-of-5 fixes (two-level `&Enum` ref binding, `?` inline Ok-payload) are reconstructable
+from commit 51133352's parent reflog if useful as a starting reference.
