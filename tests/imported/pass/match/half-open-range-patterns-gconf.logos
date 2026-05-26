@@ -1,0 +1,36 @@
+// Grammar-conformance (Logos↔Rust sprint, 2026-05-25): half-open range
+// patterns. Rust allows `a..` (RangeFrom), `..=b` (RangeToInclusive), and
+// `..b` (RangeToExclusive) as patterns; Logos previously required both bounds.
+// Implemented elegantly: an open side carries no bound key and build_pattern
+// clamps it to the scrutinee integer type's min/max (so a half-open range is a
+// closed range at the type boundary). Closed `a..=b` / `a..b` unchanged.
+package match_half_open_ranges;
+
+fn classify(n: i64) -> i32 {
+    match n {
+        ..=0i64       => { return 1i32; }   // RangeToInclusive: [MIN, 0]
+        1i64..=9i64   => { return 2i32; }   // closed inclusive
+        10i64..       => { return 3i32; }   // RangeFrom: [10, MAX]
+        _             => { return 0i32; }
+    }
+}
+
+fn excl(n: i64) -> i32 {
+    match n {
+        ..10i64 => { return 1i32; }         // RangeToExclusive: [MIN, 9]
+        _       => { return 2i32; }
+    }
+}
+
+fn main() -> i32 {
+    if classify(-5i64) != 1i32 { return 10i32; }
+    if classify(0i64)  != 1i32 { return 11i32; }
+    if classify(5i64)  != 2i32 { return 12i32; }
+    if classify(9i64)  != 2i32 { return 13i32; }
+    if classify(10i64) != 3i32 { return 14i32; }
+    if classify(999i64)!= 3i32 { return 15i32; }
+    // exclusive upper bound: 9 in, 10 out.
+    if excl(9i64)  != 1i32 { return 20i32; }
+    if excl(10i64) != 2i32 { return 21i32; }
+    return 0i32;
+}

@@ -1943,6 +1943,24 @@
         => { CODE: PAT_RANGE, LHS: $1, RHS: $4, HI_NEG: true, INCLUSIVE: false }
         / INTEGER DOTDOT INTEGER
         => { CODE: PAT_RANGE, LHS: $1, RHS: $3, INCLUSIVE: false }
+        // Half-open range patterns (Rust parity). Open side has NO bound key;
+        // build_pattern clamps it to the scrutinee type's min/max.
+        //   `a..`  (RangeFrom)        → [a, TYPE_MAX]
+        //   `..=b` (RangeToInclusive) → [TYPE_MIN, b]
+        //   `..b`  (RangeToExclusive) → [TYPE_MIN, b-1]
+        // Must precede bare INTEGER so `a..` doesn't lex as `a` then `..`.
+        / MINUS INTEGER DOTDOT
+        => { CODE: PAT_RANGE, LHS: $2, LO_NEG: true, INCLUSIVE: true }
+        / INTEGER DOTDOT
+        => { CODE: PAT_RANGE, LHS: $1, INCLUSIVE: true }
+        / DOTDOTEQ MINUS INTEGER
+        => { CODE: PAT_RANGE, RHS: $3, HI_NEG: true, INCLUSIVE: true }
+        / DOTDOTEQ INTEGER
+        => { CODE: PAT_RANGE, RHS: $2, INCLUSIVE: true }
+        / DOTDOT MINUS INTEGER
+        => { CODE: PAT_RANGE, RHS: $3, HI_NEG: true, INCLUSIVE: false }
+        / DOTDOT INTEGER
+        => { CODE: PAT_RANGE, RHS: $2, INCLUSIVE: false }
         / MINUS INTEGER
         => { CODE: PAT_NEG_INT, VALUE: $2 }
         / INTEGER

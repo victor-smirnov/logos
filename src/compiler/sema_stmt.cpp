@@ -3823,15 +3823,33 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     }
     // ── PAT_RANGE: 0..=9 inclusive integer range ──────────────────────────
     if (pc == la::PAT_RANGE) {
-        auto lo_sv = str_of(pnode.get(la::LHS.code));
-        auto hi_sv = str_of(pnode.get(la::RHS.code));
-        int64_t lo = parse_int_literal(lo_sv);
-        int64_t hi = parse_int_literal(hi_sv);
-        if (pnode.has_key(la::LO_NEG)) {
+        // Half-open forms (`a..`, `..=b`, `..b`) omit one bound key; clamp the
+        // open side to the scrutinee integer type's min/max.
+        bool has_lo = pnode.has_key(la::LHS);
+        bool has_hi = pnode.has_key(la::RHS);
+        auto int_bounds = [](LogosType::Kind k) -> std::pair<int64_t,int64_t> {
+            switch (k) {
+            case LogosType::Kind::I8:  return {-128, 127};
+            case LogosType::Kind::U8:  return {0, 255};
+            case LogosType::Kind::I16: return {-32768, 32767};
+            case LogosType::Kind::U16: return {0, 65535};
+            case LogosType::Kind::U32: return {0, (int64_t)UINT32_MAX};
+            case LogosType::Kind::I64: case LogosType::Kind::Isize:
+                                       return {INT64_MIN, INT64_MAX};
+            case LogosType::Kind::U64: case LogosType::Kind::Usize:
+                                       return {0, INT64_MAX};
+            default:                   return {(int64_t)INT32_MIN, (int64_t)INT32_MAX};
+            }
+        };
+        auto [tmin, tmax] = int_bounds(scrut_type ? TypeRef(scrut_type).kind()
+                                                   : LogosType::Kind::I32);
+        int64_t lo = has_lo ? parse_int_literal(str_of(pnode.get(la::LHS.code))) : tmin;
+        int64_t hi = has_hi ? parse_int_literal(str_of(pnode.get(la::RHS.code))) : tmax;
+        if (has_lo && pnode.has_key(la::LO_NEG)) {
             AnyVal av = pnode.get(la::LO_NEG.code);
             if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) lo = -lo;
         }
-        if (pnode.has_key(la::HI_NEG)) {
+        if (has_hi && pnode.has_key(la::HI_NEG)) {
             AnyVal av = pnode.get(la::HI_NEG.code);
             if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
         }
