@@ -1,1 +1,1 @@
-index write to 'arr': value 10000000000 does not fit in i32
+assignment to 'arr[i]': value 10000000000 does not fit in i32

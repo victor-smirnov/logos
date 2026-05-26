@@ -1647,7 +1647,6 @@
           / match_stmt
 
           / field_write_stmt
-          / index_write_stmt
           / destructure_assign_stmt
           / assign_stmt
           / compound_assign_stmt
@@ -2000,8 +1999,6 @@
         => { CODE: PAT_WILD, NAME: $1 }
 
     // arr[idx] = expr;
-    index_write_stmt <- IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
-                     => { CODE: INDEX_WRITE, NAME: $1, LHS: $3, VALUE: $6 }
 
     // let Pat = expr else { block };
     let_else_stmt <- KW_LET pattern ASSIGN expr KW_ELSE block SEMI

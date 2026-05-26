@@ -1,0 +1,30 @@
+// Regression: `a[i] = v` (index_write) retired onto the general place path via
+// the unified gen_lvalue_addr resolver. Exercises receiver shapes the
+// unification routes through the place path: a bare array and a bare `*mut T`
+// param (Ptr VarRef case). Slice `&mut [T]` writes are covered by
+// slice-rev-swap-inplace-b162; Vec IndexMut by vec_index_operator; the Box<dyn
+// FnMut> closure store by boxed-cl-call.
+package index_write_unified;
+
+unsafe fn fill_ptr(p: *mut i64, n: i64) {
+    let mut i: i64 = 0i64;
+    while i < n { p[i] = i * 10i64; i = i + 1i64; }
+}
+
+fn main() -> i32 {
+    // bare array
+    let mut a: [i64; 3] = [0i64, 0i64, 0i64];
+    a[0i64] = 7i64;
+    a[2i64] = 9i64;
+    if a[0i64] + a[1i64] + a[2i64] != 16i64 { return 1i32; }
+
+    // bare *mut T param writes (p[i] = v)
+    unsafe {
+        let p: *mut i64 = &mut a[0i64] as *mut i64;
+        fill_ptr(p, 3i64);
+    }
+    // p[0..2]=0,10,20
+    if a[0i64] + a[1i64] + a[2i64] != 30i64 { return 2i32; }
+
+    return 42i32;
+}

@@ -274,7 +274,6 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::LOOP)         return lower_loop(stmt);
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
     if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
-    if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
         lir::LExprPtr e = stmt.has_key(la::VALUE)
@@ -6378,6 +6377,9 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
         TypeRef rt = resolve_place_type(recv);
         if (rt && TypeRef(rt).kind() == LogosType::Kind::MutRef)
             return true;
+        // Slice element write: slice mutability is not type-tracked (DIVERGENCE).
+        if (rt && TypeRef(rt).kind() == LogosType::Kind::Slice)
+            return true;
         if (rt && TypeRef(rt).kind() == LogosType::Kind::Ptr) {
             if (!TypeRef(rt).mut_ptr()) {
                 error("assignment through a `*const` pointer");
@@ -6441,6 +6443,65 @@ TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
     return nullptr;
 }
 
+std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
+    const std::string& arr_name, TypeRef arr_type,
+    hermes::TinyMapView idx_node, hermes::TinyMapView val_node) {
+    if (!arr_type || TypeRef(arr_type).kind() != LogosType::Kind::Struct)
+        return std::nullopt;
+    auto type_name = concrete_struct_name(arr_type);
+    auto base_name = std::string(TypeRef(arr_type).struct_name());
+    bool has_im = impls_.count("IndexMut::" + type_name) ||
+                  (!base_name.empty() && impls_.count("IndexMut::" + base_name));
+    if (!has_im) return std::nullopt;
+    if (!lookup_is_mut(arr_name))
+        error(std::format("index write to immutable struct '{}'", arr_name));
+    auto mangled = type_name + "__index_mut";
+    lir::LExprPtr idx_e = lower_expr(idx_node);
+    lir::LExprPtr val_e = lower_expr(val_node);
+    const SemaFuncInfo* fit = nullptr;
+    for (auto* c : find_func_candidates(mangled))
+        if (c->param_types.size() == 2) { fit = c; break; }
+    if (fit) {
+        widen_int_expr(idx_e, fit->param_types[1], builder());
+        auto recv_ref = builder().addr_of(arr_name, make_ref(true, arr_type));
+        std::vector<lir::LExprPtr> args;
+        args.push_back(std::move(recv_ref));
+        args.push_back(std::move(idx_e));
+        auto call_e = builder().call(
+            fit->symbol_name.empty() ? mangled : fit->symbol_name,
+            {}, std::move(args), fit->ret_type);
+        track_write_move(val_e);
+        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_);
+    }
+    const SemaImplInfo* ii = nullptr;
+    if (auto it = impls_.find("IndexMut::" + type_name); it != impls_.end()) ii = &it->second;
+    else if (auto it2 = impls_.find("IndexMut::" + base_name); it2 != impls_.end()) ii = &it2->second;
+    if (ii && ii->trait_type_args.size() >= 2) {
+        SemaSubst subst;
+        if (ii->target_typeref) {
+            auto pat = TypeRef(ii->target_typeref).type_args();
+            auto cur = TypeRef(arr_type).type_args();
+            for (size_t k = 0; k < pat.size() && k < cur.size(); ++k)
+                if (pat[k] && TypeRef(pat[k]).kind() == LogosType::Kind::TypeVar)
+                    subst[std::string(TypeRef(pat[k]).type_var_name())] = cur[k];
+        }
+        TypeRef idx_t = subst_type_sema(ii->trait_type_args[0], subst);
+        TypeRef out_t = subst_type_sema(ii->trait_type_args[1], subst);
+        if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
+            widen_int_expr(idx_e, idx_t, builder());
+        lir::EMethodCall mc;
+        mc.receiver = builder().addr_of(arr_name, make_ref(true, arr_type));
+        mc.method = "index_mut";
+        mc.args.push_back(std::move(idx_e));
+        mc.vtable_index = -1;
+        mc.resolved_type = "";
+        auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
+        track_write_move(val_e);
+        return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_);
+    }
+    return std::nullopt;
+}
+
 lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     auto place_node = map_of(node.get(la::RECEIVER.code));
     int32_t pc = code_of(place_node);
@@ -6452,6 +6513,18 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
         error("invalid assignment target: left side is not an assignable place");
         lir::SExprStmt es; es.expr = error_expr();
         return make_stmt_emit(node_line_, std::move(es));
+    }
+    // Operator-overload place write (Rust: `a[i] = v` is `*index_mut(&mut a,i)=v`
+    // for IndexMut types). A trait method produces the place, not a plain address.
+    if (pc == la::INDEX_READ) {
+        auto recv = map_of(place_node.get(la::RECEIVER.code));
+        if (code_of(recv) == la::VAR_REF) {
+            auto an = std::string(str_of(recv.get(la::NAME.code)));
+            if (auto s = try_index_mut_assign(an, lookup(an),
+                    map_of(place_node.get(la::VALUE.code)),
+                    map_of(node.get(la::VALUE.code))))
+                return std::move(*s);
+        }
     }
     // Bound to the place shapes the address-of machinery lowers correctly;
     // deeper nestings hit a pre-existing read-side limitation — reject cleanly
@@ -6559,211 +6632,6 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
                                        make_ref(true, pt ? pt : error_t()));
     track_write_move(val);
     return builder().stmt_deref_write(std::move(addr), std::move(val), node_line_);
-}
-
-lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
-    auto arr_name = str_of(node.get(la::NAME.code));
-    auto arr_type = lookup(arr_name);
-
-    // User-defined IndexMut dispatch: `a[i] = v` for struct a where
-    // a impls IndexMut<I, O> → call a.index_mut(i) (returns &mut O),
-    // then emit `*<that &mut O> = v`. Mirrors the read-side
-    // dispatch in sema_expr.cpp::lower_index_read.
-    if (arr_type && TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
-        if (!lookup_is_mut(arr_name))
-            error(std::format("index write to immutable struct '{}'", arr_name));
-        auto type_name = concrete_struct_name(arr_type);
-        auto base_name = std::string(TypeRef(arr_type).struct_name());
-        bool has_im = impls_.count("IndexMut::" + type_name) ||
-                      (!base_name.empty() &&
-                       impls_.count("IndexMut::" + base_name));
-        if (has_im) {
-            auto mangled = type_name + "__index_mut";
-            lir::LExprPtr idx_e = node.has_key(la::LHS)
-                ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
-            lir::LExprPtr val_e = node.has_key(la::VALUE)
-                ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-            // Find the unique 2-param impl candidate, widen IntLit idx
-            // (mirrors lower_index_read).
-            const SemaFuncInfo* fit = nullptr;
-            for (auto* c : find_func_candidates(mangled))
-                if (c->param_types.size() == 2) { fit = c; break; }
-            if (fit) {
-                widen_int_expr(idx_e, fit->param_types[1], builder());
-                auto mut_ref_t = make_ref(true, arr_type);
-                auto recv_ref = builder().addr_of(std::string(arr_name), mut_ref_t);
-                std::vector<lir::LExprPtr> args;
-                args.push_back(std::move(recv_ref));
-                args.push_back(std::move(idx_e));
-                auto call_e = builder().call(
-                    fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                    {}, std::move(args), fit->ret_type);
-                track_write_move(val_e);
-                return builder().stmt_deref_write(
-                    std::move(call_e), std::move(val_e), node_line_);
-            }
-            // Generic-struct IndexMut impl (`impl<T> IndexMut for Vec<T>`):
-            // concrete symbol absent at sema → route `v[i] = x` →
-            // `*v.index_mut(i) = x` through the method-call machinery.
-            const SemaImplInfo* ii = nullptr;
-            if (auto it = impls_.find("IndexMut::" + type_name); it != impls_.end()) ii = &it->second;
-            else if (auto it2 = impls_.find("IndexMut::" + base_name); it2 != impls_.end()) ii = &it2->second;
-            if (ii && ii->trait_type_args.size() >= 2) {
-                SemaSubst subst;
-                if (ii->target_typeref) {
-                    auto pat = TypeRef(ii->target_typeref).type_args();
-                    auto cur = TypeRef(arr_type).type_args();
-                    for (size_t k = 0; k < pat.size() && k < cur.size(); ++k)
-                        if (pat[k] && TypeRef(pat[k]).kind() == LogosType::Kind::TypeVar)
-                            subst[std::string(TypeRef(pat[k]).type_var_name())] = cur[k];
-                }
-                TypeRef idx_t = subst_type_sema(ii->trait_type_args[0], subst);
-                TypeRef out_t = subst_type_sema(ii->trait_type_args[1], subst);
-                if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
-                    widen_int_expr(idx_e, idx_t, builder());
-                lir::EMethodCall mc;
-                mc.receiver = builder().addr_of(std::string(arr_name), make_ref(true, arr_type));
-                mc.method = "index_mut";
-                mc.args.push_back(std::move(idx_e));
-                mc.vtable_index = -1;
-                mc.resolved_type = "";
-                auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
-                track_write_move(val_e);
-                return builder().stmt_deref_write(
-                    std::move(call_e), std::move(val_e), node_line_);
-            }
-        }
-    }
-
-    if (!arr_type) {
-        error(std::format("index write: undefined variable '{}'", arr_name));
-    } else if (TypeRef(arr_type).kind() != LogosType::Kind::Array &&
-               TypeRef(arr_type).kind() != LogosType::Kind::Ptr &&
-               TypeRef(arr_type).kind() != LogosType::Kind::Ref &&
-               TypeRef(arr_type).kind() != LogosType::Kind::MutRef &&
-               TypeRef(arr_type).kind() != LogosType::Kind::Slice &&
-               TypeRef(arr_type).kind() != LogosType::Kind::Error) {
-        error(std::format("index write: '{}' is not an array or pointer (got {})",
-              arr_name, type_str(arr_type)));
-    } else if (TypeRef(arr_type).kind() == LogosType::Kind::Array && !lookup_is_mut(arr_name)) {
-        error(std::format("index write to immutable array '{}'", arr_name));
-    } else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr && !TypeRef(arr_type).mut_ptr()) {
-        error(std::format("index write through *const pointer '{}'", arr_name));
-    } else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr && !inside_unsafe_) {
-        error(std::format("index write through raw pointer '{}' requires unsafe context", arr_name));
-    } else if (TypeRef(arr_type).kind() == LogosType::Kind::Ref) {
-        error(std::format("index write through &T (shared reference) '{}'", arr_name));
-    }
-
-    lir::LExprPtr idx = node.has_key(la::LHS)
-        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
-    if (!is_integer(idx->type))
-        error(std::format("array index must be an integer, got {}", type_str(idx->type)));
-
-    TypeRef elem_type = nullptr;
-    if (arr_type) {
-        if (TypeRef(arr_type).kind() == LogosType::Kind::Array) elem_type = TypeRef(arr_type).elem();
-        // G162-2: `&mut [T]` slice — the indexed element is the slice's elem.
-        // (Logos does not track slice mutability at the type level — `&[T]`
-        // and `&mut [T]` both canonicalise to Kind::Slice — so write-through
-        // an immutable slice is not rejected here. See DIVERGENCES: slice
-        // mutability tracking is a separate type-system feature.)
-        else if (TypeRef(arr_type).kind() == LogosType::Kind::Slice) elem_type = TypeRef(arr_type).elem();
-        else if (TypeRef(arr_type).kind() == LogosType::Kind::Ptr ||
-                 TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
-                 TypeRef(arr_type).kind() == LogosType::Kind::MutRef) {
-            elem_type = TypeRef(arr_type).pointee();
-            // G162-2: `&mut [T; N]` param — the pointee is the ARRAY, so the
-            // indexed element is its element type, not the array itself.
-            if (elem_type && TypeRef(elem_type).kind() == LogosType::Kind::Array &&
-                TypeRef(elem_type).elem())
-                elem_type = TypeRef(elem_type).elem();
-        }
-    }
-
-    lir::LExprPtr val = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-    if (elem_type && TypeRef(elem_type).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(val->type, elem_type)) {
-        error(std::format("index write to '{}': expected {}, got {}",
-              arr_name, type_str(elem_type), type_str(val->type)));
-    }
-    if (elem_type && TypeRef(elem_type).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() == LogosType::Kind::IntLit)
-        if (auto v = get_intlit_value(val))
-            if (!intlit_fits(*v, TypeRef(elem_type).kind()))
-                error(std::format("index write to '{}': value {} does not fit in {}",
-                      arr_name, *v, type_str(elem_type)));
-    // Check array literal elements against narrow nested array element type.
-    if (elem_type && TypeRef(elem_type).kind() == LogosType::Kind::Array && TypeRef(elem_type).elem() &&
-        TypeRef(val->type).kind() == LogosType::Kind::Array) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-            lir_view::EArrLitView al{vr};
-            for (uint64_t i = 0; i < al.count(); ++i) {
-                auto el = al.elem(i);
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(elem_type).elem().kind()))
-                            error(std::format("index write to '{}': array element {}: value {} does not fit in {}",
-                                  arr_name, i, *v, type_str(TypeRef(elem_type).elem())));
-            }
-        }
-    }
-    // Check tuple literal elements against narrow nested tuple element type.
-    if (elem_type && TypeRef(elem_type).kind() == LogosType::Kind::Tuple &&
-        TypeRef(val->type).kind() == LogosType::Kind::Tuple) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-            lir_view::ETupleLitView tl{vr};
-            uint64_t i = 0;
-            tl.each_elem([&](lir_view::ExprRef el) {
-                if (i >= TypeRef(elem_type).tuple_elems().size()) { ++i; return; }
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (TypeRef(elem_type).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[i]).kind()))
-                            error(std::format("index write to '{}': tuple element {}: value {} does not fit in {}",
-                                  arr_name, i, *v, type_str(TypeRef(elem_type).tuple_elems()[i])));
-                if (TypeRef(elem_type).tuple_elems()[i] && TypeRef(TypeRef(elem_type).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                    TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                    el.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView ial{el};
-                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                        auto iel = ial.elem(ii);
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem().kind()))
-                                    error(std::format("index write to '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                          arr_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[i]).elem())));
-                    }
-                }
-                if (TypeRef(elem_type).tuple_elems()[i] && TypeRef(TypeRef(elem_type).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                    el.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView itl{el};
-                    uint64_t ii = 0;
-                    itl.each_elem([&](lir_view::ExprRef iel) {
-                        if (ii >= TypeRef(TypeRef(elem_type).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (TypeRef(TypeRef(elem_type).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_type).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                    error(std::format("index write to '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                          arr_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[i]).tuple_elems()[ii])));
-                        ++ii;
-                    });
-                }
-                ++i;
-            });
-        }
-    }
-
-    track_write_move(val);
-    lir::SIndexWrite siw;
-    siw.arr   = std::string(arr_name);
-    siw.index = std::move(idx);
-    siw.value = std::move(val);
-    return make_stmt_emit(node_line_, std::move(siw));
 }
 
 void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,

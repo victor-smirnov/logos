@@ -554,6 +554,21 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
         return;
     }
+    // Closure value store-by-value: a closure passes by pointer at the ABI but
+    // its backing storage is a 16-byte fat handle ({fnptr, env}). A deref-write
+    // of a closure (e.g. the place-path `p[0] = cl` in Box::box_new once
+    // index_write is retired) must memcpy 16 bytes, else only the fnptr half is
+    // copied and the box holds a dangling stack pointer → call SIGSEGV.
+    // NARROW to Closure only: Slice/TraitObject values in deref-writes are
+    // already-thin handles in their contexts (a broad memcpy-16 over them
+    // corrupts thin-dyn `*p = dyn` writes — see AUDIT).
+    if (val.getType() == ptr_type() && val_le->type &&
+        TypeRef(val_le->type).kind() == LogosType::Kind::Closure) {
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
+        return;
+    }
     val = coerce_int(val, elem_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr);
 }
