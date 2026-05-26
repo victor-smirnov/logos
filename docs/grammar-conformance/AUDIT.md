@@ -271,6 +271,25 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    branch to trigger on `LLVMStructType` pointee (load-or-memcpy by value), not just Struct kind —
    then re-attempt the chain retirement, then the other writers. This is `place_write_addr`'s
    true prerequisite; bounded and codegen-local.
+   **AGGREGATE-STORE FIX LANDED 2026-05-26 (7c33525a):** `SDerefWrite` now stores any
+   `LLVMStructType`/`LLVMArrayType` pointee by value (memcpy), not just Struct/ZonedStruct kind.
+   Green standalone (5228/5228).
+   **CHAIN RETIREMENT RE-ATTEMPTED ON TOP — STILL 56 FAIL, re-reverted 2026-05-26.** New findings:
+   - The `check_place_writable` VAR_REF branch MUST special-case a `*mut` ROOT (allow write THROUGH
+     an immutable `*mut` binding without `let mut`, require `inside_unsafe_`, reject `*const`) —
+     without it stdlib `*mut self`/`*mut`-let chain writes (`new_map`, `self.inner.strong`, rc.logos)
+     are wrongly rejected as "assignment to immutable variable". (Branch is correct; keep for the sprint.)
+   - With that branch, isolated repros of `*mut`→inline-embedded-struct→scalar AND `*mut`→pointer-mid-field→scalar
+     BOTH PASS. So the surviving 56 (ALL hermes-stdlib + lforge, which depends on it) come from
+     hermes REPRESENTATION SPECIAL-CASES the general place path doesn't replicate but
+     `gen_chain_field_write`/`gen_recv_struct` do: **embedded `AnyVal` mid-fields** (`doc.root.raw`,
+     document.logos:58 — AnyVal is special-cased u64-wrapper layout), **`RelPtr` `.offset` fields**
+     (`arr.data.offset`, `m.keys.offset` across hbs_read/view/map/clone), and generic-container instances.
+   - **NEXT SESSION:** pick ONE failing hermes fn (e.g. `document_set_root` / `Map<Bitmap,AnyVal>::init`),
+     diff the MLIR/LLVM emitted by `gen_chain_field_write` vs the place path (`gen_lvalue_addr`+`SDerefWrite`)
+     for its chain write, and teach `gen_lvalue_addr`/`gen_recv_struct` the missing AnyVal/RelPtr handling
+     (this IS the `place_write_addr` work). Only then retire the chain writer. Chain writes WORK today
+     via the dedicated writer — do NOT ship the grammar removal until the place path is representation-complete.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
