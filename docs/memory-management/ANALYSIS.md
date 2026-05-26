@@ -214,3 +214,69 @@ Order chosen so each step is independently green-gateable and de-risks the next:
 
 Every step gates on the FULL suite (`bash ../tests/logos/ctest-summary.sh`); a
 "green" gate on a stale `.o` once hid a regression — rebuild clean.
+
+---
+
+## 8. Progress log + execution plans
+
+### LANDED (2026-05-26)
+- **#3 Box<T> `impl Drop`** (`d76ce7a7`) — RAII: move inner out (drop T) + dealloc,
+  null-guarded vs `box_free`; Box now move-only (Rust parity). Test `box_drop_raii`.
+  *Follow-up:* accessor modernization (Deref/DerefMut instead of raw-ptr `self`;
+  `?Sized`/`Box<dyn>` at the type level) — not done.
+- **#4 Rc/Arc drop T** (`93dd38cf`) — `drop_rc`/`drop_arc` move `inner.val` out
+  (fire T's Drop) before dealloc at refcount 0. Test `rc_drop_inner`. *Follow-up:*
+  Weak refs / cycle handling absent.
+
+### ⛔ WALL — #2 assignment drop-before-replace (deferred)
+Rust spec `expr.assign.drop-target`: `x = y` drops the old value at the place
+**unless it is uninitialized**. Logos has **NO definite-assignment analysis**
+(confirmed `sema_stmt.cpp:1670` — "Full definite-assignment analysis is a separate
+pass"), so it cannot tell at the assignment point whether `x` is initialized. Doing
+drop-before-replace without that is **UB on conditional-init paths** (`let x:T; if
+c {x=a;} x=b;`) — which is exactly why an earlier attempt was reverted as "too
+aggressive." **Blocked on a prerequisite feature: definite-assignment analysis (or
+dynamic drop-flags).** That feature (flow-merged init state, dual of the existing
+`moved_vars_` snapshot/union machinery, or per-local drop flags in codegen) is the
+real next dependency. Until then, reassigning a live owner leaks the old value
+(real Rust divergence; add to DIVERGENCES as a known catch-up).
+
+### #1 enum value-representation — EXECUTION PLAN (next focused push)
+**Goal:** enum value = pointer-to-**inline stack storage** (`enum.NAME =
+{i32 disc,[N x i8]}`), exactly like a Struct — NOT a heap-malloc'd block. Kills the
+A1/A2 leak and the heap-promotion hack. **Sema + Mono need NO changes**
+(representation-agnostic; recursive-enum indirection already enforced by
+`check_recursive_value_types`, `sema_impl.hpp:1261` — no new infinite-size hazard).
+All work is in **mlir-gen**, and is mostly **removing enum special-cases**:
+
+Touch-points (file:line, from scoping audit):
+1. **Construction** `mlir_gen_expr.cpp:402-423` (EEnumLit) / `:425-501` (EEnumLitData):
+   `call_malloc`→stack `alloca enum.NAME` (or in-place into destination); same
+   disc/payload store GEPs.
+2. **&Enum two-level → one-level**: `EAddrOf` `mlir_gen_expr.cpp:1262-1272`,
+   `EAddrOfTemp` `:1510-1531`; delete `var_tagged_enum_` vs `var_tagged_enum_ptr_`
+   distinction (`mlir_gen_impl.hpp:238,241`) — treat like Struct.
+3. **Match** `mlir_gen_stmt.cpp:2694-2765` (gen_match via_ref), `:2380-2422`
+   (pat_test), `:2533-2573` (pat_bind), `:13-130` (bind_enum_payload), match-expr
+   `mlir_gen_expr.cpp:3015+`: drop the extra `via_ref` load (one-level deref).
+4. **Field/deref write heap-promotion — DELETE**: `gen_field_write`
+   `mlir_gen_stmt.cpp:1792-1821`, `SDerefWrite` `:572-592` → memcpy inline.
+5. **gen_assign** `mlir_gen_stmt.cpp:1032-1048`: memcpy `4+payload` bytes (like the
+   struct/array rebind paths just below) instead of storing a new ptr.
+6. **Drop** `mlir_gen_stmt.cpp:353-401` + `child_value_ptr` `:300-301` + SDrop
+   `:473-503`: GEP inline (drop the heap-ptr loads).
+7. **Type/layout**: `logos_to_mlir(Enum)` `mlir_gen_types.cpp:60-64` stays `ptr`
+   (enum = ptr-to-storage); enum struct FIELDS embed `4+payload` inline
+   `:159-188`; `logos_abi_byte_size`/`sizeof::<Enum>()` already inline-correct.
+8. **Pass/return**: params already pass enums as ptr (`mlir_gen_fn.cpp:85-97`) — align
+   to the Struct path (pass-by-ptr, return-by-value-via-load).
+
+**Hard / risky:** the ~15 value/ptr reconciliation sites (`val.getType()!=ptr_type()`
+spill checks at gen_let 740, gen_match 2744, EAddrOfTemp 1520, EIf 2985/2999,
+gen_assign 1046, call results 1769/1976/2217, …) must ALL agree on the new
+invariant ("enum = ptr-to-stack-storage, like Struct") simultaneously — a missed
+site silently reads the disc at the wrong indirection level (the recurring
+G152-9/G160-8 bug class). Nested enum-in-payload inline offsets are the most
+error-prone. **This is an all-at-once flip, full-suite (L4) gated; do as a focused
+session, disasm-verify a minimal `Option<i64>` round-trip first.** Recommended
+framing: make enum a variant of the Struct repr and DELETE the special-casing.
