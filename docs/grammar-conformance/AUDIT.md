@@ -332,8 +332,25 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    against gen_field_index_write; only then remove the production. gen_field_index_write WORKS today.
    Then: `index_write`/IndexMut + DataRef `field_write`. (The SDerefWrite tuple-by-value memcpy and
    resolve_place_type are reusable when resumed.)
+   **2ND ATTEMPT 2026-05-26 (legacy-handler approach) — also reverted.** Tried NOT touching
+   gen_lvalue_addr (to avoid hijacking reads) and instead letting the write fall to EAddrOfTemp's
+   existing legacy IndexRead handler (mlir_gen_expr.cpp ~1316, which already loads a `*mut` field +
+   GEPs), fixing only its `elem_type = logos_to_mlir(inner_t)` → `place_slot_type(inner_t)` (tuple
+   stride 8→16) + the SDerefWrite KIND==Tuple memcpy + the resolve_place_type writability. Writes
+   (vec5: `Vec<(i64,i64)>` push+index-read) PASSED, but a generic custom `Buf<(i64,i64)>` set+get
+   (`self.ptr[i]=v` / `return self.ptr[i]`) and `Vec<(i64,i64)>` iteration still SIGSEGV'd.
+   **CRUCIAL ISOLATION:** on CLEAN HEAD both the generic `Buf<(i64,i64)>` AND the concrete `Buf`
+   set/get PASS — so the generic `*mut`-tuple-field path is NOT fundamentally broken; the field_index
+   attempts INTRODUCE a write-routing bug for generic `*mut`-tuple-fields (concrete works, generic
+   corrupts). So this IS achievable — the remaining work is a focused MLIR-trace of the mono'd generic
+   `set` (`self.ptr[i] = v`, T=tuple) comparing the place-path write against gen_field_index_write to
+   find why the generic case corrupts (likely a mono type-substitution / stride issue in the SDerefWrite
+   or address that only shows post-mono). After two expensive attempts, STOPPED here (draw-the-boundary)
+   with 3 writers cleanly retired. gen_field_index_write WORKS today — nothing is broken.
    **Lesson (reinforced):** gate every writer-retirement on the FULL suite; aggregate + generic +
-   pointer-field interactions hide in read/`&`-ref paths the write-side tests never exercise.
+   pointer-field interactions hide in read/`&`-ref paths the write-side tests never exercise. And
+   ISOLATE concrete-vs-generic early — it instantly tells you whether a gap is fundamental or a
+   mono/substitution bug in your own change.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
