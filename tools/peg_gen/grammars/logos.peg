@@ -493,7 +493,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1042,6 +1042,18 @@
                => { CODE: TRAIT_DEF, TYPE: $2 }
 
     // ── Struct definition ────────────────────────────────────────
+    // Unit struct (Rust parity): `struct Foo;` / `pub struct Foo;` — a
+    // zero-field struct declaration (NAME-keyed → collected like `struct Foo {}`).
+    // MUST precede struct_inst: a bare IDENT directly followed by `;` is a unit
+    // struct; the generic form `struct Foo<i64>;` (IDENT then `<`) falls through
+    // to struct_inst (explicit instantiation). `instantiate Foo<T>;` is the
+    // preferred dedicated form for the latter.
+    pub_struct_unit <- KW_PUB KW_STRUCT IDENT SEMI
+                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3 }
+
+    struct_unit <- KW_STRUCT IDENT SEMI
+                => { CODE: STRUCT, NAME: $2 }
+
     // Explicit struct instantiation declaration (binds annotations to generic instantiation).
     pub_struct_inst <- KW_PUB KW_STRUCT type_ref SEMI
                     => { CODE: STRUCT, IS_PUB: 1, TYPE: $3 }

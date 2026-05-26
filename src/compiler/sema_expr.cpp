@@ -384,6 +384,17 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                 }
             }
         }
+        // Unit struct used as a value: `let m = Marker;` constructs the
+        // zero-field struct (Rust parity for `struct Marker;`). Only fires for a
+        // KNOWN struct with no fields — a fielded struct still needs `S { … }`.
+        {
+            auto [spkg, sinfo] = find_struct_by_name(std::string(name));
+            if (sinfo && sinfo->fields.empty() && sinfo->type_params.empty()) {
+                auto st = make_struct_type(name, spkg);
+                return builder().struct_lit(std::string(name),
+                    std::vector<std::pair<std::string, lir::LExprPtr>>{}, st);
+            }
+        }
         error(std::format("undefined variable '{}'", name));
         return error_expr();
     }

@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-32292.rs (unit-struct core)
+// Modifications: the `#[derive(Hash, Ord, …)]` is dropped (Logos derive is
+// per-trait `#[derive_<trait>]` + a metaprog handler, not `#[derive(...)]`);
+// the test is broadened to exercise the unit struct in value / return / arg /
+// field / trait-impl positions; `pub fn main()`→`fn main()->i32`.
+//
+// G172-14 (FIXED): Rust unit-struct syntax `struct Foo;`. Previously this parsed
+// as the `struct_inst` explicit-instantiation form (now reserved for the generic
+// `struct Foo<Args>;` shape; `instantiate Foo<T>;` is the preferred dedicated
+// form), so a bare `struct Foo;` errored "'Foo' is not defined". A new grammar
+// rule parses `struct Foo;` / `pub struct Foo;` as a zero-field struct
+// declaration, and a bare unit-struct name in value position constructs it.
+package se_unit_struct;
+
+struct Unit;
+
+trait Greet { fn g(&self) -> i64; }
+impl Greet for Unit { fn g(&self) -> i64 { return 5i64; } }
+
+struct Wrap { u: Unit }
+
+fn make() -> Unit { return Unit; }
+fn take(u: Unit) -> i64 { return u.g(); }
+
+fn main() -> i32 {
+    let a: Unit = Unit;            // value position
+    if a.g() != 5i64 { return 1i32; }
+    if take(make()) != 5i64 { return 2i32; }   // return + arg position
+    let w: Wrap = Wrap { u: Unit };            // field position
+    if w.u.g() != 5i64 { return 3i32; }
+    return 0i32;
+}
