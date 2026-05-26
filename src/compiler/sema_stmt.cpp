@@ -5338,6 +5338,35 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         bind_pattern(pat, scrut_type);
         std::vector<lir::LStmt> nested_destructure;
         emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
+        // Let-chain trailing condition: `while let P = e && <cond>` desugars to
+        // `loop { match e { P if <cond> => BODY, _ => break } }` — the chain cond
+        // becomes an arm guard. Lowered HERE so it sees the pattern's bindings
+        // (mirrors the if-let chain in lower_if).
+        lir::LExprPtr chain_guard = nullptr;
+        if (node.has_key(la::GUARD)) {
+            chain_guard = lower_expr(map_of(node.get(la::GUARD.code)));
+            if (chain_guard && TypeRef(chain_guard->type).kind() != LogosType::Kind::Bool &&
+                TypeRef(chain_guard->type).kind() != LogosType::Kind::Error)
+                error(std::format("while-let chain condition must be bool, got {}",
+                      type_str(chain_guard->type)));
+            if (chain_guard && !nested_subs.empty()) {
+                for (auto& ns : nested_subs)
+                    if (code_of(ns.sub_pat_node) == la::PAT_VARIANT_DATA) {
+                        error("while-let chain condition cannot yet reference bindings "
+                              "from a nested enum-variant pattern; match in the body instead");
+                        break;
+                    }
+                std::vector<lir::LStmt> gd;
+                emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
+                if (!gd.empty()) {
+                    auto gblk = lir::alloc_block(*cur_prog_);
+                    gblk->stmts = std::move(gd);
+                    TypeRef gt = chain_guard->type;
+                    chain_guard = builder().block_expr(std::move(gblk),
+                                      std::move(chain_guard), gt);
+                }
+            }
+        }
         lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
@@ -5369,6 +5398,13 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
                 guard = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
             else
                 guard = std::move(rg);
+        }
+        // Fold the let-chain trailing condition into the arm guard.
+        if (chain_guard) {
+            if (guard)
+                guard = builder().bin_op("&&", std::move(*guard), std::move(chain_guard), bool_t());
+            else
+                guard = std::move(chain_guard);
         }
 
         lir::SMatch sm;

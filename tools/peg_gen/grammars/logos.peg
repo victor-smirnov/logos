@@ -2039,7 +2039,9 @@
               / KW_LET pat_single ASSIGN expr SEMI
              => { CODE: LET_PAT, PAT: $2, VALUE: $4 }
 
-    while_stmt <- KW_WHILE KW_LET pattern ASSIGN expr_ns block
+    while_stmt <- KW_WHILE KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block
+               => { CODE: WHILE, PAT: $3, VALUE: $5, GUARD: $7, BODY: $8 }
+             / KW_WHILE KW_LET pattern ASSIGN expr_ns block
                => { CODE: WHILE, PAT: $3, VALUE: $5, BODY: $6 }
              / KW_WHILE expr_ns block
                => { CODE: WHILE, COND: $2, BODY: $3 }

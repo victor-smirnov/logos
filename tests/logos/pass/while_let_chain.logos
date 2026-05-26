@@ -1,0 +1,18 @@
+package while_let_chain;
+fn main() -> i32 {
+    let mut n: i32 = 0i32;
+    let mut sum: i32 = 0i32;
+    // while-let chain: continue only while popping Some AND value < 4
+    while let Option::Some(v) = next(n) && v < 4i32 {
+        sum = sum + v;
+        n = n + 1i32;
+    }
+    // next returns Some(0),Some(1),Some(2),Some(3),Some(4)... guard stops at v=4
+    // sum = 0+1+2+3 = 6
+    if sum != 6i32 { return 1i32; }
+    return 42i32;
+}
+fn next(n: i32) -> Option<i32> {
+    if n > 9i32 { return Option::None; }
+    return Option::Some(n);
+}
