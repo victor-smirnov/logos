@@ -2,8 +2,7 @@
 //
 // Box<T> — sole-ownership heap allocation (Rust parity: move-only, RAII).
 // On scope exit the boxed value's destructor runs and the heap block is freed
-// (`impl Drop` below). Manual `box_free` remains for explicit early release and
-// is double-free-safe (it nulls the ptr; Drop is null-guarded).
+// (`impl Drop` below). No manual free — like Rust, a Box just drops.
 
 package logos.mem.boxed;
 
@@ -31,15 +30,10 @@ impl<T> Box<T> {
     }
 }
 
-// Consume the box and free the heap allocation.
-pub unsafe fn box_free<T>(b: *mut Box<T>) {
-    dealloc(b.ptr as *mut u8);
-    b.ptr = 0 as *mut T;
-}
-
 // Auto-Drop (Rust parity). On scope exit: move the boxed value out (firing T's
-// Drop if any; no-op for POD/Copy T), then free the heap block. Null-guarded so
-// a prior manual `box_free` does not double-free.
+// Drop if any; no-op for POD/Copy T), then free the heap block. Null-guarded
+// (defensive — a moved-from box is not dropped, and box_new of a 0-byte alloc
+// could yield null).
 impl<T> Drop for Box<T> {
     fn drop(self: Box<T>) {
         unsafe {

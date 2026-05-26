@@ -1,15 +1,15 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7:
 //   library/alloctests/tests/boxed.rs (the heap-value round-trip core).
 //
-// Logos's `Box<T>` (stdlib/mem/boxed) is a minimal sole-ownership heap box:
+// Logos's `Box<T>` (stdlib/mem/boxed) is a sole-ownership heap box with RAII:
 // `box_new::<T>(v)`, `.get()` / `.get_mut()` (through a `*mut Box<T>`), and
-// explicit `box_free`. No `Deref`/`*b` sugar, no allocator parameter, no RAII
-// drop — so the port is the value round-trip + mutation.
+// auto-Drop on scope exit (drops the inner T + frees the block) — so the port
+// is the value round-trip + mutation; the box drops automatically.
 //
 // Divergences / skipped (with reason):
 //   - `*b` deref, `Box::new` method form, `Box<dyn>` coercion-by-value,
-//     allocator API (`new_in`), drop-on-scope, `Box::from_raw`/`into_raw`,
-//     Pin — broader surface; Logos Box is intentionally thin + manually freed.
+//     allocator API (`new_in`), `Box::from_raw`/`into_raw`, Pin — broader
+//     surface; Logos Box accessors use raw-ptr self, not `*b` sugar (yet).
 
 package test_coretest_boxed;
 
@@ -25,7 +25,6 @@ fn test_box_roundtrip() {
         assert!(*b.get() == 42i32);
         *b.get_mut() = 99i32;
         assert!(*b.get() == 99i32);
-        box_free::<i32>(&mut b);
     }
 }
 
@@ -37,6 +36,5 @@ fn test_box_i64() {
         assert!(*b.get() == 1234567890i64);
         *b.get_mut() = 0i64;
         assert!(*b.get() == 0i64);
-        box_free::<i64>(&mut b);
     }
 }

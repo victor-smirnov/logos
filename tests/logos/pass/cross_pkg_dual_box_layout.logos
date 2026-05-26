@@ -23,6 +23,5 @@ unsafe fn main() -> i32 {
     let mut std_b = box_new::<i64>(29i64);
     let user_w: i64 = user_b.weight();
     let std_w: i64 = *std_b.get();
-    box_free::<i64>(&mut std_b);
     return (user_w + std_w) as i32;
 }

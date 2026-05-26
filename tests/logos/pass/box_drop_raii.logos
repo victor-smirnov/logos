@@ -1,5 +1,5 @@
 // Box<T> RAII (Rust parity): on scope exit, Box::drop fires the inner T's Drop
-// and frees the heap block — no manual box_free needed. Pins the impl Drop that
+// and frees the heap block — dropped automatically. Pins the impl Drop that
 // modernized Box from a leaking typed-*mut-T into an owning handle.
 package box_drop_raii;
 use logos.mem.boxed;
