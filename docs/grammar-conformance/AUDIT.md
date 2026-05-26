@@ -206,7 +206,21 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    arrays decay to a slice (addr-of + array→slice coercion), `&[T]` sliced
    directly. FOLLOW-UPS: standalone open-ended range VALUES (`let r = 0..` —
    needs RangeFrom/To/Full structs), Vec/str range-slicing, `&a[..]` ergonomics.
-3. **❌ Default type parameters** `<T = Type>` (small-medium).
+3. **❌ Default type parameters** `<T = Type>`. **ATTEMPTED 2026-05-25 + REVERTED
+   (peg_gen capture issue).** The sema side is straightforward: a `default_type`
+   on TypeParam + fill trailing params in resolve_type's generic-type path
+   (before check_type_arg_arity) substituting earlier args (`<T,U=T>`). But the
+   GRAMMAR capture failed: adding `IDENT (COLON bounds)? ASSIGN type_ref` alts to
+   `type_param`, neither `ITEMS: $...` (didn't capture the lone trailing
+   type_ref) nor `TYPE: $3`/`$6` (positional) populated the slot — and the parse
+   came out mis-structured (the preceding param `A` spuriously got `ITEMS`, the
+   `B = i64` default landed nowhere). Root is in peg_gen's `$...`/positional
+   capture semantics for an optional trailing rule-call after a `*` repetition in
+   `type_param` (same family as the known struct-`$...` over-capture). Reverted to
+   avoid degrading a clean parse-error into a confusing "expected N type args"
+   semantic error. NEXT: a focused peg_gen pass — likely a dedicated
+   `type_param_default <- ASSIGN type_ref` sub-rule with an explicit captured
+   field, or fixing the `$...` collector to include lone trailing rule-calls.
 4. **❌ Let-chains** `if a && let P = e` / `while …` / match-guard chains.
    **Assessed 2026-05-25:** more involved than "clean no-mono". `&&`/`||` live at
    `log_expr` (above `cmp_expr_ns`), so a let-chain condition operand must be
