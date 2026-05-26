@@ -1155,17 +1155,42 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         if (!base) return nullptr;
         // Element stride = the receiver's element type's slot type.
         TypeRef elem_t = recv_t ? TypeRef(recv_t).elem() : TypeRef(nullptr);
+        mlir::Type stride = place_slot_type(elem_t);
+        auto rk = recv_t ? TypeRef(recv_t).kind() : LogosType::Kind::Error;
         // Slice receiver: `base` is the fat {ptr,len} descriptor — load data ptr.
-        if (recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice) {
+        if (rk == LogosType::Kind::Slice) {
             auto stype = slice_llvm_type();
             llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
             auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, base, pi);
             base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
-        } else if (!(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Array)) {
-            // Only array / slice receivers are indexable places here.
+        } else if (rk == LogosType::Kind::Array) {
+            // base is the array storage; stride is the element slot.
+        } else if (recv.kind() == ec::Code::VarRef &&
+                   (rk == LogosType::Kind::Ptr || rk == LogosType::Kind::MutRef ||
+                    rk == LogosType::Kind::Ref) && TypeRef(recv_t).pointee()) {
+            // Bare pointer/ref VARIABLE indexed (`p[i]`, p: *mut T / &mut [T;N]):
+            // gen_lvalue_addr(VarRef) already yielded the pointer VALUE. Index it
+            // by the element representation — SAME base+stride as the by-value read
+            // path gen_expr_kind(EIndexReadView)'s VarRef Ptr/Ref cases (so `&p[i]`
+            // and `p[i]` address the identical slot).
+            TypeRef pe = TypeRef(recv_t).pointee();
+            // `*mut [T;N]` / `&mut [T;N]`: pointee is the array → index its element.
+            TypeRef et = (TypeRef(pe).kind() == LogosType::Kind::Array && TypeRef(pe).elem())
+                             ? TypeRef(pe).elem() : pe;
+            if (et && (TypeRef(et).kind() == LogosType::Kind::Struct ||
+                       TypeRef(et).kind() == LogosType::Kind::ZonedStruct)) {
+                auto sit = struct_types_.find(concrete_struct_name(et));
+                stride = (sit != struct_types_.end()) ? sit->second.llvm_type
+                                                       : logos_to_mlir(et);
+            } else {
+                stride = logos_to_mlir(et);
+            }
+            if (!stride) stride = builder_.getI32Type();
+        } else {
+            // Other receiver shapes (e.g. a `*S` pointer FIELD index `s.ptr[i]`)
+            // are handled by the EAddrOfTemp legacy handler — leave them.
             return nullptr;
         }
-        mlir::Type stride = place_slot_type(elem_t);
         auto idx = gen_expr(*idx_le);
         if (!idx) return nullptr;
         TypeRef it = irv.index().type(pool_impl());
