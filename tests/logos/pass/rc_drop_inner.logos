@@ -1,0 +1,27 @@
+// Rc<T> runs T's destructor at the last strong reference (Rust parity). Before
+// this fix drop_rc dealloc'd the inner block as raw bytes, leaking T's
+// resources. Clone bumps strong; only the final drop fires Noisy::drop.
+package rc_drop_inner;
+use logos.mem.rc;
+use logos.lang.mem;
+struct Noisy { counter: *mut i64, }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.counter[0] = self.counter[0] + 1i64; } }
+}
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+        c[0] = 0i64;
+        {
+            let mut a: Rc<Noisy> = rc_new::<Noisy>(Noisy { counter: c });
+            {
+                let b: Rc<Noisy> = a.clone_ref();
+                if c[0] != 0i64 { return 1i32; }
+            }
+            if c[0] != 0i64 { return 2i32; }
+        }
+        if c[0] != 1i64 { return 3i32; }
+        dealloc(c as *mut u8);
+    }
+    return 42i32;
+}

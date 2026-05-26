@@ -349,7 +349,7 @@ set(LOGOS_INTEGRATION_TESTS
     blanket_impl_unbounded blanket_impl_assoc_eq instantiate_decl
     vec_full hashset_basic vecdeque_basic btreemap_basic
     atomic_basic mutex_basic
-    box_basic box_drop_raii rc_basic arc_basic bytes_basic box_dyn_trait_basic
+    box_basic box_drop_raii rc_basic rc_drop_inner arc_basic bytes_basic box_dyn_trait_basic
     io_uring_basic
     fs_basic env_basic io_print_basic panic_basic pipe_basic io_read_write_trait io_writev_basic
     path_basic process_basic net_basic
