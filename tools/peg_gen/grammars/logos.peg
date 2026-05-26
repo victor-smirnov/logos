@@ -1648,7 +1648,6 @@
 
           / field_index_write_stmt
           / deref_field_write_stmt
-          / tuple_field_write_stmt
           / field_write_stmt
           / index_write_stmt
           / destructure_assign_stmt
@@ -2085,10 +2084,6 @@
                         / AMP_EQ / PIPE_EQ / CARET_EQ / SHL_EQ / SHR_EQ
     compound_assign_stmt <- atom compound_assign_op expr SEMI
                          => { CODE: COMPOUND_ASSIGN, RECEIVER: $1, OP: $2, VALUE: $3 }
-
-    // var.N = value;  — tuple field write (N is an integer index literal)
-    tuple_field_write_stmt <- IDENT DOT INTEGER ASSIGN expr SEMI
-                           => { CODE: TUPLE_FIELD_WRITE, RECEIVER: $1, INDEX: $3, VALUE: $5 }
 
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }

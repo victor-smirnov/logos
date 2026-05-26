@@ -273,7 +273,6 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
-    if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
     if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
     if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
     if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
@@ -6214,90 +6213,6 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     sfw.field    = std::string(field_name);
     sfw.value    = std::move(val);
     return make_stmt_emit(node_line_, std::move(sfw));
-}
-
-lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
-    auto recv_name = str_of(node.get(la::RECEIVER.code));
-    auto idx_sv    = str_of(node.get(la::INDEX.code));
-    uint64_t idx   = (uint64_t)parse_int_literal(idx_sv);
-
-    TypeRef recv_t = lookup(recv_name);
-    if (!recv_t) {
-        error(std::format("tuple field write: undefined variable '{}'", recv_name));
-        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
-    }
-    // Strip &mut wrapper if present
-    if (TypeRef(recv_t).kind() == LogosType::Kind::MutRef && TypeRef(recv_t).pointee())
-        recv_t = TypeRef(recv_t).pointee();
-
-    // G152-3: a TUPLE-STRUCT (`Point(i64,i64)`) is a named Struct whose
-    // positional fields are named "0".."N", so `x.0 = v` is a struct
-    // field-write to field "0". (Field READ `x.0` and `&mut x.0` already handle
-    // this — only the write/compound-assign path rejected it.) Route to a
-    // struct field-write.
-    if (TypeRef(recv_t).kind() == LogosType::Kind::Struct ||
-        TypeRef(recv_t).kind() == LogosType::Kind::ZonedStruct) {
-        std::string fname = std::to_string(idx);
-        TypeRef ft = field_type_of_for_type(recv_t, fname);
-        if (!ft) {
-            error(std::format("tuple-struct field write: '{}' has no field {} (got {})",
-                              recv_name, idx, type_str(recv_t)));
-            return make_stmt_emit(node_line_, lir::SFieldWrite{std::string(recv_name), fname, error_expr()});
-        }
-        TypeRef orig = lookup(recv_name);
-        bool via_mr = orig && TypeRef(orig).kind() == LogosType::Kind::MutRef;
-        if (!lookup_is_mut(recv_name) && !via_mr)
-            error(std::format("tuple-struct field write to immutable variable '{}'", recv_name));
-        lir::LExprPtr val = node.has_key(la::VALUE)
-            ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-        if (TypeRef(ft).kind() != LogosType::Kind::Error &&
-            TypeRef(val->type).kind() != LogosType::Kind::Error &&
-            !types_compatible(val->type, ft))
-            error(std::format("tuple-struct field write '{}.{}': expected {}, got {}",
-                  recv_name, idx, type_str(ft), type_str(val->type)));
-        if (TypeRef(ft).kind() != LogosType::Kind::Error &&
-            TypeRef(val->type).kind() == LogosType::Kind::IntLit)
-            if (auto v = get_intlit_value(val))
-                if (!intlit_fits(*v, TypeRef(ft).kind()))
-                    error(std::format("tuple-struct field write '{}.{}': value {} does not fit in {}",
-                          recv_name, idx, *v, type_str(ft)));
-        track_write_move(val);
-        return make_stmt_emit(node_line_,
-            lir::SFieldWrite{std::string(recv_name), fname, std::move(val)});
-    }
-    if (TypeRef(recv_t).kind() != LogosType::Kind::Tuple) {
-        error(std::format("tuple field write: '{}' is not a tuple (got {})", recv_name, type_str(recv_t)));
-        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
-    }
-    if (idx >= TypeRef(recv_t).tuple_elems().size()) {
-        error(std::format("tuple field write: index {} out of range (tuple has {} elements)",
-                          idx, TypeRef(recv_t).tuple_elems().size()));
-        return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, error_expr()});
-    }
-    TypeRef orig_recv_t = lookup(recv_name);
-    bool via_mut_ref = orig_recv_t && TypeRef(orig_recv_t).kind() == LogosType::Kind::MutRef;
-    if (!lookup_is_mut(recv_name) && !via_mut_ref) {
-        error(std::format("tuple field write to immutable variable '{}'", recv_name));
-    }
-
-    TypeRef ft = TypeRef(recv_t).tuple_elems()[idx];
-    lir::LExprPtr val = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
-        : error_expr();
-    if (TypeRef(ft).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(val->type, ft)) {
-        error(std::format("tuple field write '{}.{}': expected {}, got {}",
-              recv_name, idx, type_str(ft), type_str(val->type)));
-    }
-    // Narrow intlit
-    if (TypeRef(ft).kind() != LogosType::Kind::Error && TypeRef(val->type).kind() == LogosType::Kind::IntLit)
-        if (auto v = get_intlit_value(val))
-            if (!intlit_fits(*v, TypeRef(ft).kind()))
-                error(std::format("tuple field write '{}.{}': value {} does not fit in {}",
-                      recv_name, idx, *v, type_str(ft)));
-    track_write_move(val);
-    return make_stmt_emit(node_line_, lir::STupleWrite{std::string(recv_name), (uint32_t)idx, std::move(val), recv_t});
 }
 
 lir::LStmt SemaChecker::lower_deref_field_write(TinyMapView node) {
