@@ -342,6 +342,9 @@ struct TypeParam {
     bool                     is_variadic = false;  // T... variadic pack
     bool                     is_const    = false;  // const N: T
     TypeRef         const_type  = nullptr;
+    // Default type argument `<T = i64>` (stored in the TYPE_PARAM's TYPE slot by
+    // the grammar). Null when absent. Filled at use sites with fewer args.
+    TypeRef         default_type = nullptr;
     // B65: type-outlives bounds — `T: 'a` declares that T's data lives for
     // at least 'a. Stored as a list of lifetime names (with apostrophe).
     // Empty when the type param has no outlives bound.

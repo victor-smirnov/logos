@@ -1,0 +1,39 @@
+// Grammar-conformance (Logos↔Rust sprint, 2026-05-25): default type parameters
+// `<T = Type>` / `<T: Bound = Type>`. Rust lets a generic omit trailing type-args
+// when the params declare defaults. Logos previously rejected the syntax; now
+// the grammar stores the default in the TYPE_PARAM's TYPE slot, read_type_params
+// records it as TypeParam::default_type, and resolve_type fills trailing params
+// from their defaults (substituting earlier args, so `<T, U = T>` works) before
+// the arity check.
+//
+// Note: BOTH read_type_params and read_type_params_from (duplicate readers) had
+// to learn the default — collect_struct uses the former.
+package generics_default_type_params;
+
+trait Z { fn z(&self) -> i64; }
+struct Def;
+impl Z for Def { fn z(&self) -> i64 { return 9i64; } }
+
+struct Pair<A, B = i64> { x: A, y: B }       // trailing default
+struct Wrap<T, U = T> { a: T, b: U }         // default references earlier param
+struct Holder<T: Z = Def> { v: T }           // bounded default
+enum Choice<T, U = i64> { Left(T), Right(U) }
+
+fn main() -> i32 {
+    // B defaults to i64
+    let p: Pair<i64> = Pair { x: 1i64, y: 2i64 };
+    if p.x + p.y != 3i64 { return 1i32; }
+    // explicit override of the default
+    let q: Pair<i64, i32> = Pair { x: 5i64, y: 6i32 };
+    if q.y != 6i32 { return 2i32; }
+    // U = T = i64
+    let w: Wrap<i64> = Wrap { a: 3i64, b: 4i64 };
+    if w.a + w.b != 7i64 { return 3i32; }
+    // bounded default
+    let h: Holder<Def> = Holder { v: Def };
+    if h.v.z() != 9i64 { return 4i32; }
+    // enum default
+    let c: Choice<i64> = Choice::Right(7i64);
+    match c { Choice::Right(v) => { if v != 7i64 { return 5i32; } } _ => { return 6i32; } }
+    return 0i32;
+}

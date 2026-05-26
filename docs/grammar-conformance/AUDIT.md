@@ -206,8 +206,15 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    arrays decay to a slice (addr-of + array→slice coercion), `&[T]` sliced
    directly. FOLLOW-UPS: standalone open-ended range VALUES (`let r = 0..` —
    needs RangeFrom/To/Full structs), Vec/str range-slicing, `&a[..]` ergonomics.
-3. **❌ Default type parameters** `<T = Type>`. **ATTEMPTED 2026-05-25 + REVERTED
-   (peg_gen capture issue).** The sema side is straightforward: a `default_type`
+3. ✅ **DONE — Default type parameters** `<T = Type>` / `<T: Bound = Type>`
+   (structs + enums). Grammar: type_param ASSIGN alts store the default in the
+   TYPE slot (positional `$3`/`$6` — works; the first attempt's failure was that
+   `collect_struct` uses **`read_type_params`**, a DUPLICATE of
+   `read_type_params_from` — both now read the default). resolve_type fills
+   trailing params from defaults (substituting earlier args, `<T,U=T>`) before
+   the arity check; no-default + too-few still errors cleanly. Test:
+   default-type-params-gconf. Follow-up: defaults on fn/impl type-params, GATs.
+   ~~ATTEMPTED + REVERTED note (superseded):~~ The sema side is straightforward: a `default_type`
    on TypeParam + fill trailing params in resolve_type's generic-type path
    (before check_type_arg_arity) substituting earlier args (`<T,U=T>`). But the
    GRAMMAR capture failed: adding `IDENT (COLON bounds)? ASSIGN type_ref` alts to

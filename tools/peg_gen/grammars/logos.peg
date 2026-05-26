@@ -2929,6 +2929,10 @@
                => { CODE: TYPE_PARAM, NAME_VAR: $2, ITEMS: $... }
                 / HASH IDENT
                => { CODE: TYPE_PARAM, NAME_VAR: $2 }
+                / IDENT COLON trait_bound (PLUS trait_bound)* ASSIGN type_ref
+               => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $..., TYPE: $6 }
+                / IDENT ASSIGN type_ref
+               => { CODE: TYPE_PARAM, NAME: $1, TYPE: $3 }
                 / IDENT COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, NAME: $1, ITEMS: $... }
                 / IDENT

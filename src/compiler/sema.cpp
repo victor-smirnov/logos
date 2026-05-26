@@ -3321,6 +3321,14 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
                 }
             }
         }
+        // Default type argument `<T = Default>` / `<T: Bound = Default>` — the
+        // grammar stores it in the TYPE slot (a non-const TYPE_PARAM otherwise
+        // never carries TYPE).
+        if (tpnode.has_key(la::TYPE)) {
+            AnyVal dav = tpnode.get(la::TYPE.code);
+            if (!dav.is_null() && dav.is_pointer())
+                tp.default_type = resolve_type(map_of(dav));
+        }
         finalize_relaxed_bounds(tp);
         result.push_back(std::move(tp));
     }
@@ -3387,6 +3395,14 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                     tp.bounds.push_back(std::move(tb));
                 }
             }
+        }
+        // Default type argument `<T = Default>` / `<T: Bound = Default>` — the
+        // grammar stores it in the TYPE slot (a non-const TYPE_PARAM otherwise
+        // never carries TYPE). Filled at use sites in resolve_type.
+        if (tpnode.has_key(la::TYPE)) {
+            AnyVal dav = tpnode.get(la::TYPE.code);
+            if (!dav.is_null() && dav.is_pointer())
+                tp.default_type = resolve_type(map_of(dav));
         }
         // Validate: variadic param must be last
         if (tp.is_variadic && i + 1 < tpitems.size())
@@ -4484,6 +4500,23 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             args.push_back(resolve_type(item));
             unsized_ok_ = was_ok;
             ++type_arg_idx;
+        }
+    }
+    // Default type arguments (Rust parity): when fewer type-args are named than
+    // the generic has params, fill trailing params from their declared defaults
+    // (`struct S<T, U = i64>` → `S<A>` ≡ `S<A, i64>`). A default may reference an
+    // earlier param (`<T, U = T>`), so substitute the already-bound args.
+    if (target_params && args.size() < target_params->size()) {
+        SemaSubst dsubst;
+        for (size_t i = 0; i < args.size(); ++i)
+            dsubst[(*target_params)[i].name] = args[i];
+        for (size_t i = args.size(); i < target_params->size(); ++i) {
+            const TypeParam& tp = (*target_params)[i];
+            if (!tp.default_type) break;   // no default → leave to the arity check
+            TypeRef d = dsubst.empty() ? tp.default_type
+                                       : subst_type_sema(tp.default_type, dsubst);
+            args.push_back(d);
+            dsubst[tp.name] = d;
         }
     }
     // Phase 1B-5/10: Sized-enforcement at struct/enum/datatype generic
