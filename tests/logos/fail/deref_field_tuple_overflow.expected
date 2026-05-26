@@ -1,1 +1,1 @@
-deref-field-write '(*p).pair': tuple element 0: value 200 does not fit in i8
+assignment to '(*p).pair': tuple element 0: value 200 does not fit in i8
