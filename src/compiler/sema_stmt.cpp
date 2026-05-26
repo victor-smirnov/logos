@@ -5403,6 +5403,45 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         }
     }
 
+    // ── IntoIterator desugar ─────────────────────────────────────
+    // `for x in <expr>` where <expr> is NOT itself an iterator (no `next()`)
+    // but exposes `into_iter()` — call it and iterate the result. Rust parity
+    // for `for x in opt` / `for x in result` and any user `impl IntoIterator`.
+    // Mirrors the &Vec→as_slice desugar above; the produced iterator type then
+    // flows through the `next()`-based iterator path below.
+    if (TypeRef(iter_type).kind() == LogosType::Kind::Enum ||
+        TypeRef(iter_type).kind() == LogosType::Kind::Struct) {
+        std::string base = TypeRef(iter_type).kind() == LogosType::Kind::Enum
+            ? std::string(TypeRef(iter_type).enum_name())
+            : std::string(TypeRef(iter_type).struct_name());
+        bool already_iter = !find_func_candidates(base + "__next").empty();
+        if (!already_iter) {
+            auto iicands = find_func_candidates(base + "__into_iter");
+            const SemaFuncInfo* iif = iicands.size() == 1 ? iicands[0] : nullptr;
+            if (iif && iif->ret_type) {
+                // Substitute the impl's type-params := the receiver's type-args
+                // to name the concrete iterator type for the generic call.
+                SemaSubst subst;
+                auto targs = TypeRef(iter_type).type_args();
+                for (size_t i = 0; i < iif->type_params.size() && i < targs.size(); ++i)
+                    subst[iif->type_params[i].name] = targs[i];
+                TypeRef iter_ret = subst.empty() ? iif->ret_type
+                                                 : subst_type_sema(iif->ret_type, subst);
+                std::string sym = iif->symbol_name.empty() ? base + "__into_iter"
+                                                           : iif->symbol_name;
+                std::vector<lir::LExprPtr> pargs;
+                pargs.push_back(std::move(iter));
+                lir::LExprPtr it_call;
+                if (!iif->type_params.empty())
+                    it_call = finish_generic_call(sym, *iif, std::move(targs), std::move(pargs));
+                else
+                    it_call = builder().call(sym, {}, std::move(pargs), iter_ret);
+                iter = std::move(it_call);
+                iter_type = iter->type;
+            }
+        }
+    }
+
     // ── iterator path: desugar to while-let loop ─────────────────
     // Requires: iter_type has a `next()` method returning Option<T>
     // Desugars: for x in iter { body }

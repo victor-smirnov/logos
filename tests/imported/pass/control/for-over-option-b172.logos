@@ -1,0 +1,33 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-30371.rs (the for-over-Option idiom it
+// relies on incidentally). Adapted to a focused run-pass: `assert_eq!`→
+// return-code checks; `pub fn main()`→`fn main()->i32`.
+//
+// G172-4 (FIXED): `for x in opt` over an `Option<T>`. Logos's stdlib already had
+// `OptionIter<T>` + `impl IntoIterator for Option<T>`; the gap was that
+// lower_for_each never called `into_iter()`. It now desugars `for x in <expr>`
+// through `into_iter()` whenever the scrutinee isn't itself an iterator (no
+// `next()`) — Rust parity for Option, Result, and any user `impl IntoIterator`.
+package control_for_over_option;
+
+fn main() -> i32 {
+    // Some — body runs once.
+    let p: Option<i64> = Some(5i64);
+    let mut sum: i64 = 0i64;
+    for x in p { sum = sum + x; }
+    if sum != 5i64 { return 1i32; }
+
+    // None — body runs zero times.
+    let n: Option<i64> = None;
+    let mut count: i64 = 0i64;
+    for _y in n { count = count + 1i64; }
+    if count != 0i64 { return 2i32; }
+
+    // Result — Ok yields once (Err would yield zero).
+    let r: Result<i64, i64> = Ok(3i64);
+    let mut rs: i64 = 0i64;
+    for z in r { rs = rs + z; }
+    if rs != 3i64 { return 3i32; }
+
+    return 0i32;
+}
