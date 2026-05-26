@@ -230,6 +230,18 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    The compound collapse (step 1) was the genuinely-collapsible over-enumeration;
    the writes are deferred to that future place-subsystem project (or a narrow
    chain/tuple-only collapse with low payoff). Not a naive merge.
+   **PLACE SUBSYSTEM — FOUNDATION DONE 2026-05-26 (8b1c8152).** Built the first
+   piece: `check_place_writable` (uniform place-mutability: rejects writes
+   through an immutable var / `*const` / shared-`&`, conservative) + an overflow
+   check + named-place diagnostics, wired into lower_place_assign. This closes a
+   real SOUNDNESS GAP (the general deep-nested place-write did no mut-check —
+   `a[i][j]=v` on an immutable `a` was silently accepted) and makes the general
+   place-write path do everything the per-shape writers' common checks do —
+   the prerequisite for migrating them onto it. NEXT piece: `place_write_addr`
+   that resolves a place to a `&mut T` address handling the special address
+   forms gen_lvalue_addr lacks (IndexMut call, DataRef `mut_ptr`, tuple-struct
+   field, slice) — once it exists the 6 per-shape writers route through the
+   subsystem and retire. (Larger migration; do as a focused pass.)
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
