@@ -1,0 +1,56 @@
+// Grammar-conformance / flagship (Logos↔Rust sprint, 2026-05-25): collapse the
+// compound-assignment over-enumeration. Logos had SEVEN per-shape compound
+// productions + lowerings (var, field, chain-field, index, field-index,
+// tuple-field, `(*p).f`) where Rust has ONE compound-assignment over a place.
+// Collapsed to a single grammar form `atom compound_op expr` + one lowering
+// (lower_compound_assign: bare-var fast path, else lower_place_compound_assign
+// — `place = place op rhs` via a deref-write, matching the old double-eval
+// semantics; struct places with an `*Assign` impl get `op_assign(&mut place, rhs)`).
+// ~450 lines of specialised lowerings removed. (Bare `*p op= v` stays in
+// deref_write_stmt — `*p` is not an `atom`.)
+package binop_compound_collapse;
+
+struct Inner { v: i64 }
+struct Outer { inner: Inner }
+struct V { n: i64 }
+impl AddAssign<V> for V { fn add_assign(&mut self, o: V) { self.n = self.n + o.n; } }
+struct Box2 { v: V }
+struct G { row: [i64; 3] }
+
+fn main() -> i32 {
+    // bare var
+    let mut x: i64 = 10i64;
+    x += 5i64; x -= 2i64; x *= 2i64;
+    if x != 26i64 { return 1i32; }
+
+    // field, tuple-field, index, field-index, chain-field
+    let mut o: Outer = Outer { inner: Inner { v: 5i64 } };
+    o.inner.v += 10i64;
+    if o.inner.v != 15i64 { return 2i32; }
+
+    let mut t: (i64, i64) = (3i64, 4i64);
+    t.0 += 7i64; t.1 *= 2i64;
+    if t.0 != 10i64 { return 3i32; }
+    if t.1 != 8i64 { return 4i32; }
+
+    let mut a: [i64; 4] = [1i64, 2i64, 3i64, 4i64];
+    a[1i64] += 100i64;
+    if a[1i64] != 102i64 { return 5i32; }
+
+    let mut g: G = G { row: [5i64, 6i64, 7i64] };
+    g.row[0i64] += 50i64;
+    if g.row[0i64] != 55i64 { return 6i32; }
+
+    // bare deref (deref_write path)
+    let mut n: i64 = 3i64;
+    let p: *mut i64 = &mut n;
+    unsafe { *p += 4i64; }
+    if n != 7i64 { return 7i32; }
+
+    // *Assign overload on a field place
+    let mut b: Box2 = Box2 { v: V { n: 1i64 } };
+    b.v += V { n: 9i64 };
+    if b.v.n != 10i64 { return 8i32; }
+
+    return 0i32;
+}

@@ -1646,21 +1646,15 @@
           / if_expr
           / match_stmt
 
-          / field_index_compound_assign_stmt
           / field_index_write_stmt
-          / deref_field_compound_assign_stmt
           / deref_field_write_stmt
-          / tuple_field_compound_assign_stmt
           / tuple_field_write_stmt
-          / chain_field_compound_assign_stmt
           / chain_field_write_stmt
-          / field_compound_assign_stmt
           / field_write_stmt
-          / index_compound_assign_stmt
           / index_write_stmt
-          / compound_assign_stmt
           / destructure_assign_stmt
           / assign_stmt
+          / compound_assign_stmt
           / place_assign_stmt
           / unsafe_block
           / block
@@ -2081,11 +2075,17 @@
                              / IDENT LBRACE pat_field_list RBRACE ASSIGN expr SEMI
                             => { CODE: DESTRUCTURE_ASSIGN, OP: 2, NAME: $1, FIELDS: $3, VALUE: $6 }
 
-    // Compound assignment: x += expr → x = x + expr
+    // Compound assignment over ANY place: `place op= expr`. `atom` is the
+    // read-side postfix-chain rule (var / field / index / tuple-field / chain /
+    // `(*p).f`), so RECEIVER is the place as a normal read-expr; sema
+    // (lower_compound_assign) dispatches: a bare VAR_REF takes the simple-var
+    // path, any other place desugars to `place = place op rhs` (or an `*Assign`
+    // call). Collapses the former 7 per-shape compound productions into one.
+    // (Bare-deref `*p op= v` stays in deref_write_stmt — `*p` isn't an atom.)
     compound_assign_op <- PLUS_EQ / MINUS_EQ / STAR_EQ / SLASH_EQ / PERCENT_EQ
                         / AMP_EQ / PIPE_EQ / CARET_EQ / SHL_EQ / SHR_EQ
-    compound_assign_stmt <- IDENT compound_assign_op expr SEMI
-                         => { CODE: COMPOUND_ASSIGN, NAME: $1, OP: $2, VALUE: $3 }
+    compound_assign_stmt <- atom compound_assign_op expr SEMI
+                         => { CODE: COMPOUND_ASSIGN, RECEIVER: $1, OP: $2, VALUE: $3 }
 
     // var.N = value;  — tuple field write (N is an integer index literal)
     tuple_field_write_stmt <- IDENT DOT INTEGER ASSIGN expr SEMI
@@ -2105,37 +2105,13 @@
     chain_field_write_stmt <- IDENT chain_field_path ASSIGN expr SEMI
                            => { CODE: CHAIN_FIELD_WRITE, RECEIVER: $1, PATH: $2, VALUE: $4 }
 
-    // s.field op= expr;  — compound assign to struct field
-    field_compound_assign_stmt <- IDENT DOT IDENT compound_assign_op expr SEMI
-                               => { CODE: FIELD_COMPOUND_ASSIGN, RECEIVER: $1, FIELD: $3, OP: $4, VALUE: $5 }
-
-    // a.b.c op= val;  — chained field compound assign (2+ levels deep, N-ary)
-    chain_field_compound_assign_stmt <- IDENT chain_field_path compound_assign_op expr SEMI
-                                     => { CODE: CHAIN_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, PATH: $2, OP: $3, VALUE: $4 }
-
-    // arr[i] op= expr;  — compound assign to array index
-    index_compound_assign_stmt <- IDENT LBRACKET expr RBRACKET compound_assign_op expr SEMI
-                               => { CODE: INDEX_COMPOUND_ASSIGN, NAME: $1, LHS: $3, OP: $5, VALUE: $6 }
-
     // (*ptr).field = val;  — field write through a dereferenced pointer
     deref_field_write_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT ASSIGN expr SEMI
                            => { CODE: DEREF_FIELD_WRITE, RECEIVER: $3, FIELD: $6, VALUE: $8 }
 
-    // (*ptr).field op= val;  — compound assign to field through a dereferenced pointer
-    deref_field_compound_assign_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT compound_assign_op expr SEMI
-                                     => { CODE: DEREF_FIELD_COMPOUND_ASSIGN, RECEIVER: $3, FIELD: $6, OP: $7, VALUE: $8 }
-
-    // var.N op= expr;  — compound assign to tuple field
-    tuple_field_compound_assign_stmt <- IDENT DOT INTEGER compound_assign_op expr SEMI
-                                     => { CODE: TUPLE_FIELD_COMPOUND_ASSIGN, RECEIVER: $1, INDEX: $3, OP: $4, VALUE: $5 }
-
     // a.ptr[i] = val;  — field index write (pointer field)
     field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
                            => { CODE: FIELD_INDEX_WRITE, RECEIVER: $1, FIELD: $3, LHS: $5, VALUE: $8 }
-
-    // s.field[i] op= val;  — compound assign to field array element
-    field_index_compound_assign_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET compound_assign_op expr SEMI
-                                     => { CODE: FIELD_INDEX_COMPOUND_ASSIGN, RECEIVER: $1, FIELD: $3, LHS: $5, OP: $7, VALUE: $8 }
 
     // *ptr = val;  — dereference write
     deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI

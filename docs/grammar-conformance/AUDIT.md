@@ -183,8 +183,22 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
 
 ## Prioritized fix queue (gaps, generalize each)
 
-1. **🔧 Assignment over-enumeration** (flagship). **Investigated 2026-05-25: NOT a
-   pure-grammar collapse.** The ~17 grammar productions mirror ~9 distinct sema
+1. **🔧 Assignment over-enumeration** (flagship). **STEP 1 DONE 2026-05-26 —
+   compound-assign collapse (7 → 1).** All seven per-shape compound productions
+   (`compound_assign`, `field_/chain_field_/index_/tuple_field_/deref_field_/
+   field_index_compound_assign`) → ONE general `atom compound_op expr`
+   (COMPOUND_ASSIGN, RECEIVER=place). lower_compound_assign: bare-VAR_REF fast
+   path; else lower_place_compound_assign — `place = place op rhs` via a
+   deref-write (read-twice, matching the old double-eval), or `op_assign(&mut
+   place, rhs)` for an `*Assign` struct place. The ONE genuinely-different case
+   (user `IndexMut` compound `g[i] += v`) is folded in as an INDEX_READ-on-struct
+   branch (general addr-of can't dispatch IndexMut — the audit-predicted hard
+   case). ~450 lines of specialised lowerings removed; named-place diagnostics
+   preserved via render_place_node. Test: compound-assign-collapse-gconf.
+   5227/5227. **STEP 2 (next): the WRITE family** (field_write/index_write/
+   tuple_field_write/chain_field_write/deref_field_write/field_index_write →
+   place_assign, similarly preserving IndexMut + diagnostics).
+   **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
    `lower_destructure_assign`/`lower_place_assign`/inline DEREF_WRITE) that carry

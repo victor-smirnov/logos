@@ -3156,6 +3156,10 @@ private:
     lir::LStmt lower_let_else(hermes::TinyMapView node);
     lir::LStmt lower_nested_fn(hermes::TinyMapView node);
     lir::LStmt lower_compound_assign(hermes::TinyMapView node);
+    lir::LStmt lower_place_compound_assign(hermes::TinyMapView node,
+                                           hermes::TinyMapView place_node,
+                                           const std::string& base_op);
+    std::string render_place_node(hermes::TinyMapView n);
     lir::LStmt lower_assign(hermes::TinyMapView node);
     lir::LStmt lower_destructure_assign(hermes::TinyMapView node);
     lir::LStmt lower_return(hermes::TinyMapView node);
@@ -3295,21 +3299,15 @@ private:
     lir::LStmt lower_loop(hermes::TinyMapView node);
     lir::LStmt lower_field_write(hermes::TinyMapView node);
     lir::LStmt lower_chain_field_write(hermes::TinyMapView node);
-    lir::LStmt lower_chain_field_compound_assign(hermes::TinyMapView node);
-    lir::LStmt lower_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_tuple_field_write(hermes::TinyMapView node);
-    lir::LStmt lower_tuple_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_deref_field_write(hermes::TinyMapView node);
-    lir::LStmt lower_deref_field_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_index_write(hermes::TinyMapView node);
     lir::LStmt lower_place_assign(hermes::TinyMapView node);
     bool place_write_supported(hermes::TinyMapView place);
     bool place_recv_is_simple(hermes::TinyMapView recv);
     bool place_field_base_ok(hermes::TinyMapView recv);
     hermes::TinyMapView unwrap_paren_node(hermes::TinyMapView n);
-    lir::LStmt lower_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_field_index_write(hermes::TinyMapView node);
-    lir::LStmt lower_field_index_compound_assign(hermes::TinyMapView node);
     lir::LStmt lower_match(hermes::TinyMapView node);
     lir::LExprPtr lower_match_expr(hermes::TinyMapView node);
     // G156-2: mark a by-value move-type match scrutinee var as moved when an
