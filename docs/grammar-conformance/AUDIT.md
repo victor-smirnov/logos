@@ -199,7 +199,9 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
 2. **❌ Range value expressions** `a..b` etc. (medium; needs Range types + grammar).
 3. **❌ Default type parameters** `<T = Type>` (small-medium).
 4. **❌ Let-chains** `if a && let P = e` / match-guard let-chains (medium).
-5. **❌ Half-open range patterns** `a..`, `..b`, `..=b` (small; confirmed gap).
+5. ~~**Half-open range patterns** `a..`, `..b`, `..=b`~~ ✅ **DONE** (3097f848) —
+   open side clamps to scrutinee type min/max (closed range at the boundary).
+   Nested-in-payload half-open (`Num(1..)`) still a follow-up.
 6. Lower priority: `_ = expr` underscore-assign, `static mut`, unions, C-strings, `&raw`.
 
 **Excluded (DIVERGENCE — future non-Rust package model):** `UseDeclaration`
