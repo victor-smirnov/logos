@@ -198,7 +198,29 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    genuinely high risk — sequence deliberately, not as a quick win.
 2. **❌ Range value expressions** `a..b` etc. (medium; needs Range types + grammar).
 3. **❌ Default type parameters** `<T = Type>` (small-medium).
-4. **❌ Let-chains** `if a && let P = e` / match-guard let-chains (medium).
+4. **❌ Let-chains** `if a && let P = e` / `while …` / match-guard chains.
+   **Assessed 2026-05-25:** more involved than "clean no-mono". `&&`/`||` live at
+   `log_expr` (above `cmp_expr_ns`), so a let-chain condition operand must be
+   `cmp_expr_ns` (no top-level `&&`) with `&&` parsed at the chain level. Two
+   shapes:
+   (a) **Full/general** — `if_conditions <- let_chain / expr_ns`, rewriting the
+       core if/while condition; reroutes ALL `&&` conditions → regression-
+       sensitive (touches every `if a && b`).
+   (b) **Bounded/additive (recommended first)** — add alts that REQUIRE an
+       explicit `let` (`if let P = e && <expr_ns>` and `if <cmp_ns> && let P =
+       e …`), ordered before the existing if forms; pure-bool `&&` untouched
+       (low risk). Desugar in lower_if: nest `if let P=e { if cond {THEN} else
+       {ELSE} } else {ELSE}` (else duplicated — only one path runs). Covers the
+       common 1-let case; arbitrary mixing is a follow-up. Medium; do with a
+       fresh careful pass (central lower_if).
+   ✅ **DONE (if-let, bounded form b)** — clean match-guard desugar: `if let PAT
+   = e && <cond>` → `match e { PAT if <cond> => THEN, _ => ELSE }` (no else
+   duplication). `&&` parsed at `cmp_expr_ns` level; trailing cond is full
+   `expr_ns` (multi-`&&` ok). Top-level + tuple/struct-nested payload bindings
+   visible to the guard (guard-prologue re-extract); nested ENUM-VARIANT binding
+   in the guard rejects cleanly (no miscompile). Additive — pure-bool `if a && b`
+   untouched. FOLLOW-UPS: `while let … && …`, match-guard chains, cond-first
+   (`if cond && let P = e`), nested-variant-binding-in-guard.
 5. ~~**Half-open range patterns** `a..`, `..b`, `..=b`~~ ✅ **DONE** (3097f848) —
    open side clamps to scrutinee type min/max (closed range at the boundary).
    Nested-in-payload half-open (`Num(1..)`) still a follow-up.

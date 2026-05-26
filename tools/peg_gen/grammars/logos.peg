@@ -2145,7 +2145,17 @@
                       / STAR unary_expr compound_assign_op expr SEMI
                      => { CODE: DEREF_COMPOUND, NAME: $2, OP: $3, VALUE: $4 }
 
-    if_expr <- KW_IF KW_LET pattern ASSIGN expr_ns block KW_ELSE (if_expr / block)
+    // Let-chain (Rust parity, common shape): `if let P = e && <cond> { … }`.
+    // The let scrutinee is `cmp_expr_ns` (one level below `&&`) so the `&&`
+    // belongs to the chain; the trailing `<cond>` is a full `expr_ns` (may itself
+    // be a `&&` chain). Desugars to `match e { P if <cond> => THEN, _ => ELSE }`
+    // (GUARD = the trailing cond). Ordered before the plain if-let forms; pure
+    // bool `if a && b` is unaffected (these REQUIRE `let`).
+    if_expr <- KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block KW_ELSE (if_expr / block)
+            => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8, ELSE: $10 }
+             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block
+            => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8 }
+             / KW_IF KW_LET pattern ASSIGN expr_ns block KW_ELSE (if_expr / block)
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6, ELSE: $8 }
              / KW_IF KW_LET pattern ASSIGN expr_ns block
             => { CODE: IF, PAT: $3, VALUE: $5, THEN: $6 }

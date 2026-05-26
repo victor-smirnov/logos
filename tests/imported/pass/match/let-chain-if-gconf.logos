@@ -1,0 +1,33 @@
+// Grammar-conformance (Logos↔Rust sprint, 2026-05-25): if-let chains —
+// `if let PAT = e && <cond> { … }` (the common single-let shape). Desugars to
+// `match e { PAT if <cond> => THEN, _ => ELSE }` — the trailing condition
+// becomes the arm guard (no else duplication). Additive grammar (requires an
+// explicit `let`; pure-bool `if a && b` is unaffected). Nested tuple/struct
+// payload bindings referenced by the guard are re-extracted as a guard prologue;
+// a nested ENUM-VARIANT binding in the guard rejects cleanly (follow-up).
+package match_let_chain_if;
+
+fn main() -> i32 {
+    let o: Option<i64> = Some(5i64);
+
+    // top-level binding visible to the guard
+    if let Some(x) = o && x > 3i64 { } else { return 1i32; }
+    // guard false → else taken
+    if let Some(x) = o && x > 9i64 { return 2i32; } else { }
+    // multi-&& trailing condition
+    if let Some(x) = o && x > 3i64 && x < 10i64 { } else { return 3i32; }
+
+    // tuple-nested payload bindings used in the guard
+    let p: Option<(i64, i64)> = Some((3i64, 7i64));
+    if let Some((a, b)) = p && a < b { } else { return 4i32; }
+    if let Some((a, b)) = p && a > b { return 5i32; } else { }
+
+    // non-chain if-let unaffected
+    if let Some(y) = o { if y != 5i64 { return 6i32; } } else { return 7i32; }
+
+    // plain bool `&&` unaffected
+    let t: bool = true;
+    if t && (o.is_some()) { } else { return 8i32; }
+
+    return 0i32;
+}

@@ -4978,6 +4978,42 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         bind_pattern(pat, scrut_type);
         std::vector<lir::LStmt> nested_destructure;
         emit_nested_pat_destructure(nested_subs, nested_destructure, /*for_guard=*/false);
+        // Let-chain trailing condition: `if let P = e && <cond>` desugars to
+        // `match e { P if <cond> => THEN, _ => ELSE }` — the chain cond becomes
+        // an arm guard (no else duplication). Lowered HERE so it sees the
+        // pattern's bindings (`if let Some(x) = o && x > 0`).
+        lir::LExprPtr chain_guard = nullptr;
+        if (node.has_key(la::GUARD)) {
+            chain_guard = lower_expr(map_of(node.get(la::GUARD.code)));
+            if (chain_guard && TypeRef(chain_guard->type).kind() != LogosType::Kind::Bool &&
+                TypeRef(chain_guard->type).kind() != LogosType::Kind::Error)
+                error(std::format("if-let chain condition must be bool, got {}",
+                      type_str(chain_guard->type)));
+            // The guard runs BEFORE the arm body, so any nested-payload bindings
+            // it references (`if let Some((a,b)) = e && a > b`) must be
+            // re-extracted as a guard prologue (mirrors lower_match's B170-D/E).
+            // Tuple/struct nested subs are guard-safe; a nested ENUM-VARIANT sub
+            // can't be bound in a guard (its destructure is a refutable let-else)
+            // → reject cleanly instead of reading an unbound value.
+            if (chain_guard && !nested_subs.empty()) {
+                for (auto& ns : nested_subs)
+                    if (code_of(ns.sub_pat_node) == la::PAT_VARIANT_DATA) {
+                        error("let-chain condition cannot yet reference bindings "
+                              "from a nested enum-variant pattern; match in the "
+                              "body instead");
+                        break;
+                    }
+                std::vector<lir::LStmt> gd;
+                emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
+                if (!gd.empty()) {
+                    auto gblk = lir::alloc_block(*cur_prog_);
+                    gblk->stmts = std::move(gd);
+                    TypeRef gt = chain_guard->type;
+                    chain_guard = builder().block_expr(std::move(gblk),
+                                      std::move(chain_guard), gt);
+                }
+            }
+        }
         lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::THEN))
             *then_body = lower_block(map_of(node.get(la::THEN.code)));
@@ -5011,6 +5047,14 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
                 guard = builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t());
             else
                 guard = std::move(rg);
+        }
+        // AND the let-chain trailing condition last (after the pattern's own
+        // refutable guards), so it runs only once the pattern matched.
+        if (chain_guard) {
+            if (guard)
+                guard = builder().bin_op("&&", std::move(*guard), std::move(chain_guard), bool_t());
+            else
+                guard = std::move(chain_guard);
         }
 
         lir::SMatch sm;
