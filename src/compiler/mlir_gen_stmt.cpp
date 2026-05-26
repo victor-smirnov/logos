@@ -539,6 +539,21 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
             return;
         }
     }
+    // General aggregate store-by-value: any LLVM aggregate (tuple, embedded
+    // datatype, fixed-array-as-struct) whose rhs is a `ptr` must be copied by
+    // VALUE, not by storing the 8-byte pointer into the wider slot (the latter
+    // silently corrupts). Mirrors gen_chain_field_write's final-field handling
+    // — the prerequisite for routing chain/aggregate writes through this path.
+    if (val.getType() == ptr_type() &&
+        (mlir::isa<mlir::LLVM::LLVMStructType>(elem_type) ||
+         mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type))) {
+        auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
+        auto bytes = (int64_t)dl.getTypeSize(elem_type);
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
+        return;
+    }
     val = coerce_int(val, elem_type);
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, ptr);
 }

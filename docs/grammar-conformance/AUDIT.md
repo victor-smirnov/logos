@@ -257,6 +257,20 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    address resolver mid-chain pointer/DataRef auto-deref (the actual `place_write_addr` work),
    THEN retire the per-shape writers. Grammar-removal + fall-through is unsound until then.
    (Reverted to 88fc42a9; 5228/5228 green.)
+   **PRECISE DIVERGENCE (diagnosed 2026-05-26, post-revert):** Two codegen-equivalence
+   gaps separate the per-shape writers from the general `addr_of_temp`+`SDerefWrite` path:
+   (1) mid-chain pointer auto-deref — actually OK: `gen_recv_struct` (mlir_gen.cpp:736-768)
+   already loads a pointer field before descending, mirroring gen_chain_field_write:1953-1957.
+   (2) **AGGREGATE STORE-BY-VALUE — the real gap.** `gen_chain_field_write` (mlir_gen_stmt.cpp:1973-1982)
+   loads-then-stores the whole aggregate for ANY final field that is an `LLVMStructType` when the
+   rhs is a `ptr` (covers tuples, embedded datatypes, fixed-array-as-struct, AND Struct kind).
+   `SDerefWrite` (mlir_gen_stmt.cpp:527-543) only memcpys when the pointee KIND is `Struct`/`ZonedStruct`;
+   any other aggregate-kind field falls to `coerce_int`+`StoreOp`, which stores an 8-byte pointer
+   into a larger aggregate slot → silent heap corruption (the stdlib Map/Hermes internals that
+   broke map_comp/match/lforge). **FIX for the sprint:** generalize `SDerefWrite`'s aggregate
+   branch to trigger on `LLVMStructType` pointee (load-or-memcpy by value), not just Struct kind —
+   then re-attempt the chain retirement, then the other writers. This is `place_write_addr`'s
+   true prerequisite; bounded and codegen-local.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
