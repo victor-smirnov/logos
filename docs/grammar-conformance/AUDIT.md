@@ -85,11 +85,9 @@ catch-up item — this is the intended Logos design.
 **Current state vs the model:** the `::`-into-item part works for a resolved
 name (`S::C`, `Type::method`, verified). The **fully-qualified dotted-package +
 `::`-item** form in *expression* position (`logos.mem.x.Vec::new()`) is a
-**parse error** (verified) — today you `use` the package and write the short
-name (`Vec::new()`). Implementing the fully-qualified expression form is a
-Logos-model conformance item (grammar: allow a `.`-path prefix before a `::`
-item path in expression/type position), tracked here under the path model — NOT
-a Rust-grammar gap.
+**parse error** — **ACCEPTED AS-IS for now (Victor 2026-05-25)**: `use` the
+package + short name (`Vec::new()`) is fine. Not in the active queue; revisit
+with the broader package-model design.
 
 ## Items
 
