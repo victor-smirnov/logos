@@ -1098,6 +1098,53 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(tv.index())};
         return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, tup_ptr, idx);
     }
+    case ec::Code::SliceIndex: {
+        // Slice element address `s[i]` — the place-write / `&mut s[i]` counterpart
+        // of gen_expr_kind(ESliceIndexView). Computes the SAME element pointer the
+        // read does (load data ptr from the fat descriptor's field 0, GEP by index
+        // with the element stride) and returns it WITHOUT the final load — so reads
+        // and writes address the identical slot (consistency by construction).
+        lir_view::ESliceIndexView sv{e};
+        auto* slice_l = lexpr_of(sv.slice());
+        auto* index_l = lexpr_of(sv.index());
+        if (!slice_l || !index_l) return nullptr;
+        auto slice = gen_expr(*slice_l);
+        auto index = gen_expr(*index_l);
+        if (!slice || !index) return nullptr;
+        TypeRef elem_tr = e.type(pool_impl());
+        auto stype = slice_llvm_type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+        auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
+        auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+        bool idx_unsigned = index_l->type &&
+            (TypeRef(index_l->type).kind() == LogosType::Kind::U8  ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U16 ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U32 ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U24 ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U56 ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U64 ||
+             TypeRef(index_l->type).kind() == LogosType::Kind::U128);
+        mlir::Value gep_idx = (idx_unsigned && index.getType() != builder_.getI64Type())
+            ? builder_.create<mlir::arith::ExtUIOp>(loc_, builder_.getI64Type(), index).getResult()
+            : index;
+        // Stride MUST match gen_expr_kind(ESliceIndexView) exactly: the concrete
+        // aggregate LLVM type for inline-laid-out Struct/ZonedStruct elements,
+        // else the element representation `logos_to_mlir(elem)` (ptr-sized for
+        // tuples/dyn — the by-pointer ABI). Using a different stride here than the
+        // read uses would make `&mut s[i]` / `s[i]=v` address a different slot.
+        mlir::Type stride;
+        if (elem_tr && (TypeRef(elem_tr).kind() == LogosType::Kind::Struct ||
+                        TypeRef(elem_tr).kind() == LogosType::Kind::ZonedStruct)) {
+            auto sit = struct_types_.find(concrete_struct_name(elem_tr));
+            stride = (sit != struct_types_.end()) ? sit->second.llvm_type
+                                                  : logos_to_mlir(elem_tr);
+        } else {
+            stride = logos_to_mlir(elem_tr);
+        }
+        if (!stride) stride = builder_.getI32Type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
+        return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stride, data_ptr, di);
+    }
     case ec::Code::IndexRead: {
         lir_view::EIndexReadView irv{e};
         auto recv     = irv.receiver();
@@ -1225,6 +1272,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
     // TupleIndex stays gated to is_mut — the immutable `&x.N` value-copy path
     // is relied on by the variadic-tuple Eq/Debug recursion.
     if (inner_ref.kind() == ec::Code::IndexRead ||
+        inner_ref.kind() == ec::Code::SliceIndex ||
         (v.is_mut() && inner_ref.kind() == ec::Code::TupleIndex)) {
         if (auto addr = gen_lvalue_addr(inner_ref))
             return addr;
