@@ -195,9 +195,22 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    branch (general addr-of can't dispatch IndexMut — the audit-predicted hard
    case). ~450 lines of specialised lowerings removed; named-place diagnostics
    preserved via render_place_node. Test: compound-assign-collapse-gconf.
-   5227/5227. **STEP 2 (next): the WRITE family** (field_write/index_write/
-   tuple_field_write/chain_field_write/deref_field_write/field_index_write →
-   place_assign, similarly preserving IndexMut + diagnostics).
+   5227/5227. **STEP 2 (mapped 2026-05-26): the WRITE family** (field_write /
+   index_write / tuple_field_write / chain_field_write / deref_field_write /
+   field_index_write → place_assign). Materially harder than compound:
+   `gen_lvalue_addr` already covers the SHAPES (field/tuple/chain/field-index/
+   deref-field/array&slice index — proven by step-1's compound tests), so the
+   work is (a) 2 genuine special folds the general addr-path lacks — DataRef
+   ergonomic field-write (`p.field=v`→mut_ptr desugar) + user IndexMut/slice
+   index-write; (b) diagnostic + mutability preservation — every write shape has
+   fail-tests with shape-specific wording (overflow `'(*p).val': value X does
+   not fit`, `*const`-write rejection, immutability), and place_assign currently
+   does NEITHER a root-var mut-check NOR an overflow check (latent soundness
+   gap). Plan: enrich place_assign (root-var mut-check + `*const`-write check +
+   overflow check + named render_place_node diagnostics), fold DataRef +
+   IndexMut, retire the 6 productions/lowerings, update the few write fail-test
+   `.expected` to the unified named wording. Dedicated careful pass (central op);
+   gate-driven iterate as step 1 did. NOT rushed at a session tail.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
