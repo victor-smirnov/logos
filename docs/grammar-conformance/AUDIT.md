@@ -83,8 +83,8 @@ package system instead). Not a catch-up item.
 |---|---|---|
 | `Module` (`mod` / `mod {}`) | packages (`package x;` + `use`) | ⚠️ divergence |
 | `ExternCrate` | n/a | ⚠️ divergence |
-| `UseDeclaration` (`use Tree;`, `::`-paths, `*`, `{}`, `as`) | `use a.b.c;`, `use a.b.{V1,V2};`; **no `as` rename, no `*` glob, no nested `{}` groups beyond variant-import** | ⚠️ path-model divergence + ❌ minor gaps (`use … as Alias`, glob) — low priority |
-| `Visibility` `pub`, `pub(crate)`, `pub(in path)`, `pub(self/super)` | `pub` only — `pub(crate)` is a **parse error** (verified) | ❌ GAP (restricted visibility) — but ties to the module-model divergence; likely map `pub(crate)`→package-private. Low priority. |
+| `UseDeclaration` (`use Tree;`, `::`-paths, `*`, `{}`, `as`) | `use a.b.c;`, `use a.b.{V1,V2};` | ⚠️ **DIVERGENCE** (Victor 2026-05-25) — Logos will have a DIFFERENT package model, not Rust's module/use tree. Not a conformance item; revisited when the package model is designed. `as`/glob/`::`-paths are part of that future model, not Rust catch-up. |
+| `Visibility` `pub`, `pub(crate)`, `pub(in path)`, `pub(self/super)` | `pub` only | ⚠️ **DIVERGENCE** (Victor 2026-05-25) — tied to the future (non-Rust) package model; restricted-visibility forms belong to that design, not Rust conformance. |
 | `StructStruct` / `TupleStruct` / unit | all present incl. `struct Foo;` (G172-14) | ✅ |
 | `Enumeration` + tuple/struct variants + discriminant | present; discriminant via `= Expr`/metacall/xref | ✅ (discriminant-from-arbitrary-const is const-eval ⚠️ A1) |
 | `Union` | none | ⚠️/❌ — unions absent; rare, defer |
@@ -176,6 +176,11 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
 3. **❌ Default type parameters** `<T = Type>` (small-medium).
 4. **❌ Let-chains** `if a && let P = e` / match-guard let-chains (medium).
 5. **❌ Half-open range patterns** `a..`, `..b`, `..=b` (small; confirmed gap).
-6. Lower priority / divergence-adjacent: `pub(crate)`, `use … as Alias`, glob `use *`, `_ = expr` underscore-assign, `static mut`, unions, C-strings, `&raw`, default type params.
+6. Lower priority: `_ = expr` underscore-assign, `static mut`, unions, C-strings, `&raw`.
+
+**Excluded (DIVERGENCE — future non-Rust package model):** `UseDeclaration`
+(use-tree, `as`, glob, `::`-paths), `Visibility` (`pub(crate)`/`pub(in …)`),
+modules (`mod`), extern-crate. These are NOT Rust-conformance items — they will
+follow Logos's own package model, designed later.
 
 Done: **G-CONF-1** `for PATTERN in iter` ✅.
