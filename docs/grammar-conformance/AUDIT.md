@@ -68,14 +68,28 @@ the ` ```grammar ` fences) against the Logos PEG. Legend: ✅ conformant ·
 ⚠️ blessed divergence (DIVERGENCES.md / Logos model) · ❌ gap (fix) ·
 🔧 over-enumerated (collapse).
 
-## Paths (`paths.md`) — pervasive divergence
+## Paths (`paths.md`) — divergence (Logos two-tier path model)
 
-Rust separates segments with `::` (`a::b::c`, `Vec::<T>`, `Trait::method`,
-`<T as Trait>::X`). Logos uses **`.`** for package/module paths
-(`logos.mem.collections.vec`) and **`::`** only for turbofish / type-qualified
-calls (`Vec::<i64>`, `Type::method`, `<T as Trait>::Item`). ⚠️ **Divergence**
-(Logos path model). No `super`/`self`/`crate`/`$crate` segments (no module tree;
-package system instead). Not a catch-up item.
+⚠️ **Divergence — Logos path model (Victor 2026-05-25):**
+- The **package name** is `.`-separated: `my.cool.package.name`.
+- **Inside** a structure (item-internal access — type, trait, assoc const/type,
+  method, variant) it is `::`-separated.
+- A fully-qualified path therefore reads:
+  **`my.cool.package.name.TraitName::CONST`** (dotted package prefix, then `::`
+  into the item). Turbofish `Vec::<i64>` and qualified `<T as Trait>::Item` use
+  `::` as usual.
+
+No Rust `super`/`self`/`crate`/`$crate` segments (no module tree). NOT a Rust
+catch-up item — this is the intended Logos design.
+
+**Current state vs the model:** the `::`-into-item part works for a resolved
+name (`S::C`, `Type::method`, verified). The **fully-qualified dotted-package +
+`::`-item** form in *expression* position (`logos.mem.x.Vec::new()`) is a
+**parse error** (verified) — today you `use` the package and write the short
+name (`Vec::new()`). Implementing the fully-qualified expression form is a
+Logos-model conformance item (grammar: allow a `.`-path prefix before a `::`
+item path in expression/type position), tracked here under the path model — NOT
+a Rust-grammar gap.
 
 ## Items
 
