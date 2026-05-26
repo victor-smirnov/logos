@@ -304,8 +304,36 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    SChainFieldWrite LIR node KEPT (closure-capture compound still uses it). Regression test:
    `chain_field_write_scalar_named`. **Lesson:** the earlier "hermes repr special-case" framing was
    right in spirit but the mechanism was narrower & cheaper than feared — a missing struct_name tag,
-   fixed by consulting the LIR def. NEXT writers to retire (same place path, likely same-or-less work):
-   `tuple_field_write`, `deref_field_write`, `field_index_write`, then `index_write`/IndexMut + DataRef.
+   fixed by consulting the LIR def.
+   **✅ tuple_field_write RETIRED 2026-05-26 (aa3469f3).** Trivial: sema already normalizes a
+   tuple-struct `.0` to FIELD_READ and a real tuple `.0` to TUPLE_INDEX, both handled by EAddrOfTemp.
+   Only the immutable-tuple-field diagnostic wording changed (uniform place message). 5229/5229.
+   **✅ deref_field_write RETIRED 2026-05-26 (ca9989ed).** `(*p).field = v` → FIELD_READ(DEREF(p)).
+   Added: check_place_writable DEREF branch requires unsafe for raw `*mut`; lower_place_assign gained
+   array-literal + tuple-literal element fit-checks (generalized the writer's per-element overflow
+   diagnostics). 3 overflow fail-tests rewordded. 5229/5229.
+   **⛔ field_index_write — ATTEMPTED + REVERTED 2026-05-26 (kept HEAD green at ca9989ed).**
+   `s.field[i] = v`. The place path lowers to INDEX_READ(FIELD_READ(s,field)). Progress made but
+   reverted: requires the `*mut`-FIELD-index ADDRESS to be correct in ALL contexts (write, `&`-ref,
+   by-value read), for AGGREGATE elements, in GENERIC code — and each fix surfaced another path:
+   (1) gen_lvalue_addr's IndexRead only handled Array/Slice receivers — a `*mut T` field needs
+   load-then-GEP (added, but it then governs `&s.ptr[i]` reads too, not just writes).
+   (2) SDerefWrite stored an 8-byte ptr for a TUPLE element because tuples lower to `ptr_type` via
+   logos_to_mlir, so the `isa<LLVMStructType>` aggregate check missed — must detect by TypeRef
+   KIND==Tuple and memcpy `tuple_llvm_type` size (fix found + verified: `Vec<(i64,i64)>::push` write
+   then correct via disasm). (3) check_place_writable wrongly required the ROOT var mut when the path
+   crosses a `*mut` FIELD (writability comes from the pointer, not the container) — fixed with a new
+   `resolve_place_type` AST type-resolver + pointer-boundary stop (must still enforce the pointer's
+   `*const`/unsafe). (4) After all that, `Vec<(i64,i64)>` ITERATION still SIGSEGV'd — the iterator's
+   `&self.ptr[i]` returning `&(tuple)` mis-resolved. The write side reached parity; the `&`-ref +
+   by-value-read side for aggregate-through-generic-`*mut`-field did not. NEXT SESSION: do this as a
+   focused codegen pass — make gen_lvalue_addr's pointer-field-index address correct for aggregates
+   AND have lower_index_read/`&`-ref use the same resolver, MLIR-diffing `Vec<(i64,i64)>` get/iter
+   against gen_field_index_write; only then remove the production. gen_field_index_write WORKS today.
+   Then: `index_write`/IndexMut + DataRef `field_write`. (The SDerefWrite tuple-by-value memcpy and
+   resolve_place_type are reusable when resumed.)
+   **Lesson (reinforced):** gate every writer-retirement on the FULL suite; aggregate + generic +
+   pointer-field interactions hide in read/`&`-ref paths the write-side tests never exercise.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
