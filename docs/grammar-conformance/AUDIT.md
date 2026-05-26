@@ -439,8 +439,24 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    concrete+generic) + check_place_writable Slice-allow & pointer-boundary + the Closure-only
    SDerefWrite fat-memcpy. Removed index_write_stmt production/dispatch/200-line lowering/decl; 5
    diagnostic fail-tests reworded; test index_write_unified. **5 of 6 retired** (chain, tuple,
-   deref_field, field_index, index). ONLY field_write (`a.b=v`) remains — DataRef ergonomic desugar +
-   pub-check relocation + huge blast radius + `field write` diagnostic-wording churn.
+   deref_field, field_index, index).
+   **✅✅ FLAGSHIP COMPLETE 2026-05-26 (6c8dd519) — field_write retired, ALL 6/6 done, 5233/5233.**
+   `a.b=v` routes through place_assign. DataRef ergonomic write → try_dataref_field_write helper;
+   pub-access inherited from the field READ lowering; checks live in lower_place_assign +
+   check_place_writable. Two place-path gaps fixed to preserve field semantics: (a) borrow_check —
+   AddrOfTemp of a field chain rooted at a `&mut` ref no longer demands a `let mut` binding (writing
+   THROUGH a `&mut` ref needs none — Rust parity; mirrors the raw-ptr-root skip; fixed
+   ref_map_basic/reborrow/ref_struct_enum_payload); (b) SDerefWrite heap-promotes an Enum value stored
+   into an enum-slot place (field outlives the fn — mirrors gen_field_write; fixed iter_successors_full);
+   + lower_place_assign tuple-element overflow now recurses into nested array/tuple literals. Test
+   field_write_unified. **Only `deref_write_stmt` (`*p = v`) remains a dedicated write production — and
+   that IS a genuine Rust place form, not over-enumeration.** The ~17-production assignment sprawl has
+   collapsed to: assign_stmt + compound_assign_stmt + place_assign_stmt + deref_write_stmt +
+   destructure_assign_stmt — Rust-shaped. THE META-LESSON across all 6: the general place path must
+   reuse each context's exact representation convention (stride, fat-vs-thin, enum heap-promotion,
+   borrow-binding rules); a rule correct in one dedicated writer is often wrong in SDerefWrite's
+   broader context — narrow by the precise discriminator (Closure-kind, Enum-slot, MutRef-root), and
+   gate EVERY step on the full suite.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
