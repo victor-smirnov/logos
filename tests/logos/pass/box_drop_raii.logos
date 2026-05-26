@@ -1,0 +1,25 @@
+// Box<T> RAII (Rust parity): on scope exit, Box::drop fires the inner T's Drop
+// and frees the heap block — no manual box_free needed. Pins the impl Drop that
+// modernized Box from a leaking typed-*mut-T into an owning handle.
+package box_drop_raii;
+use logos.mem.boxed;
+use logos.lang.mem;
+
+struct Noisy { counter: *mut i64, }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.counter[0] = self.counter[0] + 1i64; } }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
+        c[0] = 0i64;
+        {
+            let b: Box<Noisy> = box_new(Noisy { counter: c });
+            if c[0] != 0i64 { return 1i32; }   // not dropped yet
+        }   // b out of scope → Box::drop → Noisy::drop
+        if c[0] != 1i64 { return 2i32; }       // dropped exactly once
+        dealloc(c as *mut u8);
+    }
+    return 42i32;
+}
