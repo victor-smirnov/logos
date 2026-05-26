@@ -1,0 +1,25 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/traits/issue-18412.rs (the trait-qualified `Foo::foo`
+// half — companion to method-as-fn-pointer-b172 which covers the type-qualified
+// `A::bar` half). `assert_eq!`→return-code check; `pub fn main()`→`fn main()->i32`.
+//
+// G172-13 (FIXED): the trait-NAME-qualified form `let g = Foo::foo;` as a
+// fn-pointer value. Rust infers Self from the call site; Logos resolves it when
+// there is exactly ONE impl of the trait in scope (unambiguous). With two+ impls
+// and no annotation it stays a clean reject (no silent mis-resolution).
+package closures_trait_qualified_fn_pointer;
+
+trait Foo { fn foo(&self) -> i64; }
+
+struct A { v: i64 }
+impl A { fn bar(&self) -> i64 { return self.v; } }
+impl Foo for A { fn foo(&self) -> i64 { return self.bar(); } }
+
+fn main() -> i32 {
+    let f = A::bar;     // inherent, type-qualified (G172-12)
+    let g = Foo::foo;   // trait-qualified, unique impl (G172-13)
+    let a: A = A { v: 42i64 };
+    if f(&a) != g(&a) { return 1i32; }
+    if g(&a) != 42i64 { return 2i32; }
+    return 0i32;
+}

@@ -2806,7 +2806,7 @@
     // anything other than `?Sized`.
     trait_bound <- QUESTION IDENT
                 => { CODE: TRAIT_BOUND, NAME: $2, RELAXED: true }
-                 / hrtb_binder IDENT LT bound_arg_list GT_TYPE
+                 / hrtb_binder IDENT LT_TYPE bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, TYPE_PARAMS: $4 }
                  / hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1, PARAMS: $4, RET_TYPE: $7 }
@@ -2818,7 +2818,7 @@
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1 }
                  / hrtb_binder IDENT
                 => { CODE: TRAIT_BOUND, NAME: $2, HRTB_BINDERS: $1 }
-                 / IDENT LT bound_arg_list GT_TYPE
+                 / IDENT LT_TYPE bound_arg_list GT_TYPE
                 => { CODE: TRAIT_BOUND, NAME: $1, TYPE_PARAMS: $3 }
                  // Fn-family parenthesized form: `Fn(T1, ...) -> R` /
                  // `FnMut(T)` / `FnOnce()`. The arg-type list lives in

@@ -9920,6 +9920,29 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
+            // G172-13: trait-qualified form `Foo::foo` (Foo a trait, not a
+            // type). Rust infers Self from the call site; we resolve it only when
+            // there's exactly ONE impl of the trait in scope (unambiguous — Rust
+            // also errors on a trait method fn-ptr with multiple candidate Selfs
+            // and no annotation). The unique impl's `<Concrete>__foo` supplies
+            // the signature.
+            if (!mfi && find_trait_by_name(cname_str).second) {
+                std::string prefix = cname_str + "::";
+                std::string sole_concrete;
+                int n_impls = 0;
+                for (auto& [k, _v] : impls_) {
+                    if (k.size() <= prefix.size() ||
+                        k.compare(0, prefix.size(), prefix) != 0) continue;
+                    std::string concrete = k.substr(prefix.size());
+                    // Skip trait-arg-keyed coherence entries (contain '[').
+                    if (concrete.find('[') != std::string::npos) continue;
+                    if (concrete != sole_concrete) { ++n_impls; sole_concrete = concrete; }
+                }
+                if (n_impls == 1) {
+                    auto cc = find_func_candidates(sole_concrete + "__" + mname_str);
+                    if (cc.size() == 1) { mfi = cc[0]; msym = sole_concrete + "__" + mname_str; }
+                }
+            }
             if (mfi && mfi->type_params.empty()) {
                 LogosTypeBuilder ft;
                 ft.kind = LogosType::Kind::FnPtr;
@@ -10031,6 +10054,29 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
+            // G172-13: trait-qualified form `Foo::foo` (Foo a trait, not a
+            // type). Rust infers Self from the call site; we resolve it only when
+            // there's exactly ONE impl of the trait in scope (unambiguous — Rust
+            // also errors on a trait method fn-ptr with multiple candidate Selfs
+            // and no annotation). The unique impl's `<Concrete>__foo` supplies
+            // the signature.
+            if (!mfi && find_trait_by_name(cname_str).second) {
+                std::string prefix = cname_str + "::";
+                std::string sole_concrete;
+                int n_impls = 0;
+                for (auto& [k, _v] : impls_) {
+                    if (k.size() <= prefix.size() ||
+                        k.compare(0, prefix.size(), prefix) != 0) continue;
+                    std::string concrete = k.substr(prefix.size());
+                    // Skip trait-arg-keyed coherence entries (contain '[').
+                    if (concrete.find('[') != std::string::npos) continue;
+                    if (concrete != sole_concrete) { ++n_impls; sole_concrete = concrete; }
+                }
+                if (n_impls == 1) {
+                    auto cc = find_func_candidates(sole_concrete + "__" + mname_str);
+                    if (cc.size() == 1) { mfi = cc[0]; msym = sole_concrete + "__" + mname_str; }
+                }
+            }
             if (mfi && mfi->type_params.empty()) {
                 LogosTypeBuilder ft;
                 ft.kind = LogosType::Kind::FnPtr;
