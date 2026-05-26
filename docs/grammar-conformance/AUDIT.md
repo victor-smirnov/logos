@@ -391,11 +391,32 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
      wording → uniform `assignment`).
    **ROOT (bird's-eye):** there is NO single canonical place-address resolver — gen_lvalue_addr, the
    legacy EAddrOfTemp handler, AND the per-shape writers each reimplement it with different receiver
-   coverage. index_write exposes the divergence hardest. **NEXT: unify** — make gen_lvalue_addr the
-   ONE complete resolver (subsume gen_index_write's var_slice_/ptr/MutRef/closure cases), have
-   EAddrOfTemp + the place path use only it, THEN retire index_write (+ field_write). Reusable from
-   this attempt (in git reflog / this note): try_index_mut_assign, the legacy-handler bare-ptr +
-   MutRef branches, the check_place_writable Slice/pointer-boundary + resolve_place_type.
+   coverage. index_write exposes the divergence hardest.
+
+   **UNIFICATION STARTED 2026-05-26 — gen_lvalue_addr made the canonical resolver (steps 1-2 LANDED):**
+   - **Step 1 (committed, 5231/5231):** gen_lvalue_addr gained an **ESliceIndex** case — slice indexing
+     uses a DISTINCT LIR node (ESliceIndex, not EIndexRead), and gen_lvalue_addr had no case → slice
+     place-writes / `&mut s[i]` fell to a temp. New case mirrors gen_expr_kind(ESliceIndexView)'s
+     element-ADDRESS computation exactly (descriptor field-0 load + index GEP, same stride rule:
+     concrete aggregate type for Struct/ZonedStruct else logos_to_mlir) minus the final load. Plus
+     EAddrOfTemp's gate extended to SliceIndex. **This was the slice-rev-swap root — the stride was a
+     red herring; the real issue was the MISSING ESliceIndex case.**
+   - **Step 2 (committed, 5231/5231):** gen_lvalue_addr's IndexRead now handles a VarRef receiver of
+     Ptr/MutRef/Ref kind (bare `*mut T` / `&mut [T;N]`), base = the pointer value, stride mirroring the
+     read path; non-VarRef pointer receivers (a `*S` FIELD index) still defer to the legacy handler.
+   - **Step 3 (index_write retirement) — ATTEMPTED ON TOP, REVERTED at 10 fails.** With steps 1-2,
+     `a[i]=v` for array/Vec(IndexMut)/bare-*mut/`&mut [T;N]`/**slice** all route correctly (slice-rev-swap
+     FIXED by step 1). Remaining 10: 5 trivial diagnostic fail-tests (index_write_* wording) + **5
+     closure/dyn-Box SIGSEGV** (box-dyn-fnmut, boxed-cl-call, dyn-box-fn-call, b167 factory/return).
+     gdb: crash #0 at a STACK address (`0x7fff…`) = a DANGLING function-pointer call — the boxed closure
+     stored a pointer to a STACK temp instead of the closure handle/bytes. box_new's `p[0]=val` disasm is
+     IDENTICAL to clean HEAD (`mov %rdi,(%rax)`), so box_new isn't the diff; the closure VALUE reaching
+     `p[0]=val` (or the dyn coercion) flows differently through the place-path SDerefWrite than through
+     gen_index_write for a fat/closure `T`. **NEXT: localize the closure-value lifetime** — why a generic
+     `p[0]=val` with T=closure stores a stack ptr via the place path; likely SDerefWrite needs the same
+     closure/fat handling gen_index_write had (or the box-coercion ordering). Then re-attempt step 3.
+   Reusable (git reflog / this note): try_index_mut_assign (IndexMut relocation), check_place_writable
+   Slice-allow + pointer-boundary, resolve_place_type — all re-applied cleanly on top of steps 1-2.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
