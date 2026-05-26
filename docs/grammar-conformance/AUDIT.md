@@ -242,6 +242,21 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    forms gen_lvalue_addr lacks (IndexMut call, DataRef `mut_ptr`, tuple-struct
    field, slice) — once it exists the 6 per-shape writers route through the
    subsystem and retire. (Larger migration; do as a focused pass.)
+   **MIGRATION ATTEMPT 2026-05-26 (chain-first) — REVERTED, instructive:** Tried the
+   cheapest retirement: remove `chain_field_write_stmt` (+ `chain_path_id`/`chain_field_path`
+   productions + `lower_chain_field_write`) so `a.b.c = v` falls through to `place_assign_stmt`,
+   after generalizing `check_place_writable` to handle a raw-pointer ROOT (auto-deref through
+   `*mut`/`*const`, replicating the chain writer's `*const` + "requires unsafe" rejects).
+   Builds clean, but the GATE found **56 runtime miscompiles** (hermes/lforge: wrong exit codes,
+   `lforge: manifest: top-level value must be a map`). ROOT: `gen_chain_field_write`
+   (mlir_gen_stmt.cpp:1860) does **mid-chain pointer auto-deref** (a `*T` field is followed
+   via load before GEPing the next segment, mlir_gen_stmt.cpp:1909-1947) and struct-type-name
+   resolution that the general `gen_lvalue_addr`/`addr_of_temp` resolver does NOT replicate —
+   so a chain through a pointer field (Hermes `DataRef`, embedded `*mut`) writes to the wrong
+   address. CONCLUSION: the migration MUST go the other direction — first teach the general
+   address resolver mid-chain pointer/DataRef auto-deref (the actual `place_write_addr` work),
+   THEN retire the per-shape writers. Grammar-removal + fall-through is unsound until then.
+   (Reverted to 88fc42a9; 5228/5228 green.)
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
