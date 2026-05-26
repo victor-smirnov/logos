@@ -1,1 +1,1 @@
-is *const, cannot write
+assignment through a `*const` pointer

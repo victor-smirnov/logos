@@ -1,0 +1,26 @@
+// Regression: `s.field[i] = v` (field_index_write) retired onto the general
+// place path. The hard case that defeated two earlier attempts — a generic
+// `*mut T` field where T is an AGGREGATE (tuple): set + read-back must agree on
+// the element representation (generic ABI = by-pointer stride, NOT the concrete
+// by-value layout). The place path's existing logos_to_mlir stride + plain
+// store already match the read path; imposing the concrete 16-byte layout broke
+// consistency. This pins the consistency.
+package field_index_write_generic_tuple;
+use logos.lang.mem;
+struct Buf<T> { ptr: *mut T, }
+impl<T> Buf<T> {
+    fn set(&mut self, i: i64, v: T) { unsafe { self.ptr[i] = v; } }
+    fn get(&self, i: i64) -> T { unsafe { return self.ptr[i]; } }
+}
+fn main() -> i32 {
+    unsafe {
+        let raw: *mut u8 = alloc(8i64 * sizeof::<(i64,i64)>());
+        let mut b: Buf<(i64,i64)> = Buf { ptr: raw as *mut (i64,i64), };
+        b.set(0i64, (1i64, 2i64));
+        b.set(1i64, (3i64, 4i64));
+        let p0: (i64,i64) = b.get(0i64);
+        let p1: (i64,i64) = b.get(1i64);
+        if p0.0 + p0.1 + p1.0 + p1.1 != 10i64 { return 1i32; }
+    }
+    return 42i32;
+}

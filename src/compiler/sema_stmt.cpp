@@ -275,7 +275,6 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
     if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
     if (c == la::INDEX_WRITE)        return lower_index_write(stmt);
-    if (c == la::FIELD_INDEX_WRITE)  return lower_field_index_write(stmt);
     if (c == la::MATCH)        return lower_match(stmt);
     if (c == la::EXPR_STMT) {
         lir::LExprPtr e = stmt.has_key(la::VALUE)
@@ -6370,9 +6369,76 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
         }
         return true;
     }
-    if (c == la::FIELD_READ || c == la::TUPLE_INDEX || c == la::INDEX_READ)
-        return check_place_writable(map_of(place.get(la::RECEIVER.code)));
+    if (c == la::FIELD_READ || c == la::TUPLE_INDEX || c == la::INDEX_READ) {
+        auto recv = map_of(place.get(la::RECEIVER.code));
+        // A field/index access whose receiver is a POINTER is an implicit deref:
+        // writability is governed by the POINTER (its `*mut`/`&mut`), not by the
+        // root variable's `let mut` (`b.ptr[i] = x` doesn't need `mut b`). The
+        // pointer's `*const`/unsafe rules are enforced at lowering.
+        TypeRef rt = resolve_place_type(recv);
+        if (rt && TypeRef(rt).kind() == LogosType::Kind::MutRef)
+            return true;
+        if (rt && TypeRef(rt).kind() == LogosType::Kind::Ptr) {
+            if (!TypeRef(rt).mut_ptr()) {
+                error("assignment through a `*const` pointer");
+                return false;
+            }
+            if (!inside_unsafe_) {
+                error("write through raw pointer requires unsafe context");
+                return false;
+            }
+            return true;
+        }
+        return check_place_writable(recv);
+    }
     return true;
+}
+
+// Best-effort static type of an AST place expression (read-only; mirrors the
+// type logic in lower_expr without emitting LIR). Used by check_place_writable
+// to decide whether a field/index access crosses a pointer boundary.
+TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
+    place = unwrap_paren_node(place);
+    int32_t c = code_of(place);
+    if (c == la::VAR_REF)
+        return lookup(std::string(str_of(place.get(la::NAME.code))));
+    if (c == la::DEREF) {
+        TypeRef t = resolve_place_type(map_of(place.get(la::VALUE.code)));
+        return (t && TypeRef(t).pointee()) ? TypeRef(t).pointee() : TypeRef(nullptr);
+    }
+    if (c == la::FIELD_READ) {
+        TypeRef rt = resolve_place_type(map_of(place.get(la::RECEIVER.code)));
+        if (rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
+        if (!rt) return nullptr;
+        return field_type_of_for_type(rt, std::string(str_of(place.get(la::FIELD.code))));
+    }
+    if (c == la::TUPLE_INDEX) {
+        TypeRef rt = resolve_place_type(map_of(place.get(la::RECEIVER.code)));
+        if (rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
+        if (!rt) return nullptr;
+        uint64_t idx = (uint64_t)parse_int_literal(str_of(place.get(la::FIELD.code)));
+        if (TypeRef(rt).kind() == LogosType::Kind::Tuple) {
+            auto elems = TypeRef(rt).tuple_elems();
+            return idx < elems.size() ? elems[idx] : TypeRef(nullptr);
+        }
+        if (TypeRef(rt).kind() == LogosType::Kind::Struct)
+            return field_type_of_for_type(rt, std::to_string(idx));
+        return nullptr;
+    }
+    if (c == la::INDEX_READ) {
+        TypeRef rt = resolve_place_type(map_of(place.get(la::RECEIVER.code)));
+        if (!rt) return nullptr;
+        // Indexing through a pointer/ref whose pointee is NOT an array → the
+        // receiver IS the pointer (implicit deref-index).
+        if (is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee() &&
+            TypeRef(TypeRef(rt).pointee()).kind() != LogosType::Kind::Array)
+            return rt;
+        auto k = TypeRef(rt).kind();
+        if (k == LogosType::Kind::Array || k == LogosType::Kind::Slice) return TypeRef(rt).elem();
+        if (k == LogosType::Kind::Ptr || k == LogosType::Kind::MutRef) return TypeRef(rt).pointee();
+        return nullptr;
+    }
+    return nullptr;
 }
 
 lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
@@ -6401,6 +6467,24 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     check_place_writable(place_node);
     auto place = lower_expr(place_node);
     TypeRef pt = place->type;
+    // Indexing through a raw-pointer place (e.g. a `*mut T` field `s.buf[i]`)
+    // is an implicit deref: `*const` cannot be written and a `*mut` write
+    // requires unsafe (matches the retired field_index_write diagnostics).
+    {
+        auto pr = expr_ref_of(*place);
+        if (pr.kind() == lir_schema::expr::Code::IndexRead) {
+            lir_view::EIndexReadView irv{pr};
+            TypeRef rtp = irv.receiver().type(cur_prog_->type_pool.impl());
+            if (rtp && TypeRef(rtp).kind() == LogosType::Kind::Ptr) {
+                if (!TypeRef(rtp).mut_ptr())
+                    error(std::format("assignment to '{}': index through a `*const` pointer",
+                          render_place_node(place_node)));
+                else if (!inside_unsafe_)
+                    error(std::format("field index write '{}[i]' through raw pointer requires unsafe context",
+                          render_place_node(map_of(place_node.get(la::RECEIVER.code)))));
+            }
+        }
+    }
     // Propagate the place's type as an enum/struct RHS hint so a bare
     // `None` / struct-literal resolves to the slot's concrete type (mirrors
     // DEREF_WRITE).
@@ -6680,160 +6764,6 @@ lir::LStmt SemaChecker::lower_index_write(TinyMapView node) {
     siw.index = std::move(idx);
     siw.value = std::move(val);
     return make_stmt_emit(node_line_, std::move(siw));
-}
-
-lir::LStmt SemaChecker::lower_field_index_write(TinyMapView node) {
-    auto recv_name  = str_of(node.get(la::RECEIVER.code));
-    auto field_name = str_of(node.get(la::FIELD.code));
-
-    // Resolve field type — must be *mut T.
-    auto recv_t = lookup(recv_name);
-    if (!recv_t) error(std::format("field index write: undefined variable '{}'", recv_name));
-
-    // Unwrap pointer/reference receiver (class/struct-via-ptr/ref).
-    TypeRef base_t = recv_t;
-    if (base_t && is_ref_like(TypeRef(base_t).kind())) base_t = TypeRef(base_t).pointee();
-
-    TypeRef field_t = nullptr;
-    if (base_t) {
-        auto sname = struct_name_from_type(base_t);
-        if (!sname.empty()) field_t = field_type_of_for_type(base_t, field_name);
-    }
-
-    if (!field_t)
-        error(std::format("field index write: cannot resolve field '{}.{}'", recv_name, field_name));
-
-    // Pub check for struct/datatype fields.
-    if (base_t && field_t) {
-        auto sname = struct_name_from_type(base_t);
-        if (!sname.empty()) {
-            SemaStructInfo* si = nullptr;
-            { auto it = structs_.find(std::string(sname)); if (it != structs_.end()) si = &it->second; }
-            if (!si) { auto it = datatypes_.find(std::string(sname)); if (it != datatypes_.end()) si = &it->second; }
-            if (si) {
-                for (auto& f : si->fields) {
-                    if (f.name == field_name) {
-                        check_pub_access(f.is_pub, si->package, field_name);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    if (field_t && TypeRef(field_t).kind() != LogosType::Kind::Ptr &&
-                   TypeRef(field_t).kind() != LogosType::Kind::Ref &&
-                   TypeRef(field_t).kind() != LogosType::Kind::MutRef &&
-                   TypeRef(field_t).kind() != LogosType::Kind::Array)
-        error(std::format("field index write: field '{}.{}' is not a pointer/reference or array (got {})",
-              recv_name, field_name, type_str(field_t)));
-    if (field_t && TypeRef(field_t).kind() == LogosType::Kind::Ptr && !TypeRef(field_t).mut_ptr())
-        error(std::format("field index write: field '{}.{}' is *const, cannot write",
-              recv_name, field_name));
-    if (field_t && TypeRef(field_t).kind() == LogosType::Kind::Ptr && TypeRef(field_t).mut_ptr() && !inside_unsafe_)
-        error(std::format("field index write '{}.{}[i]' through raw pointer requires unsafe context",
-              recv_name, field_name));
-    if (field_t && TypeRef(field_t).kind() == LogosType::Kind::Ref)
-        error(std::format("field index write: field '{}.{}' is &T (shared reference), cannot write",
-              recv_name, field_name));
-
-    TypeRef elem_t = nullptr;
-    if (field_t) {
-        if (TypeRef(field_t).kind() == LogosType::Kind::Ptr ||
-            TypeRef(field_t).kind() == LogosType::Kind::Ref ||
-            TypeRef(field_t).kind() == LogosType::Kind::MutRef) elem_t = TypeRef(field_t).pointee();
-        else if (TypeRef(field_t).kind() == LogosType::Kind::Array) elem_t = TypeRef(field_t).elem();
-    }
-
-    lir::LExprPtr idx = node.has_key(la::LHS)
-        ? lower_expr(map_of(node.get(la::LHS.code))) : error_expr();
-    if (!is_integer(idx->type))
-        error(std::format("field index write: index must be integer, got {}", type_str(idx->type)));
-
-    lir::LExprPtr val = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
-    if (elem_t && TypeRef(elem_t).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(val->type, elem_t)) {
-        error(std::format("field index write '{}.{}[i]': expected {}, got {}",
-              recv_name, field_name, type_str(elem_t), type_str(val->type)));
-    }
-    if (elem_t && TypeRef(elem_t).kind() != LogosType::Kind::Error &&
-        TypeRef(val->type).kind() == LogosType::Kind::IntLit)
-        if (auto v = get_intlit_value(val))
-            if (!intlit_fits(*v, TypeRef(elem_t).kind()))
-                error(std::format("field index write '{}.{}[i]': value {} does not fit in {}",
-                      recv_name, field_name, *v, type_str(elem_t)));
-    // Check array literal elements against narrow nested array element type.
-    if (elem_t && TypeRef(elem_t).kind() == LogosType::Kind::Array && TypeRef(elem_t).elem() &&
-        TypeRef(val->type).kind() == LogosType::Kind::Array) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-            lir_view::EArrLitView al{vr};
-            for (uint64_t i = 0; i < al.count(); ++i) {
-                auto el = al.elem(i);
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(elem_t).elem().kind()))
-                            error(std::format("field index write '{}.{}[i]': array element {}: value {} does not fit in {}",
-                                  recv_name, field_name, i, *v, type_str(TypeRef(elem_t).elem())));
-            }
-        }
-    }
-    // Check tuple literal elements against narrow nested tuple element type.
-    if (elem_t && TypeRef(elem_t).kind() == LogosType::Kind::Tuple &&
-        TypeRef(val->type).kind() == LogosType::Kind::Tuple) {
-        auto vr = expr_ref_of(*val);
-        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-            lir_view::ETupleLitView tl{vr};
-            uint64_t i = 0;
-            tl.each_elem([&](lir_view::ExprRef el) {
-                if (i >= TypeRef(elem_t).tuple_elems().size()) { ++i; return; }
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (TypeRef(elem_t).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(elem_t).tuple_elems()[i]).kind()))
-                            error(std::format("field index write '{}.{}[i]': tuple element {}: value {} does not fit in {}",
-                                  recv_name, field_name, i, *v, type_str(TypeRef(elem_t).tuple_elems()[i])));
-                if (TypeRef(elem_t).tuple_elems()[i] && TypeRef(TypeRef(elem_t).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                    TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                    el.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView ial{el};
-                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                        auto iel = ial.elem(ii);
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem().kind()))
-                                    error(std::format("field index write '{}.{}[i]': tuple element {}: array element {}: value {} does not fit in {}",
-                                          recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_t).tuple_elems()[i]).elem())));
-                    }
-                }
-                if (TypeRef(elem_t).tuple_elems()[i] && TypeRef(TypeRef(elem_t).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                    el.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView itl{el};
-                    uint64_t ii = 0;
-                    itl.each_elem([&](lir_view::ExprRef iel) {
-                        if (ii >= TypeRef(TypeRef(elem_t).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (TypeRef(TypeRef(elem_t).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_t).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                    error(std::format("field index write '{}.{}[i]': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                          recv_name, field_name, i, ii, *v, type_str(TypeRef(TypeRef(elem_t).tuple_elems()[i]).tuple_elems()[ii])));
-                        ++ii;
-                    });
-                }
-                ++i;
-            });
-        }
-    }
-
-    track_write_move(val);
-    lir::SFieldIndexWrite sfiw;
-    sfiw.receiver = std::string(recv_name);
-    sfiw.field    = std::string(field_name);
-    sfiw.index    = std::move(idx);
-    sfiw.value    = std::move(val);
-    return make_stmt_emit(node_line_, std::move(sfiw));
 }
 
 void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,

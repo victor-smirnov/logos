@@ -1,1 +1,1 @@
-field index write 'b.ptr[i]' through raw pointer requires unsafe context
+write through raw pointer requires unsafe context

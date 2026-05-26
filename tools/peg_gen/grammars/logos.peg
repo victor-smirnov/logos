@@ -1646,7 +1646,6 @@
           / if_expr
           / match_stmt
 
-          / field_index_write_stmt
           / field_write_stmt
           / index_write_stmt
           / destructure_assign_stmt
@@ -2092,8 +2091,6 @@
     // (*ptr).field = val;  — field write through a dereferenced pointer
 
     // a.ptr[i] = val;  — field index write (pointer field)
-    field_index_write_stmt <- IDENT DOT IDENT LBRACKET expr RBRACKET ASSIGN expr SEMI
-                           => { CODE: FIELD_INDEX_WRITE, RECEIVER: $1, FIELD: $3, LHS: $5, VALUE: $8 }
 
     // *ptr = val;  — dereference write
     deref_write_stmt <- STAR unary_expr ASSIGN expr SEMI

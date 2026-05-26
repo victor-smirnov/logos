@@ -1,1 +1,1 @@
-chain field write through raw pointer requires unsafe context
+write through raw pointer requires unsafe context
