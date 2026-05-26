@@ -1682,6 +1682,13 @@
              => { CODE: FOR, NAME: $2, LHS: $4, RHS: $6, BODY: $7, INCLUSIVE: false }
               / KW_FOR IDENT KW_IN expr_ns             block
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
+              // Rust parity: `for PATTERN in iter` — a destructuring loop
+              // variable (`for (a, b) in v`). Ordered AFTER the bare-IDENT form
+              // so simple loops keep the NAME fast-path; a non-ident pattern
+              // (tuple/struct/…) falls through to here. PAT-keyed → sema binds
+              // the pattern against each element.
+              / KW_FOR pattern KW_IN expr_ns           block
+             => { CODE: FOR_EACH, PAT: $2, ITER: $4, BODY: $5 }
 
     loop_stmt     <- KW_LOOP block
                   => { CODE: LOOP, BODY: $2 }

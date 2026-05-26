@@ -1,0 +1,37 @@
+// Grammar-conformance G-CONF-1 (Logos↔Rust grammar sprint, 2026-05-25).
+// Rust allows `for PATTERN in iter`; Logos previously bound only a bare IDENT
+// loop variable (`for (a, b) in v` was a parse error). The for-each grammar
+// gained a pattern alternative (after the IDENT fast-path), and lower_for_each
+// binds a synthetic element var + destructures the pattern as a body prologue
+// across the array / slice / &Vec / iterator paths. Tuple patterns (by value,
+// by ref, nested) are supported; richer forms reject cleanly.
+package control_for_pattern;
+
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    // By-value array.
+    let arr: [(i64, i64); 2] = [(1i64, 2i64), (3i64, 4i64)];
+    let mut s: i64 = 0i64;
+    for (a, b) in arr { s = s + a + b; }
+    if s != 10i64 { return 1i32; }
+
+    // By-ref slice.
+    let mut t: i64 = 0i64;
+    for (a, b) in &arr { t = t + a * b; }
+    if t != 14i64 { return 2i32; }
+
+    // Nested tuple pattern.
+    let nested: [(i64, (i64, i64)); 1] = [(1i64, (2i64, 3i64))];
+    let mut u: i64 = 0i64;
+    for (a, (b, c)) in nested { u = a + b + c; }
+    if u != 6i64 { return 3i32; }
+
+    // By-value Vec (iterator / into_iter path).
+    let v: Vec<(i64, i64)> = vec![(5i64, 6i64)];
+    let mut w: i64 = 0i64;
+    for (a, b) in v { w = a + b; }
+    if w != 11i64 { return 4i32; }
+
+    return 0i32;
+}

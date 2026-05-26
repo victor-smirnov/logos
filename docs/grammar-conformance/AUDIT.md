@@ -42,7 +42,7 @@ Rust: `Statement -> ; | Item | LetStatement | ExpressionStatement | MacroInvocat
 
 | Construct | Logos | Status |
 |---|---|---|
-| `for PATTERN in iter { }` | `for_stmt` binds **`IDENT`** only — `for (a,b) in v` is a PARSE ERROR (verified) | ❌ GAP → **G-CONF-1** (first fix: loop var becomes a full pattern) |
+| `for PATTERN in iter { }` | was `IDENT`-only; **G-CONF-1 DONE** — for-each grammar gained a `pattern` alt (after the IDENT fast-path); `lower_for_each` binds a synth element var + destructures the pattern as a body prologue across all 4 paths (array/slice/&Vec/iterator). Tuple patterns by-value/by-ref/nested supported; richer forms reject cleanly. | ✅ (tuple); struct/tuple-struct pattern loop-vars are a follow-up |
 | `loop` / `while` / `while let` / labeled | present | ✅ (verify details later) |
 
 ### Match (`reference/src/expressions/match-expr.md`)

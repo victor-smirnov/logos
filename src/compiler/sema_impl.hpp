@@ -3239,6 +3239,15 @@ private:
     // let-else (used when building a guard prologue, not the arm body).
     void emit_nested_pat_destructure(const std::vector<NestedPatSub>& nested_subs,
                                      std::vector<lir::LStmt>& out, bool for_guard);
+    // G-CONF-1: bind a `for PATTERN in iter` loop variable. `src_var` holds one
+    // element (type `src_type`); defines the pattern's bindings in the current
+    // scope and appends the destructure `let`s to `out`. Returns false (with a
+    // diagnostic) for a pattern shape not yet supported in for-position. A bare
+    // single binding is handled by the caller (NAME fast-path) and never reaches
+    // here.
+    bool emit_for_pattern_destructure(hermes::TinyMapView pat,
+                                      const std::string& src_var, TypeRef src_type,
+                                      std::vector<lir::LStmt>& out);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
     // The LIR-level check skips guarded arms, so a desugared nested match
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This

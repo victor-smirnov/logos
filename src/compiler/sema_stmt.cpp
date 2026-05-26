@@ -5261,7 +5261,44 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
+    // G-CONF-1: `for PATTERN in iter`. A bare-ident loop var arrives as NAME
+    // (fast path); a destructuring pattern (`for (a,b) in v`) arrives as PAT.
+    // Bind a synthetic element var and destructure the pattern from it as a
+    // body prologue (see emit_for_pattern_destructure + the per-path wiring).
+    bool for_has_pat = false;
+    hermes::TinyMapView for_pat{};
+    std::string var_name;
+    if (node.has_key(la::PAT)) {
+        for_pat = map_of(node.get(la::PAT.code));
+        auto p = for_pat;
+        if (code_of(p) == la::PAT_OR && p.has_key(la::ITEMS)) {
+            auto alts = arr_of(p.get(la::ITEMS.code));
+            if (alts.size() == 1) p = map_of(alts.get(0));
+        }
+        if (code_of(p) == la::PAT_WILD && p.has_key(la::NAME)) {
+            var_name = std::string(str_of(p.get(la::NAME.code)));  // bare binding
+        } else {
+            for_has_pat = true;
+            var_name = std::format("__fe_pat_{}", tmp_var_count_++);
+        }
+    } else {
+        var_name = std::string(str_of(node.get(la::NAME.code)));
+    }
+    // Two-phase: `build_for_pat(bind_t)` runs BEFORE lower_block — it defines the
+    // pattern's bindings in the just-pushed loop scope (so the body sees them)
+    // and returns the destructure `let`s; `prepend_for_pat` runs AFTER, prepending
+    // them to the lowered body. `bind_t` is the element's binding type (value/&T).
+    auto build_for_pat = [&](TypeRef bind_t) -> std::vector<lir::LStmt> {
+        std::vector<lir::LStmt> pro;
+        if (for_has_pat) emit_for_pattern_destructure(for_pat, var_name, bind_t, pro);
+        return pro;
+    };
+    auto prepend_for_pat = [&](lir::LBlockPtr& body, std::vector<lir::LStmt>& pro) {
+        if (pro.empty()) return;
+        pro.insert(pro.end(), std::make_move_iterator(body->stmts.begin()),
+                   std::make_move_iterator(body->stmts.end()));
+        body->stmts = std::move(pro);
+    };
 
     // G161-2: `for x in &mut arr` — a bare `&mut <array-var>` lowers to a thin
     // `&mut elem` (stdlib-compat, see ADDR_OF_MUT), which isn't iterable. For
@@ -5302,6 +5339,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         push_scope();
         define(var_name, elem_type, false);
+        auto pat_pro = build_for_pat(elem_type);
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
@@ -5311,6 +5349,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
+        prepend_for_pat(body, pat_pro);
         pop_scope();
 
         lir::SForEach sfe;
@@ -5332,6 +5371,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         // `elem_type` still flows to sfe.elem_type for the GEP stride.
         // G161-2: `for x in &mut arr` yields `&mut T` (mutable element ref).
         define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref);
+        auto pat_pro = build_for_pat(make_ref(for_mut_ref, elem_type));
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
@@ -5341,6 +5381,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
+        prepend_for_pat(body, pat_pro);
         pop_scope();
         lir::SForEach sfe;
         sfe.var       = std::string(var_name);
@@ -5382,6 +5423,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
             push_scope();
             define(var_name, make_ref(false, elem_t), false);  // yields &T
+            auto pat_pro = build_for_pat(make_ref(false, elem_t));
             auto body = lir::alloc_block(*cur_prog_);
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
@@ -5391,6 +5433,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
                 loop_break_frames_.pop_back();
                 --loop_depth_;
             }
+            prepend_for_pat(body, pat_pro);
             pop_scope();
             lir::SForEach sfe;
             sfe.var       = std::string(var_name);
@@ -5667,6 +5710,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         push_scope();
         define(iter_var, iter_type, true);
         define(std::string(var_name), elem_type, false);
+        auto pat_pro = build_for_pat(elem_type);
         auto then_body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
@@ -5676,6 +5720,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
+        prepend_for_pat(then_body, pat_pro);
         pop_scope();
 
         // Else arm: _ → break
@@ -7561,6 +7606,72 @@ void SemaChecker::emit_nested_pat_destructure(
             nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
     }
+}
+
+bool SemaChecker::emit_for_pattern_destructure(
+        hermes::TinyMapView pat, const std::string& src_var, TypeRef src_type,
+        std::vector<lir::LStmt>& out) {
+    // Unwrap the grammar's single-alt PAT_OR wrapper.
+    if (code_of(pat) == la::PAT_OR && pat.has_key(la::ITEMS)) {
+        auto alts = arr_of(pat.get(la::ITEMS.code));
+        if (alts.size() == 1) pat = map_of(alts.get(0));
+    }
+    // For a by-ref element (`for (a,b) in &v`), deref to a value temp and
+    // destructure from it (default-binding-mode by-ref is a follow-up).
+    TypeRef vt = src_type;
+    std::string base_var = src_var;
+    if (vt && (TypeRef(vt).kind() == LogosType::Kind::Ref ||
+               TypeRef(vt).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(vt).pointee()) {
+        TypeRef pe = TypeRef(vt).pointee();
+        std::string tmp = std::format("__fe_deref_{}", tmp_var_count_++);
+        define(tmp, pe);
+        lir::SLet s; s.name = tmp; s.type = pe; s.is_mut = false;
+        s.value = builder().deref(builder().var_ref(src_var, vt), pe);
+        out.push_back(make_stmt_emit(node_line_, std::move(s)));
+        base_var = tmp; vt = pe;
+    }
+    if (code_of(pat) != la::PAT_TUPLE || !vt ||
+        TypeRef(vt).kind() != LogosType::Kind::Tuple) {
+        error("for-loop pattern: only tuple patterns `for (a, b) in …` are "
+              "supported here; bind a name and destructure in the body");
+        return false;
+    }
+    if (!pat.has_key(la::ITEMS)) return true;
+    auto items = arr_of(pat.get(la::ITEMS.code));
+    auto elems = TypeRef(vt).tuple_elems();
+    for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
+        auto en = map_of(items.get(i));
+        TypeRef et = elems[i];
+        if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
+            auto alts = arr_of(en.get(la::ITEMS.code));
+            if (alts.size() == 1) en = map_of(alts.get(0));
+        }
+        auto elem_expr = builder().tuple_index(
+            builder().var_ref(base_var, vt), (uint32_t)i, et);
+        int32_t ec = code_of(en);
+        if (ec == la::PAT_TUPLE) {
+            // Nested tuple: spill this element to a temp + recurse.
+            std::string tmp = std::format("__fe_tup_{}", tmp_var_count_++);
+            define(tmp, et);
+            lir::SLet s; s.name = tmp; s.type = et; s.is_mut = false;
+            s.value = std::move(elem_expr);
+            out.push_back(make_stmt_emit(node_line_, std::move(s)));
+            if (!emit_for_pattern_destructure(en, tmp, et, out)) return false;
+        } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
+            std::string nm(str_of(en.get(la::NAME.code)));
+            if (nm == "_") continue;  // discard
+            define(nm, et);
+            lir::SLet s; s.name = nm; s.type = et; s.is_mut = false;
+            s.value = std::move(elem_expr);
+            out.push_back(make_stmt_emit(node_line_, std::move(s)));
+        } else {
+            error("for-loop tuple pattern: element must be a name or nested "
+                  "tuple; richer sub-patterns are a follow-up");
+            return false;
+        }
+    }
+    return true;
 }
 
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
