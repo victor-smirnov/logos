@@ -273,7 +273,6 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::FOR_EACH)     return lower_for_each(stmt);
     if (c == la::LOOP)         return lower_loop(stmt);
     if (c == la::FIELD_WRITE)        return lower_field_write(stmt);
-    if (c == la::CHAIN_FIELD_WRITE)  return lower_chain_field_write(stmt);
     if (c == la::TUPLE_FIELD_WRITE)  return lower_tuple_field_write(stmt);
     if (c == la::DEREF_FIELD_WRITE)  return lower_deref_field_write(stmt);
     if (c == la::PLACE_ASSIGN)       return lower_place_assign(stmt);
@@ -6217,121 +6216,6 @@ lir::LStmt SemaChecker::lower_field_write(TinyMapView node) {
     return make_stmt_emit(node_line_, std::move(sfw));
 }
 
-// a.mid.field = val  — chained 2-level field write
-lir::LStmt SemaChecker::lower_chain_field_write(TinyMapView node) {
-    auto recv_name = str_of(node.get(la::RECEIVER.code));
-    std::vector<std::string> path;
-    if (node.has_key(la::PATH)) {
-        auto path_map = map_of(node.get(la::PATH.code));
-        if (path_map.has_key(la::ITEMS)) {
-            auto arr = arr_of(path_map.get(la::ITEMS.code));
-            uint64_t n = arr.size();
-            path.reserve(n);
-            for (uint64_t i = 0; i < n; ++i)
-                path.emplace_back(str_of(arr.get(i)));
-        }
-    }
-    if (path.size() < 2) {
-        error("chain field write: path must have at least 2 segments");
-        return builder().stmt_expr(error_expr(), node_line_);
-    }
-    const std::string& mid_name   = path.front();
-    const std::string& field_name = path.back();
-
-    auto outer_sname = struct_name_of(recv_name);
-    if (outer_sname.empty()) {
-        // Metaprog discovery: silent <error> propagation when the receiver
-        // type is itself <error> (unresolved derive target). Post-dispatch
-        // sema surfaces a real error if needed.
-        auto rt = lookup(recv_name);
-        bool sname_via_error = false;
-        if (rt) {
-            TypeRef t = rt;
-            if (TypeRef(t).kind() == LogosType::Kind::Ptr ||
-                is_ref_like(TypeRef(t).kind())) t = TypeRef(t).pointee();
-            if (t && TypeRef(t).kind() == LogosType::Kind::Error)
-                sname_via_error = true;
-        }
-        if (!(metaprog_mode_ && sname_via_error))
-            error(std::format("chain field write: '{}' is not a struct", recv_name));
-        return builder().stmt_expr(error_expr(), node_line_);
-    }
-    auto recv_type = lookup(recv_name);
-    if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ref)
-        error(std::format("chain field write '{}': receiver is &T (shared reference)", recv_name));
-    // B97.3: `&mut self`-typed receivers carry mutability via the ref kind,
-    // not via `let mut`. Skip the binding-mutability check for them.
-    else if (recv_type && TypeRef(recv_type).kind() != LogosType::Kind::Ptr
-             && TypeRef(recv_type).kind() != LogosType::Kind::MutRef
-             && !lookup_is_mut(recv_name))
-        error(std::format("chain field write to immutable variable '{}'", recv_name));
-    if (recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr && !TypeRef(recv_type).mut_ptr())
-        error(std::format("chain field write '{}': receiver is *const pointer", recv_name));
-
-    if (!inside_unsafe_ && recv_type && TypeRef(recv_type).kind() == LogosType::Kind::Ptr)
-        error("chain field write through raw pointer requires unsafe context");
-
-    // Walk: cur_struct_t starts at receiver's struct type (after deref/ref).
-    TypeRef cur_struct_t = recv_type;
-    if (cur_struct_t && TypeRef(cur_struct_t).kind() == LogosType::Kind::Ptr)
-        cur_struct_t = TypeRef(cur_struct_t).pointee();
-    else if (cur_struct_t && is_ref_like(TypeRef(cur_struct_t).kind()))
-        cur_struct_t = TypeRef(cur_struct_t).pointee();
-
-    TypeRef ft;  // type of final field
-    bool failed = false;
-    for (size_t i = 0; i < path.size(); ++i) {
-        auto cur_sname = cur_struct_t ? concrete_struct_name(cur_struct_t) : std::string(i == 0 ? outer_sname : "");
-        TypeRef seg_t = cur_struct_t
-            ? field_type_of_for_type(cur_struct_t, path[i])
-            : (cur_sname.empty() ? nullptr : field_type_of(cur_sname, path[i]));
-        if (!seg_t) {
-            error(std::format("chain field write: struct '{}' has no field '{}'",
-                  cur_sname.empty() ? std::string(outer_sname) : cur_sname, path[i]));
-            failed = true;
-            break;
-        }
-        if (i + 1 == path.size()) {
-            ft = seg_t;
-            break;
-        }
-        // Descend: if seg_t is a pointer, follow pointee; require it be a struct.
-        TypeRef next_struct_t = seg_t;
-        if (TypeRef(next_struct_t).kind() == LogosType::Kind::Ptr)
-            next_struct_t = TypeRef(next_struct_t).pointee();
-        if (!next_struct_t || concrete_struct_name(next_struct_t).empty()) {
-            error(std::format("chain field write: '{}.{}' has no struct type",
-                  recv_name, path[i]));
-            failed = true;
-            break;
-        }
-        cur_struct_t = next_struct_t;
-    }
-    if (failed)
-        return builder().stmt_expr(error_expr(), node_line_);
-
-    lir::LExprPtr val = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
-        : error_expr();
-    if (TypeRef(ft).kind() != LogosType::Kind::Error
-        && TypeRef(val->type).kind() != LogosType::Kind::Error
-        && !types_compatible(val->type, ft)) {
-        std::string path_str(recv_name);
-        for (auto& seg : path) { path_str += '.'; path_str += seg; }
-        error(std::format("chain field write '{}': expected {}, got {}",
-              path_str, type_str(ft), type_str(val->type)));
-    }
-
-    track_write_move(val);
-    lir::SChainFieldWrite scfw;
-    scfw.receiver  = std::string(recv_name);
-    scfw.mid_field = mid_name;
-    scfw.extras.assign(path.begin() + 1, path.end() - 1);  // empty for depth-2
-    scfw.field     = field_name;
-    scfw.value     = std::move(val);
-    return make_stmt_emit(node_line_, std::move(scfw));
-}
-
 lir::LStmt SemaChecker::lower_tuple_field_write(TinyMapView node) {
     auto recv_name = str_of(node.get(la::RECEIVER.code));
     auto idx_sv    = str_of(node.get(la::INDEX.code));
@@ -6634,6 +6518,17 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
             return false;
         }
         if (k == LogosType::Kind::MutRef) return true;  // `&mut T` — writable
+        if (k == LogosType::Kind::Ptr) {  // raw-pointer root (auto-deref place)
+            if (!TypeRef(t).mut_ptr()) {
+                error(std::format("assignment through a `*const` pointer (variable '{}')", name));
+                return false;
+            }
+            if (!inside_unsafe_) {
+                error("chain field write through raw pointer requires unsafe context");
+                return false;
+            }
+            return true;  // `*mut` inside unsafe — writable (carries its own mutability)
+        }
         if (!lookup_is_mut(name)) {
             error(std::format("assignment to immutable variable '{}'", name));
             return false;

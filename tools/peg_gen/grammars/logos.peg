@@ -1649,7 +1649,6 @@
           / field_index_write_stmt
           / deref_field_write_stmt
           / tuple_field_write_stmt
-          / chain_field_write_stmt
           / field_write_stmt
           / index_write_stmt
           / destructure_assign_stmt
@@ -2093,17 +2092,6 @@
 
     field_write_stmt <- IDENT DOT IDENT ASSIGN expr SEMI
                      => { CODE: FIELD_WRITE, RECEIVER: $1, FIELD: $3, VALUE: $5 }
-
-    // `.field` segment used by chained field writes; default-action returns the IDENT string.
-    chain_path_id <- DOT IDENT
-
-    // Path of two or more `.field` segments, packaged as a sub-node {ITEMS: [str, ...]}.
-    chain_field_path <- chain_path_id chain_path_id chain_path_id*
-                     => { ITEMS: $... }
-
-    // a.b.c = val;  — chained field write (2+ levels deep, N-ary)
-    chain_field_write_stmt <- IDENT chain_field_path ASSIGN expr SEMI
-                           => { CODE: CHAIN_FIELD_WRITE, RECEIVER: $1, PATH: $2, VALUE: $4 }
 
     // (*ptr).field = val;  — field write through a dereferenced pointer
     deref_field_write_stmt <- LPAREN STAR IDENT RPAREN DOT IDENT ASSIGN expr SEMI
