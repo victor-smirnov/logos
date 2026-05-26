@@ -2175,10 +2175,21 @@
     // stay zero-overhead.
     expr <- range_expr
 
+    // Range expressions — full family (Rust parity), closed + half-open. Used as
+    // values and (chiefly) as slice indices `s[a..b]`, `s[a..]`, `s[..b]`, `s[..]`.
+    // Open-ended forms have a missing LHS/RHS key; sema fills the open side.
     range_expr <- log_expr DOTDOTEQ log_expr
                => { CODE: RANGE_EXPR, LHS: $1, RHS: $3, INCLUSIVE: true }
                 / log_expr DOTDOT   log_expr
                => { CODE: RANGE_EXPR, LHS: $1, RHS: $3 }
+                / log_expr DOTDOT
+               => { CODE: RANGE_EXPR, LHS: $1 }
+                / DOTDOTEQ log_expr
+               => { CODE: RANGE_EXPR, RHS: $2, INCLUSIVE: true }
+                / DOTDOT log_expr
+               => { CODE: RANGE_EXPR, RHS: $2 }
+                / DOTDOT
+               => { CODE: RANGE_EXPR }
                 / log_expr
 
     // ── No-struct-lit expression chain ──────────────────────────

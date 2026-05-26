@@ -44,6 +44,21 @@ pub fn slice_split_at<T>(s: &[T], mid: i64) -> SplitPair<T> {
     }
 }
 
+// Sub-slice `s[lo..hi]` (used by range-indexing desugar). Bounds are CLAMPED to
+// [0, len], so the open forms pass lo=0 / hi=i64::MAX and full pass both — the
+// clamp resolves them against the actual length. Inclusive `..=hi` passes hi+1.
+pub fn slice_get_range<T>(s: &[T], lo: i64, hi: i64) -> &[T] {
+    let n: i64 = s.len() as i64;
+    let l0: i64 = if lo < 0i64 { 0i64 } else { if lo > n { n } else { lo } };
+    let h0: i64 = if hi < 0i64 { 0i64 } else { if hi > n { n } else { hi } };
+    let cnt: i64 = if h0 > l0 { h0 - l0 } else { 0i64 };
+    unsafe {
+        let base: *const T = s.as_ptr() as *const T;
+        let start_p: *const T = (base as i64 + l0 * (sizeof::<T>() as i64)) as *const T;
+        return slice_from_raw::<T>(start_p, cnt);
+    }
+}
+
 // Compiler intrinsic — mirrors `str_from_raw` in lang/str/str.logos.
 // Constructs an `&[T]` fat pointer from raw ptr + element count.
 pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {

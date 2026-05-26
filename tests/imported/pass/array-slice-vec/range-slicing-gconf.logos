@@ -1,0 +1,40 @@
+// Grammar-conformance (Logos↔Rust sprint, 2026-05-25): range-based slicing.
+// Rust slices via range values — `s[a..b]`, `s[a..]`, `s[..b]`, `s[..]`,
+// `s[a..=b]`. Logos previously rejected (`index must be integer, got RangeI64`)
+// and open-ended forms didn't parse. Now: range_expr accepts the full family
+// (closed + half-open), and lower_index_read desugars a RANGE_EXPR index to
+// `slice_get_range(recv_as_slice, lo, hi)` — the stdlib helper clamps bounds, so
+// open ends pass 0 / i64::MAX and resolve against the length. Arrays decay to a
+// slice; `&[T]` slices are sliced directly.
+package av_range_slicing;
+
+use logos.lang.slice;
+
+fn sum(s: &[i64]) -> i64 {
+    let mut t: i64 = 0i64;
+    for x in s { t = t + *x; }
+    return t;
+}
+
+fn main() -> i32 {
+    let a: [i64; 5] = [10i64, 20i64, 30i64, 40i64, 50i64];
+
+    if sum(a[1i64..3i64]) != 50i64  { return 1i32; }   // [20,30]
+    if sum(a[2i64..])     != 120i64 { return 2i32; }   // [30,40,50]
+    if sum(a[..2i64])     != 30i64  { return 3i32; }   // [10,20]
+    if sum(a[..])         != 150i64 { return 4i32; }   // all
+    if sum(a[1i64..=3i64])!= 90i64  { return 5i32; }   // [20,30,40]
+
+    // slice-of-slice + element access + len
+    let s: &[i64] = a[..];
+    let mid: &[i64] = s[1i64..4i64];
+    if mid.len() != 3i64 { return 6i32; }
+    if mid[0i64] != 20i64 { return 7i32; }
+    if mid[2i64] != 40i64 { return 8i32; }
+
+    // empty / clamped
+    if sum(a[3i64..3i64]) != 0i64 { return 9i32; }     // empty
+    if sum(a[2i64..100i64]) != 120i64 { return 10i32; } // hi clamped to len
+
+    return 0i32;
+}

@@ -8772,6 +8772,70 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     auto arr_type = recv->type;
 
+    // Range index `recv[lo..hi]` / `recv[lo..]` / `recv[..hi]` / `recv[..]` →
+    // sub-slice via `slice_get_range` (Rust-parity slicing). Detect the
+    // RANGE_EXPR index AST before lowering it as a scalar index.
+    if (node.has_key(la::VALUE)) {
+        auto idx_node = map_of(node.get(la::VALUE.code));
+        if (code_of(idx_node) == la::RANGE_EXPR) {
+            // Coerce receiver to `&[T]`: arrays decay to a slice; a `&[T]` /
+            // str is used directly. (Vec → `.as_slice()` is a follow-up.)
+            TypeRef elem = nullptr;
+            auto rk = TypeRef(arr_type).kind();
+            if (rk == LogosType::Kind::Slice) {
+                elem = TypeRef(arr_type).elem();
+            } else if (rk == LogosType::Kind::Array) {
+                elem = TypeRef(arr_type).elem();
+                // Array value → `&[T;N]` (addr-of) → `&[T]` (slice decay).
+                recv = builder().addr_of_temp(std::move(recv), /*is_mut=*/false,
+                                              make_ref(false, arr_type));
+                try_coerce_array_ref_to_slice(recv, make_slice_type(elem ? elem : i32_t()));
+            } else if ((rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef) &&
+                       TypeRef(arr_type).pointee() &&
+                       TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Slice) {
+                elem = TypeRef(TypeRef(arr_type).pointee()).elem();
+            }
+            if (!elem || TypeRef(elem).kind() == LogosType::Kind::Error) {
+                error(std::format("range index `[..]` requires a slice or array "
+                      "receiver, got {}", type_str(arr_type)));
+                return error_expr();
+            }
+            TypeRef i64t = prim(LogosType::Kind::I64);
+            lir::LExprPtr lo = idx_node.has_key(la::LHS)
+                ? lower_expr(map_of(idx_node.get(la::LHS.code))) : builder().lit_int(0, i64t);
+            widen_int_expr(lo, i64t, builder());
+            lir::LExprPtr hi;
+            if (idx_node.has_key(la::RHS)) {
+                hi = lower_expr(map_of(idx_node.get(la::RHS.code)));
+                widen_int_expr(hi, i64t, builder());
+                bool inclusive = idx_node.has_key(la::INCLUSIVE) &&
+                    !idx_node.get(la::INCLUSIVE.code).is_null() &&
+                    idx_node.get(la::INCLUSIVE.code).as_value<uint8_t>() != 0;
+                if (inclusive)  // ..=hi → hi+1 (clamped by slice_get_range)
+                    hi = builder().bin_op("+", std::move(hi), builder().lit_int(1, i64t), i64t);
+            } else {
+                hi = builder().lit_int(INT64_MAX, i64t);  // open end → clamp to len
+            }
+            auto cands = find_func_candidates("slice_get_range");
+            const SemaFuncInfo* sgr = cands.empty() ? nullptr : cands[0];
+            if (!sgr) {
+                error("range index: stdlib `slice_get_range` not in scope "
+                      "(missing `use logos.lang.slice`)");
+                return error_expr();
+            }
+            TypeRef ret_t = make_slice_type(elem);
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(recv));
+            args.push_back(std::move(lo));
+            args.push_back(std::move(hi));
+            std::string sym = sgr->symbol_name.empty() ? std::string("slice_get_range")
+                                                       : sgr->symbol_name;
+            if (!sgr->type_params.empty())
+                return finish_generic_call(sym, *sgr, {elem}, std::move(args));
+            return builder().call(sym, {}, std::move(args), ret_t);
+        }
+    }
+
     lir::LExprPtr idx = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();

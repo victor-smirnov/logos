@@ -196,7 +196,16 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    subsume every case (IndexMut, deep-nest, compound, diagnostics), THEN retire
    the specialized productions+lowerings one at a time, each gated. High payoff,
    genuinely high risk — sequence deliberately, not as a quick win.
-2. **❌ Range value expressions** `a..b` etc. (medium; needs Range types + grammar).
+2. **Range expressions / slicing** — ✅ **DONE (slicing + half-open parse)**.
+   Closed range VALUES (`let r = 0..10`) already worked (RangeI32/I64, with `use
+   logos.lang.range`). Added: (a) the full range_expr family incl. half-open
+   `a..`/`..b`/`..=b`/`..` (open side = missing LHS/RHS key); (b) **range-based
+   slicing** `s[a..b]`/`s[a..]`/`s[..b]`/`s[..]`/`s[a..=b]` → sub-slice via a new
+   `slice_get_range<T>(&[T], lo, hi) -> &[T]` stdlib helper (clamps bounds, so
+   open ends pass 0 / i64::MAX). lower_index_read intercepts a RANGE_EXPR index;
+   arrays decay to a slice (addr-of + array→slice coercion), `&[T]` sliced
+   directly. FOLLOW-UPS: standalone open-ended range VALUES (`let r = 0..` —
+   needs RangeFrom/To/Full structs), Vec/str range-slicing, `&a[..]` ergonomics.
 3. **❌ Default type parameters** `<T = Type>` (small-medium).
 4. **❌ Let-chains** `if a && let P = e` / `while …` / match-guard chains.
    **Assessed 2026-05-25:** more involved than "clean no-mono". `&&`/`||` live at
