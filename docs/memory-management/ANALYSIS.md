@@ -271,6 +271,21 @@ Touch-points (file:line, from scoping audit):
 8. **Pass/return**: params already pass enums as ptr (`mlir_gen_fn.cpp:85-97`) — align
    to the Struct path (pass-by-ptr, return-by-value-via-load).
 
+**THE ATOMICITY CRUX (confirmed by code study 2026-05-26):** the heap allocation is
+not incidental — it exists *specifically so the enum pointer can escape*. Two escapes
+the heap leak silently masks:
+- **Nested enums** (`Some(Some(x))`): the inner enum is stored into the outer's payload
+  blob **as a pointer** (`mlir_gen_expr.cpp:402-501` comment: "stored into another
+  enum's payload slot as a pointer"). Return-by-value copies the outer `{tag,payload}`
+  struct *including that inner ptr* → with stack storage the inner would dangle.
+- Therefore **construction→alloca ALONE is unsafe** (no safe incremental slice). The
+  load-bearing change is making the **payload blob embed nested enums INLINE** (the
+  union size must recursively account for nested-enum full `{tag,payload}` footprint,
+  `register_tagged_enum` payload_bytes at `mlir_gen_types.cpp:388-422`), and
+  construction/match/drop must memcpy/GEP the inner enum inline (not store/load a ptr).
+  Recursion terminates because by-value self-reference is already rejected
+  (`check_recursive_value_types`). This recursive inline-payload layout is the hard
+  core; everything else (alloca, one-level `&`, delete heap-promotion) follows from it.
 **Hard / risky:** the ~15 value/ptr reconciliation sites (`val.getType()!=ptr_type()`
 spill checks at gen_let 740, gen_match 2744, EAddrOfTemp 1520, EIf 2985/2999,
 gen_assign 1046, call results 1769/1976/2217, …) must ALL agree on the new
