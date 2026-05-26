@@ -1,0 +1,21 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-41744.rs
+// Modifications: the trait gained a method so the test observes dispatch (the
+// original `trait Tc {}` only checked construction); `&[&dyn Tc] = &[&true]`
+// kept; `pub fn main()`→`fn main()->i32` with a return-code check. Works as-is
+// (B166 heterogeneous &dyn-array machinery) — a regression guard for a slice of
+// `&dyn Trait` built from a `&primitive` (a `&bool`), with method dispatch.
+package dyn_slice_of_dyn_primitive;
+
+trait Tc { fn id(&self) -> i64; }
+
+impl Tc for bool {
+    fn id(&self) -> i64 { if *self { return 1i64; } return 0i64; }
+}
+
+fn main() -> i32 {
+    let t: bool = true;
+    let arr: &[&dyn Tc] = &[&t];
+    if arr[0i64].id() != 1i64 { return 1i32; }
+    return 0i32;
+}

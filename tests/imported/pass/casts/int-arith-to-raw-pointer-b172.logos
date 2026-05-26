@@ -1,0 +1,19 @@
+// Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
+// Original path: tests/ui/issues/issue-43291.rs
+// Modifications: `*const ()`→`*const u8` (Logos has no unit-pointer); `usize`→
+// the pointer compare is between two `*const u8`; `assert_eq!`→return-code check;
+// `pub fn main()`→`fn main()->i32`. Works as-is — a regression guard for casting
+// a (negative) integer arithmetic result to a raw pointer (`(a - b) as *const`),
+// where `0i8 - 1i8` sign-extends to the all-ones pointer.
+package casts_int_arith_rawptr;
+
+fn foo(a: i8, b: i8) -> *const u8 {
+    return (a - b) as *const u8;
+}
+
+fn main() -> i32 {
+    let p: *const u8 = foo(0i8, 1i8);
+    let q: *const u8 = (0i8 - 1i8) as *const u8;
+    if p != q { return 1i32; }
+    return 0i32;
+}
