@@ -383,19 +383,13 @@ pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     return false;
 }
 
-pub unsafe fn vec_free<T>(v: *mut Vec<T>) {
-    if v.ptr == 0 as *mut T { return; }
-    dealloc(v.ptr as *mut u8);
-    v.ptr = 0 as *mut T;
-    v.len = 0;
-    v.cap = 0;
-}
-
-// Auto-Drop. On scope exit:
+// Auto-Drop (Rust parity). On scope exit:
 //   • each live element [0 .. len) is moved out and dropped (firing T's
 //     Drop if it has one; no-op for POD/Copy T);
 //   • the heap storage is freed.
-// Manual `vec_free` callers are unaffected — auto-drop checks ptr != null.
+// No manual free — like Rust, a Vec just drops. (`VecIter`/`into_iter` transfer
+// buffer ownership by nulling `ptr`, which the null-guard below honors; it was
+// also the shallow `vec_free`'s job, now gone — Drop frees elements too.)
 impl<T> Drop for Vec<T> {
     fn drop(self: Vec<T>) {
         unsafe {

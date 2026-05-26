@@ -63,7 +63,6 @@ fn main() -> i32 {
         if !vec_contains::<i32>(&v as *const Vec<i32>, &4) { return 23; }
         if vec_contains::<i32>(&v as *const Vec<i32>, &3) { return 24; }  // was removed
 
-        vec_free::<i32>(&mut v);
     }
     return 42;
 }
