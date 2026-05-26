@@ -211,6 +211,25 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    IndexMut, retire the 6 productions/lowerings, update the few write fail-test
    `.expected` to the unified named wording. Dedicated careful pass (central op);
    gate-driven iterate as step 1 did. NOT rushed at a session tail.
+   **STEP 2 RE-ASSESSED 2026-05-26 (committed to it, did the deep analysis):
+   the write family is NOT gratuitous duplication like compound was — each shape
+   encodes genuinely-DIFFERENT validation/handling:** `deref_field_write` has
+   ~8 pointer-specific diagnostics (`*mut`/`*const`/`&`/`&mut`, unsafe-ctx,
+   non-struct pointee); `field_index_write` rejects `*const`-field writes
+   (`b.data[0]=v`); `field_write` has the DataRef `mut_ptr` desugar; `index_write`
+   has IndexMut + slice; `tuple_field_write` distinguishes tuple-STRUCT (`t.0` →
+   field `"0"`) from a real tuple — and `gen_lvalue_addr`'s TupleIndex uses
+   `tuple_llvm_type`, which FAILS for a tuple-struct, so routing it through
+   place_assign would BREAK. A naive merge would RELOCATE all this into one giant
+   function (+ heavy `.expected` churn + high regression risk on the central op),
+   not REMOVE variant complexity — the opposite of the goal. **Verdict: true
+   write unification needs a proper uniform place/lvalue SUBSYSTEM (uniform
+   place-mutability + place-typing + autoref + IndexMut + tuple-struct), which is
+   a real architectural project — the per-shape writers are the current
+   functional stand-in for what Rust's borrow/place system does uniformly.**
+   The compound collapse (step 1) was the genuinely-collapsible over-enumeration;
+   the writes are deferred to that future place-subsystem project (or a narrow
+   chain/tuple-only collapse with low payoff). Not a naive merge.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
