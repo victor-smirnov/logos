@@ -295,3 +295,44 @@ G152-9/G160-8 bug class). Nested enum-in-payload inline offsets are the most
 error-prone. **This is an all-at-once flip, full-suite (L4) gated; do as a focused
 session, disasm-verify a minimal `Option<i64>` round-trip first.** Recommended
 framing: make enum a variant of the Struct repr and DELETE the special-casing.
+
+**ATTEMPT 1 (2026-05-26) — step A (inline nested payload) tried in isolation, REVERTED.**
+Implemented the recursive inline-payload layout (the "hard core" above) + adapted the
+by-ref nested bindings (two-level `&Enum` ref made correct: alloca-holds-`fp`, bound
+bare so `gen_expr` returns the slot, matching both intra-fn match AND cross-fn `&Enum`
+params) + the `?` Ok-payload inline extraction. Got 4 of 5 regressions green
+(nested-by-ref, match-mut-ref-writeback, question-nested-result-opt, stdlib_option_result_eq).
+The 5th (`json_parse`) exposed the **deeper, decisive wall**:
+
+- **Step A is NOT a safe incremental slice — it breaks MOVE/DROP soundness.** Once a
+  nested enum is inline, "moving" it out of a scrutinee (match-extract or `?`) yields an
+  **alias into the parent's storage** (`fp`), not a pointer transfer. The parent (e.g. a
+  `match parse()` temporary `Result<Json,E>`) still owns that storage, so BOTH the
+  extracted binding and the parent's drop-glue free the same heap contents → double-free
+  (`Vec<JsonField>__drop` → `String__drop` → double `free`). The pre-inline heap model is
+  internally CONSISTENT (enum = heap ptr everywhere, moved by ptr-transfer, move-tracking
+  suppresses the source); inlining SOME enums while the rest of the model stores enums
+  **by-pointer** breaks that consistency.
+- **The by-pointer storage is pervasive and is the real blocker (Category C):** enum-typed
+  struct fields (`register_struct` else-branch → `logos_to_mlir(Enum)=ptr`, NOT inline-
+  embedded like nested struct fields), tuple elements (`tuple_llvm_type`), and **Vec /
+  generic-container elements (pointer-element convention, `mlir_gen_expr.cpp:2426`
+  "Slices/Vec use a pointer element convention")**. Value-repr requires converting ALL of
+  these to inline — and the Vec/HashMap element model (size + memcpy vs store-ptr) is a
+  large, separate feature touching stdlib-generic codegen. **THIS is the wall the
+  representation flip is gated on.**
+
+**Revised conclusion:** the enum value-repr flip is genuinely all-or-nothing AND is
+itself gated on first converting the generic-container element model away from the
+pointer-element convention (so `Vec<Enum>`/`Vec<Struct>` store inline + memcpy). There is
+no sound partial enum-only slice. Sequencing for the next attempt:
+  1. **Container element model first**: make `Vec`/array/HashMap store aggregates (struct
+     AND enum) INLINE by element size with memcpy push/pop/index (today struct elements are
+     inline in *arrays* but Vec uses ptr-elements — unify on inline). This also makes
+     `Vec<Struct>` a true value container (removes its reliance on heap-stable struct ptrs).
+  2. Inline enums in struct fields + tuple elements (Category C).
+  3. Then the enum representation flip (construction→alloca, one-level `&`, inline
+     payload, memcpy stores, delete heap-promotion) lands cleanly because every storage
+     site is already inline + move = memcpy + parent-drop-skips-moved works uniformly
+     (exactly as it already does for inline structs).
+The attempt-1 mlir-gen diffs were reverted to the green baseline (commit 2ffa009a).
