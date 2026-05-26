@@ -347,10 +347,25 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    find why the generic case corrupts (likely a mono type-substitution / stride issue in the SDerefWrite
    or address that only shows post-mono). After two expensive attempts, STOPPED here (draw-the-boundary)
    with 3 writers cleanly retired. gen_field_index_write WORKS today — nothing is broken.
-   **Lesson (reinforced):** gate every writer-retirement on the FULL suite; aggregate + generic +
-   pointer-field interactions hide in read/`&`-ref paths the write-side tests never exercise. And
-   ISOLATE concrete-vs-generic early — it instantly tells you whether a gap is fundamental or a
-   mono/substitution bug in your own change.
+   **✅ RESOLVED + RETIRED 2026-05-26 (81a32939), 5230/5230. THE FIX WAS ZERO CODEGEN CHANGES.**
+   Bird's-eye root cause: in (mono'd) generic code an aggregate element through a `*mut T` field is
+   handled by the GENERIC ABI — by-pointer, `logos_to_mlir` stride (8 for a tuple, since
+   logos_to_mlir(Tuple)==ptr_type), plain 8-byte store — CONSISTENTLY in both write and read.
+   Disasm of clean-HEAD `gen_field_index_write` confirms: `mov %rdx,(%rax,%rcx,8)` (stride 8, store
+   the by-pointer value), and the read side matches. The general place path's EXISTING
+   EAddrOfTemp-legacy-handler (`elem_type = logos_to_mlir(inner_t)`) + SDerefWrite (plain store)
+   already produce exactly this. BOTH earlier attempts imposed the CONCRETE by-value layout
+   (place_slot_type stride 16 + KIND==Tuple memcpy) — correct in isolation but INCONSISTENT with the
+   read side → corruption. **The bug was the "fixes", not a gap.** Minimal retirement = grammar+sema
+   removal + sema-only writability (resolve_place_type + pointer-boundary in check_place_writable +
+   lower_place_assign pointer-index diagnostic); NO mlir-gen edits. Regression test
+   field_index_write_generic_tuple. **PRINCIPLE (the big lesson): CONSISTENCY over isolated
+   correctness — the place path must reuse the SAME representation conventions (logos_to_mlir strides,
+   generic-ABI by-pointer storage) the read path + dedicated writers already use; never "fix" a stride
+   to the concrete layout in isolation.**
+   **Lesson (reinforced):** gate every writer-retirement on the FULL suite; ISOLATE concrete-vs-generic
+   early (it tells you fundamental-gap vs your-own-bug); and prefer ZERO codegen changes — if the
+   dedicated writer and the read path agree on a convention, the general path already inherits it.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
