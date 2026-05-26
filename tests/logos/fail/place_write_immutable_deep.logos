@@ -1,0 +1,10 @@
+package place_write_immutable_deep;
+// Place subsystem (flagship): the general place-write path (deep-nested
+// `a[i][j] = v`) previously did NO mutability check — a write through an
+// IMMUTABLE place was silently accepted (soundness gap). The uniform
+// check_place_writable now rejects it, matching the per-shape writers.
+fn main() -> i32 {
+    let a: [[i64; 2]; 2] = [[1i64, 2i64], [3i64, 4i64]];
+    a[0i64][1i64] = 99i64;   // `a` is immutable — must error
+    return 0i32;
+}

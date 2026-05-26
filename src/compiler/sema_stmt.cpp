@@ -6613,6 +6613,56 @@ bool SemaChecker::place_write_supported(TinyMapView place) {
     return false;
 }
 
+// ── Uniform place subsystem (foundation) ────────────────────────────────────
+// check_place_writable: walk a place to its root and reject a write through an
+// immutable variable or a `*const` / shared-`&` dereference. Conservative — only
+// rejects definitive cases (best-effort for complex deref operands), so it never
+// false-rejects a valid write; the per-shape writers' stricter checks remain
+// authoritative for the shapes they still own. Closes the latent soundness gap
+// where the general place-write path (deep-nested `a[i][j] = v`) did NO mut-check.
+// Returns true if writable; emits a diagnostic + returns false otherwise.
+bool SemaChecker::check_place_writable(TinyMapView place) {
+    place = unwrap_paren_node(place);
+    int32_t c = code_of(place);
+    if (c == la::VAR_REF) {
+        auto name = std::string(str_of(place.get(la::NAME.code)));
+        auto t = lookup(name);
+        if (!t) return true;  // undefined var — surfaced elsewhere
+        auto k = TypeRef(t).kind();
+        if (k == LogosType::Kind::Ref) {  // `&T` shared ref — not writable
+            error(std::format("assignment through a shared reference (variable '{}' is `&`)", name));
+            return false;
+        }
+        if (k == LogosType::Kind::MutRef) return true;  // `&mut T` — writable
+        if (!lookup_is_mut(name)) {
+            error(std::format("assignment to immutable variable '{}'", name));
+            return false;
+        }
+        return true;
+    }
+    if (c == la::DEREF) {
+        auto op = map_of(place.get(la::VALUE.code));
+        if (code_of(op) == la::VAR_REF) {  // best-effort: `*p` over a known ptr/ref
+            auto t = lookup(std::string(str_of(op.get(la::NAME.code))));
+            if (t) {
+                auto k = TypeRef(t).kind();
+                if (k == LogosType::Kind::Ptr && !TypeRef(t).mut_ptr()) {
+                    error("assignment through a `*const` pointer (need `*mut`)");
+                    return false;
+                }
+                if (k == LogosType::Kind::Ref) {
+                    error("assignment through a shared reference `&` (need `&mut`)");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    if (c == la::FIELD_READ || c == la::TUPLE_INDEX || c == la::INDEX_READ)
+        return check_place_writable(map_of(place.get(la::RECEIVER.code)));
+    return true;
+}
+
 lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     auto place_node = map_of(node.get(la::RECEIVER.code));
     int32_t pc = code_of(place_node);
@@ -6634,6 +6684,9 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
         lir::SExprStmt es; es.expr = error_expr();
         return make_stmt_emit(node_line_, std::move(es));
     }
+    // Uniform place-subsystem writability check (closes the soundness gap where
+    // a deep-nested write through an immutable place / `*const` was accepted).
+    check_place_writable(place_node);
     auto place = lower_expr(place_node);
     TypeRef pt = place->type;
     // Propagate the place's type as an enum/struct RHS hint so a bare
@@ -6656,8 +6709,16 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
         val && TypeRef(val->type).kind() != LogosType::Kind::Error &&
         !types_compatible(val->type, pt))
-        error(std::format("assignment to place: expected {}, got {}",
-              type_str(pt), type_str(val->type)));
+        error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
+              render_place_node(place_node), type_str(pt), type_str(val->type)));
+    // Overflow: an int literal RHS must fit the place's integer type (closes the
+    // gap where the general place-write path skipped the fit-check).
+    if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
+        val && TypeRef(val->type).kind() == LogosType::Kind::IntLit)
+        if (auto v = get_intlit_value(val))
+            if (!intlit_fits(*v, TypeRef(pt).kind()))
+                error(std::format("assignment to '{}': value {} does not fit in {}",
+                      render_place_node(place_node), *v, type_str(pt)));
     widen_int_expr(val, pt, builder());
 
     // Address of the place: `&mut <place>`. EAddrOfTemp recognises the place

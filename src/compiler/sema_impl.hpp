@@ -3304,6 +3304,7 @@ private:
     lir::LStmt lower_index_write(hermes::TinyMapView node);
     lir::LStmt lower_place_assign(hermes::TinyMapView node);
     bool place_write_supported(hermes::TinyMapView place);
+    bool check_place_writable(hermes::TinyMapView place);
     bool place_recv_is_simple(hermes::TinyMapView recv);
     bool place_field_base_ok(hermes::TinyMapView recv);
     hermes::TinyMapView unwrap_paren_node(hermes::TinyMapView n);
