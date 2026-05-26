@@ -748,13 +748,15 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         for (auto& f : info.fields) {
             if (f.name == field) {
                 if (!f.struct_name.empty()) {
-                    // Check if field is inline-embedded struct (LLVMStructType) or pointer.
-                    if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type)) {
-                        // Inline embed: GEP already points to the field
-                        // in-place — return it directly so &mut self methods
-                        // mutate the original, not a copy.
+                    // Inline-embedded struct (LLVMStructType) OR a scalar-
+                    // represented named type (e.g. AnyVal lowered as i32, RelPtr
+                    // as a bare offset): the field lives IN-PLACE, so the GEP is
+                    // already its address — return it directly so a chain access
+                    // GEPs into the same slot (and &mut self methods mutate the
+                    // original, not a copy). Only a genuine POINTER field is a
+                    // separate object that must be loaded to descend.
+                    if (!mlir::isa<mlir::LLVM::LLVMPointerType>(f.type))
                         return {gep, f.struct_name};
-                    }
                     // Pointer field: load the pointer.
                     auto obj_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                        loc_, ptr_type(), gep);
