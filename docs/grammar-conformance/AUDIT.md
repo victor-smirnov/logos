@@ -366,6 +366,36 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
    **Lesson (reinforced):** gate every writer-retirement on the FULL suite; ISOLATE concrete-vs-generic
    early (it tells you fundamental-gap vs your-own-bug); and prefer ZERO codegen changes — if the
    dedicated writer and the read path agree on a convention, the general path already inherits it.
+
+   **⛔ index_write (`a[i]=v`) — ATTEMPTED + REVERTED 2026-05-26 (got 123→11 fails, then reverted).**
+   THE HARDEST writer: `a[i]=v` has the largest RECEIVER matrix and the place path's TWO address
+   resolvers (gen_lvalue_addr, tried first; + the legacy EAddrOfTemp IndexRead handler,
+   mlir_gen_expr.cpp ~1285) don't jointly cover it, whereas the dedicated gen_index_write did.
+   Approach (Rust-conformant — `a[i]=v` IS place-assign + IndexMut desugar): a `try_index_mut_assign`
+   helper (relocated IndexMut dispatch: `*index_mut(&mut a,i)=v`, both concrete + generic-struct
+   forms) called at the top of lower_place_assign; remove index_write_stmt + lower_index_write; sema
+   writability via resolve_place_type (Slice allowed — slice mut not type-tracked; `*mut`/`&mut`
+   pointer-boundary). RECEIVER cases + status when reverted:
+   - array `a[i]` ✅ (gen_lvalue_addr Array); Vec `v[i]` ✅ (IndexMut generic); bare `*mut T` PARAM
+     (quicksort `arr:*mut i32`) ✅ FIXED by extending the legacy handler VarRef branch to a non-struct
+     Ptr pointee (base=scope ptr value, elem=logos_to_mlir(inner_t)); `&mut [T;N]` MutRef-to-array ✅
+     FIXED (legacy handler MutRef/Ref branch).
+   - STILL BROKEN (the 11): **slice `&mut [T]` param** `a[i]=v` (slice-rev-swap-b162) — writes go to
+     a STACK TEMP (disasm: store to `-0x10(rsp)`), i.e. BOTH resolvers return null for the slice write
+     (legacy var_slice_ branch added but didn't fire — needs tracing: is the slice param in var_slice_
+     at that point? gen_lvalue_addr's own Slice branch (line 1112) may preempt with a null base from
+     get_subscript_ptr). **closure/dyn Box** (box-dyn-fnmut, boxed-cl-call, dyn-box-fn-call, the b167
+     factory tests) SIGSEGV — `box_new<T>`'s generic `p[0]=val` (boxed.logos:17); box_new disasm
+     looked plausible (`mov %rdi,(%rax)`), so the crash may be the dyn-fat-pointer/vtable build or
+     call path, not box_new — needs isolation. + 4 trivial diagnostic fail-tests (index_write_*
+     wording → uniform `assignment`).
+   **ROOT (bird's-eye):** there is NO single canonical place-address resolver — gen_lvalue_addr, the
+   legacy EAddrOfTemp handler, AND the per-shape writers each reimplement it with different receiver
+   coverage. index_write exposes the divergence hardest. **NEXT: unify** — make gen_lvalue_addr the
+   ONE complete resolver (subsume gen_index_write's var_slice_/ptr/MutRef/closure cases), have
+   EAddrOfTemp + the place path use only it, THEN retire index_write (+ field_write). Reusable from
+   this attempt (in git reflog / this note): try_index_mut_assign, the legacy-handler bare-ptr +
+   MutRef branches, the check_place_writable Slice/pointer-boundary + resolve_place_type.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
