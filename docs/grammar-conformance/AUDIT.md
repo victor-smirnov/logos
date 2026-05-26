@@ -417,6 +417,20 @@ Verified working: `match p.x {1=>…}`, `W(a,b)`, nested `Some(Some(v))`,
      closure/fat handling gen_index_write had (or the box-coercion ordering). Then re-attempt step 3.
    Reusable (git reflog / this note): try_index_mut_assign (IndexMut relocation), check_place_writable
    Slice-allow + pointer-boundary, resolve_place_type — all re-applied cleanly on top of steps 1-2.
+   **CLOSURE ROOT LOCALIZED + a too-broad fix REVERTED 2026-05-26.** Disasm of WORKING box_new uses
+   `movups` = a 16-byte memcpy of the fat closure; gen_index_write has an explicit branch (~mlir_gen_stmt
+   2106) memcpy-16 for Closure/Slice/TraitObject VALUES (pass by ptr, 16-byte {ptr,ptr} storage).
+   SDerefWrite lacked it → stored the 8-byte ptr → box held a dangling STACK ptr → call SIGSEGV.
+   Mirroring that exact condition into SDerefWrite FIXED the 5 closures but BROKE 8 thin-`dyn`
+   deref-write tests (blanket-self-dispatch-in-vec-dyn, copy-for-ref-and-dyn, implicit-ref-to-dyn-method-arg,
+   borrowed-dyn-dispatch-b168, foreach-vec-box-dyn-b168, vec-box-dyn-dispatch-b167, prelude_vec_macro,
+   vec_index_operator): `*p = dyn` / Vec<&dyn> stores where the value is NOT a fresh 16-byte fat copy
+   (thin handle / 8-byte slot) got memcpy-16'd → overflow. **LESSON (again): a rule correct in
+   gen_index_write's contexts is WRONG in SDerefWrite's broader ones — deref-writing an already-thin dyn
+   handle vs copying a fresh fat value into a fat slot.** The discriminator must be the actual SLOT/value
+   representation (size==16 fat slot AND value is a fresh fat temp), matching how the READ sizes that
+   slot — not the type KIND alone. Buggy SDerefWrite-fat commit DROPPED (git reset to cac93782); steps
+   1-2 remain (green 5231). NEXT: find that discriminator, then re-attempt step 3.
    **Original investigation 2026-05-25 (NOT a pure-grammar collapse):** The ~17 grammar productions mirror ~9 distinct sema
    lowerings (`lower_assign`/`lower_field_write`/`lower_index_write`/
    `lower_tuple_field_write`/`lower_chain_field_write`/`lower_compound_assign`/
