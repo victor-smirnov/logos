@@ -7794,6 +7794,68 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         scrut = lower_expr(map_of(node.get(la::VALUE.code)));
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
+    // Drop a droppable TEMPORARY scrutinee (rvalue, not a place) of a match
+    // EXPRESSION — `let n = match make() { E::Txt(_) => 1 … }` otherwise leaks
+    // the temporary's payload. Mirror of lower_match's stmt hoist: bind the temp
+    // to a synth local, then (at the return) wrap in a block-expr that binds the
+    // match value, drops the temp unless an arm moved its payload, and yields
+    // the value. Concrete-only (see lower_match for the generic/Option<!> crash).
+    bool temp_scrut_hoisted = false;
+    std::string temp_scrut_var;
+    lir::LStmt temp_scrut_let;
+    std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        TypeRef tv{t};
+        if (tv.kind() == LogosType::Kind::TypeVar) return true;
+        if (tv.pointee() && mentions_tv(tv.pointee())) return true;
+        if (tv.elem() && mentions_tv(tv.elem())) return true;
+        for (auto a : tv.type_args()) if (mentions_tv(a)) return true;
+        for (auto e : tv.tuple_elems()) if (mentions_tv(e)) return true;
+        return false;
+    };
+    if (scrut && scrut_type && is_move_type(scrut_type) && !mentions_tv(scrut_type)) {
+        namespace ec = lir_schema::expr;
+        auto sk = expr_ref_of(*scrut).kind();
+        bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
+                        sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
+                        sk == ec::Code::IndexRead;
+        if (!is_place) {
+            temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
+            lir::SLet sl;
+            sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
+            sl.value = std::move(scrut);
+            temp_scrut_let = make_stmt_emit(node_line_, std::move(sl));
+            scrut = builder().var_ref(temp_scrut_var, scrut_type);
+            temp_scrut_hoisted = true;
+        }
+    }
+    // Wrap a match-expr whose scrutinee was a hoisted temporary:
+    //   { let __ms = <scrut>; let __mr = <match __ms { … }>; drop __ms?; __mr }
+    // The match value is bound first so __ms is dropped AFTER it is read; the
+    // drop is suppressed when an arm moved the payload (mark_match_scrutinee_moved
+    // recorded the synth var). Skipped for a void/never/error result type (no
+    // value to thread; that edge keeps the prior behaviour).
+    auto finalize_expr = [&](lir::LExprPtr me, TypeRef rty) -> lir::LExprPtr {
+        if (!temp_scrut_hoisted) return me;
+        if (!rty || TypeRef(rty).kind() == LogosType::Kind::Void ||
+            TypeRef(rty).kind() == LogosType::Kind::Never ||
+            TypeRef(rty).kind() == LogosType::Kind::Error)
+            return me;
+        auto blk = lir::alloc_block(*cur_prog_);
+        blk->stmts.push_back(std::move(temp_scrut_let));
+        std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
+        {
+            lir::SLet sl;
+            sl.name = res_var; sl.type = rty; sl.is_mut = false;
+            sl.value = std::move(me);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        }
+        if (!moved_vars_.count(temp_scrut_var))
+            if (auto d = make_drop_stmt(temp_scrut_var, VarInfo{scrut_type, false}))
+                blk->stmts.push_back(std::move(*d));
+        return builder().block_expr(std::move(blk),
+                                    builder().var_ref(res_var, rty), rty);
+    };
     // G156-2: a match-EXPRESSION that binds+moves a payload out of a by-value
     // move-type enum/struct/tuple scrutinee (`let x = match body { Ok(s) => s }`)
     // must mark the scrutinee moved so its scope-exit Drop doesn't double-free a
@@ -8505,15 +8567,15 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         blk->stmts.push_back(std::move(hoist_let_view));
         blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(std::move(hoist_let_base));
-        return builder().block_expr(std::move(blk), std::move(me_expr), result_type);
+        return finalize_expr(builder().block_expr(std::move(blk), std::move(me_expr), result_type), result_type);
     }
     // G172-1: hoist the str-match scrutinee into `__smatch` before the match.
     if (has_str_hoist) {
         auto blk = lir::alloc_block(*cur_prog_);
         blk->stmts.push_back(std::move(str_hoist_let));
-        return builder().block_expr(std::move(blk), std::move(me_expr), result_type);
+        return finalize_expr(builder().block_expr(std::move(blk), std::move(me_expr), result_type), result_type);
     }
-    return me_expr;
+    return finalize_expr(std::move(me_expr), result_type);
 }
 
 
