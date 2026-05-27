@@ -359,6 +359,18 @@ private:
     // Spill an aggregate value (struct/enum/array returned by value) to an
     // alloca. Used when passing such a value to a function that expects a
     // pointer.
+    // A Call/MethodCall returning a Slice/str now yields the 16-byte {ptr,len}
+    // fat pair BY VALUE (slice-return-by-value ABI, A3/A4 leak fix). Every
+    // downstream slice consumer (s[i], .len, field stores, arg passing) expects
+    // a pointer-to-{ptr,len}. Spill the value back to a stack slot and hand back
+    // the slot address so the by-value→by-pointer transition is transparent.
+    mlir::Value spill_slice_call_result(mlir::Value v, TypeRef ty) {
+        if (!v || !ty || ty.kind() != LogosType::Kind::Slice) return v;
+        if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+            return spill_to_alloca(v);
+        return v;
+    }
+
     mlir::Value spill_to_alloca(mlir::Value v) {
         auto t = v.getType();
         if (!mlir::isa<mlir::LLVM::LLVMStructType>(t) &&
@@ -474,6 +486,13 @@ private:
         // thin. Raw `*const/*mut dyn` likewise stays a thin handle.
         if (rt.kind() == LogosType::Kind::TraitObject)
             return dyn_llvm_type();
+        // Slice/str fat-pair: return the 16-byte {ptr,len} BY VALUE (mirrors the
+        // TraitObject fat-pair above). logos_to_mlir(Slice)=ptr, which forced
+        // gen_return to malloc(16)+memcpy a surviving heap slot (a leak, A3/A4).
+        // `str` IS Slice<u8> so it gets the same treatment. The caller spills the
+        // returned value back to a stack slot (slices are consumed by-pointer).
+        if (rt.kind() == LogosType::Kind::Slice)
+            return slice_llvm_type();
         return logos_to_mlir(ret_t);
     }
 

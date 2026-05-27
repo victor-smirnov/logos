@@ -89,8 +89,8 @@ mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     case C::VarRef:     return gen_expr_kind(lir_view::EVarRefView{er},     ty);
     case C::EnumLit:    return gen_expr_kind(lir_view::EEnumLitView{er},    ty);
     case C::EnumLitData:return gen_expr_kind(lir_view::EEnumLitDataView{er},ty);
-    case C::Call:       return gen_expr_kind(lir_view::ECallView{er},       ty);
-    case C::MethodCall: return gen_expr_kind(lir_view::EMethodCallView{er}, ty);
+    case C::Call:       return spill_slice_call_result(gen_expr_kind(lir_view::ECallView{er},       ty), ty);
+    case C::MethodCall: return spill_slice_call_result(gen_expr_kind(lir_view::EMethodCallView{er}, ty), ty);
     case C::BinOp:      return gen_expr_kind(lir_view::EBinOpView{er},      ty);
     case C::Unary:      return gen_expr_kind(lir_view::EUnaryView{er},      ty);
     case C::AddrOf:     return gen_expr_kind(lir_view::EAddrOfView{er},     ty);

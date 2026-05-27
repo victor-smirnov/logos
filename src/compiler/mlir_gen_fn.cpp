@@ -81,6 +81,9 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
     // Trait-object value-fat-pair: returned by value as the 16-byte struct.
     // Only a bare `dyn`/`&dyn`/`&mut dyn` (single TraitObject node) is by-value.
     if (rv.kind() == LogosType::Kind::TraitObject) return dyn_llvm_type();
+    // Slice/str fat-pair: returned BY VALUE as the 16-byte {ptr,len} struct
+    // (slice-return-by-value, A3/A4 leak fix). Mirrors TraitObject above.
+    if (rv.kind() == LogosType::Kind::Slice) return slice_llvm_type();
     return logos_to_mlir(ret_type);
 }
 
@@ -133,6 +136,10 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
             // pairs. `Ref<TraitObject>` (`&T`,T=&dyn) and raw `*dyn` stay thin.
             if (rv.kind() == LogosType::Kind::TraitObject) {
                 ret_types.push_back(dyn_llvm_type());
+            } else if (rv.kind() == LogosType::Kind::Slice) {
+                // Slice/str fat-pair returned BY VALUE (16-byte {ptr,len}),
+                // mirroring TraitObject — slice-return-by-value A3/A4 leak fix.
+                ret_types.push_back(slice_llvm_type());
             } else {
                 auto rt = logos_to_mlir(fn.ret_type);
                 if (rt) ret_types.push_back(rt);

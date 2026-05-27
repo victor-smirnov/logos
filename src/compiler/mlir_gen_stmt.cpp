@@ -834,6 +834,12 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     if (s.type && TypeRef(s.type).kind() == LogosType::Kind::Slice) {
         auto val = gen_expr(*s.value);
         if (!val) return;
+        // Slice-return-by-value: a 16-byte {ptr,len} struct value (e.g. a call
+        // result that wasn't routed through the dispatcher spill) must be spilled
+        // to a stack slot so the binding holds a pointer-to-{ptr,len} like every
+        // other slice place.
+        if (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+            val = spill_to_alloca(val);
         scope_[s.name] = val;
         let_vars_.insert(s.name);
         var_tuple_.insert(s.name);
@@ -1344,13 +1350,22 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
 
         auto val = gen_expr(s_value);
         if (!val) return;
+        // Slice/str fat-pair return BY VALUE (mirror the TraitObject path above):
+        // the fn MLIR return type is the 16-byte {ptr,len} (llvm_fn_ret_type).
+        // A slice value is normally a pointer-to-stack-storage (ESliceLit alloca,
+        // a spilled call result, a `&[T]` field/var) → LOAD the 16-byte value and
+        // return it. No malloc, no surviving heap slot (was the A3/A4 leak). If
+        // it's already a loaded 16-byte struct value, return as-is.
         if (cur_fn_ret_logos_type_ &&
-            TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::Slice &&
-            val.getType() == ptr_type()) {
-            auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
-            auto heap = call_malloc(size16);
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size16, false);
-            val = heap;
+            TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::Slice) {
+            auto stype = slice_llvm_type();
+            if (val.getType() == ptr_type())
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, stype, val);
+            if (in_llvm_func_)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
+            return;
         }
         if (cur_ret_type_ && cur_ret_type_ == ptr_type() && val.getType() != ptr_type()) {
             if (s_value.type && TypeRef(s_value.type).kind() == LogosType::Kind::Enum) {
