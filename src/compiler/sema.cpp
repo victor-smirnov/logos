@@ -195,9 +195,14 @@ public:
         hermes::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
         hermes::AnyVal v_lifetime_args;
 
-        if (t.kind == LogosType::Kind::Ptr) {
-            v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(
-                t.mut_ptr ? 1 : 0, hermes::type_hash::Bool);
+        // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef), and OWNING
+        // Box<dyn> vs borrowed &dyn (TraitObject). Persist it whenever set so
+        // the read-back (builder_equals_typeref's r.mut_ptr()) matches the
+        // builder value during interning.
+        if ((t.kind == LogosType::Kind::Ptr ||
+             t.kind == LogosType::Kind::DstRef ||
+             t.kind == LogosType::Kind::TraitObject) && t.mut_ptr) {
+            v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(1, hermes::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
             auto av = hermes::anyval_put<uint64_t>(arena(), t.arr_size);
@@ -823,6 +828,8 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.closure_ret);
         break;
     case K::TraitObject:
+        // mut_ptr carries owning (Box<dyn>) vs borrowed (&dyn) — distinct types.
+        put_byte(buf, t.mut_ptr ? 1 : 0);
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
@@ -946,7 +953,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::TraitObject:
-        return t.trait_name == r.trait_name() &&
+        return t.mut_ptr == r.mut_ptr() &&  // owning (Box<dyn>) vs borrow (&dyn)
+               t.trait_name == r.trait_name() &&
                vec_ptr_eq(t.type_args, r.type_args());
     case K::TaggedPtr:
         return t.trait_name == r.trait_name();
@@ -1343,6 +1351,19 @@ static std::string mangle_type_for_name(TypeRef t) {
         // params must stay distinguishable).
         if (g_mangle_erase_fnptr)
             return "$fnptr$" + std::to_string(TypeRef(t).closure_params().size());
+        return type_str(t);
+    case LogosType::Kind::TraitObject:
+        // Distinguish an OWNING Box<dyn T> from a borrowed &dyn T in the
+        // mangled type name so a generic struct instance like Vec<Box<dyn T>>
+        // and Vec<&dyn T> get DISTINCT spec names — otherwise they collapse to
+        // one struct spec and the element type-var binds to the borrow form,
+        // losing owning-ness (→ element never dropped, leak). Borrowed &dyn
+        // keeps its historical type_str mangling.
+        if (TypeRef(t).owning_trait_object()) {
+            std::string r = "owndyn_" + std::string(TypeRef(t).trait_name());
+            for (auto a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
+            return r;
+        }
         return type_str(t);
     default:
         return type_str(t);  // primitives / TypeVar / Enum already valid identifiers
@@ -2230,6 +2251,12 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
 
 bool SemaChecker::is_move_type(TypeRef t) const {
     if (!t) return false;
+    // An owning Box<dyn Trait> owns heap data and is non-Copy → move type.
+    // (A borrowed &dyn is Copy-like and not a move type.) Making is_move_type
+    // recognise it lets EVERY move-tracking site (let-RHS, call args, field /
+    // tuple-element moves) suppress the source's drop uniformly — no per-site
+    // owning-dyn special-casing.
+    if (TypeRef(t).owning_trait_object()) return true;
     // TypeVar — generic body. We don't know if T resolves to a Copy or
     // move type at sema; treat as move (conservative). If T resolves to
     // Copy at mono, the suppressed scope-exit drop is harmless (Copy
@@ -2390,6 +2417,9 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     auto member_droppable = [&](TypeRef m) -> bool {
         return m && !is_copy_tv(m) && (!drop_fn_for(m).empty() || has_droppable_fields(m));
     };
+    // An owning Box<dyn Trait> owns its heap data (dropped via vtable[0]
+    // drop_in_place + free). A borrowed &dyn is not droppable.
+    if (TypeRef(t).owning_trait_object()) return true;
     // G158-4: an array `[T; N]` owns its elements — droppable if the element is.
     if (TypeRef(t).kind() == LogosType::Kind::Array)
         return member_droppable(TypeRef(t).elem());
@@ -2581,12 +2611,16 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
 }
 
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
-    // Owning `Box<dyn Trait>` (collapsed to a bare TraitObject in the type
-    // system, but heap-owning): emit a drop with the `__box_dyn__drop`
-    // sentinel; mlir-gen's SDrop calls vtable slot-0 drop_in_place + frees the
-    // boxed data and the fat handle.
-    if (info.owning_dyn && info.type &&
-        TypeRef(info.type).kind() == LogosType::Kind::TraitObject) {
+    // Owning `Box<dyn Trait>` (an owning TraitObject — value fat-pair, heap-
+    // owned data): emit a drop with the `__box_dyn__drop` sentinel; mlir-gen's
+    // SDrop calls vtable slot-0 drop_in_place + frees the boxed data. Now
+    // TYPE-DRIVEN (the type carries owning-ness) — the legacy info.owning_dyn
+    // flag is still honoured for any binding whose annotation collapsed before
+    // the type distinction reached it.
+    if (info.type &&
+        (TypeRef(info.type).owning_trait_object() ||
+         (info.owning_dyn &&
+          TypeRef(info.type).kind() == LogosType::Kind::TraitObject))) {
         lir::LStmt s; s.line = node_line_;
         if (cur_prog_)
             s.mirror_offset_ = lir_mirror_emit_drop(
@@ -3735,7 +3769,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             new_args.push_back(na);
         }
         if (!changed) return t;
-        return make_trait_object(t.trait_name(), std::move(new_args));
+        return make_trait_object(t.trait_name(), std::move(new_args),
+                                 /*owning=*/t.owning_trait_object());
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnPtr: {
@@ -4443,8 +4478,17 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
         auto items = arr_of(node.get(la::ITEMS.code));
         if (items.size() == 1) {
             auto inner = resolve_type(map_of(items.get(0)));
-            if (inner && TypeRef(inner).kind() == LogosType::Kind::TraitObject)
-                return inner;  // Box<dyn T> ≡ &dyn T in our type system
+            if (inner && TypeRef(inner).kind() == LogosType::Kind::TraitObject) {
+                // Box<dyn T> = OWNING trait object: same fat-pair layout +
+                // dispatch as &dyn T, but droppable (data is heap-owned). The
+                // owning bit lets the type-driven drop machinery free it
+                // uniformly wherever it is stored (local / field / return /
+                // container element) — not just as a tagged local.
+                TypeRef ti(inner);
+                std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());
+                return make_trait_object(ti.trait_name(), std::move(targs),
+                                         /*owning=*/true);
+            }
         }
     }
     auto [spkg, ssi] = find_struct_by_name(name);

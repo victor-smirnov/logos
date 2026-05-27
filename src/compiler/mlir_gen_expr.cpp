@@ -1935,13 +1935,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
                 TypeRef(param_lt).struct_name() == "Box" &&
                 TypeRef(param_lt).type_args().size() == 1;
-            // A param whose type collapsed to bare TraitObject but is an owning
-            // Box<dyn> (callee frees it): coerce to a HEAP fat handle so the
-            // callee's free() lands on a real allocation, not a stack fat pair.
-            if (auto oit = fn_param_owning_box_dyn_.find(callee);
-                oit != fn_param_owning_box_dyn_.end() &&
-                i < oit->second.size() && oit->second[i])
-                free_param_is_box_dyn = true;
+            (void)free_param_is_box_dyn;
             TypeRef ptl = param_lt, alt = arg_lt;
             auto unbox = [](TypeRef& t){
                 if (t && TypeRef(t).kind() == LogosType::Kind::Struct &&
@@ -1986,8 +1980,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                      TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
                         ? concrete_struct_name(vt_type)
                         : type_str(vt_type);
+                // Value model: an owning Box<dyn> arg is an inline value fat
+                // pair (heap=false), just like a borrowed &dyn — the callee
+                // drops it by value (free data), no separate heap handle.
                 v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name,
-                                  /*heap=*/free_param_is_box_dyn);
+                                  /*heap=*/false);
             }
         }
         if (i < param_types.size()) {
@@ -2225,11 +2222,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                      TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
                         ? concrete_struct_name(vt_type)
                         : type_str(vt_type);
-                bool param_is_box_dyn = TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
-                    TypeRef(param_lt).struct_name() == "Box" &&
-                    TypeRef(param_lt).type_args().size() == 1;
+                // Value model: owning Box<dyn> arg = inline value fat pair.
                 if (auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()),
-                                             vt_name, /*heap=*/param_is_box_dyn)) {
+                                             vt_name, /*heap=*/false)) {
                     args.push_back(fat);
                     continue;
                 }
@@ -2801,8 +2796,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                     ? concrete_struct_name(boxed)
                     : type_str(boxed);
             std::string trait = std::string(tgt_to.trait_name());
-            // Owning Box<dyn> handle — heap-survive (its drop frees the slot).
-            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/true, boxed)) return alloca;
+            // Owning Box<dyn> = VALUE fat-pair {data,vtable} (like &dyn, but
+            // droppable). data is the heap-owned boxed concrete; the pair is
+            // stored inline (no extra 8-byte heap handle). Its drop runs
+            // vtable[0] drop_in_place(data) + free(data) — see gen_drop_value's
+            // owning-TraitObject branch. heap=false ⇒ inline value, consistent
+            // wherever the Box<dyn> is stored (local / field / return / Vec).
+            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/false, boxed)) return alloca;
         }
     }
 

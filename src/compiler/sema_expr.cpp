@@ -598,6 +598,12 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         if (src_is_str && tgt_is_mut_ptr)
             error("cannot cast 'str' to '*mut u8': str data is read-only; use '*const u8'");
     }
+    // Unsize coercion `box_val as Box<dyn Trait>` CONSUMES the source Box —
+    // ownership of the heap data transfers to the owning trait object. Mark the
+    // operand moved so its own Box<T>::drop doesn't also free the data (else the
+    // owning result's drop + the source's scope-exit drop double-free it).
+    if (target && TypeRef(target).owning_trait_object() && inner)
+        mark_moved_expr(expr_ref_of(*inner));
     return builder().cast(std::move(inner), target);
 }
 

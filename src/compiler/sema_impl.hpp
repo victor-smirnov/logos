@@ -628,11 +628,18 @@ private:
     // DstRef canonicalisation at REF/PTR resolve time and for the
     // dst_from_raw_parts intrinsic check.
     bool is_effective_dst(TypeRef t);
+    // `owning` distinguishes an owned `Box<dyn Trait>` from a borrowed
+    // `&dyn Trait` — both are fat-pair TraitObjects with identical layout and
+    // dispatch, but the owning form is droppable (its data is heap-owned). The
+    // bit rides in the otherwise-unused `mut_ptr` slot (no schema change) and
+    // is folded into the TypeUID + equality so the two forms intern distinctly.
     TypeRef make_trait_object(std::string_view tname,
-                              std::vector<TypeRef> args = {}) {
+                              std::vector<TypeRef> args = {},
+                              bool owning = false) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
+        t.mut_ptr = owning;
         return pool_->alloc(std::move(t));
     }
     TypeRef make_typevar(std::string_view name) {

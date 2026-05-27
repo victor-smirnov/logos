@@ -3928,6 +3928,14 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             // user Drop impl itself). Without this, a `Vec<Enum-with-String>` /
             // `Vec<(String,…)>` element bound by-value in the mono'd Vec::drop
             // loop never freed its payload (the P1 Vec-element-drop leak).
+            else if (ty && TypeRef(ty).owning_trait_object()) {
+                // owning Box<dyn> element (e.g. Vec<Box<dyn T>>'s `let _x: T =
+                // p[i]` move-and-drop): route directly to the box-dyn value
+                // drop (vtable[0] drop_in_place + free data) via the explicit
+                // sentinel — the generic field-recursion does not drop a
+                // top-level TraitObject.
+                drop_fn = "__box_dyn__drop";
+            }
             else if (ty && (TypeRef(ty).kind() == LogosType::Kind::Enum ||
                             TypeRef(ty).kind() == LogosType::Kind::Tuple ||
                             TypeRef(ty).kind() == LogosType::Kind::Array ||

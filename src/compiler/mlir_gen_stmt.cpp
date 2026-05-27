@@ -275,6 +275,9 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     if (!ty) return false;
     auto k = TypeRef(ty).kind();
     if (k == K::Ref || k == K::MutRef || k == K::Ptr) return false;
+    // An owning Box<dyn Trait> (value fat-pair, heap-owned data) is droppable;
+    // a borrowed &dyn is not. Distinguished by the type's owning bit.
+    if (k == K::TraitObject) return TypeRef(ty).owning_trait_object();
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
         if (!resolve_method_symbol(name, "drop").empty()) return true;
@@ -307,21 +310,32 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     return false;
 }
 
-void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value handle) {
-    if (!handle) return;
-    // The binding storage must be a genuine 8-byte heap HANDLE (ptr to a
-    // {data,vtable} fat pair) for this owning-drop to be valid — that is the
-    // shape produced by an `as Box<dyn>` cast / owning-box let coercion
-    // (coerce_to_dyn heap=true). If the storage is instead the 16-byte fat
-    // pair VALUE (`let b = v.get(i)` copies a {data,vtable} struct out of a
-    // container the container still owns), dropping it here would double-free
-    // the container's element — so SKIP. Likewise a non-ptr SSA value.
-    if (handle.getType() != ptr_type()) return;
+void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr) {
+    if (!fat_ptr) return;
+    // Owning Box<dyn> = VALUE fat-pair {data,vtable} stored INLINE; `fat_ptr`
+    // points at that 16-byte pair (a local alloca, a struct-field GEP, a Vec
+    // element slot, …). The drop runs vtable[0] drop_in_place(data) then frees
+    // the heap-owned `data` — there is NO separate heap handle to free (that
+    // was the old 8-byte-handle model; the value model keeps a single heap
+    // allocation, the boxed concrete, exactly like a Rust Box<dyn>).
+    auto dyn_struct = dyn_llvm_type();
+    // The binding may be a POINTER to the inline fat pair (alloca / struct-
+    // field GEP / Vec slot) OR the fat-pair VALUE itself in SSA (`let b =
+    // make()` where the callee returned {data,vtable} by value). Spill a value
+    // to an alloca so the GEP-based field reads below work uniformly.
+    if (fat_ptr.getType() == dyn_struct)
+        fat_ptr = spill_to_alloca(fat_ptr);
+    if (fat_ptr.getType() != ptr_type()) return;
 
-    // Null-guard the handle (a moved-from box is null).
+    // data = pair->field0
+    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+    auto dpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, di);
+    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dpp);
+
+    // Null-guard the data ptr (a moved-from box is null).
     auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
     auto nn = builder_.create<mlir::LLVM::ICmpOp>(
-        loc_, mlir::LLVM::ICmpPredicate::ne, handle, null);
+        loc_, mlir::LLVM::ICmpPredicate::ne, data, null);
     auto* region = builder_.getBlock()->getParent();
     auto* then_blk = new mlir::Block();
     auto* cont_blk = new mlir::Block();
@@ -330,13 +344,9 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value handle) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
     builder_.setInsertionPointToStart(then_blk);
 
-    auto dyn_struct = dyn_llvm_type();
-    // data = handle->field0, vtable = handle->field1
-    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-    auto dpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, handle, di);
-    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dpp);
+    // vtable = pair->field1
     llvm::SmallVector<mlir::LLVM::GEPArg> vi{int32_t(0), int32_t(1)};
-    auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, handle, vi);
+    auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, vi);
     auto vtable = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
     // drop_in_place = vtable[0]; call it on data (runs concrete destructor).
     auto slot0 = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vtable);
@@ -345,9 +355,8 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value handle) {
     llvm::SmallVector<mlir::Value> call_ops{slot0, data};
     builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
                                         mlir::ValueRange(call_ops));
-    // Free the boxed concrete allocation, then the fat-pair handle.
+    // Free the boxed concrete allocation (the single heap block).
     call_free(data);
-    call_free(handle);
     builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
     builder_.setInsertionPointToStart(cont_blk);
 }
@@ -357,6 +366,16 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     if (!value_ptr || !ty) return;
     auto k = TypeRef(ty).kind();
     if (k == K::Ref || k == K::MutRef || k == K::Ptr) return;
+    // Owning Box<dyn Trait> (value fat-pair): value_ptr points at the inline
+    // {data,vtable} pair. Run vtable[0] drop_in_place(data) + free(data). This
+    // is what makes the Box<dyn> drop UNIFORM across every storage site —
+    // struct field, return temp, Vec element, tuple/array — via the normal
+    // aggregate field-recursion, not just a tagged top-level local.
+    if (k == K::TraitObject) {
+        if (TypeRef(ty).owning_trait_object())
+            gen_drop_owning_dyn_handle(value_ptr);
+        return;
+    }
     // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
     // (which reports false for Closure to avoid struct-field over-recursion).
     if (k != K::Closure && !value_needs_drop(ty)) return;
@@ -1020,11 +1039,13 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                   TypeRef(src_logos_type).kind() == LogosType::Kind::ZonedStruct))
                     ? concrete_struct_name(src_logos_type)
                     : type_str(src_logos_type);
-            // `&dyn`/`&mut dyn` local → stack fat pair (no leak). Raw
-            // `*const/*mut dyn` local → heap handle (the value escapes via the
-            // raw pointer; persistent/smart-ptr convention).
+            // `&dyn`/`&mut dyn` local → stack fat pair (no leak). Owning
+            // `Box<dyn>` local → ALSO an inline value fat pair (droppable; its
+            // drop frees the boxed data). Only raw `*const/*mut dyn` keeps an
+            // 8-byte heap handle (escapes via the raw pointer; persistent/
+            // smart-ptr convention).
             alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type,
-                                   /*heap=*/is_raw_ptr_dyn || src_is_owning_box,
+                                   /*heap=*/is_raw_ptr_dyn,
                                    src_logos_type);
         }
         scope_[s.name] = alloca;

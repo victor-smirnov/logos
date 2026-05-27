@@ -31,7 +31,10 @@ fn main() -> i32 {
     let mut acc: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < v.length() {
-        let b: Box<dyn Shape> = v.get(i);
+        // Borrow the element — moving an owning `Box<dyn>` out of the Vec via
+        // `get` is (correctly) rejected: it would alias the Vec's storage and
+        // double-free on drop. Dispatch through the borrow (Rust idiom).
+        let b = v.borrow(i);
         acc = acc + b.area();
         i = i + 1i64;
     }

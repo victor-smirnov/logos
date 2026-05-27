@@ -207,6 +207,13 @@ public:
         auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
         return av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    // True for an OWNING trait object (`Box<dyn Trait>`) — same fat-pair layout
+    // and dispatch as a borrowed `&dyn Trait` but droppable (heap-owned data).
+    // Carried in the mut_ptr slot (folded into TypeUID/equality), so a Box<dyn>
+    // and an &dyn intern as distinct types.
+    bool owning_trait_object() const noexcept {
+        return kind() == LogosType::Kind::TraitObject && mut_ptr();
+    }
     uint64_t arr_size() const noexcept {
         auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
         if (av.is_null()) return 0;

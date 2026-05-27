@@ -636,6 +636,18 @@ public:
                 return "cN_" + std::to_string(v);
             }
             return type_str(tr);
+        case LogosType::Kind::TraitObject:
+            // Distinguish an OWNING Box<dyn T> from a borrowed &dyn T so that
+            // e.g. Vec<Box<dyn T>> and Vec<&dyn T> mangle to DISTINCT specs —
+            // otherwise mono collapses them and may bind the element type-var
+            // to the borrow form, dropping the owning bit (→ no element drop,
+            // leak). Borrowed &dyn keeps its historical type_str mangling.
+            if (tr.owning_trait_object()) {
+                std::string r = "owndyn_" + std::string(tr.trait_name());
+                for (auto a : tr.type_args()) { r += "__"; r += mangle_type(a); }
+                return r;
+            }
+            return type_str(tr);
         default:
             return type_str(tr);
         }
