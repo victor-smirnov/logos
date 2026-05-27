@@ -1047,9 +1047,7 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     using K = LogosType::Kind;
     if (!val || !slot_lt || !val_lt) return val;
     auto unbox = [](TypeRef t) -> TypeRef {
-        if (t && TypeRef(t).kind() == K::Struct &&
-            TypeRef(t).struct_name() == "Box" &&
-            TypeRef(t).type_args().size() == 1)
+        if (is_stdlib_box(t) && TypeRef(t).type_args().size() == 1)
             return TypeRef(t).type_args()[0];
         return t;
     };
@@ -1059,16 +1057,13 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     TypeRef vt_type = val_lt;
     if (TypeRef(vt_type).kind() == K::Ref || TypeRef(vt_type).kind() == K::MutRef)
         vt_type = TypeRef(vt_type).pointee();
-    if (vt_type && TypeRef(vt_type).kind() == K::Struct &&
-        TypeRef(vt_type).struct_name() == "Box" &&
-        TypeRef(vt_type).type_args().size() == 1)
+    if (is_stdlib_box(vt_type) && TypeRef(vt_type).type_args().size() == 1)
         vt_type = TypeRef(vt_type).type_args()[0];
     if (!vt_type) return val;
     if (val.getType() != ptr_type() &&
         TypeRef(val_lt).kind() != K::Ref &&
         TypeRef(val_lt).kind() != K::MutRef &&
-        !(TypeRef(val_lt).kind() == K::Struct &&
-          TypeRef(val_lt).struct_name() == "Box"))
+        !is_stdlib_box(val_lt))
         val = spill_to_alloca(val);
     std::string vt_name =
         (TypeRef(vt_type).kind() == K::Struct ||
@@ -1078,8 +1073,7 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     // The slot is an OWNING Box<dyn> (slot_lt is Box<TraitObject>) → heap-survive
     // handle. A bare `dyn`/`&dyn`/`&mut dyn` slot is a stack fat pair (the inline-
     // 16 consumer copies it).
-    bool slot_is_box_dyn = TypeRef(slot_lt).kind() == K::Struct &&
-        TypeRef(slot_lt).struct_name() == "Box" &&
+    bool slot_is_box_dyn = is_stdlib_box(slot_lt) &&
         TypeRef(slot_lt).type_args().size() == 1;
     auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name,
                              /*heap=*/slot_is_box_dyn || force_heap, vt_type);

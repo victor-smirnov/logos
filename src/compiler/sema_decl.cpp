@@ -631,10 +631,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     // (vtable[0] drop_in_place + dealloc data + dealloc handle),
                     // and mark the LParam owning_box_dyn so call sites coerce the
                     // arg to a HEAP fat handle (matching the callee's free()).
+                    // An owning `Box<dyn>` param now resolves to an OWNING
+                    // TraitObject (owning bit on the type) — detect via the
+                    // type, not the written name.
                     bool p_owning_box_dyn = false;
-                    if (pt && TypeRef(pt).kind() == LogosType::Kind::TraitObject &&
-                        p.has_key(la::TYPE) &&
-                        str_of(map_of(p.get(la::TYPE.code)).get(la::NAME.code)) == "Box") {
+                    if (pt && TypeRef(pt).owning_trait_object()) {
                         if (auto vit = scope_.back().vars.find(std::string(pname));
                             vit != scope_.back().vars.end())
                             vit->second.owning_dyn = true;

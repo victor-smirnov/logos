@@ -1931,16 +1931,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             // formal looked like `Box<TraitObject>` (Struct), the check below
             // (bare TraitObject only) missed it, and a THIN handle was stored →
             // garbage vtable on later dispatch (SIGSEGV).
-            bool free_param_is_box_dyn = param_lt &&
-                TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
-                TypeRef(param_lt).struct_name() == "Box" &&
-                TypeRef(param_lt).type_args().size() == 1;
-            (void)free_param_is_box_dyn;
             TypeRef ptl = param_lt, alt = arg_lt;
             auto unbox = [](TypeRef& t){
-                if (t && TypeRef(t).kind() == LogosType::Kind::Struct &&
-                    TypeRef(t).struct_name() == "Box" &&
-                    TypeRef(t).type_args().size() == 1)
+                if (is_stdlib_box(t) && TypeRef(t).type_args().size() == 1)
                     t = TypeRef(t).type_args()[0];
             };
             unbox(ptl); unbox(alt);
@@ -1954,9 +1947,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 if (TypeRef(vt_type).kind() == LogosType::Kind::Ref ||
                     TypeRef(vt_type).kind() == LogosType::Kind::MutRef)
                     vt_type = TypeRef(vt_type).pointee();
-                if (TypeRef(vt_type).kind() == LogosType::Kind::Struct &&
-                    TypeRef(vt_type).struct_name() == "Box" &&
-                    TypeRef(vt_type).type_args().size() == 1)
+                if (is_stdlib_box(vt_type) && TypeRef(vt_type).type_args().size() == 1)
                     vt_type = TypeRef(vt_type).type_args()[0];
                 // If the source is a struct value (not a pointer) — applies to
                 // bare-struct → &dyn (the original C6-cc-09 surface) — spill
@@ -1968,8 +1959,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 if (v.getType() != ptr_type() &&
                     TypeRef(arg_lt).kind() != LogosType::Kind::Ref &&
                     TypeRef(arg_lt).kind() != LogosType::Kind::MutRef &&
-                    !(TypeRef(arg_lt).kind() == LogosType::Kind::Struct &&
-                      TypeRef(arg_lt).struct_name() == "Box"))
+                    !is_stdlib_box(arg_lt))
                     v = spill_to_alloca(v);
                 // Key the vtable on the mono-mangled concrete name
                 // (`Gen$G1$i64`), not the angle-bracket `type_str` form
@@ -2192,14 +2182,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             auto param_lt = m_fpit->second[pi];
             auto arg_lt   = arg_refs[i].type(pool_impl());
             TypeRef ptl = param_lt;
-            if (ptl && TypeRef(ptl).kind() == LogosType::Kind::Struct &&
-                TypeRef(ptl).struct_name() == "Box" &&
-                TypeRef(ptl).type_args().size() == 1)
+            if (is_stdlib_box(ptl) && TypeRef(ptl).type_args().size() == 1)
                 ptl = TypeRef(ptl).type_args()[0];
             TypeRef alt = arg_lt;
-            if (alt && TypeRef(alt).kind() == LogosType::Kind::Struct &&
-                TypeRef(alt).struct_name() == "Box" &&
-                TypeRef(alt).type_args().size() == 1)
+            if (is_stdlib_box(alt) && TypeRef(alt).type_args().size() == 1)
                 alt = TypeRef(alt).type_args()[0];
             if (ptl && TypeRef(ptl).kind() == LogosType::Kind::TraitObject &&
                 alt && TypeRef(alt).kind() != LogosType::Kind::TraitObject) {
@@ -2207,15 +2193,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                 if (TypeRef(vt_type).kind() == LogosType::Kind::Ref ||
                     TypeRef(vt_type).kind() == LogosType::Kind::MutRef)
                     vt_type = TypeRef(vt_type).pointee();
-                if (TypeRef(vt_type).kind() == LogosType::Kind::Struct &&
-                    TypeRef(vt_type).struct_name() == "Box" &&
-                    TypeRef(vt_type).type_args().size() == 1)
+                if (is_stdlib_box(vt_type) && TypeRef(vt_type).type_args().size() == 1)
                     vt_type = TypeRef(vt_type).type_args()[0];
                 if (val.getType() != ptr_type() &&
                     TypeRef(arg_lt).kind() != LogosType::Kind::Ref &&
                     TypeRef(arg_lt).kind() != LogosType::Kind::MutRef &&
-                    !(TypeRef(arg_lt).kind() == LogosType::Kind::Struct &&
-                      TypeRef(arg_lt).struct_name() == "Box"))
+                    !is_stdlib_box(arg_lt))
                     val = spill_to_alloca(val);
                 std::string vt_name =
                     (TypeRef(vt_type).kind() == LogosType::Kind::Struct ||
@@ -2763,8 +2746,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // that path here: unwrap a Box<T> to its inner concrete T for the vtable key,
     // pass the box value as the data pointer, and build the fat handle.
     if (target == ptr_type() && op_le->type &&
-        TypeRef(op_le->type).kind() == LogosType::Kind::Struct &&
-        TypeRef(op_le->type).struct_name() == "Box" &&
+        is_stdlib_box(op_le->type) &&
         TypeRef(op_le->type).type_args().size() == 1) {
         TypeRef tgt_to(type);
         if (tgt_to.kind() == LogosType::Kind::Ptr && tgt_to.pointee())

@@ -927,6 +927,18 @@ private:
         return TypeRef(t).kind() == LogosType::Kind::Enum &&
                TypeRef(t).enum_name() == name;
     }
+    // FQN-checked: the stdlib owned-box lang type `logos.mem.boxed.Box<T>`,
+    // NOT a user struct that merely happens to be named "Box". Matching by bare
+    // name would let a user `struct Box` in their own package hijack the box
+    // special-casing (unsize / owning-drop / deref) — a real shadowing hazard
+    // (cf. the earlier user-`Rc`-vs-stdlib-`Rc` collision). pkg is tolerated
+    // empty for internal paths where it was stripped; a user Box always carries
+    // its own (non-boxed) package, so the collision case is still rejected.
+    static bool is_stdlib_box(TypeRef t) {
+        if (!is_named_struct(t, "Box")) return false;
+        auto pkg = TypeRef(t).pkg_name();
+        return pkg.empty() || pkg == "logos.mem.boxed";
+    }
     static bool is_anyval(TypeRef t)         { return is_named_struct(t, "AnyVal"); }
     static bool is_hermes_static(TypeRef t)  { return is_named_struct(t, "HermesStatic"); }
     static bool is_hermes(TypeRef t)         { return is_named_struct(t, "Hermes"); }

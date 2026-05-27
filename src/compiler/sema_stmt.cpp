@@ -1531,11 +1531,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         ann = resolve_type(tnode);
-        if (ann && TypeRef(ann).kind() == LogosType::Kind::TraitObject) {
-            // Detect the `Box<...>` syntactic wrapper that resolve_type erased.
-            auto tname = str_of(tnode.get(la::NAME.code));
-            if (tname == "Box") ann_is_box_dyn = true;
-        }
+        // `Box<dyn T>` now resolves to an OWNING TraitObject (owning bit on the
+        // type) — no need to re-sniff the written name. A borrowed `&dyn` is a
+        // non-owning TraitObject and is correctly excluded.
+        if (ann && TypeRef(ann).owning_trait_object()) ann_is_box_dyn = true;
     }
 
     // Set enum/struct hints so literal lowering can fill in unresolved type params

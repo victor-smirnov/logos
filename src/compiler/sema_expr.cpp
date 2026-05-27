@@ -2046,8 +2046,7 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     // box's `.ptr` field (which is *mut T) and dereferencing it. Box hides
     // unsafe behind the abstraction, so don't require unsafe context here.
     // No full Deref trait machinery — direct lowering for the stdlib Box.
-    if (TypeRef(vt).kind() == LogosType::Kind::Struct &&
-        TypeRef(vt).struct_name() == "Box" &&
+    if (is_stdlib_box(vt) &&
         TypeRef(vt).type_args().size() == 1) {
         auto inner = TypeRef(vt).type_args()[0];
         auto ptr_t = make_ptr(true, inner);
@@ -2183,9 +2182,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // the inner Closure; the codegen path (see EClosureCallView handler)
     // notices the var was originally a Box<Closure> and loads through it.
     bool callee_is_box_closure = false;
-    if (callee_type &&
-        TypeRef(callee_type).kind() == LogosType::Kind::Struct &&
-        TypeRef(callee_type).struct_name() == "Box" &&
+    if (is_stdlib_box(callee_type) &&
         TypeRef(callee_type).type_args().size() == 1 &&
         TypeRef(TypeRef(callee_type).type_args()[0]).kind() == LogosType::Kind::Closure) {
         callee_type = TypeRef(callee_type).type_args()[0];
@@ -7852,8 +7849,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     // `(*b).v`. We unwrap by replacing recv with `recv.ptr` (a `*mut S`) and
     // keep the Ptr branch below to surface the struct without requiring
     // unsafe at the user site — Box abstracts over its inner pointer.
-    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Struct &&
-        TypeRef(recv_base_t).struct_name() == "Box" &&
+    if (is_stdlib_box(recv_base_t) &&
         TypeRef(recv_base_t).type_args().size() == 1) {
         TypeRef inner = TypeRef(recv_base_t).type_args()[0];
         if (inner && (TypeRef(inner).kind() == LogosType::Kind::Struct ||
@@ -10427,8 +10423,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     if ((u.kind() == LogosType::Kind::Ref ||
                          u.kind() == LogosType::Kind::MutRef) && u.pointee())
                         u = u.pointee();
-                    if (u.kind() == LogosType::Kind::Struct &&
-                        u.struct_name() == "Box" && u.type_args().size() == 1)
+                    if (is_stdlib_box(u) && u.type_args().size() == 1)
                         u = u.type_args()[0];
                     return u.kind() == LogosType::Kind::TraitObject;
                 };
@@ -10759,8 +10754,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     if ((u.kind() == LogosType::Kind::Ref ||
                          u.kind() == LogosType::Kind::MutRef) && u.pointee())
                         u = u.pointee();
-                    if (u.kind() == LogosType::Kind::Struct &&
-                        u.struct_name() == "Box" && u.type_args().size() == 1)
+                    if (is_stdlib_box(u) && u.type_args().size() == 1)
                         u = u.type_args()[0];
                     return u.kind() == LogosType::Kind::TraitObject;
                 };

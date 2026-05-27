@@ -242,8 +242,7 @@ void Mono::scan_expr(lir_view::ExprRef e) {
                         TypeRef(src).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(src).pointee()) {
                 src = TypeRef(src).pointee();   // ref/ptr source: pointee IS Self
-            } else if (src && TypeRef(src).kind() == LogosType::Kind::Struct &&
-                       TypeRef(src).struct_name() == "Box" &&
+            } else if (is_stdlib_box(src) &&
                        TypeRef(src).type_args().size() == 1) {
                 src = TypeRef(src).type_args()[0];  // box-value source: unwrap once
             }

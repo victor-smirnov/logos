@@ -623,6 +623,18 @@ private:
             return false;
         return t.struct_name() == "AnyVal";
     }
+    // FQN-checked stdlib `logos.mem.boxed.Box<T>` (not a user struct named Box).
+    // See the sema-side twin for rationale. pkg tolerated empty for internal
+    // paths (mlir-gen sometimes strips struct pkg); a user Box keeps its own.
+    static bool is_stdlib_box(TypeRef t) noexcept {
+        if (!t) return false;
+        auto k = t.kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+            return false;
+        if (t.struct_name() != "Box") return false;
+        auto pkg = t.pkg_name();
+        return pkg.empty() || pkg == "logos.mem.boxed";
+    }
 
     // ── Function type from LFunction ─────────────────────────────
     mlir::FunctionType make_fn_type(const LFunction& fn);

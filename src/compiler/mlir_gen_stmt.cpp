@@ -1023,9 +1023,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // sequence frees a real heap block (a stack fat pair would invalid-
             // free). A `&Concrete` borrow source stays a stack fat pair.
             bool src_is_owning_box =
-                src_logos_type &&
-                TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
-                TypeRef(src_logos_type).struct_name() == "Box" &&
+                is_stdlib_box(src_logos_type) &&
                 TypeRef(src_logos_type).type_args().size() == 1;
             if (src_is_owning_box)
                 src_logos_type = TypeRef(src_logos_type).type_args()[0];

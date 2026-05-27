@@ -4473,8 +4473,13 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
         }
     }
 
-    // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn Trait)
-    if (name == "Box" && node.has_key(la::ITEMS)) {
+    // Special case: Box<dyn Trait> = owned trait object (same layout as &dyn
+    // Trait). This is the genuine lang-item behaviour (Rust's `#[lang =
+    // "owned_box"]` + unsize coercion) — gate it on the name actually resolving
+    // to the stdlib `logos.mem.boxed.Box`, so a user `struct Box` in their own
+    // package is NOT hijacked into a trait-object collapse.
+    if (name == "Box" && node.has_key(la::ITEMS) &&
+        find_struct_by_name("Box").first == "logos.mem.boxed") {
         auto items = arr_of(node.get(la::ITEMS.code));
         if (items.size() == 1) {
             auto inner = resolve_type(map_of(items.get(0)));
