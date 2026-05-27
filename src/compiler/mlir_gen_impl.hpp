@@ -284,6 +284,13 @@ private:
     // instead of malloc'ing+filling a fresh vtable per coercion (the recurring
     // per-coercion vtable leak; Rust vtables are static).
     std::unordered_map<std::string, std::string> dyn_vtable_globals_;
+    // (vtable global sym → ordered method symbols). build_inline_vtable emits a
+    // zero-init `constant [N x ptr]` placeholder global; the real address-of-
+    // method initializer is materialised AFTER func→llvm lowering (in
+    // lower_and_emit_object, where the methods are `llvm.func` so addressof is
+    // valid) → a true `.data.rel.ro`/`.rodata` static vtable. Carried to the
+    // pipeline via the `logos.vtable_specs` module attribute set in generate().
+    std::vector<std::pair<std::string, std::vector<std::string>>> dyn_vtable_specs_;
     // Trait name → its method names in vtable slot order, and whether the
     // trait has a blanket impl (`impl<T> Trait for T`). Used by
     // build_inline_vtable to synthesize a `<Concrete>__<method>` vtable on the

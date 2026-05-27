@@ -627,6 +627,23 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
     pt.tick("canon rename walk");
 
+    // Carry the static-vtable specs to the pipeline tail (lower_and_emit_object):
+    // after func→llvm lowering it materialises each placeholder `[N x ptr]`
+    // vtable global's initializer with `addressof` of the method symbols (valid
+    // only once they are `llvm.func`) → a true .rodata/.data.rel.ro static
+    // vtable. Encoded as `logos.vtable_specs` = [[sym, m0, m1, …], …] (an empty
+    // method string = object-unsafe sentinel → null slot).
+    if (!dyn_vtable_specs_.empty()) {
+        llvm::SmallVector<mlir::Attribute> specs;
+        for (auto& [vsym, vmethods] : dyn_vtable_specs_) {
+            llvm::SmallVector<mlir::Attribute> one;
+            one.push_back(builder_.getStringAttr(vsym));
+            for (auto& m : vmethods) one.push_back(builder_.getStringAttr(m));
+            specs.push_back(builder_.getArrayAttr(one));
+        }
+        mod->setAttr("logos.vtable_specs", builder_.getArrayAttr(specs));
+    }
+
     if (mlir::failed(mlir::verify(mod))) {
         std::fprintf(stderr, "mlir_gen: module verification failed\n");
         mod.dump();

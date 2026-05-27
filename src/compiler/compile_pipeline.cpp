@@ -103,6 +103,47 @@ int lower_and_emit_object(lir::LProgram& prog,
         return 1;
     }
 
+    // ── Materialise static vtable globals (Rust-style .rodata vtables) ──
+    // mlir-gen emitted, per (trait,type), a zero-init `constant [N x ptr]`
+    // placeholder vtable global + recorded its ordered method symbols in the
+    // `logos.vtable_specs` module attr. NOW (post func→llvm) the methods are
+    // `llvm.func`, so `llvm.mlir.addressof` of them is valid — rebuild each
+    // placeholder's initializer as a static array of method addresses. The
+    // result is a read-only relocated constant; no heap, no runtime init
+    // (vs. the former malloc-per-coercion vtable leak).
+    {
+        mlir::ModuleOp mod = *mlir_module;
+        if (auto specs = mod->getAttrOfType<mlir::ArrayAttr>("logos.vtable_specs")) {
+            mlir::OpBuilder b(&mlir_ctx);
+            auto ptr_t = mlir::LLVM::LLVMPointerType::get(&mlir_ctx);
+            for (auto specAttr : specs) {
+                auto one = mlir::cast<mlir::ArrayAttr>(specAttr);
+                if (one.empty()) continue;
+                auto sym = mlir::cast<mlir::StringAttr>(one[0]).getValue();
+                auto glob = mod.lookupSymbol<mlir::LLVM::GlobalOp>(sym);
+                if (!glob) continue;  // coercion site DCE'd → global unused
+                size_t n = one.size() - 1;
+                auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_t, n ? n : 1);
+                auto& ir = glob.getInitializerRegion();
+                ir.getBlocks().clear();
+                auto* blk = b.createBlock(&ir);
+                b.setInsertionPointToStart(blk);
+                auto loc = glob.getLoc();
+                mlir::Value arr = b.create<mlir::LLVM::ZeroOp>(loc, arr_type);
+                for (size_t i = 0; i < n; ++i) {
+                    auto m = mlir::cast<mlir::StringAttr>(one[i + 1]).getValue();
+                    if (m.empty()) continue;  // object-unsafe sentinel → null slot
+                    if (!mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(m)) continue;
+                    mlir::Value fa = b.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, m);
+                    arr = b.create<mlir::LLVM::InsertValueOp>(
+                        loc, arr, fa, llvm::ArrayRef<int64_t>{(int64_t)i});
+                }
+                b.create<mlir::LLVM::ReturnOp>(loc, arr);
+            }
+            mod->removeAttr("logos.vtable_specs");
+        }
+    }
+
     // ── MLIR LLVM dialect → LLVM IR ────────────────────────────
     mlir::registerBuiltinDialectTranslation(mlir_ctx);
     mlir::registerLLVMDialectTranslation(mlir_ctx);
