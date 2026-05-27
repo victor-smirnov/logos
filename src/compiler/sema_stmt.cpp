@@ -7148,6 +7148,70 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         scrut_type = scrut->type;
     } else { scrut = error_expr(); }
 
+    // Drop a droppable match scrutinee that is a TEMPORARY (an rvalue — a call
+    // result / constructor / `?`, NOT a place like a var / field / index). Rust
+    // drops the matched temporary at the end of the match; Logos otherwise
+    // evaluates it, binds patterns, and never frees it → leak (`match parse(s)
+    // { Ok(_) => … }` leaked the Json). Hoist it into a synth local so it has an
+    // owner: `{ let __ms = <scrut>; match __ms { … }; <drop __ms unless moved> }`.
+    // mark_match_scrutinee_moved (below, now seeing a VarRef) marks __ms moved
+    // when an arm consumes the payload, so the manual drop is suppressed → no
+    // double-free. A PLACE scrutinee is owned elsewhere (its binding drops it),
+    // so it is left alone. Mirrors the existing Hermes / str-pattern scrut hoist.
+    bool temp_scrut_hoisted = false;
+    std::string temp_scrut_var;
+    lir::LStmt temp_scrut_let;
+    // Only hoist a FULLY-CONCRETE scrutinee type. In a generic body `match
+    // self.next() { … }` has scrut_type `Option<T>` (T a TypeVar), which
+    // is_move_type treats as conservatively-droppable; hoisting there carries a
+    // synth temp + drop into EVERY monomorphisation, and an uninhabited
+    // instantiation (e.g. `Option<!>`) then constructs a never-field aggregate
+    // that mlir-gen can't materialise (null field → crash). Mono re-runs drop
+    // collection on the cloned concrete body anyway, so concrete-only hoisting
+    // here loses nothing — and the real-world leak (`match parse(s) { … }`) is
+    // always concrete. (A generic droppable-temp scrutinee that leaks would be
+    // a separate, rarer follow-up handled at the mono layer.)
+    std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        TypeRef tv{t};
+        if (tv.kind() == LogosType::Kind::TypeVar) return true;
+        if (tv.pointee() && mentions_tv(tv.pointee())) return true;
+        if (tv.elem() && mentions_tv(tv.elem())) return true;
+        for (auto a : tv.type_args()) if (mentions_tv(a)) return true;
+        for (auto e : tv.tuple_elems()) if (mentions_tv(e)) return true;
+        return false;
+    };
+    if (scrut && scrut_type && is_move_type(scrut_type) && !mentions_tv(scrut_type)) {
+        namespace ec = lir_schema::expr;
+        auto sk = expr_ref_of(*scrut).kind();
+        bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
+                        sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
+                        sk == ec::Code::IndexRead;
+        if (!is_place) {
+            temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
+            lir::SLet sl;
+            sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
+            sl.value = std::move(scrut);
+            temp_scrut_let = make_stmt_emit(node_line_, std::move(sl));
+            scrut = builder().var_ref(temp_scrut_var, scrut_type);
+            temp_scrut_hoisted = true;
+        }
+    }
+    // Wrap the lowered match in `{ let __ms = <scrut>; <match>; drop __ms? }`
+    // when the scrutinee was a hoisted temporary. Called at every return path.
+    auto finalize = [&](lir::LStmt stmt) -> lir::LStmt {
+        if (!temp_scrut_hoisted) return stmt;
+        auto blk = lir::alloc_block(*cur_prog_);
+        blk->stmts.push_back(std::move(temp_scrut_let));
+        blk->stmts.push_back(std::move(stmt));
+        // The match consumed the temporary iff an arm moved its payload
+        // (mark_match_scrutinee_moved recorded the synth var). Otherwise drop it.
+        if (!moved_vars_.count(temp_scrut_var))
+            if (auto d = make_drop_stmt(temp_scrut_var, VarInfo{scrut_type, false}))
+                blk->stmts.push_back(std::move(*d));
+        return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
+    };
+
     // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
     // carries a real name, not `_`) moves an owned move-type scrutinee into
     // the binding: Rust's by-value match move, `match v { x => … }` ≡
@@ -7709,7 +7773,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         blk->stmts.push_back(std::move(hoist_let_root));
         blk->stmts.push_back(std::move(hoist_let_base));
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
+        return finalize(make_stmt_emit(node_line_, lir::SBlock{std::move(blk)}));
     }
     // G172-1: wrap the str-pattern match in a block that first hoists the
     // scrutinee into `__smatch`, which each arm's `str_eq(__smatch, …)` guard
@@ -7718,9 +7782,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         auto blk = lir::alloc_block(*cur_prog_);
         blk->stmts.push_back(std::move(str_hoist_let));
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
+        return finalize(make_stmt_emit(node_line_, lir::SBlock{std::move(blk)}));
     }
-    return make_stmt_emit(node_line_, std::move(smatch));
+    return finalize(make_stmt_emit(node_line_, std::move(smatch)));
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
