@@ -12538,14 +12538,30 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             if (is_move_type(ec->capture_types[i])) {
                 mark_moved(ec->captures[i]);
-                // G156-7: a DROPPABLE move-capture must still be dropped at its
-                // source's scope exit — the env only borrows the source's
-                // storage and closures carry no capture drop-glue, so suppressing
-                // the drop (via moved_vars_) would leak. Keep it moved (so
-                // use-after-move is enforced) but record it so collect_drops
-                // un-skips the destructor.
-                if (needs_drop(ec->capture_types[i]))
-                    closure_owned_drop_.insert(ec->captures[i]);
+                if (!needs_drop(ec->capture_types[i])) continue;
+                // OWNERSHIP TRANSFER (must match mlir-gen `capture_own_inline`):
+                // an ESCAPING (heap-env) `move` closure capturing a droppable
+                // struct/array/tuple/enum (NOT a borrow / `&dyn`) MOVES it INTO
+                // the env by value and its env drop-glue (__closure_drop__)
+                // drops it — so the ORIGINAL scope must NOT drop it. Leave it
+                // OUT of closure_owned_drop_ (kept in moved_vars_ → not dropped).
+                TypeRef ct{ec->capture_types[i]};
+                bool owned_by_closure = false;
+                if (ec->escapes) {
+                    auto k = ct.kind();
+                    owned_by_closure =
+                        (k == LogosType::Kind::Struct ||
+                         k == LogosType::Kind::ZonedStruct ||
+                         k == LogosType::Kind::Array ||
+                         k == LogosType::Kind::Tuple ||
+                         k == LogosType::Kind::Enum);
+                }
+                if (owned_by_closure) continue;
+                // NON-escaping (stack-env) move closure: the env only borrows the
+                // source's storage (mlir-gen keeps a pointer-repr borrow), so the
+                // SOURCE scope still drops it. Keep it moved (use-after-move
+                // enforced) but record it so collect_drops un-skips the dtor.
+                closure_owned_drop_.insert(ec->captures[i]);
             }
         }
     }

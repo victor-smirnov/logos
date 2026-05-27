@@ -1559,6 +1559,27 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             capture_is_tuple[i] || capture_is_enum[i] || capture_is_dyn[i];
     }
 
+    // ESCAPING move-closure ownership transfer. A heap-env `move` closure OWNS
+    // a struct/array/tuple/enum capture by VALUE (Rust semantics) instead of
+    // borrowing the outer var's address. The capture is moved INTO the env (an
+    // inline-by-value env field, memcpy'd at the creation site), the body binds
+    // it to the inline field address (one level), and the env-glue drops it.
+    // The ORIGINAL scope must NOT drop it (sema removes it from
+    // closure_owned_drop_) — the predicate here MUST match that sema decision
+    // exactly (else double-free / leak). `&dyn` (capture_is_dyn) stays a borrow:
+    // a dyn value-fat-pair is itself a borrowed handle, not owned storage.
+    // The decision needs `heap_env`, computed identically to the creation site.
+    bool heap_env_pre = v.escapes() && !captures.empty();
+    std::vector<bool> capture_own_inline(captures.size(), false);
+    if (heap_env_pre && v.is_move()) {
+        for (size_t i = 0; i < captures.size(); ++i) {
+            if (!capture_is_pointer_repr[i]) continue;
+            if (capture_is_dyn[i]) continue;  // dyn handle is a borrow
+            if (capture_is_mut_ref[i]) continue;
+            capture_own_inline[i] = true;
+        }
+    }
+
     // Build capture struct type.
     // ENV FIELD 0 is reserved for a `drop_glue: ptr` slot (uniform drop
     // protocol — see __closure_drop__ glue). Captures occupy fields 1..N.
@@ -1570,10 +1591,34 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // closure body can load/store through the pointer with the right load
     // result type.
     std::vector<mlir::Type> cap_value_types(captures.size());
+    // Inline aggregate value-type for an owned (moved-in) capture.
+    auto inline_cap_type = [&](TypeRef ct) -> mlir::Type {
+        TypeRef tv{ct};
+        switch (tv.kind()) {
+        case LogosType::Kind::Struct:
+        case LogosType::Kind::ZonedStruct: {
+            auto sit = struct_types_.find(concrete_struct_name(tv));
+            if (sit != struct_types_.end()) return sit->second.llvm_type;
+            return logos_to_mlir(ct);
+        }
+        case LogosType::Kind::Array:
+            return logos_to_mlir(ct);  // already an array aggregate
+        case LogosType::Kind::Tuple:
+            return tuple_llvm_type(ct);
+        case LogosType::Kind::Enum:
+            if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), tv))
+                return te->llvm_type;
+            return logos_to_mlir(ct);
+        default:
+            return logos_to_mlir(ct);
+        }
+    };
     for (size_t i = 0; i < capture_types.size(); ++i) {
         auto ct = capture_types[i];
         mlir::Type ft;
-        if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
+        if (capture_own_inline[i]) {
+            ft = inline_cap_type(ct);  // moved-in: env owns the value inline
+        } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
             ft = ptr_type();
         else
             ft = logos_to_mlir(ct);
@@ -1646,7 +1691,13 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i + 1)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), cap_struct, env_ptr, idx);
-        auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i + 1], fp);
+        // For an owned inline capture the env FIELD *is* the data (one level) —
+        // bind directly to its address; do NOT load a pointer out of it.
+        mlir::Value val;
+        if (!capture_own_inline[i])
+            val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i + 1], fp);
+        else
+            val = fp;
 
         TypeRef ct = capture_types[i];
         bool is_struct_cap = capture_is_struct[i];
@@ -1774,7 +1825,13 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         // non-mut-ref capture whose type needs drop AND the closure is `move`
         // (a non-move closure borrows; only `move` transfers ownership).
         if (!v.is_move()) continue;
-        if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
+        // An owned inline (moved-in) struct/array/tuple/enum capture: the env
+        // OWNS the value, so the env-glue drops it (and the original scope does
+        // NOT — sema's matching ownership transfer). Other pointer-repr / mut-ref
+        // captures borrow and are not dropped here.
+        if (!capture_own_inline[i]) {
+            if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
+        }
         if (capture_types[i] && value_needs_drop(capture_types[i])) {
             capture_drops[i] = true;
             need_glue = true;
@@ -1806,6 +1863,21 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         bool pointer_repr = capture_is_pointer_repr[i];
         bool mut_ref      = capture_is_mut_ref[i];
         auto eit = var_elem_types_.find(captures[i]);
+        if (capture_own_inline[i]) {
+            // Owned move-in: memcpy the capture VALUE into the inline env field.
+            // it->second is the outer var's data address (one level).
+            llvm::SmallVector<mlir::LLVM::GEPArg> oidx{int32_t(0), int32_t(i + 1)};
+            auto dst = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), cap_struct, env_alloca, oidx);
+            auto dl = mlir::DataLayout::closest(
+                builder_.getInsertionBlock()->getParentOp());
+            auto fbytes = (int64_t)dl.getTypeSize(cap_fields[i + 1]);
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(fbytes));
+            builder_.create<mlir::LLVM::MemcpyOp>(
+                loc_, dst, it->second, sz, /*isVolatile=*/false);
+            continue;
+        }
         if (pointer_repr)
             cap_val = it->second;
         else if (mut_ref)
