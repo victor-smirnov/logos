@@ -299,6 +299,14 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
         return false;
     }
     if (k == K::Array) return value_needs_drop(TypeRef(ty).elem());
+    // NOTE: Closure is deliberately NOT reported as needs-drop here. A closure
+    // value held in a struct field / iterator adapter (MapIter etc.) is stored
+    // BY POINTER (one indirection), so a recursive struct-field drop would
+    // misinterpret the 8-byte pointer slot as a {fn,env} pair and crash. The
+    // closure drop is driven NARROWLY: only the owning `Box<Closure>` path
+    // (Box<T>::drop's `let _inner: T = p[0]`, T=Closure, where _inner's value
+    // is a direct pointer to the {fn,env} pair) invokes gen_drop_value(Closure)
+    // — see mono_clone's __typevar_pending__drop Closure branch + SDrop.
     return false;
 }
 
@@ -352,7 +360,9 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     if (!value_ptr || !ty) return;
     auto k = TypeRef(ty).kind();
     if (k == K::Ref || k == K::MutRef || k == K::Ptr) return;
-    if (!value_needs_drop(ty)) return;
+    // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
+    // (which reports false for Closure to avoid struct-field over-recursion).
+    if (k != K::Closure && !value_needs_drop(ty)) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
     // Child VALUE ptr from an aggregate ptr + slot index: inline children
     // (struct/tuple/array) → the GEP; heap children (enum heap ptr) → load it.
@@ -468,6 +478,45 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
             gen_drop_value(child_value_ptr(value_ptr, atype, (int)i, ek), et);
         return;
     }
+    if (k == K::Closure) {
+        // value_ptr → 16-byte {fn, env}. Drop = run the env's drop glue.
+        //   env = closure[1]; if (env != null) { g = env[0];
+        //                                         if (g != null) g(env); }
+        auto ctype = closure_llvm_type();
+        llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(1)};
+        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, value_ptr, ei);
+        auto env = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), ep);
+        auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+        auto env_nn = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::ne, env, null);
+        auto* region = builder_.getBlock()->getParent();
+        auto* e_then = new mlir::Block();
+        auto* e_cont = new mlir::Block();
+        region->push_back(e_then);
+        region->push_back(e_cont);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, env_nn, e_then, e_cont);
+        builder_.setInsertionPointToStart(e_then);
+        // glue = env[0]
+        auto glue = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), env);
+        auto g_nn = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::ne, glue, null);
+        auto* g_then = new mlir::Block();
+        auto* g_cont = new mlir::Block();
+        region->push_back(g_then);
+        region->push_back(g_cont);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, g_nn, g_then, g_cont);
+        builder_.setInsertionPointToStart(g_then);
+        auto void_t = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+        auto fn_t = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()}, false);
+        llvm::SmallVector<mlir::Value> ops{glue, env};
+        builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
+                                            mlir::ValueRange(ops));
+        builder_.create<mlir::cf::BranchOp>(loc_, g_cont);
+        builder_.setInsertionPointToStart(g_cont);
+        builder_.create<mlir::cf::BranchOp>(loc_, e_cont);
+        builder_.setInsertionPointToStart(e_cont);
+        return;
+    }
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
@@ -564,6 +613,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             gen_drop_value(it->second, st);
         } else if (k == K::Array) {
             // Inline array: it->second points at the `[T; N]` storage.
+            gen_drop_value(it->second, st);
+        } else if (k == K::Closure) {
+            // Owned closure value: it->second points at the {fn, env} pair.
+            // gen_drop_value runs the env's drop glue (null-guarded no-op for
+            // non-owning closures).
             gen_drop_value(it->second, st);
         }
     }

@@ -39,7 +39,12 @@ impl<T> Drop for Box<T> {
         unsafe {
             let p: *mut T = self.ptr;
             if p != 0 as *mut T {
-                let _inner: T = p[0];   // move-and-drop on scope exit
+                // Move the boxed value out and drop it in an INNER scope, so
+                // its destructor runs BEFORE the heap block is freed. This
+                // matters when T's drop reads through the value's own storage
+                // (e.g. a closure whose env-drop reads `{fn,env}` still held in
+                // *p): dropping after dealloc(p) would be a use-after-free.
+                { let _inner: T = p[0]; }
                 dealloc(p as *mut u8);
             }
         }

@@ -2454,6 +2454,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
             te && te->llvm_type)
             elem_type = te->llvm_type;
     }
+    // Closure element: the {fn,env} 16-byte pair is stored INLINE (Box<Closure>
+    // / `*mut Closure` slots). Stride by the pair footprint and return the slot
+    // ADDRESS (closures are pointer-represented), not an 8-byte load of the fn
+    // half. Mirrors the inline-struct / enum element convention.
+    if (type && TypeRef(type).kind() == LogosType::Kind::Closure)
+        elem_type = closure_llvm_type();
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);

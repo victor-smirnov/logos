@@ -858,6 +858,54 @@ std::string MLIRGenImpl::emit_drop_in_place_glue(std::string_view type_name,
     return sym;
 }
 
+std::string MLIRGenImpl::emit_closure_drop_glue(
+        const std::string& closure_id,
+        mlir::Type cap_struct,
+        const std::vector<std::string>& /*captures*/,
+        const std::vector<TypeRef>& capture_types,
+        const std::vector<bool>& capture_drops,
+        bool heap_env) {
+    if (auto it = closure_drop_glue_.find(closure_id);
+        it != closure_drop_glue_.end())
+        return it->second;
+    std::string sym = "__closure_drop__";
+    for (char c : closure_id)
+        sym += (std::isalnum((unsigned char)c) || c == '_') ? c : '_';
+    closure_drop_glue_[closure_id] = sym;
+    auto parent_mod =
+        builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    if (parent_mod.lookupSymbol(sym)) return sym;
+    auto* ctx = builder_.getContext();
+    mlir::OpBuilder::InsertionGuard guard(builder_);
+    builder_.setInsertionPointToEnd(parent_mod.getBody());
+    // (env_ptr) -> void as an llvm.func — like the closure body itself — so the
+    // stored AddressOfOp resolves directly. The body freely emits func.call to
+    // regular drop fns / free (same as a closure body, in_llvm_func_=true).
+    auto void_t = mlir::LLVM::LLVMVoidType::get(ctx);
+    auto fn_t = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()}, false);
+    auto fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, sym, fn_t);
+    fn.setLinkage(mlir::LLVM::Linkage::Private);
+    auto* entry = fn.addEntryBlock(builder_);
+    builder_.setInsertionPointToStart(entry);
+    bool saved_in_llvm = in_llvm_func_;
+    in_llvm_func_ = true;
+    auto env_ptr = entry->getArgument(0);
+    // Drop each owned droppable capture (env field i+1).
+    for (size_t i = 0; i < capture_types.size(); ++i) {
+        if (i >= capture_drops.size() || !capture_drops[i]) continue;
+        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i + 1)};
+        auto fp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), cap_struct, env_ptr, gi);
+        gen_drop_value(fp, capture_types[i], /*top_level=*/true);
+    }
+    // Free the heap env (escaping closure).
+    if (heap_env) call_free(env_ptr);
+    in_llvm_func_ = saved_in_llvm;
+    if (!is_terminated(builder_.getBlock()))
+        builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{});
+    return sym;
+}
+
 mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
                                                std::string_view type_name,
                                                TypeRef concrete_ty) {
@@ -1516,7 +1564,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     }
 
     // Build capture struct type.
+    // ENV FIELD 0 is reserved for a `drop_glue: ptr` slot (uniform drop
+    // protocol — see __closure_drop__ glue). Captures occupy fields 1..N.
+    // EVERY closure gets the slot so the drop site is shape-uniform; a
+    // closure with nothing to drop stores null there (drop becomes a no-op).
     llvm::SmallVector<mlir::Type> cap_fields;
+    cap_fields.push_back(ptr_type());  // field 0: drop_glue
     // For mut-ref captures we also remember the scalar value-type so the
     // closure body can load/store through the pointer with the right load
     // result type.
@@ -1594,10 +1647,11 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // Unpack captures from env pointer (arg 0)
     auto env_ptr = entry->getArgument(0);
     for (size_t i = 0; i < captures.size(); ++i) {
-        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+        // Capture i lives at env field i+1 (field 0 is drop_glue).
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i + 1)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), cap_struct, env_ptr, idx);
-        auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i], fp);
+        auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, cap_fields[i + 1], fp);
 
         TypeRef ct = capture_types[i];
         bool is_struct_cap = capture_is_struct[i];
@@ -1628,7 +1682,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             // and never touches the outer variable.
             scope_[captures[i]] = fp;
             let_vars_.insert(captures[i]);
-            var_elem_types_[captures[i]] = cap_fields[i];
+            var_elem_types_[captures[i]] = cap_fields[i + 1];
         } else if (capture_is_mut_ref[i]) {
             // val is a pointer to the outer alloca. Alias scope_[name] to it
             // directly so reads/writes inside the body go through the same
@@ -1637,11 +1691,11 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             let_vars_.insert(captures[i]);
             var_elem_types_[captures[i]] = cap_value_types[i];
         } else {
-            auto alloca = create_entry_alloca(cap_fields[i]);
+            auto alloca = create_entry_alloca(cap_fields[i + 1]);
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
             scope_[captures[i]] = alloca;
             let_vars_.insert(captures[i]);
-            var_elem_types_[captures[i]] = cap_fields[i];
+            var_elem_types_[captures[i]] = cap_fields[i + 1];
         }
     }
 
@@ -1685,6 +1739,26 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // closures stay on the stack regardless (nothing to outlive).
     bool heap_env = v.escapes() && !captures.empty();
     mlir::Value env_alloca;
+    // A closure with NO captures needs no env at all — the body reads nothing
+    // from it. Use a NULL env pointer so the (potentially escaping/boxed)
+    // closure's drop is a clean no-op (the env-null guard short-circuits) and
+    // no dangling stack env is ever read. (Previously a stack `{glue}` env was
+    // allocated even for capture-less closures; once boxed+dropped its drop
+    // read a dangling stack slot → SIGSEGV.)
+    if (captures.empty()) {
+        auto null_env = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+        auto ctype = closure_llvm_type();
+        auto closure_alloca = create_entry_alloca(ctype);
+        auto fn_addr = builder_.create<mlir::LLVM::AddressOfOp>(
+            loc_, ptr_type(), closure_id);
+        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
+        auto fp0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, fi);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, fp0);
+        llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(1)};
+        auto ep0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ctype, closure_alloca, ei);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, null_env, ep0);
+        return closure_alloca;
+    }
     if (heap_env) {
         auto sz = sizeof_struct(cap_struct);
         env_alloca = call_malloc(sz);
@@ -1692,6 +1766,48 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     } else {
         env_alloca = create_entry_alloca(cap_struct);
     }
+
+    // Decide whether this closure needs a drop glue: it does if the env is
+    // HEAP (escaping → the malloc'd env must be freed) OR any capture owns a
+    // droppable VALUE (a `move` by-value capture of a String/Vec/etc. that the
+    // closure now owns and must drop). A by-ref / pointer-repr / mut-ref
+    // capture does NOT own its target → not dropped here.
+    bool need_glue = heap_env;
+    std::vector<bool> capture_drops(captures.size(), false);
+    for (size_t i = 0; i < captures.size(); ++i) {
+        // Only an owned by-VALUE capture is dropped. Pointer-repr categories
+        // (struct/class/array/tuple/enum/dyn) stored a pointer COPY borrowed
+        // from the outer owner — dropping here would double-free. A mut_ref
+        // capture borrows. An env_mut capture owns a scalar copy (Copy → no
+        // drop). So a droppable owned capture is a non-pointer-repr,
+        // non-mut-ref capture whose type needs drop AND the closure is `move`
+        // (a non-move closure borrows; only `move` transfers ownership).
+        if (!v.is_move()) continue;
+        if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
+        if (capture_types[i] && value_needs_drop(capture_types[i])) {
+            capture_drops[i] = true;
+            need_glue = true;
+        }
+    }
+
+    // Store the drop glue symbol address (or null) into env field 0.
+    mlir::Value glue_val;
+    if (need_glue) {
+        std::string glue_sym = emit_closure_drop_glue(
+            closure_id, cap_struct, captures, capture_types, capture_drops,
+            heap_env);
+        glue_val = builder_.create<mlir::LLVM::AddressOfOp>(
+            loc_, ptr_type(), glue_sym);
+    } else {
+        glue_val = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    }
+    {
+        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
+        auto gp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), cap_struct, env_alloca, gi);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, glue_val, gp);
+    }
+
     for (size_t i = 0; i < captures.size(); ++i) {
         auto it = scope_.find(captures[i]);
         if (it == scope_.end()) continue;
@@ -1709,7 +1825,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             cap_val = builder_.create<mlir::LLVM::LoadOp>(loc_, eit->second, it->second);
         else
             cap_val = it->second;
-        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i)};
+        // Capture i lives at env field i+1 (field 0 is drop_glue).
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(i + 1)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), cap_struct, env_alloca, idx);
         builder_.create<mlir::LLVM::StoreOp>(loc_, cap_val, fp);

@@ -3947,7 +3947,11 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             // loop never freed its payload (the P1 Vec-element-drop leak).
             else if (ty && (TypeRef(ty).kind() == LogosType::Kind::Enum ||
                             TypeRef(ty).kind() == LogosType::Kind::Tuple ||
-                            TypeRef(ty).kind() == LogosType::Kind::Array)) {
+                            TypeRef(ty).kind() == LogosType::Kind::Array ||
+                            TypeRef(ty).kind() == LogosType::Kind::Closure)) {
+                // Closure: `let _inner: T = p[0]` in Box<T>::drop with
+                // T=Closure — run the env drop glue (free heap env + owned
+                // captures) via mlir-gen's SDrop Closure branch.
                 drop_fields = true;
             }
         }

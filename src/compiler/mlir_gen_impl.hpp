@@ -308,6 +308,20 @@ private:
     // `type_name`; returns its symbol (always non-empty so it can fill slot 0).
     std::string emit_drop_in_place_glue(std::string_view type_name, TypeRef ty);
 
+    // Closure env drop glue: per closure-id, a `__closure_drop__<id>(env_ptr)`
+    // fn that drops each owned droppable capture (env field i+1) then, if the
+    // env is heap-allocated (escaping closure), frees the env. Stored at env
+    // field 0 and invoked when an OWNED closure value is dropped. Deduped per
+    // closure-id.
+    std::unordered_map<std::string, std::string> closure_drop_glue_;
+    std::string emit_closure_drop_glue(
+        const std::string& closure_id,
+        mlir::Type cap_struct,
+        const std::vector<std::string>& captures,
+        const std::vector<TypeRef>& capture_types,
+        const std::vector<bool>& capture_drops,
+        bool heap_env);
+
     // ── MLIR helpers ─────────────────────────────────────────────
 
     static bool is_terminated(mlir::Block* block) noexcept {
