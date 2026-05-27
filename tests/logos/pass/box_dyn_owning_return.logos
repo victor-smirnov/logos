@@ -1,0 +1,13 @@
+// Owning Box<dyn> returned by value from a fn, bound to an owning local —
+// the value-fat-pair drop must free the boxed concrete (no leak/double-free).
+package test;
+use logos.mem.boxed;
+use logos.mem.string;
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn make() -> Box<dyn Sp> { return box_new(A { name: String::from("r"), x: 42 }) as Box<dyn Sp>; }
+fn main() -> i32 {
+    let b: Box<dyn Sp> = make();
+    return b.v() as i32;
+}

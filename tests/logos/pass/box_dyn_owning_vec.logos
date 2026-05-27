@@ -1,0 +1,23 @@
+// Vec<Box<dyn>>: push owning elements, dispatch via borrow, and on Vec drop
+// each owning element is dropped (free boxed concrete + its String). Moving an
+// owning element out via get() is correctly rejected — borrow instead.
+package test;
+use logos.mem.boxed;
+use logos.mem.string;
+use logos.mem.collections.vec;
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn main() -> i32 {
+    let mut vs: Vec<Box<dyn Sp>> = vec_new::<Box<dyn Sp>>();
+    vs.push(box_new(A { name: String::from("a"), x: 3 }) as Box<dyn Sp>);
+    vs.push(box_new(A { name: String::from("b"), x: 4 }) as Box<dyn Sp>);
+    let mut acc: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < vs.length() {
+        let e = vs.borrow(i);
+        acc = acc + e.v();
+        i = i + 1i64;
+    }
+    return acc as i32;
+}

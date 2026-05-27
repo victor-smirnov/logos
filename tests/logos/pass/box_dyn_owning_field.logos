@@ -1,0 +1,14 @@
+// Owning Box<dyn> stored in a struct field — the struct's field-recursion drop
+// must drop the owning trait object (free its boxed concrete + that concrete's
+// owned String).
+package test;
+use logos.mem.boxed;
+use logos.mem.string;
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct Holder { b: Box<dyn Sp> }
+fn main() -> i32 {
+    let h: Holder = Holder { b: box_new(A { name: String::from("r"), x: 7 }) as Box<dyn Sp> };
+    return h.b.v() as i32;
+}
