@@ -153,9 +153,8 @@
     TYPE_PARAM  = 90
     GENERIC_CALL = 91
     GENERIC_INST = 92
-    CLASS        = 93
-    NEW_EXPR     = 94
-    DELETE_STMT  = 95
+    // 93-95 retired: CLASS decl / NEW_EXPR / DELETE_STMT — the C++-style
+    // `class`/`new`/`delete` feature, removed (non-Rust; heap = Box).
     ABSTRACT_FN  = 96
     STATIC_FN    = 97
     STATIC_CALL  = 98

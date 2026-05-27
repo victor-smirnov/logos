@@ -903,7 +903,7 @@ private:
         return fn;
     }
 
-    // ── Struct/class/enum type collection (inline) ────────────────────────
+    // ── Struct/enum type collection (inline) ────────────────────────
     void collect_type_for_structs(TypeRef tr) {
         if (!tr) return;
         switch (tr.kind()) {

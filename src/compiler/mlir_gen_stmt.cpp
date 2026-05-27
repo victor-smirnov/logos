@@ -1940,7 +1940,7 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
             }
         }
         if (!ptr || type_name.empty()) {
-            std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct/class\n",
+            std::fprintf(stderr, "mlir_gen: field write: '%s' is not a struct\n",
                          receiver.c_str());
             return;
         }
@@ -2313,7 +2313,7 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
     auto* val_le = lexpr_of(v.value());
     if (!idx_le || !val_le) return;
 
-    // Get pointer to the struct/class.
+    // Get pointer to the struct.
     auto struct_ptr = get_struct_ptr(receiver);
     if (!struct_ptr) return;
 

@@ -4864,7 +4864,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto tname = std::string(str_of(node.get(la::NAME.code)));
         if (!traits_.count(tname))
             error(std::format("unknown trait '{}' in &tagged type", tname));
-        // Resolve the tag system type (used to check it's a struct/class).
+        // Resolve the tag system type (used to check it's a struct).
         TypeRef ts_type = nullptr;
         if (node.has_key(la::TYPE.code))
             ts_type = resolve_type(map_of(node.get(la::TYPE.code)));

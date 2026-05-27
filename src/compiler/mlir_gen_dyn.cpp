@@ -1541,7 +1541,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         const auto& name = captures[i];
         if (!v.capture_is_mut(i)) continue;
         // Only meaningful for scalar (let-bound) captures: the existing
-        // pointer-repr categories (struct/class/etc.) already store a
+        // pointer-repr categories (struct/etc.) already store a
         // pointer, so mutations propagate without extra plumbing.
         if (!let_vars_.count(name)) continue;
         if (v.is_move()) capture_is_env_mut[i] = true;  // own a mutable copy
@@ -1767,7 +1767,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     std::vector<bool> capture_drops(captures.size(), false);
     for (size_t i = 0; i < captures.size(); ++i) {
         // Only an owned by-VALUE capture is dropped. Pointer-repr categories
-        // (struct/class/array/tuple/enum/dyn) stored a pointer COPY borrowed
+        // (struct/array/tuple/enum/dyn) stored a pointer COPY borrowed
         // from the outer owner — dropping here would double-free. A mut_ref
         // capture borrows. An env_mut capture owns a scalar copy (Copy → no
         // drop). So a droppable owned capture is a non-pointer-repr,

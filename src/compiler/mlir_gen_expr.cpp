@@ -1918,7 +1918,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         v = gen_expr(*arg_les[i]);
         if (!v) return nullptr;
     arg_push:
-        // Coerce concrete struct/class → &dyn Trait if param expects it.
+        // Coerce concrete struct → &dyn Trait if param expects it.
         // Box<T> is laid out as { *mut T } so the box value *is* the data pointer;
         // use T as the vtable key so the impl on T (not Box<T>) is looked up.
         if (fpit != fn_param_types_.end() && i < fpit->second.size()) {

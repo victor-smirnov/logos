@@ -1713,7 +1713,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         }
     }
     if (rhs && ann != nullptr) {
-        // impl Trait annotation: any concrete struct/class that was returned from an
+        // impl Trait annotation: any concrete struct that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
         // concrete rhs type so method calls work.
         bool ann_is_impl = TypeRef(ann).kind() == LogosType::Kind::ImplTrait;

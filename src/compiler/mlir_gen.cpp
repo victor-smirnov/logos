@@ -745,7 +745,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
             }
         }
         // Check if this is a pointer-to-struct variable (e.g. *mut Point).
-        // The logical type is Ptr/Ref/MutRef with pointee=Struct/Class.
+        // The logical type is Ptr/Ref/MutRef with pointee=Struct.
         if (recv.type) {
             TypeRef tv{recv.type};
             if (type_str(recv.type) == "AnyVal") {
@@ -834,7 +834,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
                         }
                     }
                 }
-                std::fprintf(stderr, "mlir_gen: field '%s' is not a struct/class type\n",
+                std::fprintf(stderr, "mlir_gen: field '%s' is not a struct type\n",
                              field.c_str());
                 return {nullptr, {}};
             }
@@ -875,7 +875,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
         ptr = spill_to_alloca(ptr);
     if (recv.type) {
         TypeRef t = recv.type;
-        // Strip one level of pointer/reference to get the struct/class type
+        // Strip one level of pointer/reference to get the struct type
         TypeRef tv{t};
         if ((tv.kind() == LogosType::Kind::Ptr ||
              tv.kind() == LogosType::Kind::Ref ||
@@ -885,7 +885,7 @@ std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& re
             tv.kind() == LogosType::Kind::ZonedStruct)
             return {ptr, mlir_struct_key(t)};
     }
-    std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct/class access\n");
+    std::fprintf(stderr, "mlir_gen: unsupported receiver kind for struct access\n");
     return {nullptr, {}};
 }
 

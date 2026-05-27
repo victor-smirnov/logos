@@ -336,7 +336,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
             }
         }
 
-        // Track struct / class type for parameters (including 'self').
+        // Track struct type for parameters (including 'self').
         if (p.type) {
             TypeRef pv{p.type};
             std::string sname;
