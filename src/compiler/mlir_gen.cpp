@@ -688,18 +688,12 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
 }
 
 // Resolve receiver expr → (object_ptr, type_name).
-// Works for both structs (var_struct_) and classes (var_class_).
 std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& recv) {
     namespace ec = lir_schema::expr;
     auto recv_ref = expr_ref_of(recv);
     auto recv_kind = recv_ref ? recv_ref.kind() : ec::Code(0);
     if (recv_kind == ec::Code::VarRef) {
         std::string name(lir_view::EVarRefView{recv_ref}.name());
-        // Check class first
-        auto cit = var_class_.find(name);
-        if (cit != var_class_.end())
-            return {get_struct_ptr(name), cit->second};
-        // Then struct
         auto sit = var_struct_.find(name);
         if (sit != var_struct_.end())
             return {get_struct_ptr(name), sit->second};

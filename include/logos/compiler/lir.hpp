@@ -318,13 +318,6 @@ struct ECast {
     std::string hermes_build_fn = {};  // empty = ordinary numeric/pointer cast
 };
 
-// Class heap allocation: new ClassName { field: val, ... }
-// Returns a *mut ClassName (pointer to heap-allocated class instance).
-struct ENew {
-    std::string class_name;
-    std::vector<std::pair<std::string, LExprPtr>> fields;
-};
-
 // if cond { then_val } else { else_val }  — used when if is an expression.
 // Both branches must yield the same type.
 struct EIfExpr {
@@ -575,8 +568,6 @@ struct SChainFieldWrite {
 };
 
 struct SExprStmt  { LExprPtr expr = nullptr; };
-
-struct SDelete    { LExprPtr expr = nullptr; };   // delete ptr — call free on a class pointer
 
 // *ptr = value;  — write through a raw pointer
 struct SDerefWrite { LExprPtr ptr = nullptr; LExprPtr value = nullptr; };

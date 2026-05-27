@@ -738,34 +738,6 @@ struct EStructLitView {
     }
 };
 
-struct ENewView {
-    ExprRef self;
-    std::string_view class_name() const noexcept { return detail::read_string(self, ek::CLASS_NAME.code); }
-    template <class F> void each_field_value(F&& f) const noexcept {
-        detail::for_each_field_value(self, std::forward<F>(f));
-    }
-    // Iterate (name, value) pairs from parallel FIELD_NAMES / FIELD_VALUES arrays.
-    // F is called as f(std::string_view name, ExprRef value).
-    template <class F> void each_field(F&& f) const noexcept {
-        auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
-        auto values_av = self.mirror()->get(ek::FIELD_VALUES.code, self.base());
-        if (names_av.is_null() || values_av.is_null()) return;
-        uint64_t n = std::min(
-            names_av.as_ptr<const hermes::ObjectArray>(self.base())->size(),
-            values_av.as_ptr<const hermes::ObjectArray>(self.base())->size());
-        for (uint64_t i = 0; i < n; ++i) {
-            auto nv = names_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
-            auto vv = values_av.as_ptr<const hermes::ObjectArray>(self.base())->get(i, self.base());
-            std::string_view name;
-            if (!nv.is_null())
-                name = nv.as_ptr<const hermes::ArenaString>(self.base())->view();
-            ExprRef value;
-            if (!vv.is_null()) value = detail::make_sub_ref<ExprRef>(self, vv.to_offset());
-            f(name, value);
-        }
-    }
-};
-
 struct EArrLitView {
     ExprRef self;
     template <class F> void each_elem(F&& f) const noexcept {
@@ -1572,11 +1544,6 @@ struct STupleWriteView {
     TypeRef          recv_type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::RECV_TYPE.code, pool);
     }
-};
-
-struct SDeleteView {
-    StmtRef self;
-    ExprRef expr() const noexcept { return detail::stmt_sub_expr(self, sk::EXPR.code); }
 };
 
 struct SIfView {

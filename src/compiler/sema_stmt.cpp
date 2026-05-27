@@ -1909,7 +1909,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann_is_box_dyn && !scope_.empty() && rhs) {
         using C = lir_schema::expr::Code;
         auto rk = expr_ref_of(*rhs).kind();
-        bool owns = rk == C::Cast || rk == C::Call || rk == C::New;
+        bool owns = rk == C::Cast || rk == C::Call;
         if (owns) {
             auto sname = std::string(name);
             if (auto vit = scope_.back().vars.find(sname); vit != scope_.back().vars.end())

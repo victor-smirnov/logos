@@ -702,7 +702,7 @@ class BorrowChecker {
                 if (ik == EK::LitInt || ik == EK::LitFloat ||
                     ik == EK::LitBool || ik == EK::LitStr ||
                     ik == EK::StructLit || ik == EK::TupleLit ||
-                    ik == EK::ArrLit || ik == EK::New || ik == EK::Call ||
+                    ik == EK::ArrLit || ik == EK::Call ||
                     ik == EK::MethodCall || ik == EK::ClosureCall ||
                     ik == EK::EnumLit || ik == EK::EnumLitData)
                     return {{}, true};  // literal / fresh / call result → dangling
@@ -1099,9 +1099,6 @@ class BorrowChecker {
             case Code::StructLit:
                 EStructLitView{e}.each_field_value([&](ExprRef fv){ scan_uses_expr(fv, line); });
                 break;
-            case Code::New:
-                ENewView{e}.each_field_value([&](ExprRef fv){ scan_uses_expr(fv, line); });
-                break;
             case Code::ArrLit:
                 EArrLitView{e}.each_elem([&](ExprRef el){ scan_uses_expr(el, line); });
                 break;
@@ -1196,9 +1193,6 @@ class BorrowChecker {
                 scan_uses_expr(v.value(), ln);
                 break;
             }
-            case Code::Delete:
-                scan_uses_expr(SDeleteView{sr}.expr(), ln);
-                break;
             case Code::If: {
                 SIfView v{sr};
                 scan_uses_expr(v.cond(), ln);
@@ -1475,11 +1469,6 @@ class BorrowChecker {
                 visit(v.value(), /*consuming=*/true, ln);
                 break;
             }
-
-            // ── delete ptr ───────────────────────────────────────────────
-            case Code::Delete:
-                visit(SDeleteView{sr}.expr(), /*consuming=*/true, ln);
-                break;
 
             // ── SDrop — compiler-generated, no-op in borrow checker ───────
             case Code::Drop:
@@ -1888,13 +1877,6 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // ── Struct literal ─────────────────────────────────────────────
         case Code::StructLit:
             EStructLitView{e}.each_field_value([&](ExprRef fv) {
-                visit(fv, /*consuming=*/true, line);
-            });
-            break;
-
-        // ── New: new Foo { ... } ───────────────────────────────────────
-        case Code::New:
-            ENewView{e}.each_field_value([&](ExprRef fv) {
                 visit(fv, /*consuming=*/true, line);
             });
             break;

@@ -505,18 +505,6 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
-    hermes::arena_offset_t emit_new_direct(TypeRef ty,
-                                            std::string_view class_name,
-                                            const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
-        auto n_av = put_string(class_name);
-        auto fa   = struct_fields(fields);
-        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::New));
-        put(map_off, ek::CLASS_NAME,   n_av);
-        put(map_off, ek::FIELD_NAMES,  fa.names);
-        put(map_off, ek::FIELD_VALUES, fa.values);
-        if (ty) put(map_off, ec::TYPE, type_av(ty));
-        return map_off;
-    }
     hermes::arena_offset_t emit_format_call_direct(TypeRef ty,
                                                     const lir::LExprPtr& fmt,
                                                     const std::vector<lir::LExprPtr>& args,
@@ -739,14 +727,6 @@ public:
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Match));
         put(map_off, sk::SCRUT, scrut_av);
         put(map_off, sk::ARMS,  arms_av);
-        put_line(map_off, line);
-        return map_off;
-    }
-    hermes::arena_offset_t emit_delete_direct(uint32_t line,
-                                               const lir::LExprPtr& expr) {
-        auto expr_avv = expr_av(expr);
-        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Delete));
-        put(map_off, sk::EXPR, expr_avv);
         put_line(map_off, line);
         return map_off;
     }
@@ -1260,7 +1240,7 @@ private:
     // emit each as a small TinyObjectMap and return an array of AnyVal.
     hermes::AnyVal expr_arm_array(const std::vector<lir::EMatchArm>& v);
 
-    // EStructLit / ENew fields: emit FIELD_NAMES + FIELD_VALUES parallel arrays
+    // EStructLit fields: emit FIELD_NAMES + FIELD_VALUES parallel arrays
     // and write them to the parent map. Returns the two arrays as a pair.
     struct FieldArrays {
         hermes::AnyVal names;
@@ -1880,11 +1860,6 @@ hermes::arena_offset_t lir_mirror_emit_match_expr(lir::LProgram& prog, TypeRef t
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_match_expr_direct(ty, scrut, arms);
 }
-hermes::arena_offset_t lir_mirror_emit_new(lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields) {
-    auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_new_direct(ty, class_name, fields);
-}
 hermes::arena_offset_t lir_mirror_emit_format_call(lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
@@ -1971,11 +1946,6 @@ hermes::arena_offset_t lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t 
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
-}
-hermes::arena_offset_t lir_mirror_emit_delete(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr) {
-    auto& arena = prog.type_pool.arena_or_init();
-    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_delete_direct(line, expr);
 }
 hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body) {
     auto& arena = prog.type_pool.arena_or_init();

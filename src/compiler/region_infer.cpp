@@ -394,11 +394,6 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
                     walk_expr(fv, "");
                 });
                 return;
-            case ECode::New:
-                ENewView{e}.each_field_value([&](ExprRef fv){
-                    walk_expr(fv, "");
-                });
-                return;
             case ECode::ArrLit:
                 EArrLitView{e}.each_elem([&](ExprRef el){ walk_expr(el, ""); });
                 return;
@@ -479,9 +474,6 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
         }
         case SCode::TupleWrite:
             walk_expr(STupleWriteView{sr}.value(), "");
-            break;
-        case SCode::Delete:
-            walk_expr(SDeleteView{sr}.expr(), "");
             break;
         case SCode::If:
             walk_expr(SIfView{sr}.cond(), "");
@@ -590,9 +582,6 @@ void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
             case ECode::StructLit:
                 EStructLitView{e}.each_field_value([&](ExprRef fv){ walk_use(fv); });
                 return;
-            case ECode::New:
-                ENewView{e}.each_field_value([&](ExprRef fv){ walk_use(fv); });
-                return;
             case ECode::ArrLit:
                 EArrLitView{e}.each_elem([&](ExprRef el){ walk_use(el); });
                 return;
@@ -683,9 +672,6 @@ void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
             walk_use(v.value());
             break;
         }
-        case SCode::Delete:
-            walk_use(SDeleteView{sr}.expr());
-            break;
         case SCode::If:
             walk_use(SIfView{sr}.cond());
             break;

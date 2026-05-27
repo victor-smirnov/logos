@@ -43,7 +43,7 @@ enum class Code : int32_t {
     StructLit     = 16,
     ArrLit        = 17,
     Cast          = 18,
-    New           = 19,
+    // 19 retired: C++-style `new` heap-alloc expr (removed; no Rust equivalent)
     IfExpr        = 20,
     TupleLit      = 21,
     TupleIndex    = 22,
@@ -90,7 +90,7 @@ enum class Code : int32_t {
     FieldIndexWrite = 12,
     ExprStmt        = 13,
     Match           = 14,
-    Delete          = 15,
+    // 15 retired: C++-style `delete` stmt (removed; no Rust equivalent)
     ForEach         = 16,
     DerefWrite      = 17,
     Drop            = 18,
@@ -168,7 +168,7 @@ inline constexpr Key ENUM_NAME         {"ENUM_NAME",        6};   // Varchar
 inline constexpr Key VARIANT           {"VARIANT",          7};   // Varchar
 inline constexpr Key DISC              {"DISC",             8};   // i64 (discriminant)
 inline constexpr Key STRUCT_NAME       {"STRUCT_NAME",      9};   // Varchar
-inline constexpr Key CLASS_NAME        {"CLASS_NAME",      10};   // Varchar (ENew)
+// 10 retired (was CLASS_NAME, used by the removed C++-style `new` expr)
 
 // Operators
 inline constexpr Key OP                {"OP",              11};   // Varchar (binop, unary)
@@ -328,7 +328,7 @@ inline constexpr Key PTR               {"PTR",             18};
 inline constexpr Key SCRUT             {"SCRUT",           19};
 inline constexpr Key ELSE_DIVERGE      {"ELSE_DIVERGE",    20};   // RelPtr<LBlock> (SLetElse)
 inline constexpr Key ITER              {"ITER",            21};
-inline constexpr Key EXPR              {"EXPR",            22};   // SExprStmt / SDelete
+inline constexpr Key EXPR              {"EXPR",            22};   // SExprStmt
 
 // Sub-pattern (SLetElse)
 inline constexpr Key PAT               {"PAT",             23};   // RelPtr<Pattern>

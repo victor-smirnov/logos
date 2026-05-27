@@ -101,7 +101,6 @@ mlir::Value MLIRGenImpl::gen_expr(lir_view::ExprRef er) {
     case C::StructLit:  return gen_expr_kind(lir_view::EStructLitView{er},  ty);
     case C::ArrLit:     return gen_expr_kind(lir_view::EArrLitView{er},     ty);
     case C::Cast:       return gen_expr_kind(lir_view::ECastView{er},       ty);
-    case C::New:        return gen_expr_kind(lir_view::ENewView{er},        ty);
     case C::IfExpr:     return gen_expr_kind(lir_view::EIfExprView{er},     ty);
     case C::TupleLit:   return gen_expr_kind(lir_view::ETupleLitView{er},   ty);
     case C::TupleIndex: return gen_expr_kind(lir_view::ETupleIndexView{er}, ty);
@@ -380,8 +379,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     // level, like a Struct) — return it. (Legacy mutable-enum ptr-slot is gone.)
     if (var_tagged_enum_ptr_.count(name))
         return it->second;
-    // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
-    if (var_struct_.count(name) || var_class_.count(name))
+    // Struct/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
+    if (var_struct_.count(name))
         return get_struct_ptr(name);
     if (var_subscript_.count(name) || var_tuple_.count(name) ||
         var_tagged_enum_.count(name) || var_dyn_trait_.count(name))
@@ -2960,47 +2959,6 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
 
     std::fprintf(stderr, "mlir_gen: unsupported cast\n");
     return nullptr;
-}
-
-// ---------------------------------------------------------------------------
-// Class new
-// ---------------------------------------------------------------------------
-
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ENewView v, TypeRef) {
-    std::string class_name(v.class_name());
-    auto sit = struct_types_.find(class_name);
-    if (sit == struct_types_.end()) {
-        std::fprintf(stderr, "mlir_gen: unknown class '%s'\n", class_name.c_str());
-        return nullptr;
-    }
-    auto& info = sit->second;
-
-    // Allocate heap memory: malloc(sizeof(ClassType))
-    mlir::Value size;
-    if (info.fields.empty()) {
-        // Zero-field class — allocate 1 byte
-        size = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
-    } else {
-        size = sizeof_struct(info.llvm_type);
-    }
-    auto raw = call_malloc(size);
-    if (!raw) return nullptr;
-
-    // Initialize user fields
-    bool ok = true;
-    v.each_field([&](std::string_view fname, lir_view::ExprRef vr) {
-        if (!ok) return;
-        auto* fv_le = lexpr_of(vr);
-        if (!fv_le) { ok = false; return; }
-        auto val = gen_expr(*fv_le);
-        if (!val) { ok = false; return; }
-        auto gep = gep_field(raw, info, std::string(fname));
-        if (!gep) { ok = false; return; }
-        builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
-    });
-    if (!ok) return nullptr;
-
-    return raw;  // *mut ClassName
 }
 
 // ---------------------------------------------------------------------------

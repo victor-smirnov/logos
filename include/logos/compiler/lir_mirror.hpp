@@ -131,7 +131,6 @@ hermes::arena_offset_t lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRe
 hermes::arena_offset_t lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
 hermes::arena_offset_t lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& callee, const std::vector<lir::LExprPtr>& args);
 hermes::arena_offset_t lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& scrut, const std::vector<lir::EMatchArm>& arms);
-hermes::arena_offset_t lir_mirror_emit_new          (lir::LProgram& prog, TypeRef ty, std::string_view class_name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields);
 hermes::arena_offset_t lir_mirror_emit_format_call  (lir::LProgram& prog, TypeRef ty, const lir::LExprPtr& fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types);
 hermes::arena_offset_t lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner);
 
@@ -153,7 +152,6 @@ hermes::arena_offset_t lir_mirror_emit_index_write       (lir::LProgram& prog, u
 hermes::arena_offset_t lir_mirror_emit_field_index_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, const lir::LExprPtr& index, const lir::LExprPtr& value);
 hermes::arena_offset_t lir_mirror_emit_expr_stmt         (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr);
 hermes::arena_offset_t lir_mirror_emit_match_stmt        (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& scrut, const std::vector<lir::LMatchArm>& arms);
-hermes::arena_offset_t lir_mirror_emit_delete            (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& expr);
 hermes::arena_offset_t lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body);
 hermes::arena_offset_t lir_mirror_emit_deref_write       (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value);
 hermes::arena_offset_t lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {});

@@ -717,8 +717,6 @@ private:
                 s.mirror_offset_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
             } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
                 s.mirror_offset_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
-            } else if constexpr (std::is_same_v<KT, lir::SDelete>) {
-                s.mirror_offset_ = lir_mirror_emit_delete(p, line, k.expr);
             } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
                 s.mirror_offset_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {

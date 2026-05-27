@@ -1475,7 +1475,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         auto saved_elems      = var_elem_types_;
         auto saved_ret        = cur_ret_type_;
         auto saved_struct     = var_struct_;
-        auto saved_class      = var_class_;
         auto saved_subscript  = var_subscript_;
         auto saved_tuple      = var_tuple_;
         auto saved_te         = var_tagged_enum_;
@@ -1487,7 +1486,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         auto saved_entry_block = cur_entry_block_;
         cur_entry_block_ = entry;
         scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
-        var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
+        var_struct_.clear(); var_subscript_.clear();
         var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
         var_local_ptrs_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
         cur_ret_type_ = ret_t ? llvm_fn_ret_type(ret_t) : mlir::Type{};
@@ -1507,7 +1506,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         var_elem_types_     = saved_elems;
         cur_ret_type_       = saved_ret;
         var_struct_         = saved_struct;
-        var_class_          = saved_class;
         var_subscript_      = saved_subscript;
         var_tuple_          = saved_tuple;
         var_tagged_enum_    = saved_te;
@@ -1523,7 +1521,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     }
 
     std::vector<bool> capture_is_struct(captures.size(), false);
-    std::vector<bool> capture_is_class(captures.size(), false);
     std::vector<bool> capture_is_array(captures.size(), false);
     std::vector<bool> capture_is_tuple(captures.size(), false);
     std::vector<bool> capture_is_enum(captures.size(), false);
@@ -1553,13 +1550,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     for (size_t i = 0; i < captures.size(); ++i) {
         const auto& name = captures[i];
         capture_is_struct[i] = var_struct_.count(name);
-        capture_is_class[i]  = var_class_.count(name);
         capture_is_array[i]  = var_subscript_.count(name);
         capture_is_tuple[i]  = var_tuple_.count(name);
         capture_is_enum[i]   = var_tagged_enum_.count(name);
         capture_is_dyn[i]    = var_dyn_trait_.count(name);
         capture_is_pointer_repr[i] =
-            capture_is_struct[i] || capture_is_class[i] || capture_is_array[i] ||
+            capture_is_struct[i] || capture_is_array[i] ||
             capture_is_tuple[i] || capture_is_enum[i] || capture_is_dyn[i];
     }
 
@@ -1625,7 +1621,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     auto saved_elems       = var_elem_types_;
     auto saved_ret         = cur_ret_type_;
     auto saved_struct      = var_struct_;
-    auto saved_class       = var_class_;
     auto saved_subscript   = var_subscript_;
     auto saved_tuple       = var_tuple_;
     auto saved_te          = var_tagged_enum_;
@@ -1637,7 +1632,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     auto saved_entry_block = cur_entry_block_;
     cur_entry_block_ = entry;
     scope_.clear(); let_vars_.clear(); var_elem_types_.clear();
-    var_struct_.clear(); var_class_.clear(); var_subscript_.clear();
+    var_struct_.clear(); var_subscript_.clear();
     var_tuple_.clear(); var_tagged_enum_.clear(); var_tagged_enum_ptr_.clear();
     var_local_ptrs_.clear(); var_dyn_trait_.clear(); dyn_ptr_to_handle_vars_.clear(); loop_stack_.clear();
 
@@ -1655,18 +1650,15 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
 
         TypeRef ct = capture_types[i];
         bool is_struct_cap = capture_is_struct[i];
-        bool is_class_cap  = capture_is_class[i];
         bool is_array_cap  = capture_is_array[i];
         bool is_tuple_cap  = capture_is_tuple[i];
         bool is_enum_cap   = capture_is_enum[i];
         bool is_dyn_cap    = capture_is_dyn[i];
-        if (is_struct_cap || is_class_cap || is_array_cap ||
+        if (is_struct_cap || is_array_cap ||
             is_tuple_cap || is_enum_cap || is_dyn_cap) {
             scope_[captures[i]] = val;
             if (is_struct_cap)
                 var_struct_[captures[i]] = std::string(TypeRef(ct).struct_name());
-            else if (is_class_cap)
-                var_class_[captures[i]] = std::string(TypeRef(ct).struct_name());
             else if (is_array_cap)
                 var_subscript_[captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
             else if (is_tuple_cap)
@@ -1719,7 +1711,6 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     var_elem_types_     = saved_elems;
     cur_ret_type_       = saved_ret;
     var_struct_         = saved_struct;
-    var_class_          = saved_class;
     var_subscript_      = saved_subscript;
     var_tuple_          = saved_tuple;
     var_tagged_enum_    = saved_te;

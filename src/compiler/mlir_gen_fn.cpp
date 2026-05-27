@@ -211,7 +211,6 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     let_vars_.clear();
     var_elem_types_.clear();
     var_struct_.clear();
-    var_class_.clear();
     var_subscript_.clear();
     var_slice_.clear();
     var_tuple_.clear();

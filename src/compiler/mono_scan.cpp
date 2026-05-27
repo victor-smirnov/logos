@@ -106,9 +106,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
     case SCode::ExprStmt:
         scan_expr(lir_view::SExprStmtView{s}.expr());
         break;
-    case SCode::Delete:
-        scan_expr(lir_view::SDeleteView{s}.expr());
-        break;
     case SCode::Match: {
         lir_view::SMatchView v{s};
         scan_expr(v.scrut());
@@ -269,10 +266,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         }
         break;
     }
-    case ECode::New:
-        lir_view::ENewView{e}.each_field_value(
-            [&](lir_view::ExprRef fv) { scan_expr(fv); });
-        break;
     case ECode::IfExpr: {
         lir_view::EIfExprView v{e};
         scan_expr(v.cond());

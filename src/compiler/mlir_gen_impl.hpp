@@ -213,9 +213,6 @@ private:
     // Function name → Logos-level parameter types (for dyn coercion at call sites).
     std::unordered_map<std::string, std::vector<TypeRef>> fn_param_types_;
 
-    // Per-function: tracks class name for variables/params holding class pointers.
-    std::unordered_map<std::string, std::string>       var_class_;
-
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;
     std::unordered_set<std::string>               let_vars_;
@@ -637,7 +634,6 @@ private:
     void gen_stmt_kind(lir_view::SFieldIndexWriteView v);
     void gen_stmt_kind(lir_view::SExprStmtView v);
     void gen_stmt_kind(lir_view::SMatchView v);
-    void gen_stmt_kind(lir_view::SDeleteView v);
     void gen_stmt_kind(lir_view::SForEachView v);
     void gen_stmt_kind(lir_view::SBlockView v);
     void gen_stmt_kind(lir_view::SDropView v);
@@ -681,7 +677,6 @@ private:
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);
     void gen_match(lir_view::SMatchView v);
-    void gen_delete(lir_view::SDeleteView v);
 
     // ── Expressions ───────────────────────────────────────────────
     mlir::Value gen_expr(const LExpr& e);
@@ -711,7 +706,6 @@ private:
     mlir::Value gen_expr_kind(lir_view::EStructLitView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EArrLitView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ECastView v, TypeRef type);
-    mlir::Value gen_expr_kind(lir_view::ENewView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EIfExprView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EMatchExprView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::ETupleLitView v, TypeRef type);

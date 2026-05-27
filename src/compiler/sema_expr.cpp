@@ -12336,9 +12336,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             case EC::ArrLit:
                 lir_view::EArrLitView{e}.each_elem([&](lir_view::ExprRef el){ scan_captures_v(el); });
                 break;
-            case EC::New:
-                lir_view::ENewView{e}.each_field_value([&](lir_view::ExprRef f){ scan_captures_v(f); });
-                break;
             case EC::IfExpr: {
                 auto v = lir_view::EIfExprView{e};
                 scan_captures_v(v.cond()); scan_captures_v(v.then_val()); scan_captures_v(v.else_val()); break;
@@ -12487,7 +12484,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 });
                 break;
             }
-            case SC::Delete:     scan_captures_v(lir_view::SDeleteView{s}.expr()); break;
             case SC::ForEach: {
                 auto v = lir_view::SForEachView{s};
                 scan_captures_v(v.iter()); scan_block_v(v.body()); break;

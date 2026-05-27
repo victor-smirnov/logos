@@ -137,7 +137,6 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         // Evict stale shape-tracking (the name may be re-bound from an outer
         // different-shape value).
         var_struct_.erase(bindings[bi]);
-        var_class_.erase(bindings[bi]);
         var_subscript_.erase(bindings[bi]);
         var_tuple_.erase(bindings[bi]);
         var_tagged_enum_.erase(bindings[bi]);
@@ -186,7 +185,6 @@ void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
     case C::FieldIndexWrite: gen_stmt_kind(lir_view::SFieldIndexWriteView{sr}); return;
     case C::ExprStmt:        gen_stmt_kind(lir_view::SExprStmtView{sr}); return;
     case C::Match:           gen_stmt_kind(lir_view::SMatchView{sr}); return;
-    case C::Delete:          gen_stmt_kind(lir_view::SDeleteView{sr}); return;
     case C::ForEach:         gen_stmt_kind(lir_view::SForEachView{sr}); return;
     case C::DerefWrite:      gen_stmt_kind(lir_view::SDerefWriteView{sr}); return;
     case C::Drop:            gen_stmt_kind(lir_view::SDropView{sr}); return;
@@ -225,7 +223,6 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SIndexWriteView v)      { gen_index_wr
 void MLIRGenImpl::gen_stmt_kind(lir_view::SFieldIndexWriteView v) { gen_field_index_write(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v)   { if (auto* le = lexpr_of(v.expr())) gen_expr(*le); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SDeleteView v)     { gen_delete(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     // A destructure-`let` (`let Pair{a,b} = e` / `let (a,b) = e`) lowers to a
@@ -1893,7 +1890,6 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     let_vars_.erase(s.var);
     var_elem_types_.erase(s.var);
     var_struct_.erase(s.var);
-    var_class_.erase(s.var);
 }
 
 // ---------------------------------------------------------------------------
@@ -1909,15 +1905,11 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
     mlir::Value ptr;
     std::string type_name;
 
-    // Check if receiver is a direct struct/class var.
+    // Check if receiver is a direct struct var.
     auto sit = var_struct_.find(receiver);
-    auto cit = sit == var_struct_.end() ? var_class_.find(receiver) : var_class_.end();
     if (sit != var_struct_.end()) {
         ptr = get_struct_ptr(receiver);
         type_name = sit->second;
-    } else if (cit != var_class_.end()) {
-        ptr = get_struct_ptr(receiver);
-        type_name = cit->second;
     } else {
         // May be a pointer-to-struct variable (e.g. *mut Point or &mut Point).
         // var_local_ptrs_ stores the pointee MLIR type for raw-pointer locals.
@@ -2042,10 +2034,6 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
             if (vsi != var_struct_.end()) resolved_name = vsi->second;
         }
         if (resolved_name.empty()) {
-            auto vci = var_class_.find(receiver);
-            if (vci != var_class_.end()) resolved_name = vci->second;
-        }
-        if (resolved_name.empty()) {
             std::fprintf(stderr, "mlir_gen: deref-field-write: unknown type '%s'\n", type_name.c_str());
             return;
         }
@@ -2096,13 +2084,9 @@ void MLIRGenImpl::gen_chain_field_write(lir_view::SChainFieldWriteView v) {
     std::string cur_type_name;
 
     auto sit = var_struct_.find(receiver);
-    auto cit = sit == var_struct_.end() ? var_class_.find(receiver) : var_class_.end();
     if (sit != var_struct_.end()) {
         cur_ptr = get_struct_ptr(receiver);
         cur_type_name = sit->second;
-    } else if (cit != var_class_.end()) {
-        cur_ptr = get_struct_ptr(receiver);
-        cur_type_name = cit->second;
     } else {
         auto sc = scope_.find(receiver);
         if (sc != scope_.end()) {
@@ -2335,13 +2319,12 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
 
     // Get struct type info to find the field.
     auto sit = var_struct_.find(receiver);
-    auto cit = sit == var_struct_.end() ? var_class_.find(receiver) : var_class_.end();
-    if (sit == var_struct_.end() && cit == var_class_.end()) {
-        std::fprintf(stderr, "mlir_gen: field index write: '%s' not struct/class\n",
+    if (sit == var_struct_.end()) {
+        std::fprintf(stderr, "mlir_gen: field index write: '%s' not struct\n",
                      receiver.c_str());
         return;
     }
-    const std::string& type_name = (sit != var_struct_.end()) ? sit->second : cit->second;
+    const std::string& type_name = sit->second;
     auto& info = struct_types_[type_name];
 
     // GEP to the field.
@@ -3366,7 +3349,6 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             // arm body. scope_ already overwrote correctly;
                             // peer-tracking sets need the same eviction.
                             var_struct_.erase(bindings[bi]);
-                            var_class_.erase(bindings[bi]);
                             var_subscript_.erase(bindings[bi]);
                             var_tuple_.erase(bindings[bi]);
                             var_tagged_enum_.erase(bindings[bi]);
@@ -4291,30 +4273,6 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         return;
     }
     builder_.setInsertionPointToStart(merge_block);
-}
-
-// ---------------------------------------------------------------------------
-// gen_delete
-// ---------------------------------------------------------------------------
-
-void MLIRGenImpl::gen_delete(lir_view::SDeleteView v) {
-    auto er = v.expr();
-    auto* le = er ? lexpr_of(er) : nullptr;
-    if (!le) return;
-    auto ptr = gen_expr(*le);
-    if (!ptr) return;
-    // Call Drop before free (if the class/struct has a drop function)
-    if (TypeRef et(le->type);
-        et && et.kind() == LogosType::Kind::Ptr && et.pointee()) {
-        auto tname = et.pointee().struct_name();
-        if (!tname.empty()) {
-            auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-            auto drop_fn = mod.lookupSymbol<mlir::func::FuncOp>(resolve_method_symbol(tname, "drop"));
-            if (drop_fn)
-                builder_.create<mlir::func::CallOp>(loc_, drop_fn, mlir::ValueRange{ptr});
-        }
-    }
-    call_free(ptr);
 }
 
 // ---------------------------------------------------------------------------

@@ -883,17 +883,6 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 out_, result->type, name, fields);
             break;
         }
-        case C::New: {
-            lir_view::ENewView v{eref};
-            std::string class_name(v.class_name());
-            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
-            v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
-                fields.push_back({std::string(fname), subst_child_expr(er)});
-            });
-            result->mirror_offset_ = lir_mirror_emit_new(
-                out_, result->type, class_name, fields);
-            break;
-        }
         case C::MatchExpr: {
             lir_view::EMatchExprView v{eref};
             auto scrut = subst_child_expr(v.scrut());
@@ -3889,12 +3878,6 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             out_, ns.line, expr);
         break;
     }
-    case SCode::Delete: {
-        auto expr = subst_child_expr(lir_view::SDeleteView{sref}.expr());
-        ns.mirror_offset_ = lir_mirror_emit_delete(
-            out_, ns.line, expr);
-        break;
-    }
     case SCode::Drop: {
         lir_view::SDropView v{sref};
         std::string var_name(v.var_name());
@@ -4710,9 +4693,6 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
     case SCode::ExprStmt:
         collect_struct_needs_from_expr(lir_view::SExprStmtView{s}.expr());
         break;
-    case SCode::Delete:
-        collect_struct_needs_from_expr(lir_view::SDeleteView{s}.expr());
-        break;
     case SCode::Drop:
         break;
     case SCode::Match: {
@@ -4782,10 +4762,6 @@ void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
         break;
     case ECode::Cast:
         collect_struct_needs_from_expr(lir_view::ECastView{e}.operand());
-        break;
-    case ECode::New:
-        lir_view::ENewView{e}.each_field_value(
-            [&](lir_view::ExprRef fv) { collect_struct_needs_from_expr(fv); });
         break;
     case ECode::FormatCall: {
         lir_view::EFormatCallView v{e};
