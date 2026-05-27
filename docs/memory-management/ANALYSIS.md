@@ -241,7 +241,23 @@ dynamic drop-flags).** That feature (flow-merged init state, dual of the existin
 real next dependency. Until then, reassigning a live owner leaks the old value
 (real Rust divergence; add to DIVERGENCES as a known catch-up).
 
-### #1 enum value-representation — EXECUTION PLAN (next focused push)
+### #1 enum value-representation — ✅ LANDED 2026-05-26 (commit 51d2e29e)
+Done: tagged enums flipped to value-repr (ptr-to-inline-stack-storage, like Struct);
+`alloca` not `malloc`; inline-embedded in struct fields / tuple / array / nested enum
+payloads / Vec buffers (sizeof+memcpy); one-level `&Enum`; returned-by-value-via-load.
+Killed A1/A2 leak + heap-promotion hack. The decisive fix vs the reverted attempt 1 was
+**move/drop suppression for inline enums** — `mark_match_scrutinee_moved` widened from
+VarRef-only to PLACE scrutinees (`match s.o` / `match a.1`) so a payload moved out of an
+inline parent marks the place moved and the parent's scope-exit Drop skips it (the
+issue-19367 double-free). Load-bearing non-obvious fixes: `logos_abi_byte_size(Enum)`
+resolves the CONCRETE instantiation; a payload-size FIXPOINT in mlir_gen.cpp then sets each
+identified `enum.NAME` body ONCE (set-once LLVM structs, order-independent); aligned
+variant-payload layout (naive field-sum undersized multi-field variants → overlapping
+allocas). 5235/5235 green; valgrind-clean on json_parse. Residual (separate P1, NOT
+enum-specific): `Vec` doesn't drop its elements (~22-byte leak on `Vec<Enum-with-String>`).
+The original plan below is kept for historical reference.
+
+### #1 enum value-representation — EXECUTION PLAN (original, now COMPLETE)
 **Goal:** enum value = pointer-to-**inline stack storage** (`enum.NAME =
 {i32 disc,[N x i8]}`), exactly like a Struct — NOT a heap-malloc'd block. Kills the
 A1/A2 leak and the heap-promotion hack. **Sema + Mono need NO changes**
