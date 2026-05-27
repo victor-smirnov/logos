@@ -2696,13 +2696,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         (TypeRef(op_le->type).kind() == LogosType::Kind::Ptr ||
          TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
          TypeRef(op_le->type).kind() == LogosType::Kind::MutRef) &&
-        // G168-A: only UNSIZE a pointer to a CONCRETE pointee (`*Node as *dyn T`).
-        // If the source pointee is ALREADY a trait object (`*mut dyn` /
-        // `*(&dyn)` — e.g. `Vec<&dyn T>::as_slice`'s `self.ptr as *const T`),
-        // this is a dyn→dyn pointer REINTERPRET (no-op), not a coercion —
-        // building a fat slot here corrupts the pointer (2-level indirection).
+        // Only UNSIZE a pointer to a CONCRETE STRUCT (`*Node as *dyn T`) — that
+        // is the one real dyn-widening. NOT when the source pointee is already a
+        // trait object (`*mut dyn` / `*(&dyn)` — a dyn→dyn reinterpret), and NOT
+        // when it is a raw/primitive pointer: `vec_new<&dyn T>`'s `raw as *mut T`
+        // is `*mut u8 → *mut TraitObject`, a pure buffer reinterpret — coercing
+        // it built a bogus 16-byte fat slot as the Vec's buffer ptr, orphaning
+        // the real buffer (leak) and capping it at one element (latent overflow).
         TypeRef(op_le->type).pointee() &&
-        TypeRef(TypeRef(op_le->type).pointee()).kind() != LogosType::Kind::TraitObject) {
+        (TypeRef(TypeRef(op_le->type).pointee()).kind() == LogosType::Kind::Struct ||
+         TypeRef(TypeRef(op_le->type).pointee()).kind() == LogosType::Kind::ZonedStruct)) {
         auto pointee = TypeRef(op_le->type).pointee();
         std::string src_struct;
         if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
