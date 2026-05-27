@@ -176,7 +176,7 @@ How each language feature touches memory, and its current health.
 **P1 — leaks in compiler-emitted heap (need an owner/free path):**
 5. dyn fat+vtable (A5/A6) leak for raw `&dyn`/`*mut dyn`; vtable not interned.
 6. escaping closure env (A7) never freed.
-7. returned slice / fat-ptr promotions (A3/A4) never freed.
+7. ✅ FIXED (0e34fd63) returned slice / fat-ptr promotions (A3/A4): slices/str now return BY VALUE (16-byte {ptr,len}, like the &dyn fat-pair) instead of a malloc(16) heap-promote in gen_return — `llvm_fn_ret_type`/`fn_call_ret_llvm_type`/`make_fn_type`/`gen_return` all treat Slice like TraitObject; `spill_slice_call_result` re-spills call results to a stack slot for by-pointer consumers. p_slice 16→0; 5235/5235.
 8. class `new` without `delete` leaks (decide: auto-Drop classes or keep manual).
 9. HashMap/Deque: no `impl Drop`.
 
