@@ -899,7 +899,11 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                   TypeRef(src_logos_type).kind() == LogosType::Kind::ZonedStruct))
                     ? concrete_struct_name(src_logos_type)
                     : type_str(src_logos_type);
-            alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type);
+            // `&dyn`/`&mut dyn` local → stack fat pair (no leak). Raw
+            // `*const/*mut dyn` local → heap handle (the value escapes via the
+            // raw pointer; persistent/smart-ptr convention).
+            alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type,
+                                   /*heap=*/is_raw_ptr_dyn);
         }
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
@@ -1186,27 +1190,39 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
                  TypeRef(src_lt).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(src_lt).pointee())
                 src_lt = TypeRef(src_lt).pointee();
-            auto vtable = build_inline_vtable(
-                std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()), type_str(src_lt));
-            // Heap-allocate the fat struct so it survives past this function's frame.
-            auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 16LL, 64);
-            auto fat_ptr = call_malloc(size16);
-            auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
-                builder_.getContext(), {ptr_type(), ptr_type()});
-            llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val,
-                builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), dyn_struct, fat_ptr, idx0));
-            if (vtable) {
-                llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
-                builder_.create<mlir::LLVM::StoreOp>(loc_, vtable,
-                    builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), dyn_struct, fat_ptr, idx1));
-            }
+            // Value-fat-pair model: build the {data,vtable} pair on the stack
+            // (coerce_to_dyn → alloca, no malloc) and RETURN IT BY VALUE — the
+            // function's MLIR return type is the 16-byte struct (llvm_fn_ret_type).
+            // The caller copies the value into its own storage, so no heap
+            // surviving-slot is needed.
+            auto fat_ptr = coerce_to_dyn(val,
+                std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()),
+                type_str(src_lt));
+            if (!fat_ptr) return;
+            auto dyn_struct = dyn_llvm_type();
+            auto fat_val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, fat_ptr);
             if (in_llvm_func_)
-                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{fat_ptr});
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{fat_val});
             else
-                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fat_ptr});
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{fat_val});
+            return;
+        }
+        // Returning a value that is ALREADY a `&dyn`/`dyn` (TraitObject) — e.g.
+        // `return g;` where g: &dyn T. The fn return type is the 16-byte fat
+        // pair (by value); the value is a pointer to its storage → load it.
+        if (cur_fn_ret_logos_type_ &&
+            TypeRef(cur_fn_ret_logos_type_).kind() == LogosType::Kind::TraitObject &&
+            s_value.type &&
+            TypeRef(s_value.type).kind() == LogosType::Kind::TraitObject) {
+            auto val = gen_expr(s_value);
+            if (!val) return;
+            auto dyn_struct = dyn_llvm_type();
+            if (val.getType() == ptr_type())
+                val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, val);
+            if (in_llvm_func_)
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{val});
+            else
+                builder_.create<mlir::func::ReturnOp>(loc_, mlir::ValueRange{val});
             return;
         }
 

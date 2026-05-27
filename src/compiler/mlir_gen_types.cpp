@@ -228,11 +228,12 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             continue;
         } else if (fv.kind() == LogosType::Kind::TraitObject) {
             // Bare `&dyn Trait` field — sema may flatten `&dyn Trait` to a single
-            // TraitObject node (no Ref wrapper). Storage is an 8-byte handle.
-            ft = ptr_type();
+            // TraitObject node (no Ref wrapper). Value-fat-pair model: stored
+            // INLINE as a 16-byte {data,vtable} pair (mirrors a slice field).
+            ft = dyn_llvm_type();
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
                                    std::string(fv.trait_name()),
-                                   /*is_pointer=*/true});
+                                   /*is_pointer=*/false});
             field_types.push_back(ft);
             continue;
         } else if ((fv.kind() == LogosType::Kind::Ptr ||
@@ -240,10 +241,11 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                     fv.kind() == LogosType::Kind::MutRef) &&
                    fv.pointee() &&
                    fv.pointee().kind() == LogosType::Kind::TraitObject) {
-            // &dyn Trait / *const dyn Trait / *mut dyn Trait field — handle is
-            // an 8-byte ptr to a heap-allocated {data,vtable} fat slot. Record
-            // trait_name so struct-lit init can fat-pointer-coerce a concrete
-            // `&T` value before storing into the field.
+            // `&(&dyn)` / `*const dyn` / `*mut dyn` field (Ref/MutRef/Ptr over a
+            // TraitObject) — these are genuine 8-byte THIN handles (a `&dyn`
+            // FLATTENS to a bare TraitObject and hits the inline-16 branch
+            // above; only an explicit pointer-to-trait-object lands here). The
+            // persistent/Zone NodeARC.p path also relies on the thin word.
             ft = ptr_type();
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
                                    std::string(fv.pointee().trait_name()),
@@ -531,6 +533,14 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
 mlir::Type MLIRGenImpl::slice_llvm_type() {
     return mlir::LLVM::LLVMStructType::getLiteral(
         builder_.getContext(), {ptr_type(), builder_.getI64Type()});
+}
+
+mlir::Type MLIRGenImpl::dyn_llvm_type() {
+    // A trait object fat pair: { data_ptr, vtable_ptr }, 16 bytes, value-repr
+    // (mirrors slice_llvm_type's {ptr,len}). Stored inline in fields/elements;
+    // a `&dyn` value is a pointer to this 16-byte storage (like a slice value).
+    return mlir::LLVM::LLVMStructType::getLiteral(
+        builder_.getContext(), {ptr_type(), ptr_type()});
 }
 
 mlir::Type MLIRGenImpl::closure_llvm_type() {

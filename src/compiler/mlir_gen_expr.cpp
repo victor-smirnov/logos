@@ -502,7 +502,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                     // (`Option<Box<dyn Sh>>::Some`) built from a CONCRETE
                     // `Box<Sq>` must unsize-fatten before storing — else a thin
                     // handle is stored and dispatch reads a garbage vtable.
-                    val = coerce_value_to_dyn_if_needed(val, lt, pl_le->type);
+                    // Enum-variant payload escapes with the (by-value) enum, so
+                    // a coerced `&dyn` handle must HEAP-survive (force_heap) —
+                    // a stack fat pair would dangle once the constructing frame
+                    // returns the enum. (Box<dyn> already heap-survives.)
+                    val = coerce_value_to_dyn_if_needed(val, lt, pl_le->type, /*force_heap=*/true);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_int(val, vp->field_types[i]), fp);
                 }
             }
@@ -1928,6 +1932,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             // formal looked like `Box<TraitObject>` (Struct), the check below
             // (bare TraitObject only) missed it, and a THIN handle was stored →
             // garbage vtable on later dispatch (SIGSEGV).
+            bool free_param_is_box_dyn = param_lt &&
+                TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
+                TypeRef(param_lt).struct_name() == "Box" &&
+                TypeRef(param_lt).type_args().size() == 1;
             TypeRef ptl = param_lt, alt = arg_lt;
             auto unbox = [](TypeRef& t){
                 if (t && TypeRef(t).kind() == LogosType::Kind::Struct &&
@@ -1972,7 +1980,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                      TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
                         ? concrete_struct_name(vt_type)
                         : type_str(vt_type);
-                v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name);
+                v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name,
+                                  /*heap=*/free_param_is_box_dyn);
             }
         }
         if (i < param_types.size()) {
@@ -2210,7 +2219,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                      TypeRef(vt_type).kind() == LogosType::Kind::ZonedStruct)
                         ? concrete_struct_name(vt_type)
                         : type_str(vt_type);
-                if (auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name)) {
+                bool param_is_box_dyn = TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
+                    TypeRef(param_lt).struct_name() == "Box" &&
+                    TypeRef(param_lt).type_args().size() == 1;
+                if (auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()),
+                                             vt_name, /*heap=*/param_is_box_dyn)) {
                     args.push_back(fat);
                     continue;
                 }
@@ -2650,6 +2663,26 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     auto target = logos_to_mlir(type);
     if (!target) return val;
 
+    // `&dyn`/`&mut dyn` (bare TraitObject value = pointer to a 16-byte STACK
+    // fat pair, value-fat-pair model) cast to a raw `*const/*mut dyn` handle
+    // (Ptr<TraitObject>): the raw handle ESCAPES (e.g. `Formatter { w: sink as
+    // *mut dyn FmtWrite }` keeps it past the caller's frame). Heap-promote —
+    // copy the 16 bytes to a malloc'd slot so the handle survives. (In the old
+    // all-heap model the source was already a malloc'd handle and this was a
+    // no-op; now the source is a stack pair that would dangle.)
+    if (val.getType() == ptr_type() && target == ptr_type() &&
+        op_le->type && TypeRef(op_le->type).kind() == LogosType::Kind::TraitObject &&
+        type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
+        TypeRef(type).pointee() &&
+        TypeRef(TypeRef(type).pointee()).kind() == LogosType::Kind::TraitObject) {
+        auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(16), 64);
+        auto heap = call_malloc(size16);
+        if (heap) {
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size16, false);
+            return heap;
+        }
+    }
+
     // *concrete → *mut/*const dyn Trait — synthesise a fat pointer
     // (data + vtable). Both sides are MLIR ptr_type so the early
     // identity-check below would otherwise short-circuit; check here
@@ -2682,7 +2715,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             // stored → SIGSEGV on dispatch.
             src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
-        if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
+        // Raw `*const/*mut dyn` handle — heap-survive (persistent / smart-ptr).
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct, /*heap=*/true)) return alloca;
     }
     // `&T` / `&mut T` (over a struct) `as &dyn Trait` / `&mut dyn Trait` — the
     // target type is bare TraitObject (no Ptr wrap, since `&dyn` is one node
@@ -2752,7 +2786,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                     ? concrete_struct_name(boxed)
                     : type_str(boxed);
             std::string trait = std::string(tgt_to.trait_name());
-            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct)) return alloca;
+            // Owning Box<dyn> handle — heap-survive (its drop frees the slot).
+            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/true)) return alloca;
         }
     }
 

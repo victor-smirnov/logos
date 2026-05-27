@@ -966,19 +966,21 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                                        std::string_view src_type_name) {
-    auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
-        builder_.getContext(), {ptr_type(), ptr_type()});
-    // Heap-allocate the {data, vtable} fat-storage so the resulting
-    // handle can outlive the cast site's stack frame. Necessary for
-    // smart-pointer use cases (NodeARC) where the cast happens in one
-    // fn and the handle is returned / stored elsewhere. Stack alloc
-    // would dangle on return. Cost: 16-byte malloc per `as *mut dyn`
-    // expression; the storage stays alive as long as any handle
-    // references it (caller's responsibility — Box<dyn>'s drop frees,
-    // raw `*mut dyn` doesn't).
-    auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(16), 64);
-    auto alloca = call_malloc(size16);
+                                        std::string_view src_type_name, bool heap) {
+    auto dyn_struct = dyn_llvm_type();
+    // Borrow `&dyn`/`&mut dyn` (heap=false): the {data,vtable} pair lives in a
+    // stack alloca (value-fat-pair model, mirrors slices) — no malloc, no leak.
+    // The data half points at the concrete object whose lifetime borrow-check
+    // guards; escape consumers copy the 16 bytes into their own inline storage.
+    // Owning `Box<dyn>` / raw `*const/*mut dyn` (heap=true): malloc(16) so the
+    // single-word handle survives being stored/returned (Box<dyn>'s drop frees).
+    mlir::Value alloca;
+    if (heap) {
+        auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(16), 64);
+        alloca = call_malloc(size16);
+    } else {
+        alloca = create_entry_alloca(dyn_struct);
+    }
     if (!alloca) return nullptr;
     // Store data pointer at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
@@ -997,7 +999,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
 }
 
 mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
-        mlir::Value val, TypeRef slot_lt, TypeRef val_lt) {
+        mlir::Value val, TypeRef slot_lt, TypeRef val_lt, bool force_heap) {
     using K = LogosType::Kind;
     if (!val || !slot_lt || !val_lt) return val;
     auto unbox = [](TypeRef t) -> TypeRef {
@@ -1029,7 +1031,14 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
          TypeRef(vt_type).kind() == K::ZonedStruct)
             ? concrete_struct_name(vt_type)
             : type_str(vt_type);
-    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name);
+    // The slot is an OWNING Box<dyn> (slot_lt is Box<TraitObject>) → heap-survive
+    // handle. A bare `dyn`/`&dyn`/`&mut dyn` slot is a stack fat pair (the inline-
+    // 16 consumer copies it).
+    bool slot_is_box_dyn = TypeRef(slot_lt).kind() == K::Struct &&
+        TypeRef(slot_lt).struct_name() == "Box" &&
+        TypeRef(slot_lt).type_args().size() == 1;
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name,
+                             /*heap=*/slot_is_box_dyn || force_heap);
     return fat ? fat : val;
 }
 
@@ -1263,11 +1272,13 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     }
     if (!recv_alloca) return nullptr;
 
-    // G168-A (g6/g2): a `&(dyn Trait)` receiver (`Ref<TraitObject>`) holds a
-    // pointer to the dyn handle (the ref value), one level above the
-    // {data,vtable} handle. Load once to reach the handle. A bare `&dyn`/`dyn`
-    // (TraitObject) receiver is already the handle. (Storage of ref-to-dyn vars
-    // was fixed in gen_let so scope_/gen_expr both yield ptr-to-handle here.)
+    auto dyn_struct = dyn_llvm_type();
+
+    // G168-A (unchanged from the heap-handle model): a `&(dyn Trait)` receiver
+    // (`Ref<TraitObject>`) holds a pointer to the dyn handle (the ref value),
+    // one level above the {data,vtable} handle. Load once to reach the handle.
+    // A bare `&dyn`/`dyn` (TraitObject) receiver is already the handle/fat-value
+    // (or a pointer to the 16-byte storage, in the value-fat-pair model).
     if (recv_le->type) {
         TypeRef rlt(recv_le->type);
         if ((rlt.kind() == LogosType::Kind::Ref ||
@@ -1277,8 +1288,17 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
                 loc_, ptr_type(), recv_alloca);
     }
 
-    auto dyn_struct = mlir::LLVM::LLVMStructType::getLiteral(
-        builder_.getContext(), {ptr_type(), ptr_type()});
+    // Value-fat-pair model: normalise the receiver to a POINTER to the 16-byte
+    // {data,vtable} storage (so the field-0/field-1 GEPs below work).
+    //  - A struct-VALUE receiver (e.g. read of an inline `&dyn` struct field, or
+    //    a returned-by-value fat pair) must be spilled to an alloca.
+    //  - A `&dyn`/`dyn` (TraitObject) value is ALREADY a pointer to the 16-byte
+    //    storage (mirrors a slice value) — use as-is.
+    //  - A `&(&dyn)` (Ref<TraitObject>) is a pointer to a slot holding the fat
+    //    pointer value; in the value model that slot IS the 16-byte storage, so
+    //    it is likewise already the pointer we want — use as-is.
+    if (recv_alloca.getType() == dyn_struct)
+        recv_alloca = spill_to_alloca(recv_alloca);
 
     // Load data_ptr (field 0)
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};

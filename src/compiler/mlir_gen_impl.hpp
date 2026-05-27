@@ -435,6 +435,18 @@ private:
             if (auto* te = resolve_tagged_enum(std::string(rt.enum_name()), rt))
                 return te->llvm_type;
         }
+        // Trait-object value-fat-pair: return the 16-byte {data,vtable} pair BY
+        // VALUE (mirrors how we'd return a slice's {ptr,len}). Without this a
+        // `-> &dyn T` returned a single ptr and the callee had to malloc a
+        // surviving fat slot (a leak). Covers bare `dyn`, `&dyn`/`&mut dyn`,
+        // `*const dyn`/`*mut dyn`.
+        // Only a BARE `dyn`/`&dyn`/`&mut dyn` (sema flattens these to a single
+        // TraitObject node) returns by-value as the 16-byte fat pair. A
+        // `Ref/MutRef<TraitObject>` (i.e. `&T` where T is itself `&dyn`, as in
+        // `Vec<&dyn>::index -> &T`) is a genuine POINTER into storage — keep it
+        // thin. Raw `*const/*mut dyn` likewise stays a thin handle.
+        if (rt.kind() == LogosType::Kind::TraitObject)
+            return dyn_llvm_type();
         return logos_to_mlir(ret_t);
     }
 
@@ -512,20 +524,30 @@ private:
     // Closure LLVM type: { fn_ptr, env_ptr }
     mlir::Type closure_llvm_type();
 
+    // Trait-object fat pair: { data_ptr, vtable_ptr }, 16-byte value-repr.
+    mlir::Type dyn_llvm_type();
+
     // ── Vtable / dyn ─────────────────────────────────────────────
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
     void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
     mlir::Value build_inline_vtable(std::string_view trait_name,
                                      std::string_view type_name);
+    // Build a fat {data,vtable} pair. `heap=false` (default) → stack alloca:
+    // used for borrow `&dyn`/`&mut dyn` (value-fat-pair model; no leak). The
+    // CONSUMER copies the 16 bytes when it escapes (struct field / array /
+    // Vec<&dyn> / by-value return). `heap=true` → malloc(16): used for OWNING
+    // `Box<dyn>` and raw `*const/*mut dyn` handles, whose single-word handle is
+    // stored/escapes (Vec<Box<dyn>>, persistent NodeARC.p) and survives via the
+    // heap slot (Box<dyn>'s drop frees it).
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                               std::string_view src_type_name);
+                               std::string_view src_type_name, bool heap = false);
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
     // trait object (`dyn`/`Box<dyn>`/`&dyn`) but the VALUE is still concrete —
     // e.g. an enum-variant payload typed `Box<dyn>` constructed from a
     // `Box<Concrete>`. No-op when not applicable or already a trait object.
     mlir::Value coerce_value_to_dyn_if_needed(mlir::Value val, TypeRef slot_lt,
-                                              TypeRef val_lt);
+                                              TypeRef val_lt, bool force_heap = false);
     mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
 

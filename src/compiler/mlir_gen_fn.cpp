@@ -78,6 +78,9 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
         if (te) return te->llvm_type;
         return builder_.getI32Type();
     }
+    // Trait-object value-fat-pair: returned by value as the 16-byte struct.
+    // Only a bare `dyn`/`&dyn`/`&mut dyn` (single TraitObject node) is by-value.
+    if (rv.kind() == LogosType::Kind::TraitObject) return dyn_llvm_type();
     return logos_to_mlir(ret_type);
 }
 
@@ -126,8 +129,14 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
                 ret_types.push_back(builder_.getI32Type());
             }
         } else {
-            auto rt = logos_to_mlir(fn.ret_type);
-            if (rt) ret_types.push_back(rt);
+            // Bare `dyn`/`&dyn`/`&mut dyn` returns are by-value 16-byte fat
+            // pairs. `Ref<TraitObject>` (`&T`,T=&dyn) and raw `*dyn` stay thin.
+            if (rv.kind() == LogosType::Kind::TraitObject) {
+                ret_types.push_back(dyn_llvm_type());
+            } else {
+                auto rt = logos_to_mlir(fn.ret_type);
+                if (rt) ret_types.push_back(rt);
+            }
         }
     }
     return builder_.getFunctionType(param_types, ret_types);
