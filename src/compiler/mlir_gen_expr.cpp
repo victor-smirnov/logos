@@ -376,9 +376,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
                          name.c_str(), cur_fn_name_.c_str());
         return nullptr;
     }
-    // Mutable tagged enum: load struct ptr from pointer slot.
+    // Enum value-repr: the slot holds the inline storage ptr directly (one
+    // level, like a Struct) — return it. (Legacy mutable-enum ptr-slot is gone.)
     if (var_tagged_enum_ptr_.count(name))
-        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+        return it->second;
     // Struct/class/array/tuple/tagged-enum/dyn-trait variables: return pointer directly.
     if (var_struct_.count(name) || var_class_.count(name))
         return get_struct_ptr(name);
@@ -407,15 +408,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
     // into another enum's payload slot as a pointer (EEnumLitData path).
     auto* te = resolve_tagged_enum(enum_name, type);
     if (te) {
-        mlir::Value size = sizeof_struct(te->llvm_type);
-        auto heap = call_malloc(size);
-        if (!heap) return nullptr;
+        // Enum value-repr: inline stack storage (alloca), like a Struct — NOT a
+        // heap block. The address is one-level `&Enum`. Recursive-by-value enums
+        // are already rejected by check_recursive_value_types, so this is safe.
+        auto store = create_entry_alloca(te->llvm_type);
+        if (!store) return nullptr;
         llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
         auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, heap, idx);
+            loc_, ptr_type(), te->llvm_type, store, idx);
         auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
         builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
-        return heap;
+        return store;
     }
     // C-style enum: just the discriminant, sized per backing type.
     return builder_.create<mlir::arith::ConstantIntOp>(
@@ -434,9 +437,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
         return nullptr;
     }
     auto& info = *te;
-    // Allocate the enum struct on the heap (malloc) so it survives function returns
-    mlir::Value size = sizeof_struct(info.llvm_type);
-    auto alloca = call_malloc(size);
+    // Enum value-repr: inline stack storage (alloca), like a Struct. Returned
+    // by value (caller loads the {disc,payload} struct via llvm_fn_ret_type) or
+    // embedded inline into a parent aggregate by memcpy.
+    auto alloca = create_entry_alloca(info.llvm_type);
     if (!alloca) return nullptr;
     // Store discriminant at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
@@ -474,6 +478,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                                         TypeRef(lt).kind() == LogosType::Kind::Slice ||
                                         TypeRef(lt).kind() == LogosType::Kind::Closure ||
                                         TypeRef(lt).kind() == LogosType::Kind::Array);
+                // Enum value-repr: a nested TAGGED enum payload is a
+                // ptr-to-inline-storage; memcpy its full {disc,payload} footprint
+                // inline. A C-like enum (no TaggedEnumInfo) is a bare i32 disc —
+                // it takes the scalar store branch below.
+                if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
+                    resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt))
+                    is_inline = true;
                 if (is_inline) {
                     std::unordered_set<std::string> seen;
                     uint64_t sz = logos_abi_byte_size(lt, seen);
@@ -1037,6 +1048,14 @@ mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
     if (k == LogosType::Kind::Tuple) {
         if (auto tt = tuple_llvm_type(t)) return tt;
     }
+    // Enum value-repr: a TAGGED enum element occupies its full inline
+    // {disc,payload} footprint as a place slot (NOT a collapsed ptr) — so
+    // `arr[i]` of `[Enum; N]` strides by the real enum size.
+    if (k == LogosType::Kind::Enum) {
+        if (auto* te = resolve_tagged_enum(std::string(TypeRef(t).enum_name()), t);
+            te && te->llvm_type)
+            return te->llvm_type;
+    }
     auto m = logos_to_mlir(t);
     return m ? m : builder_.getI32Type();
 }
@@ -1251,25 +1270,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         ref_param_names_.erase(var_name);
         return alloca;
     }
-    // L5: tagged-enum non-mut let stores the enum ptr directly in scope_
-    // (no surrounding alloca slot). `&o` for `o: Option<i64>` would then
-    // hand back the enum-struct ptr instead of a real ptr-to-ptr — match
-    // call sites expecting `&Enum` to be ptr-to-ptr (via_ref load in
-    // gen_match) then dereference garbage and SIGSEGV. Spill once on
-    // first `&o` so the slot exists; replace the scope binding with the
-    // slot (subsequent reads load through it). Mutable enum lets already
-    // have a slot via var_tagged_enum_ptr_.
-    if (it->second && var_tagged_enum_.count(var_name) &&
-        !var_tagged_enum_ptr_.count(var_name)) {
-        auto alloca = create_entry_alloca(ptr_type());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
-        // Replace scope entry with the slot so future reads load
-        // through it (and future `&` calls return this same slot).
-        it->second = alloca;
-        // Mark as "slot-backed" so subsequent reads know to load.
-        var_tagged_enum_ptr_.insert(var_name);
-        return alloca;
-    }
+    // Enum value-repr: `&o` for an enum local is ONE level — the inline
+    // storage address itself (like `&Struct`). scope_ already holds that
+    // address, so hand it back directly.
+    if (it->second && var_tagged_enum_.count(var_name))
+        return it->second;
     return it->second;
 }
 
@@ -1408,6 +1413,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
                                 if (sit2 != struct_types_.end())
                                     elem_type = sit2->second.llvm_type;
                             }
+                            // Enum value-repr: a `*mut Enum` field (e.g. a
+                            // `Vec<Enum>`'s buffer `self.ptr`) strides by the
+                            // inline {disc,payload} footprint, not a ptr — so
+                            // `self.ptr[i] = val` writes the right element slot.
+                            if (!elem_type && rpt && rpt.kind() == LogosType::Kind::Enum) {
+                                if (auto* te = resolve_tagged_enum(std::string(rpt.enum_name()), rpt);
+                                    te && te->llvm_type)
+                                    elem_type = te->llvm_type;
+                            }
                             if (!elem_type)
                                 elem_type = logos_to_mlir(inner_t);
                         } else {
@@ -1453,12 +1467,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
         if (sc != scope_.end() && sc->second &&
             sc->second.getType() == ptr_type() &&
             var_tagged_enum_.count(vn)) {
-            if (!var_tagged_enum_ptr_.count(vn)) {
-                auto alloca = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sc->second, alloca);
-                sc->second = alloca;
-                var_tagged_enum_ptr_.insert(vn);
-            }
+            // Enum value-repr: scope_ holds the inline storage address (one
+            // level). `(&mut o).take()`'s callee does `*self = …` which now
+            // memcpies into this same storage — so hand back the slot directly.
             return sc->second;
         }
     }
@@ -1507,27 +1518,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
                     inner_t.kind() == LogosType::Kind::Slice ||
                     inner_t.kind() == LogosType::Kind::TraitObject))
         return val;
-    // CP-cm-17 leg (b): Enum values use a two-level convention — the value
-    // is a heap-ptr-to-struct, and `&enum` is a stack-slot-of-ptr_type
-    // holding that heap-ptr. gen_match's via_ref auto-deref loads through
-    // the slot to recover the ptr-to-struct. Whether `val` arrived as
-    // ptr (heap-ptr from EEnumLitData) or as struct (by-value return from
-    // a func.call) we need the final layout to be `ptr-to-(ptr-to-struct)`;
-    // for the struct case spill once into a struct-typed slot to obtain
-    // the inner ptr, then wrap that in the outer ptr_type slot.
+    // Enum value-repr: `&<enum temp>` is ONE level — the inline storage address
+    // (like `&Struct`), NOT a ptr-to-ptr. A constructed enum (EEnumLitData)
+    // already returns its storage alloca ptr; return it directly. A by-value
+    // aggregate (func return) spills once to a struct slot — that IS the address.
     if (inner_t && inner_t.kind() == LogosType::Kind::Enum) {
-        mlir::Value enum_ptr = val;
-        if (val.getType() != ptr_type()) {
-            auto* te = resolve_tagged_enum(std::string(inner_t.enum_name()), inner_t);
-            if (te) {
-                auto struct_slot = create_entry_alloca(te->llvm_type);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, struct_slot);
-                enum_ptr = struct_slot;
-            }
+        if (val.getType() == ptr_type())
+            return val;
+        auto* te = resolve_tagged_enum(std::string(inner_t.enum_name()), inner_t);
+        if (te) {
+            auto struct_slot = create_entry_alloca(te->llvm_type);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, struct_slot);
+            return struct_slot;
         }
-        auto ref_slot = create_entry_alloca(ptr_type());
-        builder_.create<mlir::LLVM::StoreOp>(loc_, enum_ptr, ref_slot);
-        return ref_slot;
+        // C-like enum (i32 disc) — spill the scalar to a slot, address is `&Enum`.
+        auto slot = create_entry_alloca(val.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+        return slot;
     }
     auto llvm_type = logos_to_mlir(inner_t);
     if (!llvm_type) llvm_type = builder_.getI32Type();
@@ -1613,6 +1620,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
                  // AS a pointer (a lost indirection level) → GEP through garbage
                  // → SIGSEGV in `let (a,b) = *p` / `(*p).0`.
                  TypeRef(type).kind() == LogosType::Kind::Tuple))
+        return ptr;
+    // Enum value-repr: a TAGGED enum is pointer-to-inline-storage (like a
+    // Struct), so `*p` over a `&Enum` yields the SAME pointer (no load) — the
+    // storage address. (A C-like enum is an i32 value and DOES load below.)
+    if (type && TypeRef(type).kind() == LogosType::Kind::Enum &&
+        resolve_tagged_enum(std::string(TypeRef(type).enum_name()), type))
         return ptr;
     auto pointee = logos_to_mlir(type);
     if (!pointee) pointee = builder_.getI32Type();
@@ -2419,6 +2432,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
             st && mlir::isa<mlir::LLVM::LLVMStructType>(st))
             elem_type = st;
     }
+    // Enum value-repr: a TAGGED enum element is stored INLINE (sizeof(Enum) per
+    // slot — array, Vec buffer `*mut T`, etc). Stride by the inline {disc,payload}
+    // footprint and return the slot address (value-repr = ptr-to-storage). This
+    // is what makes `Vec<Enum>::get`'s `self.ptr[i]` and `[Enum;N][i]` correct.
+    if (type && TypeRef(type).kind() == LogosType::Kind::Enum) {
+        if (auto* te = resolve_tagged_enum(std::string(TypeRef(type).enum_name()), type);
+            te && te->llvm_type)
+            elem_type = te->llvm_type;
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
@@ -2534,6 +2556,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
     // tuples stored as ptr) keep the load.
     if (TypeRef et(type); et && (et.kind() == LogosType::Kind::Struct ||
                                  et.kind() == LogosType::Kind::ZonedStruct))
+        return gep;
+    // Enum value-repr: a TAGGED enum tuple element is INLINE — its value IS the
+    // GEP address (one level, like a Struct). Return it (no load).
+    if (TypeRef et(type); et && et.kind() == LogosType::Kind::Enum &&
+        resolve_tagged_enum(std::string(et.enum_name()), et))
         return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }
@@ -3069,12 +3096,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
         if (enum_t.kind() == LogosType::Kind::Enum) {
             te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
             if (te_info) {
-                // Logos enum values are heap pointers (EEnumLitData returns
-                // a malloc'd ptr). `&Enum` is therefore a pointer-to-pointer;
-                // load the inner ptr first to get the enum-struct address.
+                // Enum value-repr: an enum value IS a pointer to its inline
+                // {disc,payload} storage (one level, like a Struct). `&Enum` is
+                // the SAME one-level pointer — no extra deref. A by-value
+                // aggregate (returned by value from a fn) is spilled.
                 if (via_ref) {
-                    scrut = builder_.create<mlir::LLVM::LoadOp>(
-                        loc_, ptr_type(), scrut);
+                    // scrut already IS the enum-storage pointer.
                 } else if (scrut.getType() != ptr_type()) {
                     auto tmp = create_entry_alloca(te_info->llvm_type);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
@@ -3183,10 +3210,47 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             added.push_back(bindings[bi]);
                             continue;
                         }
+                        // Enum value-repr: a nested TAGGED enum payload field is
+                        // INLINE — `fp` is its storage (one level). Bind as a
+                        // tagged-enum var (no load), matching the memcpy write. A
+                        // C-like enum (no TaggedEnumInfo) is an i32 — scalar below.
+                        if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
+                            resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt)) {
+                            scope_[bindings[bi]] = fp;
+                            let_vars_.insert(bindings[bi]);
+                            var_tagged_enum_.insert(bindings[bi]);
+                            var_struct_.erase(bindings[bi]);
+                            var_tuple_.erase(bindings[bi]);
+                            var_elem_types_.erase(bindings[bi]);
+                            var_tagged_enum_ptr_.erase(bindings[bi]);
+                            added.push_back(bindings[bi]);
+                            continue;
+                        }
                         if (is_inline_struct &&
                             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
                              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
-                            scope_[bindings[bi]] = fp;
+                            // Move-type struct payload bound BY VALUE: COPY to a
+                            // fresh slot (it moves out — a later in-arm mutation of
+                            // the scrutinee place must not clobber the binding;
+                            // issue-19367's `let b = match a.1 { Some(v)=>{a.1=…;v}}`).
+                            // Source drop suppressed by mark_match_scrutinee_moved.
+                            mlir::Value bind_ptr = fp;
+                            if (lt && value_needs_drop(lt)) {
+                                auto sit = struct_types_.find(mlir_struct_key(lt));
+                                if (sit != struct_types_.end() && sit->second.llvm_type) {
+                                    auto dl = mlir::DataLayout::closest(
+                                        builder_.getInsertionBlock()->getParentOp());
+                                    auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
+                                    auto fresh = create_entry_alloca(sit->second.llvm_type);
+                                    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                                        loc_, builder_.getI64Type(),
+                                        builder_.getI64IntegerAttr(bytes));
+                                    builder_.create<mlir::LLVM::MemcpyOp>(
+                                        loc_, fresh, fp, sz, /*isVolatile=*/false);
+                                    bind_ptr = fresh;
+                                }
+                            }
+                            scope_[bindings[bi]] = bind_ptr;
                             let_vars_.insert(bindings[bi]);
                             var_struct_[bindings[bi]] = mlir_struct_key(lt);
                             added.push_back(bindings[bi]);
@@ -3264,12 +3328,23 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     auto ep = builder_.create<mlir::LLVM::GEPOp>(
                         loc_, ptr_type(), ttype, tptr, ei);
                     if (sp.kind() == pc::Code::VariantData) {
+                        TypeRef et = btypes[idx];
+                        bool via_ref_enum = et &&
+                            (TypeRef(et).kind() == LogosType::Kind::Ref ||
+                             TypeRef(et).kind() == LogosType::Kind::MutRef) &&
+                            TypeRef(et).pointee() &&
+                            TypeRef(TypeRef(et).pointee()).kind() == LogosType::Kind::Enum;
                         auto* te_sub = resolve_tagged_enum(
                             std::string(lir_view::PatVariantDataView{sp}.enum_name()),
-                            btypes[idx]);
+                            via_ref_enum ? TypeRef(et).pointee() : et);
                         if (!te_sub) return;
-                        auto enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                            loc_, ptr_type(), ep);
+                        // Enum value-repr: a non-ref enum tuple element is INLINE
+                        // — `ep` IS its storage. A `&Enum` element holds a pointer
+                        // to it; load once to reach the storage.
+                        mlir::Value enum_ptr = ep;
+                        if (via_ref_enum)
+                            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
+                                loc_, ptr_type(), enum_ptr);
                         bind_enum_payload(enum_ptr, te_sub,
                                           lir_view::PatVariantDataView{sp}, added);
                     } else if (sp.kind() == pc::Code::Tuple ||
@@ -4614,6 +4689,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
         elem_mlir = mlir::LLVM::LLVMStructType::getLiteral(
             builder_.getContext(), {ptr_type(), ptr_type()});
     }
+    // Enum value-repr: `sizeof::<Enum>()` is the full inline {disc,payload}
+    // footprint (NOT 8 = ptr) — so generic containers (Vec/HashMap) that stride
+    // by sizeof + memcpy store enums inline automatically.
+    if (!elem_mlir && elem_type && elem_type.kind() == LogosType::Kind::Enum) {
+        if (auto* te = resolve_tagged_enum(std::string(elem_type.enum_name()), elem_type);
+            te && te->llvm_type)
+            elem_mlir = te->llvm_type;
+    }
     if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
     if (!elem_mlir) {
         return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
@@ -4648,6 +4731,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAlignOfView v, TypeRef) {
                 auto cname = concrete_struct_name(elem_type);
                 auto sit = struct_types_.find(cname);
                 if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
+            }
+            // Enum value-repr: alignment of the inline {disc,payload} aggregate.
+            if (!elem_mlir && elem_type.kind() == K::Enum) {
+                if (auto* te = resolve_tagged_enum(std::string(elem_type.enum_name()), elem_type);
+                    te && te->llvm_type)
+                    elem_mlir = te->llvm_type;
             }
             if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
             if (elem_mlir) {
@@ -4868,8 +4957,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
                                     TypeRef(lt).kind() == LogosType::Kind::Tuple ||
                                     TypeRef(lt).kind() == LogosType::Kind::Slice ||
                                     TypeRef(lt).kind() == LogosType::Kind::Closure);
+            // Enum value-repr: a nested TAGGED enum Ok payload (`Result<Option<T>,E>`)
+            // is INLINE — `fp` is its storage address (one level, the value-repr
+            // of the Option<T> result). Bind the address (no load).
+            bool ok_is_enum = lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
+                resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt);
             mlir::Value val;
-            if (is_inline)
+            if (is_inline || ok_is_enum)
                 val = fp;
             else
                 val = builder_.create<mlir::LLVM::LoadOp>(loc_, ok_vp->field_types[0], fp);

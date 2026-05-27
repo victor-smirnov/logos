@@ -83,6 +83,15 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
                 return cache_ret(mlir::LLVM::LLVMArrayType::get(
                     sit->second.llvm_type, tv.arr_size()));
         }
+        // Enum value-repr: an array of TAGGED enums embeds each element inline
+        // ({disc,payload}), so the element stride is the full enum footprint —
+        // NOT a collapsed ptr (which would corrupt `arr[i]` indexing).
+        if (elem_tv && elem_tv.kind() == LogosType::Kind::Enum) {
+            if (auto* te = resolve_tagged_enum(std::string(elem_tv.enum_name()), elem_tv);
+                te && te->llvm_type)
+                return cache_ret(mlir::LLVM::LLVMArrayType::get(
+                    te->llvm_type, tv.arr_size()));
+        }
         auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
         return cache_ret(mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size()));
@@ -192,6 +201,17 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                 ft = ptr_type();
                 fsname = cname;
             }
+        } else if (fv.kind() == LogosType::Kind::Enum &&
+                   resolve_tagged_enum(std::string(fv.enum_name()), fv)) {
+            // Inline-embed a TAGGED enum-typed field (enum value-repr): use the
+            // registered `enum.NAME` aggregate so the field occupies its full
+            // {disc,payload} footprint, mirroring the nested-struct inline-embed
+            // branch above. A C-like enum (no TaggedEnumInfo) is an i32 disc and
+            // falls through to the generic logos_to_mlir branch below.
+            ft = resolve_tagged_enum(std::string(fv.enum_name()), fv)->llvm_type;
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else if ((fv.kind() == LogosType::Kind::Ptr ||
                     fv.kind() == LogosType::Kind::Ref ||
                     fv.kind() == LogosType::Kind::MutRef) &&
@@ -351,10 +371,13 @@ uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
         return (offset + max_align - 1) & ~(max_align - 1);
     }
     case LogosType::Kind::Enum: {
-        auto it = tagged_enums_.find(std::string(tv.enum_name()));
-        if (it != tagged_enums_.end())
-            return 4 + it->second.payload_bytes;  // disc + payload
-        return 8;
+        // Resolve the CONCRETE instantiation (Option<Option<i64>> must not
+        // collapse to the first "Option" entry — that under-sizes the inline
+        // {disc,payload} footprint and corrupts nested-enum memcpy/layout).
+        if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t))
+            return 4 + te->payload_bytes;  // disc + payload
+        // C-like enum (no TaggedEnumInfo) — backing-type-sized discriminant.
+        return (enum_disc_bits(std::string(tv.enum_name())) + 7) / 8;
     }
     default: return 8;
     }
@@ -378,11 +401,36 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
                     t = sit->second.llvm_type;
             } else if (k == LogosType::Kind::Tuple) {
                 if (auto tt = tuple_llvm_type(lt)) t = tt;
+            } else if (k == LogosType::Kind::Enum) {
+                // Inline nested enum: embed its full {disc,payload} footprint
+                // (enum value-repr) so a nested enum payload field occupies its
+                // real ABI size, not a collapsed ptr.
+                if (auto* nte = resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt))
+                    if (nte->llvm_type) t = nte->llvm_type;
             }
         }
         ft.push_back(t);
     }
     return mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ft);
+}
+
+// Aligned byte size of one variant's payload, laid out as a struct (matches
+// variant_payload_struct's LLVM aggregate layout — inter-field alignment
+// padding INCLUDED). A naive sum of field sizes under-counts a multi-field
+// variant like `Cons { head: i32, tail: *const List }` (4+8=12 vs the real
+// {i32,ptr} struct of 16) — which silently overlapped adjacent enum allocas.
+uint64_t MLIRGenImpl::variant_payload_bytes(const lir::LVariant& v) {
+    uint64_t offset = 0, max_align = 1;
+    for (auto pt : v.payload_types) {
+        if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;
+        std::unordered_set<std::string> seen;
+        uint64_t esz = logos_abi_byte_size(pt, seen);
+        uint64_t align = std::min(esz, (uint64_t)8);
+        if (align > 1) offset = (offset + align - 1) & ~(align - 1);
+        offset += esz;
+        if (align > max_align) max_align = align;
+    }
+    return (offset + max_align - 1) & ~(max_align - 1);
 }
 
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
@@ -397,26 +445,26 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     for (auto& v : ed.variants) {
         TaggedEnumInfo::VariantPayload vp;
         vp.disc = v.disc;
-        uint64_t variant_bytes = 0;
         for (auto pt : v.payload_types) {
             if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;  // () unit — no field
             auto ft = logos_to_mlir(pt);
             if (!ft) ft = builder_.getI32Type();
             vp.field_types.push_back(ft);
             vp.logos_types.push_back(pt);
-            std::unordered_set<std::string> seen;
-            variant_bytes += logos_abi_byte_size(pt, seen);
         }
+        uint64_t variant_bytes = variant_payload_bytes(v);
         if (variant_bytes > max_bytes) max_bytes = variant_bytes;
         info.variants.push_back(std::move(vp));
     }
     info.payload_bytes = max_bytes;
-    auto i32 = builder_.getI32Type();
-    auto payload = mlir::LLVM::LLVMArrayType::get(
-        builder_.getIntegerType(8), max_bytes > 0 ? max_bytes : 1);
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
         builder_.getContext(), "enum." + ed.name);
-    (void)enum_type.setBody({i32, payload}, false);
+    // NOTE: the body (payload byte-array size) is NOT set here — a nested enum
+    // payload may still be a 0-byte stub at this point, so max_bytes can be
+    // under-sized. The body is set ONCE, after the fixpoint in mlir_gen.cpp
+    // recomputes every enum's final payload_bytes (finalize_enum_bodies).
+    // An identified LLVM struct's body is set-once, so setting it prematurely
+    // here would lock in the wrong size.
     info.llvm_type = enum_type;
     tagged_enums_[ed.name] = std::move(info);
 }
@@ -467,6 +515,11 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             auto cn = concrete_struct_name(e);
             if (auto sit = struct_types_.find(cn); sit != struct_types_.end())
                 ft = sit->second.llvm_type;
+        } else if (e && TypeRef(e).kind() == LogosType::Kind::Enum) {
+            // Inline-embed an enum-typed tuple element (enum value-repr), like
+            // a struct element — its full {disc,payload} footprint, not a ptr.
+            if (auto* te = resolve_tagged_enum(std::string(TypeRef(e).enum_name()), e))
+                if (te->llvm_type) ft = te->llvm_type;
         }
         if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;

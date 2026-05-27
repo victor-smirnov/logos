@@ -476,6 +476,7 @@ private:
     }
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
+    uint64_t variant_payload_bytes(const LVariant& v);
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen);
 

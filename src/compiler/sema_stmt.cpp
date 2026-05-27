@@ -6612,10 +6612,30 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
 void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                               TypeRef scrut_type,
                                               hermes::TinyMapView node) {
+    namespace ec = lir_schema::expr;
+    // The scrutinee may be a plain VAR (`match o`) or a PLACE — a struct field
+    // (`match s.o`) / tuple element (`match a.1`). Enum value-repr makes the
+    // payload INLINE in the parent's storage, so moving a payload out of a place
+    // scrutinee must mark THAT place moved (mark_moved_expr records `s.o`/`a.1`
+    // in moved_fields) — else the parent's scope-exit Drop double-frees the
+    // moved-out payload (the issue-19367 double-free). A bare VarRef marks the
+    // var. mark_moved_target dispatches to the right form.
+    bool scrut_is_place = scrut &&
+        (expr_ref_of(*scrut).kind() == ec::Code::VarRef ||
+         expr_ref_of(*scrut).kind() == ec::Code::FieldRead ||
+         expr_ref_of(*scrut).kind() == ec::Code::TupleIndex);
+    auto mark_moved_target = [&]() {
+        if (expr_ref_of(*scrut).kind() == ec::Code::VarRef)
+            mark_moved(std::string(lir_view::EVarRefView{expr_ref_of(*scrut)}.name()));
+        else
+            mark_moved_expr(expr_ref_of(*scrut));
+    };
     if (scrut && scrut_type && is_move_type(scrut_type) &&
-        expr_ref_of(*scrut).kind() == lir_schema::expr::Code::VarRef &&
-        node.has_key(la::ITEMS)) {
-        std::string scrut_var{lir_view::EVarRefView{expr_ref_of(*scrut)}.name()};
+        scrut_is_place && node.has_key(la::ITEMS)) {
+        std::string scrut_var =
+            expr_ref_of(*scrut).kind() == ec::Code::VarRef
+                ? std::string(lir_view::EVarRefView{expr_ref_of(*scrut)}.name())
+                : std::string("<place>");
         if (!scrut_var.empty()) {
             auto arms_mv = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < arms_mv.size(); ++i) {
@@ -6634,7 +6654,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                 // (anonymous `_` has no NAME key).
                 if (code_of(lhs) == la::PAT_WILD && lhs.has_key(la::NAME)) {
                     auto nm = str_of(lhs.get(la::NAME.code));
-                    if (!nm.empty() && nm != "_") { mark_moved(scrut_var); break; }
+                    if (!nm.empty() && nm != "_") { mark_moved_target(); break; }
                 }
                 // An unguarded STRUCT-destructure arm (`match p { Pair{a,b} =>
                 // … }`) over a by-value scrutinee moves the bound fields into
@@ -6675,7 +6695,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                             }
                         }
                     }
-                    if (moves) { mark_moved(scrut_var); break; }
+                    if (moves) { mark_moved_target(); break; }
                 }
                 // An unguarded TUPLE-destructure arm (`match p { (a, b) => … }`)
                 // over a by-value tuple scrutinee moves move-only elements into
@@ -6706,7 +6726,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                             continue;                                // `ref` binding
                         if (telems[si] && is_move_type(telems[si])) moves = true;
                     }
-                    if (moves) { mark_moved(scrut_var); break; }
+                    if (moves) { mark_moved_target(); break; }
                 }
                 // An unguarded VARIANT-DATA arm (`match r { Ok(s) => … }`) over a
                 // by-value enum scrutinee moves the bound payload into the
@@ -6755,7 +6775,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                         auto fl = map_of(lhs.get(la::ITEMS.code));
                         if (fl.has_key(la::ITEMS)) scan_subs(fl.get(la::ITEMS.code));
                     }
-                    if (moves) { mark_moved(scrut_var); break; }
+                    if (moves) { mark_moved_target(); break; }
                 }
             }
         }

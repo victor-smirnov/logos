@@ -93,6 +93,45 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& ed : prog.enums) {
         if (ed.has_payload()) register_tagged_enum(ed);
     }
+    // Enum value-repr: a nested enum payload's inline footprint depends on the
+    // nested enum's own payload_bytes, but registration order is not guaranteed
+    // inner-first — an outer enum registered before its nested enum sized that
+    // payload from a 0-byte stub (under-sized → nested-enum memcpy/layout
+    // corruption). Recompute every tagged enum's payload_bytes to a FIXPOINT
+    // (sizes only ever grow) and re-set the `enum.NAME` body so all inline
+    // footprints are correct regardless of order.
+    {
+        // Phase 1: recompute payload_bytes to a fixpoint (sizes only grow).
+        bool changed = true;
+        for (int pass = 0; changed && pass < 64; ++pass) {
+            changed = false;
+            for (auto& ed : prog.enums) {
+                if (!ed.has_payload()) continue;
+                auto it = tagged_enums_.find(ed.name);
+                if (it == tagged_enums_.end()) continue;
+                uint64_t max_bytes = 0;
+                for (auto& v : ed.variants) {
+                    uint64_t vb = variant_payload_bytes(v);
+                    if (vb > max_bytes) max_bytes = vb;
+                }
+                if (max_bytes > it->second.payload_bytes) {
+                    it->second.payload_bytes = max_bytes;
+                    changed = true;
+                }
+            }
+        }
+        // Phase 2: set every tagged enum's identified-struct body ONCE, now
+        // that all payload_bytes are final (an identified LLVM struct body is
+        // set-once — this is why register_tagged_enum defers it).
+        auto i32 = builder_.getI32Type();
+        for (auto& [name, info] : tagged_enums_) {
+            if (!info.llvm_type) continue;
+            uint64_t pb = info.payload_bytes;
+            auto payload = mlir::LLVM::LLVMArrayType::get(
+                builder_.getIntegerType(8), pb > 0 ? pb : 1);
+            (void)info.llvm_type.setBody({i32, payload}, false);
+        }
+    }
     pt.tick("pass0 register types");
 
     // Register struct LLVM types (all_struct_defs_ already built above).
