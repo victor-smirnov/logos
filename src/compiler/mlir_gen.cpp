@@ -970,6 +970,13 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
         }
 
         auto* fle = lexpr_of(fval); if (!fle) { ok = false; return; }
+        // An uninhabited (`!`-typed) field — e.g. a PhantomData<!> marker in an
+        // iterator struct monomorphised for the never type — has no runtime
+        // value. gen_expr of a never-typed initialiser yields a malformed Value
+        // whose getType() SIGSEGVs below; the field slot is zero-size anyway, so
+        // skip it. (Surfaced by hoisting a generic match-temp scrutinee into an
+        // Option<!> instantiation.)
+        if (fle->type && TypeRef(fle->type).kind() == LogosType::Kind::Never) return;
         auto val = gen_expr(*fle);
         if (!val) { ok = false; return; }
         // &dyn Trait field — value may be a concrete `&S` / `&mut S`; build the
@@ -1003,6 +1010,13 @@ mlir::Value MLIRGenImpl::gen_struct_lit(lir_view::EStructLitView v) {
                 val = coerce_numeric(val, fi->type);
             }
         }
+        // A field value that coerced to null is an uninhabited / zero-size
+        // field (e.g. a PhantomData<!> marker in an iterator struct
+        // monomorphised for the never type, or any `!`-typed field): there is
+        // no value to materialise, so skip the store. Without this the next
+        // `val.getType()` deref SIGSEGVs (surfaced by hoisting a generic
+        // match-temp scrutinee into an Option<!> instantiation).
+        if (!val) return;
         // Inline array field initialized from a non-ArrLit expression
         // (e.g. local var of type `[T; N]`): val is a *pointer* to the
         // source array, not the array value. Memcpy the data into the

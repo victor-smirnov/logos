@@ -7161,27 +7161,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     bool temp_scrut_hoisted = false;
     std::string temp_scrut_var;
     lir::LStmt temp_scrut_let;
-    // Only hoist a FULLY-CONCRETE scrutinee type. In a generic body `match
-    // self.next() { … }` has scrut_type `Option<T>` (T a TypeVar), which
-    // is_move_type treats as conservatively-droppable; hoisting there carries a
-    // synth temp + drop into EVERY monomorphisation, and an uninhabited
-    // instantiation (e.g. `Option<!>`) then constructs a never-field aggregate
-    // that mlir-gen can't materialise (null field → crash). Mono re-runs drop
-    // collection on the cloned concrete body anyway, so concrete-only hoisting
-    // here loses nothing — and the real-world leak (`match parse(s) { … }`) is
-    // always concrete. (A generic droppable-temp scrutinee that leaks would be
-    // a separate, rarer follow-up handled at the mono layer.)
-    std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
-        if (!t) return false;
-        TypeRef tv{t};
-        if (tv.kind() == LogosType::Kind::TypeVar) return true;
-        if (tv.pointee() && mentions_tv(tv.pointee())) return true;
-        if (tv.elem() && mentions_tv(tv.elem())) return true;
-        for (auto a : tv.type_args()) if (mentions_tv(a)) return true;
-        for (auto e : tv.tuple_elems()) if (mentions_tv(e)) return true;
-        return false;
-    };
-    if (scrut && scrut_type && is_move_type(scrut_type) && !mentions_tv(scrut_type)) {
+    if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
         auto sk = expr_ref_of(*scrut).kind();
         bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
@@ -7189,6 +7169,19 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
                         sk == ec::Code::IndexRead;
         if (!is_place) {
             temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
+            // Push a scope and DEFINE the synth var so it is a real tracked
+            // local: every exit path then drops it via the standard machinery —
+            // a fall-through (collect_drops on this frame, in finalize) AND an
+            // arm body's early `return`/`break` (collect_all_drops / _to_loop
+            // walk this frame). A manual drop-after-the-match alone would be
+            // unreachable when an arm diverges (e.g. `match it.next() { None =>
+            // return … }`), leaking the temporary. mark_match_scrutinee_moved
+            // (below) marks it moved when an arm consumes the payload, so the
+            // drop is suppressed there → no double-free. Works for both concrete
+            // and generic (TypeVar) scrutinees; an uninhabited instantiation's
+            // never-field aggregate is handled in gen_struct_lit.
+            push_scope();
+            define(temp_scrut_var, scrut_type);
             lir::SLet sl;
             sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
             sl.value = std::move(scrut);
@@ -7197,18 +7190,18 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             temp_scrut_hoisted = true;
         }
     }
-    // Wrap the lowered match in `{ let __ms = <scrut>; <match>; drop __ms? }`
-    // when the scrutinee was a hoisted temporary. Called at every return path.
+    // Wrap the lowered match in `{ let __ms = <scrut>; <match>; <fall-through
+    // drops> }` when the scrutinee was a hoisted temporary. collect_drops()
+    // yields the fall-through drop of __ms (skipped if an arm moved it);
+    // pop_scope() balances the push above. Called at every return path.
     auto finalize = [&](lir::LStmt stmt) -> lir::LStmt {
         if (!temp_scrut_hoisted) return stmt;
+        auto ft_drops = collect_drops();
+        pop_scope();
         auto blk = lir::alloc_block(*cur_prog_);
         blk->stmts.push_back(std::move(temp_scrut_let));
         blk->stmts.push_back(std::move(stmt));
-        // The match consumed the temporary iff an arm moved its payload
-        // (mark_match_scrutinee_moved recorded the synth var). Otherwise drop it.
-        if (!moved_vars_.count(temp_scrut_var))
-            if (auto d = make_drop_stmt(temp_scrut_var, VarInfo{scrut_type, false}))
-                blk->stmts.push_back(std::move(*d));
+        for (auto& d : ft_drops) blk->stmts.push_back(std::move(d));
         return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
     };
 
@@ -7803,24 +7796,19 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     bool temp_scrut_hoisted = false;
     std::string temp_scrut_var;
     lir::LStmt temp_scrut_let;
-    std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
-        if (!t) return false;
-        TypeRef tv{t};
-        if (tv.kind() == LogosType::Kind::TypeVar) return true;
-        if (tv.pointee() && mentions_tv(tv.pointee())) return true;
-        if (tv.elem() && mentions_tv(tv.elem())) return true;
-        for (auto a : tv.type_args()) if (mentions_tv(a)) return true;
-        for (auto e : tv.tuple_elems()) if (mentions_tv(e)) return true;
-        return false;
-    };
-    if (scrut && scrut_type && is_move_type(scrut_type) && !mentions_tv(scrut_type)) {
+    if (scrut && scrut_type && is_move_type(scrut_type)) {
         namespace ec = lir_schema::expr;
         auto sk = expr_ref_of(*scrut).kind();
         bool is_place = sk == ec::Code::VarRef || sk == ec::Code::FieldRead ||
                         sk == ec::Code::TupleIndex || sk == ec::Code::Deref ||
                         sk == ec::Code::IndexRead;
         if (!is_place) {
+            // Scope-track the synth var so EVERY exit path drops it (fall-through
+            // via collect_drops in finalize_expr; an arm body's early return via
+            // collect_all_drops). See lower_match for the full rationale.
             temp_scrut_var = "__match_scrut_" + std::to_string(tmp_var_count_++);
+            push_scope();
+            define(temp_scrut_var, scrut_type);
             lir::SLet sl;
             sl.name = temp_scrut_var; sl.type = scrut_type; sl.is_mut = false;
             sl.value = std::move(scrut);
@@ -7829,20 +7817,28 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             temp_scrut_hoisted = true;
         }
     }
-    // Wrap a match-expr whose scrutinee was a hoisted temporary:
-    //   { let __ms = <scrut>; let __mr = <match __ms { … }>; drop __ms?; __mr }
-    // The match value is bound first so __ms is dropped AFTER it is read; the
-    // drop is suppressed when an arm moved the payload (mark_match_scrutinee_moved
-    // recorded the synth var). Skipped for a void/never/error result type (no
-    // value to thread; that edge keeps the prior behaviour).
+    // Wrap a match-expr whose scrutinee was a hoisted temporary in a block-expr.
+    // Value result: `{ let __ms; let __mr = <match __ms{…}>; <fall-through drop
+    // __ms>; __mr }` — the value is bound first so __ms drops AFTER it is read,
+    // and a returning arm dropped __ms already (collect_all_drops), so it never
+    // reaches the fall-through drop. void/never/error result (rare — a match-expr
+    // whose arms all diverge): `{ let __ms; <match> }`, the arm-return drop is the
+    // only live path. collect_drops yields the fall-through __ms drop (empty if an
+    // arm moved it); pop_scope balances the push.
     auto finalize_expr = [&](lir::LExprPtr me, TypeRef rty) -> lir::LExprPtr {
         if (!temp_scrut_hoisted) return me;
-        if (!rty || TypeRef(rty).kind() == LogosType::Kind::Void ||
-            TypeRef(rty).kind() == LogosType::Kind::Never ||
-            TypeRef(rty).kind() == LogosType::Kind::Error)
-            return me;
+        auto ft_drops = collect_drops();
+        pop_scope();
         auto blk = lir::alloc_block(*cur_prog_);
         blk->stmts.push_back(std::move(temp_scrut_let));
+        bool valueful = rty && TypeRef(rty).kind() != LogosType::Kind::Void &&
+                        TypeRef(rty).kind() != LogosType::Kind::Never &&
+                        TypeRef(rty).kind() != LogosType::Kind::Error;
+        if (!valueful) {
+            // No value to thread; the match is the block result (diverges if
+            // never). __ms is dropped by the returning arm's collect_all_drops.
+            return builder().block_expr(std::move(blk), std::move(me), rty);
+        }
         std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
         {
             lir::SLet sl;
@@ -7850,9 +7846,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             sl.value = std::move(me);
             blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        if (!moved_vars_.count(temp_scrut_var))
-            if (auto d = make_drop_stmt(temp_scrut_var, VarInfo{scrut_type, false}))
-                blk->stmts.push_back(std::move(*d));
+        for (auto& d : ft_drops) blk->stmts.push_back(std::move(d));
         return builder().block_expr(std::move(blk),
                                     builder().var_ref(res_var, rty), rty);
     };
