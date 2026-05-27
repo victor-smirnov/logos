@@ -2313,11 +2313,12 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto cps = TypeRef(callee_type).closure_params();
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto& a = arg_exprs[i];
-                if (!a || !is_move_type(a->type)) continue;
+                if (!a) continue;
                 if (TypeRef(a->type).kind() == LogosType::Kind::TypeVar) continue;
                 if (i < cps.size() && cps[i] &&
                     (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                      TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+                // self-gates: move-type l-values + owning Box<dyn> bindings
                 mark_moved_expr(expr_ref_of(*a));
             }
         }
@@ -5192,7 +5193,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
             auto cps = TypeRef(rt).closure_params();
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto& a = arg_exprs[i];
-                if (!a || !is_move_type(a->type)) continue;
+                if (!a) continue;
                 // Skip TypeVar args: in a generic fn, `v: T` move-ness is
                 // unknown here (`T: Copy` → passed by copy, reused after the
                 // call, e.g. SuccessorsIter). Concrete move types (String, …)
@@ -5201,6 +5202,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                 if (i < cps.size() && cps[i] &&
                     (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                      TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+                // self-gates: move-type l-values + owning Box<dyn> bindings
                 mark_moved_expr(expr_ref_of(*a));
             }
         }
@@ -5213,11 +5215,12 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         auto cps = TypeRef(rt).closure_params();
         for (size_t i = 0; i < arg_exprs.size(); ++i) {
             auto& a = arg_exprs[i];
-            if (!a || !is_move_type(a->type)) continue;
+            if (!a) continue;
             if (TypeRef(a->type).kind() == LogosType::Kind::TypeVar) continue;
             if (i < cps.size() && cps[i] &&
                 (TypeRef(cps[i]).kind() == LogosType::Kind::Ref ||
                  TypeRef(cps[i]).kind() == LogosType::Kind::MutRef)) continue;
+            // self-gates: move-type l-values + owning Box<dyn> bindings
             mark_moved_expr(expr_ref_of(*a));
         }
         return builder().fn_ptr_call(std::move(recv),
@@ -5389,7 +5392,8 @@ void SemaChecker::track_recv_moved(const lir::LExprPtr& recv, TypeRef self_forma
     auto k = TypeRef(self_formal).kind();
     if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
         k == LogosType::Kind::Ptr) return;  // by-ref / by-ptr: no move
-    if (!is_move_type(recv->type)) return;
+    // mark_moved_expr self-gates (move-type l-values + owning Box<dyn>); a
+    // by-value self consumes an owning Box<dyn> receiver just like a move type.
     mark_moved_expr(expr_ref_of(*recv));
 }
 
