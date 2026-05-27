@@ -17,6 +17,7 @@ package logos.mem.rc;
 
 use logos.lang.mem;
 use logos.lang.drop;
+use logos.lang.clone;
 
 pub struct RcInner<T> {
     pub strong: i32,
@@ -103,6 +104,19 @@ impl<T> Drop for Rc<T> {
         unsafe {
             let p: *mut Rc<T> = &self as *const Rc<T> as *mut Rc<T>;
             p.drop_rc();
+        }
+    }
+}
+
+// Clone (Rust parity): `rc.clone()` bumps the strong count and hands back a
+// second handle to the same allocation — NOT a deep copy. Mirrors clone_ref,
+// but as the standard `Clone` trait so generic `T: Clone` code and `.clone()`
+// dispatch uniformly (same surface as a future Box/Arc Clone).
+impl<T> Clone for Rc<T> {
+    fn clone(&self) -> Rc<T> {
+        unsafe {
+            let p: *mut Rc<T> = self as *const Rc<T> as *mut Rc<T>;
+            return p.clone_rc();
         }
     }
 }

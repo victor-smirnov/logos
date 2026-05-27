@@ -22,6 +22,7 @@ use logos.lang.mem;
 use logos.lang.atomic;
 use logos.lang.marker;
 use logos.lang.drop;
+use logos.lang.clone;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 
@@ -115,6 +116,18 @@ impl<T: Send + Sync> Drop for Arc<T> {
         unsafe {
             let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
             p.drop_arc();
+        }
+    }
+}
+
+// Clone (Rust parity): atomically bumps the strong count and returns a second
+// handle (shared ownership), NOT a deep copy. Standard `Clone` trait so
+// `.clone()` and generic `T: Clone` dispatch uniformly with Rc/Box.
+impl<T: Send + Sync> Clone for Arc<T> {
+    fn clone(&self) -> Arc<T> {
+        unsafe {
+            let p: *mut Arc<T> = self as *const Arc<T> as *mut Arc<T>;
+            return p.clone_arc();
         }
     }
 }
