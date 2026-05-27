@@ -3936,6 +3936,20 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                     break;
                 }
             }
+            // Enum value-repr / tuple / array: the substituted concrete type
+            // owns its variant payload / elements INLINE, but sema emitted the
+            // sentinel drop with drop_fields=false (has_droppable_fields was
+            // false for the opaque TypeVar). Set drop_fields=true so mlir-gen's
+            // SDrop runs gen_drop_value's variant-switch / element recursion
+            // (it internally no-ops when nothing is droppable and dispatches a
+            // user Drop impl itself). Without this, a `Vec<Enum-with-String>` /
+            // `Vec<(String,…)>` element bound by-value in the mono'd Vec::drop
+            // loop never freed its payload (the P1 Vec-element-drop leak).
+            else if (ty && (TypeRef(ty).kind() == LogosType::Kind::Enum ||
+                            TypeRef(ty).kind() == LogosType::Kind::Tuple ||
+                            TypeRef(ty).kind() == LogosType::Kind::Array)) {
+                drop_fields = true;
+            }
         }
         // Re-mangle drop_fn for the substituted concrete struct type. Sema's
         // drop_fn_for returns the template name (e.g. "Foo__drop") for
