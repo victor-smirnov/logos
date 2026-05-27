@@ -279,6 +279,11 @@ private:
 
     // "Trait::Type" → mangled method names in vtable slot order
     std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
+    // "Trait::Type" → symbol name of the STATIC vtable global (emitted once,
+    // `[N x ptr]` of method addresses). A `&dyn` coercion takes its address
+    // instead of malloc'ing+filling a fresh vtable per coercion (the recurring
+    // per-coercion vtable leak; Rust vtables are static).
+    std::unordered_map<std::string, std::string> dyn_vtable_globals_;
     // Trait name → its method names in vtable slot order, and whether the
     // trait has a blanket impl (`impl<T> Trait for T`). Used by
     // build_inline_vtable to synthesize a `<Concrete>__<method>` vtable on the

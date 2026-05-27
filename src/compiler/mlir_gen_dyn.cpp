@@ -883,34 +883,82 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
     }
     auto& methods = vit->second;
     size_t n = methods.size();
-    // Heap-allocate: n pointers × 8 bytes each.
-    auto size_val = builder_.create<mlir::arith::ConstantIntOp>(
-        loc_, static_cast<int64_t>(n * 8), 64);
-    auto vtable = call_malloc(size_val);
-    if (!vtable) return nullptr;
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    for (size_t i = 0; i < n; ++i) {
-        // Empty slot is the object-unsafe sentinel from resolve_methods
-        // (method has method-level type-params — not dispatchable via &dyn).
-        if (methods[i].empty()) continue;
-        auto callee = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
-        if (!callee) {
-            std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
-                         methods[i].c_str());
-            continue;
+
+    // One `[N x ptr]` vtable per (trait, type), allocated + filled ONCE and
+    // cached in a module-global `ptr` holder — Rust-style program-lifetime
+    // static vtable. Previously every coercion malloc'd + filled a fresh
+    // n*8-byte vtable that was never freed (a per-coercion leak that compounded
+    // with dispatch frequency). Now the FIRST coercion of a given (trait,type)
+    // fills it; the rest load the cached pointer. (A true `.data` const global
+    // isn't usable here: `llvm.mlir.addressof` of a method needs an `llvm.func`,
+    // which only exists after func→llvm lowering — so we materialise the table
+    // lazily via func.constant, the same mechanism the tag-dispatch tables use.)
+    std::string holder_sym;
+    if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end()) {
+        holder_sym = git->second;
+    } else {
+        holder_sym = "__logos_vtable__";
+        holder_sym.reserve(holder_sym.size() + key.size());
+        for (char c : key)
+            holder_sym += (std::isalnum((unsigned char)c) || c == '_' || c == '$') ? c : '_';
+        if (!parent_mod.lookupSymbol(holder_sym)) {
+            mlir::OpBuilder::InsertionGuard guard(builder_);
+            builder_.setInsertionPointToEnd(parent_mod.getBody());
+            auto glob = builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, ptr_type(), /*isConstant=*/false,
+                mlir::LLVM::Linkage::LinkonceODR, holder_sym, mlir::Attribute{}, 0);
+            auto& ir = glob.getInitializerRegion();
+            builder_.setInsertionPointToStart(builder_.createBlock(&ir));
+            builder_.create<mlir::LLVM::ReturnOp>(
+                loc_, builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type()));
         }
-        auto func_type = callee.getFunctionType();
-        auto fn_ref = builder_.create<mlir::func::ConstantOp>(
-            loc_, func_type, methods[i]);
-        auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
-            loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
-        // GEP: vtable is ptr to array of ptrs; element i at offset i*sizeof(ptr).
-        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
-        auto slot = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), ptr_type(), vtable, idx);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, slot);
+        dyn_vtable_globals_[key] = holder_sym;
     }
-    return vtable;
+
+    // holder = &@__logos_vtable__…;  cur = *holder;  if (cur == null) { … fill … }
+    auto holder = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), holder_sym);
+    auto cur = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), holder);
+    auto null_ptr = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    auto is_null = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::eq, cur, null_ptr);
+    auto* region    = builder_.getBlock()->getParent();
+    auto* init_blk  = new mlir::Block();
+    auto* cont_blk  = new mlir::Block();
+    region->push_back(init_blk);
+    region->push_back(cont_blk);
+    builder_.create<mlir::LLVM::CondBrOp>(loc_, is_null, init_blk, cont_blk);
+
+    // init_blk: malloc + fill + store into the holder.
+    builder_.setInsertionPointToStart(init_blk);
+    {
+        auto size_val = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, static_cast<int64_t>(n * 8), 64);
+        auto vt = call_malloc(size_val);
+        for (size_t i = 0; i < n; ++i) {
+            if (methods[i].empty()) continue;  // object-unsafe sentinel → null slot
+            auto callee = parent_mod.lookupSymbol<mlir::func::FuncOp>(methods[i]);
+            if (!callee) {
+                std::fprintf(stderr, "mlir_gen: vtable: method '%s' not found\n",
+                             methods[i].c_str());
+                continue;
+            }
+            auto fn_ref = builder_.create<mlir::func::ConstantOp>(
+                loc_, callee.getFunctionType(), methods[i]);
+            auto fn_addr = builder_.create<mlir::UnrealizedConversionCastOp>(
+                loc_, ptr_type(), mlir::ValueRange{fn_ref}).getResult(0);
+            llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(i)};
+            auto slot = builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), ptr_type(), vt, idx);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, fn_addr, slot);
+        }
+        builder_.create<mlir::LLVM::StoreOp>(loc_, vt, holder);
+        builder_.create<mlir::LLVM::BrOp>(loc_, cont_blk);
+    }
+
+    // cont_blk: reload the (now-filled) cached vtable pointer.
+    builder_.setInsertionPointToStart(cont_blk);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), holder);
 }
 
 // ---------------------------------------------------------------------------
