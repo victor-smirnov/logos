@@ -212,6 +212,10 @@ private:
     std::unordered_map<std::string, std::string>  var_dyn_trait_;
     // Function name → Logos-level parameter types (for dyn coercion at call sites).
     std::unordered_map<std::string, std::vector<TypeRef>> fn_param_types_;
+    // Function name → per-param owning-Box<dyn> flag: the param collapsed to a
+    // bare TraitObject but the callee owns+frees the heap handle, so the call
+    // site must coerce the arg to a HEAP fat handle (heap=true).
+    std::unordered_map<std::string, std::vector<bool>> fn_param_owning_box_dyn_;
 
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;

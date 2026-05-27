@@ -184,8 +184,10 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
     mod.push_back(f);
     // Record Logos-level param types for dyn coercion at call sites.
     std::vector<TypeRef> ptypes;
-    for (auto& p : fn.params) ptypes.push_back(p.type);
+    std::vector<bool> powning;
+    for (auto& p : fn.params) { ptypes.push_back(p.type); powning.push_back(p.owning_box_dyn); }
     fn_param_types_[fn.name] = std::move(ptypes);
+    fn_param_owning_box_dyn_[fn.name] = std::move(powning);
 }
 
 // ---------------------------------------------------------------------------

@@ -2626,10 +2626,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         check_call_outlives(std::string(callee), exact_fi->param_types,
                             arg_exprs, exact_fi->lifetime_outlives);
 
-        for (auto& a : arg_exprs) {
-            if (is_move_type(a->type))
-                mark_moved_expr(expr_ref_of(*a));
-        }
+        track_args_moved(arg_exprs);
         return builder().call(exact_fi->symbol_name.empty() ? std::string(callee) : exact_fi->symbol_name, {}, std::move(arg_exprs), exact_fi->ret_type);
     }
 
@@ -2876,11 +2873,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
     }
 
-    // Move semantics: mark by-value move-type args as moved
-    for (auto& a : arg_exprs) {
-        if (is_move_type(a->type))
-            mark_moved_expr(expr_ref_of(*a));
-    }
+    // Move semantics: mark by-value move-type args (and owning Box<dyn>) moved
+    track_args_moved(arg_exprs);
 
     // Inside generic context (inference deferred): preserve generic call shape
     // so mono can instantiate and rewrite callee names correctly.
@@ -3510,10 +3504,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // the analogous loops in lower_call / lower_method_call / lower_static_call.
     // Without this, e.g. `arc_new::<S>(s)` left `s`'s scope-exit Drop active,
     // freeing storage that arc_new now owns.
-    for (auto& a : arg_exprs) {
-        if (a && is_move_type(a->type))
-            mark_moved_expr(expr_ref_of(*a));
-    }
+    track_args_moved(arg_exprs);
     return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
 }
 
@@ -5379,7 +5370,9 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
 void SemaChecker::track_args_moved(const std::vector<lir::LExprPtr>& args) {
     for (auto& a : args) {
         if (!a) continue;
-        if (!is_move_type(a->type)) continue;
+        // mark_moved_expr is self-gating: it marks move-type l-values AND
+        // owning Box<dyn> bindings (bare TraitObject, not a move-type but
+        // consumed by a by-value param), and is a no-op for everything else.
         mark_moved_expr(expr_ref_of(*a));
     }
 }
@@ -11596,12 +11589,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
 
-    // Move semantics: mark by-value move-type args as moved so that scope-end
-    // drops do not fire on locals whose ownership has been transferred.
-    for (auto& a : arg_exprs) {
-        if (is_move_type(a->type))
-            mark_moved_expr(expr_ref_of(*a));
-    }
+    // Move semantics: mark by-value move-type args (and owning Box<dyn>) moved
+    // so that scope-end drops do not fire on transferred-ownership locals.
+    track_args_moved(arg_exprs);
 
     return builder().call(fi.symbol_name.empty() ? mangled : fi.symbol_name, {}, std::move(arg_exprs), fi.ret_type);
 }

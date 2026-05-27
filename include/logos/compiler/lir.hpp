@@ -642,6 +642,11 @@ struct LParam {
     std::string      name;
     TypeRef type;
     bool             is_variadic = false;  // variadic pack parameter
+    // A by-value `Box<dyn Trait>` param: the type collapses to a bare
+    // TraitObject, but the callee OWNS the heap handle (frees it via
+    // __box_dyn__drop). Call sites must coerce the arg to a HEAP fat handle
+    // (not a stack fat pair) so the callee's free() is valid.
+    bool             owning_box_dyn = false;
 };
 
 // EClosure — defined after LParam and LBlock (both needed).

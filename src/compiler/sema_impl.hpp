@@ -1594,8 +1594,10 @@ private:
         if (!er) return;
         using C = lir_schema::expr::Code;
         if (er.kind() == C::VarRef) {
-            if (is_move_type(er.type(cur_prog_->type_pool.impl())))
-                mark_moved(std::string(lir_view::EVarRefView{er}.name()));
+            std::string nm(lir_view::EVarRefView{er}.name());
+            if (is_move_type(er.type(cur_prog_->type_pool.impl())) ||
+                lookup_owning_dyn(nm))
+                mark_moved(nm);
             return;
         }
         if (er.kind() == C::FieldRead) {
@@ -1752,6 +1754,17 @@ private:
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return f->second.is_mut;
+        }
+        return false;
+    }
+
+    // An owning `Box<dyn Trait>` binding (collapsed to bare TraitObject). Passing
+    // it by value MOVES it (the callee frees the handle), so the caller must
+    // mark it moved to avoid a double-free. Mirrors lookup_is_mut.
+    bool lookup_owning_dyn(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            auto f = it->vars.find(std::string(name));
+            if (f != it->vars.end()) return f->second.owning_dyn;
         }
         return false;
     }

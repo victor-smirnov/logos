@@ -625,7 +625,22 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         continue;
                     }
                     define(pname, pt);
-                    fn.params.push_back({std::string(pname), pt, p_variadic});
+                    // A by-value `Box<dyn Trait>` param collapses to bare
+                    // TraitObject in resolve_type but the callee OWNS the box:
+                    // tag the binding owning_dyn so collect_drops frees it
+                    // (vtable[0] drop_in_place + dealloc data + dealloc handle),
+                    // and mark the LParam owning_box_dyn so call sites coerce the
+                    // arg to a HEAP fat handle (matching the callee's free()).
+                    bool p_owning_box_dyn = false;
+                    if (pt && TypeRef(pt).kind() == LogosType::Kind::TraitObject &&
+                        p.has_key(la::TYPE) &&
+                        str_of(map_of(p.get(la::TYPE.code)).get(la::NAME.code)) == "Box") {
+                        if (auto vit = scope_.back().vars.find(std::string(pname));
+                            vit != scope_.back().vars.end())
+                            vit->second.owning_dyn = true;
+                        p_owning_box_dyn = true;
+                    }
+                    fn.params.push_back({std::string(pname), pt, p_variadic, p_owning_box_dyn});
                 }
             }
         }

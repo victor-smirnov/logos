@@ -1935,6 +1935,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 TypeRef(param_lt).kind() == LogosType::Kind::Struct &&
                 TypeRef(param_lt).struct_name() == "Box" &&
                 TypeRef(param_lt).type_args().size() == 1;
+            // A param whose type collapsed to bare TraitObject but is an owning
+            // Box<dyn> (callee frees it): coerce to a HEAP fat handle so the
+            // callee's free() lands on a real allocation, not a stack fat pair.
+            if (auto oit = fn_param_owning_box_dyn_.find(callee);
+                oit != fn_param_owning_box_dyn_.end() &&
+                i < oit->second.size() && oit->second[i])
+                free_param_is_box_dyn = true;
             TypeRef ptl = param_lt, alt = arg_lt;
             auto unbox = [](TypeRef& t){
                 if (t && TypeRef(t).kind() == LogosType::Kind::Struct &&
