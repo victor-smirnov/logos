@@ -829,8 +829,38 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
 // Build inline vtable [N x ptr] heap-allocated for a concrete type.
 // ---------------------------------------------------------------------------
 
+// Emit (once, deduped) the `__drop_in_place__<type>` glue function: a
+// `func.func(ptr)` whose body runs the concrete type's FULL drop via
+// gen_drop_value, then returns. Becomes slot 0 of every vtable (Rust-faithful;
+// size/align slots omitted because Logos `dealloc` = libc `free`). For a Copy /
+// drop-less type the body is an empty no-op — still emitted so slot 0 is valid.
+std::string MLIRGenImpl::emit_drop_in_place_glue(std::string_view type_name,
+                                                  TypeRef ty) {
+    std::string key(type_name);
+    if (auto it = dyn_drop_glue_.find(key); it != dyn_drop_glue_.end())
+        return it->second;
+    std::string sym = "__drop_in_place__";
+    for (char c : key)
+        sym += (std::isalnum((unsigned char)c) || c == '_' || c == '$') ? c : '_';
+    dyn_drop_glue_[key] = sym;
+    auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    if (parent_mod.lookupSymbol(sym)) return sym;
+    auto* ctx = builder_.getContext();
+    mlir::OpBuilder::InsertionGuard guard(builder_);
+    builder_.setInsertionPointToEnd(parent_mod.getBody());
+    auto fn_type = mlir::FunctionType::get(ctx, {ptr_type()}, {});
+    auto fn = builder_.create<mlir::func::FuncOp>(loc_, sym, fn_type);
+    fn->setAttr("sym_visibility", mlir::StringAttr::get(ctx, "private"));
+    auto* entry = fn.addEntryBlock();
+    builder_.setInsertionPointToStart(entry);
+    if (ty) gen_drop_value(entry->getArgument(0), ty, /*top_level=*/true);
+    builder_.create<mlir::func::ReturnOp>(loc_);
+    return sym;
+}
+
 mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
-                                               std::string_view type_name) {
+                                               std::string_view type_name,
+                                               TypeRef concrete_ty) {
     std::string key;
     key.reserve(trait_name.size() + 2 + type_name.size());
     key.append(trait_name); key.append("::"); key.append(type_name);
@@ -881,7 +911,13 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
         }
         if (vit == dyn_vtable_methods_.end()) return nullptr;
     }
-    auto& methods = vit->second;
+    // Slot 0 is the drop_in_place glue (Rust-faithful); the trait's declared
+    // methods follow at slots 1..N (gen_dyn_dispatch adds the +1 shift).
+    std::vector<std::string> slots;
+    slots.reserve(vit->second.size() + 1);
+    slots.push_back(emit_drop_in_place_glue(type_name, concrete_ty));
+    for (auto& m : vit->second) slots.push_back(m);
+    auto& methods = slots;
     size_t n = methods.size();
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
@@ -925,7 +961,8 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                                        std::string_view src_type_name, bool heap) {
+                                        std::string_view src_type_name, bool heap,
+                                        TypeRef concrete_ty) {
     auto dyn_struct = dyn_llvm_type();
     // Borrow `&dyn`/`&mut dyn` (heap=false): the {data,vtable} pair lives in a
     // stack alloca (value-fat-pair model, mirrors slices) — no malloc, no leak.
@@ -947,7 +984,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
         loc_, ptr_type(), dyn_struct, alloca, idx0);
     builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
     // Store vtable pointer at field 1
-    auto vtable = build_inline_vtable(trait_name, src_type_name);
+    auto vtable = build_inline_vtable(trait_name, src_type_name, concrete_ty);
     if (vtable) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
         auto vp = builder_.create<mlir::LLVM::GEPOp>(
@@ -997,7 +1034,7 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
         TypeRef(slot_lt).struct_name() == "Box" &&
         TypeRef(slot_lt).type_args().size() == 1;
     auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name,
-                             /*heap=*/slot_is_box_dyn || force_heap);
+                             /*heap=*/slot_is_box_dyn || force_heap, vt_type);
     return fat ? fat : val;
 }
 
@@ -1271,8 +1308,10 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
         loc_, ptr_type(), dyn_struct, recv_alloca, idx1);
     auto vtable_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vp);
 
-    // GEP into vtable array to get fn_ptr at vtable_index
-    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(v.vtable_index())};
+    // GEP into vtable array to get fn_ptr at vtable_index. Slot 0 is the
+    // drop_in_place glue (Rust-faithful layout: [drop, method0, method1, …]),
+    // so the trait method's declared position shifts by +1.
+    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(v.vtable_index() + 1)};
     auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), ptr_type(), vtable_ptr, slot_idx);
     auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);

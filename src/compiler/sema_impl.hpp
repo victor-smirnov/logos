@@ -1441,7 +1441,7 @@ private:
 
     // ── Scope management ─────────────────────────────────────────
 
-    struct VarInfo { TypeRef type; bool is_mut = false; };
+    struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false; };
     struct Frame {
         logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order

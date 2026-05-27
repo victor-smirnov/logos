@@ -1525,8 +1525,18 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
 
     // Parse type annotation first so we can use it as a hint for enum literal inference
     TypeRef ann = nullptr;
-    if (node.has_key(la::TYPE))
-        ann = resolve_type(map_of(node.get(la::TYPE.code)));
+    bool ann_is_box_dyn = false;  // `Box<dyn T>` collapses to a bare TraitObject
+                                  // in resolve_type, but it is OWNING (heap
+                                  // handle) — record so its drop runs.
+    if (node.has_key(la::TYPE)) {
+        auto tnode = map_of(node.get(la::TYPE.code));
+        ann = resolve_type(tnode);
+        if (ann && TypeRef(ann).kind() == LogosType::Kind::TraitObject) {
+            // Detect the `Box<...>` syntactic wrapper that resolve_type erased.
+            auto tname = str_of(tnode.get(la::NAME.code));
+            if (tname == "Box") ann_is_box_dyn = true;
+        }
+    }
 
     // Set enum/struct hints so literal lowering can fill in unresolved type params
     auto saved_hint = hint_enum_type_;
@@ -1888,6 +1898,24 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     }
 
     define(name, var_type, is_mut);
+    // Mark an owning `Box<dyn Trait>` binding so collect_drops emits its
+    // drop_in_place + free sequence (the type collapsed to bare TraitObject).
+    // ONLY when the RHS genuinely TRANSFERS OWNERSHIP — a fresh `box_new(..) as
+    // Box<dyn>` cast (Cast) or a value-returning constructor (Call/New). A
+    // `*m.get(&k)` / `v.get(i)` / `arr[i]` reads a HANDLE COPY out of a
+    // container the container still owns (Rust forbids moving out of a shared
+    // ref; Logos copies it) — dropping that copy would double-free the
+    // container's element. So exclude Deref / IndexRead / MethodCall / etc.
+    if (ann_is_box_dyn && !scope_.empty() && rhs) {
+        using C = lir_schema::expr::Code;
+        auto rk = expr_ref_of(*rhs).kind();
+        bool owns = rk == C::Cast || rk == C::Call || rk == C::New;
+        if (owns) {
+            auto sname = std::string(name);
+            if (auto vit = scope_.back().vars.find(sname); vit != scope_.back().vars.end())
+                vit->second.owning_dyn = true;
+        }
+    }
 
     // Move semantics: if RHS is a variable reference (or struct-field read) of a
     // move type, mark it moved. mark_moved_expr handles both VarRef and

@@ -2581,6 +2581,18 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
 }
 
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
+    // Owning `Box<dyn Trait>` (collapsed to a bare TraitObject in the type
+    // system, but heap-owning): emit a drop with the `__box_dyn__drop`
+    // sentinel; mlir-gen's SDrop calls vtable slot-0 drop_in_place + frees the
+    // boxed data and the fat handle.
+    if (info.owning_dyn && info.type &&
+        TypeRef(info.type).kind() == LogosType::Kind::TraitObject) {
+        lir::LStmt s; s.line = node_line_;
+        if (cur_prog_)
+            s.mirror_offset_ = lir_mirror_emit_drop(
+                *cur_prog_, node_line_, name, "__box_dyn__drop", info.type, false, {});
+        return s;
+    }
     auto dfn = drop_fn_for(info.type);
     bool df  = has_droppable_fields(info.type);
     if (dfn.empty() && !df) return std::nullopt;

@@ -299,6 +299,15 @@ private:
     std::unordered_map<std::string, std::vector<std::string>> trait_method_names_;
     std::unordered_set<std::string> blanket_traits_;
 
+    // drop_in_place glue: every vtable's slot 0 is a `__drop_in_place__<type>`
+    // function that runs the concrete type's FULL drop (Rust-faithful). Maps a
+    // vtable type-name key → the emitted glue symbol (dedup; emitted once per
+    // concrete type). Empty body for a non-droppable type — harmless no-op.
+    std::unordered_map<std::string, std::string> dyn_drop_glue_;
+    // Emit (once) the drop_in_place glue fn for concrete type `ty` keyed on
+    // `type_name`; returns its symbol (always non-empty so it can fill slot 0).
+    std::string emit_drop_in_place_glue(std::string_view type_name, TypeRef ty);
+
     // ── MLIR helpers ─────────────────────────────────────────────
 
     static bool is_terminated(mlir::Block* block) noexcept {
@@ -538,7 +547,8 @@ private:
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
     void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
     mlir::Value build_inline_vtable(std::string_view trait_name,
-                                     std::string_view type_name);
+                                     std::string_view type_name,
+                                     TypeRef concrete_ty = {});
     // Build a fat {data,vtable} pair. `heap=false` (default) → stack alloca:
     // used for borrow `&dyn`/`&mut dyn` (value-fat-pair model; no leak). The
     // CONSUMER copies the 16 bytes when it escapes (struct field / array /
@@ -547,7 +557,8 @@ private:
     // stored/escapes (Vec<Box<dyn>>, persistent NodeARC.p) and survives via the
     // heap slot (Box<dyn>'s drop frees it).
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                               std::string_view src_type_name, bool heap = false);
+                               std::string_view src_type_name, bool heap = false,
+                               TypeRef concrete_ty = {});
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
     // trait object (`dyn`/`Box<dyn>`/`&dyn`) but the VALUE is still concrete —
@@ -620,7 +631,17 @@ private:
     // (struct → user drop + fields; tuple → elements; enum → variant-switched
     // payload; array → each element; ref/ptr/scalar → nothing). Handles
     // arbitrary nesting (array-of-struct, struct-with-array-field, …).
-    void gen_drop_value(mlir::Value value_ptr, TypeRef ty);
+    // `top_level=true` mirrors SDrop's owner semantics: after a user `impl
+    // Drop` runs, the value's FIELDS/payload are ALSO dropped (the owner drops
+    // both). `top_level=false` (nested) calls the user drop and stops (the
+    // by-value `self` consumes its own fields at the drop body's scope end).
+    void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level = false);
+    // Drop an OWNING `Box<dyn Trait>` whose binding storage `handle` IS the
+    // 8-byte heap handle to a 16-byte {data,vtable} fat pair. Sequence (null-
+    // guarded): load data(field0)+vtable(field1); call vtable[0](data)
+    // (drop_in_place runs the concrete's destructor + its owned fields);
+    // free(data) (the boxed concrete); free(handle) (the fat slot).
+    void gen_drop_owning_dyn_handle(mlir::Value handle);
     // Codegen-side "does a value of this type own anything droppable" — mirrors
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.

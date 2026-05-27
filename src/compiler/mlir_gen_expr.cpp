@@ -2719,7 +2719,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(TypeRef(type).pointee()).trait_name());
         // Raw `*const/*mut dyn` handle — heap-survive (persistent / smart-ptr).
-        if (auto alloca = coerce_to_dyn(val, trait, src_struct, /*heap=*/true)) return alloca;
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct, /*heap=*/true, pointee)) return alloca;
     }
     // `&T` / `&mut T` (over a struct) `as &dyn Trait` / `&mut dyn Trait` — the
     // target type is bare TraitObject (no Ptr wrap, since `&dyn` is one node
@@ -2745,7 +2745,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             // stored → SIGSEGV on dispatch.
             src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(type).trait_name());
-        if (auto alloca = coerce_to_dyn(val, trait, src_struct)) return alloca;
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct, /*heap=*/false, pointee)) return alloca;
     }
 
     // `box_new(x) as Box<dyn Trait>` (and `concrete as dyn`/`*dyn`): the source is
@@ -2790,7 +2790,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                     : type_str(boxed);
             std::string trait = std::string(tgt_to.trait_name());
             // Owning Box<dyn> handle — heap-survive (its drop frees the slot).
-            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/true)) return alloca;
+            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/true, boxed)) return alloca;
         }
     }
 

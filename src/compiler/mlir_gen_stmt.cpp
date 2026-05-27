@@ -302,7 +302,52 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     return false;
 }
 
-void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty) {
+void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value handle) {
+    if (!handle) return;
+    // The binding storage must be a genuine 8-byte heap HANDLE (ptr to a
+    // {data,vtable} fat pair) for this owning-drop to be valid — that is the
+    // shape produced by an `as Box<dyn>` cast / owning-box let coercion
+    // (coerce_to_dyn heap=true). If the storage is instead the 16-byte fat
+    // pair VALUE (`let b = v.get(i)` copies a {data,vtable} struct out of a
+    // container the container still owns), dropping it here would double-free
+    // the container's element — so SKIP. Likewise a non-ptr SSA value.
+    if (handle.getType() != ptr_type()) return;
+
+    // Null-guard the handle (a moved-from box is null).
+    auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    auto nn = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, handle, null);
+    auto* region = builder_.getBlock()->getParent();
+    auto* then_blk = new mlir::Block();
+    auto* cont_blk = new mlir::Block();
+    region->push_back(then_blk);
+    region->push_back(cont_blk);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
+    builder_.setInsertionPointToStart(then_blk);
+
+    auto dyn_struct = dyn_llvm_type();
+    // data = handle->field0, vtable = handle->field1
+    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+    auto dpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, handle, di);
+    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dpp);
+    llvm::SmallVector<mlir::LLVM::GEPArg> vi{int32_t(0), int32_t(1)};
+    auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, handle, vi);
+    auto vtable = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
+    // drop_in_place = vtable[0]; call it on data (runs concrete destructor).
+    auto slot0 = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vtable);
+    auto void_t = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+    auto fn_t = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()});
+    llvm::SmallVector<mlir::Value> call_ops{slot0, data};
+    builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
+                                        mlir::ValueRange(call_ops));
+    // Free the boxed concrete allocation, then the fat-pair handle.
+    call_free(data);
+    call_free(handle);
+    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    builder_.setInsertionPointToStart(cont_blk);
+}
+
+void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level) {
     using K = LogosType::Kind;
     if (!value_ptr || !ty) return;
     auto k = TypeRef(ty).kind();
@@ -327,7 +372,9 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty) {
         if (auto ds = resolve_method_symbol(name, "drop"); !ds.empty())
             if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
-                return;
+                // Owner (top_level) also drops the fields after the user drop
+                // (mirrors SDrop). Nested: stop (by-value self consumes them).
+                if (!top_level) return;
             }
         auto sdit = all_struct_defs_.find(name);
         auto sit  = struct_types_.find(mlir_struct_key(ty));
@@ -371,7 +418,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty) {
         if (auto ds = resolve_method_symbol(ename, "drop"); !ds.empty())
             if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
-                return;
+                if (!top_level) return;
             }
         auto* te = resolve_tagged_enum(ename, ty);
         if (!te) return;
@@ -428,6 +475,16 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+
+    // 0. Owning Box<dyn Trait> (sema sentinel `__box_dyn__drop`): the binding's
+    //    storage IS the 8-byte heap handle to a 16-byte {data,vtable} fat pair.
+    //    Run vtable slot-0 drop_in_place(data) (drops the concrete + its owned
+    //    fields), then free(data), then free(handle). The stdlib Box<T>::drop
+    //    would free only the handle (leaking the boxed concrete + its String).
+    if (std::string(v.drop_fn()) == "__box_dyn__drop") {
+        gen_drop_owning_dyn_handle(it->second);
+        return;
+    }
 
     // 1. Call user's explicit drop function (if any).
     //    mono_clone re-mangles drop_fn to the bare `<concrete>__drop` form;
@@ -884,10 +941,17 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                  TypeRef(src_logos_type).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(src_logos_type).pointee())
                 src_logos_type = TypeRef(src_logos_type).pointee();
-            if (src_logos_type &&
+            // An OWNING `Box<Concrete>` source (implicit `let g: Box<dyn> =
+            // box_new(...)` coercion) yields an OWNING `Box<dyn>` — its handle
+            // must be heap-allocated so the scope-end drop_in_place + free
+            // sequence frees a real heap block (a stack fat pair would invalid-
+            // free). A `&Concrete` borrow source stays a stack fat pair.
+            bool src_is_owning_box =
+                src_logos_type &&
                 TypeRef(src_logos_type).kind() == LogosType::Kind::Struct &&
                 TypeRef(src_logos_type).struct_name() == "Box" &&
-                TypeRef(src_logos_type).type_args().size() == 1)
+                TypeRef(src_logos_type).type_args().size() == 1;
+            if (src_is_owning_box)
                 src_logos_type = TypeRef(src_logos_type).type_args()[0];
             // Use the mono-mangled concrete name (`Foo$G1$i64`) — the vtable
             // registry keys generic-impl entries on this form. `type_str`
@@ -903,7 +967,8 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // `*const/*mut dyn` local → heap handle (the value escapes via the
             // raw pointer; persistent/smart-ptr convention).
             alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type,
-                                   /*heap=*/is_raw_ptr_dyn);
+                                   /*heap=*/is_raw_ptr_dyn || src_is_owning_box,
+                                   src_logos_type);
         }
         scope_[s.name] = alloca;
         let_vars_.insert(s.name);
