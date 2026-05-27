@@ -7,6 +7,7 @@
 package logos.mem.boxed;
 
 use logos.lang.mem;
+use logos.lang.ops;
 
 pub struct Box<T> {
     ptr: *mut T,
@@ -27,6 +28,22 @@ impl<T> Box<T> {
     // Mutable access to the boxed value.
     pub unsafe fn get_mut(self: *mut Box<T>) -> *mut T {
         return self.ptr;
+    }
+}
+
+// Deref / DerefMut (Rust parity): `*b`, and auto-deref `b.field` / `b.method()`
+// route through these. Box hides the unsafe raw-pointer load behind the trait,
+// so use sites need no `unsafe`. Same surface as Rc/Arc — the compiler's deref
+// machinery dispatches uniformly (no Box-specific path).
+impl<T> Deref<T> for Box<T> {
+    fn deref(&self) -> &T {
+        unsafe { return &*self.ptr; }
+    }
+}
+
+impl<T> DerefMut<T> for Box<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { return &mut *self.ptr; }
     }
 }
 

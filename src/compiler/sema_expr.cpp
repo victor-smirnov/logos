@@ -2042,10 +2042,13 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     auto vt = operand->type;
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().deref(std::move(operand), error_t());
-    // Box<T> auto-deref: `*b` for `b: Box<T>` yields T by routing through the
-    // box's `.ptr` field (which is *mut T) and dereferencing it. Box hides
-    // unsafe behind the abstraction, so don't require unsafe context here.
-    // No full Deref trait machinery — direct lowering for the stdlib Box.
+    // Box<T> auto-deref: `*b` for `b: Box<T>` yields T. Box has an `impl Deref`
+    // (Rust-faithful), but the general Deref dispatch below resolves `deref` via
+    // find_func_by_base_and_signature, which only sees NON-generic concrete
+    // impls — Box/Rc/Arc are generic, so their `deref` is not a concrete symbol
+    // at sema time. Until the deref dispatch is routed through the generic-aware
+    // method machinery (Phase 2b follow-up), keep the direct `.ptr` lowering for
+    // the stdlib Box. (The `impl Deref` is still used for explicit `b.deref()`.)
     if (is_stdlib_box(vt) &&
         TypeRef(vt).type_args().size() == 1) {
         auto inner = TypeRef(vt).type_args()[0];
