@@ -49,7 +49,7 @@ mallocs leaks unless a user `delete` or a stdlib free fn reaches it.
 | A5 | **dyn vtable array** | `mlir_gen_dyn.cpp:889` (`build_inline_vtable`) | 🐞 NEVER, and **re-mallocs per `as &dyn` site** (not interned) |
 | A6 | dyn fat storage `{data,vtable}` | `mlir_gen_dyn.cpp:933` (`coerce_to_dyn`) | ⚠️ only via `Box<dyn>`; raw coercions leak |
 | A7 | **Escaping closure environment** (captures, `escapes()`) | `mlir_gen_dyn.cpp:1624` | 🐞 NEVER (every boxed/returned capturing closure) |
-| A8 | Class `new` | `mlir_gen_expr.cpp:2915` | ✅ via explicit `delete`→`gen_delete` (the lone `call_free`); 🐞 leaks if never `delete`d (no auto-Drop) |
+| A8 | Class `new` / `delete` | — | ✅ REMOVED (2026-05-27, 929daf5e): the C++-style `new Type{}` expression + `delete x` statement were a non-Rust divergence with ZERO usages — deleted entirely (grammar new-expr/delete-stmt productions, LIR ENew/SDelete, sema lowering, mlir-gen gen_delete/new-codegen, orphaned `var_class_`/class-capture). `fn new()` method-name convention untouched. Heap = `Box` (Rust). No leak vector remains. |
 | — | Structs / tuples / arrays / slices / match spills | `create_entry_alloca` | ✅ STACK — reclaimed on frame exit (their droppable *contents* handled by SDrop) |
 
 **stdlib containers** (alloc via `logos.lang.mem` `alloc`/`dealloc`):
