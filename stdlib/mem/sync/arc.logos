@@ -52,25 +52,6 @@ impl<T: Send + Sync> Arc<T> {
         return &self.inner.val as *const T;
     }
 
-    // Reference-returning accessors. The inner block is heap-stable
-    // for the lifetime of any Arc handle; mirror the `&self`/`&mut self`
-    // shape Rc<T> already exposes so callers don't have to launder
-    // through raw-pointer self.
-    pub fn deref(&self) -> &T {
-        unsafe { return &self.inner.val; }
-    }
-
-    // NOTE: `&mut self` access through an Arc is sound only because
-    // we don't hand out concurrent &mut references — Arc is meant for
-    // shared ownership across threads, and any cross-thread interior
-    // mutation should use the proper sync primitives on T (Mutex,
-    // atomics) which take &T. Here, `deref_mut` is the convenient
-    // single-thread escape hatch used by stdlib (mostly the persistent
-    // store handle code) where the caller has exclusive use.
-    pub fn deref_mut(&mut self) -> &mut T {
-        unsafe { return &mut self.inner.val; }
-    }
-
     pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
         return (&self.inner.strong).load();
     }
@@ -129,5 +110,21 @@ impl<T: Send + Sync> Clone for Arc<T> {
             let p: *mut Arc<T> = self as *const Arc<T> as *mut Arc<T>;
             return p.clone_arc();
         }
+    }
+}
+
+// Deref / DerefMut (Rust parity): `*arc`, auto-deref `arc.field`/`arc.method()`.
+// The inner block is heap-stable for any Arc handle. `deref_mut` is a
+// single-thread escape hatch (cross-thread mutation must use Mutex/atomics on
+// T, which take &T). Standard trait surface — uniform with Box/Rc.
+impl<T: Send + Sync> Deref<T> for Arc<T> {
+    fn deref(&self) -> &T {
+        unsafe { return &self.inner.val; }
+    }
+}
+
+impl<T: Send + Sync> DerefMut<T> for Arc<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { return &mut self.inner.val; }
     }
 }

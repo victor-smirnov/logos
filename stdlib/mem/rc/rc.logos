@@ -18,6 +18,7 @@ package logos.mem.rc;
 use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.clone;
+use logos.lang.ops;
 
 pub struct RcInner<T> {
     pub strong: i32,
@@ -52,14 +53,6 @@ impl<T> Rc<T> {
     // Prefer these over `get`/`get_mut` — they hand the value back as
     // a normal Logos reference instead of a raw pointer that callers
     // have to launder through `unsafe { … }` blocks.
-    pub fn deref(&self) -> &T {
-        unsafe { return &self.inner.val; }
-    }
-
-    pub fn deref_mut(&mut self) -> &mut T {
-        unsafe { return &mut self.inner.val; }
-    }
-
     pub unsafe fn strong_count(self: *mut Rc<T>) -> i32 {
         return self.inner.strong;
     }
@@ -118,5 +111,21 @@ impl<T> Clone for Rc<T> {
             let p: *mut Rc<T> = self as *const Rc<T> as *mut Rc<T>;
             return p.clone_rc();
         }
+    }
+}
+
+// Deref / DerefMut (Rust parity): `*rc`, and auto-deref `rc.field` /
+// `rc.method()` route through these. The inner block is heap-stable for the
+// lifetime of any Rc handle, so the borrowed `&T` / `&mut T` is well-defined.
+// Standard trait surface — same as Box/Arc, dispatched uniformly.
+impl<T> Deref<T> for Rc<T> {
+    fn deref(&self) -> &T {
+        unsafe { return &self.inner.val; }
+    }
+}
+
+impl<T> DerefMut<T> for Rc<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { return &mut self.inner.val; }
     }
 }

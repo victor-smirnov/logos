@@ -3319,6 +3319,16 @@ private:
     // scope) and borrow that; otherwise spill via addr_of_temp as before.
     lir::LExprPtr materialize_recv_ref(lir::LExprPtr recv, bool is_mut, TypeRef ref_type);
 
+    // Phase 2b: emit a generic-aware `recv.deref()` (or deref_mut) step. If
+    // recv's type implements Deref/DerefMut — INCLUDING a generic impl like
+    // Box/Rc/Arc whose `deref` is not a concrete symbol at sema time (so
+    // find_func_by_base_and_signature can't see it) — emit the deref method
+    // call via method_call_v (mono monomorphizes it, exactly like an explicit
+    // `x.deref()`), and return the dereferenced Target place. nullopt when the
+    // receiver type implements no Deref. The concrete Target is computed by
+    // substituting the Deref impl's target pattern against recv's type.
+    std::optional<lir::LExprPtr> emit_generic_deref_step(lir::LExprPtr recv, bool want_mut);
+
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);

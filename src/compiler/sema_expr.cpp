@@ -60,6 +60,69 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
     return builder().addr_of_temp(std::move(recv), is_mut, ref_type);
 }
 
+std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
+        lir::LExprPtr recv, bool want_mut) {
+    if (!recv) return std::nullopt;
+    TypeRef rt = recv->type;
+    if (TypeRef(rt).kind() != LogosType::Kind::Struct &&
+        TypeRef(rt).kind() != LogosType::Kind::ZonedStruct)
+        return std::nullopt;
+    // Locate the Deref (or DerefMut, for a mutable step) impl for this type.
+    std::string base   = std::string(TypeRef(rt).struct_name());
+    std::string cname  = concrete_struct_name(rt);
+    const char* tr     = want_mut ? "DerefMut" : "Deref";
+    auto it = impls_.find(std::string(tr) + "::" + cname);
+    if (it == impls_.end()) it = impls_.find(std::string(tr) + "::" + base);
+    // DerefMut: a type may impl only Deref; fall back to Deref's Target (the
+    // DerefMut supertrait shares the same Target) for the mutable step.
+    if (it == impls_.end() && want_mut) {
+        it = impls_.find("Deref::" + cname);
+        if (it == impls_.end()) it = impls_.find("Deref::" + base);
+    }
+    if (it == impls_.end()) return std::nullopt;
+    const SemaImplInfo& impl = it->second;
+
+    // Concrete Target, two forms:
+    //  (a) type-PARAMETER `Deref<Target>` (stdlib Box/Rc/Arc): substitute the
+    //      impl's target pattern (Rc<T>) against the receiver (Rc<A>) → {T:A},
+    //      apply to the trait's Target arg. Works for GENERIC impls.
+    //  (b) associated-type `Deref { type Target = B }` (newtype) or anything the
+    //      type-arg path can't resolve: fall back to the `deref` method's
+    //      declared return type (&Target) — valid for non-generic concrete impls.
+    TypeRef target = nullptr;
+    if (!impl.trait_type_args.empty()) {
+        target = impl.trait_type_args[0];
+        if (impl.target_typeref) {
+            logos::compiler::StrMap<TypeRef> binds;
+            unify_types(impl.target_typeref, rt, binds);
+            SemaSubst s(binds.begin(), binds.end());
+            target = subst_type_sema(target, s);
+        }
+    }
+    if (!target || TypeRef(target).kind() == LogosType::Kind::Error ||
+        TypeRef(target).kind() == LogosType::Kind::TypeVar) {
+        TypeRef self_ref = make_ref(false, rt);
+        auto* fit = find_func_by_base_and_signature(cname + "__deref", {self_ref}, false);
+        if (fit && fit->ret_type && TypeRef(fit->ret_type).pointee())
+            target = TypeRef(fit->ret_type).pointee();
+    }
+    if (!target || TypeRef(target).kind() == LogosType::Kind::Error ||
+        TypeRef(target).kind() == LogosType::Kind::TypeVar)
+        return std::nullopt;
+
+    // Emit `recv.deref()` as a generic-resolvable method call (mono picks the
+    // concrete impl method, exactly like an explicit `x.deref()`), then deref
+    // the returned `&Target` to a Target place.
+    TypeRef ref_t = make_ref(want_mut, target);
+    lir::EMethodCall mc;
+    mc.receiver     = std::move(recv);
+    mc.method       = want_mut ? "deref_mut" : "deref";
+    mc.vtable_index = -1;
+    mc.tag_trait    = tr;  // resolve to <Concrete>__Deref__deref if qualified
+    auto call = builder().method_call_v(std::move(mc), ref_t);
+    return builder().deref(std::move(call), target);
+}
+
 // Shared integer-literal builder. `negate` folds a leading unary minus into
 // the literal (so `-128i8` is the i8 minimum, not neg-of-out-of-range-128i8):
 // the range check then bounds the magnitude by |min| instead of max.
@@ -2042,47 +2105,12 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     auto vt = operand->type;
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().deref(std::move(operand), error_t());
-    // Box<T> auto-deref: `*b` for `b: Box<T>` yields T. Box has an `impl Deref`
-    // (Rust-faithful), but the general Deref dispatch below resolves `deref` via
-    // find_func_by_base_and_signature, which only sees NON-generic concrete
-    // impls — Box/Rc/Arc are generic, so their `deref` is not a concrete symbol
-    // at sema time. Until the deref dispatch is routed through the generic-aware
-    // method machinery (Phase 2b follow-up), keep the direct `.ptr` lowering for
-    // the stdlib Box. (The `impl Deref` is still used for explicit `b.deref()`.)
-    if (is_stdlib_box(vt) &&
-        TypeRef(vt).type_args().size() == 1) {
-        auto inner = TypeRef(vt).type_args()[0];
-        auto ptr_t = make_ptr(true, inner);
-        auto ptr_read = builder().field_read(std::move(operand), "ptr", ptr_t);
-        return builder().deref(std::move(ptr_read), inner);
-    }
-    // User-defined Deref dispatch: `*x` for struct x where x impls Deref<T>
-    // → `*(x.deref())`. Mirrors the unary-operator-overload pattern at
-    // line ~1505. The method's `&self` receiver requires materializing
-    // &operand via addr_of_temp.
-    if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
-        auto type_name = concrete_struct_name(vt);
-        auto base_name = std::string(TypeRef(vt).struct_name());
-        bool has_deref = impls_.count("Deref::" + type_name) ||
-                         (!base_name.empty() && impls_.count("Deref::" + base_name));
-        if (has_deref) {
-            auto mangled = type_name + "__deref";
-            auto ref_t = make_ref(false, vt);
-            auto recv_ref = builder().addr_of_temp(std::move(operand), false, ref_t);
-            std::vector<lir::LExprPtr> args;
-            args.push_back(std::move(recv_ref));
-            auto fit = find_func_by_base_and_signature(mangled, {ref_t}, false);
-            if (fit) {
-                auto call_e = builder().call(
-                    fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                    {}, std::move(args), fit->ret_type);
-                auto pointee = TypeRef(call_e->type).pointee()
-                    ? TypeRef(call_e->type).pointee()
-                    : error_t();
-                return builder().deref(std::move(call_e), pointee);
-            }
-        }
-    }
+    // `*x` for any struct implementing Deref (Box/Rc/Arc/user) → `*(x.deref())`,
+    // resolved through the generic-aware method machinery (method_call_v) so it
+    // works for GENERIC impls too — the old find_func path saw only concrete
+    // (non-generic) symbols, which is why Box needed a bespoke `.ptr` path.
+    if (auto d = emit_generic_deref_step(std::move(operand), /*want_mut=*/false))
+        return *d;
     if (TypeRef(vt).kind() != LogosType::Kind::Ptr &&
         TypeRef(vt).kind() != LogosType::Kind::Ref &&
         TypeRef(vt).kind() != LogosType::Kind::MutRef) {
@@ -5996,22 +6024,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         bool direct = !find_func_candidates(sname_d + "__" + m).empty() ||
                       (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty());
         if (direct) break;
-        bool has_deref = impls_.count("Deref::" + sname_d) ||
-                         (!base_d.empty() && impls_.count("Deref::" + base_d));
-        if (!has_deref) break;
-        auto mangled_d = sname_d + "__deref";
-        auto ref_t = make_ref(false, rt);
-        auto* fit = find_func_by_base_and_signature(mangled_d, {ref_t}, false);
-        if (!fit) break;
-        auto recv_ref = materialize_recv_ref(std::move(recv), false, ref_t);
-        std::vector<lir::LExprPtr> dargs;
-        dargs.push_back(std::move(recv_ref));
-        auto call_e = builder().call(
-            fit->symbol_name.empty() ? mangled_d : fit->symbol_name,
-            {}, std::move(dargs), fit->ret_type);
-        auto pointee = TypeRef(call_e->type).pointee()
-            ? TypeRef(call_e->type).pointee() : error_t();
-        recv = builder().deref(std::move(call_e), pointee);
+        // Generic-aware deref step (works for generic Box/Rc/Arc impls, whose
+        // `deref` is not a concrete symbol at sema, AND for non-generic ones).
+        auto stepped = emit_generic_deref_step(recv, /*want_mut=*/false);
+        if (!stepped) break;
+        recv = *stepped;
     }
 
 
@@ -7848,20 +7865,23 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     if (field_name.empty()) field_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     TypeRef recv_base_t = recv->type;
-    // Box<S> auto-deref for field access: `b.v` for `b: Box<S>` rewrites to
-    // `(*b).v`. We unwrap by replacing recv with `recv.ptr` (a `*mut S`) and
-    // keep the Ptr branch below to surface the struct without requiring
-    // unsafe at the user site — Box abstracts over its inner pointer.
-    if (is_stdlib_box(recv_base_t) &&
-        TypeRef(recv_base_t).type_args().size() == 1) {
-        TypeRef inner = TypeRef(recv_base_t).type_args()[0];
-        if (inner && (TypeRef(inner).kind() == LogosType::Kind::Struct ||
-                      TypeRef(inner).kind() == LogosType::Kind::ZonedStruct)) {
-            auto ptr_t = make_ptr(true, inner);
-            recv = builder().field_read(std::move(recv), "ptr", ptr_t);
-            recv_base_t = inner;
+    // Auto-deref field access: a receiver whose own type lacks `field_name`
+    // but implements Deref derefs to its Target — `b.v` ≡ `(*b).v`. Generalizes
+    // the old Box-only `.ptr` path to Box/Rc/Arc/any user Deref type uniformly
+    // (the deref step is resolved through the generic-aware method machinery).
+    {
+        int deref_guard = 0;
+        while (deref_guard++ < 16 && recv_base_t &&
+               (TypeRef(recv_base_t).kind() == LogosType::Kind::Struct ||
+                TypeRef(recv_base_t).kind() == LogosType::Kind::ZonedStruct) &&
+               !field_type_of_for_type(recv_base_t, field_name)) {
+            auto stepped = emit_generic_deref_step(recv, /*want_mut=*/false);
+            if (!stepped) break;
+            recv = *stepped;
+            recv_base_t = recv->type;
         }
-    } else if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
+    }
+    if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field read through raw pointer requires unsafe context");
         recv_base_t = TypeRef(recv_base_t).pointee();
