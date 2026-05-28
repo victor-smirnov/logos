@@ -2782,7 +2782,16 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     case pc::Code::Tuple: {
         auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
         if (!ttype) return;
-        auto elems = TypeRef(ty).tuple_elems();
+        // Deref a `&(T,U)` / `&mut (T,U)` scrutinee for the element types
+        // (tuple_llvm_type already deref'd for the LLVM layout); without this
+        // tuple_elems() is empty on a Ref ty and no element binds.
+        TypeRef tt = ty;
+        if (tt && (TypeRef(tt).kind() == LogosType::Kind::Ref ||
+                   TypeRef(tt).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(tt).pointee() &&
+            TypeRef(TypeRef(tt).pointee()).kind() == LogosType::Kind::Tuple)
+            tt = TypeRef(tt).pointee();
+        auto elems = TypeRef(tt).tuple_elems();
         // By-pointer: load the inner tuple struct pointer before GEPing.
         auto tptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
         size_t i = 0;
@@ -3179,95 +3188,17 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         switch (p.kind()) {
         // ── PatTuple ───────────────────────────────────────────────────────
         case pc::Code::Tuple: {
-            auto ttype = tuple_llvm_type(scrut_le->type);
-            if (!ttype) return;
+            // [UNIFY C-tuple] Route the whole tuple destructure through the
+            // single pat_bind foundation (was a duplicate per-binding loop +
+            // a second nested-variant/tuple pass). pat_bind's Tuple case
+            // recurses per element (Wild→struct/scalar bind, VariantData→
+            // bind_enum_payload, nested Tuple/Or). It loads the tuple ptr from
+            // its slot, so hand it a slot (alloca) holding the tuple base ptr.
             mlir::Value tptr = scrut_ptr ? scrut_ptr : gen_expr(*scrut_le);
             if (!tptr) return;
-            lir_view::PatTupleView tv{p};
-            std::vector<std::string> bindings;
-            tv.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
-            std::vector<TypeRef> btypes;
-            tv.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
-            for (size_t bi = 0; bi < bindings.size() && bi < btypes.size(); ++bi) {
-                if (bindings[bi] == "_") continue;
-                llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-                auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, fi);
-                TypeRef bt = btypes[bi];
-                // A struct-typed element is stored INLINE in the tuple (see
-                // tuple_llvm_type), so bind its GEP ADDRESS (a place) — not a
-                // scalar load, which read only the struct's first word (a String
-                // element gave back String.data, so `a.len()` read garbage).
-                // Mirrors the struct-field shorthand / pat_bind aggregate bind.
-                // Under a `&`-tuple scrutinee a move-only element binds as
-                // `&Struct` (default binding modes); the inline-struct address is
-                // exactly that reference, so unwrap the ref and bind fp too.
-                TypeRef agg = bt;
-                if (bt && (TypeRef(bt).kind() == LogosType::Kind::Ref ||
-                           TypeRef(bt).kind() == LogosType::Kind::MutRef) &&
-                    TypeRef(bt).pointee())
-                    agg = TypeRef(bt).pointee();
-                if (agg && (TypeRef(agg).kind() == LogosType::Kind::Struct ||
-                            TypeRef(agg).kind() == LogosType::Kind::ZonedStruct)) {
-                    scope_[bindings[bi]] = fp;
-                    let_vars_.insert(bindings[bi]);
-                    var_struct_[bindings[bi]] = mlir_struct_key(agg);
-                    continue;
-                }
-                auto elem_mlir = logos_to_mlir(bt);
-                if (!elem_mlir) continue;
-                auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, fp);
-                auto alloca = create_entry_alloca(elem_mlir);
-                builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                scope_[bindings[bi]] = alloca;
-                let_vars_.insert(bindings[bi]);
-                var_elem_types_[bindings[bi]] = elem_mlir;
-            }
-            // Nested variant payload bindings: a tuple element may itself be
-            // an enum pattern (`(E::A(x), F::B(y))`). The element slot holds a
-            // heap pointer to the enum struct; load it and bind the variant
-            // payload. Without this `x`/`y` were never bound in codegen and
-            // the arm body read garbage → SIGSEGV.
-            {
-                size_t si = 0;
-                std::vector<std::string> nested_added;
-                tv.each_sub([&](lir_view::PatRef sp){
-                    size_t idx = si++;
-                    if (!sp || idx >= btypes.size() || !btypes[idx]) return;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> ei{int32_t(0), int32_t(idx)};
-                    auto ep = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), ttype, tptr, ei);
-                    if (sp.kind() == pc::Code::VariantData) {
-                        // G160-8: a `&Enum` tuple element resolves its tagged
-                        // spec off the ENUM pointee, not the `&Enum` ref (else
-                        // te_sub is null → the payload binding silently no-ops
-                        // → arm body reads garbage → SIGSEGV).
-                        TypeRef et = btypes[idx];
-                        bool via_ref_enum = et &&
-                            (TypeRef(et).kind() == LogosType::Kind::Ref ||
-                             TypeRef(et).kind() == LogosType::Kind::MutRef) &&
-                            TypeRef(et).pointee() &&
-                            TypeRef(TypeRef(et).pointee()).kind() == LogosType::Kind::Enum;
-                        auto* te_sub = resolve_tagged_enum(
-                            std::string(lir_view::PatVariantDataView{sp}.enum_name()),
-                            via_ref_enum ? TypeRef(et).pointee() : et);
-                        if (!te_sub) return;
-                        // Enum value-repr: a non-ref enum tuple element is INLINE
-                        // — `ep` IS its storage (one level). A `&Enum` element
-                        // holds a pointer to it; load once to reach the storage.
-                        mlir::Value enum_ptr = ep;
-                        if (via_ref_enum)
-                            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                                loc_, ptr_type(), enum_ptr);
-                        bind_enum_payload(enum_ptr, te_sub,
-                                          lir_view::PatVariantDataView{sp}, nested_added);
-                    } else if (sp.kind() == pc::Code::Tuple ||
-                               sp.kind() == pc::Code::Or) {
-                        // G144-1: a nested tuple / or-pattern element binds via
-                        // the recursive matcher (per-alt control flow for or).
-                        pat_bind(sp, ep, btypes[idx]);
-                    }
-                });
-            }
+            auto tslot = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, tptr, tslot);
+            pat_bind(p, tslot, scrut_le->type);
             return;
         }
         // ── PatVariantData ────────────────────────────────────────────────
