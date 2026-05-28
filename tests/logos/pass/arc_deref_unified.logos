@@ -1,0 +1,10 @@
+// Phase 2b: Arc auto-deref unified via Deref (same surface as Rc/Box).
+package test;
+use logos.mem.sync;
+use logos.lang.ops;
+struct A { x: i32 }
+impl A { fn m(&self) -> i32 { return self.x * 2; } }
+fn main() -> i32 {
+    let a: Arc<A> = arc_new(A { x: 6 });
+    return a.x + a.m();      // 6 + 12 = 18
+}

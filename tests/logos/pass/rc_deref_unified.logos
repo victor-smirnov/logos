@@ -1,0 +1,14 @@
+// Phase 2b: Rc auto-deref unified via the Deref trait — *rc, rc.field, and
+// rc.method() (method defined on the inner type) all resolve through Deref.
+package test;
+use logos.mem.rc;
+use logos.lang.ops;
+struct A { x: i32 }
+impl A { fn m(&self) -> i32 { return self.x + 1; } }
+fn main() -> i32 {
+    let r: Rc<A> = rc_new(A { x: 10 });
+    let f: i32 = r.x;        // field auto-deref
+    let mm: i32 = r.m();     // method auto-deref (m is on A, not Rc)
+    let v: A = *r;           // unary *rc
+    return f + mm + v.x;     // 10 + 11 + 10 = 31
+}
