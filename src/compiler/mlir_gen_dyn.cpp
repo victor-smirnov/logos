@@ -1729,7 +1729,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             is_tuple_cap || is_enum_cap || is_dyn_cap) {
             scope_[captures[i]] = val;
             if (is_struct_cap)
-                var_struct_[captures[i]] = std::string(TypeRef(ct).struct_name());
+                // Use the mono-mangled concrete key (`Vec$G1$i64`), not the bare
+                // name (`Vec`) — a method call on a captured GENERIC struct
+                // (`v.length()` for a captured `Vec<i64>`) resolves through this
+                // key; the bare name misses the registry → the body silently
+                // fails to codegen (empty body → void return type mismatch).
+                var_struct_[captures[i]] = mlir_struct_key(ct);
             else if (is_array_cap)
                 var_subscript_[captures[i]] = logos_to_mlir(ct ? TypeRef(ct).elem() : TypeRef());
             else if (is_tuple_cap)

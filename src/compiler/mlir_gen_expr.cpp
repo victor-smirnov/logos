@@ -484,6 +484,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
                 if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
                     resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt))
                     is_inline = true;
+                // `&dyn`/`dyn`/`Box<dyn>` payload (TraitObject): coerce a concrete
+                // source to a STACK 16-byte fat pair (no malloc handle), then store
+                // it INLINE in the payload (memcpy-16) — the fat lives in the enum
+                // value, moves with it, and frees with it. (Was a leaking malloc'd
+                // 8-byte handle via force_heap.)
+                if (lt && TypeRef(lt).kind() == LogosType::Kind::TraitObject) {
+                    val = coerce_value_to_dyn_if_needed(val, lt, pl_le->type, /*force_heap=*/false);
+                    is_inline = true;
+                }
                 if (is_inline) {
                     std::unordered_set<std::string> seen;
                     uint64_t sz = logos_abi_byte_size(lt, seen);

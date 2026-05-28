@@ -437,6 +437,15 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
                     t = sit->second.llvm_type;
             } else if (k == LogosType::Kind::Tuple) {
                 if (auto tt = tuple_llvm_type(lt)) t = tt;
+            } else if (k == LogosType::Kind::TraitObject) {
+                // `&dyn`/`dyn`/`Box<dyn>` payload — store the 16-byte {data,vtable}
+                // fat pair INLINE (uniform fat model), not a collapsed 8-byte ptr,
+                // so it lives in the enum value (no heap handle, no leak).
+                t = dyn_llvm_type();
+            } else if (k == LogosType::Kind::Slice) {
+                t = slice_llvm_type();
+            } else if (k == LogosType::Kind::Closure) {
+                t = closure_llvm_type();
             } else if (k == LogosType::Kind::Enum) {
                 // Inline nested enum: embed its full {disc,payload} footprint
                 // (enum value-repr) so a nested enum payload field occupies its

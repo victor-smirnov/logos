@@ -3441,8 +3441,15 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             let_vars_.insert(bindings[bi]);
                             var_struct_[bindings[bi]] = mlir_struct_key(lt);
                         } else {
+                            // A bare `&dyn`/`dyn`/`Box<dyn>` (TraitObject) payload is
+                            // stored INLINE as a 16-byte fat pair; its slot ADDRESS
+                            // (fp) IS the fat value — bind it directly, don't load
+                            // the 16-byte aggregate. (A `*const dyn` = Ptr<TraitObject>
+                            // payload is a thin 8-byte ptr → still loaded below.)
+                            bool bind_inline_dyn = lt &&
+                                TypeRef(lt).kind() == LogosType::Kind::TraitObject;
                             mlir::Value bound_val;
-                            if (is_inline_struct) {
+                            if (is_inline_struct || bind_inline_dyn) {
                                 bound_val = fp;
                             } else {
                                 bound_val = builder_.create<mlir::LLVM::LoadOp>(
