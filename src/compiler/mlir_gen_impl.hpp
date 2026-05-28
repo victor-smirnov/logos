@@ -544,8 +544,24 @@ private:
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
     uint64_t variant_payload_bytes(const LVariant& v);
+
+    // ── Unified in-memory layout ─────────────────────────────────────────────
+    // THE single source of truth for the {size, alignment} of any Logos type,
+    // matching the non-packed LLVM aggregate layout codegen emits. sizeof /
+    // alignof / enum payload bytes / variant footprint / DST field offsets /
+    // inline-copy strides all DERIVE from this — add a type kind to the one
+    // switch and every size/align query follows.
+public:
+    struct Layout { uint64_t size = 0; uint64_t align = 1; };
+private:
+    Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
+    Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
+
+    // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
-                                  std::unordered_set<std::string>& seen);
+                                  std::unordered_set<std::string>& seen) {
+        return layout_of(t, seen).size;
+    }
 
     // Resolve a tagged enum name from the expression type (handles generic enums).
     const TaggedEnumInfo* resolve_tagged_enum(const std::string& name, TypeRef type);

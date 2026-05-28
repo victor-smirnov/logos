@@ -1,0 +1,12 @@
+// Unified layout: sizeof accounts for inter-field alignment padding (matches
+// the LLVM aggregate layout), so heap allocs via alloc(sizeof::<T>()) — e.g.
+// rc_new / box_new of a struct needing padding — don't under-allocate.
+package test;
+struct Pad   { a: i32, b: i64 }        // {i32, pad4, i64} = 16, not 12
+struct Pad3  { a: i8,  b: i32, c: i8 } // i8,pad,i32,i8,pad = 12
+fn main() -> i32 {
+    let s1: i64 = sizeof::<Pad>();        // 16
+    let s2: i64 = sizeof::<Pad3>();       // 12
+    let arr: i64 = sizeof::<[Pad; 3]>();  // 3 * 16 = 48
+    return (s1 + s2 + arr) as i32;        // 16 + 12 + 48 = 76
+}

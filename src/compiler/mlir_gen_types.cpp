@@ -293,95 +293,84 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
 
 // Compute ABI byte size from LogosType — avoids MLIR opaque struct problem.
 // Used to size enum payload slots correctly before MLIR struct bodies are set.
-uint64_t MLIRGenImpl::logos_abi_byte_size(TypeRef t,
+// Aggregate (struct / tuple / enum) layout accumulator: appends fields in
+// declaration order, inserting natural alignment padding, then rounds the
+// total to the aggregate's own alignment. Matches LLVM's non-packed C layout.
+namespace {
+struct LayoutAgg {
+    uint64_t offset = 0, align = 1;
+    void push(MLIRGenImpl::Layout f) {
+        if (f.align > 1) offset = (offset + f.align - 1) & ~(f.align - 1);
+        offset += f.size;
+        if (f.align > align) align = f.align;
+    }
+    MLIRGenImpl::Layout finish() const {
+        return { (offset + align - 1) & ~(align - 1), align };
+    }
+};
+}  // namespace
+
+MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
-    if (!t) return 8;
+    using K = LogosType::Kind;
+    if (!t) return {8, 8};
     TypeRef tv{t};
     switch (tv.kind()) {
-    case LogosType::Kind::Void:    return 0;
-    case LogosType::Kind::Never:   return 0;  // uninhabited — zero-size
-    case LogosType::Kind::Bool:    return 1;
-    case LogosType::Kind::U8:
-    case LogosType::Kind::I8:      return 1;
-    case LogosType::Kind::I16:
-    case LogosType::Kind::U16:     return 2;
-    case LogosType::Kind::I24:
-    case LogosType::Kind::U24:     return 3;
-    case LogosType::Kind::I32:
-    case LogosType::Kind::U32:
-    case LogosType::Kind::F32:
-    case LogosType::Kind::IntLit:  return 4;
-    case LogosType::Kind::I56:
-    case LogosType::Kind::U56:     return 7;
-    case LogosType::Kind::I64:
-    case LogosType::Kind::U64:
-    case LogosType::Kind::F64:
-    case LogosType::Kind::FloatLit:
-    case LogosType::Kind::Ptr:
-    case LogosType::Kind::Ref:
-    case LogosType::Kind::MutRef:
-    case LogosType::Kind::FnPtr:
-    case LogosType::Kind::TaggedPtr:    return 8;
-    case LogosType::Kind::I128:
-    case LogosType::Kind::U128:         return 16;
-    case LogosType::Kind::Array:
-        if (!tv.elem()) return 0;
-        return tv.arr_size() * logos_abi_byte_size(tv.elem(), seen);
-    // Fat pointers — two pointers wide. The Slice case used to be lumped
-    // in with Ptr/Ref above and reported 8 bytes, which silently truncated
-    // slices stored in enum variant payloads (e.g. Option<&[u8]>'s Some
-    // arm only kept the .ptr field; .len was lost on extraction).
-    case LogosType::Kind::Slice:
-    case LogosType::Kind::Closure:
-    case LogosType::Kind::TraitObject:
-    case LogosType::Kind::DstRef:       return 16;  // Phase 1B-14: same fat-pair size as Slice
-    case LogosType::Kind::UnsizedSlice:
-    case LogosType::Kind::UnsizedDyn:
-        // Phase 1B: unsized — has no by-value ABI size. Report 0 so any
-        // accidental layout query produces an obvious zero-size payload
-        // (rather than corrupting an aggregate). Borrow check + sema
-        // reject unsized values from positions where size matters.
-        return 0;
-    case LogosType::Kind::Tuple: {
-        uint64_t offset = 0, max_align = 1;
-        for (auto e : tv.tuple_elems()) {
-            uint64_t esz = logos_abi_byte_size(e, seen);
-            uint64_t align = std::min(esz, (uint64_t)8);
-            if (align > 1) offset = (offset + align - 1) & ~(align - 1);
-            offset += esz;
-            if (align > max_align) max_align = align;
-        }
-        return (offset + max_align - 1) & ~(max_align - 1);
+    case K::Void: case K::Never:                return {0, 1};  // zero-size
+    case K::Bool: case K::I8: case K::U8:       return {1, 1};
+    case K::I16:  case K::U16:                  return {2, 2};
+    case K::I24:  case K::U24:                  return {3, 1};  // odd width, align 1
+    case K::I32:  case K::U32: case K::F32: case K::IntLit:
+    case K::Char:                               return {4, 4};
+    case K::I56:  case K::U56:                  return {7, 1};
+    case K::I64:  case K::U64: case K::F64: case K::FloatLit:
+    case K::Ptr:  case K::Ref: case K::MutRef:
+    case K::FnPtr: case K::TaggedPtr:
+    case K::Usize: case K::Isize:               return {8, 8};
+    case K::I128: case K::U128:                 return {16, 16};
+    // Fat pointers — two pointers wide (ptr-aligned).
+    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef:
+        return {16, 8};
+    // Unsized — no by-value footprint (sema/borrow-check reject by-value use).
+    case K::UnsizedSlice: case K::UnsizedDyn:   return {0, 1};
+    case K::Array: {
+        if (!tv.elem()) return {0, 1};
+        auto e = layout_of(tv.elem(), seen);  // e.size is already align-padded
+        return { tv.arr_size() * e.size, e.align };
     }
-    case LogosType::Kind::Struct:
-    case LogosType::Kind::ZonedStruct: {
+    case K::Tuple: {
+        LayoutAgg agg;
+        for (auto e : tv.tuple_elems()) agg.push(layout_of(e, seen));
+        return agg.finish();
+    }
+    case K::Struct: case K::ZonedStruct: {
         auto cname = concrete_struct_name(t);
-        if (seen.count(cname)) return 8;  // cycle guard
-        auto it = all_struct_defs_.find(cname);
-        if (it == all_struct_defs_.end()) return 8;  // unknown — assume ptr size
-        seen.insert(cname);
-        const LStructDef* sd = it->second;
-        uint64_t offset = 0, max_align = 1;
-        for (auto& f : sd->fields) {
-            uint64_t esz = logos_abi_byte_size(f.type, seen);
-            uint64_t align = std::min(esz, (uint64_t)8);
-            if (align > 1) offset = (offset + align - 1) & ~(align - 1);
-            offset += esz;
-            if (align > max_align) max_align = align;
+        if (!seen.insert(cname).second) return {8, 8};  // cycle guard
+        Layout r{8, 8};
+        if (auto it = all_struct_defs_.find(cname); it != all_struct_defs_.end()) {
+            LayoutAgg agg;
+            for (auto& f : it->second->fields) agg.push(layout_of(f.type, seen));
+            r = agg.finish();
         }
         seen.erase(cname);
-        return (offset + max_align - 1) & ~(max_align - 1);
+        return r;
     }
-    case LogosType::Kind::Enum: {
-        // Resolve the CONCRETE instantiation (Option<Option<i64>> must not
-        // collapse to the first "Option" entry — that under-sizes the inline
-        // {disc,payload} footprint and corrupts nested-enum memcpy/layout).
-        if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t))
-            return 4 + te->payload_bytes;  // disc + payload
-        // C-like enum (no TaggedEnumInfo) — backing-type-sized discriminant.
-        return (enum_disc_bits(std::string(tv.enum_name())) + 7) / 8;
+    case K::Enum: {
+        // Tagged enum value-repr = `{ i32 disc, [payload_bytes x i8] }` — the
+        // payload is a byte blob (align 1) at offset 4. Resolve the CONCRETE
+        // instantiation so nested generics (Option<Option<i64>>) size their
+        // full inline footprint.
+        if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
+            LayoutAgg agg;
+            agg.push({4, 4});                    // discriminant
+            agg.push({te->payload_bytes, 1});    // payload blob
+            return agg.finish();
+        }
+        // C-like enum — backing-type-sized discriminant.
+        uint64_t b = (enum_disc_bits(std::string(tv.enum_name())) + 7) / 8;
+        return { b, b ? b : 1 };
     }
-    default: return 8;
+    default: return {8, 8};
     }
 }
 
@@ -422,17 +411,14 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
 // variant like `Cons { head: i32, tail: *const List }` (4+8=12 vs the real
 // {i32,ptr} struct of 16) — which silently overlapped adjacent enum allocas.
 uint64_t MLIRGenImpl::variant_payload_bytes(const lir::LVariant& v) {
-    uint64_t offset = 0, max_align = 1;
+    // The payload is laid out exactly like a struct/tuple of its fields —
+    // derive its footprint from the unified layout accumulator.
+    LayoutAgg agg;
     for (auto pt : v.payload_types) {
         if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;
-        std::unordered_set<std::string> seen;
-        uint64_t esz = logos_abi_byte_size(pt, seen);
-        uint64_t align = std::min(esz, (uint64_t)8);
-        if (align > 1) offset = (offset + align - 1) & ~(align - 1);
-        offset += esz;
-        if (align > max_align) max_align = align;
+        agg.push(layout_of(pt));
     }
-    return (offset + max_align - 1) & ~(max_align - 1);
+    return agg.finish().size;
 }
 
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {

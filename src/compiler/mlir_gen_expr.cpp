@@ -4657,89 +4657,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPackExpandView, TypeRef) {
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESizeOfView v, TypeRef) {
-    TypeRef elem_type = v.elem_type(pool_impl());
-    // For Struct/Datatype: logos_to_mlir returns ptr_type() (always passed by pointer),
-    // but sizeof needs the actual aggregate type, not the pointer.
-    mlir::Type elem_mlir = nullptr;
-    if (elem_type && (elem_type.kind() == LogosType::Kind::Struct ||
-                      elem_type.kind() == LogosType::Kind::ZonedStruct)) {
-        auto cname = concrete_struct_name(elem_type);
-        auto sit = struct_types_.find(cname);
-        if (sit != struct_types_.end())
-            elem_mlir = sit->second.llvm_type;
-    }
-    // C5-cl-04 follow-up: fat-pointer kinds (Closure / Slice / TraitObject) also
-    // pass by ptr at the ABI layer, but their underlying storage is 16 bytes
-    // (`{ptr, ptr}`). Without this, `sizeof::<Closure>()` returns 8 from the
-    // gep-null trick on a single ptr, which truncates Box<Closure>'s heap
-    // allocation and breaks Box<dyn FnMut(…)> dispatch.
-    if (!elem_mlir && elem_type &&
-        (elem_type.kind() == LogosType::Kind::Closure ||
-         elem_type.kind() == LogosType::Kind::Slice ||
-         elem_type.kind() == LogosType::Kind::TraitObject)) {
-        elem_mlir = mlir::LLVM::LLVMStructType::getLiteral(
-            builder_.getContext(), {ptr_type(), ptr_type()});
-    }
-    // Enum value-repr: `sizeof::<Enum>()` is the full inline {disc,payload}
-    // footprint (NOT 8 = ptr) — so generic containers (Vec/HashMap) that stride
-    // by sizeof + memcpy store enums inline automatically.
-    if (!elem_mlir && elem_type && elem_type.kind() == LogosType::Kind::Enum) {
-        if (auto* te = resolve_tagged_enum(std::string(elem_type.enum_name()), elem_type);
-            te && te->llvm_type)
-            elem_mlir = te->llvm_type;
-    }
-    if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
-    if (!elem_mlir) {
-        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
-    }
-    mlir::Value zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
-    mlir::Value null_ptr = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), zero);
-    llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(1)};
-    auto size_ptr = builder_.create<mlir::LLVM::GEPOp>(
-        loc_, ptr_type(), elem_mlir, null_ptr, idx);
-    return builder_.create<mlir::LLVM::PtrToIntOp>(
-        loc_, builder_.getI64Type(), size_ptr);
+    // Compile-time constant from the unified layout — alignment-correct and
+    // consistent with every other size query (enum payload bytes, Vec/HashMap
+    // strides, alloc sizes). The former GEP-null trick folded through MLIR's
+    // (unset) DataLayout and under-counted inter-field padding (e.g. {i32,i64}
+    // → 12 instead of 16), so alloc(sizeof::<T>()) overflowed.
+    uint64_t sz = layout_of(v.elem_type(pool_impl())).size;
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)sz, 64);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAlignOfView v, TypeRef) {
-    TypeRef elem_type = v.elem_type(pool_impl());
-    int64_t align = 8;
-    if (elem_type) {
-        using K = LogosType::Kind;
-        switch (elem_type.kind()) {
-        case K::Bool: case K::I8:  case K::U8:                       align = 1; break;
-        case K::I16: case K::U16:                                    align = 2; break;
-        case K::I24: case K::U24:                                    align = 1; break;
-        case K::I32: case K::U32: case K::F32:                       align = 4; break;
-        case K::I56: case K::U56:                                    align = 1; break;
-        case K::I64: case K::U64: case K::F64:
-        case K::Ptr: case K::Ref: case K::MutRef:
-        case K::Usize: case K::Isize:                                align = 8; break;
-        case K::I128: case K::U128:                                  align = 16; break;
-        default: {
-            mlir::Type elem_mlir = nullptr;
-            if (elem_type.kind() == K::Struct || elem_type.kind() == K::ZonedStruct) {
-                auto cname = concrete_struct_name(elem_type);
-                auto sit = struct_types_.find(cname);
-                if (sit != struct_types_.end()) elem_mlir = sit->second.llvm_type;
-            }
-            // Enum value-repr: alignment of the inline {disc,payload} aggregate.
-            if (!elem_mlir && elem_type.kind() == K::Enum) {
-                if (auto* te = resolve_tagged_enum(std::string(elem_type.enum_name()), elem_type);
-                    te && te->llvm_type)
-                    elem_mlir = te->llvm_type;
-            }
-            if (!elem_mlir) elem_mlir = logos_to_mlir(elem_type);
-            if (elem_mlir) {
-                auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-                auto a = (int64_t)dl.getTypeABIAlignment(elem_mlir);
-                if (a > 0) align = a;
-            }
-            break;
-        }
-        }
-    }
-    return builder_.create<mlir::arith::ConstantIntOp>(loc_, align, 64);
+    // Compile-time constant from the same unified layout that drives sizeof.
+    uint64_t a = layout_of(v.elem_type(pool_impl())).align;
+    return builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)(a ? a : 1), 64);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EPtrArithView v, TypeRef) {
