@@ -2028,6 +2028,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             return coerce_numeric(recv, builder_.getI32Type());
         }
     }
+    // Rc<dyn>/Arc<dyn>.clone(): bump the strong count + return a copy of the
+    // {data,vtable} fat pair (shared ownership, NOT a deep copy). The OwningKind
+    // (Rc vs Arc → atomic) comes from the receiver's trait-object type.
+    if (method == "__smartptr_dyn_clone__")
+        return gen_clone_owning_dyn(recv_le, recv_t);
     if (!tag_system.empty())
         return gen_tagged_dispatch(v, ret_logos_type);
     // G168-A (g6/g2): a `&dyn Trait` receiver is a TraitObject; a `&(dyn Trait)`

@@ -5726,6 +5726,19 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         dyn_t = TypeRef(rt.pointee());
     if (!(dyn_t && dyn_t.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
     auto tname = std::string(dyn_t.trait_name());
+    // Rc<dyn>/Arc<dyn>.clone(): a shared-ownership clone (bump the strong count +
+    // copy the fat pair), NOT a deep copy and NOT a trait-vtable method. Box<dyn>
+    // is excluded (Box: dyn Trait is not Clone). Emit a marker method call that
+    // mlir-gen lowers via the OwningKind on the result type (atomic bump for Arc).
+    if (method_name == "clone" &&
+        (dyn_t.trait_owning_kind() == TypeRef::OwningKind::Rc ||
+         dyn_t.trait_owning_kind() == TypeRef::OwningKind::Arc)) {
+        lir::EMethodCall mc;
+        mc.receiver     = std::move(recv);
+        mc.method       = "__smartptr_dyn_clone__";
+        mc.vtable_index = -1;
+        return builder().method_call_v(std::move(mc), dyn_t);
+    }
     // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled as
     // `$dyn$Foo__method` (Phase 1B-10 collection). Try this BEFORE vtable
     // dispatch so impls override / extend trait-method resolution.

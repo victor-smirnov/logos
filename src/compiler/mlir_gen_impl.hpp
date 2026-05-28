@@ -741,6 +741,9 @@ private:
     // (drop_in_place runs the concrete's destructor + its owned fields);
     // free(data) (the boxed concrete); free(handle) (the fat slot).
     void gen_drop_owning_dyn_handle(mlir::Value handle, TypeRef::OwningKind kind);
+    // Rc<dyn>/Arc<dyn>.clone(): bump strong (at data − round_up(4, vtable.align);
+    // atomic for Arc) and return a copy of the {data,vtable} fat pair.
+    mlir::Value gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t);
     // Codegen-side "does a value of this type own anything droppable" — mirrors
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.

@@ -1,0 +1,19 @@
+// Rc<dyn>/Arc<dyn>.clone() = shared-ownership clone (bump strong + copy the
+// fat pair), NOT a deep copy and NOT a trait-vtable method. Both handles see
+// the same object; the last drop frees the single RcInner once (Arc: atomic).
+package test;
+use logos.mem.rc;
+use logos.mem.sync;
+use logos.mem.string;
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }   // String → Rc clone must keep one owner of it
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct B { x: i32 }                 // POD → Send+Sync, usable in Arc
+impl Sp for B { fn v(&self) -> i64 { return self.x as i64; } }
+fn main() -> i32 {
+    let r: Rc<dyn Sp>  = rc_new(A { name: String::from("r"), x: 10 }) as Rc<dyn Sp>;
+    let r2: Rc<dyn Sp> = r.clone();
+    let a: Arc<dyn Sp> = arc_new(B { x: 5 }) as Arc<dyn Sp>;
+    let a2: Arc<dyn Sp> = a.clone();
+    return (r.v() + r2.v() + a.v() + a2.v()) as i32;   // 10+10+5+5 = 30
+}
