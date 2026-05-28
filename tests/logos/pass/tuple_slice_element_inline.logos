@@ -1,0 +1,25 @@
+// Tuple elements of Slice type (incl. `str` = Slice<u8>) are stored INLINE as
+// their 16-byte {ptr,len} fat pair (Rust `&[T]`/`&str`), not an 8-byte ptr.
+// Exercises: sizeof, element access (t.N), and string-literal tuple patterns
+// (match + reject) — the str_eq guard reads the inline slice element correctly.
+package test;
+fn classify(t: (str, i64, str)) -> i32 {
+    match t {
+        ("foo", 0i64, "bar") => { return 1i32; }
+        ("foo", _, "bar")    => { return 2i32; }
+        _                    => { return 0i32; }
+    }
+}
+fn main() -> i32 {
+    // (str, i64): str inline 16 + i64 8 = 24, align 8.
+    if sizeof::<(str, i64)>() != 24i64 { return 90i32; }
+    let p: (str, i64) = ("hello", 7i64);
+    if p.0.len() != 5i64 { return 91i32; }   // inline slice element access
+    if p.1 != 7i64       { return 92i32; }   // trailing int at the right offset
+    // string-literal tuple patterns: match + all reject paths.
+    if classify(("foo", 0i64, "bar")) != 1i32 { return 1i32; }
+    if classify(("foo", 5i64, "bar")) != 2i32 { return 2i32; }
+    if classify(("x",   0i64, "bar")) != 0i32 { return 3i32; }
+    if classify(("foo", 0i64, "x"))   != 0i32 { return 4i32; }
+    return 42i32;
+}

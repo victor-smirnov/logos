@@ -2745,6 +2745,71 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         auto ref_val = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
         return pat_test(inner, ref_val, pointee);
     }
+    case pc::Code::At: {
+        // `name @ subpat` — the at-binding is irrefutable; test the sub.
+        auto sub = lir_view::PatAtView{pat}.sub();
+        return sub ? pat_test(sub, slot_ptr, ty) : true_c();
+    }
+    case pc::Code::Slice: {
+        // Slice/array pattern test. `slot_ptr` is the slice VALUE (ptr to
+        // {data,len}) for a dynamic `&[T]`, or the array base for a `[T;N]`
+        // (both via GEP from the enclosing place — no extra load). Mirrors the
+        // gen_match per-arm Slice test, recursing pat_test for sub-elements.
+        if (!ty) return true_c();
+        lir_view::PatSliceView sv{pat};
+        TypeRef aty = ty;
+        if ((TypeRef(aty).kind() == LogosType::Kind::Ref ||
+             TypeRef(aty).kind() == LogosType::Kind::MutRef) && TypeRef(aty).pointee())
+            aty = TypeRef(aty).pointee();
+        auto ak = TypeRef(aty).kind();
+        if (ak == LogosType::Kind::Array && TypeRef(aty).elem()) {
+            auto arr_mlir = logos_to_mlir(aty);
+            TypeRef elem_t = TypeRef(aty).elem();
+            if (!arr_mlir) return true_c();
+            size_t total = (size_t)TypeRef(aty).arr_size();
+            size_t suf_n = sv.suffix_count();
+            mlir::Value cond = true_c();
+            auto at_idx = [&](lir_view::PatRef sp, int32_t idx) {
+                if (!sp || sp.kind() == pc::Code::Wild) return;
+                llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
+                auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), arr_mlir, slot_ptr, gi);
+                cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, pat_test(sp, ep, elem_t));
+            };
+            int32_t idx = 0;
+            sv.each_prefix([&](lir_view::PatRef sp){ at_idx(sp, idx++); });
+            int32_t sidx = (int32_t)(total - suf_n);
+            sv.each_suffix([&](lir_view::PatRef sp){ at_idx(sp, sidx++); });
+            return cond;  // array length is fixed — no length gate
+        }
+        if (ak == LogosType::Kind::Slice && TypeRef(aty).elem()) {
+            auto sdtype = slice_llvm_type();
+            TypeRef elem_t = TypeRef(aty).elem();
+            size_t pre_n = sv.prefix_count(), suf_n = sv.suffix_count();
+            bool has_rest = (bool)sv.rest();
+            llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+            auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr, li);
+            auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+            auto n = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)(pre_n + suf_n), 64);
+            auto pred = has_rest ? mlir::arith::CmpIPredicate::sge : mlir::arith::CmpIPredicate::eq;
+            mlir::Value cond = builder_.create<mlir::arith::CmpIOp>(loc_, pred, slen, n);
+            auto elem_mlir2 = logos_to_mlir(elem_t);
+            if (elem_mlir2 && pre_n > 0) {
+                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+                auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr, di);
+                auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+                int32_t pi = 0;
+                sv.each_prefix([&](lir_view::PatRef sp){
+                    int32_t idx = pi++;
+                    if (!sp || sp.kind() == pc::Code::Wild) return;
+                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
+                    auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir2, data, gi);
+                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, pat_test(sp, ep, elem_t));
+                });
+            }
+            return cond;
+        }
+        return true_c();
+    }
     default:
         return true_c();
     }
@@ -2774,6 +2839,26 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             // bare scope_ entry without var_struct_ makes field access read
             // garbage (the G151-1-class silent miscompile).
             if (is_struct) var_struct_[name] = mlir_struct_key(ty);
+            return;
+        }
+        // Slice/Closure are inline 16-byte fat pairs; their value convention is
+        // a POINTER to the storage, i.e. `slot_ptr` itself. Bind it like a
+        // pointer-valued scalar (alloca holding slot_ptr, var_elem_types_=ptr)
+        // so `var_ref(name)` loads it back uniformly — same indirection a
+        // pre-inline 8-byte-ptr element had. A bare `scope_[name]=slot_ptr`
+        // (no var_elem_types_) is read inconsistently by some var_ref sites
+        // (the str-literal-tuple guard regression).
+        bool slice_closure = ty &&
+            (TypeRef(ty).kind() == LogosType::Kind::Slice ||
+             TypeRef(ty).kind() == LogosType::Kind::Closure);
+        if (slice_closure) {
+            mlir::Value target;
+            if (shared) { auto it = shared->find(name); if (it != shared->end()) target = it->second; }
+            if (!target) target = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, target);
+            scope_[name] = target;
+            let_vars_.insert(name);
+            var_elem_types_[name] = ptr_type();
             return;
         }
         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, slot_ptr);

@@ -551,6 +551,14 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             // a struct element — its full {disc,payload} footprint, not a ptr.
             if (auto* te = resolve_tagged_enum(std::string(TypeRef(e).enum_name()), e))
                 if (te->llvm_type) ft = te->llvm_type;
+        } else if (e && TypeRef(e).kind() == LogosType::Kind::Slice) {
+            // Slice element (incl. `str` = Slice<u8>) — inline 16-byte {ptr,len}
+            // fat pair (Rust `&[T]`), matching layout_of / the slice-field
+            // convention, not an 8-byte ptr (which mismatched layout_of=16 and
+            // corrupted the trailing elements).
+            ft = slice_llvm_type();
+        } else if (e && TypeRef(e).kind() == LogosType::Kind::Closure) {
+            ft = closure_llvm_type();  // inline 16-byte {fn,env}
         }
         if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;
