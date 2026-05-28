@@ -207,12 +207,20 @@ public:
         auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
         return av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // True for an OWNING trait object (`Box<dyn Trait>`) — same fat-pair layout
-    // and dispatch as a borrowed `&dyn Trait` but droppable (heap-owned data).
-    // Carried in the mut_ptr slot (folded into TypeUID/equality), so a Box<dyn>
-    // and an &dyn intern as distinct types.
+    // Owning kind of a TraitObject. Same fat-pair {data,vtable} layout and
+    // dispatch for ALL kinds (incl. Borrow), but the owning forms are droppable
+    // with kind-specific release: Box → free(data); Rc → dec strong, at 0 →
+    // free RcInner (uses vtable size/align for RcInner layout); Arc → atomic.
+    // Carried in const_val (overloaded for TraitObject only; no schema change),
+    // folded into TypeUID + equality so the four forms intern distinctly.
+    enum class OwningKind : uint8_t { Borrow = 0, Box = 1, Rc = 2, Arc = 3 };
+    OwningKind trait_owning_kind() const noexcept {
+        if (kind() != LogosType::Kind::TraitObject) return OwningKind::Borrow;
+        auto cv = const_val();
+        return cv ? OwningKind(uint8_t(*cv)) : OwningKind::Borrow;
+    }
     bool owning_trait_object() const noexcept {
-        return kind() == LogosType::Kind::TraitObject && mut_ptr();
+        return trait_owning_kind() != OwningKind::Borrow;
     }
     uint64_t arr_size() const noexcept {
         auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());

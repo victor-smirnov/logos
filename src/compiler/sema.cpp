@@ -195,13 +195,11 @@ public:
         hermes::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
         hermes::AnyVal v_lifetime_args;
 
-        // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef), and OWNING
-        // Box<dyn> vs borrowed &dyn (TraitObject). Persist it whenever set so
-        // the read-back (builder_equals_typeref's r.mut_ptr()) matches the
-        // builder value during interning.
+        // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef). (TraitObject's
+        // owning kind rides in const_val instead — persisted below.) Persist
+        // whenever set so the read-back matches the builder value when interning.
         if ((t.kind == LogosType::Kind::Ptr ||
-             t.kind == LogosType::Kind::DstRef ||
-             t.kind == LogosType::Kind::TraitObject) && t.mut_ptr) {
+             t.kind == LogosType::Kind::DstRef) && t.mut_ptr) {
             v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(1, hermes::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
@@ -828,8 +826,8 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.closure_ret);
         break;
     case K::TraitObject:
-        // mut_ptr carries owning (Box<dyn>) vs borrowed (&dyn) — distinct types.
-        put_byte(buf, t.mut_ptr ? 1 : 0);
+        // const_val carries the owning kind (Borrow/Box/Rc/Arc) — distinct types.
+        put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
@@ -953,7 +951,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::TraitObject:
-        return t.mut_ptr == r.mut_ptr() &&  // owning (Box<dyn>) vs borrow (&dyn)
+        return t.const_val == r.const_val() &&  // owning kind (Borrow/Box/Rc/Arc)
                t.trait_name == r.trait_name() &&
                vec_ptr_eq(t.type_args, r.type_args());
     case K::TaggedPtr:
@@ -3770,7 +3768,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         if (!changed) return t;
         return make_trait_object(t.trait_name(), std::move(new_args),
-                                 /*owning=*/t.owning_trait_object());
+                                 /*owning=*/t.trait_owning_kind());
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnPtr: {
@@ -4492,7 +4490,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 TypeRef ti(inner);
                 std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());
                 return make_trait_object(ti.trait_name(), std::move(targs),
-                                         /*owning=*/true);
+                                         TypeRef::OwningKind::Box);
             }
         }
     }
