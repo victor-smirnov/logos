@@ -959,11 +959,19 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
         }
         if (vit == dyn_vtable_methods_.end()) return nullptr;
     }
-    // Slot 0 is the drop_in_place glue (Rust-faithful); the trait's declared
-    // methods follow at slots 1..N (gen_dyn_dispatch adds the +1 shift).
+    // Rust-faithful vtable header: [ drop_in_place, size_of_T, align_of_T,
+    // method0..N ]. size/align come from the unified layout_of(T) and are
+    // encoded as `__logos_lit__<N>` slots — the post-lowering materializer
+    // (compile_pipeline) detects the prefix and emits IntToPtr(ConstantInt)
+    // instead of AddressOf, keeping the homogeneous [N x ptr] table. Methods
+    // follow at slots 3..N (gen_dyn_dispatch adds the +3 shift). size/align
+    // enable Rc<dyn>/Arc<dyn> to compute the RcInner layout for clone/drop.
+    auto layout = concrete_ty ? layout_of(concrete_ty) : Layout{0, 1};
     std::vector<std::string> slots;
-    slots.reserve(vit->second.size() + 1);
+    slots.reserve(vit->second.size() + 3);
     slots.push_back(emit_drop_in_place_glue(type_name, concrete_ty));
+    slots.push_back("__logos_lit__" + std::to_string(layout.size));
+    slots.push_back("__logos_lit__" + std::to_string(layout.align));
     for (auto& m : vit->second) slots.push_back(m);
     auto& methods = slots;
     size_t n = methods.size();
@@ -1350,10 +1358,11 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
         loc_, ptr_type(), dyn_struct, recv_alloca, idx1);
     auto vtable_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vp);
 
-    // GEP into vtable array to get fn_ptr at vtable_index. Slot 0 is the
-    // drop_in_place glue (Rust-faithful layout: [drop, method0, method1, …]),
-    // so the trait method's declared position shifts by +1.
-    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(v.vtable_index() + 1)};
+    // GEP into vtable array to get fn_ptr at vtable_index. Slots 0/1/2 are the
+    // drop_in_place glue + size_of_T + align_of_T (Rust-faithful layout:
+    // [drop, size, align, method0, method1, …]), so the trait method's
+    // declared position shifts by +3.
+    llvm::SmallVector<mlir::LLVM::GEPArg> slot_idx{int32_t(v.vtable_index() + 3)};
     auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), ptr_type(), vtable_ptr, slot_idx);
     auto fn_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);

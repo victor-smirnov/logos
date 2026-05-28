@@ -133,6 +133,21 @@ int lower_and_emit_object(lir::LProgram& prog,
                 for (size_t i = 0; i < n; ++i) {
                     auto m = mlir::cast<mlir::StringAttr>(one[i + 1]).getValue();
                     if (m.empty()) continue;  // object-unsafe sentinel → null slot
+                    // Rust-faithful vtable header carries usize size/align as
+                    // ptr-sized slots — encoded by build_inline_vtable as
+                    // `__logos_lit__<N>` strings; here we emit IntToPtr of the
+                    // constant instead of AddressOf, keeping the table homogeneous.
+                    static constexpr llvm::StringRef LIT_PFX = "__logos_lit__";
+                    if (m.starts_with(LIT_PFX)) {
+                        int64_t lit = 0;
+                        m.substr(LIT_PFX.size()).getAsInteger(10, lit);
+                        auto c = b.create<mlir::LLVM::ConstantOp>(
+                            loc, b.getI64IntegerAttr(lit));
+                        mlir::Value pv = b.create<mlir::LLVM::IntToPtrOp>(loc, ptr_t, c.getResult());
+                        arr = b.create<mlir::LLVM::InsertValueOp>(
+                            loc, arr, pv, llvm::ArrayRef<int64_t>{(int64_t)i});
+                        continue;
+                    }
                     if (!mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(m)) continue;
                     mlir::Value fa = b.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, m);
                     arr = b.create<mlir::LLVM::InsertValueOp>(
