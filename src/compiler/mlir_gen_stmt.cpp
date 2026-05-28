@@ -16,7 +16,8 @@ using namespace lir;
 void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
                                     const TaggedEnumInfo* te,
                                     lir_view::PatVariantDataView pvd,
-                                    std::vector<std::string>& added) {
+                                    std::vector<std::string>& added,
+                                    const std::unordered_map<std::string, mlir::Value>* shared) {
     if (!enum_ptr || !te) return;
     std::vector<std::string> bindings;
     pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
@@ -129,7 +130,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             added.push_back(bindings[bi]);
             continue;
         }
-        auto alloca = create_entry_alloca(vp->field_types[bi]);
+        mlir::Value alloca;
+        if (shared) { auto it = shared->find(bindings[bi]); if (it != shared->end()) alloca = it->second; }
+        if (!alloca) alloca = create_entry_alloca(vp->field_types[bi]);
         builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
         scope_[bindings[bi]] = alloca;
         let_vars_.insert(bindings[bi]);
@@ -2805,28 +2808,12 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         mlir::Value enum_ptr = slot_ptr;
         if (via_ref_enum)
             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
-        const TaggedEnumInfo::VariantPayload* vp = nullptr;
-        for (auto& vi : te->variants) if (vi.disc == (int32_t)pvd.disc()) { vp = &vi; break; }
-        if (!vp) return;
-        auto pay_struct = variant_payload_struct(*vp);
-        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, pi);
-        std::vector<std::string> names;
-        pvd.each_binding([&](std::string_view n){ names.emplace_back(n); });
-        for (size_t bi = 0; bi < names.size() && bi < vp->field_types.size(); ++bi) {
-            if (names[bi] == "_") continue;
-            llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pay_struct, pay_ptr, fi);
-            auto em = vp->field_types[bi];
-            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, em, fp);
-            mlir::Value target;
-            if (shared) { auto it = shared->find(names[bi]); if (it != shared->end()) target = it->second; }
-            if (!target) target = create_entry_alloca(em);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, target);
-            scope_[names[bi]] = target;
-            let_vars_.insert(names[bi]);
-            var_elem_types_[names[bi]] = em;
-        }
+        // Delegate to the canonical full-fidelity payload binder (handles
+        // ref-bind, inline struct/tuple/enum payloads, trait-object handles,
+        // and peer-set eviction — the old inline loop here only did scalar
+        // load+alloca). `shared` threads or-pattern alloca reuse.
+        std::vector<std::string> added;
+        bind_enum_payload(enum_ptr, te, pvd, added, shared);
         break;
     }
     case pc::Code::Or: {

@@ -840,7 +840,8 @@ private:
     void bind_enum_payload(mlir::Value enum_ptr,
                            const TaggedEnumInfo* te,
                            lir_view::PatVariantDataView pvd,
-                           std::vector<std::string>& added);
+                           std::vector<std::string>& added,
+                           const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
 
     // Recursive pattern matcher for arbitrarily nested patterns (a tuple
     // element that is itself a tuple / variant / or-pattern). `slot_ptr` points
