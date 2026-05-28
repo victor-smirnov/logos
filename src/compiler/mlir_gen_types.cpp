@@ -260,6 +260,14 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::Closure) {
+            // Closure field — fixed-size 16-byte {fn,env} fat pair. Stored
+            // INLINE by value (like a slice); a closure value elsewhere is a
+            // pointer to this storage.
+            ft = closure_llvm_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else if (fv.kind() == LogosType::Kind::Never) {
             // A `!`-typed field (e.g. the Err payload of an infallible
             // `Result<T, !>`, or a never type-arg flowing into stdlib iterator
@@ -325,10 +333,11 @@ MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
     switch (TypeRef(m).kind()) {
     // Stored as an 8-byte pointer inside an aggregate (logos_to_mlir → ptr),
     // unlike their 16-byte/inline by-value footprint.
-    case K::Closure: case K::Tuple: return {8, 8};
-    // Slice fields are now stored INLINE as a 16-byte {ptr,len} fat pair
-    // (Rust `&[T]`), so they count their by-value footprint like dyn/struct.
-    default: return layout_of(m, seen);  // inline (slice/struct/enum/array/dyn/scalar)
+    case K::Tuple: return {8, 8};
+    // Slice and Closure fields are now stored INLINE as a 16-byte fat pair
+    // ({ptr,len} / {fn,env}), so they count their by-value footprint like
+    // dyn/struct.
+    default: return layout_of(m, seen);  // inline (slice/closure/struct/enum/array/dyn/scalar)
     }
 }
 

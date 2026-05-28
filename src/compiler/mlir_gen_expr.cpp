@@ -2260,11 +2260,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     auto& info = struct_types_[sname];
     auto gep   = gep_field(ptr, info, field);
     if (!gep) return nullptr;
-    // A Slice field is stored INLINE as a {ptr,len} fat pair, but the slice
-    // "value" convention elsewhere is a POINTER to that storage — return the
+    // A Slice/Closure field is stored INLINE as a 16-byte fat pair, but the
+    // value convention elsewhere is a POINTER to that storage — return the
     // field address rather than loading the pair by value (mirrors the inline
     // struct/enum element convention in EIndexRead).
-    if (type && TypeRef(type).kind() == LogosType::Kind::Slice)
+    if (type && (TypeRef(type).kind() == LogosType::Kind::Slice ||
+                 TypeRef(type).kind() == LogosType::Kind::Closure))
         return gep;
     for (auto& f : info.fields)
         if (f.name == field)
