@@ -669,6 +669,12 @@ private:
     static bool is_stdlib_box(TypeRef t) noexcept {
         return is_stdlib_smart_ptr(t, "Box", "logos.mem.boxed");
     }
+    // NOTE: `Box<dyn Trait>` does NOT appear as a Box<TraitObject> struct in
+    // mlir-gen — sema collapses it to an OWNING bare `TraitObject` (16-byte
+    // {data,vtable} fat pair, IDENTICAL repr to `&dyn`; differs only by ownership
+    // → drop calls vtable[0] then deallocs `data`). So all dyn representation /
+    // dispatch / stride code keys uniformly on Kind::TraitObject; no Box special-
+    // casing is needed here.
     // FQN-checked stdlib smart-pointer struct (name + package; pkg tolerated
     // empty for internal paths where it was stripped).
     static bool is_stdlib_smart_ptr(TypeRef t, std::string_view name,

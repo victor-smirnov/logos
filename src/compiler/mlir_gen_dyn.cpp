@@ -1078,13 +1078,14 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
          TypeRef(vt_type).kind() == K::ZonedStruct)
             ? concrete_struct_name(vt_type)
             : type_str(vt_type);
-    // The slot is an OWNING Box<dyn> (slot_lt is Box<TraitObject>) → heap-survive
-    // handle. A bare `dyn`/`&dyn`/`&mut dyn` slot is a stack fat pair (the inline-
-    // 16 consumer copies it).
-    bool slot_is_box_dyn = is_stdlib_box(slot_lt) &&
-        TypeRef(slot_lt).type_args().size() == 1;
+    // Uniform fat model: a `Box<dyn>` slot is now an INLINE 16-byte {data,vtable}
+    // fat pair (like `&dyn`), where `data` = the box's heap concrete pointer
+    // (`val` IS that pointer — Box<concrete> = {ptr}). No malloc(16) handle: the
+    // pair is a stack alloca the consumer copies (Vec slot / return). Drop frees
+    // `data` via vtable[0]. (force_heap is the legacy raw `*const/*mut dyn` escape
+    // that still wants a surviving heap handle.)
     auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name,
-                             /*heap=*/slot_is_box_dyn || force_heap, vt_type);
+                             /*heap=*/force_heap, vt_type);
     return fat ? fat : val;
 }
 
@@ -1308,24 +1309,40 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
 
     // Check if receiver is a variable we know is dyn
     mlir::Value recv_alloca = nullptr;
+    bool recv_var_holds_value = false;  // scope_[name] is the value, not an alloca
     if (recv_ref && recv_ref.kind() == lir_schema::expr::Code::VarRef) {
         std::string name(lir_view::EVarRefView{recv_ref}.name());
         auto it = scope_.find(name);
-        if (it != scope_.end()) recv_alloca = it->second;
+        if (it != scope_.end()) {
+            recv_alloca = it->second;
+            // A dyn-binding (`let rd: &dyn = …`, a &dyn param) stores the fat-
+            // pointer VALUE directly in scope_ (a pointer to the 16-byte storage),
+            // not an alloca holding it — mirrors var_tuple_/closure/slice lets.
+            // So no extra load is needed to reach the storage.
+            recv_var_holds_value =
+                var_dyn_trait_.count(name) || var_tuple_.count(name) ||
+                ref_param_names_.count(name);  // slice-for `&T` ref binding / &dyn param
+        }
     }
     if (!recv_alloca) {
         recv_alloca = gen_expr(*recv_le);
     }
     if (!recv_alloca) return nullptr;
+    bool recv_from_varref =
+        recv_ref && recv_ref.kind() == lir_schema::expr::Code::VarRef;
 
     auto dyn_struct = dyn_llvm_type();
 
-    // G168-A (unchanged from the heap-handle model): a `&(dyn Trait)` receiver
-    // (`Ref<TraitObject>`) holds a pointer to the dyn handle (the ref value),
-    // one level above the {data,vtable} handle. Load once to reach the handle.
-    // A bare `&dyn`/`dyn` (TraitObject) receiver is already the handle/fat-value
-    // (or a pointer to the 16-byte storage, in the value-fat-pair model).
-    if (recv_le->type) {
+    // G168-A: a `&(dyn Trait)` receiver (`Ref<TraitObject>`) — when it is an
+    // ALLOCA-backed VARIABLE, scope_ holds the alloca (ADDRESS of the slot
+    // holding the fat-pointer value), so load once to reach the value (a pointer
+    // to the 16-byte storage). When scope_ holds the VALUE directly (a dyn-let /
+    // &dyn param — recv_var_holds_value), or the receiver is a direct value (a
+    // method-call result like `v.borrow(i)`, an `&*box` auto-deref), gen_expr/
+    // scope_ already yielded the fat-pointer value — loading it would read `data`
+    // as the storage address (the Box<dyn>-via-borrow dispatch crash). Load only
+    // the address-bearing form.
+    if (recv_le->type && recv_from_varref && !recv_var_holds_value) {
         TypeRef rlt(recv_le->type);
         if ((rlt.kind() == LogosType::Kind::Ref ||
              rlt.kind() == LogosType::Kind::MutRef) && rlt.pointee() &&

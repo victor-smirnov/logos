@@ -138,9 +138,8 @@ pub unsafe fn for_each_block_rec<const STORE_CFG: HermesStatic>(
 pub unsafe fn arc_release_in_slot<const STORE_CFG: HermesStatic>(
     slot: *mut NodeARC<STORE_CFG>,
 ) {
-    if (*slot).p as *mut u64 == 0 as *mut u64 { return; }
+    if node_arc_is_null::<STORE_CFG>(&*slot) { return; }
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&*slot);
-    if dp == 0 as *mut u8 { return; }
     let rcp: *mut u64 = dp as *mut u64;
     *rcp = *rcp - 1u64;
     if *rcp == 0u64 {
@@ -159,21 +158,15 @@ pub unsafe fn arc_replace_in_slot<const STORE_CFG: HermesStatic>(
     slot:    *mut NodeARC<STORE_CFG>,
     new_arc: NodeARC<STORE_CFG>,
 ) {
-    let new_handle: *mut dyn BTreeNode<STORE_CFG> = new_arc.p;
-    // Save old fat-handle, write new.
+    // Save old handle, move new's share into the slot.
     let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
-    (*slot).p = new_handle;
-    // Neutralise `new_arc` so its scope-exit auto-drop is a no-op.
+    (*slot).p = new_arc.p;
+    // Neutralise `new_arc` so its scope-exit auto-drop is a no-op (share moved).
     let new_arc_p: *mut NodeARC<STORE_CFG> = &new_arc as *const NodeARC<STORE_CFG> as *mut NodeARC<STORE_CFG>;
     (*new_arc_p).p = 0 as *mut dyn BTreeNode<STORE_CFG>;
-    // Release old.
-    let old_data_p: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
-    let old_rcp:    *mut u64 = old_data_p as *mut u64;
-    *old_rcp = *old_rcp - 1u64;
-    if *old_rcp == 0u64 {
-        old_handle.__drop_in_place();
-        dealloc(old_data_p);
-    }
+    // Release the old share via NodeARC's own Drop (rc-- + recursive release at
+    // last ref) — no hand-rolled rc math.
+    let _old: NodeARC<STORE_CFG> = NodeARC::<STORE_CFG> { p: old_handle };
 }
 
 // Make-unique helper: ensure the NodeARC handle uniquely owns its block
@@ -212,19 +205,27 @@ pub fn node_arc_wrap<const STORE_CFG: HermesStatic>(p: *mut dyn BTreeNode<STORE_
     return NodeARC::<STORE_CFG> { p: p };
 }
 
-// Helper: extract the data ptr (first half of the fat pointer slot).
-// rc and other header fields live at the start of the pointed-to block.
+// Helper: the data ptr = the heap block whose first 8 bytes are NodeBase.rc.
+// `p` is a 16-byte fat pointer {data, vtable} (uniform &dyn/*mut dyn model);
+// casting the fat dyn value to a thin ptr extracts the data half.
 pub unsafe fn node_arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
-    let slot_p: *mut u64 = arc.p as *mut u64;
-    return (*slot_p) as *mut u8;
+    return arc.p as *mut u8;
+}
+
+// Helper: is this a null-handle sentinel? (NodeARC may be built with a null
+// fat-pointer as a "no value" marker — e.g. the unused `right` field of an
+// InsertOutcome where split=false.) The data half is null.
+pub unsafe fn node_arc_is_null<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
+    return (arc.p as *mut u8) == (0 as *mut u8);
 }
 
 impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
-    // Bump rc directly on the data ptr — no vtable call, just a field write
-    // at the known offset 0. Returns a fresh handle pointing at the same
-    // {data, vtable} slot.
+    // Shared-ownership clone: bump rc at the block header (offset 0) and return
+    // a fresh handle over the same fat pointer. This is THE rc-bump primitive —
+    // all share transfers go through it (no hand-rolled pointer math elsewhere).
     pub fn clone_arc(&self) -> NodeARC<STORE_CFG> {
         unsafe {
+            if node_arc_is_null::<STORE_CFG>(self) { return NodeARC::<STORE_CFG> { p: self.p }; }
             let rcp: *mut u64 = node_arc_data_ptr::<STORE_CFG>(self) as *mut u64;
             *rcp = *rcp + 1u64;
             return NodeARC::<STORE_CFG> { p: self.p };
@@ -235,14 +236,8 @@ impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {
 impl<const STORE_CFG: HermesStatic> Drop for NodeARC<STORE_CFG> {
     fn drop(self: NodeARC<STORE_CFG>) {
         unsafe {
-            // Null-handle escape: NodeARC may be constructed with a null
-            // fat-pointer as a "no value" sentinel (e.g. unused `right`
-            // field in an InsertOutcome where split=false). Skip drop —
-            // there's no block to release.
-            let slot_p: *mut u64 = self.p as *mut u64;
-            if slot_p == 0 as *mut u64 { return; }
-            let data_p: *mut u8 = (*slot_p) as *mut u8;
-            if data_p == 0 as *mut u8 { return; }
+            if node_arc_is_null::<STORE_CFG>(&self) { return; }
+            let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&self);
             let rcp: *mut u64 = data_p as *mut u64;
             *rcp = *rcp - 1u64;
             if *rcp == 0u64 {

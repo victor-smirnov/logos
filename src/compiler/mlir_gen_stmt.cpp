@@ -803,11 +803,19 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     // slice place (`self.rest = <slice>`, lowered via the place path to
     // `*&self.rest = v`) must memcpy all 16 bytes — a plain 8-byte store of
     // the data ptr would leave `len` stale (the split-iterator bug).
-    // TraitObject is NOT included: owning Box<dyn>/raw `*mut dyn` keep a thin
-    // 8-byte handle, so a memcpy-16 there corrupts those writes.
+    // TraitObject memcpy-16 ONLY when the DESTINATION place is itself a bare
+    // fat dyn (`*mut dyn`/`&dyn` field or deref — pointee kind TraitObject), as
+    // in persistent's `(*slot).p = handle`. A Box<dyn> / raw escape handle is
+    // still an 8-byte slot (not yet migrated) whose place pointee is NOT a bare
+    // TraitObject — memcpy-16 there reads OOB past the 8-byte source and
+    // corrupts neighbours (the b167/b168 dyn regressions).
+    bool dst_is_fat_dyn = pointee_t &&
+        TypeRef(pointee_t).kind() == LogosType::Kind::TraitObject;
     if (val.getType() == ptr_type() && val_le->type &&
         (TypeRef(val_le->type).kind() == LogosType::Kind::Closure ||
-         TypeRef(val_le->type).kind() == LogosType::Kind::Slice)) {
+         TypeRef(val_le->type).kind() == LogosType::Kind::Slice ||
+         (TypeRef(val_le->type).kind() == LogosType::Kind::TraitObject &&
+          dst_is_fat_dyn))) {
         auto sz = builder_.create<mlir::LLVM::ConstantOp>(
             loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
@@ -1103,6 +1111,10 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                        src_vt.kind() == LogosType::Kind::MutRef) &&
             src_vt.pointee() &&
             TypeRef(src_vt.pointee()).kind() == LogosType::Kind::TraitObject) {
+            // `&dyn`/`&Box<dyn>` (Box<dyn> collapses to TraitObject) from
+            // `Vec::borrow(i)` — the value already IS a pointer to a 16-byte fat
+            // slot; peel to TraitObject so the "already fat" shortcut stores it
+            // directly (NOT rebuild a fat pair from the slot-pointer).
             src_vt = src_vt.pointee();
         }
         if (src_vt && src_vt.kind() == LogosType::Kind::TraitObject) {
@@ -1823,15 +1835,28 @@ void MLIRGenImpl::gen_for_each(lir_view::SForEachView v) {
     // ptr_type (8 bytes), but the buffer holds the struct INLINE — striding by
     // 8 reads the wrong element for any multi-word struct. Use the struct's
     // full LLVM type so the per-index GEP strides by sizeof(struct).
+    // GEP stride = the inline slot footprint. logos_to_mlir collapses several
+    // element kinds to an 8-byte ptr; widen the ones the buffer stores INLINE:
+    //   • Struct/ZonedStruct  → full LLVM struct (sizeof(struct)).
+    //   • TraitObject/Closure/Slice → 16-byte fat pair (uniform fat model; also
+    //     covers Box<dyn> = owning TraitObject).
+    // Tuple/Enum/scalar elements keep the logos_to_mlir representation (tuples
+    // are stored BY POINTER in slice/Vec buffers — an 8-byte slot — so widening
+    // them mis-strides the iteration; the for-(a,b)-in-Vec<tuple> tests).
     mlir::Type gep_elem_mlir = elem_mlir;
     if (s.elem_type) {
         TypeRef et(s.elem_type);
-        if (et.kind() == LogosType::Kind::Struct ||
-            et.kind() == LogosType::Kind::ZonedStruct) {
+        auto k = et.kind();
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) {
             auto sit = struct_types_.find(mlir_struct_key(et));
             if (sit != struct_types_.end()) gep_elem_mlir = sit->second.llvm_type;
+        } else if (k == LogosType::Kind::TraitObject ||
+                   k == LogosType::Kind::Closure ||
+                   k == LogosType::Kind::Slice) {
+            gep_elem_mlir = place_slot_type(et);
         }
     }
+    if (!gep_elem_mlir) gep_elem_mlir = elem_mlir;
 
     auto arr_alloca = gen_expr(*s.iter);
     if (!arr_alloca) return;
@@ -2505,14 +2530,12 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
         auto field_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_gep);
         // For struct-typed values, val_type is ptr (structs are passed by ref);
         // GEP stride must use the concrete struct LLVM type, not ptr_type (8B).
-        mlir::Type gep_elem = val_type;
+        // Stride MUST be the inline slot footprint: a concrete struct's LLVM
+        // type, a 16-byte fat pair for dyn/closure/slice — NOT logos_to_mlir's
+        // collapsed 8-byte ptr (which would overlap adjacent buffer elements).
         TypeRef vt = val_le ? val_le->type : nullptr;
-        if (vt && (TypeRef(vt).kind() == LogosType::Kind::Struct ||
-                   TypeRef(vt).kind() == LogosType::Kind::ZonedStruct)) {
-            auto cname = concrete_struct_name(vt);
-            auto sit2 = struct_types_.find(cname);
-            if (sit2 != struct_types_.end()) gep_elem = sit2->second.llvm_type;
-        }
+        mlir::Type gep_elem = vt ? place_slot_type(vt) : val_type;
+        if (!gep_elem) gep_elem = val_type;
         llvm::SmallVector<mlir::LLVM::GEPArg> ptr_idx{extend_idx(builder_.getIntegerType(32))};
         base_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), gep_elem, field_ptr, ptr_idx);
@@ -2531,6 +2554,18 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, base_ptr, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
+    }
+    // Fat-pointer element (dyn/closure/slice): 16-byte {ptr,ptr}/{ptr,len} pair
+    // stored INLINE — memcpy all 16 bytes (an 8-byte store leaves the second
+    // half stale → bad dispatch / stale len). Mirrors gen_index_write.
+    if (val_t && val.getType() == ptr_type() &&
+        (TypeRef(val_t).kind() == LogosType::Kind::Closure ||
+         TypeRef(val_t).kind() == LogosType::Kind::Slice ||
+         TypeRef(val_t).kind() == LogosType::Kind::TraitObject)) {
+        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, base_ptr, val, sz, /*isVolatile=*/false);
+        return;
     }
 
     builder_.create<mlir::LLVM::StoreOp>(loc_, val, base_ptr);

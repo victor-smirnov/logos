@@ -99,10 +99,12 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
             return cache_ret(mlir::LLVM::LLVMArrayType::get(slice_llvm_type(), tv.arr_size()));
         if (elem_tv && elem_tv.kind() == LogosType::Kind::Closure)
             return cache_ret(mlir::LLVM::LLVMArrayType::get(closure_llvm_type(), tv.arr_size()));
-        // NOTE: bare `&dyn` ARRAY elements deliberately stay 8-byte HANDLES (not
-        // inline 16-byte fat pairs) — Logos's Vec<&dyn>/`vec!` machinery is built
-        // on the handle model (a `[&dyn;N]` array of pointers-to-fat-pairs).
-        // Inlining them here regresses the whole Vec<&dyn> dispatch family.
+        // Bare `&dyn`/`*dyn`/`dyn` (TraitObject) ARRAY elements: inline 16-byte
+        // {data,vtable} fat pairs (uniform fat model — matches layout_of=16 and
+        // the slice/closure element inlining above). A collapsed 8-byte ptr would
+        // mismatch sizeof, so vec_from_arr's memcpy would overflow / alias.
+        if (elem_tv && elem_tv.kind() == LogosType::Kind::TraitObject)
+            return cache_ret(mlir::LLVM::LLVMArrayType::get(dyn_llvm_type(), tv.arr_size()));
         auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
         return cache_ret(mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size()));

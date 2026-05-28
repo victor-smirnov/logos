@@ -91,12 +91,9 @@ unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
     while i < cap {
         right.keys.push(leaf.keys.get(i));
         let src: *mut NodeARC<STORE_CFG> = leaf.vals.at(i as i64);
-        let handle: *mut dyn BTreeNode<STORE_CFG> = (*src).p;
-        right.vals.push(NodeARC::<STORE_CFG> { p: handle });
-        // Bump rc to compensate for the upcoming pop on left (mirror
-        // split_branch's pattern: pop's auto-drop balances the bump).
-        let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
-        *(dp as *mut u64) = *(dp as *mut u64) + 1u64;
+        // clone_arc bumps the child's rc; the upcoming pop on `left` auto-drops
+        // its handle → balanced. (Was a hand-rolled push-raw + manual rc bump.)
+        right.vals.push((*src).clone_arc());
         i = i + 1u64;
     }
     while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
@@ -156,29 +153,18 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
         // Replace-on-hit: release the old slot's rc, write new handle.
         if pos < leaf.keys.len() && leaf.keys.get(pos) == ctr_id {
             let slot: *mut NodeARC<STORE_CFG> = leaf.vals.at(pos as i64);
-            let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
-            let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
-            *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
-            let old_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
-            (*slot).p = new_handle;
-            let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
-            *(old_dp as *mut u64) = *(old_dp as *mut u64) - 1u64;
-            if *(old_dp as *mut u64) == 0u64 {
-                old_handle.__drop_in_place();
-                dealloc(old_dp);
-            }
+            // Move val_arc's share into the slot, release the old (rc via Drop).
+            arc_replace_in_slot::<STORE_CFG>(slot, val_arc);
             return DirInsertOutcome::<STORE_CFG> {
                 split: false,
                 right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
                 right_max_present: false, right_max: 0u64,
             };
         }
-        // Insert at pos.
+        // Insert at pos — move val_arc's share into the new slot (no rc bump:
+        // ownership transfers from the by-value param into the Vec).
         leaf.keys.insert_at(pos, ctr_id);
-        let new_handle: *mut dyn BTreeNode<STORE_CFG> = val_arc.p;
-        let new_dp: *mut u8 = (*(new_handle as *mut u64)) as *mut u8;
-        *(new_dp as *mut u64) = *(new_dp as *mut u64) + 1u64;
-        leaf.vals.push(NodeARC::<STORE_CFG> { p: new_handle });
+        leaf.vals.push(val_arc);
         let mut k: i64 = leaf.vals.length() - 1i64;
         while k > (pos as i64) {
             let a: *mut NodeARC<STORE_CFG> = leaf.vals.at(k);
@@ -267,15 +253,10 @@ pub unsafe fn dir_insert<const STORE_CFG: HermesStatic>(
         let old_max: u64 = dir_node_max_key::<STORE_CFG>(snap_dir);
         new_root.keys.push(old_max);
         new_root.keys.push(outcome.right_max);
-        // Move old root + outcome.right into new branch's children.
-        let old_handle: *mut dyn BTreeNode<STORE_CFG> = snap_dir.p;
-        let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
-        *(old_dp as *mut u64) = *(old_dp as *mut u64) + 1u64;
-        new_root.children.push(NodeARC::<STORE_CFG> { p: old_handle });
-        let r_handle: *mut dyn BTreeNode<STORE_CFG> = outcome.right.p;
-        let r_dp: *mut u8 = (*(r_handle as *mut u64)) as *mut u8;
-        *(r_dp as *mut u64) = *(r_dp as *mut u64) + 1u64;
-        new_root.children.push(NodeARC::<STORE_CFG> { p: r_handle });
+        // Old root is released from its slot by arc_replace_in_slot below;
+        // outcome.right's share is balanced by outcome's auto-drop.
+        new_root.children.push(snap_dir.clone_arc());
+        new_root.children.push(outcome.right.clone_arc());
         let new_arc: NodeARC<STORE_CFG> =
             node_arc_wrap::<STORE_CFG>(new_root as *mut dyn BTreeNode<STORE_CFG>);
         arc_replace_in_slot::<STORE_CFG>(snap_dir as *mut NodeARC<STORE_CFG>, new_arc);
@@ -343,13 +324,8 @@ pub fn store_open<const STORE_CFG: HermesStatic>() -> Store<STORE_CFG> {
             leaf_dir_alloc::<u64, STORE_CFG, DirCfg>(block_id, 0u64)
         };
         let dir: NodeARC<STORE_CFG> = node_arc_wrap::<STORE_CFG>(dir_leaf as *mut dyn BTreeNode<STORE_CFG>);
-        unsafe {
-            let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&dir);
-            let rcp: *mut u64 = dp as *mut u64;
-            *rcp = *rcp + 1u64;
-        }
         lk.dag.push(CommitEntry::<STORE_CFG> {
-            root:     dir,
+            root:     dir.clone_arc(),
             parents:  vec_new::<SnpId<STORE_CFG>>(),
             children: vec_new::<SnpId<STORE_CFG>>(),
             released: false,
@@ -600,7 +576,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
             let leaf_arc: NodeARC<STORE_CFG> =
                 pmap_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                     &self.arc, n, &mut leaf_idx as *mut u64);
-            if leaf_arc.p == (0 as *mut dyn BTreeNode<STORE_CFG>) { return false; }
+            if node_arc_is_null::<STORE_CFG>(&leaf_arc) { return false; }
             let leaf_p: *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
                 node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
             *out_k = leaf_p.keys.get(leaf_idx);
@@ -637,24 +613,10 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         unsafe {
             let slot: *mut NodeARC<STORE_CFG> = self.dir_slot;
             if slot == 0 as *mut NodeARC<STORE_CFG> { return; }
-            let slot_handle: *mut dyn BTreeNode<STORE_CFG> = (*slot).p;
-            let arc_handle:  *mut dyn BTreeNode<STORE_CFG> = self.arc.p;
-            if slot_handle as *mut u8 == arc_handle as *mut u8 { return; }
-            // Bump self.arc's block rc — the slot adopts a fresh share,
-            // self.arc retains its own.
-            let new_dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&self.arc);
-            let new_rcp: *mut u64 = new_dp as *mut u64;
-            *new_rcp = *new_rcp + 1u64;
-            // Write new fat-handle into slot.
-            (*slot).p = arc_handle;
-            // Release old fat-handle.
-            let old_dp: *mut u8 = (*(slot_handle as *mut u64)) as *mut u8;
-            let old_rcp: *mut u64 = old_dp as *mut u64;
-            *old_rcp = *old_rcp - 1u64;
-            if *old_rcp == 0u64 {
-                slot_handle.__drop_in_place();
-                dealloc(old_dp);
-            }
+            if (*slot).p as *mut u8 == self.arc.p as *mut u8 { return; }
+            // The slot adopts a fresh share of self.arc (clone_arc bumps),
+            // self.arc retains its own; the old slot share is released.
+            arc_replace_in_slot::<STORE_CFG>(slot, self.arc.clone_arc());
         }
     }
 

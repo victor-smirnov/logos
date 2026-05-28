@@ -1128,9 +1128,14 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
                         val = fat;
                 }
             }
-            // `&dyn` array elements use the 8-byte HANDLE model (Vec<&dyn>) —
-            // store the handle (a pointer to the fat pair), not an inline copy.
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
+            // `&dyn` array elements are inline 16-byte {data,vtable} fat pairs
+            // (uniform fat model — matches logos_to_mlir([&dyn;N]) = [N x {ptr,
+            // ptr}] and layout_of=16). `val` is a pointer to the fat pair, so
+            // memcpy the 16 bytes INTO the slot (an 8-byte store would leave the
+            // vtable half uninitialised → garbage dispatch).
+            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz, /*isVolatile=*/false);
             continue;
         }
         if (elem_is_struct) {

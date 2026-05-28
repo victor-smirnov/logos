@@ -4668,6 +4668,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
+        // A raw `*const/*mut dyn Trait` is a FAT pointer (Rust): same 16-byte
+        // {data,vtable} representation as `&dyn`. Canonicalise the literal-`dyn`
+        // pointee form to bare TraitObject (like REF_TYPE folds `&dyn`), so a
+        // raw dyn pointer is the inline fat pair — DISTINCT from `*mut T`
+        // (generic, mono'd to TraitObject → `Ptr<TraitObject>`, e.g. a Vec<&dyn>
+        // buffer = a thin pointer to inline fat elements). Gated on the IMMEDIATE
+        // pointee node being a bare `dyn`.
+        if (node.has_key(la::POINTEE) &&
+            code_of(map_of(node.get(la::POINTEE.code))) == la::DYN_TYPE &&
+            inner && inner.kind() == LogosType::Kind::TraitObject)
+            return inner;
         // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef
         // (fat pointer). Same canonicalisation as REF_TYPE for DST.
         if (inner && (inner.kind() == LogosType::Kind::Struct ||

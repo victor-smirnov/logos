@@ -131,13 +131,12 @@ pub struct NodeARC<const STORE_CFG: HermesStatic> {
     p: *mut dyn BTreeNode<STORE_CFG>,
 }
 
-// Helper: extract the data pointer from a fat-ptr handle. The handle
-// (`*mut dyn BTreeNode<...>`) is laid out as a slot pointer to a 16-byte
-// {data_ptr, vtable_ptr} pair; first 8 bytes is the data ptr that holds
-// the NodeBase header at offset 0.
+// Helper: extract the data pointer from a fat-ptr handle. Uniform fat model:
+// `*mut dyn BTreeNode<...>` IS a 16-byte {data_ptr, vtable_ptr} pair (value =
+// a pointer to that storage); casting the fat dyn value to a thin `*mut u8`
+// extracts the data half (field 0), which holds the NodeBase header at offset 0.
 unsafe fn arc_data_ptr<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> *mut u8 {
-    let slot_p: *mut u64 = arc.p as *mut u64;
-    return (*slot_p) as *mut u8;
+    return arc.p as *mut u8;
 }
 
 impl<const STORE_CFG: HermesStatic> NodeARC<STORE_CFG> {

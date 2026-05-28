@@ -1059,6 +1059,16 @@ mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
             te && te->llvm_type)
             return te->llvm_type;
     }
+    // Fat-pointer elements are stored INLINE by value (mirrors the struct-field
+    // convention): a bare `&dyn`/`*dyn`/`dyn` (TraitObject) slot is the 16-byte
+    // {data,vtable} pair, a closure the 16-byte {fn,env}, a slice the 16-byte
+    // {ptr,len}. logos_to_mlir collapses all of these to an 8-byte `ptr` (the
+    // by-pointer value ABI), so as an array/Vec ELEMENT stride that would be
+    // half the real footprint — adjacent elements would overlap. Use the full
+    // inline type so the place stride matches the field layout everywhere.
+    if (k == LogosType::Kind::TraitObject) return dyn_llvm_type();
+    if (k == LogosType::Kind::Closure)     return closure_llvm_type();
+    if (k == LogosType::Kind::Slice)       return slice_llvm_type();
     auto m = logos_to_mlir(t);
     return m ? m : builder_.getI32Type();
 }
@@ -1154,15 +1164,7 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         // else the element representation `logos_to_mlir(elem)` (ptr-sized for
         // tuples/dyn — the by-pointer ABI). Using a different stride here than the
         // read uses would make `&mut s[i]` / `s[i]=v` address a different slot.
-        mlir::Type stride;
-        if (elem_tr && (TypeRef(elem_tr).kind() == LogosType::Kind::Struct ||
-                        TypeRef(elem_tr).kind() == LogosType::Kind::ZonedStruct)) {
-            auto sit = struct_types_.find(concrete_struct_name(elem_tr));
-            stride = (sit != struct_types_.end()) ? sit->second.llvm_type
-                                                  : logos_to_mlir(elem_tr);
-        } else {
-            stride = logos_to_mlir(elem_tr);
-        }
+        mlir::Type stride = place_slot_type(elem_tr);
         if (!stride) stride = builder_.getI32Type();
         llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
         return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stride, data_ptr, di);
@@ -1199,14 +1201,22 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
             // `*mut [T;N]` / `&mut [T;N]`: pointee is the array → index its element.
             TypeRef et = (TypeRef(pe).kind() == LogosType::Kind::Array && TypeRef(pe).elem())
                              ? TypeRef(pe).elem() : pe;
-            if (et && (TypeRef(et).kind() == LogosType::Kind::Struct ||
-                       TypeRef(et).kind() == LogosType::Kind::ZonedStruct)) {
-                auto sit = struct_types_.find(concrete_struct_name(et));
-                stride = (sit != struct_types_.end()) ? sit->second.llvm_type
-                                                       : logos_to_mlir(et);
-            } else {
-                stride = logos_to_mlir(et);
-            }
+            stride = place_slot_type(et);
+            if (!stride) stride = builder_.getI32Type();
+        } else if (recv.kind() == ec::Code::FieldRead &&
+                   (rk == LogosType::Kind::Ptr || rk == LogosType::Kind::MutRef ||
+                    rk == LogosType::Kind::Ref) && TypeRef(recv_t).pointee() &&
+                   (TypeRef(recv_t).pointee().kind() == LogosType::Kind::TraitObject ||
+                    TypeRef(recv_t).pointee().kind() == LogosType::Kind::Closure ||
+                    TypeRef(recv_t).pointee().kind() == LogosType::Kind::Slice)) {
+            // Pointer FIELD of fat elements indexed (`self.ptr[i]`, ptr: *mut T,
+            // T = &dyn/closure/slice = inline 16-byte fat pair). gen_lvalue_addr
+            // gave the field's ADDRESS (slot holding the buffer ptr); LOAD it to
+            // get the buffer base, then stride by the 16-byte fat slot. The
+            // legacy EAddrOfTemp handler used an 8-byte (logos_to_mlir) stride
+            // here → adjacent fat elements overlapped (Vec<&dyn> push corruption).
+            base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), base);
+            stride = place_slot_type(TypeRef(recv_t).pointee());
             if (!stride) stride = builder_.getI32Type();
         } else {
             // Other receiver shapes (e.g. a `*S` pointer FIELD index `s.ptr[i]`)
@@ -1547,38 +1557,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
 }
 
 bool MLIRGenImpl::deref_operand_is_ptr_to_dyn_handle(const LExpr& operand) {
-    // A `*const/*mut dyn Trait` value is a HANDLE by default (the raw fat
-    // pointer — Rust's `*const dyn T`): `&concrete as *const dyn` coercions,
-    // `*const dyn` params, and `*mut dyn` fields all HOLD the handle, so `*p`
-    // is a no-op reinterpret. The exception is a genuine pointer-INTO-storage:
-    // a container accessor (`HashMap::get(&k) -> *const V` where V = Box<dyn>)
-    // returns the ADDRESS of a stored handle, so `*p` must LOAD it out. The two
-    // are type-indistinguishable (both Ptr<TraitObject>); the discriminator is
-    // that the ptr-to-handle is the RESULT of such an accessor — i.e. a method
-    // call returning `*const/*mut dyn`, or a let-var bound directly from one.
-    auto ref = expr_ref_of(operand);
-    if (!ref) return false;
-    using C = lir_schema::expr::Code;
-    if (ref.kind() == C::MethodCall) {
-        // A method returning `*const/*mut dyn` (Ptr<TraitObject>) OR
-        // `&(&dyn)` / `&mut (&dyn)` (Ref/MutRef<TraitObject>) is a pointer
-        // INTO storage holding a dyn handle — `*p` must LOAD it. The latter
-        // is the `Vec<&dyn>::index/borrow` shape (`fn index(&self) -> &T`
-        // with T = `&dyn`, so the return is Ref<TraitObject>). A method that
-        // returns `&dyn` DIRECTLY has kind TraitObject (the handle itself),
-        // not Ref<TraitObject>, so it is unaffected by the Ref/MutRef arm.
-        TypeRef rt(operand.type);
-        return rt &&
-               (rt.kind() == LogosType::Kind::Ptr ||
-                rt.kind() == LogosType::Kind::Ref ||
-                rt.kind() == LogosType::Kind::MutRef) &&
-               rt.pointee() &&
-               TypeRef(rt.pointee()).kind() == LogosType::Kind::TraitObject;
-    }
-    if (ref.kind() == C::VarRef) {
-        lir_view::EVarRefView vr(ref);
-        return dyn_ptr_to_handle_vars_.count(std::string(vr.name())) > 0;
-    }
+    // UNIFORM FAT MODEL: every dyn value (`&dyn`/`*dyn`/`Box<dyn>`) is a 16-byte
+    // {data,vtable} pair, and a `*const/*mut dyn` (Ptr<TraitObject>) always points
+    // AT such a 16-byte slot. So `*p` is ALWAYS a no-op reinterpret — the pointer
+    // to the 16-byte storage IS the `dyn` value (mirrors a struct/slice place).
+    // The legacy 8-byte-handle "load the stored handle out of a container slot"
+    // case (`HashMap::get -> *const Box<dyn>`) no longer exists: the slot holds
+    // the inline fat pair, so the accessor's returned pointer already addresses
+    // the 16-byte storage. Hence: never load here.
+    (void)operand;
     return false;
 }
 
@@ -2463,8 +2450,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     if (type && TypeRef(type).kind() == LogosType::Kind::Slice &&
         !(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice))
         elem_type = slice_llvm_type();
-    // NOTE: `&dyn` array elements stay 8-byte handles (Vec<&dyn> handle model) —
-    // do NOT inline here (see logos_to_mlir(Array) note).
+    // TraitObject element (`&dyn`/`*dyn`/`dyn`): the 16-byte {data,vtable} pair
+    // is stored INLINE (uniform fat model — same as a slice/closure element).
+    // Stride by the pair footprint and return the slot ADDRESS (a dyn value IS
+    // a pointer to its fat pair), not an 8-byte load of the data half. This is
+    // what makes `Vec<&dyn>::get`/`p[i]` over a `*mut T` buffer correct.
+    if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject)
+        elem_type = dyn_llvm_type();
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
@@ -2603,6 +2595,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     auto* op_le = lexpr_of(v.operand());
     if (!op_le) return nullptr;
+    // Null-handle construct: `0 as *mut dyn` / `0 as &dyn` — an integer (null)
+    // cast to a trait object. Under the uniform fat model a dyn value is a
+    // 16-byte {data,vtable} pair; produce a ZEROED pair (data=null) so
+    // null-handle sentinels (`NodeARC { p: 0 as *mut dyn }`) and the
+    // `… as *mut u64 == 0` null checks behave (was an 8-byte null handle).
+    if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject && op_le->type) {
+        auto sk = TypeRef(op_le->type).kind();
+        bool int_src = sk == LogosType::Kind::IntLit  || sk == LogosType::Kind::I64 ||
+                       sk == LogosType::Kind::U64     || sk == LogosType::Kind::I32 ||
+                       sk == LogosType::Kind::U32     || sk == LogosType::Kind::Usize ||
+                       sk == LogosType::Kind::Isize;
+        if (int_src) {
+            auto pair_t = dyn_llvm_type();
+            auto a = create_entry_alloca(pair_t);
+            auto nullp = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+            llvm::SmallVector<mlir::LLVM::GEPArg> d0{int32_t(0), int32_t(0)};
+            llvm::SmallVector<mlir::LLVM::GEPArg> d1{int32_t(0), int32_t(1)};
+            auto p0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pair_t, a, d0);
+            auto p1 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), pair_t, a, d1);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, nullp, p0);
+            builder_.create<mlir::LLVM::StoreOp>(loc_, nullp, p1);
+            return a;
+        }
+    }
     std::string hermes_build_fn(v.hermes_build_fn());
     // ── Hermes typed container cast: &[T] as <I32>[] → Hermes. ──────────
     if (!hermes_build_fn.empty()) {
@@ -2737,14 +2753,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // Raw `*const/*mut dyn` handle — heap-survive (persistent / smart-ptr).
         if (auto alloca = coerce_to_dyn(val, trait, src_struct, /*heap=*/true, pointee)) return alloca;
     }
-    // `&T` / `&mut T` (over a struct) `as &dyn Trait` / `&mut dyn Trait` — the
-    // target type is bare TraitObject (no Ptr wrap, since `&dyn` is one node
-    // at sema). Same fat-ptr synthesis as the Ptr case above.
+    // `&T` / `&mut T` / `*const T` / `*mut T` (over a concrete) `as &dyn` /
+    // `*mut dyn` — the target is bare TraitObject (uniform fat model: `&dyn`
+    // AND `*mut dyn` are both 16-byte fat pairs). Synthesize the fat pair.
     if (val.getType() == ptr_type() && target == ptr_type() &&
         type && TypeRef(type).kind() == LogosType::Kind::TraitObject &&
         op_le->type &&
         (TypeRef(op_le->type).kind() == LogosType::Kind::Ref ||
-         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef) &&
+         TypeRef(op_le->type).kind() == LogosType::Kind::MutRef ||
+         TypeRef(op_le->type).kind() == LogosType::Kind::Ptr) &&
         // G168-A: only unsize a ref to a CONCRETE pointee; a `&dyn`→`dyn`
         // reinterpret (source pointee already a trait object) is a no-op.
         TypeRef(op_le->type).pointee() &&
@@ -2840,6 +2857,30 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // Both MLIR types are `ptr` so the identity check below would short-
     // circuit and emit a no-op cast yielding the fat-pair address instead
     // of the contained data ptr — must run before it.
+    // A dyn value materialised as a by-VALUE fat struct `{ptr,ptr}` (e.g.
+    // `arc.p` where the TraitObject field was loaded) cast to a thin/void
+    // pointer: extract the DATA half (element 0) directly. Mirrors the
+    // ptr-form fat_to_thin below but for the already-loaded struct.
+    if (op_le->type && type && target == ptr_type() &&
+        mlir::isa<mlir::LLVM::LLVMStructType>(val.getType())) {
+        auto st = mlir::cast<mlir::LLVM::LLVMStructType>(val.getType());
+        auto fkv = TypeRef(op_le->type).kind();
+        bool src_dyn =
+            fkv == LogosType::Kind::TraitObject ||
+            fkv == LogosType::Kind::Closure ||
+            ((fkv == LogosType::Kind::Ref || fkv == LogosType::Kind::MutRef) &&
+             TypeRef(op_le->type).pointee() &&
+             TypeRef(op_le->type).pointee().kind() == LogosType::Kind::TraitObject);
+        auto tkv = TypeRef(type).kind();
+        bool dst_thin = tkv == LogosType::Kind::Ptr && TypeRef(type).pointee() &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::TraitObject &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::Closure &&
+            TypeRef(type).pointee().kind() != LogosType::Kind::Slice;
+        if (src_dyn && dst_thin && st.getBody().size() == 2)
+            return builder_.create<mlir::LLVM::ExtractValueOp>(
+                loc_, val, llvm::ArrayRef<int64_t>{0});
+    }
+
     bool fat_to_thin = false;
     auto fk = TypeRef(op_le->type).kind();
     auto tk = TypeRef(type).kind();
@@ -2849,6 +2890,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             TypeRef(op_le->type).pointee() &&
             (TypeRef(op_le->type).pointee().kind() == LogosType::Kind::TraitObject ||
              TypeRef(op_le->type).pointee().kind() == LogosType::Kind::Closure);
+        // A bare `&dyn`/`*dyn`/closure VALUE (now a 16-byte fat pair) cast to a
+        // thin pointer extracts the DATA half (Rust: `*mut dyn as *mut ()` =
+        // data). This is the uniform-fat model: `*mut dyn` is bare TraitObject.
+        // A `&dyn`/`&mut dyn` (Ref/MutRef over TraitObject) shares the bare
+        // TraitObject repr (a pointer to the 16-byte fat pair), so extracting
+        // the data half works identically — treat it as a dyn value too.
+        bool src_is_dyn_ref =
+            (fk == LogosType::Kind::Ref || fk == LogosType::Kind::MutRef) &&
+            TypeRef(op_le->type).pointee() &&
+            TypeRef(op_le->type).pointee().kind() == LogosType::Kind::TraitObject;
+        bool src_is_dyn_val = fk == LogosType::Kind::TraitObject ||
+                              fk == LogosType::Kind::Closure ||
+                              src_is_dyn_ref;
         bool src_is_slice = fk == LogosType::Kind::Slice;
         bool dst_is_void_ptr =
             tk == LogosType::Kind::Ptr &&
@@ -2861,6 +2915,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             TypeRef(type).pointee().kind() != LogosType::Kind::Closure &&
             TypeRef(type).pointee().kind() != LogosType::Kind::Slice;
         if (src_is_dyn_ptr && dst_is_void_ptr) fat_to_thin = true;
+        if (src_is_dyn_val && (dst_is_void_ptr || dst_is_thin_ptr)) fat_to_thin = true;
         if (src_is_slice  && dst_is_thin_ptr) fat_to_thin = true;
     }
     if (fat_to_thin) {
@@ -4325,6 +4380,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
                 loc_, ptr_type(), agg_t, data_ptr, di);
             return elem_ptr;
         }
+    }
+    // Fat-pointer element (`&[&dyn]`/`&[closure]`/`&[str]`): the slot is a 16-byte
+    // {data,vtable}/{fn,env}/{ptr,len} pair stored INLINE — stride by the pair
+    // footprint and return the slot ADDRESS (a fat value IS a pointer to its
+    // storage), NOT an 8-byte load of the first half. Mirrors the struct branch.
+    if (TypeRef rt(type); rt && (rt.kind() == LogosType::Kind::TraitObject ||
+                                  rt.kind() == LogosType::Kind::Closure ||
+                                  rt.kind() == LogosType::Kind::Slice)) {
+        llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
+        return builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), place_slot_type(rt), data_ptr, di);
     }
     llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
     auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(

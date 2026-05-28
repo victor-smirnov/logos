@@ -42,13 +42,9 @@ use logos.lang.panic;
 pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
     v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
 ) {
-    // Bump rc on the underlying block: the slot adopts one share, our
-    // local `new_arc`'s auto-drop at fn-end will undo the bump.
-    let handle: *mut dyn BTreeNode<STORE_CFG> = new_arc.p;
-    let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
-    *(dp as *mut u64) = *(dp as *mut u64) + 1u64;
-    // Push a fresh handle wrapper (consumed by push, no auto-drop here).
-    v.push(NodeARC::<STORE_CFG> { p: handle });
+    // Move the caller-transferred share straight into the slot (no clone:
+    // the by-value `new_arc` is consumed, so its share IS the slot's).
+    v.push(new_arc);
     let mut i: i64 = v.length() - 1i64;
     while i > idx {
         let a: *mut NodeARC<STORE_CFG> = v.at(i);
@@ -149,12 +145,8 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
     let mut j: i64 = mid as i64;
     while j < nc {
         let src: *mut NodeARC<STORE_CFG> = branch.children.at(j);
-        let handle: *mut dyn BTreeNode<STORE_CFG> = (*src).p;
-        right.children.push(NodeARC::<STORE_CFG> { p: handle });
-        // Bump rc to compensate for the upcoming pop on left.
-        let dp: *mut u8 = (*(handle as *mut u64)) as *mut u8;
-        let rcp: *mut u64 = dp as *mut u64;
-        *rcp = *rcp + 1u64;
+        // clone_arc bumps rc; the upcoming pop on left releases its share.
+        right.children.push((*src).clone_arc());
         j = j + 1i64;
     }
     // SUM aggregate: split parallel subtree_size column same way.
@@ -298,15 +290,11 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
         let old_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(root);
         new_root.keys.push(old_max);
         new_root.keys.push(outcome.right_max);
-        // children[0] = old_root, children[1] = outcome.right (transfer rc).
-        let old_handle: *mut dyn BTreeNode<STORE_CFG> = root.p;
-        let old_dp: *mut u8 = (*(old_handle as *mut u64)) as *mut u8;
-        *(old_dp as *mut u64) = *(old_dp as *mut u64) + 1u64;
-        new_root.children.push(NodeARC::<STORE_CFG> { p: old_handle });
-        let r_handle: *mut dyn BTreeNode<STORE_CFG> = outcome.right.p;
-        let r_dp: *mut u8 = (*(r_handle as *mut u64)) as *mut u8;
-        *(r_dp as *mut u64) = *(r_dp as *mut u64) + 1u64;
-        new_root.children.push(NodeARC::<STORE_CFG> { p: r_handle });
+        // children[0] = old_root (released from the slot below by
+        // arc_replace_in_slot), children[1] = outcome.right (balanced by
+        // outcome's auto-drop).
+        new_root.children.push(root.clone_arc());
+        new_root.children.push(outcome.right.clone_arc());
         // SUM aggregate column for the freshly grown root: one entry per
         // child = subtree size below it.
         new_root.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(root));
