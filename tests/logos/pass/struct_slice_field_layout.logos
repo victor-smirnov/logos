@@ -1,20 +1,20 @@
-// Unified layout: a Slice/Closure/Tuple FIELD of a struct is stored as an
-// 8-byte POINTER (mirrors register_struct's `else→logos_to_mlir→ptr`), NOT its
-// 16-byte by-value footprint. Without this, layout_of over-counts struct sizes
-// (the metaprog `Type { name: &[u8], size: i64, … }` reflection size was
-// garbage), and value-copy memcpy of a struct with a slice field shifts the
-// trailing fields (here `n`) into the wrong offset.
+// Unified layout: a Slice FIELD of a struct is stored INLINE as its 16-byte
+// {ptr,len} fat-pair footprint (Rust `&[T]`), NOT collapsed to an 8-byte
+// pointer. layout_of must count the full 16 bytes so struct sizes are right
+// and a value-copy memcpy of a struct with a slice field preserves the
+// trailing fields AND the inline {ptr,len} pair.
 package test;
 struct WithSlice { tag: i32, name: &[u8], n: i64 }
 fn main() -> i32 {
-    // tag@0 (4), name@8 (ptr 8 — NOT 16), n@16 (i64) → size 24, align 8.
-    if sizeof::<WithSlice>() != 24i64 { return 1i32; }
+    // tag@0 (4), pad, name@8 (16 inline {ptr,len}), n@24 (i64) → size 32, align 8.
+    if sizeof::<WithSlice>() != 32i64 { return 1i32; }
     let a: WithSlice = WithSlice { tag: 3, name: "hi", n: 7i64 };
-    // `let b = a` triggers the struct value-copy memcpy: size must be 24 (the
-    // padded layout). A stale 21-byte memcpy would corrupt the trailing `n`.
+    // `let b = a` triggers the struct value-copy memcpy: size must be 32 (the
+    // padded layout, slice inline). A stale memcpy would corrupt `n` or the
+    // slice length.
     let b: WithSlice = a;
     if b.tag != 3 { return 2i32; }
     if b.n != 7i64 { return 3i32; }
-    if b.name.len() != 2i64 { return 4i32; }   // slice .len preserved
+    if b.name.len() != 2i64 { return 4i32; }   // inline slice .len preserved
     return 42i32;
 }

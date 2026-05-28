@@ -2260,6 +2260,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     auto& info = struct_types_[sname];
     auto gep   = gep_field(ptr, info, field);
     if (!gep) return nullptr;
+    // A Slice field is stored INLINE as a {ptr,len} fat pair, but the slice
+    // "value" convention elsewhere is a POINTER to that storage — return the
+    // field address rather than loading the pair by value (mirrors the inline
+    // struct/enum element convention in EIndexRead).
+    if (type && TypeRef(type).kind() == LogosType::Kind::Slice)
+        return gep;
     for (auto& f : info.fields)
         if (f.name == field)
             return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
@@ -2596,27 +2602,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // (any future 3-arg array builder would silently take the wrong path).
         if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
-            // LLVM layout: { ptr (→keys_slice {ptr,i64}), ptr (→vals_slice {ptr,i64}) }
-            auto mtype = mlir::LLVM::LLVMStructType::getLiteral(
-                builder_.getContext(), {ptr_type(), ptr_type()});
+            // Slice fields are stored INLINE (16-byte {ptr,len} fat pairs), so
+            // the LLVM layout is { {ptr,i64}, {ptr,i64} } — keys_slice IS the
+            // inline storage at field 0, vals_slice at field 1 (no pointer
+            // indirection, unlike the pre-inline layout).
             auto stype = slice_llvm_type();  // { ptr, i64 }
-            // Load keys_slice alloca ptr from field 0.
+            auto mtype = mlir::LLVM::LLVMStructType::getLiteral(
+                builder_.getContext(), {stype, stype});
+            // keys_slice = &field 0 (inline {ptr,len}); extract data ptr + len.
             llvm::SmallVector<mlir::LLVM::GEPArg> k0i{int32_t(0), int32_t(0)};
-            auto kpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, k0i);
-            auto keys_slice = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), kpp);
-            // Extract data ptr (field 0 of keys_slice).
+            auto keys_slice = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, k0i);
             llvm::SmallVector<mlir::LLVM::GEPArg> kdi{int32_t(0), int32_t(0)};
             auto kdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, keys_slice, kdi);
             auto keys_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), kdp);
-            // Extract len (field 1 of keys_slice).
             llvm::SmallVector<mlir::LLVM::GEPArg> kli{int32_t(0), int32_t(1)};
             auto klp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, keys_slice, kli);
             auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getIntegerType(64), klp);
-            // Load vals_slice alloca ptr from field 1.
+            // vals_slice = &field 1 (inline {ptr,len}); extract data ptr.
             llvm::SmallVector<mlir::LLVM::GEPArg> v0i{int32_t(0), int32_t(1)};
-            auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, v0i);
-            auto vals_slice = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
-            // Extract data ptr (field 0 of vals_slice).
+            auto vals_slice = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), mtype, val, v0i);
             llvm::SmallVector<mlir::LLVM::GEPArg> vdi{int32_t(0), int32_t(0)};
             auto vdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, vals_slice, vdi);
             auto vals_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vdp);

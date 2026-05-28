@@ -252,6 +252,14 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                                    /*is_pointer=*/true});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::Slice) {
+            // Slice field — fixed-size 16-byte fat pointer {data,len} (like Rust
+            // `&[T]`). Stored INLINE by value, mirroring the TraitObject branch
+            // above (and a slice value elsewhere is a pointer to this storage).
+            ft = slice_llvm_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else if (fv.kind() == LogosType::Kind::Never) {
             // A `!`-typed field (e.g. the Err payload of an infallible
             // `Result<T, !>`, or a never type-arg flowing into stdlib iterator
@@ -317,8 +325,10 @@ MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
     switch (TypeRef(m).kind()) {
     // Stored as an 8-byte pointer inside an aggregate (logos_to_mlir → ptr),
     // unlike their 16-byte/inline by-value footprint.
-    case K::Slice: case K::Closure: case K::Tuple: return {8, 8};
-    default: return layout_of(m, seen);  // inline (struct/enum/array/dyn/scalar)
+    case K::Closure: case K::Tuple: return {8, 8};
+    // Slice fields are now stored INLINE as a 16-byte {ptr,len} fat pair
+    // (Rust `&[T]`), so they count their by-value footprint like dyn/struct.
+    default: return layout_of(m, seen);  // inline (slice/struct/enum/array/dyn/scalar)
     }
 }
 

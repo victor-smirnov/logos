@@ -795,11 +795,16 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     // of a closure (e.g. the place-path `p[0] = cl` in Box::box_new once
     // index_write is retired) must memcpy 16 bytes, else only the fnptr half is
     // copied and the box holds a dangling stack pointer → call SIGSEGV.
-    // NARROW to Closure only: Slice/TraitObject values in deref-writes are
-    // already-thin handles in their contexts (a broad memcpy-16 over them
-    // corrupts thin-dyn `*p = dyn` writes — see AUDIT).
+    // Closure AND Slice: a slice is now stored INLINE as a 16-byte {ptr,len}
+    // fat pair everywhere (fields/locals/elements), so a deref-write to a
+    // slice place (`self.rest = <slice>`, lowered via the place path to
+    // `*&self.rest = v`) must memcpy all 16 bytes — a plain 8-byte store of
+    // the data ptr would leave `len` stale (the split-iterator bug).
+    // TraitObject is NOT included: owning Box<dyn>/raw `*mut dyn` keep a thin
+    // 8-byte handle, so a memcpy-16 there corrupts those writes.
     if (val.getType() == ptr_type() && val_le->type &&
-        TypeRef(val_le->type).kind() == LogosType::Kind::Closure) {
+        (TypeRef(val_le->type).kind() == LogosType::Kind::Closure ||
+         TypeRef(val_le->type).kind() == LogosType::Kind::Slice)) {
         auto sz = builder_.create<mlir::LLVM::ConstantOp>(
             loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);

@@ -1,0 +1,35 @@
+// Inline slice fields: a `&mut self` method that REASSIGNS a slice field
+// (`self.rest = <slice>`) must write all 16 bytes ({ptr,len}) of the inline
+// fat pair, not just the 8-byte data ptr. The assignment lowers via the place
+// path to `*&self.rest = v` (SDerefWrite), which previously stored only the
+// data ptr and left `len` stale — the split-iterator early-termination bug.
+package test;
+struct Cursor { rest: str, done: bool }
+impl Cursor {
+    // Advance past the first `,`, yielding the head segment; sets done at end.
+    fn step(self: &mut Cursor) -> Option<str> {
+        if self.done { return Option::None; }
+        let idx: i64 = str_index_of(self.rest, ",");
+        if idx < 0i64 { self.done = true; return Option::Some(self.rest); }
+        unsafe {
+            let head: str = str_from_raw(self.rest.as_ptr(), idx);
+            let tp: *const u8 = (self.rest.as_ptr() as i64 + idx + 1i64) as *const u8;
+            // Reassign the inline slice field: both ptr AND len must update.
+            self.rest = str_from_raw(tp, self.rest.len() - idx - 1i64);
+            return Option::Some(head);
+        }
+    }
+}
+fn main() -> i32 {
+    let mut c: Cursor = Cursor { rest: "a,b,c,d", done: false };
+    let mut n: i32 = 0;
+    loop {
+        match c.step() {
+            Option::Some(seg) => { n = n + 1; }
+            Option::None      => { break; }
+        }
+    }
+    // "a,b,c,d" → a,b,c,d = 4 segments. A stale-len write would terminate early.
+    if n != 4 { return n; }
+    return 42i32;
+}
