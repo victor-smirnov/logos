@@ -1492,6 +1492,20 @@ private:
     // a value is omitted here → it IS definitely-init at every reassignment
     // (branches don't de-initialize) → safe to drop-before-replace.
     std::set<std::string> decl_uninit_vars_;
+    // B8 flow-tail: the conditional-nesting depth at which each declared-uninit
+    // var was declared. A reassignment at the SAME depth (and thus the same
+    // straight-line block, in-scope) unconditionally dominates the declaration,
+    // so the FIRST such assignment definitely-initializes the var → promote it
+    // out of decl_uninit_vars_ so SUBSEQUENT assignments drop-before-replace
+    // (the B8 tail leak). An assignment at a deeper (conditional/loop) level
+    // stays conservative — may leave the var uninit on some path → no drop.
+    std::unordered_map<std::string, int> decl_uninit_depth_;
+    int cond_depth_ = 0;  // incremented while lowering if/else/while/loop/for/match bodies
+    struct CondDepthGuard {
+        SemaChecker* s;
+        explicit CondDepthGuard(SemaChecker* s_) : s(s_) { ++s->cond_depth_; }
+        ~CondDepthGuard() { --s->cond_depth_; }
+    };
     // G156-7: vars moved into a `move` closure that nonetheless must still be
     // DROPPED at their scope exit. A move closure's env stores a POINTER to the
     // source's storage (borrows it; closures have no capture drop-glue), and the

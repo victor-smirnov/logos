@@ -1662,6 +1662,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // B8: a `let x = v` (with value) re-declaration clears any stale
         // declared-uninit mark from an earlier `let x: T;` shadow.
         decl_uninit_vars_.erase(std::string(name));
+        decl_uninit_depth_.erase(std::string(name));
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
         if (is_ref_bind) {
@@ -1685,6 +1686,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // NOT drop-before-replace (the slot holds no live value yet, and a
         // conditional path may leave it uninit).
         decl_uninit_vars_.insert(std::string(name));
+        decl_uninit_depth_[std::string(name)] = cond_depth_;
         rhs      = nullptr;
         rhs_type = ann;
     } else {
@@ -2391,7 +2393,23 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
             for (auto& mv : moved_vars_)
                 if (mv.size() > pre.size() && mv.compare(0, pre.size(), pre) == 0) { moved = true; break; }
         }
-        drop_old = droppable && !decl_uninit_vars_.count(nm) && !moved;
+        bool uninit = decl_uninit_vars_.count(nm) != 0;
+        drop_old = droppable && !uninit && !moved;
+        // B8 flow-tail: if this is the first assignment to a declared-uninit var
+        // at the SAME conditional-nesting depth as its declaration, it
+        // unconditionally dominates the declaration (same straight-line block,
+        // in-scope) → the var is now definitely-initialized. Promote it out of
+        // the uninit set so the NEXT assignment drops-before-replace (this one
+        // still doesn't — it overwrites garbage). A first assignment at a deeper
+        // (conditional/loop) level stays conservative: a sibling path may leave
+        // the var uninit, so we never promote → no drop (leak, but never UB).
+        if (uninit) {
+            auto dit = decl_uninit_depth_.find(nm);
+            if (dit != decl_uninit_depth_.end() && dit->second == cond_depth_) {
+                decl_uninit_vars_.erase(nm);
+                decl_uninit_depth_.erase(dit);
+            }
+        }
     }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
@@ -5181,6 +5199,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
 }
 
 lir::LStmt SemaChecker::lower_if(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     // ── if let pattern = expr { ... } ─────────────────────────────
     if (node.has_key(la::PAT)) {
         auto scrut = node.has_key(la::VALUE)
@@ -5365,6 +5384,7 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_while(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     // ── while let pattern = expr { ... } ──────────────────────────
     // Desugars to: loop { match expr { PAT => body, _ => break } }
     if (node.has_key(la::PAT)) {
@@ -5508,6 +5528,7 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_for(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     auto var_name = str_of(node.get(la::NAME.code));
 
     lir::LExprPtr lo = node.has_key(la::LHS)
@@ -5588,6 +5609,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     // G-CONF-1: `for PATTERN in iter`. A bare-ident loop var arrives as NAME
     // (fast path); a destructuring pattern (`for (a,b) in v`) arrives as PAT.
     // Bind a synthetic element var and destructure the pattern from it as a
@@ -6077,6 +6099,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     // Capture label before lowering body (same reason as in lower_for).
     std::string my_label = std::move(pending_loop_label_);
     pending_loop_label_.clear();
@@ -7201,6 +7224,7 @@ bool SemaChecker::emit_for_pattern_destructure(
 }
 
 lir::LStmt SemaChecker::lower_match(TinyMapView node) {
+    CondDepthGuard _cdg(this);  // B8 flow-tail: bodies lowered here are conditional
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
     if (node.has_key(la::VALUE)) {

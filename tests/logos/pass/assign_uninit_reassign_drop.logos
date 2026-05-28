@@ -1,0 +1,43 @@
+// B8 flow-tail: a `let mut x: T;` (declared WITHOUT initializer) must NOT drop
+// on its FIRST assignment (the slot holds garbage), but the SECOND and later
+// assignments MUST drop-before-replace the now-live value (Rust parity). The
+// fix promotes a declared-uninit var to definitely-initialized after the first
+// assignment AT THE SAME conditional-nesting depth as its declaration (which
+// unconditionally dominates it). A genuinely-conditional first assignment stays
+// conservative (no drop — may be uninit on a sibling path) — never a UB.
+package assign_uninit_reassign_drop;
+use logos.mem.string;
+
+// straight-line: first assign no-drops garbage, second drops "first".
+fn straight() -> i64 {
+    let mut x: String;
+    x = String::from("first allocation here");
+    x = String::from("second");          // drops "first" — no leak
+    return x.len();
+}
+
+// promote-then-conditional: x is unconditionally initialized at depth 0, so a
+// later conditional reassignment safely drops the live value (no double-free).
+fn promote_then_cond(c: bool) -> i64 {
+    let mut x: String;
+    x = String::from("aaa");             // promote (depth 0)
+    if c { x = String::from("bbb longer"); }   // drops "aaa" — initialized, safe
+    return x.len();
+}
+
+// loop reassignment over a var declared WITH a value: each iteration drops the
+// previous (already covered by the original B8, re-checked here for no UB).
+fn loop_reassign() -> i64 {
+    let mut x: String = String::from("init");
+    let mut i: i64 = 0i64;
+    while i < 3i64 { x = String::from("body"); i = i + 1i64; }
+    return x.len();
+}
+
+fn main() -> i32 {
+    if straight() != 6i64 { return 1i32; }
+    if promote_then_cond(true) != 10i64 { return 2i32; }
+    if promote_then_cond(false) != 3i64 { return 3i32; }
+    if loop_reassign() != 4i64 { return 4i32; }
+    return 42i32;
+}
