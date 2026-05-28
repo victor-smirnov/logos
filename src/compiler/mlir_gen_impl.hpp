@@ -59,11 +59,15 @@ struct StructInfo {
     std::vector<FieldInfo>       fields;
 };
 
-// Tagged enum registry: { i32 discriminant, [payload_bytes x i8] }
+// Tagged enum registry: { i32 discriminant, <payload blob of payload_align> }.
+// The payload blob carries the widest variant's alignment so an i64 / ptr /
+// align-8 struct payload lands on an aligned offset (LLVM places the blob after
+// the disc with the needed padding); the enum's own alignment = max(4, align).
 struct TaggedEnumInfo {
     std::string                         name;
     mlir::LLVM::LLVMStructType          llvm_type;
     uint64_t                            payload_bytes = 0;
+    uint64_t                            payload_align = 1;  // max align over variants
     // Per-variant payload LLVM types (for bitcasting the payload area)
     struct VariantPayload {
         int64_t disc;
@@ -556,11 +560,31 @@ public:
 private:
     Layout layout_of(TypeRef t, std::unordered_set<std::string>& seen);
     Layout layout_of(TypeRef t) { std::unordered_set<std::string> s; return layout_of(t, s); }
+    // {size,align} of a type as an AGGREGATE MEMBER (struct field / tuple
+    // element / enum payload field). Mirrors register_struct / tuple_llvm_type /
+    // variant_payload_struct: Slice/Closure/Tuple members are stored as an
+    // 8-byte POINTER (logos_to_mlir → ptr), NOT their by-value footprint;
+    // struct/enum/array/bare-dyn members are inline (layout_of); AnyVal is i32.
+    Layout aggregate_member_layout(TypeRef m, std::unordered_set<std::string>& seen);
+    // {size, align} of one variant's payload (struct/tuple of its fields) —
+    // both the enum's payload_bytes and payload_align derive from this.
+    Layout variant_payload_layout(const LVariant& v);
 
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen) {
         return layout_of(t, seen).size;
+    }
+
+    // i64 byte-size CONSTANT of a Logos type, from the unified layout. Use this
+    // for value-copy memcpy sizes instead of `mlir::DataLayout::getTypeSize` —
+    // at mlir-gen time the module has no target datalayout, so MLIR's DataLayout
+    // PACKS aggregates (drops inter-field padding) and under-copies (e.g. an
+    // {i32, i64}/enum payload-at-offset-8 copied as 12 bytes loses 4 bytes).
+    mlir::Value size_const(TypeRef t) {
+        return builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(),
+            builder_.getI64IntegerAttr((int64_t)layout_of(t).size));
     }
 
     // Resolve a tagged enum name from the expression type (handles generic enums).

@@ -661,12 +661,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         auto cname = concrete_struct_name(pointee_t);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, size_const(pointee_t), /*isVolatile=*/false);
             return;
         }
     }
@@ -678,10 +673,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     if (val.getType() == ptr_type() &&
         (mlir::isa<mlir::LLVM::LLVMStructType>(elem_type) ||
          mlir::isa<mlir::LLVM::LLVMArrayType>(elem_type))) {
-        auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-        auto bytes = (int64_t)dl.getTypeSize(elem_type);
-        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
+        auto sz = (val_le && val_le->type) ? size_const(val_le->type)
+                                           : size_const(pointee_t);
         builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
         return;
     }
@@ -712,9 +705,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         if (pe && TypeRef(pe).kind() == LogosType::Kind::Enum &&
             vlt && TypeRef(vlt).kind() == LogosType::Kind::Enum &&
             val.getType() == ptr_type()) {
-            if (auto* te = resolve_tagged_enum(std::string(TypeRef(vlt).enum_name()), vlt)) {
-                auto size = sizeof_struct(te->llvm_type);
-                builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, size, false);
+            if (resolve_tagged_enum(std::string(TypeRef(vlt).enum_name()), vlt)) {
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, size_const(vlt), false);
                 return;
             }
         }
@@ -897,12 +889,8 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // moved_fields marking the source's drop skipped. (The body size is
             // finalized by the fixpoint, so getTypeSize is correct here.)
             if (val.getType() == ptr_type()) {
-                auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-                auto bytes = (int64_t)dl.getTypeSize(te->llvm_type);
                 auto fresh = create_entry_alloca(te->llvm_type);
-                auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                    loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
-                builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, sz, /*isVolatile=*/false);
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, size_const(s.type), /*isVolatile=*/false);
                 val = fresh;
             }
             scope_[s.name] = val;
@@ -935,13 +923,8 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // copy would leak into orig). For move-only types the borrow
             // checker forbids touching orig, so memcpy is at worst a small
             // redundancy. Always allocate fresh + memcpy → independent slot.
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
             auto fresh = create_entry_alloca(sit->second.llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, fresh, val, size_const(s.type), /*isVolatile=*/false);
             val = fresh;
         }
         scope_[s.name]    = val;
@@ -1127,12 +1110,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         val.getType() == ptr_type()) {
         auto arr_t = mlir::dyn_cast_or_null<mlir::LLVM::LLVMArrayType>(var_type);
         if (arr_t) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(arr_t);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, alloca, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, alloca, val, size_const(s.type), /*isVolatile=*/false);
             scope_[s.name] = alloca;
             let_vars_.insert(s.name);
             // Same elem-type bookkeeping as the StoreOp path below.
@@ -1208,11 +1186,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
             ? resolve_tagged_enum(std::string(TypeRef(et2).enum_name()), et2) : nullptr;
         val = spill_to_alloca(val);
         if (te && te->llvm_type && val.getType() == ptr_type()) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(te->llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(et2), /*isVolatile=*/false);
         } else if (te && te->llvm_type) {
             // A tagged enum reassigned a bare i32 disc (e.g. `o = None` with no
             // type_args inferred): write only the disc word of the storage.
@@ -1238,12 +1212,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         auto cname = concrete_struct_name(val_t);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
     }
@@ -1273,11 +1242,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         val.getType() == ptr_type()) {
         auto arr_ll = logos_to_mlir(val_t);
         if (arr_ll) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(arr_ll);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
     }
@@ -2004,7 +1969,7 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
                         break;
                     }
                 if (field_is_enum_slot) {
-                    auto size = sizeof_struct(te->llvm_type);
+                    auto size = size_const(val_lt);
                     auto heap = call_malloc(size);
                     if (heap) {
                         builder_.create<mlir::LLVM::MemcpyOp>(loc_, heap, val, size, false);
@@ -2312,12 +2277,7 @@ void MLIRGenImpl::gen_index_write(lir_view::SIndexWriteView v) {
         auto cname = concrete_struct_name(val_t);
         auto sit = struct_types_.find(cname);
         if (sit != struct_types_.end()) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, gep, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
     }
@@ -2441,12 +2401,7 @@ void MLIRGenImpl::gen_field_index_write(lir_view::SFieldIndexWriteView v) {
         auto cname = concrete_struct_name(val_t);
         auto sit2 = struct_types_.find(cname);
         if (sit2 != struct_types_.end()) {
-            auto dl = mlir::DataLayout::closest(builder_.getInsertionBlock()->getParentOp());
-            auto bytes = (int64_t)dl.getTypeSize(sit2->second.llvm_type);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(),
-                builder_.getI64IntegerAttr(bytes));
-            builder_.create<mlir::LLVM::MemcpyOp>(loc_, base_ptr, val, sz, /*isVolatile=*/false);
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, base_ptr, val, size_const(val_t), /*isVolatile=*/false);
             return;
         }
     }
@@ -3308,15 +3263,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                             if (lt && value_needs_drop(lt)) {
                                 auto sit = struct_types_.find(mlir_struct_key(lt));
                                 if (sit != struct_types_.end() && sit->second.llvm_type) {
-                                    auto dl = mlir::DataLayout::closest(
-                                        builder_.getInsertionBlock()->getParentOp());
-                                    auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
                                     auto fresh = create_entry_alloca(sit->second.llvm_type);
-                                    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                                        loc_, builder_.getI64Type(),
-                                        builder_.getI64IntegerAttr(bytes));
                                     builder_.create<mlir::LLVM::MemcpyOp>(
-                                        loc_, fresh, fp, sz, /*isVolatile=*/false);
+                                        loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
                                     bind_ptr = fresh;
                                 }
                             }

@@ -310,11 +310,24 @@ struct LayoutAgg {
 };
 }  // namespace
 
+MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
+        TypeRef m, std::unordered_set<std::string>& seen) {
+    using K = LogosType::Kind;
+    if (!m) return {8, 8};
+    switch (TypeRef(m).kind()) {
+    // Stored as an 8-byte pointer inside an aggregate (logos_to_mlir → ptr),
+    // unlike their 16-byte/inline by-value footprint.
+    case K::Slice: case K::Closure: case K::Tuple: return {8, 8};
+    default: return layout_of(m, seen);  // inline (struct/enum/array/dyn/scalar)
+    }
+}
+
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
                                            std::unordered_set<std::string>& seen) {
     using K = LogosType::Kind;
     if (!t) return {8, 8};
     TypeRef tv{t};
+    if (is_anyval(tv)) return {4, 4};  // AnyVal is lowered as i32 everywhere
     switch (tv.kind()) {
     case K::Void: case K::Never:                return {0, 1};  // zero-size
     case K::Bool: case K::I8: case K::U8:       return {1, 1};
@@ -335,12 +348,12 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     case K::UnsizedSlice: case K::UnsizedDyn:   return {0, 1};
     case K::Array: {
         if (!tv.elem()) return {0, 1};
-        auto e = layout_of(tv.elem(), seen);  // e.size is already align-padded
+        auto e = aggregate_member_layout(tv.elem(), seen);  // element repr in the array
         return { tv.arr_size() * e.size, e.align };
     }
     case K::Tuple: {
         LayoutAgg agg;
-        for (auto e : tv.tuple_elems()) agg.push(layout_of(e, seen));
+        for (auto e : tv.tuple_elems()) agg.push(aggregate_member_layout(e, seen));
         return agg.finish();
     }
     case K::Struct: case K::ZonedStruct: {
@@ -349,21 +362,21 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         Layout r{8, 8};
         if (auto it = all_struct_defs_.find(cname); it != all_struct_defs_.end()) {
             LayoutAgg agg;
-            for (auto& f : it->second->fields) agg.push(layout_of(f.type, seen));
+            for (auto& f : it->second->fields) agg.push(aggregate_member_layout(f.type, seen));
             r = agg.finish();
         }
         seen.erase(cname);
         return r;
     }
     case K::Enum: {
-        // Tagged enum value-repr = `{ i32 disc, [payload_bytes x i8] }` — the
-        // payload is a byte blob (align 1) at offset 4. Resolve the CONCRETE
+        // Tagged enum value-repr = `{ i32 disc, <aligned payload blob> }` —
+        // payload at offset round(4, payload_align). Resolve the CONCRETE
         // instantiation so nested generics (Option<Option<i64>>) size their
         // full inline footprint.
         if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
             LayoutAgg agg;
-            agg.push({4, 4});                    // discriminant
-            agg.push({te->payload_bytes, 1});    // payload blob
+            agg.push({4, 4});                                   // discriminant
+            agg.push({te->payload_bytes, te->payload_align});   // aligned payload
             return agg.finish();
         }
         // C-like enum — backing-type-sized discriminant.
@@ -410,15 +423,24 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
 // padding INCLUDED). A naive sum of field sizes under-counts a multi-field
 // variant like `Cons { head: i32, tail: *const List }` (4+8=12 vs the real
 // {i32,ptr} struct of 16) — which silently overlapped adjacent enum allocas.
-uint64_t MLIRGenImpl::variant_payload_bytes(const lir::LVariant& v) {
+MLIRGenImpl::Layout MLIRGenImpl::variant_payload_layout(const lir::LVariant& v) {
     // The payload is laid out exactly like a struct/tuple of its fields —
-    // derive its footprint from the unified layout accumulator.
+    // derive {size, align} from the unified layout accumulator.
+    // Enum payloads store members BY VALUE (a slice/closure payload is the full
+    // inline fat pair, e.g. Option<&[u8]> = {i32, [16 x i8]}), UNLIKE struct/
+    // tuple fields which store slice/closure/tuple as an 8-byte ptr. So use the
+    // by-value layout_of here, not aggregate_member_layout.
     LayoutAgg agg;
+    std::unordered_set<std::string> seen;
     for (auto pt : v.payload_types) {
         if (TypeRef(pt).kind() == LogosType::Kind::Void) continue;
-        agg.push(layout_of(pt));
+        agg.push(layout_of(pt, seen));
     }
-    return agg.finish().size;
+    return agg.finish();
+}
+
+uint64_t MLIRGenImpl::variant_payload_bytes(const lir::LVariant& v) {
+    return variant_payload_layout(v).size;
 }
 
 void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
@@ -429,7 +451,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     if (eit != tagged_enums_.end() && !eit->second.variants.empty()) return;
     TaggedEnumInfo info;
     info.name = ed.name;
-    uint64_t max_bytes = 0;
+    uint64_t max_bytes = 0, max_align = 1;
     for (auto& v : ed.variants) {
         TaggedEnumInfo::VariantPayload vp;
         vp.disc = v.disc;
@@ -440,11 +462,13 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
             vp.field_types.push_back(ft);
             vp.logos_types.push_back(pt);
         }
-        uint64_t variant_bytes = variant_payload_bytes(v);
-        if (variant_bytes > max_bytes) max_bytes = variant_bytes;
+        auto pl = variant_payload_layout(v);
+        if (pl.size  > max_bytes) max_bytes = pl.size;
+        if (pl.align > max_align) max_align = pl.align;
         info.variants.push_back(std::move(vp));
     }
     info.payload_bytes = max_bytes;
+    info.payload_align = max_align;
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
         builder_.getContext(), "enum." + ed.name);
     // NOTE: the body (payload byte-array size) is NOT set here — a nested enum

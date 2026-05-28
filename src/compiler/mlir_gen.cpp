@@ -109,26 +109,36 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 if (!ed.has_payload()) continue;
                 auto it = tagged_enums_.find(ed.name);
                 if (it == tagged_enums_.end()) continue;
-                uint64_t max_bytes = 0;
+                uint64_t max_bytes = 0, max_align = 1;
                 for (auto& v : ed.variants) {
-                    uint64_t vb = variant_payload_bytes(v);
-                    if (vb > max_bytes) max_bytes = vb;
+                    auto pl = variant_payload_layout(v);
+                    if (pl.size  > max_bytes) max_bytes = pl.size;
+                    if (pl.align > max_align) max_align = pl.align;
                 }
-                if (max_bytes > it->second.payload_bytes) {
-                    it->second.payload_bytes = max_bytes;
+                if (max_bytes > it->second.payload_bytes ||
+                    max_align > it->second.payload_align) {
+                    it->second.payload_bytes = std::max(max_bytes, it->second.payload_bytes);
+                    it->second.payload_align = std::max(max_align, it->second.payload_align);
                     changed = true;
                 }
             }
         }
         // Phase 2: set every tagged enum's identified-struct body ONCE, now
-        // that all payload_bytes are final (an identified LLVM struct body is
-        // set-once — this is why register_tagged_enum defers it).
+        // that all payload_bytes/_align are final (an identified LLVM struct
+        // body is set-once — this is why register_tagged_enum defers it). The
+        // payload is an aligned blob `[count x i<align*8>]` (count chosen so
+        // count*align ≥ payload_bytes), so LLVM places it after the i32 disc
+        // with the necessary padding and gives the enum align = max(4, align) —
+        // an align-8 payload (i64/ptr/struct) is no longer mis-positioned at
+        // offset 4. Matches layout_of(enum).
         auto i32 = builder_.getI32Type();
         for (auto& [name, info] : tagged_enums_) {
             if (!info.llvm_type) continue;
-            uint64_t pb = info.payload_bytes;
-            auto payload = mlir::LLVM::LLVMArrayType::get(
-                builder_.getIntegerType(8), pb > 0 ? pb : 1);
+            uint64_t pb = info.payload_bytes ? info.payload_bytes : 1;
+            uint64_t pa = info.payload_align ? info.payload_align : 1;
+            uint64_t count = (pb + pa - 1) / pa;  // round up to whole elements
+            auto elem = builder_.getIntegerType((unsigned)(pa * 8));
+            auto payload = mlir::LLVM::LLVMArrayType::get(elem, count);
             (void)info.llvm_type.setBody({i32, payload}, false);
         }
     }

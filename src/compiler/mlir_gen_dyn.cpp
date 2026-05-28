@@ -1863,13 +1863,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             llvm::SmallVector<mlir::LLVM::GEPArg> oidx{int32_t(0), int32_t(i + 1)};
             auto dst = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), cap_struct, env_alloca, oidx);
-            auto dl = mlir::DataLayout::closest(
-                builder_.getInsertionBlock()->getParentOp());
-            auto fbytes = (int64_t)dl.getTypeSize(cap_fields[i + 1]);
-            auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(fbytes));
             builder_.create<mlir::LLVM::MemcpyOp>(
-                loc_, dst, it->second, sz, /*isVolatile=*/false);
+                loc_, dst, it->second, size_const(capture_types[i]), /*isVolatile=*/false);
             continue;
         }
         if (pointer_repr)

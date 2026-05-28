@@ -3229,15 +3229,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                             if (lt && value_needs_drop(lt)) {
                                 auto sit = struct_types_.find(mlir_struct_key(lt));
                                 if (sit != struct_types_.end() && sit->second.llvm_type) {
-                                    auto dl = mlir::DataLayout::closest(
-                                        builder_.getInsertionBlock()->getParentOp());
-                                    auto bytes = (int64_t)dl.getTypeSize(sit->second.llvm_type);
                                     auto fresh = create_entry_alloca(sit->second.llvm_type);
-                                    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-                                        loc_, builder_.getI64Type(),
-                                        builder_.getI64IntegerAttr(bytes));
                                     builder_.create<mlir::LLVM::MemcpyOp>(
-                                        loc_, fresh, fp, sz, /*isVolatile=*/false);
+                                        loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
                                     bind_ptr = fresh;
                                 }
                             }
