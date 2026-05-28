@@ -1,0 +1,16 @@
+// Original heap-underflow root: alloc(sizeof::<T>()) for a padded `{i32, i64}`
+// computed 12 bytes (MLIR DataLayout packed) but the field store landed `i64`
+// at the 8-aligned offset 8 → wrote past the 12-byte block (valgrind invalid
+// write). With sizeof derived from layout_of (16, aligned), rc_new/box_new
+// allocate enough and the value round-trips cleanly.
+package test;
+use logos.mem.rc;
+use logos.mem.boxed;
+struct Pad { strong: i32, val: i64 }   // {i32, pad4, i64} = 16, align 8
+fn main() -> i32 {
+    let r: Rc<Pad> = rc_new(Pad { strong: 1, val: 12345i64 });
+    let b: Box<Pad> = box_new(Pad { strong: 2, val: 67890i64 });
+    if r.deref().val != 12345i64 { return 1i32; }
+    if b.deref().val != 67890i64 { return 2i32; }
+    return 42i32;
+}

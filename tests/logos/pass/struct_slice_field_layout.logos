@@ -1,0 +1,20 @@
+// Unified layout: a Slice/Closure/Tuple FIELD of a struct is stored as an
+// 8-byte POINTER (mirrors register_struct's `else→logos_to_mlir→ptr`), NOT its
+// 16-byte by-value footprint. Without this, layout_of over-counts struct sizes
+// (the metaprog `Type { name: &[u8], size: i64, … }` reflection size was
+// garbage), and value-copy memcpy of a struct with a slice field shifts the
+// trailing fields (here `n`) into the wrong offset.
+package test;
+struct WithSlice { tag: i32, name: &[u8], n: i64 }
+fn main() -> i32 {
+    // tag@0 (4), name@8 (ptr 8 — NOT 16), n@16 (i64) → size 24, align 8.
+    if sizeof::<WithSlice>() != 24i64 { return 1i32; }
+    let a: WithSlice = WithSlice { tag: 3, name: "hi", n: 7i64 };
+    // `let b = a` triggers the struct value-copy memcpy: size must be 24 (the
+    // padded layout). A stale 21-byte memcpy would corrupt the trailing `n`.
+    let b: WithSlice = a;
+    if b.tag != 3 { return 2i32; }
+    if b.n != 7i64 { return 3i32; }
+    if b.name.len() != 2i64 { return 4i32; }   // slice .len preserved
+    return 42i32;
+}
