@@ -1,0 +1,34 @@
+// HashMap / VecDeque / HashSet drop their live elements on scope-exit Drop
+// (Rust parity, mirrors Vec) — no manual free. With droppable element types
+// (String) this frees the inner buffers; a double-free (e.g. manual free +
+// auto-Drop) would abort. clear() also drops the live entries it removes.
+package collections_element_drop;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.deque;
+use logos.mem.collections.set;
+use logos.mem.string;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: HashMap<i64, String> = hashmap_new::<i64, String>();
+        m.insert(1i64, String::from("alpha"));
+        m.insert(2i64, String::from("beta is a longer string"));
+        m.insert(3i64, String::from("gamma"));
+        if m.len() != 3i64 { return 1i32; }
+        m.clear();                       // drops the 3 stored Strings
+        if m.len() != 0i64 { return 2i32; }
+        m.insert(9i64, String::from("after clear"));   // reuse, then auto-drop
+
+        let mut d: VecDeque<String> = vecdeque_new::<String>();
+        d.push_back(String::from("b1"));
+        d.push_front(String::from("f0 longer string here"));
+        d.push_back(String::from("b2"));
+        if d.len() != 3i64 { return 3i32; }
+
+        let mut s: HashSet<i64> = hashset_new::<i64>();
+        s.insert(10i64); s.insert(20i64); s.insert(10i64);
+        if s.len() != 2i64 { return 4i32; }
+        // all three containers auto-drop here, freeing every element buffer
+    }
+    return 42i32;
+}

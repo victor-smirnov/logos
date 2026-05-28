@@ -64,8 +64,7 @@ fn main() -> i32 {
             }
         }
         if sum != 189 { return 29; }
-
-        vecdeque_free::<i32>(&mut d);
+        // VecDeque auto-drops at scope exit (Rust parity) — no manual free.
     }
     return 42;
 }

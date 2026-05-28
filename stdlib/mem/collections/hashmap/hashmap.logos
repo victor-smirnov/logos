@@ -140,7 +140,15 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     pub unsafe fn clear(self: *mut HashMap<K, V>) {
         let mut i: i64 = 0;
-        while i < self.cap { self.states[i] = SLOT_EMPTY; i = i + 1; }
+        while i < self.cap {
+            if self.states[i] == SLOT_OCCUPIED {
+                let e: *mut Entry<K, V> = &mut self.entries[i];
+                let _k: K = e.key;   // move-and-drop the live entry
+                let _v: V = e.val;
+            }
+            self.states[i] = SLOT_EMPTY;
+            i = i + 1;
+        }
         self.len = 0 as i64;
     }
 
@@ -276,7 +284,26 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 }
 
-pub unsafe fn hashmap_free<K: Hash + Eq, V>(m: *mut HashMap<K, V>) {
-    dealloc(m.states);
-    dealloc(m.entries as *mut u8);
+// Auto-Drop (Rust parity, mirrors Vec). On scope exit each occupied entry's key
+// and value are moved out and dropped (firing K/V's Drop if any; no-op for
+// POD/Copy), then the states + entries buffers are freed. No manual free. Drop
+// needs no Hash/Eq bound — it only moves out, never probes.
+impl<K, V> Drop for HashMap<K, V> {
+    fn drop(self: HashMap<K, V>) {
+        unsafe {
+            if self.states != 0 as *mut u8 {
+                let mut i: i64 = 0;
+                while i < self.cap {
+                    if self.states[i] == SLOT_OCCUPIED {
+                        let e: *mut Entry<K, V> = &mut self.entries[i];
+                        let _k: K = e.key;   // move-and-drop
+                        let _v: V = e.val;
+                    }
+                    i = i + 1 as i64;
+                }
+                dealloc(self.states);
+                dealloc(self.entries as *mut u8);
+            }
+        }
+    }
 }

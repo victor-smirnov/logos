@@ -58,7 +58,7 @@ mallocs leaks unless a user `delete` or a stdlib free fn reaches it.
 |---|---|---|---|
 | String | ✅ | n/a | most modern; OOM/overflow-hardened (`string.logos:271`) |
 | Vec<T> | ✅ (`vec.logos:399`) | ✅ element drop-glue | + manual `vec_free`; `into_iter` ptr-zero hack; eager cap-8 |
-| Rc<T> / Arc<T> | ✅ block at refcount 0 | 🐞 **NO — `T`'s destructor not run** (frees raw bytes → `Rc<String>` leaks inner) | no Weak |
+| Rc<T> / Arc<T> | ✅ block at refcount 0 | ✅ **T's destructor IS run** at the last ref (`93dd38cf`; `drop_rc`/`drop_arc` move `inner.val` out → fires T's Drop before dealloc) | no Weak |
 | **Box<T>** | 🐞 **NO** (manual `box_free` only) | no | **stalest**; raw-ptr-self accessors; no `?Sized`/dyn |
 | HashMap, Deque | 🐞 NO (manual free only) | — | leak unless freed |
 
@@ -147,7 +147,7 @@ How each language feature touches memory, and its current health.
 | **slice `&[T]`** | fat {ptr,len}; 🐞 leak when returned (A4) | Copy (no drop) | Copy | 🐞 no element borrow; ⚠️ `&[T]`/`&mut [T]` both `Kind::Slice` (mut not tracked, B6) | ⚠️ |
 | **Box<T>** | heap (`box_new`) | 🐞 **no auto-Drop** (manual `box_free`); no `T`-drop | move | ok | 🐞 **stale — modernize** |
 | **Vec<T>** | heap, grow | ✅ Drop frees + drops elems | move; `into_iter` ptr-zero hack | IndexMut place-write ✅ | ⚠️ partially modern |
-| **Rc/Arc** | heap inner | ✅ block at rc0; 🐞 **`T` not dropped**; no Weak | clone = refcount; move | ok | ⚠️ T-leak + no Weak |
+| **Rc/Arc** | heap inner | ✅ block at rc0; ✅ **T dropped** (`93dd38cf`); no Weak | clone = refcount; move | ok | ⚠️ no Weak |
 | **String** | heap, grow | ✅ Drop | move | ok | ✅ modern |
 | **closure** | env: stack (non-escaping) / 🐞 heap leak (escaping, A7); value `{fn,env}` 16B fat | capture drop via `closure_owned_drop_`; 🐞 env block not freed | move captures; fat value | 🐞 capture-mode not enforced | ⚠️ env leak + capture-mode gap |
 | **dyn trait** | 🐞 fat+vtable heap, leak unless Box (A5/A6); vtable not interned | via Box only | Copy (`&dyn`) | ok | 🐞 leaks + vtable dup |
@@ -171,7 +171,7 @@ How each language feature touches memory, and its current health.
    drops-before-replace. Not in DIVERGENCES.md.
 3. 🐞 **Box<T> has no auto-Drop** and no `T`-drop / `?Sized` — stale. Modernize to
    Rust ownership (`impl Drop` freeing + dropping `T`; deref accessors; fat-ptr).
-4. 🐞 **Rc/Arc don't run `T`'s destructor** at refcount 0 (leak `T`'s resources).
+4. ✅ **Rc/Arc run `T`'s destructor** at refcount 0 (`93dd38cf`, test `rc_drop_inner`) — DONE.
 
 **P1 — leaks in compiler-emitted heap (need an owner/free path):**
 5. dyn fat+vtable (A5/A6) leak for raw `&dyn`/`*mut dyn`; vtable not interned.

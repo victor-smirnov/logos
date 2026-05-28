@@ -23,10 +23,12 @@ fn main() -> i32 {
     unsafe {
         m.insert(1i64, box_new(Sq { s: 3i64 }));
         m.insert(2i64, box_new(Rect { w: 4i64, h: 5i64 }));
-        // get returns `*const Box<dyn Sh>` (pointer-to-handle); `*p` loads the
-        // stored handle, then `.area()` dispatches through its vtable.
-        let b1: Box<dyn Sh> = *m.get(&1i64);
-        let b2: Box<dyn Sh> = *m.get(&2i64);
+        // get returns `*const Box<dyn Sh>` (pointer-to-handle); `&*p` BORROWS the
+        // stored handle (the map keeps ownership — binding by value would move out
+        // of the container → double-free when both the copy and the map's Drop
+        // free it). Dispatch `.area()` through the borrowed handle.
+        let b1: &Box<dyn Sh> = &*m.get(&1i64);
+        let b2: &Box<dyn Sh> = &*m.get(&2i64);
         if b1.area() != 9i64  { return 1i32; }
         if b2.area() != 20i64 { return 2i32; }
     }

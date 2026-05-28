@@ -95,6 +95,22 @@ impl<T> VecDeque<T> {
     }
 }
 
-pub unsafe fn vecdeque_free<T>(d: *mut VecDeque<T>) {
-    dealloc(d.buf as *mut u8);
+// Auto-Drop (Rust parity, mirrors Vec). On scope exit each live element
+// [head .. head+len) in the ring is moved out and dropped (firing T's Drop if it
+// has one; no-op for POD/Copy T), then the ring buffer is freed. No manual free.
+impl<T> Drop for VecDeque<T> {
+    fn drop(self: VecDeque<T>) {
+        unsafe {
+            let p: *mut T = self.buf;
+            if p != 0 as *mut T {
+                let mask: i64 = self.cap - 1 as i64;
+                let mut i: i64 = 0;
+                while i < self.len {
+                    let _x: T = p[(self.head + i) & mask];   // move-and-drop
+                    i = i + 1 as i64;
+                }
+                dealloc(p as *mut u8);
+            }
+        }
+    }
 }

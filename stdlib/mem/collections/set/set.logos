@@ -67,6 +67,5 @@ impl<K: Hash + Eq> Iterator<K> for HashSetIter<K> {
     }
 }
 
-pub unsafe fn hashset_free<K: Hash + Eq>(s: *mut HashSet<K>) {
-    hashmap_free::<K, u8>(&mut s.inner);
-}
+// No manual free (Rust parity): a HashSet auto-drops via its `inner` HashMap
+// field, whose Drop drops each live key and frees the buffers.

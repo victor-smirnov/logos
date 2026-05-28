@@ -62,8 +62,7 @@ fn main() -> i32 {
             }
         }
         if total != 190 { return 20; }   // 0+1+...+19 = 190
-
-        hashset_free::<i32>(&mut s);
+        // HashSet auto-drops via its inner HashMap (Rust parity) — no manual free.
     }
     return 42;
 }
