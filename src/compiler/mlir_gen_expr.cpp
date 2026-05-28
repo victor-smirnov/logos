@@ -1970,8 +1970,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                 // Value model: an owning Box<dyn> arg is an inline value fat
                 // pair (heap=false), just like a borrowed &dyn — the callee
                 // drops it by value (free data), no separate heap handle.
+                // Pass the unwrapped concrete type (`vt_type`, e.g. A) so the
+                // vtable's drop_in_place slot runs the concrete destructor; an
+                // empty concrete_ty here emits an EMPTY drop glue (slot 0 = no-op)
+                // → the callee's drop frees the box but LEAKS the struct's
+                // droppable fields (String etc.). The explicit `as Box<dyn>`
+                // cast path already threads the concrete type; this implicit
+                // call-arg coercion must too.
                 v = coerce_to_dyn(v, std::string(TypeRef(param_lt).trait_name()), vt_name,
-                                  /*heap=*/false);
+                                  /*heap=*/false, vt_type);
             }
         }
         if (i < param_types.size()) {

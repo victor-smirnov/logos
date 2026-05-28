@@ -1,0 +1,25 @@
+// A by-value `Box<dyn Trait>` PARAM is owned by the callee: it drops the box
+// (vtable[0] drop_in_place runs the concrete destructor, then frees the data).
+// The concrete type carries a droppable field (String) — the drop glue must run
+// String::drop, else the buffer leaks. Both arg shapes must work without a
+// double-free: an IMPLICITLY-coerced `Box<concrete>` temp (no `as`) and a moved
+// `Box<dyn>` var. (Regression: the implicit-coerce path passed an empty
+// concrete type to the vtable → empty drop_in_place glue → leaked String.)
+package test;
+use logos.mem.boxed;
+use logos.mem.string;
+
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+
+fn take_box(b: Box<dyn Sp>) -> i64 { return b.v(); }
+
+fn main() -> i32 {
+    // implicit coercion (Box<A> → Box<dyn Sp>, no `as`):
+    let r1: i64 = take_box(box_new(A { name: String::from("aa"), x: 1 }));
+    // moved var (explicit cast at the let):
+    let g: Box<dyn Sp> = box_new(A { name: String::from("bb"), x: 2 }) as Box<dyn Sp>;
+    let r2: i64 = take_box(g);
+    return (r1 + r2) as i32;
+}
