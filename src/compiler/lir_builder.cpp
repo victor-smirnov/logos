@@ -326,10 +326,10 @@ lir::LStmt LirBuilder::stmt_return(lir::LExprPtr value, uint32_t line) {
     return s;
 }
 
-lir::LStmt LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line) {
+lir::LStmt LirBuilder::stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old) {
     lir::LStmt s;
     s.line = line;
-    s.mirror_offset_ = lir_mirror_emit_assign(prog_, line, name, value);
+    s.mirror_offset_ = lir_mirror_emit_assign(prog_, line, name, value, drop_old);
     return s;
 }
 

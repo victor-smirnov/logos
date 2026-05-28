@@ -3723,7 +3723,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         std::string name(v.name());
         auto value = subst_child_expr(v.value());
         ns.mirror_offset_ = lir_mirror_emit_assign(
-            out_, ns.line, name, value);
+            out_, ns.line, name, value, v.drop_old());  // B8: preserve drop-before-replace
         break;
     }
     case SCode::Return: {

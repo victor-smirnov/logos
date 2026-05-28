@@ -1659,6 +1659,9 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     lir::LExprPtr rhs = nullptr;
     TypeRef rhs_type;
     if (node.has_key(la::VALUE)) {
+        // B8: a `let x = v` (with value) re-declaration clears any stale
+        // declared-uninit mark from an earlier `let x: T;` shadow.
+        decl_uninit_vars_.erase(std::string(name));
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
         if (is_ref_bind) {
@@ -1678,6 +1681,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // mlir-gen "use of uninitialised slot" or a borrow-check warn.
         // (Full definite-assignment analysis is a separate pass; for now
         // we trust user code or rely on later use-checks.)
+        // B8: record as declared-uninitialised so a later reassignment does
+        // NOT drop-before-replace (the slot holds no live value yet, and a
+        // conditional path may leave it uninit).
+        decl_uninit_vars_.insert(std::string(name));
         rhs      = nullptr;
         rhs_type = ann;
     } else {
@@ -2360,12 +2367,38 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
             });
         }
     }
+    // B8 drop-before-replace: if the LHS holds a live droppable value, its
+    // destructor must run before being overwritten (Rust assignment semantics).
+    // SOUND conditions (checked BEFORE the moved_vars_.erase below):
+    //   • the type is droppable;
+    //   • the var was declared WITH an initializer (decl_uninit_vars_ excludes
+    //     it) → definitely-initialized at every reassignment (branches don't
+    //     de-initialize), so we never free garbage;
+    //   • the var is not currently moved-out, whole or partial (a moved value
+    //     was already consumed → dropping it would double-free).
+    // mlir-gen's gen_assign emits the drop AFTER evaluating the RHS (so
+    // `x = f(x)` is safe) and BEFORE the store.
+    bool drop_old = false;
+    {
+        std::string nm(name);
+        bool droppable = var_type &&
+            (TypeRef(var_type).owning_trait_object() ||
+             !drop_fn_for(var_type).empty() ||
+             has_droppable_fields(var_type));
+        bool moved = moved_vars_.count(nm) != 0;
+        if (!moved) {  // also reject a partial field-move (`x.f` consumed)
+            std::string pre = nm + ".";
+            for (auto& mv : moved_vars_)
+                if (mv.size() > pre.size() && mv.compare(0, pre.size(), pre) == 0) { moved = true; break; }
+        }
+        drop_old = droppable && !decl_uninit_vars_.count(nm) && !moved;
+    }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
-    return builder().stmt_assign(std::string(name), std::move(rhs), node_line_);
+    return builder().stmt_assign(std::string(name), std::move(rhs), node_line_, drop_old);
 }
 
 lir::LStmt SemaChecker::lower_return(TinyMapView node) {

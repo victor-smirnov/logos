@@ -1,0 +1,26 @@
+// B8: reassigning a live droppable variable drops the OLD value before storing
+// the new one (Rust assignment semantics) — no leak. Definite-assignment:
+// the var is declared WITH an initializer, so it is always initialized at the
+// reassignment (sema only emits the drop-before-replace in that sound case;
+// a moved-out var is skipped to avoid double-free). Verified valgrind-clean.
+package test;
+fn take(s: String) -> i64 { return s.len() as i64; }
+fn main() -> i32 {
+    let mut s: String = String::from("first");
+    s = String::from("second");          // old "first" dropped here, not leaked
+    if s.len() != 6i64 { return 1i32; }
+    let mut total: i64 = 0i64;
+    let mut i: i32 = 0i32;
+    while i < 3i32 {
+        s = String::from("bbbb");        // drops previous each iteration
+        total = total + s.len() as i64;
+        i = i + 1i32;
+    }
+    if total != 12i64 { return 2i32; }
+    // Moved-out var reassigned: must NOT drop the (already-consumed) old value.
+    let mut m: String = String::from("xx");
+    let n: i64 = take(m);                // moves m
+    m = String::from("cccc");            // reassign moved var — no double-free
+    if n + m.len() as i64 != 6i64 { return 3i32; }
+    return 42i32;
+}

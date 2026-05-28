@@ -1476,6 +1476,8 @@ struct SAssignView {
     StmtRef self;
     std::string_view name() const noexcept  { return detail::stmt_str(self, sk::NAME.code); }
     ExprRef          value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    // B8: drop the LHS's old value before storing the new one.
+    bool             drop_old() const noexcept { return detail::read_bool(self, sk::DROP_OLD.code); }
 };
 
 struct SReturnView {

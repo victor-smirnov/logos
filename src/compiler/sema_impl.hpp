@@ -1485,6 +1485,13 @@ private:
     bool pending_loop_body_scope_ = false;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
+    // B8 drop-before-replace: vars declared WITHOUT an initializer (`let mut
+    // x: T;`). Such a var is not definitely-initialized at a later assignment
+    // (a conditional path may have left it uninit), so we must NOT drop the
+    // old value on reassignment (that would free garbage). A var declared WITH
+    // a value is omitted here → it IS definitely-init at every reassignment
+    // (branches don't de-initialize) → safe to drop-before-replace.
+    std::set<std::string> decl_uninit_vars_;
     // G156-7: vars moved into a `move` closure that nonetheless must still be
     // DROPPED at their scope exit. A move closure's env stores a POINTER to the
     // source's storage (borrows it; closures have no capture drop-glue), and the

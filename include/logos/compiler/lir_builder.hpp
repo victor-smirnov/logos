@@ -125,7 +125,7 @@ public:
     lir::LStmt stmt_break(lir::LExprPtr value, std::string label, uint32_t line);
     lir::LStmt stmt_continue(std::string label, uint32_t line);
     lir::LStmt stmt_return(lir::LExprPtr value, uint32_t line);
-    lir::LStmt stmt_assign(std::string name, lir::LExprPtr value, uint32_t line);
+    lir::LStmt stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old = false);
     lir::LStmt stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line);
 
     // ── Adopt-style: pre-built variants populated incrementally ─────────────

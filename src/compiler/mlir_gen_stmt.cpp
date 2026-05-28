@@ -1296,6 +1296,13 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         std::fprintf(stderr, "mlir_gen: assign to undefined '%s'\n", name.c_str());
         return;
     }
+    // B8 drop-before-replace: sema's definite-assignment analysis flagged this
+    // reassignment as overwriting a live droppable value. `val` (the new value)
+    // is already computed above (RHS evaluated — so `x = f(x)` read the old x
+    // safely); drop the OLD value now, before the store below overwrites it.
+    // gen_drop_value runs the full destructor (user Drop impl + owned children).
+    if (v.drop_old() && val_le && val_le->type)
+        gen_drop_value(it->second, TypeRef(val_le->type));
     // Enum value-repr: the slot IS the inline {disc,payload} storage (one
     // level, like a Struct). Memcpy the new enum value's footprint into it
     // (NOT a ptr store, which would overwrite only the disc word). `val` is a
