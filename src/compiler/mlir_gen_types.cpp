@@ -99,6 +99,10 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
             return cache_ret(mlir::LLVM::LLVMArrayType::get(slice_llvm_type(), tv.arr_size()));
         if (elem_tv && elem_tv.kind() == LogosType::Kind::Closure)
             return cache_ret(mlir::LLVM::LLVMArrayType::get(closure_llvm_type(), tv.arr_size()));
+        // NOTE: bare `&dyn` ARRAY elements deliberately stay 8-byte HANDLES (not
+        // inline 16-byte fat pairs) — Logos's Vec<&dyn>/`vec!` machinery is built
+        // on the handle model (a `[&dyn;N]` array of pointers-to-fat-pairs).
+        // Inlining them here regresses the whole Vec<&dyn> dispatch family.
         auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
         return cache_ret(mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size()));
@@ -566,6 +570,11 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             ft = slice_llvm_type();
         } else if (e && TypeRef(e).kind() == LogosType::Kind::Closure) {
             ft = closure_llvm_type();  // inline 16-byte {fn,env}
+        } else if (e && TypeRef(e).kind() == LogosType::Kind::TraitObject) {
+            // Bare `&dyn` element — inline 16-byte {data,vtable} value fat-pair
+            // (matches the struct-field convention + layout_of=16). `*mut dyn`
+            // = Ptr<TraitObject> stays a thin 8-byte handle (logos_to_mlir).
+            ft = dyn_llvm_type();
         }
         if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;

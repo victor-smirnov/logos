@@ -1128,6 +1128,8 @@ mlir::Value MLIRGenImpl::gen_arr_lit(lir_view::EArrLitView v, mlir::Type elem_ty
                         val = fat;
                 }
             }
+            // `&dyn` array elements use the 8-byte HANDLE model (Vec<&dyn>) —
+            // store the handle (a pointer to the fat pair), not an inline copy.
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, gep);
             continue;
         }

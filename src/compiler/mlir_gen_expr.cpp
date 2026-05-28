@@ -2463,6 +2463,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     if (type && TypeRef(type).kind() == LogosType::Kind::Slice &&
         !(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice))
         elem_type = slice_llvm_type();
+    // NOTE: `&dyn` array elements stay 8-byte handles (Vec<&dyn> handle model) —
+    // do NOT inline here (see logos_to_mlir(Array) note).
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
@@ -2588,7 +2590,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
     // value convention is the GEP address (pointer to {ptr,len}/{fn,env}), like
     // a Struct element — return the address, don't load the pair.
     if (TypeRef et(type); et && (et.kind() == LogosType::Kind::Slice ||
-                                 et.kind() == LogosType::Kind::Closure))
+                                 et.kind() == LogosType::Kind::Closure ||
+                                 et.kind() == LogosType::Kind::TraitObject))
         return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }

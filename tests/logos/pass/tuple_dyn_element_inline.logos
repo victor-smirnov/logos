@@ -1,0 +1,14 @@
+// `&dyn` as a TUPLE element is stored INLINE as its 16-byte {data,vtable} fat
+// pair (matching the struct-field convention + layout_of=16), not an 8-byte ptr.
+package test;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let t: (&dyn Shape, i64) = (&a as &dyn Shape, 7i64);
+    if sizeof::<(&dyn Shape, i64)>() != 24i64 { return 90i32; }
+    if t.1 != 7i64 { return 1i32; }
+    if t.0.area() != 16i64 { return 2i32; }
+    return 42i32;
+}

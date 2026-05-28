@@ -2850,7 +2850,8 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // (the str-literal-tuple guard regression).
         bool slice_closure = ty &&
             (TypeRef(ty).kind() == LogosType::Kind::Slice ||
-             TypeRef(ty).kind() == LogosType::Kind::Closure);
+             TypeRef(ty).kind() == LogosType::Kind::Closure ||
+             TypeRef(ty).kind() == LogosType::Kind::TraitObject);
         if (slice_closure) {
             mlir::Value target;
             if (shared) { auto it = shared->find(name); if (it != shared->end()) target = it->second; }
