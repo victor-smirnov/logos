@@ -95,6 +95,9 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         // Slice (incl. str) / Closure element — inline 16-byte fat pair, matching
         // layout_of (a collapsed 8-byte ptr would mismatch sizeof → memcpy of a
         // `[str; N]` would overflow). Mirrors the struct/enum element inlining.
+        if (elem_tv && elem_tv.kind() == LogosType::Kind::Tuple)
+            if (auto tt = tuple_llvm_type(elem_tv))
+                return cache_ret(mlir::LLVM::LLVMArrayType::get(tt, tv.arr_size()));
         if (elem_tv && elem_tv.kind() == LogosType::Kind::Slice)
             return cache_ret(mlir::LLVM::LLVMArrayType::get(slice_llvm_type(), tv.arr_size()));
         if (elem_tv && elem_tv.kind() == LogosType::Kind::Closure)
@@ -265,6 +268,16 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
                                    /*is_pointer=*/true});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::Tuple) {
+            // Tuple field — embed the anonymous tuple aggregate INLINE by value
+            // (Rust layout), mirroring the nested-struct inline-embed above. A
+            // tuple value elsewhere is a pointer to this storage, so a field read
+            // returns the embedded slot address (like a nested struct).
+            ft = tuple_llvm_type(fv);
+            if (!ft) ft = ptr_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else if (fv.kind() == LogosType::Kind::Slice) {
             // Slice field — fixed-size 16-byte fat pointer {data,len} (like Rust
             // `&[T]`). Stored INLINE by value, mirroring the TraitObject branch
@@ -341,17 +354,12 @@ struct LayoutAgg {
 
 MLIRGenImpl::Layout MLIRGenImpl::aggregate_member_layout(
         TypeRef m, std::unordered_set<std::string>& seen) {
-    using K = LogosType::Kind;
+    (void)seen;
     if (!m) return {8, 8};
-    switch (TypeRef(m).kind()) {
-    // Stored as an 8-byte pointer inside an aggregate (logos_to_mlir → ptr),
-    // unlike their 16-byte/inline by-value footprint.
-    case K::Tuple: return {8, 8};
-    // Slice and Closure fields are now stored INLINE as a 16-byte fat pair
-    // ({ptr,len} / {fn,env}), so they count their by-value footprint like
-    // dyn/struct.
-    default: return layout_of(m, seen);  // inline (slice/closure/struct/enum/array/dyn/scalar)
-    }
+    // All aggregate members are now stored INLINE by value (Rust layout):
+    // struct/enum/slice/closure/dyn/array AND tuples. A nested tuple field
+    // occupies its full by-value footprint, not a collapsed 8-byte ptr.
+    return layout_of(m, seen);
 }
 
 MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
@@ -586,6 +594,11 @@ mlir::Type MLIRGenImpl::tuple_llvm_type(TypeRef t) {
             // (matches the struct-field convention + layout_of=16). `*mut dyn`
             // = Ptr<TraitObject> stays a thin 8-byte handle (logos_to_mlir).
             ft = dyn_llvm_type();
+        } else if (e && TypeRef(e).kind() == LogosType::Kind::Tuple) {
+            // Nested tuple element — embed its aggregate INLINE (Rust by-value
+            // layout), like a nested struct element; logos_to_mlir would collapse
+            // it to an 8-byte ptr and under-size the slot.
+            ft = tuple_llvm_type(e);
         }
         if (!ft) ft = logos_to_mlir(e);
         if (!ft) return nullptr;

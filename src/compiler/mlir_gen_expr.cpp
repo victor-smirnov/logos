@@ -1217,7 +1217,8 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
                     rk == LogosType::Kind::Ref) && TypeRef(recv_t).pointee() &&
                    (TypeRef(recv_t).pointee().kind() == LogosType::Kind::TraitObject ||
                     TypeRef(recv_t).pointee().kind() == LogosType::Kind::Closure ||
-                    TypeRef(recv_t).pointee().kind() == LogosType::Kind::Slice)) {
+                    TypeRef(recv_t).pointee().kind() == LogosType::Kind::Slice ||
+                    TypeRef(recv_t).pointee().kind() == LogosType::Kind::Tuple)) {
             // Pointer FIELD of fat elements indexed (`self.ptr[i]`, ptr: *mut T,
             // T = &dyn/closure/slice = inline 16-byte fat pair). gen_lvalue_addr
             // gave the field's ADDRESS (slot holding the buffer ptr); LOAD it to
@@ -2261,7 +2262,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     // field address rather than loading the pair by value (mirrors the inline
     // struct/enum element convention in EIndexRead).
     if (type && (TypeRef(type).kind() == LogosType::Kind::Slice ||
-                 TypeRef(type).kind() == LogosType::Kind::Closure))
+                 TypeRef(type).kind() == LogosType::Kind::Closure ||
+                 TypeRef(type).kind() == LogosType::Kind::Tuple))
         return gep;
     for (auto& f : info.fields)
         if (f.name == field)
@@ -2466,6 +2468,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     // what makes `Vec<&dyn>::get`/`p[i]` over a `*mut T` buffer correct.
     if (type && TypeRef(type).kind() == LogosType::Kind::TraitObject)
         elem_type = dyn_llvm_type();
+    // Tuple element is stored INLINE by value (Rust layout) in array/Vec buffers;
+    // stride by the full tuple aggregate and return the slot ADDRESS (a tuple
+    // value IS a pointer to its storage), not an 8-byte load. (`Vec<(i64,i64)>`.)
+    if (type && TypeRef(type).kind() == LogosType::Kind::Tuple)
+        if (auto tt = tuple_llvm_type(type)) elem_type = tt;
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
@@ -2593,6 +2600,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
     if (TypeRef et(type); et && (et.kind() == LogosType::Kind::Slice ||
                                  et.kind() == LogosType::Kind::Closure ||
                                  et.kind() == LogosType::Kind::TraitObject))
+        return gep;
+    // Nested tuple element is now embedded INLINE (tuple_llvm_type); its value is
+    // the GEP address (a tuple value is a pointer to its storage), like a struct
+    // element — return it, don't load an 8-byte ptr from the inline slot.
+    if (TypeRef et(type); et && et.kind() == LogosType::Kind::Tuple)
         return gep;
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, gep);
 }
@@ -3380,12 +3392,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, tptr, a);
                     tptr = a;
                 }
-                auto tslot = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, tptr, tslot);
+                // A tuple value IS a pointer to its inline storage (G1 Rust
+                // by-value layout): pat_bind's Tuple case GEPs into `tptr`
+                // directly (no load). The legacy alloca-of-ptr `tslot` wrapper
+                // that the old by-pointer load consumed would make pat_bind GEP
+                // into the pointer bytes → garbage elements.
                 std::vector<std::pair<std::string, TypeRef>> binds;
                 collect_pat_bindings(pat_ref, scrut_le->type, binds);
                 for (auto& b : binds) added.push_back(b.first);
-                pat_bind(pat_ref, tslot, scrut_le->type);
+                pat_bind(pat_ref, tptr, scrut_le->type);
             }
         } else if (pat_ref.kind() == pc::Code::Slice) {
             // Slice/array pattern element bindings (`[x, y]`, `[a, _, c]`,
@@ -3868,10 +3883,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                    lir_view::PatTupleView{arm_pat_ref}.sub_count() > 0) {
             // [UNIFY D-tuple/expr] Route the refutable-tuple structural test
             // through the single pat_test foundation (was a duplicate inline
-            // per-element loop). pat_test's Tuple case loads the tuple pointer
-            // from its slot, so hand it a slot holding the tuple base ptr
-            // (spilling a by-value scrut first). Inline slice/closure elements
-            // are now handled uniformly inside pat_test.
+            // per-element loop). A tuple value IS a pointer to its inline
+            // storage (G1 Rust by-value layout): pat_test's Tuple case GEPs
+            // into the tuple base ptr directly (no load), so hand it `tptr`
+            // (spilling a by-value scrut first) — NOT the legacy alloca-of-ptr
+            // `tslot` wrapper that the old by-pointer load consumed.
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
@@ -3886,9 +3902,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, a);
                     tptr = a;
                 }
-                auto tslot = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, tptr, tslot);
-                mlir::Value cond = pat_test(arm_pat_ref, tslot, scrut_le->type);
+                mlir::Value cond = pat_test(arm_pat_ref, tptr, scrut_le->type);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
