@@ -1,0 +1,14 @@
+// Array elements of Slice type (incl. `str`) are stored INLINE as their 16-byte
+// {ptr,len} fat pair (Rust `[&str; N]` = N*16), not collapsed to 8-byte ptrs —
+// so sizeof, element read, and element write (memcpy) all agree.
+package test;
+fn main() -> i32 {
+    if sizeof::<[str; 2]>() != 32i64 { return 90i32; }   // 2 * 16, was 16 (mismatch)
+    let mut a: [str; 2] = ["foo", "hello"];
+    if a[0].len() != 3i64 { return 1i32; }
+    if a[1].len() != 5i64 { return 2i32; }
+    a[0] = "xy";                                          // inline 16-byte write
+    if a[0].len() != 2i64 { return 3i32; }
+    if a[1].len() != 5i64 { return 4i32; }               // neighbour intact
+    return 42i32;
+}

@@ -92,6 +92,13 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
                 return cache_ret(mlir::LLVM::LLVMArrayType::get(
                     te->llvm_type, tv.arr_size()));
         }
+        // Slice (incl. str) / Closure element — inline 16-byte fat pair, matching
+        // layout_of (a collapsed 8-byte ptr would mismatch sizeof → memcpy of a
+        // `[str; N]` would overflow). Mirrors the struct/enum element inlining.
+        if (elem_tv && elem_tv.kind() == LogosType::Kind::Slice)
+            return cache_ret(mlir::LLVM::LLVMArrayType::get(slice_llvm_type(), tv.arr_size()));
+        if (elem_tv && elem_tv.kind() == LogosType::Kind::Closure)
+            return cache_ret(mlir::LLVM::LLVMArrayType::get(closure_llvm_type(), tv.arr_size()));
         auto elem = logos_to_mlir(elem_tv);
         if (!elem) return nullptr;
         return cache_ret(mlir::LLVM::LLVMArrayType::get(elem, tv.arr_size()));

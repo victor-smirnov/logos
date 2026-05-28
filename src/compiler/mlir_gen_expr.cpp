@@ -2456,6 +2456,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
     // half. Mirrors the inline-struct / enum element convention.
     if (type && TypeRef(type).kind() == LogosType::Kind::Closure)
         elem_type = closure_llvm_type();
+    // Slice element of an ARRAY (`[str; N]` / `[&[T]; N]`) is stored INLINE as a
+    // 16-byte {ptr,len} fat pair (logos_to_mlir(Array)); stride by it and return
+    // the slot ADDRESS (slice value = ptr-to-storage). A Slice/Vec RECEIVER uses
+    // the pointer-element convention, so restrict to non-slice receivers.
+    if (type && TypeRef(type).kind() == LogosType::Kind::Slice &&
+        !(recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Slice))
+        elem_type = slice_llvm_type();
     llvm::SmallVector<mlir::LLVM::GEPArg> indices{idx};
     auto gep = builder_.create<mlir::LLVM::GEPOp>(
         loc_, ptr_type(), elem_type, arr_ptr, indices);
