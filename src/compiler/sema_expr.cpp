@@ -475,6 +475,30 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         ? resolve_type(map_of(expr.get(la::TYPE.code)))
         : error_t();
 
+    // Unsizing a NON-Box smart pointer — `Rc<T> as Rc<dyn Trait>`, `Arc<T> as
+    // Arc<dyn>`, or any user `Struct<T> as Struct<dyn>` — is not yet supported:
+    // only Box<dyn> (the owning value trait object) has a representation. Reject
+    // cleanly instead of building a bad value that segfaults on dispatch (the
+    // generic Deref auto-deref would otherwise read a garbage vtable). Proper
+    // support needs a refcounted fat-pointer trait object (CoerceUnsized — 2c).
+    if (target && inner && inner->type && !is_stdlib_box(target) &&
+        (TypeRef(target).kind() == LogosType::Kind::Struct ||
+         TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
+        TypeRef(target).type_args().size() == 1 &&
+        TypeRef(TypeRef(target).type_args()[0]).kind() == LogosType::Kind::TraitObject &&
+        (TypeRef(inner->type).kind() == LogosType::Kind::Struct ||
+         TypeRef(inner->type).kind() == LogosType::Kind::ZonedStruct) &&
+        TypeRef(inner->type).struct_name() == TypeRef(target).struct_name() &&
+        TypeRef(inner->type).type_args().size() == 1 &&
+        TypeRef(TypeRef(inner->type).type_args()[0]).kind() != LogosType::Kind::TraitObject) {
+        error(std::format(
+            "unsizing `{}<T>` to a trait object is not supported (only `Box<dyn "
+            "Trait>` is); `Rc`/`Arc`/user smart-pointer trait objects need "
+            "CoerceUnsized, not yet implemented",
+            std::string(TypeRef(target).struct_name())));
+        return error_expr();
+    }
+
     // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
     if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
         (TypeRef(target).struct_name() == "HermesArr" || TypeRef(target).struct_name() == "HermesMap")) {
