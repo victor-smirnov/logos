@@ -310,29 +310,35 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     return false;
 }
 
-void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr) {
+void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
+                                             TypeRef::OwningKind kind) {
     if (!fat_ptr) return;
-    // Owning Box<dyn> = VALUE fat-pair {data,vtable} stored INLINE; `fat_ptr`
-    // points at that 16-byte pair (a local alloca, a struct-field GEP, a Vec
-    // element slot, …). The drop runs vtable[0] drop_in_place(data) then frees
-    // the heap-owned `data` — there is NO separate heap handle to free (that
-    // was the old 8-byte-handle model; the value model keeps a single heap
-    // allocation, the boxed concrete, exactly like a Rust Box<dyn>).
+    // Owning smart-pointer dyn = VALUE fat-pair {data,vtable} stored INLINE;
+    // `fat_ptr` points at that 16-byte pair. vtable[0]=drop_in_place(T),
+    // vtable[1]=size_of_T, vtable[2]=align_of_T (ptr-encoded). Release is
+    // kind-specific:
+    //   Box → drop_in_place(data) + free(data).
+    //   Rc/Arc → recover RcInner = data − round_up(4, align); decrement strong
+    //     (Arc: atomic); at the last reference → drop_in_place(data) + free(RcInner).
     auto dyn_struct = dyn_llvm_type();
-    // The binding may be a POINTER to the inline fat pair (alloca / struct-
-    // field GEP / Vec slot) OR the fat-pair VALUE itself in SSA (`let b =
-    // make()` where the callee returned {data,vtable} by value). Spill a value
-    // to an alloca so the GEP-based field reads below work uniformly.
+    // The binding may be a POINTER to the inline fat pair or the fat-pair VALUE
+    // in SSA (`let b = make()` returning {data,vtable} by value) — spill so the
+    // GEP-based field reads work uniformly.
     if (fat_ptr.getType() == dyn_struct)
         fat_ptr = spill_to_alloca(fat_ptr);
     if (fat_ptr.getType() != ptr_type()) return;
 
-    // data = pair->field0
+    auto i32_t  = builder_.getI32Type();
+    auto i64_t  = builder_.getI64Type();
+    auto void_t = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+    auto fn_t   = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()});
+
+    // data = pair->field0, vtable = pair->field1
     llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
     auto dpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, di);
     auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dpp);
 
-    // Null-guard the data ptr (a moved-from box is null).
+    // Null-guard data (a moved-from handle is null).
     auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
     auto nn = builder_.create<mlir::LLVM::ICmpOp>(
         loc_, mlir::LLVM::ICmpPredicate::ne, data, null);
@@ -344,19 +350,71 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr) {
     builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
     builder_.setInsertionPointToStart(then_blk);
 
-    // vtable = pair->field1
     llvm::SmallVector<mlir::LLVM::GEPArg> vi{int32_t(0), int32_t(1)};
     auto vpp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, vi);
     auto vtable = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
-    // drop_in_place = vtable[0]; call it on data (runs concrete destructor).
-    auto slot0 = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vtable);
-    auto void_t = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
-    auto fn_t = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()});
-    llvm::SmallVector<mlir::Value> call_ops{slot0, data};
-    builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
-                                        mlir::ValueRange(call_ops));
-    // Free the boxed concrete allocation (the single heap block).
-    call_free(data);
+
+    // drop_in_place(data) — the concrete destructor (vtable slot 0).
+    auto run_drop_in_place = [&]() {
+        auto slot0 = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vtable);
+        llvm::SmallVector<mlir::Value> ops{slot0, data};
+        builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
+                                            mlir::ValueRange(ops));
+    };
+
+    if (kind == TypeRef::OwningKind::Box) {
+        run_drop_in_place();
+        call_free(data);                  // single heap block = the boxed concrete
+        builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+        builder_.setInsertionPointToStart(cont_blk);
+        return;
+    }
+
+    // Rc/Arc: RcInner = { i32/AtomicI32 strong, T val }. val sits at
+    // offsetof = round_up(4, align(T)); recover the block start from data.
+    // align = vtable[2] (ptr-encoded usize) → ptrtoint.
+    llvm::SmallVector<mlir::LLVM::GEPArg> ai{int32_t(2)};
+    auto app   = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ptr_type(), vtable, ai);
+    auto alignp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), app);
+    auto align  = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, alignp);
+    // off = (4 + align - 1) & ~(align - 1) = (3 + align) & ~(align - 1)
+    auto c3   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 3, 64);
+    auto c1   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+    auto cN1  = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, 64);
+    auto a3   = builder_.create<mlir::arith::AddIOp>(loc_, align, c3);
+    auto am1  = builder_.create<mlir::arith::AddIOp>(loc_, align, cN1);
+    auto mask = builder_.create<mlir::arith::XOrIOp>(loc_, am1, cN1);  // ~(align-1)
+    auto off  = builder_.create<mlir::arith::AndIOp>(loc_, a3, mask);
+    mlir::Value data_i = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, data);
+    mlir::Value inner_i = builder_.create<mlir::arith::SubIOp>(loc_, data_i, off);
+    mlir::Value inner = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), inner_i);
+
+    // Decrement strong (i32 at inner, offset 0). is_last = reached zero.
+    mlir::Value is_last;
+    if (kind == TypeRef::OwningKind::Arc) {
+        auto one32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32);
+        auto prev = builder_.create<mlir::LLVM::AtomicRMWOp>(
+            loc_, mlir::LLVM::AtomicBinOp::sub, inner, one32,
+            mlir::LLVM::AtomicOrdering::seq_cst);
+        auto one32b = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32);
+        is_last = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::eq, prev, one32b);  // old == 1 → now 0
+    } else {
+        auto cur = builder_.create<mlir::LLVM::LoadOp>(loc_, i32_t, inner);
+        auto one32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32);
+        auto dec = builder_.create<mlir::arith::SubIOp>(loc_, cur, one32);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, dec, inner);
+        auto zero32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        is_last = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::eq, dec, zero32);
+    }
+
+    auto* last_blk = new mlir::Block();
+    region->push_back(last_blk);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, is_last, last_blk, cont_blk);
+    builder_.setInsertionPointToStart(last_blk);
+    run_drop_in_place();   // drop T
+    call_free(inner);      // free the whole RcInner block
     builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
     builder_.setInsertionPointToStart(cont_blk);
 }
@@ -373,7 +431,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     // aggregate field-recursion, not just a tagged top-level local.
     if (k == K::TraitObject) {
         if (TypeRef(ty).owning_trait_object())
-            gen_drop_owning_dyn_handle(value_ptr);
+            gen_drop_owning_dyn_handle(value_ptr, TypeRef(ty).trait_owning_kind());
         return;
     }
     // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
@@ -541,13 +599,12 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     if (it == scope_.end()) return;
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
-    // 0. Owning Box<dyn Trait> (sema sentinel `__box_dyn__drop`): the binding's
-    //    storage IS the 8-byte heap handle to a 16-byte {data,vtable} fat pair.
-    //    Run vtable slot-0 drop_in_place(data) (drops the concrete + its owned
-    //    fields), then free(data), then free(handle). The stdlib Box<T>::drop
-    //    would free only the handle (leaking the boxed concrete + its String).
+    // 0. Owning smart-pointer dyn (sema sentinel `__box_dyn__drop`): the
+    //    binding stores a VALUE fat pair {data,vtable}. Release is kind-specific
+    //    (Box→free data; Rc/Arc→dec strong + free RcInner at the last ref);
+    //    the kind is read from the binding's TraitObject type.
     if (std::string(v.drop_fn()) == "__box_dyn__drop") {
-        gen_drop_owning_dyn_handle(it->second);
+        gen_drop_owning_dyn_handle(it->second, v.type(pool_impl()).trait_owning_kind());
         return;
     }
 

@@ -26,9 +26,12 @@ use logos.lang.clone;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 
+// Layout MUST match RcInner ({ refcount first, val second }) so the compiler's
+// Rc/Arc<dyn> unsize cast + drop recover `val` at the same offset
+// (round_up(sizeof(refcount), align(T))) for both — one uniform rule.
 struct ArcInner<T> {
-    val:    T,
     strong: AtomicI32,
+    val:    T,
 }
 
 // ── Arc<T: Send + Sync> ───────────────────────────────────────────────────────

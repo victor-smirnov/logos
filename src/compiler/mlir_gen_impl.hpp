@@ -667,13 +667,27 @@ private:
     // See the sema-side twin for rationale. pkg tolerated empty for internal
     // paths (mlir-gen sometimes strips struct pkg); a user Box keeps its own.
     static bool is_stdlib_box(TypeRef t) noexcept {
+        return is_stdlib_smart_ptr(t, "Box", "logos.mem.boxed");
+    }
+    // FQN-checked stdlib smart-pointer struct (name + package; pkg tolerated
+    // empty for internal paths where it was stripped).
+    static bool is_stdlib_smart_ptr(TypeRef t, std::string_view name,
+                                    std::string_view pkg) noexcept {
         if (!t) return false;
         auto k = t.kind();
         if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
             return false;
-        if (t.struct_name() != "Box") return false;
-        auto pkg = t.pkg_name();
-        return pkg.empty() || pkg == "logos.mem.boxed";
+        if (t.struct_name() != name) return false;
+        auto p = t.pkg_name();
+        return p.empty() || p == pkg;
+    }
+    // Smart-pointer kind of a CONCRETE Rc<T>/Arc<T>/Box<T> struct value (the
+    // SOURCE of a `as Rc<dyn>` unsize cast), or Borrow if not a smart pointer.
+    static TypeRef::OwningKind stdlib_smart_ptr_kind(TypeRef t) noexcept {
+        if (is_stdlib_smart_ptr(t, "Box", "logos.mem.boxed")) return TypeRef::OwningKind::Box;
+        if (is_stdlib_smart_ptr(t, "Rc",  "logos.mem.rc"))    return TypeRef::OwningKind::Rc;
+        if (is_stdlib_smart_ptr(t, "Arc", "logos.mem.sync"))  return TypeRef::OwningKind::Arc;
+        return TypeRef::OwningKind::Borrow;
     }
 
     // ── Function type from LFunction ─────────────────────────────
@@ -726,7 +740,7 @@ private:
     // guarded): load data(field0)+vtable(field1); call vtable[0](data)
     // (drop_in_place runs the concrete's destructor + its owned fields);
     // free(data) (the boxed concrete); free(handle) (the fat slot).
-    void gen_drop_owning_dyn_handle(mlir::Value handle);
+    void gen_drop_owning_dyn_handle(mlir::Value handle, TypeRef::OwningKind kind);
     // Codegen-side "does a value of this type own anything droppable" — mirrors
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.

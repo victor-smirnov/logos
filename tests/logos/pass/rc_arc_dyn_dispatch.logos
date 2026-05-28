@@ -1,0 +1,18 @@
+// Rc<dyn Trait> / Arc<dyn Trait> via CoerceUnsized: the unsize cast builds the
+// {data, vtable} fat pair (data = &RcInner.val); dispatch goes through the
+// shared vtable (slot index +3 past drop/size/align); drop decrements the
+// strong count and frees the whole RcInner at the last reference (Arc: atomic).
+package test;
+use logos.mem.rc;
+use logos.mem.sync;
+use logos.mem.string;
+trait Sp { fn v(&self) -> i64; }
+struct A { name: String, x: i64 }     // String → drop_in_place must free it
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+struct B { x: i32 }
+impl Sp for B { fn v(&self) -> i64 { return self.x as i64; } }
+fn main() -> i32 {
+    let r: Rc<dyn Sp>  = rc_new(A { name: String::from("hi"), x: 30 }) as Rc<dyn Sp>;
+    let a: Arc<dyn Sp> = arc_new(B { x: 12 }) as Arc<dyn Sp>;
+    return (r.v() + a.v()) as i32;     // 30 + 12 = 42; both drop cleanly
+}

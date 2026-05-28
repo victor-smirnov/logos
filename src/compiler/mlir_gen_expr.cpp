@@ -2746,31 +2746,41 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // that path here: unwrap a Box<T> to its inner concrete T for the vtable key,
     // pass the box value as the data pointer, and build the fat handle.
     if (target == ptr_type() && op_le->type &&
-        is_stdlib_box(op_le->type) &&
+        stdlib_smart_ptr_kind(op_le->type) != TypeRef::OwningKind::Borrow &&
         TypeRef(op_le->type).type_args().size() == 1) {
+        auto sp_kind = stdlib_smart_ptr_kind(op_le->type);
         TypeRef tgt_to(type);
         if (tgt_to.kind() == LogosType::Kind::Ptr && tgt_to.pointee())
             tgt_to = tgt_to.pointee();
         TypeRef boxed = TypeRef(op_le->type).type_args()[0];
-        // A dyn-payload box (`Box<dyn>`) is already a handle — don't re-wrap.
+        // A dyn-payload smart pointer is already a handle — don't re-wrap.
         if (tgt_to && tgt_to.kind() == LogosType::Kind::TraitObject &&
             boxed && TypeRef(boxed).kind() != LogosType::Kind::TraitObject) {
-            // Box<T> is `{ *mut T }`. The trait object's data pointer is the box's
-            // heap pointer (field 0). Extract it (val may be the box struct VALUE
-            // — box_new returns by value — or a pointer to it), then build the fat
-            // handle keyed on the concrete boxed type T.
-            mlir::Value data_ptr;
+            // Field 0 of the smart pointer: Box<T> = {*mut T} (field0 IS data);
+            // Rc<T>/Arc<T> = {*mut RcInner<T>} (field0 is the box; data = &val =
+            // box + offsetof(val) = box + round_up(4, align(T)), since
+            // RcInner = {i32 strong/AtomicI32, T val}).
+            mlir::Value field0;
             if (val.getType() == ptr_type()) {
                 auto bt = struct_types_.find(concrete_struct_name(op_le->type));
-                mlir::Type box_ty = bt != struct_types_.end() ? bt->second.llvm_type
+                mlir::Type sp_ty = bt != struct_types_.end() ? bt->second.llvm_type
                     : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {ptr_type()});
                 llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
-                auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), box_ty, val, gi);
-                data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+                auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sp_ty, val, gi);
+                field0 = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
             } else {
-                // SSA struct value: field 0 is the heap data pointer.
-                data_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(
+                field0 = builder_.create<mlir::LLVM::ExtractValueOp>(
                     loc_, val, llvm::ArrayRef<int64_t>{0});
+            }
+            mlir::Value data_ptr;
+            if (sp_kind == TypeRef::OwningKind::Box) {
+                data_ptr = field0;
+            } else {
+                uint64_t align = layout_of(boxed).align ? layout_of(boxed).align : 1;
+                uint64_t off = (4 + align - 1) & ~(align - 1);  // offsetof(val) in RcInner
+                llvm::SmallVector<mlir::LLVM::GEPArg> oi{int32_t(off)};
+                data_ptr = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), builder_.getI8Type(), field0, oi);
             }
             std::string src_struct =
                 (TypeRef(boxed).kind() == LogosType::Kind::Struct ||
@@ -2778,12 +2788,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                     ? concrete_struct_name(boxed)
                     : type_str(boxed);
             std::string trait = std::string(tgt_to.trait_name());
-            // Owning Box<dyn> = VALUE fat-pair {data,vtable} (like &dyn, but
-            // droppable). data is the heap-owned boxed concrete; the pair is
-            // stored inline (no extra 8-byte heap handle). Its drop runs
-            // vtable[0] drop_in_place(data) + free(data) — see gen_drop_value's
-            // owning-TraitObject branch. heap=false ⇒ inline value, consistent
-            // wherever the Box<dyn> is stored (local / field / return / Vec).
+            // Owning smart-pointer dyn = VALUE fat-pair {data,vtable} (like &dyn,
+            // but droppable). data = the concrete object; vtable[0..2] = drop /
+            // size / align. heap=false ⇒ inline value (no extra handle); drop is
+            // kind-specific (Box→free(data); Rc/Arc→dec strong + free RcInner) —
+            // see gen_drop_owning_dyn_handle.
             if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, /*heap=*/false, boxed)) return alloca;
         }
     }
