@@ -2756,12 +2756,17 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         if (!elem_mlir) elem_mlir = ptr_type();
         // Aggregate (struct/tuple/enum lowers to a struct/ptr): bind the slot
         // pointer directly. Scalars: load + store into a fresh/shared alloca.
-        bool aggregate = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
-            TypeRef(ty).kind() == LogosType::Kind::ZonedStruct ||
-            TypeRef(ty).kind() == LogosType::Kind::Tuple);
+        bool is_struct = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+            TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+        bool aggregate = is_struct || (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple);
         if (aggregate) {
             scope_[name] = slot_ptr;
             let_vars_.insert(name);
+            // Track struct shape so `name.field` GEPs through the bound place
+            // (matches extract_payload / gen_match's struct-element bind); a
+            // bare scope_ entry without var_struct_ makes field access read
+            // garbage (the G151-1-class silent miscompile).
+            if (is_struct) var_struct_[name] = mlir_struct_key(ty);
             return;
         }
         auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, slot_ptr);
