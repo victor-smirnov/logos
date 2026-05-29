@@ -579,12 +579,19 @@ private:
     TypeRef make_dst_ref(std::string_view struct_name,
                          std::string_view pkg_name,
                          bool is_mut,
-                         std::vector<TypeRef> type_args = {}) {
+                         std::vector<TypeRef> type_args = {},
+                         TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::DstRef;
         t.struct_name = std::string(struct_name);
         t.pkg_name = std::string(pkg_name);
         t.mut_ptr = is_mut;
         t.type_args = std::move(type_args);
+        // Owning `Box<Foo>` custom-DST — same fat {data,len} layout + field/tail
+        // access as a borrowed `&Foo`, but move-only + droppable (drop the tail
+        // elements + prefix fields, then free the heap block). Rides in const_val
+        // like Slice/TraitObject owning kinds.
+        if (owning != TypeRef::OwningKind::Borrow)
+            t.const_val = int64_t(uint8_t(owning));
         return pool_->alloc(std::move(t));
     }
     // Phase 1B-15: recursive sema-side ABI byte-size computation. Mirrors

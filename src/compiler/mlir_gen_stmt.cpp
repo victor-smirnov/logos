@@ -329,6 +329,8 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     // An owning `Box<[T]>` slice owns its heap buffer (free it; drop elements);
     // a borrowed `&[T]` is not droppable. Distinguished by the slice owning bit.
     if (k == K::Slice) return TypeRef(ty).owning_slice();
+    // An owning `Box<Foo>` custom-DST owns its heap block; a borrowed `&Foo` not.
+    if (k == K::DstRef) return TypeRef(ty).owning_dst();
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
         if (!resolve_method_symbol(name, "drop").empty()) return true;
@@ -473,6 +475,102 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
     builder_.setInsertionPointToStart(cont_blk);
 }
 
+void MLIRGenImpl::gen_drop_owning_dst(mlir::Value dst_ptr, TypeRef ty) {
+    using K = LogosType::Kind;
+    if (!dst_ptr) return;
+    auto stype = slice_llvm_type();   // DstRef value = {data, len} (slice repr)
+    // A DstRef local is an alloca-binding (logos_to_mlir(DstRef)=ptr): `dst_ptr`
+    // is an alloca holding the DstRef VALUE, which is a pointer to the 16-byte
+    // {data,len} storage. Load once to reach that storage. (A by-VALUE fat pair
+    // in SSA is spilled instead.)
+    if (dst_ptr.getType() == stype) {
+        dst_ptr = spill_to_alloca(dst_ptr);
+    } else if (dst_ptr.getType() == ptr_type()) {
+        dst_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dst_ptr);
+    }
+    if (dst_ptr.getType() != ptr_type()) return;
+    auto i64_t = builder_.getI64Type();
+    llvm::SmallVector<mlir::LLVM::GEPArg> i0{int32_t(0), int32_t(0)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> i1{int32_t(0), int32_t(1)};
+    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
+        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, dst_ptr, i0));
+    auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, i64_t,
+        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, dst_ptr, i1));
+    auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    auto nn = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, data, null);
+    auto* region   = builder_.getBlock()->getParent();
+    auto* then_blk = new mlir::Block();   // data != null: drop members
+    auto* free_blk = new mlir::Block();   // free the heap block
+    auto* cont_blk = new mlir::Block();
+    region->push_back(then_blk);
+    region->push_back(free_blk);
+    region->push_back(cont_blk);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
+    builder_.setInsertionPointToStart(then_blk);
+
+    // `data` points at the struct base (prefix fields at their layout offsets,
+    // the tail slice at the last field). Drop droppable prefix fields + tail
+    // elements; control then reaches free_blk which releases the whole block.
+    std::string name(TypeRef(ty).struct_name());
+    auto sdit = all_struct_defs_.find(name);
+    auto sit  = struct_types_.find(name);
+    if (sdit != all_struct_defs_.end() && sit != struct_types_.end() &&
+        !sdit->second->fields.empty()) {
+        auto& def  = *sdit->second;
+        auto& info = sit->second;
+        size_t last = def.fields.size() - 1;
+        for (size_t i = 0; i < last; ++i) {
+            TypeRef ft(def.fields[i].type);
+            if (!ft) continue;
+            auto fk = TypeRef(ft).kind();
+            if (fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
+            if (!value_needs_drop(ft)) continue;
+            if (auto fp = gep_field(data, info, std::string(def.fields[i].name)))
+                gen_drop_value(fp, ft);
+        }
+        // Tail: last field is the unsized slice; drop its elements (runtime len).
+        TypeRef tailt(def.fields[last].type);
+        TypeRef et = tailt ? TypeRef(tailt).elem() : TypeRef{};
+        if (et && value_needs_drop(et)) {
+            if (auto base = gep_field(data, info, std::string(def.fields[last].name))) {
+                uint64_t stride = layout_of(et).size; if (!stride) stride = 1;
+                auto strideC = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)stride, 64);
+                auto* cond_blk = new mlir::Block();
+                auto* body_blk = new mlir::Block();
+                cond_blk->addArgument(i64_t, loc_);
+                region->push_back(cond_blk);
+                region->push_back(body_blk);
+                auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+                builder_.create<mlir::cf::BranchOp>(loc_, cond_blk, mlir::ValueRange{zero});
+                builder_.setInsertionPointToStart(cond_blk);
+                auto iv = cond_blk->getArgument(0);
+                auto ltc = builder_.create<mlir::LLVM::ICmpOp>(
+                    loc_, mlir::LLVM::ICmpPredicate::slt, iv, len);
+                builder_.create<mlir::cf::CondBranchOp>(
+                    loc_, ltc, body_blk, mlir::ValueRange{}, free_blk, mlir::ValueRange{});
+                builder_.setInsertionPointToStart(body_blk);
+                auto off = builder_.create<mlir::arith::MulIOp>(loc_, iv, strideC);
+                llvm::SmallVector<mlir::LLVM::GEPArg> ei{off.getResult()};
+                auto ep = builder_.create<mlir::LLVM::GEPOp>(
+                    loc_, ptr_type(), builder_.getI8Type(), base, ei);
+                gen_drop_value(ep, et);
+                auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+                auto inc = builder_.create<mlir::arith::AddIOp>(loc_, iv, one);
+                builder_.create<mlir::cf::BranchOp>(loc_, cond_blk, mlir::ValueRange{inc.getResult()});
+            }
+        }
+    }
+    // Whatever member-drop path we took, fall through to free (unless the tail
+    // loop already wired its exit straight to free_blk).
+    if (!is_terminated(builder_.getBlock()))
+        builder_.create<mlir::cf::BranchOp>(loc_, free_blk);
+    builder_.setInsertionPointToStart(free_blk);
+    call_free(data);
+    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    builder_.setInsertionPointToStart(cont_blk);
+}
+
 void MLIRGenImpl::gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty) {
     if (!slice_ptr) return;
     auto stype = slice_llvm_type();   // { ptr, i64 }
@@ -611,6 +709,12 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     if (k == K::Slice) {
         if (TypeRef(ty).owning_slice())
             gen_drop_owning_slice(value_ptr, ty);
+        return;
+    }
+    // Owning `Box<Foo>` custom-DST: drop prefix fields + tail elements + free.
+    if (k == K::DstRef) {
+        if (TypeRef(ty).owning_dst())
+            gen_drop_owning_dst(value_ptr, ty);
         return;
     }
     // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
@@ -877,6 +981,9 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             // Owning `Box<[T]>` fat slice: it->second points at {data,len}.
             // Drop elements (if droppable) + free the heap buffer.
             gen_drop_owning_slice(it->second, st);
+        } else if (k == K::DstRef && st.owning_dst()) {
+            // Owning `Box<Foo>` custom-DST: drop prefix fields + tail + free.
+            gen_drop_owning_dst(it->second, st);
         }
     }
     };  // end emit_body

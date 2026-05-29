@@ -1,0 +1,22 @@
+package test;
+use logos.mem.boxed;
+use logos.lang.mem;
+
+struct Noisy { p: *mut i64 }
+impl Drop for Noisy { fn drop(self: Noisy) { unsafe { self.p[0] = self.p[0] + 1; } } }
+
+struct Buf { hdr: i64, tail: [Noisy] }
+
+unsafe fn main() -> i32 {
+    let mut count: i64 = 0;
+    let cp: *mut i64 = &mut count as *mut i64;
+    // layout: hdr(i64,8) at 0; tail[Noisy] at 8, each 8 bytes (a ptr). 2 elems.
+    let raw: *mut u8 = alloc(8 + 16) as *mut u8;
+    let hp: *mut i64 = raw as *mut i64; hp[0] = 0 as i64;        // hdr
+    let t0: *mut i64 = raw.byte_add(8) as *mut i64;  t0[0] = cp as i64;
+    let t1: *mut i64 = raw.byte_add(16) as *mut i64; t1[0] = cp as i64;
+    {
+        let bb: Box<Buf> = dst_from_raw_parts::<Buf>(raw as *const u8, 2 as i64) as Box<Buf>;
+    }   // drop bb → drop 2 Noisy tail elems (count+=2) + free
+    return count as i32;   // 2
+}

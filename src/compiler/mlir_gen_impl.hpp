@@ -785,6 +785,10 @@ private:
     // Drop an owning `Box<[T]>` fat slice: drop each element (runtime loop, if T
     // is droppable) then free the heap buffer. `slice_ptr` points at {data,len}.
     void gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty);
+    // Drop an owning `Box<Foo>` custom-DST: drop droppable prefix fields + tail
+    // elements (runtime loop over the fat-pointer length) then free the block.
+    // `dst_ptr` points at the {data,len} fat pair (DstRef value = slice repr).
+    void gen_drop_owning_dst(mlir::Value dst_ptr, TypeRef ty);
     // Rc<dyn>/Arc<dyn>.clone(): bump strong (at data − round_up(4, vtable.align);
     // atomic for Arc) and return a copy of the {data,vtable} fat pair.
     mlir::Value gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t);

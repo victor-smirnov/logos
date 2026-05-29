@@ -233,6 +233,17 @@ public:
     bool owning_slice() const noexcept {
         return slice_owning_kind() != OwningKind::Borrow;
     }
+    // Owning kind of a custom-DST ref — `Box<Foo>` (Foo a tail-slice struct)
+    // collapses to an owning DstRef (OwningKind::Box): same fat {data,len}
+    // layout/access as `&Foo`, but move-only + droppable. Borrow for `&Foo`.
+    OwningKind dst_owning_kind() const noexcept {
+        if (kind() != LogosType::Kind::DstRef) return OwningKind::Borrow;
+        auto cv = const_val();
+        return cv ? OwningKind(uint8_t(*cv)) : OwningKind::Borrow;
+    }
+    bool owning_dst() const noexcept {
+        return dst_owning_kind() != OwningKind::Borrow;
+    }
     uint64_t arr_size() const noexcept {
         auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
         if (av.is_null()) return 0;

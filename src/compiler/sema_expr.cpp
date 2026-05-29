@@ -2019,6 +2019,17 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             if (TypeRef(vt).kind() == LogosType::Kind::Slice && TypeRef(vt).owning_slice())
                 return builder().addr_of(std::string(var_name),
                                          make_slice_type(TypeRef(vt).elem(), TypeRef(vt).mut_ptr()));
+            // &Box<Foo> → borrowed &Foo (Deref coercion). The owning DstRef VALUE
+            // is already a reference (a ptr to the {data,len}); borrowing it = the
+            // same value, re-typed non-owning. The DstRef local is an alloca-
+            // binding, so read its value (var_ref loads) — NOT its address.
+            if (TypeRef(vt).kind() == LogosType::Kind::DstRef && TypeRef(vt).owning_dst()) {
+                auto a = TypeRef(vt).type_args();
+                return builder().var_ref(std::string(var_name),
+                    make_dst_ref(TypeRef(vt).struct_name(), TypeRef(vt).pkg_name(),
+                                 TypeRef(vt).mut_ptr(),
+                                 std::vector<TypeRef>(a.begin(), a.end())));
+            }
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }
         // `&*ptr` — pointer/ref identity peephole (see ADDR_OF_MUT

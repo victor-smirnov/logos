@@ -825,6 +825,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_str(buf, t.pkg_name);
         put_str(buf, t.struct_name);
         put_byte(buf, t.mut_ptr ? 1 : 0);
+        // const_val = owning kind (Borrow vs Box) — an owning `Box<Foo>` custom-
+        // DST interns distinctly from a borrowed `&Foo`.
+        put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
     case K::Closure:
@@ -958,6 +961,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
         return t.struct_name == r.struct_name() &&
                t.pkg_name == r.pkg_name() &&
                t.mut_ptr == r.mut_ptr() &&
+               t.const_val == r.const_val() &&   // owning kind (Borrow/Box)
                vec_ptr_eq(t.type_args, r.type_args());
     case K::Closure:
     case K::FnPtr:
@@ -2277,6 +2281,8 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
         // a borrowed `&[T]` is Copy-like (not a move type).
         if (TypeRef(x).owning_slice()) return true;
+        // An owning `Box<Foo>` custom-DST is heap-owned (non-Copy) → move type.
+        if (TypeRef(x).owning_dst()) return true;
         // TypeVar — generic body. We don't know if T resolves to a Copy or move
         // type at sema; treat as move (conservative). If T resolves to Copy at
         // mono, the suppressed scope-exit drop is harmless (Copy has no Drop). If
@@ -2428,6 +2434,8 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     // An owning `Box<[T]>` slice owns its heap buffer (free + element drops);
     // a borrowed `&[T]` is not droppable.
     if (TypeRef(t).owning_slice()) return true;
+    // An owning `Box<Foo>` custom-DST owns its heap block — droppable.
+    if (TypeRef(t).owning_dst()) return true;
     // G158-4: an array `[T; N]` owns its elements — droppable if the element is.
     if (TypeRef(t).kind() == LogosType::Kind::Array)
         return member_droppable(TypeRef(t).elem());
@@ -4585,6 +4593,23 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 if (inner && TypeRef(inner).kind() == LogosType::Kind::UnsizedSlice &&
                     TypeRef(inner).elem() && sp_kind == TypeRef::OwningKind::Box)
                     return make_slice_type(TypeRef(inner).elem(), /*is_mut=*/false, sp_kind);
+                // `Box<Foo>` where Foo is a custom-DST tail-slice struct — heap-
+                // owned unsized struct. Collapse to an OWNING DstRef {data,len}:
+                // same fat layout + field/tail access as `&Foo`, move-only,
+                // droppable (drop tail+prefix, free block). Mirrors Box<[T]>.
+                if (inner && sp_kind == TypeRef::OwningKind::Box &&
+                    (TypeRef(inner).kind() == LogosType::Kind::Struct ||
+                     TypeRef(inner).kind() == LogosType::Kind::ZonedStruct)) {
+                    auto [ipkg, issi] = find_struct_by_name(
+                        std::string(TypeRef(inner).struct_name()));
+                    if (issi && issi->is_dst) {
+                        auto ia = TypeRef(inner).type_args();
+                        return make_dst_ref(TypeRef(inner).struct_name(),
+                                            TypeRef(inner).pkg_name(), /*is_mut=*/false,
+                                            std::vector<TypeRef>(ia.begin(), ia.end()),
+                                            sp_kind);
+                    }
+                }
             }
         }
     }
