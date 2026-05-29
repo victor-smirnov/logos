@@ -4087,6 +4087,17 @@ int main(int argc, char** argv) {
     prog = logos::compiler::reflection_emit(std::move(prog));
     report("reflection_emit");
 
+    // ── Step 2b++: PRE-mono borrow check (P2-10) ─────────────────
+    // Monomorphization drops generic templates (replacing them with concrete
+    // specializations), so a generic fn that is NEVER instantiated would never
+    // be borrow-checked. Run the borrow checker on the pre-mono program too so
+    // generic bodies are checked directly (Rust parity); move tracking is
+    // imprecise on TypeVars so this runs exclusivity-only — concrete moves are
+    // checked on the monomorphized specializations by the post-mono pass.
+    prog = logos::compiler::borrow_check(std::move(prog), /*generic_templates_only=*/true);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return 1;
+
     // ── Step 2c: Monomorphization (also emits L-IR Hermes mirror) ─
     {
         logos::compiler::MonoOpts mopts;

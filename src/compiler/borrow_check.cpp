@@ -281,6 +281,9 @@ class BorrowChecker {
     std::unordered_map<std::string, uint32_t> last_use_line_;
 
     void report(uint32_t line, std::string msg) {
+        // P2-10 exclusivity-only mode: drop move/use-after-move diagnostics
+        // (imprecise for generic templates); keep borrow-conflict ones.
+        if (exclusivity_only_ && msg.find("moved") != std::string::npos) return;
         Diag d;
         d.level   = Diag::Level::Error;
         d.context = fn_name_;
@@ -1625,8 +1628,17 @@ class BorrowChecker {
 
 public:
     BorrowChecker(SemaResult& diags, std::string fn_name,
-                  const lir::LProgram& prog, const TypeSets& ts)
-        : diags_(diags), fn_name_(std::move(fn_name)), prog_(prog), ts_(ts) {}
+                  const lir::LProgram& prog, const TypeSets& ts,
+                  bool exclusivity_only = false)
+        : diags_(diags), fn_name_(std::move(fn_name)), prog_(prog), ts_(ts),
+          exclusivity_only_(exclusivity_only) {}
+    // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
+    // tracking is imprecise (TypeVar values + generic method-call move
+    // semantics → false positives like a spurious "use of moved 'out'"). In
+    // that mode we report only borrow-exclusivity conflicts (which are sound
+    // without concrete types) and suppress move-related diagnostics — the
+    // concrete moves are fully checked on the monomorphized specializations.
+    bool exclusivity_only_ = false;
 
     void check(const LFunction& fn) {
         states_.clear();
@@ -2069,13 +2081,22 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
 // ── Pass entry point ────────────────────────────────────────────────────────
 
-lir::LProgram borrow_check(lir::LProgram prog) {
+lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     const TypeSets ts = build_type_sets(prog);
 
     auto check = [&](const LFunction& fn) {
         if (fn.is_extern)             return;
-        if (!fn.type_params.empty())  return;
-        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)), prog, ts).check(fn);
+        bool is_generic = !fn.type_params.empty();
+        // P2-10: a dedicated PRE-mono pass (generic_templates_only) checks generic
+        // fn bodies directly — so a generic that is never instantiated (no
+        // specialization) is still borrow-checked (Rust parity). It runs in
+        // exclusivity-only mode (move tracking is imprecise on TypeVars) and skips
+        // region inference (also imprecise on generics). The normal POST-mono pass
+        // checks concrete fns + specializations and ignores any leftover generics.
+        if (generic_templates_only != is_generic) return;
+        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)),
+                      prog, ts, /*exclusivity_only=*/generic_templates_only).check(fn);
+        if (generic_templates_only) return;   // skip region inference for generics
         // B72: region-based borrow conflict check. Runs alongside the
         // B61 min-viable NLL — both contribute diagnostics. min-viable
         // catches the simple lexical-scope cases; region inference
@@ -2118,6 +2139,24 @@ lir::LProgram borrow_check(lir::LProgram prog) {
     for (auto& fn : prog.specializations) check(*fn);
     for (auto& sd : prog.structs)
         for (auto& m : sd.methods)        check(*m);
+
+    // P2-10: a generic template and each of its monomorphizations are checked
+    // separately and report the SAME borrow error (same context/line/message —
+    // `bare_fn_name` strips the mono suffix). De-duplicate identical diagnostics
+    // so the user sees one error, not one per instantiation.
+    {
+        auto& ds = prog.diags.diags;
+        std::vector<Diag> uniq;
+        uniq.reserve(ds.size());
+        std::unordered_set<std::string> seen;
+        for (auto& d : ds) {
+            std::string key = std::to_string((int)d.level) + "\x1f" +
+                              std::to_string(d.line) + "\x1f" + d.context +
+                              "\x1f" + d.message;
+            if (seen.insert(key).second) uniq.push_back(std::move(d));
+        }
+        ds = std::move(uniq);
+    }
 
     return prog;
 }

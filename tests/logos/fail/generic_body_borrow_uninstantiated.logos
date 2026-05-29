@@ -1,0 +1,13 @@
+// P2-10: a generic fn body is borrow-checked directly (Rust parity), so a borrow
+// error is caught even though this generic is NEVER instantiated — monomorphization
+// would otherwise drop it unchecked. Exclusivity (two `&mut x`) needs no concrete
+// type, so it's caught in the pre-mono exclusivity-only pass.
+package generic_body_borrow_uninstantiated;
+fn use2(a: &mut i64, b: &mut i64) -> i64 { return *a + *b; }
+fn never_called<T>(unused: T) -> i64 {
+    let mut x: i64 = 0i64;
+    let a: &mut i64 = &mut x;
+    let b: &mut i64 = &mut x;   // ERROR: x already mutably borrowed
+    return use2(a, b);
+}
+fn main() -> i32 { return 0i32; }   // never_called is never instantiated
