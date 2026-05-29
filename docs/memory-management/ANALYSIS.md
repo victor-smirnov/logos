@@ -194,8 +194,10 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 10. 🐞 Generic fn bodies not borrow-checked (only monomorphizations are).
 11. 🐞 No index/slice element-level borrow/exclusivity; `&mut [T]` mutability not
     type-tracked (B6: `&[T]`/`&mut [T]` share `Kind::Slice`).
-12. ⚠️ borrow-check `is_move_type` Struct-only → missing use-after-move diagnostics
-    for moved tuples/enums/arrays.
+12. ✅ borrow-check `is_move_type` widened to tuple/enum/array (`4d909afe`):
+    move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
+    now rejected (was a dangling-ref gap; whole-value use-after-move was already
+    caught by sema). Recurses structurally, gated on not-Copy.
 13. 🐞 closure-capture-mode (Fn/FnMut/FnOnce) exclusivity not enforced.
 14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
     double-free guard); a non-droppable elem is accepted (sound — effectively a
