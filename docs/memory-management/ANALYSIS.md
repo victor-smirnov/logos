@@ -192,23 +192,16 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 
 **P2 — soundness/diagnostic gaps (OPEN):**
 10. 🐞 Generic fn bodies not borrow-checked (only monomorphizations are).
-11. 🐞 No index/slice element-level borrow/exclusivity; `&mut [T]` mutability not
-    type-tracked (B6: `&[T]`/`&mut [T]` share `Kind::Slice`). ATTEMPTED 2026-05-29,
-    REVERTED. Foundation works (add `mut_ptr` to the Slice type + its TypeUID,
-    `make_slice_type(elem, is_mut)`, preserve in subst, `types_compatible` allows
-    `&mut[T]`→`&[T]` downgrade & rejects the reverse; L2-green, method resolution
-    is kind-based so identity change is transparent). **The parser is NOT the
-    blocker** (a first guess was wrong): `&mut [T]` in BOTH param and annotation
-    position resolves through the `SLICE_TYPE` branch with `mut=1` — verified by
-    path markers (`&mut[i32]` → SLICE_TYPE mut=1; `&[i64]` → mut=0; MUTPTR present
-    on the param's node). BLOCKER: the free-fn `SemaFuncInfo` param type still
-    reaches the call-arg check as `mut=0` even though `resolve_type` returned
-    `mut=1` for that param — so the signature the call reads is built via a SECOND
-    param-resolution path that drops the bit (candidate: `decl_param_types`
-    `sema_decl.cpp:300`, or a `make_slice_type(elem)` site omitting mut such as
-    `sema_impl.hpp:346`). Next: unify free-fn param-type resolution onto the
-    mut-carrying path, then add the index-write-through-shared-slice rejection.
-    A focused sema (NOT parser) sub-project.
+11. ✅ `&mut [T]` vs `&[T]` mutability type-tracked (B6) — DONE (`c971c97f`).
+    Slice carries the `mut_ptr` bit; writing through a shared `&[T]` and passing
+    `&[T]` where `&mut [T]` is expected are rejected; `&mut [T]`→`&[T]` downgrade
+    allowed. ROOT CAUSE of the earlier failed attempt: the type-arena serializer
+    persisted `mut_ptr` only for Ptr/DstRef (not Slice), so a fresh `&mut [T]`
+    read back as shared — NOT a parser issue (the earlier note was a misdiagnosis;
+    the fix threads mut through serialize + TypeUID + type-equality + subst +
+    coercion + place-writability). Still open: index/slice ELEMENT-level borrow/
+    exclusivity (`arr[i]` aliasing); `let m: &mut [T] = &mut arr;` array-ref→
+    mut-slice coercion at a let binding (works as a call arg).
 12. ✅ borrow-check `is_move_type` widened to tuple/enum/array (`4d909afe`):
     move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
     now rejected (was a dangling-ref gap; whole-value use-after-move was already
