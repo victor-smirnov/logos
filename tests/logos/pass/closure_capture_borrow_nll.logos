@@ -1,0 +1,16 @@
+// P2-13: a read-only (shared) capture does not block reads, and a `&mut` capture
+// is released at the closure's last use (NLL) — so using the variable AFTER the
+// closure's last call is allowed.
+package closure_capture_borrow_nll;
+fn main() -> i32 {
+    let r: i64 = 5i64;
+    let g = || -> i64 { return r + 1i64; };  // shared capture
+    let a: i64 = r;                           // read alongside shared capture: OK
+    let s: i64 = g();
+
+    let mut x: i64 = 1i64;
+    let f = || { x = x + 1i64; };             // &mut capture
+    f();                                       // last use of f
+    let z: i64 = x;                            // after f's last use (NLL): OK
+    return (a + s + z) as i32;                 // 5 + 6 + 2 = 13
+}

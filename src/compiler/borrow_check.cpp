@@ -988,6 +988,27 @@ class BorrowChecker {
                 take_ref_borrows(v.result(), line, holder);
                 break;
             }
+            // P2-13: a non-`move` closure that MUTATES a capture holds a `&mut`
+            // borrow of it for the closure's lifetime — registering that borrow
+            // with the closure's holder ties release to its last use (NLL), so
+            // the exclusivity machinery rejects e.g. reading/`&mut`-ing `x` while
+            // a `x`-mutating closure is still live. A SHARED (read) capture is
+            // left as a liveness check only: Logos captures a whole variable
+            // (not a precise field path), so a whole-var shared borrow would
+            // wrongly block RFC-2229 disjoint sibling mutation (`|| p.x` next to
+            // `&mut p.y`). A `move` closure takes ownership — no borrow.
+            case Code::ClosureBox: {
+                EClosureBoxView cb{e};
+                uint64_t i = 0;
+                cb.each_capture_name([&](std::string_view cap) {
+                    if (!cb.is_move() && cb.capture_is_mut(i))
+                        take_borrow(std::string(cap), /*is_mut=*/true, line, holder);
+                    else
+                        check_live(std::string(cap), line);
+                    ++i;
+                });
+                break;
+            }
             default:
                 // EVarRef (ref param forwarded), ECall, EMethodCall, etc.
                 visit(e, /*consuming=*/true, line);
@@ -1354,7 +1375,11 @@ class BorrowChecker {
                 auto val = v.value();
                 auto t   = v.type(pool);
                 std::string name(v.name());
-                if (val && is_ref_kind(t)) {
+                // P2-13: a closure binding routes through take_ref_borrows too,
+                // so its by-ref captures register as borrows held by `name` (the
+                // closure var) — released at the closure's last use (NLL).
+                bool is_closure_t = t && t.kind() == LogosType::Kind::Closure;
+                if (val && (is_ref_kind(t) || is_closure_t)) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);

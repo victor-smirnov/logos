@@ -1,0 +1,11 @@
+// P2-13: a closure that mutates a captured variable holds an exclusive (`&mut`)
+// borrow of it for the closure's lifetime — using the variable while the
+// closure is still live is rejected (Fn/FnMut capture-mode exclusivity).
+package closure_mut_capture_use;
+fn main() -> i32 {
+    let mut x: i64 = 1i64;
+    let f = || { x = x + 1i64; };   // captures &mut x
+    let y: i64 = x;                 // ERROR: use `x` while mutably borrowed by f
+    f();
+    return y as i32;
+}
