@@ -1,0 +1,13 @@
+// P2-12: a tuple/enum/array carrying a move-typed element (here `String`) is a
+// MOVE type — moving it while it is borrowed must be rejected (dangling ref).
+// Previously borrow-check's `is_move_type` was Struct-only, so the tuple was
+// mistaken for Copy and the move-while-borrowed went undetected.
+package move_tuple_while_borrowed;
+use logos.mem.string;
+fn use_r(r: &(String, i64)) -> i64 { return r.1; }
+fn main() -> i32 {
+    let t: (String, i64) = (String::from("x"), 1i64);
+    let r: &(String, i64) = &t;
+    let u: (String, i64) = t;       // ERROR: cannot move `t` while borrowed by `r`
+    return use_r(r) as i32;
+}

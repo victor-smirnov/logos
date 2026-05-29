@@ -98,10 +98,40 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
     return check(prog.structs) || check(prog.struct_specializations);
 }
 
+// A value is a "move type" for borrow-check purposes (consuming it invalidates
+// the source, and it can't be moved while borrowed) when it owns droppable
+// resources and isn't Copy. P2-12: this was Struct-only, so a tuple / array /
+// enum carrying a move element (e.g. `(String, i64)`) was treated as Copy →
+// move-while-borrowed and consume tracking silently skipped (a dangling-ref
+// soundness gap). Now recurses structurally to match the value's real ownership.
 static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
-    if (!t || t.kind() != LogosType::Kind::Struct) return false;
-    if (!needs_drop(t, prog, ts)) return false;
-    return !ts.copy_types.count(std::string(t.struct_name()));
+    using K = LogosType::Kind;
+    if (!t) return false;
+    switch (t.kind()) {
+    case K::Struct:
+        return needs_drop(t, prog, ts) &&
+               !ts.copy_types.count(std::string(t.struct_name()));
+    case K::Tuple:
+        for (auto e : t.tuple_elems()) if (is_move_type(e, prog, ts)) return true;
+        return false;
+    case K::Array:
+        return is_move_type(t.elem(), prog, ts);
+    case K::Enum: {
+        std::string en(t.enum_name());
+        if (ts.copy_types.count(en)) return false;     // explicitly Copy enum
+        if (ts.drop_types.count(en)) return true;       // has a Drop impl
+        for (auto& ed : prog.enums) {                   // any move-typed payload
+            if (ed.name != en) continue;
+            for (auto& v : ed.variants)
+                for (auto& pt : v.payload_types)
+                    if (is_move_type(pt, prog, ts)) return true;
+            return false;
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
 }
 
 // ── Variable state ───────────────────────────────────────────────────────────
