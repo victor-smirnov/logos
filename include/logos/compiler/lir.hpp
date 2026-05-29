@@ -677,6 +677,15 @@ struct EClosure {
     // off the same root are read, the recorded path is their lowest common
     // ancestor (still sound; widening allows disjoint where Rust does).
     std::vector<std::string>        capture_paths;
+    // RFC-2229 phase-2 (move-precision): for a narrow capture path (e.g. "p.x"),
+    // the TYPE of the path itself (the field) — distinct from capture_types[i]
+    // which is the ROOT type. When set, the env-slot for this capture is
+    // field-sized (not root-sized), the env-fill reads from the outer struct's
+    // FIELD slot (move only `p.x`, leave `p.y` intact), and the body's unpack
+    // materialises a fake root struct populated only at this field path so the
+    // body's FieldRead(root, …) chain works. nullptr (default) = whole-root
+    // capture, current behaviour. Parallel to `captures`.
+    std::vector<TypeRef>            capture_field_types;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
     // G167-3b: the closure value escapes its creating frame (it is BOXED —

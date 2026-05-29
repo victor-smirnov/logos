@@ -3532,6 +3532,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->capture_paths.resize(nc->captures.size());
             for (size_t i = 0; i < nc->captures.size(); ++i)
                 nc->capture_paths[i] = std::string(v.capture_path(i));
+            // RFC-2229 phase-2: carry per-capture FIELD TYPE (narrow paths) too.
+            nc->capture_field_types.resize(nc->captures.size());
+            for (size_t i = 0; i < nc->captures.size(); ++i) {
+                auto ft = v.capture_field_type(out_.type_pool.impl(), i);
+                nc->capture_field_types[i] = ft ? subst_type(ft, s) : TypeRef{};
+            }
             result->mirror_offset_ = lir_mirror_emit_closure_box(
                 out_, result->type, nc);
             break;

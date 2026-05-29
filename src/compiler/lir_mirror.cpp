@@ -1497,6 +1497,16 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
             put(map_off, ck::CAPTURE_PATHS, hermes::AnyVal::from_offset(p_off));
         }
     }
+    // RFC-2229 phase-2: per-capture FIELD type (when narrow). Emit only when at
+    // least one entry is non-null (whole-root closures keep schema footprint).
+    if (c.capture_field_types.size() == c.captures.size()) {
+        bool any_narrow_ty = false;
+        for (auto& t : c.capture_field_types) if (t) { any_narrow_ty = true; break; }
+        if (any_narrow_ty) {
+            auto t_av = type_array(c.capture_field_types);
+            if (!t_av.is_null()) put(map_off, ck::CAPTURE_FIELD_TYPES, t_av);
+        }
+    }
     return map_off;
 }
 

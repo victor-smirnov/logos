@@ -1,0 +1,9 @@
+package test;
+struct P { x: String, y: String }
+fn main() -> i32 {
+    let p: P = P { x: String::from("a"), y: String::from("b") };
+    let c = move || { let _t = p.x; };   // RFC-2229 phase-2: moves ONLY p.x
+    let yy: String = p.y;                // ALLOWED — p.y not moved
+    let n: i64 = yy.len();
+    return n as i32;
+}

@@ -913,6 +913,20 @@ public:
         return el.as_ptr<const hermes::ArenaString>(self.base())->view();
     }
 
+    // RFC-2229 phase-2: capture i's narrow FIELD type (path-precise capture),
+    // or null when whole-root. The env-slot for a narrow capture is field-sized.
+    TypeRef capture_field_type(const TypePoolImpl* pool, uint64_t i) const noexcept {
+        auto* m = cl_map();
+        if (!m) return TypeRef{};
+        auto av = m->get(lir_schema::closure_keys::CAPTURE_FIELD_TYPES.code, self.base());
+        if (av.is_null()) return TypeRef{};
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return TypeRef{};
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return TypeRef{};
+        return detail::make_child_typeref(self, el.to_offset(), pool);
+    }
+
     // Iterate (name, type) pairs from CL_CAPTURE_NAMES + CL_CAPTURE_TYPES.
     template <class F>
     void each_capture(const TypePoolImpl* pool, F&& f) const noexcept {

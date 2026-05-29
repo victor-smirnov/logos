@@ -290,6 +290,7 @@ inline constexpr Key PARAM_TYPES       {"CL_PARAM_TYPES",   8};   // Array<RelPt
 inline constexpr Key MUT_CAPTURES      {"CL_MUT_CAPTURES",  9};   // Array<u8> (per-capture: 1 if mutated in body)
 inline constexpr Key ESCAPES           {"CL_ESCAPES",      10};   // u8 (G167-3b: boxed → heap env)
 inline constexpr Key CAPTURE_PATHS     {"CL_CAPTURE_PATHS", 11}; // RFC-2229: per-capture dotted field path (`p.x`); parallel to PARAM_NAMES.
+inline constexpr Key CAPTURE_FIELD_TYPES {"CL_CAPTURE_FIELD_TYPES", 12}; // RFC-2229 phase-2: per-capture FIELD type (null = whole-root); parallel.
 } // namespace closure_keys
 
 // Keys for the EPtrDiff LExpr variant map (in addition to expr_common::TYPE,

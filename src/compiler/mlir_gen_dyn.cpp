@@ -1477,6 +1477,11 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         captures.emplace_back(name);
         capture_types.push_back(t);
     });
+    // RFC-2229 phase-2: per-capture narrow FIELD type (null = whole-root).
+    std::vector<TypeRef> capture_field_ts;
+    capture_field_ts.reserve(captures.size());
+    for (uint64_t i = 0; i < captures.size(); ++i)
+        capture_field_ts.push_back(v.capture_field_type(pool_impl(), i));
     TypeRef ret_t        = v.ret_type(pool_impl());
     std::string closure_id(v.closure_id());
     bool        as_fn_ptr_flag = v.as_fn_ptr();
@@ -1635,6 +1640,16 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             capture_own_inline[i] = true;
         }
     }
+    // RFC-2229 phase-2: a narrow single-level path on a Struct root in a `move`
+    // closure ALWAYS owns its FIELD value inline — regardless of escaping — so
+    // the env field is field-sized + value-by-move semantics match sema's
+    // mark_moved(p.x). Body unpack materialises a fake root with only that
+    // field populated (other fields untouched: sema guaranteed body doesn't
+    // read them).
+    if (v.is_move()) {
+        for (size_t i = 0; i < captures.size(); ++i)
+            if (capture_field_ts[i]) capture_own_inline[i] = true;
+    }
 
     // Build capture struct type.
     // ENV FIELD 0 is reserved for a `drop_glue: ptr` slot (uniform drop
@@ -1673,7 +1688,14 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         auto ct = capture_types[i];
         mlir::Type ft;
         if (capture_own_inline[i]) {
-            ft = inline_cap_type(ct);  // moved-in: env owns the value inline
+            // RFC-2229 phase-2: a narrow move-captured field has a FIELD-sized
+            // env slot (else whole-root inline).
+            if (capture_field_ts[i]) {
+                ft = logos_to_mlir(capture_field_ts[i]);
+                if (!ft) ft = inline_cap_type(capture_field_ts[i]);
+            } else {
+                ft = inline_cap_type(ct);  // moved-in whole root
+            }
         } else if (capture_is_pointer_repr[i] || capture_is_mut_ref[i])
             ft = ptr_type();
         else
@@ -1761,6 +1783,30 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         bool is_tuple_cap  = capture_is_tuple[i];
         bool is_enum_cap   = capture_is_enum[i];
         bool is_dyn_cap    = capture_is_dyn[i];
+        // RFC-2229 phase-2: narrow MOVE capture — env stored just the field's
+        // bytes (gated on own_inline = move-narrow only). Materialise a fake
+        // root struct on the closure stack with ONLY the captured field
+        // populated (other fields untouched: sema guarantees the body never
+        // reads them — capture_paths LCA-widens to root otherwise). scope_[root]
+        // points to the fake; body's `root.field` FieldRead GEPs the field slot
+        // and reads the env-deposited value uniformly.
+        if (capture_field_ts[i] && capture_own_inline[i]) {
+            auto skey = mlir_struct_key(ct);
+            auto sit  = struct_types_.find(skey);
+            std::string fpath(v.capture_path(i));
+            auto dot = fpath.find('.');
+            std::string fname = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
+            if (sit != struct_types_.end() && !fname.empty()) {
+                auto fake = create_entry_alloca(sit->second.llvm_type);
+                if (auto fslot = gep_field(fake, sit->second, fname)) {
+                    builder_.create<mlir::LLVM::MemcpyOp>(
+                        loc_, fslot, fp, size_const(capture_field_ts[i]), false);
+                    scope_[captures[i]] = fake;
+                    var_struct_[captures[i]] = skey;
+                    continue;
+                }
+            }
+        }
         if (is_struct_cap || is_array_cap ||
             is_tuple_cap || is_enum_cap || is_dyn_cap) {
             scope_[captures[i]] = val;
@@ -1930,8 +1976,25 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             llvm::SmallVector<mlir::LLVM::GEPArg> oidx{int32_t(0), int32_t(i + 1)};
             auto dst = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), cap_struct, env_alloca, oidx);
+            mlir::Value src = it->second;
+            mlir::Value sz  = size_const(capture_types[i]);
+            // RFC-2229 phase-2: narrow capture — source = GEP outer struct's
+            // FIELD slot; size = field's size (move only the field, not whole p).
+            if (capture_field_ts[i]) {
+                std::string fpath(v.capture_path(i));
+                auto dot = fpath.find('.');
+                std::string fname = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
+                auto skey = mlir_struct_key(capture_types[i]);
+                auto sit = struct_types_.find(skey);
+                if (sit != struct_types_.end() && !fname.empty()) {
+                    if (auto fp = gep_field(it->second, sit->second, fname)) {
+                        src = fp;
+                        sz  = size_const(capture_field_ts[i]);
+                    }
+                }
+            }
             builder_.create<mlir::LLVM::MemcpyOp>(
-                loc_, dst, it->second, size_const(capture_types[i]), /*isVolatile=*/false);
+                loc_, dst, src, sz, /*isVolatile=*/false);
             continue;
         }
         if (pointer_repr)

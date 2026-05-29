@@ -2,6 +2,8 @@ package move_closure_use_after_move;
 
 // Box has a Drop impl so auto-Copy (G3-tg-03) doesn't apply; the
 // `move` closure captures it by value and post-capture use must error.
+// RFC-2229 phase-2 update: the body must touch WHOLE `b` (else narrow capture
+// would take only `b.x` = i32 Copy, leaving `b` usable — Rust-conformant).
 struct Box {
     x: i32,
 }
@@ -11,6 +13,6 @@ impl Drop for Box {
 
 fn main() -> i32 {
     let b = Box { x: 7 };
-    let f = move |y: i32| -> i32 { return b.x + y; };
+    let f = move |y: i32| -> i32 { let b2 = b; return b2.x + y; };
     return b.x + f(1);
 }
