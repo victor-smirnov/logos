@@ -145,12 +145,13 @@ release + region inference); **dropck** (B87); **dangling-ref** (return ref to
 local/temp); **named lifetimes + elision + outlives** on returns. Raw-ptr roots
 bypass exclusivity (B93.2); `&mut`-roots also skip the binding-mut requirement.
 
-**NOT checked (gaps vs Rust)**: index/slice **element** borrows (`arr[i]`
-aliasing/exclusivity not modeled); reborrows (not first-class); cross-function
+**NOT checked (gaps vs Rust)**: reborrows (not first-class); cross-function
 lifetime provenance (intra-procedural only); self-referential structs;
-move-out-of-deref. (Generic-fn-body borrow-check and closure-capture-mode
-exclusivity — formerly listed here — are now implemented per P2-10 and P2-13
-respectively.)
+move-out-of-deref. (Generic-fn-body borrow-check, closure-capture-mode
+exclusivity, and index/slice element borrows — formerly listed here — are now
+implemented per P2-10, P2-13/RFC-2229, and `b1ba5dd3` respectively. Refinement
+follow-up on element borrows: compile-time-known disjoint indices like
+`split_at_mut`-style two-step access without the helper.)
 
 ---
 
@@ -161,8 +162,8 @@ respectively.)
 | **enum** | ✅ stack `alloca` inline `{disc,payload}` (value-repr) | payload-recursive drop, no block to free | Copy-payload non-move; droppable-payload move (inline move-tracking) | classified Copy when payload Copy | ✅ Rust-like value-repr |
 | **struct** | stack alloca | field-recursive drop; auto-Copy | move unless Copy; partial field moves | field-path borrows ✅ | ✅ |
 | **tuple** | stack; **inline-by-value** in fields/arrays/nesting (G1 `81b28479`) | element-recursive drop | move iff any elem move | ok | ✅ |
-| **array `[T;N]`** | stack | per-elem drop | move iff elem move; ⚠️ move-out by index = clean reject | 🐞 no element-level borrow | ⚠️ element ops limited |
-| **slice `&[T]`** | fat {ptr,len}; ✅ returned by value | Copy (no drop) | Copy | 🐞 no element borrow (`arr[i]`) | ✅ mut tracked on Slice (B6 closed, `c971c97f`); ⚠️ element-borrow gap is the only remaining piece |
+| **array `[T;N]`** | stack | per-elem drop | move iff elem move; ⚠️ move-out by index = clean reject | ✅ element borrow tracked (`b1ba5dd3`): `&[mut] arr[i]` registers a whole-array borrow (Rust-conformant — `Index`/`IndexMut` take `&[mut] self`); `arr[i] = v` checks container borrow state | ✅ |
+| **slice `&[T]`** | fat {ptr,len}; ✅ returned by value | Copy (no drop) | Copy | ✅ element borrow tracked (`b1ba5dd3`) — same whole-slice rule via `SliceIndex` chain; ✅ mut tracked on Slice (B6 closed, `c971c97f`) | ✅ |
 | **Box<T>** | heap (`box_new`) | ✅ `impl Drop` (drop T + dealloc); move-only | move | ok | ✅ (accessors raw-ptr-self; `?Sized` later) |
 | **Vec<T>** | heap, grow | ✅ Drop frees + drops elems | move; `into_iter` ptr-zero | IndexMut place-write ✅ | ✅ |
 | **Rc/Arc** | heap inner `{strong,weak,val}` | ✅ block at rc0 (val drop at strong→0; block free at weak→0) | clone = refcount; move | ok | ✅ **Weak** + cycle handling (`d8499d1b`) |
@@ -394,7 +395,18 @@ The memory-management initiative ran 2026-05-26 → 05-28. Landmark work, in ord
   the root) — pre-fix it over-walked past the env field, caught when validating
   multi-level Noisy droppable elements.
 
+- **Element-borrow gap closed** (`b1ba5dd3`) — `&[mut] arr[i]` and slice
+  indexing now register a whole-container borrow (Rust-conformant via the
+  `Index`/`IndexMut`-takes-`&[mut] self` rule). Three wired sites: the
+  AddrOfTemp chain walk extended through `IndexRead`/`SliceIndex`; the
+  `IndexWrite` / `FieldIndexWrite` stmt handlers mirror SAssign's exclusivity
+  check on the container; `DerefWrite` (which the place-writer retirement
+  lowers `arr[i] = v` to) walks the AddrOfTemp chain and does a transient
+  conflict check on the leaf root. Cases now rejected: `&mut arr[0]; &mut
+  arr[1]`, `&mut arr[0]; &mut arr`, dup `&mut arr[0]; &mut arr[0]`,
+  `&arr[0]; arr[1] = …`. NLL release on inner-block scope exit unchanged.
+
 **Gating discipline (still in force):** every step gates on the FULL suite
-(`bash ../tests/logos/ctest-summary.sh`, currently **5282/5282**) and valgrind on
+(`bash ../tests/logos/ctest-summary.sh`, currently **5283/5283**) and valgrind on
 a representative droppable round-trip; rebuild clean (a stale `.o` once hid a
 regression). Memory work is verified by *exact drop counts*, not just pass/fail.
