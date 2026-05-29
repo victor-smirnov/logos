@@ -193,7 +193,19 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 **P2 — soundness/diagnostic gaps (OPEN):**
 10. 🐞 Generic fn bodies not borrow-checked (only monomorphizations are).
 11. 🐞 No index/slice element-level borrow/exclusivity; `&mut [T]` mutability not
-    type-tracked (B6: `&[T]`/`&mut [T]` share `Kind::Slice`).
+    type-tracked (B6: `&[T]`/`&mut [T]` share `Kind::Slice`). ATTEMPTED 2026-05-29,
+    REVERTED. Foundation works (add `mut_ptr` to the Slice type + its TypeUID,
+    `make_slice_type(elem, is_mut)`, preserve in subst, `types_compatible` allows
+    `&mut[T]`→`&[T]` downgrade & rejects the reverse; L2-green, method resolution
+    is kind-based so identity change is transparent). BLOCKER: enforcement never
+    fires because a `&mut [T]` in **parameter** position parses to a `SLICE_TYPE`
+    AST node WITHOUT the `MUTPTR` key (verified: 4 SLICE_TYPE nodes carry MUTPTR,
+    26 don't; the `s: &mut [T]` param's node is among the MUTPTR-less 26), so its
+    FuncInfo param type resolves `mut=0` and the call-arg / write checks see a
+    shared slice. Type-annotation `&mut [T]` DOES carry MUTPTR. Next: find why the
+    param-position `&mut [T]` slice_type production drops MUTPTR (grammar/parser
+    layer), then add the index-write-through-shared-slice rejection. A focused
+    parser-level sub-project.
 12. ✅ borrow-check `is_move_type` widened to tuple/enum/array (`4d909afe`):
     move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
     now rejected (was a dangling-ref gap; whole-value use-after-move was already
