@@ -1482,6 +1482,21 @@ hermes::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
         for (auto av : m_elems) array_push(m_off, av);
         put(map_off, ck::MUT_CAPTURES, hermes::AnyVal::from_offset(m_off));
     }
+    // RFC-2229: per-capture dotted field path. Only emit when at least one path
+    // is narrower than its root (else whole-var capture is the implicit default).
+    if (c.capture_paths.size() == c.captures.size()) {
+        bool any_narrow = false;
+        for (size_t i = 0; i < c.captures.size(); ++i)
+            if (c.capture_paths[i] != c.captures[i]) { any_narrow = true; break; }
+        if (any_narrow) {
+            std::vector<hermes::AnyVal> p_elems;
+            p_elems.reserve(c.capture_paths.size());
+            for (auto& p : c.capture_paths) p_elems.push_back(put_string(p));
+            auto p_off = make_array(p_elems.size());
+            for (auto av : p_elems) array_push(p_off, av);
+            put(map_off, ck::CAPTURE_PATHS, hermes::AnyVal::from_offset(p_off));
+        }
+    }
     return map_off;
 }
 

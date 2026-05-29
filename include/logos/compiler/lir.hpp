@@ -664,6 +664,19 @@ struct EClosure {
     // raw pointer to the outer alloca instead of a value copy, so mutations
     // round-trip back. Size matches `captures` once sema finishes the scan.
     std::vector<bool>               mut_captures;
+    // RFC-2229 phase-1: the FIELD PATH that the closure body actually reads
+    // (parallel to `captures`/`mut_captures`; one entry per capture). Examples:
+    // `||p.x`     → captures=["p"], capture_paths=["p.x"];
+    // `||p`       → captures=["p"], capture_paths=["p"];
+    // `||p.x.y`   → captures=["p"], capture_paths=["p.x.y"].
+    // Env layout + codegen keep capturing the WHOLE root variable (no behaviour
+    // change at runtime — non-move closures stay correct, sequential). But
+    // borrow-check uses the path to register a borrow on the precise field —
+    // RFC-2229 disjoint-sibling exclusivity (`&mut p.x` while a `||p.x` closure
+    // is live is rejected; disjoint `&mut p.y` is allowed). When multiple paths
+    // off the same root are read, the recorded path is their lowest common
+    // ancestor (still sound; widening allows disjoint where Rust does).
+    std::vector<std::string>        capture_paths;
     // When true: non-capturing closure coerced to fn ptr; emitted without env_ptr.
     bool                            as_fn_ptr = false;
     // G167-3b: the closure value escapes its creating frame (it is BOXED —

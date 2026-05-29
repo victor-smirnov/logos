@@ -3526,6 +3526,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             nc->mut_captures.resize(nc->captures.size(), false);
             for (size_t i = 0; i < nc->captures.size(); ++i)
                 nc->mut_captures[i] = v.capture_is_mut(i);
+            // RFC-2229: carry per-capture field PATH across substitution (else
+            // post-mono borrow-check reads only the root and disjoint sibling
+            // mutation is wrongly rejected).
+            nc->capture_paths.resize(nc->captures.size());
+            for (size_t i = 0; i < nc->captures.size(); ++i)
+                nc->capture_paths[i] = std::string(v.capture_path(i));
             result->mirror_offset_ = lir_mirror_emit_closure_box(
                 out_, result->type, nc);
             break;

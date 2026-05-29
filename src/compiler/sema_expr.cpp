@@ -12377,6 +12377,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // that are not params and still resolve in the enclosing scope.
     std::vector<std::string> captures;
     std::vector<TypeRef> capture_types;
+    std::vector<std::string> capture_paths;   // RFC-2229: parallel to captures
     StrSet seen;
     // C5-cl-08: track which capture names are mutated inside the body
     // (Assign / FieldWrite / IndexWrite / DerefWrite targeting the capture
@@ -12399,6 +12400,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (!seen.count(nm)) {
             captures.push_back(nm);
             capture_types.push_back(t);
+            capture_paths.push_back(nm);   // RFC-2229: write target = whole-var path
             seen.insert(nm);
         }
     };
@@ -12410,7 +12412,64 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             return;
         captures.push_back(name);
         capture_types.push_back(t);
+        capture_paths.push_back(name);   // RFC-2229: default path = whole root
         seen.insert(name);
+    };
+    // RFC-2229 phase-1: lowest common ancestor of two dotted field paths sharing
+    // the same root — `lca("p.x", "p.y") = "p"`, `lca("p.x.a", "p.x.b") = "p.x"`.
+    // Widening is sound (less precise = larger borrow); used when a closure body
+    // reads multiple paths off the same root.
+    auto path_lca = [](std::string_view a, std::string_view b) -> std::string {
+        size_t n = std::min(a.size(), b.size()), cut = 0, last_seg = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (a[i] != b[i]) break;
+            cut = i + 1;
+            if (a[i] == '.') last_seg = i;
+        }
+        if (cut == a.size() && cut == b.size()) return std::string(a);
+        if (cut == a.size() && b[cut] == '.') return std::string(a);
+        if (cut == b.size() && a[cut] == '.') return std::string(b);
+        return std::string(a.substr(0, last_seg));
+    };
+    // Record a capture of `root` via the precise field `path` (e.g. "p.x.y").
+    // For a fresh capture, the path is stored; for an existing one it is LCA-
+    // widened with the prior path.
+    auto add_capture_path = [&](const std::string& root, const std::string& path) {
+        if (param_names.count(root)) return;
+        if (auto it = seen.find(root); it != seen.end()) {
+            for (size_t i = 0; i < captures.size(); ++i) if (captures[i] == root) {
+                capture_paths[i] = path_lca(capture_paths[i], path); return;
+            }
+            return;
+        }
+        auto t = lookup(root);
+        if (!t) return;
+        captures.push_back(root);
+        capture_types.push_back(t);
+        capture_paths.push_back(path);
+        seen.insert(root);
+    };
+    // Try to extract a `root[.field]*` dotted path from an expression. Returns
+    // {root, fullpath}; nullopt if the head isn't a VarRef (e.g. `(*box).x` or
+    // an indexed access — those fall back to whole-var capture).
+    std::function<std::optional<std::pair<std::string,std::string>>(lir_view::ExprRef)>
+        try_path;
+    try_path = [&](lir_view::ExprRef e)
+        -> std::optional<std::pair<std::string,std::string>> {
+        using EC = lir_schema::expr::Code;
+        if (!e) return std::nullopt;
+        if (e.kind() == EC::VarRef) {
+            std::string n(lir_view::EVarRefView{e}.name());
+            return std::make_pair(n, n);
+        }
+        if (e.kind() == EC::FieldRead) {
+            auto v = lir_view::EFieldReadView{e};
+            auto inner = try_path(v.receiver());
+            if (!inner) return std::nullopt;
+            inner->second += '.'; inner->second += std::string(v.field());
+            return inner;
+        }
+        return std::nullopt;
     };
 
     // View-based capture scanner. The closure body was just lowered through
@@ -12426,7 +12485,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (!e) return;
         auto k = e.kind();
         if (k == EC::VarRef) {
-            add_capture(std::string(lir_view::EVarRefView{e}.name()));
+            std::string n(lir_view::EVarRefView{e}.name());
+            add_capture_path(n, n);   // whole-root path
             return;
         }
         switch (k) {
@@ -12445,7 +12505,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
                 break;
             }
-            case EC::FieldRead:    scan_captures_v(lir_view::EFieldReadView{e}.receiver()); break;
+            case EC::FieldRead: {
+                // RFC-2229: try to record the precise dotted path (`p.x.y`); if
+                // the head isn't a pure VarRef/FieldRead chain (e.g. `(*box).x`),
+                // fall back to whole-var capture via the receiver walk.
+                if (auto fp = try_path(e)) { add_capture_path(fp->first, fp->second); break; }
+                scan_captures_v(lir_view::EFieldReadView{e}.receiver()); break;
+            }
             case EC::IndexRead: {
                 auto v = lir_view::EIndexReadView{e};
                 scan_captures_v(v.receiver()); scan_captures_v(v.index()); break;
@@ -12460,7 +12526,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             // means the capture is collected and the closure body's
             // `&x` resolves to the address of the unpacked capture
             // alloca — same as if it had been read directly.
-            case EC::AddrOf:       add_capture(std::string(lir_view::EAddrOfView{e}.var_name())); break;
+            case EC::AddrOf: {
+                std::string n(lir_view::EAddrOfView{e}.var_name());
+                add_capture_path(n, n); break;   // `&p` borrows the whole root
+            }
             // A method receiver / `&mut <expr>` materialised as AddrOfTemp. When
             // it's `&mut` over a captured VarRef — e.g. a closure body calling a
             // `&mut self` method on a captured struct (`c.inc()` → `&mut c`) — the
@@ -12680,6 +12749,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     }
     ec->captures      = std::move(captures);
     ec->capture_types = std::move(capture_types);
+    ec->capture_paths = std::move(capture_paths);   // RFC-2229 (parallel to captures)
     ec->mut_captures.resize(ec->captures.size(), false);
     for (size_t i = 0; i < ec->captures.size(); ++i)
         ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0;

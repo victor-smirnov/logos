@@ -997,13 +997,37 @@ class BorrowChecker {
             // wrongly block RFC-2229 disjoint sibling mutation (`|| p.x` next to
             // `&mut p.y`). A `move` closure takes ownership — no borrow.
             case Code::ClosureBox: {
+                // RFC-2229 phase-1: register a FIELD-PATH borrow per capture
+                // (precise `p.x` instead of whole-var `p`). Disjoint sibling
+                // access is sound — `&mut p.y` next to `||p.x` is allowed;
+                // conflicting `&mut p.x` is rejected. Shared captures register
+                // a shared field-path borrow (NLL-released at the holder's last
+                // use); a `move` closure takes ownership — no borrow.
                 EClosureBoxView cb{e};
                 uint64_t i = 0;
                 cb.each_capture_name([&](std::string_view cap) {
-                    if (!cb.is_move() && cb.capture_is_mut(i))
-                        take_borrow(std::string(cap), /*is_mut=*/true, line, holder);
-                    else
-                        check_live(std::string(cap), line);
+                    if (cb.is_move()) { ++i; return; }
+                    std::string root(cap);
+                    std::string_view fpath = cb.capture_path(i);
+                    std::string rel;
+                    if (fpath.size() > root.size() + 1 &&
+                        fpath.compare(0, root.size(), root) == 0 &&
+                        fpath[root.size()] == '.')
+                        rel = std::string(fpath.substr(root.size() + 1));
+                    bool is_mut = cb.capture_is_mut(i);
+                    if (rel.empty()) {
+                        // Whole-root capture: use the original whole-value
+                        // borrow so plain reads of the root still see the
+                        // borrow (mut_field_borrows on path="" is not checked
+                        // on a bare variable read).
+                        if (is_mut)
+                            take_borrow(root, /*is_mut=*/true, line, holder);
+                        else
+                            check_live(root, line);
+                    } else {
+                        take_field_borrow(root, rel, is_mut, line);
+                        check_live(root, line);
+                    }
                     ++i;
                 });
                 break;

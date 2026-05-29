@@ -894,6 +894,25 @@ public:
         return el.as_value<uint8_t>() != 0;
     }
 
+    // RFC-2229 phase-1: capture i's dotted FIELD PATH (`p.x.y`). Falls back to
+    // the bare capture name when the schema slot is absent (a closure that only
+    // reads whole roots — the common case, schema footprint unchanged).
+    std::string_view capture_path(uint64_t i) const noexcept {
+        std::string_view fallback;
+        // Walk to the i-th name for the fallback view.
+        uint64_t k = 0;
+        each_capture_name([&](std::string_view nm){ if (k++ == i) fallback = nm; });
+        auto* m = cl_map();
+        if (!m) return fallback;
+        auto av = m->get(lir_schema::closure_keys::CAPTURE_PATHS.code, self.base());
+        if (av.is_null()) return fallback;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>(self.base());
+        if (i >= arr->size()) return fallback;
+        auto el = arr->get(i, self.base());
+        if (el.is_null()) return fallback;
+        return el.as_ptr<const hermes::ArenaString>(self.base())->view();
+    }
+
     // Iterate (name, type) pairs from CL_CAPTURE_NAMES + CL_CAPTURE_TYPES.
     template <class F>
     void each_capture(const TypePoolImpl* pool, F&& f) const noexcept {

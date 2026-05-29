@@ -1,0 +1,9 @@
+package test;
+struct P { x: i32, y: i32 }
+fn main() -> i32 {
+    let mut p: P = P { x: 1, y: 2 };
+    let mut c = || { p.x = p.x + 1; };   // mut-borrows p.x only
+    p.y = 99;                            // disjoint — RFC-2229 allows
+    c();
+    return p.x + p.y;
+}
