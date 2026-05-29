@@ -325,6 +325,12 @@ private:
     // (whose impl block registered the typevar target, not each concrete).
     std::unordered_map<std::string, std::vector<std::string>> trait_method_names_;
     std::unordered_set<std::string> blanket_traits_;
+    // Trait name → ordered transitive supertraits (LTraitDef.upcast_supertraits,
+    // single-sourced by sema). Drives the stored super-vtable-pointer slots that
+    // each `dyn Trait` vtable carries after its method slots, and the upcast
+    // `&dyn Sub → &dyn Super` index. Empty for a trait with no supertraits (so
+    // its vtable layout is unchanged).
+    std::unordered_map<std::string, std::vector<std::string>> trait_upcast_supers_;
 
     // drop_in_place glue: every vtable's slot 0 is a `__drop_in_place__<type>`
     // function that runs the concrete type's FULL drop (Rust-faithful). Maps a
@@ -645,6 +651,13 @@ private:
     mlir::Value build_inline_vtable(std::string_view trait_name,
                                      std::string_view type_name,
                                      TypeRef concrete_ty = {});
+    // Ensure the `[N x ptr]` vtable global for (trait, type) exists (placeholder
+    // + recorded spec) and return its symbol; "" if no methods are registered.
+    // build_inline_vtable = ensure_vtable_global + AddressOf. Recurses to build
+    // each supertrait's vtable global for the stored super-vtable-pointer slots.
+    std::string ensure_vtable_global(std::string_view trait_name,
+                                     std::string_view type_name,
+                                     TypeRef concrete_ty);
     // Build a fat {data,vtable} pair. `heap=false` (default) → stack alloca:
     // used for borrow `&dyn`/`&mut dyn` (value-fat-pair model; no leak). The
     // CONSUMER copies the 16 bytes when it escapes (struct field / array /

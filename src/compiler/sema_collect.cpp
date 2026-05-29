@@ -4060,6 +4060,36 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 // This is deferred (not inline in collect_impl) so that ordering within a
 // file or across files does not matter.
 // ---------------------------------------------------------------------------
+// ── Supertrait-closure vtable layout (single source of truth) ────────────
+// Flatten a trait's transitive supertrait graph into the dyn-Trait vtable slot
+// order. Post-order DFS over supertraits (deepest ancestors first, deduped),
+// each trait contributing its OWN methods; the root trait's own methods come
+// last. A method's position here is its vtable slot index (+3 header at
+// codegen). `upcast_supers` collects the transitive supertraits (every visited
+// trait except the root) in the same deepest-first order — one stored
+// super-vtable-pointer slot is emitted per entry after the methods, and an
+// upcast `&dyn Sub → &dyn Super` indexes it by position. Both sema dispatch and
+// mlir-gen's vtable builder consume this, so the ordering cannot drift.
+void SemaChecker::trait_vtable_layout(
+        const std::string& trait,
+        std::vector<std::pair<std::string, const SemaTraitMethodInfo*>>& method_order,
+        std::vector<std::string>& upcast_supers) {
+    logos::compiler::StrSet seen;
+    std::function<void(const std::string&)> walk = [&](const std::string& tn) {
+        if (!seen.insert(tn).second) return;
+        auto it = traits_.find(tn);
+        if (it == traits_.end()) return;
+        for (auto& s : it->second.supertraits) {
+            if (s.trait_name == "Copy") continue;   // marker, no vtable
+            walk(s.trait_name);
+        }
+        if (tn != trait) upcast_supers.push_back(tn);
+        for (auto& m : it->second.methods)
+            method_order.push_back({tn, &m});
+    };
+    walk(trait);
+}
+
 void SemaChecker::check_supertrait_impls() {
     // Bug 5: Validate that all supertrait names refer to known traits.
     // This pass must iterate over traits_ (not impls_) so that traits defined

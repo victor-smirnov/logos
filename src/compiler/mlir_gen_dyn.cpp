@@ -702,7 +702,15 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     for (auto& td : prog.traits) {
         auto& mn = trait_method_names_[td.name];
         mn.clear();
-        for (auto& m : td.methods) mn.push_back(m.name);
+        // Full supertrait-closure slot order (sema single-sourced this in
+        // vtable_method_order); supertrait methods get real slots so they are
+        // dispatchable through `&dyn Sub`. Falls back to own methods for a
+        // trait with no supertraits (identical to the old behaviour).
+        if (!td.vtable_method_order.empty())
+            for (auto& [owner, mname] : td.vtable_method_order) mn.push_back(mname);
+        else
+            for (auto& m : td.methods) mn.push_back(m.name);
+        trait_upcast_supers_[td.name] = td.upcast_supertraits;
         for (auto& ib : prog.impls)
             if (ib.trait_name == td.name && ib.is_blanket) {
                 blanket_traits_.insert(td.name);
@@ -736,17 +744,25 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     return nm[target.size()] == '_' && nm[target.size() + 1] == '_';
                 };
                 std::vector<std::string> methods;
-                for (auto& m : td.methods) {
+                // Resolve symbols in the full supertrait-closure slot order so
+                // a supertrait method (provided by `impl Super for Concrete`)
+                // gets its slot; falls back to own methods when no supertraits.
+                std::vector<std::string> slot_names;
+                if (!td.vtable_method_order.empty())
+                    for (auto& on : td.vtable_method_order) slot_names.push_back(on.second);
+                else
+                    for (auto& m : td.methods) slot_names.push_back(m.name);
+                for (auto& mname : slot_names) {
                     std::string sym;
                     auto try_match = [&](const lir::LFunction& fn) -> bool {
-                        return fn.method_base == m.name && belongs_to_target(fn.name);
+                        return fn.method_base == mname && belongs_to_target(fn.name);
                     };
                     for (auto& fp : ib.methods) {
                         if (!fp) continue;
                         if (try_match(*fp)) { sym = fp->name; break; }
                     }
                     if (sym.empty()) {
-                        if (auto it = method_base_idx.find(m.name);
+                        if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
                             for (auto* fp : it->second) {
                                 if (belongs_to_target(fp->name)) {
@@ -758,7 +774,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     if (sym.empty()) {
                         if (auto sit = struct_method_idx.find(std::string(target));
                             sit != struct_method_idx.end()) {
-                            if (auto it = sit->second.find(m.name);
+                            if (auto it = sit->second.find(mname);
                                 it != sit->second.end()) {
                                 for (auto* mp : it->second) {
                                     if (belongs_to_target(mp->name)) {
@@ -777,7 +793,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                         // skips silently instead of warning "not found".
                         bool any_concrete = false;
                         bool any_generic  = false;
-                        if (auto it = method_base_idx.find(m.name);
+                        if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
                             for (auto* fp : it->second) {
                                 if (fp->impl_type_params.empty()) any_concrete = true;
@@ -789,7 +805,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                             methods.emplace_back();
                             continue;
                         }
-                        sym = std::string(target) + "__" + m.name;
+                        sym = std::string(target) + "__" + mname;
                     }
                     methods.push_back(std::move(sym));
                 }
@@ -909,9 +925,21 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
 mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
                                                std::string_view type_name,
                                                TypeRef concrete_ty) {
+    std::string sym = ensure_vtable_global(trait_name, type_name, concrete_ty);
+    if (sym.empty()) return nullptr;
+    // AddressOf the `[N x ptr]` global → a `ptr` to the table (the vtable ptr).
+    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym);
+}
+
+std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
+                                              std::string_view type_name,
+                                              TypeRef concrete_ty) {
     std::string key;
     key.reserve(trait_name.size() + 2 + type_name.size());
     key.append(trait_name); key.append("::"); key.append(type_name);
+    // Already built (also breaks supertrait-diamond recursion).
+    if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end())
+        return git->second;
     auto vit = dyn_vtable_methods_.find(key);
     // Blanket fallback: no explicit (trait, type) vtable was registered, but
     // the trait has a blanket impl (`impl<T> Trait for T`) — so this concrete
@@ -957,7 +985,7 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
                 }
             }
         }
-        if (vit == dyn_vtable_methods_.end()) return nullptr;
+        if (vit == dyn_vtable_methods_.end()) return "";
     }
     // Rust-faithful vtable header: [ drop_in_place, size_of_T, align_of_T,
     // method0..N ]. size/align come from the unified layout_of(T) and are
@@ -973,6 +1001,19 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
     slots.push_back("__logos_lit__" + std::to_string(layout.size));
     slots.push_back("__logos_lit__" + std::to_string(layout.align));
     for (auto& m : vit->second) slots.push_back(m);
+    // Stored super-vtable pointers (Rust trait-upcasting): one slot per
+    // transitive supertrait, AFTER the methods, in `upcast_supertraits` order.
+    // An upcast `&dyn Sub → &dyn Super` loads slot [3 + |methods| + idx(Super)]
+    // to recover Super's vtable. Recurse to ensure each super's global exists;
+    // the `__logos_vtref__<sym>` marker tells the post-lowering materializer to
+    // AddressOf that global (vs. a method func or a size/align literal).
+    if (auto sit = trait_upcast_supers_.find(std::string(trait_name));
+        sit != trait_upcast_supers_.end()) {
+        for (auto& super : sit->second) {
+            std::string ssym = ensure_vtable_global(super, type_name, concrete_ty);
+            slots.push_back(ssym.empty() ? std::string() : "__logos_vtref__" + ssym);
+        }
+    }
     auto& methods = slots;
     size_t n = methods.size();
     auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
@@ -1008,8 +1049,7 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
         }
         dyn_vtable_globals_[key] = sym;
     }
-    // AddressOf the `[N x ptr]` global → a `ptr` to the table (the vtable ptr).
-    return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym);
+    return sym;
 }
 
 // ---------------------------------------------------------------------------

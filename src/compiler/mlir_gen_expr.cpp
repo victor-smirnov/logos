@@ -2700,6 +2700,57 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     auto val    = gen_expr(*op_le);
     if (!val) return nullptr;
 
+    // ── Supertrait upcast: `&dyn Sub`/`dyn Sub` → `&dyn Super` ───────────
+    // Source is a {data,vtable} fat pair for trait `Sub`; recover `Super`'s
+    // vtable from the stored super-vtable-pointer slot that Sub's vtable
+    // carries after its method slots (Rust trait-upcasting), and build a new
+    // fat pair with the SAME data pointer. Sub==Super (identity dyn casts)
+    // falls through to the no-op reinterpret below.
+    if (type && op_le->type) {
+        TypeRef tgt(type), src(op_le->type);
+        TypeRef tgt_to = tgt, src_to = src;
+        if ((tgt.kind() == LogosType::Kind::Ref || tgt.kind() == LogosType::Kind::MutRef) &&
+            tgt.pointee()) tgt_to = tgt.pointee();
+        if ((src.kind() == LogosType::Kind::Ref || src.kind() == LogosType::Kind::MutRef) &&
+            src.pointee()) src_to = src.pointee();
+        if (tgt_to.kind() == LogosType::Kind::TraitObject &&
+            src_to.kind() == LogosType::Kind::TraitObject) {
+            std::string sub(src_to.trait_name()), super(tgt_to.trait_name());
+            if (!sub.empty() && !super.empty() && sub != super) {
+                int idx = -1;
+                if (auto sit = trait_upcast_supers_.find(sub);
+                    sit != trait_upcast_supers_.end())
+                    for (size_t i = 0; i < sit->second.size(); ++i)
+                        if (sit->second[i] == super) { idx = (int)i; break; }
+                if (idx >= 0) {
+                    size_t mcount = trait_method_names_.count(sub)
+                        ? trait_method_names_[sub].size() : 0;
+                    auto dyn_struct = dyn_llvm_type();
+                    mlir::Value src_ptr = val;
+                    if (val.getType() == dyn_struct) src_ptr = spill_to_alloca(val);
+                    // data = field 0, vtable = field 1 of the source fat pair.
+                    llvm::SmallVector<mlir::LLVM::GEPArg> i0{int32_t(0), int32_t(0)};
+                    llvm::SmallVector<mlir::LLVM::GEPArg> i1{int32_t(0), int32_t(1)};
+                    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, src_ptr, i0);
+                    auto data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+                    auto vp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, src_ptr, i1);
+                    auto vtable_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vp);
+                    // Stored super-vtable ptr lives at [3 + |Sub methods| + idx].
+                    llvm::SmallVector<mlir::LLVM::GEPArg> si{int32_t(3 + (int)mcount + idx)};
+                    auto sp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ptr_type(), vtable_ptr, si);
+                    auto super_vt = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), sp);
+                    // Build the upcast {data, super_vtable} fat pair (stack).
+                    auto out = create_entry_alloca(dyn_struct);
+                    auto o0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, out, i0);
+                    auto o1 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, out, i1);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, o0);
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, super_vt, o1);
+                    return out;
+                }
+            }
+        }
+    }
+
     // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
     // Must be checked BEFORE the val.getType() == target early-return because
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.

@@ -2602,6 +2602,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 try_coerce_array_ref_to_slice(arg_exprs[i], exact_fi->param_types[i]);
                 try_coerce_slice_to_array_ref(arg_exprs[i], exact_fi->param_types[i]);
                 try_retype_bare_enum_arg(arg_exprs[i], exact_fi->param_types[i]);
+                coerce_dyn_upcast(arg_exprs[i], exact_fi->param_types[i]);  // &dyn Sub → &dyn Super
                 widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = exact_fi->param_types[i];
@@ -2853,6 +2854,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             try_coerce_array_ref_to_slice(arg_exprs[i], fi.param_types[i]);
             try_coerce_slice_to_array_ref(arg_exprs[i], fi.param_types[i]);
             try_retype_bare_enum_arg(arg_exprs[i], fi.param_types[i]);
+            coerce_dyn_upcast(arg_exprs[i], fi.param_types[i]);  // &dyn Sub → &dyn Super
             widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
@@ -5776,8 +5778,15 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
     }
     auto tit = traits_.find(tname);
     if (tit != traits_.end()) {
-        for (size_t mi = 0; mi < tit->second.methods.size(); ++mi) {
-            auto& m = tit->second.methods[mi];
+        // Supertrait-closure vtable order: a supertrait method is dispatchable
+        // through `&dyn Sub` because it owns a real slot in Sub's vtable. The
+        // index in this flattened order IS the vtable slot (matches mlir-gen).
+        std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
+        std::vector<std::string> upsup_unused;
+        trait_vtable_layout(tname, vtab, upsup_unused);
+        for (size_t mi = 0; mi < vtab.size(); ++mi) {
+            const std::string& owner_trait = vtab[mi].first;
+            auto& m = *vtab[mi].second;
             if (m.name == method_name) {
                 if (m.is_unsafe && !inside_unsafe_)
                     error(std::format("call to unsafe method '{}' requires unsafe context",
@@ -5891,7 +5900,11 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                 SemaSubst trait_subst;
                 trait_subst["Self"] = recv->type;
                 {
-                    auto& tparams = tit->second.type_params;
+                    // Type params come from the method's OWNER trait (may be a
+                    // supertrait), substituting recv's `&dyn` trait args.
+                    auto oit = traits_.find(owner_trait);
+                    auto& tparams = (oit != traits_.end())
+                        ? oit->second.type_params : tit->second.type_params;
                     auto trait_args = TypeRef(recv->type).type_args();
                     for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
                         trait_subst[tparams[ti].name] = trait_args[ti];
@@ -11026,6 +11039,28 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         return false;
     }
 
+    // (c) pointee is itself a trait object `dyn Sub` — a supertrait UPCAST
+    //     `&dyn Sub → &dyn Super` is allowed when Super is a (transitive)
+    //     supertrait of Sub (Rust trait-upcasting). The data pointer is
+    //     unchanged; codegen recovers Super's vtable from Sub's stored
+    //     super-vtable-pointer slot.
+    if (TypeRef(pointee).kind() == LogosType::Kind::TraitObject) {
+        std::string sub(TypeRef(pointee).trait_name());
+        if (sub.empty()) return false;
+        logos::compiler::StrSet seen;
+        std::function<bool(const std::string&)> reaches =
+            [&](const std::string& tn) -> bool {
+                if (!seen.insert(tn).second) return false;
+                if (tn == trait) return true;
+                auto it = traits_.find(tn);
+                if (it == traits_.end()) return false;
+                for (auto& s : it->second.supertraits)
+                    if (reaches(s.trait_name)) return true;
+                return false;
+            };
+        return reaches(sub);
+    }
+
     // (b) pointee is a concrete type — struct / enum / PRIMITIVE — implementing
     //     the trait, DIRECTLY or via a blanket impl (`impl<T: Bound> Trait for
     //     T`). sema_has_impl_recursive walks direct + blanket + bound chains, so
@@ -11091,6 +11126,50 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
     if (!fi) return nullptr;
     std::string sym = fi->symbol_name.empty() ? base + "__default" : fi->symbol_name;
     return builder().call(sym, {}, {}, t);
+}
+
+// Supertrait UPCAST coercion: when `arg` is already a `&dyn Sub`/`dyn Sub` and
+// the param wants `&dyn Super`/`dyn Super` with Super a (transitive) supertrait
+// of Sub, insert the explicit upcast Cast (codegen recovers Super's vtable from
+// the stored super-vtable-pointer slot). Narrowly scoped to a dyn SOURCE so the
+// concrete→dyn coercion (handled implicitly at mlir-gen call sites) is left
+// untouched. Returns true if a cast was inserted.
+bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
+    if (!arg || !pt) return false;
+    TypeRef at(arg->type);
+    if (TypeRef(at).kind() == LogosType::Kind::Error) return false;
+    // Source must be a trait object (bare or behind a ref).
+    TypeRef src_to = at;
+    if ((at.kind() == LogosType::Kind::Ref || at.kind() == LogosType::Kind::MutRef) &&
+        at.pointee()) src_to = at.pointee();
+    if (TypeRef(src_to).kind() != LogosType::Kind::TraitObject) return false;
+    if (types_compatible(at, pt)) return false;  // identical dyn — no upcast
+    // Peel param to its bare TraitObject.
+    TypeRef pdyn = pt;
+    if ((TypeRef(pt).kind() == LogosType::Kind::Ref ||
+         TypeRef(pt).kind() == LogosType::Kind::MutRef) && TypeRef(pt).pointee())
+        pdyn = TypeRef(pt).pointee();
+    if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return false;
+    std::string sub(TypeRef(src_to).trait_name());
+    std::string super(TypeRef(pdyn).trait_name());
+    if (sub.empty() || super.empty()) return false;
+    // Super must be a (transitive) supertrait of Sub. Works for bare-`dyn`
+    // sources too (ref_arg_satisfies_dyn requires a ref source, so reachability
+    // is checked here directly).
+    logos::compiler::StrSet seen;
+    std::function<bool(const std::string&)> reaches =
+        [&](const std::string& tn) -> bool {
+            if (!seen.insert(tn).second) return false;
+            if (tn == super) return true;
+            auto it = traits_.find(tn);
+            if (it == traits_.end()) return false;
+            for (auto& s : it->second.supertraits)
+                if (reaches(s.trait_name)) return true;
+            return false;
+        };
+    if (sub == super || !reaches(sub)) return false;
+    arg = builder().cast(std::move(arg), pt);
+    return true;
 }
 
 bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {

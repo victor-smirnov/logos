@@ -888,6 +888,27 @@ struct LTraitDef {
     bool                           is_auto   = false;   // declared with `auto trait` (compiler-synthesized impls)
     // Outer doc-comment on the trait declaration.
     std::string                    doc;
+
+    // ── Supertrait / trait-object dispatch + upcasting metadata ──────────
+    // Single-sourced in sema (compute_supertrait_vtable_layout) and read by
+    // mlir-gen, so the vtable slot ordering cannot drift between phases.
+    //
+    // `supertraits` — direct supertrait names (`trait Dog: Animal + Pet` →
+    //   ["Animal","Pet"]); informational.
+    // `vtable_method_order` — the FLATTENED transitive method-slot order for
+    //   `dyn <this trait>`: each supertrait's methods (deepest-first, deduped)
+    //   followed by this trait's own methods. A method's index here is its
+    //   vtable slot (the `+3` drop/size/align header is added at codegen). This
+    //   makes a supertrait method callable through `&dyn Sub` (it has a real
+    //   slot) and lets sema and mlir-gen agree on every slot.
+    // `upcast_supertraits` — ordered transitive supertraits (deepest-first,
+    //   deduped, EXCLUDING this trait). One stored super-vtable pointer slot is
+    //   emitted per entry, AFTER the method slots; an upcast `&dyn Sub → &dyn
+    //   Super` loads the slot at index_of(Super) to recover Super's vtable
+    //   (Rust trait-upcasting; handles multiple supertraits / diamonds).
+    std::vector<std::string>       supertraits;
+    std::vector<std::pair<std::string,std::string>> vtable_method_order; // (owner_trait, method)
+    std::vector<std::string>       upcast_supertraits;
 };
 
 struct LImplBlock {

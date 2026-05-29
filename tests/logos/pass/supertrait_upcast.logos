@@ -1,0 +1,17 @@
+package test;
+
+trait Animal { fn legs(&self) -> i32; }
+trait Dog: Animal { fn bark(&self) -> i32; }
+
+struct Lab { n: i32 }
+impl Animal for Lab { fn legs(&self) -> i32 { return 4; } }
+impl Dog for Lab { fn bark(&self) -> i32 { return self.n; } }
+
+fn count_legs(a: &dyn Animal) -> i32 { return a.legs(); }
+
+fn main() -> i32 {
+    let l: Lab = Lab { n: 7 };
+    let d: &dyn Dog = &l;
+    // upcast &dyn Dog -> &dyn Animal
+    return count_legs(d);
+}

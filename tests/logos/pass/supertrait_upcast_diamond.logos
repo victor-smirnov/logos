@@ -1,0 +1,20 @@
+package test;
+trait A { fn a(&self) -> i32; }
+trait B { fn b(&self) -> i32; }
+trait C: A + B { fn c(&self) -> i32; }
+struct S { x: i32 }
+impl A for S { fn a(&self) -> i32 { return 1; } }
+impl B for S { fn b(&self) -> i32 { return 20; } }
+impl C for S { fn c(&self) -> i32 { return 300; } }
+fn use_a(o: &dyn A) -> i32 { return o.a(); }
+fn use_b(o: &dyn B) -> i32 { return o.b(); }
+fn main() -> i32 {
+    let s: S = S { x: 9 };
+    let c: &dyn C = &s;
+    // dispatch own + both supertrait methods through &dyn C
+    let mut t: i32 = c.a() + c.b() + c.c();   // 1+20+300 = 321
+    // upcast to FIRST supertrait A and SECOND supertrait B
+    t = t + use_a(c);   // +1   => 322
+    t = t + use_b(c);   // +20  => 342 ... mod 256 = 86
+    return t - 256;     // 86
+}

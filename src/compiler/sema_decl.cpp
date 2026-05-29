@@ -1121,8 +1121,17 @@ lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {
         }
     }
     td.pkg = std::string(cur_package_);
-    if (tit != traits_.end())
+    if (tit != traits_.end()) {
         td.is_auto = tit->second.is_auto;
+        for (auto& s : tit->second.supertraits)
+            if (s.trait_name != "Copy") td.supertraits.push_back(s.trait_name);
+        // Single-source the supertrait-closure vtable layout (slot order +
+        // ordered upcast targets) for mlir-gen to consume verbatim.
+        std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
+        trait_vtable_layout(tname, vtab, td.upcast_supertraits);
+        for (auto& [owner, mptr] : vtab)
+            td.vtable_method_order.push_back({owner, mptr->name});
+    }
     if (node.has_key(la::TYPE_PARAMS)) {
         auto tps = read_type_params(node);
         for (auto& tp : tps)

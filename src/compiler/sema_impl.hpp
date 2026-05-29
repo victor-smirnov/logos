@@ -400,6 +400,7 @@ private:
     // coercion (a4d23821) to any call/method-arg position. No-op when `arg`
     // already fits `pt` or `pt` is not a trait object.
     bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
+    bool coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt);
 
     // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
     // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`
@@ -2758,6 +2759,12 @@ private:
     void collect(const std::vector<hermes::Hermes>& asts);
     void simplify_all_types();
     void check_supertrait_impls();
+    // Supertrait-closure vtable layout — single source of truth for dyn-Trait
+    // slot ordering (see LTraitDef.vtable_method_order / upcast_supertraits).
+    void trait_vtable_layout(
+        const std::string& trait,
+        std::vector<std::pair<std::string, const SemaTraitMethodInfo*>>& method_order,
+        std::vector<std::string>& upcast_supers);
     std::string read_package_name(hermes::TinyMapView mod);
     void check_pub_access(bool is_pub, const std::string& def_package,
                           std::string_view item_name);

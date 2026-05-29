@@ -148,6 +148,19 @@ int lower_and_emit_object(lir::LProgram& prog,
                             loc, arr, pv, llvm::ArrayRef<int64_t>{(int64_t)i});
                         continue;
                     }
+                    // Stored super-vtable pointer (Rust trait-upcasting): the
+                    // slot is the address of ANOTHER vtable GLOBAL (not a func),
+                    // emitted by ensure_vtable_global for each supertrait so an
+                    // `&dyn Sub → &dyn Super` upcast can recover Super's vtable.
+                    static constexpr llvm::StringRef VTREF_PFX = "__logos_vtref__";
+                    if (m.starts_with(VTREF_PFX)) {
+                        auto gsym = m.substr(VTREF_PFX.size());
+                        if (!mod.lookupSymbol<mlir::LLVM::GlobalOp>(gsym)) continue;
+                        mlir::Value ga = b.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, gsym);
+                        arr = b.create<mlir::LLVM::InsertValueOp>(
+                            loc, arr, ga, llvm::ArrayRef<int64_t>{(int64_t)i});
+                        continue;
+                    }
                     if (!mod.lookupSymbol<mlir::LLVM::LLVMFuncOp>(m)) continue;
                     mlir::Value fa = b.create<mlir::LLVM::AddressOfOp>(loc, ptr_t, m);
                     arr = b.create<mlir::LLVM::InsertValueOp>(
