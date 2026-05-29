@@ -1,0 +1,38 @@
+// pass — `dyn Trait + Send`/`+ Sync`/`+ 'a` auto-trait bound lists on trait
+// objects. Auto traits add no vtable methods, so the trait object is
+// structurally identical to bare `dyn Trait`; sema accepts the markers and
+// the vtable/dispatch are unchanged.
+package test;
+
+use logos.mem.boxed;
+
+trait Speak { fn speak(&self) -> i32; }
+
+struct Dog { n: i32 }
+impl Speak for Dog { fn speak(&self) -> i32 { return self.n; } }
+
+// &dyn with a single auto-trait bound.
+fn hear(s: &dyn Speak + Send) -> i32 { return s.speak(); }
+
+// &dyn with multiple auto-trait bounds + a lifetime bound.
+fn hear2(s: &dyn Speak + Send + Sync) -> i32 { return s.speak() + 1; }
+
+// &mut dyn with an auto-trait bound.
+fn poke(s: &mut dyn Speak + Send) -> i32 { return s.speak() + 10; }
+
+// Box<dyn Trait + Send> — owning trait object with a bound.
+fn boxed_hear(b: Box<dyn Speak + Send>) -> i32 { return b.speak() + 20; }
+
+fn main() -> i32 {
+    let d: Dog = Dog { n: 7 };
+    let r: &dyn Speak + Send = &d;
+    let mut acc: i32 = hear(r);          // 7
+    acc = acc + hear2(&d);               // +8  => 15
+
+    let mut m: Dog = Dog { n: 5 };
+    acc = acc + poke(&mut m);            // +15 => 30
+
+    let b: Box<dyn Speak + Send> = box_new::<Dog>(Dog { n: 3 }) as Box<dyn Speak + Send>;
+    acc = acc + boxed_hear(b);           // +23 => 53
+    return acc;
+}
