@@ -197,12 +197,20 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 12. ⚠️ borrow-check `is_move_type` Struct-only → missing use-after-move diagnostics
     for moved tuples/enums/arrays.
 13. 🐞 closure-capture-mode (Fn/FnMut/FnOnce) exclusivity not enforced.
-14. ⚠️ array element move-out unsupported (clean reject).
-15. 🐞 **No object-safety check** (verified 2026-05-29): a non-dyn-compatible trait
-    (generic method `fn f<T>`, `Self`-returning, no `&self`, …) is silently accepted
-    as `&dyn`/`Box<dyn>` — no vtable slot for the offending method → crash on
-    dispatch. Rust rejects at sema (E0038). Needs an object-safety gate when a
-    trait is coerced to a trait object.
+14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
+    double-free guard); a non-droppable elem is accepted (sound — effectively a
+    copy, no Drop). Minor: non-droppable move-out diagnostic differs from Rust.
+15. **object-safety (E0038)** — PARTIAL (`c4ba01aa`): a **generic method** (`fn
+    f<T>`) trait coerced to `&dyn`/`Box<dyn>` is now rejected at sema
+    (`check_trait_object_safe`, the verified crash). REMAINING (#2 no `self`
+    receiver / #3 returns `Self` / #4 `Self`-by-value arg): **blocked on a grammar
+    prerequisite** — the trait-method `where_clause?` is parsed but DROPPED (not
+    mapped to any key in the FN productions), so `where Self: Sized` (which
+    excludes a method from the vtable) is invisible to sema; without it the gate
+    can't tell a legit `fn make() -> Self where Self: Sized` from a genuinely
+    non-object-safe method. Fix = capture the trait-method where-clause (also
+    closes the latent "`where Self: Sized` silently ignored" bug), then finish
+    #2/#3/#4.
 
 **Missing features (not bugs):** `Rc`/`Arc` `Weak` references + cycle handling;
 Box `?Sized` / `Box<?Sized>` at the type level (`Box<dyn>` works via
