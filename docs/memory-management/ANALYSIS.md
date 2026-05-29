@@ -56,7 +56,7 @@ now reclaimed. Remaining `call_malloc` sites:
 | A5 | dyn vtable array | `build_inline_vtable` (`mlir_gen_dyn.cpp:909`) | ✅ **TRUE STATIC** (`ff7b5842`): one `constant [N x ptr]` global per (trait,type) in `.data.rel.ro` — interned, zero heap, zero runtime init, slot 0 = `drop_in_place`. |
 | A6 | dyn fat storage `{data,vtable}` | `coerce_to_dyn` (`mlir_gen_dyn.cpp:1019`) | ✅ inline 16-B value fat-pair (stack `alloca`, `heap=false`) for `&dyn`/`&mut dyn`/`Box<dyn>`/`*dyn` (dyn-unification `77d85c8d`). Owning `Box<dyn>` data is drop-freed (vtable[0]). |
 | A7 | Escaping closure environment | `mlir_gen_dyn.cpp:1831` | ✅ **freed** (`eb4e80c3`): heap env layout reserves field 0 = drop glue; `__closure_drop__<id>` drops owned captures + `call_free(env)`, driven via `Box<Closure>::drop`. |
-| ⚠️ | Raw `*X as *dyn` escape cast | `mlir_gen_expr.cpp:2739` (+ `coerce_to_dyn heap=true`) | **INTENTIONAL heap-promote** — a raw pointer cast to `*dyn` that escapes copies the 16-B fat pair to a malloc'd slot for escape-safety. The single deliberate remaining heap site (escape lifetime can't be stack-bound). |
+| — | dyn fat pair (`&dyn`/`*dyn`/`Box<dyn>`) | `coerce_to_dyn` | ✅ STACK 16-B fat, no heap. The former "thin `Ptr<TraitObject>` handle to heap-copied fat" path was non-Rust + provably unreachable (5433-file sweep) and was removed (`282c5af3`). |
 | — | Structs / tuples / arrays / slices / enums / closures / match spills | `create_entry_alloca` | ✅ STACK — reclaimed on frame exit; droppable *contents* handled by SDrop. |
 | — | Container buffers (Vec/HashMap/Deque grow) | `call_malloc` in stdlib via `alloc` | ✅ freed by the container's `impl Drop`. |
 
@@ -165,7 +165,7 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 | **Rc/Arc** | heap inner | ✅ block at rc0; ✅ T dropped | clone = refcount; move | ok | ⚠️ no Weak |
 | **String** | heap, grow | ✅ Drop | move | ok | ✅ |
 | **closure** | env: stack (non-escaping) / heap (escaping); value `{fn,env}` 16-B fat | ✅ escaping env freed via `__closure_drop__` glue; captures dropped | move captures (escaping `move` owns inline) | 🐞 capture-mode not enforced | ✅ (capture-mode gap only) |
-| **dyn trait** | inline 16-B fat; static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | ok | ✅ unified fat (raw `*X as *dyn` escape heaps) |
+| **dyn trait** | inline 16-B fat (stack), static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | ok | ✅ uniform fat — `&dyn`/`*dyn`/`Box<dyn>` all 16-B; no heap handle |
 | **assignment `x=y`** | — | ✅ drop-before-replace + Rust **drop elaboration** (static placement, flags only for maybe-init) | source moved (suppress double-free) | assign-while-borrowed ✅ | ✅ full Rust drop semantics |
 | **match** | binds payload (may move scrutinee) | scrutinee-move avoids double-free; match-temp dropped | `mark_match_scrutinee_moved` (incl PLACE) | per-arm move union | ✅ |
 | **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | 🐞 **body not borrow-checked** | ⚠️ |
@@ -204,8 +204,12 @@ Box `?Sized` / `Box<dyn>` at the type level (works via owning-TraitObject collap
 not a generic `Box<?Sized>`); modern Deref/DerefMut Box/Rc accessors (still
 raw-ptr-self in places).
 
-**Intentional divergence:** the raw `*X as *dyn` escape cast heap-promotes the
-fat pair (escape-safety — a stack slot can't outlive the frame).
+**Raw `*dyn` escape:** `*const dyn`/`*mut dyn` is a 16-B fat pair like `&dyn`
+(sema folds literal `*dyn`→bare TraitObject). There is no thin-handle heap
+promotion (removed `282c5af3`). A raw dyn pointer that genuinely needs to outlive
+its frame is the user's `unsafe` responsibility; if a bare escape handle is ever
+wanted it would be a `*u8`/system-type widened via an intrinsic (no `Box::into_raw`
+/`from_raw` exist yet — a future Box raw-ownership API, orthogonal to this repr).
 
 **Cleanups:** two parallel `is_move_type`/`needs_drop` impls (sema vs borrow_check)
 remain; worth unifying.
