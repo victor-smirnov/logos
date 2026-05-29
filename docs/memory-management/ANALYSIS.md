@@ -200,17 +200,14 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
     double-free guard); a non-droppable elem is accepted (sound — effectively a
     copy, no Drop). Minor: non-droppable move-out diagnostic differs from Rust.
-15. **object-safety (E0038)** — PARTIAL (`c4ba01aa`): a **generic method** (`fn
-    f<T>`) trait coerced to `&dyn`/`Box<dyn>` is now rejected at sema
-    (`check_trait_object_safe`, the verified crash). REMAINING (#2 no `self`
-    receiver / #3 returns `Self` / #4 `Self`-by-value arg): **blocked on a grammar
-    prerequisite** — the trait-method `where_clause?` is parsed but DROPPED (not
-    mapped to any key in the FN productions), so `where Self: Sized` (which
-    excludes a method from the vtable) is invisible to sema; without it the gate
-    can't tell a legit `fn make() -> Self where Self: Sized` from a genuinely
-    non-object-safe method. Fix = capture the trait-method where-clause (also
-    closes the latent "`where Self: Sized` silently ignored" bug), then finish
-    #2/#3/#4.
+15. ✅ **object-safety (E0038)** — DONE (`c4ba01aa` generic-method + `f3f163f6`
+    rest). `check_trait_object_safe` (run when a `dyn Trait` fat type is resolved)
+    rejects a trait coerced to a trait object when a method is generic / has no
+    `self` receiver / returns `Self` / takes `Self` by value — skipping methods
+    with `where Self: Sized` (excluded from the vtable). Prerequisite fixed: the
+    trait-method `where_clause?` was parsed-then-dropped by the grammar (latent
+    "`where Self: Sized` ignored" bug) — now mapped to `WHERE` on the body-less FN
+    productions. Tests object_safety_{generic_method,returns_self,no_receiver}.
 
 **Missing features (not bugs):** `Rc`/`Arc` `Weak` references + cycle handling;
 Box `?Sized` / `Box<?Sized>` at the type level (`Box<dyn>` works via
