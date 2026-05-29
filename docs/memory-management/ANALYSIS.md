@@ -60,7 +60,7 @@ mallocs leaks unless a user `delete` or a stdlib free fn reaches it.
 | Vec<T> | ✅ (`vec.logos:399`) | ✅ element drop-glue | + manual `vec_free`; `into_iter` ptr-zero hack; eager cap-8 |
 | Rc<T> / Arc<T> | ✅ block at refcount 0 | ✅ **T's destructor IS run** at the last ref (`93dd38cf`; `drop_rc`/`drop_arc` move `inner.val` out → fires T's Drop before dealloc) | no Weak |
 | **Box<T>** | 🐞 **NO** (manual `box_free` only) | no | **stalest**; raw-ptr-self accessors; no `?Sized`/dyn |
-| HashMap, Deque | 🐞 NO (manual free only) | — | leak unless freed |
+| HashMap, Deque, HashSet | ✅ auto-Drop (`b98f8e72`): drops each element (move-out + T's Drop) + frees buffers; manual `*_free` removed | — | Rust parity |
 
 ---
 
@@ -152,7 +152,7 @@ How each language feature touches memory, and its current health.
 | **closure** | env: stack (non-escaping) / 🐞 heap leak (escaping, A7); value `{fn,env}` 16B fat | capture drop via `closure_owned_drop_`; 🐞 env block not freed | move captures; fat value | 🐞 capture-mode not enforced | ⚠️ env leak + capture-mode gap |
 | **dyn trait** | 🐞 fat+vtable heap, leak unless Box (A5/A6); vtable not interned | via Box only | Copy (`&dyn`) | ok | 🐞 leaks + vtable dup |
 | **class `new`/`delete`** | heap (A8) | ✅ via explicit `delete`; 🐞 leak if not deleted | — | — | manual (intentional?) |
-| **assignment `x=y`** | — | 🐞 **old LHS value NOT dropped before overwrite → leak** | source moved (suppress double-free) | assign-while-borrowed ✅ | 🐞 **drop-before-replace missing** |
+| **assignment `x=y`** | — | ✅ drop-before-replace (`b9cf9d81`); declared-uninit drops on 2nd+ assign via depth-promote (`87cac792`); never drops a still-uninit var at scope exit (`111df157`, UB fix) | source moved (suppress double-free) | assign-while-borrowed ✅ | ⚠️ conditional-only first init (no else) leaks the maybe-stored value — needs full DA / drop flags (catch-up TODO) |
 | **match** | binds payload (may move scrutinee) | scrutinee-move avoids double-free | `mark_match_scrutinee_moved` | per-arm move union | ✅ |
 | **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | 🐞 **body not borrow-checked** | ⚠️ |
 | **Zone/Hermes** | arena bump (MemHolder) | region freed at rc0 via destroyer; no per-object drop | RelPtr/AnyVal offsets; manual retain/release | n/a (offsets) | ✅ blessed divergence |
