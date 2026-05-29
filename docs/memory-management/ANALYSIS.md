@@ -190,8 +190,14 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 8. ✅ Box<dyn> by-value param leak — threaded concrete type to drop glue (`62a64943`).
 9. ✅ HashMap/VecDeque/HashSet element drop (`b98f8e72`); Vec element drop (`52c24b28`).
 
-**P2 — soundness/diagnostic gaps (OPEN):**
-10. 🐞 Generic fn bodies not borrow-checked (only monomorphizations are).
+**P2 — soundness/diagnostic gaps: ✅ ALL CLOSED (residual precision refinements noted inline).**
+10. ✅ Generic fn bodies borrow-checked (`42998241`). A PRE-mono pass checks
+    generic templates directly (so a never-instantiated generic is still
+    checked — mono drops it otherwise), in exclusivity-only mode (move tracking
+    is imprecise on TypeVars → false-positived on stdlib generics; concrete moves
+    are checked on the specializations post-mono). Duplicate template/spec diags
+    de-duplicated. Remaining: full generic-aware move analysis (so generic move
+    errors are caught pre-mono too, not only via specializations).
 11. ✅ `&mut [T]` vs `&[T]` mutability type-tracked (B6) — DONE (`c971c97f`).
     Slice carries the `mut_ptr` bit; writing through a shared `&[T]` and passing
     `&[T]` where `&mut [T]` is expected are rejected; `&mut [T]`→`&[T]` downgrade
@@ -206,7 +212,13 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
     now rejected (was a dangling-ref gap; whole-value use-after-move was already
     caught by sema). Recurses structurally, gated on not-Copy.
-13. 🐞 closure-capture-mode (Fn/FnMut/FnOnce) exclusivity not enforced.
+13. ✅ closure mut-capture exclusivity (`4f36fd4d`). A `let`-bound closure that
+    MUTATES a capture registers a `&mut` borrow held by the closure var (NLL
+    release at its last use), so using/`&mut`-ing the variable while the closure
+    is live is rejected. Shared (read) captures stay liveness-only — Logos
+    captures a whole variable, so a whole-var shared borrow would wrongly block
+    RFC-2229 disjoint sibling mutation. Remaining: precise field-path (RFC-2229)
+    capture, and exclusivity for inline (non-`let`-bound) closures.
 14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
     double-free guard); a non-droppable elem is accepted (sound — effectively a
     copy, no Drop). Minor: non-droppable move-out diagnostic differs from Rust.
