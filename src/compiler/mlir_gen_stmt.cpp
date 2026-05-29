@@ -418,15 +418,18 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
         return;
     }
 
-    // Rc/Arc: RcInner = { i32/AtomicI32 strong, T val }. val sits at
-    // offsetof = round_up(4, align(T)); recover the block start from data.
-    // align = vtable[2] (ptr-encoded usize) → ptrtoint.
+    // Rc/Arc: RcInner = { i32/AtomicI32 strong, i32/AtomicI32 weak, T val }. val
+    // sits at offsetof = round_up(8, align(T)) (two counters); recover the block
+    // start from data. align = vtable[2] (ptr-encoded usize) → ptrtoint.
+    // NOTE: this Rc<dyn>/Arc<dyn> path frees on strong==0 (no weak bookkeeping);
+    // Weak<dyn Trait> is a bounded follow-up — Weak is fully supported for
+    // concrete Rc<T>/Arc<T>.
     llvm::SmallVector<mlir::LLVM::GEPArg> ai{int32_t(2)};
     auto app   = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ptr_type(), vtable, ai);
     auto alignp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), app);
     auto align  = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, alignp);
-    // off = (4 + align - 1) & ~(align - 1) = (3 + align) & ~(align - 1)
-    auto c3   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 3, 64);
+    // off = (8 + align - 1) & ~(align - 1) = (7 + align) & ~(align - 1)
+    auto c3   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 7, 64);
     auto c1   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
     auto cN1  = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, 64);
     auto a3   = builder_.create<mlir::arith::AddIOp>(loc_, align, c3);

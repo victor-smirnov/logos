@@ -19,9 +19,19 @@ use logos.lang.mem;
 use logos.lang.drop;
 use logos.lang.clone;
 use logos.lang.ops;
+use logos.lang.option;
 
+// Control block (Rust parity — `RcBox`): strong + weak counters precede the
+// value in one heap block. `weak` counts the live Weak handles PLUS one
+// implicit weak owned collectively by all strong handles; T is dropped when
+// strong → 0, and the block is freed only when weak → 0. A Weak edge thus keeps
+// the block alive (so `upgrade` can test liveness) WITHOUT keeping T alive —
+// this is how reference cycles are broken. The header layout MUST match
+// ArcInner's so the compiler's Rc/Arc<dyn> unsize + drop recover `val` at one
+// uniform offset (round_up(8, align(T)) — two i32 counters).
 pub struct RcInner<T> {
     pub strong: i32,
+    pub weak:   i32,
     pub val:    T,
 }
 
@@ -29,10 +39,18 @@ pub struct Rc<T> {
     inner: *mut RcInner<T>,
 }
 
+// Weak<T> — a non-owning handle to an Rc allocation. Does not keep T alive;
+// `upgrade()` returns `Some(Rc)` only while a strong reference still exists,
+// else `None`. Use to break Rc cycles (e.g. a child's back-pointer to parent).
+pub struct Weak<T> {
+    inner: *mut RcInner<T>,
+}
+
 pub fn rc_new<T>(val: T) -> Rc<T> {
     let p: *mut RcInner<T> = alloc(sizeof::<RcInner<T>>()) as *mut RcInner<T>;
     unsafe {
         p.strong = 1;
+        p.weak   = 1;   // the implicit weak held collectively by the strong refs
         p.val    = val;
     }
     return Rc { inner: p };
@@ -76,16 +94,87 @@ impl<T> Rc<T> {
         }
     }
 
-    // Decrement strong count; when it reaches zero run T's destructor and free
-    // the inner block (Rust parity — the owned value is dropped at the last Rc).
+    // weak count (for diagnostics / Rust parity). Excludes the implicit weak.
+    pub unsafe fn weak_count(self: *mut Rc<T>) -> i32 {
+        return self.inner.weak - 1;
+    }
+
+    // Decrement strong; at the last strong reference run T's destructor, then
+    // release the implicit weak — freeing the block only once no Weak remains
+    // (Rust parity). The value is dropped at strong==0; the block at weak==0.
     pub unsafe fn drop_rc(self: *mut Rc<T>) {
         if self.inner == 0 as *mut RcInner<T> { return; }
         self.inner.strong = self.inner.strong - 1;
         if self.inner.strong == 0 {
-            let _v: T = self.inner.val;   // move-out → fires T's Drop at scope exit
+            { let _v: T = self.inner.val; }   // move-out → fires T's Drop
+            // Release the collective implicit weak; free if it was the last.
+            self.inner.weak = self.inner.weak - 1;
+            if self.inner.weak == 0 {
+                dealloc(self.inner as *mut u8);
+            }
+        }
+        self.inner = 0 as *mut RcInner<T>;
+    }
+
+    // Create a non-owning Weak handle (bumps the weak count). Rust: Rc::downgrade.
+    pub unsafe fn downgrade_rc(self: *mut Rc<T>) -> Weak<T> {
+        self.inner.weak = self.inner.weak + 1;
+        return Weak { inner: self.inner };
+    }
+    pub fn downgrade(&self) -> Weak<T> {
+        unsafe {
+            let p: *mut Rc<T> = self as *const Rc<T> as *mut Rc<T>;
+            return p.downgrade_rc();
+        }
+    }
+}
+
+impl<T> Weak<T> {
+    // Attempt to obtain a strong Rc. Returns None if the value has been dropped
+    // (no strong references remain). On success bumps the strong count.
+    pub fn upgrade(&self) -> Option<Rc<T>> {
+        unsafe {
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
+            if p.inner == 0 as *mut RcInner<T> { return Option::<Rc<T>>::None; }
+            if p.inner.strong == 0 { return Option::<Rc<T>>::None; }
+            p.inner.strong = p.inner.strong + 1;
+            return Option::<Rc<T>>::Some(Rc { inner: p.inner });
+        }
+    }
+
+    // Decrement the weak count; free the block once both strong and weak are
+    // exhausted (the value was already dropped when strong hit zero).
+    pub unsafe fn drop_weak(self: *mut Weak<T>) {
+        if self.inner == 0 as *mut RcInner<T> { return; }
+        self.inner.weak = self.inner.weak - 1;
+        if self.inner.weak == 0 {
             dealloc(self.inner as *mut u8);
         }
         self.inner = 0 as *mut RcInner<T>;
+    }
+}
+
+// Weak auto-Drop: releases this weak handle's count (and frees the block if it
+// was the very last reference of either kind).
+impl<T> Drop for Weak<T> {
+    fn drop(self: Weak<T>) {
+        unsafe {
+            let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
+            p.drop_weak();
+        }
+    }
+}
+
+// Weak Clone: a second non-owning handle (bumps the weak count).
+impl<T> Clone for Weak<T> {
+    fn clone(&self) -> Weak<T> {
+        unsafe {
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
+            if p.inner != 0 as *mut RcInner<T> {
+                p.inner.weak = p.inner.weak + 1;
+            }
+            return Weak { inner: p.inner };
+        }
     }
 }
 

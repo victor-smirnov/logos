@@ -1,0 +1,20 @@
+package test;
+use logos.mem.rc;
+use logos.lang.option;
+
+struct Node { v: i32 }
+
+fn main() -> i32 {
+    let r: Rc<Node> = rc_new::<Node>(Node { v: 10 });
+    let w: Weak<Node> = r.downgrade();
+    // upgrade while strong alive → Some
+    let mut got: i32 = 0;
+    match w.upgrade() {
+        Option::Some(r2) => { got = r2.v; }   // r2 drops here, strong back to 1
+        Option::None => { got = -1; }
+    }
+    // strong_count should be 1 again
+    let mut sc: i32 = 0;
+    unsafe { let p: *mut Rc<Node> = &r as *const Rc<Node> as *mut Rc<Node>; sc = p.strong_count(); }
+    return got + sc;   // 10 + 1 = 11
+}

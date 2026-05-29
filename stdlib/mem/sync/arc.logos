@@ -23,14 +23,18 @@ use logos.lang.atomic;
 use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.clone;
+use logos.lang.option;
 
 // ── Internal heap block ───────────────────────────────────────────────────────
 
-// Layout MUST match RcInner ({ refcount first, val second }) so the compiler's
+// Layout MUST match RcInner ({ strong, weak, val }) so the compiler's
 // Rc/Arc<dyn> unsize cast + drop recover `val` at the same offset
-// (round_up(sizeof(refcount), align(T))) for both — one uniform rule.
+// (round_up(8, align(T)) — two atomic i32 counters) for both — one uniform
+// rule. `weak` = live Weak handles + one implicit weak owned collectively by
+// the strong handles; T drops at strong→0, the block frees at weak→0.
 struct ArcInner<T> {
     strong: AtomicI32,
+    weak:   AtomicI32,
     val:    T,
 }
 
@@ -40,11 +44,18 @@ pub struct Arc<T> {
     inner: *mut ArcInner<T>,
 }
 
+// Weak<T> — a non-owning, thread-safe handle to an Arc allocation. `upgrade()`
+// yields `Some(Arc)` only while a strong reference survives. Breaks Arc cycles.
+pub struct Weak<T> {
+    inner: *mut ArcInner<T>,
+}
+
 pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
     let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
     unsafe {
         inner.val    = val;
         inner.strong = atomic_i32_new(1);
+        inner.weak   = atomic_i32_new(1);   // implicit weak held by strong refs
     }
     return Arc { inner: inner };
 }
@@ -79,17 +90,83 @@ impl<T: Send + Sync> Arc<T> {
         }
     }
 
-    // Atomically decrement; at the last reference run T's destructor and free
-    // the inner block (Rust parity).
+    pub unsafe fn weak_count(self: *mut Arc<T>) -> i32 {
+        return (&self.inner.weak).load() - 1;
+    }
+
+    // Atomically decrement strong; at the last strong reference run T's
+    // destructor, then release the implicit weak — freeing the block only once
+    // no Weak remains (Rust parity). Value drops at strong→0, block at weak→0.
     pub unsafe fn drop_arc(self: *mut Arc<T>) {
         if self.inner == 0 as *mut ArcInner<T> { return; }
         // fetch_sub returns the OLD value; old == 1 means we went 1 → 0.
         let prev: i32 = (&mut self.inner.strong).fetch_sub(1);
         if prev == 1 {
-            let _v: T = self.inner.val;   // move-out → fires T's Drop at scope exit
+            { let _v: T = self.inner.val; }   // move-out → fires T's Drop
+            let pw: i32 = (&mut self.inner.weak).fetch_sub(1);
+            if pw == 1 {
+                dealloc(self.inner as *mut u8);
+            }
+        }
+        self.inner = 0 as *mut ArcInner<T>;
+    }
+
+    // Create a non-owning Weak handle (atomically bumps the weak count).
+    pub unsafe fn downgrade_arc(self: *mut Arc<T>) -> Weak<T> {
+        (&mut self.inner.weak).fetch_add(1);
+        return Weak { inner: self.inner };
+    }
+    pub fn downgrade(&self) -> Weak<T> {
+        unsafe {
+            let p: *mut Arc<T> = self as *const Arc<T> as *mut Arc<T>;
+            return p.downgrade_arc();
+        }
+    }
+}
+
+impl<T: Send + Sync> Weak<T> {
+    // Attempt to obtain a strong Arc. Returns None if no strong reference
+    // remains. NOTE: not yet a full lock-free CAS loop (load-then-bump) — a
+    // strong-count race with a concurrent last-drop is possible; sufficient for
+    // single-producer upgrade patterns. Full CAS is a follow-up.
+    pub fn upgrade(&self) -> Option<Arc<T>> {
+        unsafe {
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
+            if p.inner == 0 as *mut ArcInner<T> { return Option::<Arc<T>>::None; }
+            if (&p.inner.strong).load() == 0 { return Option::<Arc<T>>::None; }
+            (&mut p.inner.strong).fetch_add(1);
+            return Option::<Arc<T>>::Some(Arc { inner: p.inner });
+        }
+    }
+
+    pub unsafe fn drop_weak(self: *mut Weak<T>) {
+        if self.inner == 0 as *mut ArcInner<T> { return; }
+        let pw: i32 = (&mut self.inner.weak).fetch_sub(1);
+        if pw == 1 {
             dealloc(self.inner as *mut u8);
         }
         self.inner = 0 as *mut ArcInner<T>;
+    }
+}
+
+impl<T: Send + Sync> Drop for Weak<T> {
+    fn drop(self: Weak<T>) {
+        unsafe {
+            let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
+            p.drop_weak();
+        }
+    }
+}
+
+impl<T: Send + Sync> Clone for Weak<T> {
+    fn clone(&self) -> Weak<T> {
+        unsafe {
+            let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
+            if p.inner != 0 as *mut ArcInner<T> {
+                (&mut p.inner.weak).fetch_add(1);
+            }
+            return Weak { inner: p.inner };
+        }
     }
 }
 

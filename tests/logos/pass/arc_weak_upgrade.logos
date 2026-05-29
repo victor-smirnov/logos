@@ -1,0 +1,14 @@
+package test;
+use logos.mem.sync;
+use logos.lang.option;
+
+fn main() -> i32 {
+    let a: Arc<i32> = arc_new::<i32>(20);
+    let w: Weak<i32> = a.downgrade();
+    let mut t: i32 = 0;
+    match w.upgrade() {
+        Option::Some(a2) => { unsafe { let p:*mut Arc<i32> = &a2 as *const Arc<i32> as *mut Arc<i32>; t = *p.get(); } }
+        Option::None => { t = -1; }
+    }
+    return t;   // 20
+}

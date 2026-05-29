@@ -2826,8 +2826,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             boxed && TypeRef(boxed).kind() != LogosType::Kind::TraitObject) {
             // Field 0 of the smart pointer: Box<T> = {*mut T} (field0 IS data);
             // Rc<T>/Arc<T> = {*mut RcInner<T>} (field0 is the box; data = &val =
-            // box + offsetof(val) = box + round_up(4, align(T)), since
-            // RcInner = {i32 strong/AtomicI32, T val}).
+            // box + offsetof(val) = box + round_up(8, align(T)), since
+            // RcInner = {i32/AtomicI32 strong, i32/AtomicI32 weak, T val}).
             mlir::Value field0;
             if (val.getType() == ptr_type()) {
                 auto bt = struct_types_.find(concrete_struct_name(op_le->type));
@@ -2845,7 +2845,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                 data_ptr = field0;
             } else {
                 uint64_t align = layout_of(boxed).align ? layout_of(boxed).align : 1;
-                uint64_t off = (4 + align - 1) & ~(align - 1);  // offsetof(val) in RcInner
+                uint64_t off = (8 + align - 1) & ~(align - 1);  // offsetof(val): 2×i32 header
                 llvm::SmallVector<mlir::LLVM::GEPArg> oi{int32_t(off)};
                 data_ptr = builder_.create<mlir::LLVM::GEPOp>(
                     loc_, ptr_type(), builder_.getI8Type(), field0, oi);

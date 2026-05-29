@@ -1,0 +1,24 @@
+package test;
+use logos.mem.rc;
+use logos.lang.option;
+
+struct Noisy { tag: i32 }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { }
+}
+
+fn make_weak() -> Weak<Noisy> {
+    let r: Rc<Noisy> = rc_new::<Noisy>(Noisy { tag: 5 });
+    return r.downgrade();   // r drops at return → strong 0, value dropped, block kept by weak
+}
+
+fn main() -> i32 {
+    let w: Weak<Noisy> = make_weak();
+    // strong is gone → upgrade must be None
+    let mut code: i32 = 7;
+    match w.upgrade() {
+        Option::Some(r2) => { code = r2.tag; }
+        Option::None => { code = 42; }
+    }
+    return code;   // 42
+}
