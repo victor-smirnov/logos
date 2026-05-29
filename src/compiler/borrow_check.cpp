@@ -29,6 +29,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/region_infer.hpp>
+#include <logos/compiler/move_classify.hpp>
 
 #include <format>
 #include <optional>
@@ -105,19 +106,16 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
 // move-while-borrowed and consume tracking silently skipped (a dangling-ref
 // soundness gap). Now recurses structurally to match the value's real ownership.
 static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
-    using K = LogosType::Kind;
-    if (!t) return false;
-    switch (t.kind()) {
-    case K::Struct:
-        return needs_drop(t, prog, ts) &&
-               !ts.copy_types.count(std::string(t.struct_name()));
-    case K::Tuple:
-        for (auto e : t.tuple_elems()) if (is_move_type(e, prog, ts)) return true;
-        return false;
-    case K::Array:
-        return is_move_type(t.elem(), prog, ts);
-    case K::Enum: {
-        std::string en(t.enum_name());
+    // Shared aggregate-recursion skeleton (moveclass::is_move_type); the
+    // callbacks reproduce borrow_check's exact (post-mono) semantics. Tuple /
+    // Array recursion is single-sourced in the skeleton.
+    auto leaf = [&](TypeRef) -> std::optional<bool> { return std::nullopt; };
+    auto struct_is_move = [&](TypeRef x) {
+        return needs_drop(x, prog, ts) &&
+               !ts.copy_types.count(std::string(TypeRef(x).struct_name()));
+    };
+    auto enum_is_move = [&](TypeRef x) -> bool {
+        std::string en(TypeRef(x).enum_name());
         if (ts.copy_types.count(en)) return false;     // explicitly Copy enum
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
         for (auto& ed : prog.enums) {                   // any move-typed payload
@@ -128,10 +126,8 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
             return false;
         }
         return false;
-    }
-    default:
-        return false;
-    }
+    };
+    return moveclass::is_move_type(t, leaf, struct_is_move, enum_is_move);
 }
 
 // ── Variable state ───────────────────────────────────────────────────────────

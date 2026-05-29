@@ -17,6 +17,7 @@
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/sema_schema.hpp>
+#include <logos/compiler/move_classify.hpp>
 #include <logos/hermes/arena.hpp>
 #include <logos/hermes/arena_pool.hpp>
 #include <logos/hermes/arena_value.hpp>
@@ -2260,57 +2261,43 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
 // ── Drop/move helpers ────────────────────────────────────────────────────────
 
 bool SemaChecker::is_move_type(TypeRef t) const {
-    if (!t) return false;
-    // An owning Box<dyn Trait> owns heap data and is non-Copy → move type.
-    // (A borrowed &dyn is Copy-like and not a move type.) Making is_move_type
-    // recognise it lets EVERY move-tracking site (let-RHS, call args, field /
-    // tuple-element moves) suppress the source's drop uniformly — no per-site
-    // owning-dyn special-casing.
-    if (TypeRef(t).owning_trait_object()) return true;
-    // TypeVar — generic body. We don't know if T resolves to a Copy or
-    // move type at sema; treat as move (conservative). If T resolves to
-    // Copy at mono, the suppressed scope-exit drop is harmless (Copy
-    // types have no Drop). If T resolves to a move-type, the
-    // suppression is necessary to avoid double-free across slots that
-    // bitwise-share the value (Vec.push / Vec.remove / let val: T =
-    // *ptr / etc.). Cross-arm move pollution that this could cause is
-    // handled by lower_match / lower_if's per-arm save/restore.
-    if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
-        // §B1: a `T: Copy` bound makes T provably Copy (Copy and Drop are
-        // mutually exclusive), so a by-value use of `x: T` does NOT move it —
-        // the value stays valid for later use. Without this, generic code
-        // like `fn dup<T: Copy>(x: T) -> T { consume(x); x }` spuriously
-        // reports "use of moved variable". Only an explicit Copy bound counts
-        // (matches Rust); anything else stays conservative-move.
-        auto nm = std::string(TypeRef(t).type_var_name());
-        auto it = current_type_bounds_.find(nm);
-        if (it != current_type_bounds_.end())
-            for (auto& b : it->second)
-                if (b.trait_name == "Copy") return false;
-        return true;
-    }
-    // A tuple is a move type iff any element is (it then owns a non-Copy value
-    // and is dropped / consumed as a whole — G154-4 / G156-2). Tuples of all
-    // Copy elements stay Copy.
-    if (TypeRef(t).kind() == LogosType::Kind::Tuple) {
-        for (auto e : TypeRef(t).tuple_elems())
-            if (e && is_move_type(e)) return true;
-        return false;
-    }
-    // G158-4: an array `[T; N]` is a move type iff its element is.
-    if (TypeRef(t).kind() == LogosType::Kind::Array)
-        return TypeRef(t).elem() && is_move_type(TypeRef(t).elem());
+    // Shared aggregate-recursion skeleton (moveclass::is_move_type); the leaf /
+    // struct / enum callbacks below reproduce sema's exact semantics.
+    auto leaf = [&](TypeRef x) -> std::optional<bool> {
+        // An owning Box<dyn Trait> owns heap data and is non-Copy → move type.
+        // (A borrowed &dyn is Copy-like and not a move type.) This lets EVERY
+        // move-tracking site (let-RHS, call args, field / tuple-element moves)
+        // suppress the source's drop uniformly — no per-site owning-dyn casing.
+        if (TypeRef(x).owning_trait_object()) return true;
+        // TypeVar — generic body. We don't know if T resolves to a Copy or move
+        // type at sema; treat as move (conservative). If T resolves to Copy at
+        // mono, the suppressed scope-exit drop is harmless (Copy has no Drop). If
+        // T resolves to a move-type, the suppression avoids double-free across
+        // slots that bitwise-share the value (Vec.push/remove, `let v: T = *ptr`).
+        // Cross-arm move pollution is handled by lower_match/lower_if save/restore.
+        if (TypeRef(x).kind() == LogosType::Kind::TypeVar) {
+            // §B1: a `T: Copy` bound makes T provably Copy (Copy and Drop are
+            // mutually exclusive), so `x: T` used by-value is NOT moved. Only an
+            // explicit Copy bound counts (Rust); else stay conservative-move.
+            auto nm = std::string(TypeRef(x).type_var_name());
+            auto it = current_type_bounds_.find(nm);
+            if (it != current_type_bounds_.end())
+                for (auto& b : it->second)
+                    if (b.trait_name == "Copy") return std::optional<bool>(false);
+            return std::optional<bool>(true);
+        }
+        return std::nullopt;
+    };
     // G156-2: an enum is a move type iff it carries a droppable payload or has a
-    // user `impl Drop` — then it owns a non-Copy value and must be move-tracked
-    // (so its scope-exit Drop and a payload moved out by a match binding don't
-    // double-free). Plain C-like / all-Copy-payload enums (Option<i64>, …) stay
-    // non-move.
-    if (TypeRef(t).kind() == LogosType::Kind::Enum)
-        return !drop_fn_for(t).empty() || has_droppable_fields(t);
+    // user `impl Drop`. Plain C-like / all-Copy-payload enums stay non-move.
+    auto enum_is_move = [&](TypeRef x) {
+        return !drop_fn_for(x).empty() || has_droppable_fields(x);
+    };
     // Struct types are move types unless they implement Copy.
-    if (TypeRef(t).kind() != LogosType::Kind::Struct)
-        return false;
-    return !copy_types_.count(std::string(TypeRef(t).struct_name()));
+    auto struct_is_move = [&](TypeRef x) {
+        return !copy_types_.count(std::string(TypeRef(x).struct_name()));
+    };
+    return moveclass::is_move_type(t, leaf, struct_is_move, enum_is_move);
 }
 
 TypeRef SemaChecker::normalize_assoc_eq(TypeRef t) const {

@@ -217,8 +217,20 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     release at its last use), so using/`&mut`-ing the variable while the closure
     is live is rejected. Shared (read) captures stay liveness-only — Logos
     captures a whole variable, so a whole-var shared borrow would wrongly block
-    RFC-2229 disjoint sibling mutation. Remaining: precise field-path (RFC-2229)
-    capture, and exclusivity for inline (non-`let`-bound) closures.
+    RFC-2229 disjoint sibling mutation. **Remaining = RFC-2229 (own session,
+    2026-05-29 plan):** Logos closures capture WHOLE variables (sema_expr capture
+    scanner walks `p.x`→root `p`; env layout, codegen unpack, borrow-check all
+    whole-var). True disjoint capture is a 4-layer rewrite: (1) capture analysis
+    records field PATHS `p.x` + per-path mode; (2) env layout stores the field
+    not the whole struct (needed so `move ||p.x` leaves `p.y` usable — the
+    move-precision part); (3) mlir-gen env-field access by path; (4) borrow-check
+    field-path capture-borrow (reuse B83). For NON-`move` closures layers 2/3
+    aren't needed for correctness (whole-`p`-by-ref + read `p.x` is runtime-
+    equivalent) → a phase-1 "borrow-check exclusivity only" (layers 1+4) gives
+    `||p.x` + `&mut p.x` rejection + disjoint `&mut p.y` soundly; risky
+    move-disjointness is layers 2+3. b156 currently passes via the
+    shared-capture-liveness-only choice, NOT field-path capture. Also: exclusivity
+    for inline (non-`let`-bound) closures.
 14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
     double-free guard); a non-droppable elem is accepted (sound — effectively a
     copy, no Drop). Minor: non-droppable move-out diagnostic differs from Rust.
