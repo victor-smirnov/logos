@@ -1265,7 +1265,6 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
             // 8-byte heap handle (escapes via the raw pointer; persistent/
             // smart-ptr convention).
             alloca = coerce_to_dyn(data_ptr, std::string(st.trait_name()), src_type,
-                                   /*heap=*/is_raw_ptr_dyn,
                                    src_logos_type);
         }
         scope_[s.name] = alloca;

@@ -653,7 +653,7 @@ private:
     // stored/escapes (Vec<Box<dyn>>, persistent NodeARC.p) and survives via the
     // heap slot (Box<dyn>'s drop frees it).
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                               std::string_view src_type_name, bool heap = false,
+                               std::string_view src_type_name,
                                TypeRef concrete_ty = {});
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
@@ -661,7 +661,7 @@ private:
     // e.g. an enum-variant payload typed `Box<dyn>` constructed from a
     // `Box<Concrete>`. No-op when not applicable or already a trait object.
     mlir::Value coerce_value_to_dyn_if_needed(mlir::Value val, TypeRef slot_lt,
-                                              TypeRef val_lt, bool force_heap = false);
+                                              TypeRef val_lt);
     mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
 

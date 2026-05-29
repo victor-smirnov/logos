@@ -1017,22 +1017,20 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
 // ---------------------------------------------------------------------------
 
 mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
-                                        std::string_view src_type_name, bool heap,
+                                        std::string_view src_type_name,
                                         TypeRef concrete_ty) {
     auto dyn_struct = dyn_llvm_type();
-    // Borrow `&dyn`/`&mut dyn` (heap=false): the {data,vtable} pair lives in a
-    // stack alloca (value-fat-pair model, mirrors slices) — no malloc, no leak.
-    // The data half points at the concrete object whose lifetime borrow-check
-    // guards; escape consumers copy the 16 bytes into their own inline storage.
-    // Owning `Box<dyn>` / raw `*const/*mut dyn` (heap=true): malloc(16) so the
-    // single-word handle survives being stored/returned (Box<dyn>'s drop frees).
-    mlir::Value alloca;
-    if (heap) {
-        auto size16 = builder_.create<mlir::arith::ConstantIntOp>(loc_, int64_t(16), 64);
-        alloca = call_malloc(size16);
-    } else {
-        alloca = create_entry_alloca(dyn_struct);
-    }
+    // The {data,vtable} fat pair lives in a STACK alloca (value-fat-pair model,
+    // like a slice) — `&dyn`/`*dyn`/`Box<dyn>` are all uniform 16-byte fat. The
+    // value is a pointer to this storage; escape consumers (enum payload, struct
+    // field, Vec slot, return) copy the 16 bytes into their OWN inline storage,
+    // so the fat pair travels by value and never needs a heap handle. Owning
+    // `Box<dyn>`'s `data` half is the heap concrete, freed by vtable[0] on drop.
+    // (A former `heap=true` path malloc'd a thin handle for a raw `*dyn` escape /
+    // `Ptr<TraitObject>` local — conceptually broken, non-Rust, and provably
+    // unreachable across all 5433 tests/stdlib/examples; removed. A future raw
+    // escape would use a `*u8`/system-type widened via an intrinsic.)
+    auto alloca = create_entry_alloca(dyn_struct);
     if (!alloca) return nullptr;
     // Store data pointer at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
@@ -1051,7 +1049,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
 }
 
 mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
-        mlir::Value val, TypeRef slot_lt, TypeRef val_lt, bool force_heap) {
+        mlir::Value val, TypeRef slot_lt, TypeRef val_lt) {
     using K = LogosType::Kind;
     if (!val || !slot_lt || !val_lt) return val;
     auto unbox = [](TypeRef t) -> TypeRef {
@@ -1082,10 +1080,8 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     // fat pair (like `&dyn`), where `data` = the box's heap concrete pointer
     // (`val` IS that pointer — Box<concrete> = {ptr}). No malloc(16) handle: the
     // pair is a stack alloca the consumer copies (Vec slot / return). Drop frees
-    // `data` via vtable[0]. (force_heap is the legacy raw `*const/*mut dyn` escape
-    // that still wants a surviving heap handle.)
-    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name,
-                             /*heap=*/force_heap, vt_type);
+    // `data` via vtable[0].
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type);
     return fat ? fat : val;
 }
 
