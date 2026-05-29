@@ -1,0 +1,15 @@
+// P2-15 object-safety (Rust E0038 / dyn-compatibility): a trait with a generic
+// method has no vtable slot for it, so it cannot be used as a `&dyn`/`Box<dyn>`
+// trait object — sema must reject the coercion (previously silently accepted,
+// then crashed on dispatch).
+package object_safety_generic_method;
+
+trait Bad { fn gen<T>(&self, x: T) -> i64; }
+struct S {}
+impl Bad for S { fn gen<T>(&self, x: T) -> i64 { return 1i64; } }
+
+fn main() -> i32 {
+    let s: S = S {};
+    let b: &dyn Bad = &s;   // ERROR: `Bad` is not object-safe (generic method `gen`)
+    return 0i32;
+}

@@ -1,0 +1,1 @@
+the trait `Bad` is not object-safe (cannot be a `dyn Bad` trait object) because it has a generic method `gen`

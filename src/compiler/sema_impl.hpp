@@ -2370,6 +2370,12 @@ private:
     std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
         return lookup_qualified_<false>(traits_, name);
     }
+    // P2-15 object-safety (dyn-compatibility, Rust E0038): a trait used as a
+    // trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe, else a method
+    // has no vtable slot → crash on dispatch. Checked when a `dyn Trait` type is
+    // resolved; reported once per offending trait (dedup set).
+    std::set<std::string> dyn_safety_reported_;
+    void check_trait_object_safe(const std::string& trait_name);
     // Scope-aware iterator into traits_: probes `cur_package_::name`, then each
     // imported/re-exported package, then the bare name (legacy slot). Same
     // resolution order as find_trait_by_name / lookup_qualified_, but returns

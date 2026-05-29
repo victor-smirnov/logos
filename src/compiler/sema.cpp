@@ -2608,6 +2608,33 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
     return it != assoc_type_impls_.end() ? &it->second : nullptr;
 }
 
+// P2-15 object-safety (Rust E0038 / dyn-compatibility). A trait coerced to a
+// trait object must be dyn-dispatchable: every method needs a vtable slot. Reject
+// (once per trait) when a method can't have one. Currently the reliably-detectable
+// case: a GENERIC method (`fn f<T>`) — there is no single monomorphized slot, so
+// dispatch through the vtable reads a garbage entry and crashes (the verified
+// E0038 crash). Other E0038 cases (no `self` receiver, returns `Self`, `Self` in
+// an argument) need method-level `self`-receiver + `where Self: Sized` signals
+// that the trait collection doesn't yet record — added in a follow-up so they
+// don't over-reject a `where Self: Sized` method (excluded from the vtable) or a
+// concretely-typed `self: &S` receiver.
+void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
+    if (dyn_safety_reported_.count(trait_name)) return;  // dedup: report once
+    auto [pkg, ti] = find_trait_by_name(trait_name);
+    if (!ti) return;  // unknown trait already diagnosed at the call site
+    for (auto& m : ti->methods) {
+        if (!m.type_params.empty()) {
+            dyn_safety_reported_.insert(trait_name);
+            error(std::format("the trait `{}` is not object-safe (cannot be a "
+                              "`dyn {}` trait object) because it has a generic "
+                              "method `{}` — a generic method has no vtable slot; "
+                              "give it a `where Self: Sized` bound or avoid `dyn`",
+                              trait_name, trait_name, m.name));
+            return;
+        }
+    }
+}
+
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
     // B8: a declared-uninit var's drop is gated at RUNTIME by mlir-gen's dynamic
     // drop flag (it only runs the destructor if the slot holds a live value), so
@@ -4922,6 +4949,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // bare-by-value when it matters).
         if (unsized_ok_)
             return make_unsized_dyn_type(tname, std::move(args));
+        // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
+        // object-safe (dyn-compatible). A non-object-safe method has no vtable
+        // slot → dispatch would crash; reject at the type-resolution point.
+        check_trait_object_safe(tname);
         return make_trait_object(tname, std::move(args));
     }
 
