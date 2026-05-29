@@ -8,6 +8,7 @@ package logos.mem.boxed;
 
 use logos.lang.mem;
 use logos.lang.ops;
+use logos.mem.manually_drop;
 
 pub struct Box<T> {
     ptr: *mut T,
@@ -17,6 +18,34 @@ pub fn box_new<T>(val: T) -> Box<T> {
     let p: *mut T = alloc(sizeof::<T>()) as *mut T;
     unsafe { p[0] = val; }
     return Box { ptr: p };
+}
+
+// Consume the Box and return its raw heap pointer WITHOUT running Box's Drop
+// (the heap block is NOT freed — ownership of the allocation transfers to the
+// caller, who must eventually reconstitute a Box via `box_from_raw` or free it
+// manually). Rust parity: `Box::into_raw`. Implemented exactly as Rust does —
+// wrap the Box in ManuallyDrop to suppress its destructor, then read the ptr.
+pub fn box_into_raw<T>(b: Box<T>) -> *mut T {
+    let md: ManuallyDrop<Box<T>> = manually_drop_new::<Box<T>>(b);
+    return md.value.ptr;
+}
+
+// Reconstitute a Box from a raw pointer previously produced by `box_into_raw`
+// (or any pointer to a heap block allocated with the matching layout). The Box
+// re-takes ownership: its Drop will run T's destructor and free the block.
+// Unsafe — caller guarantees `raw` is a live, uniquely-owned allocation of T.
+// Rust parity: `Box::from_raw`.
+pub unsafe fn box_from_raw<T>(raw: *mut T) -> Box<T> {
+    return Box { ptr: raw };
+}
+
+// Consume the Box and leak its contents, returning a `&mut T` that lives for
+// the rest of the program (the allocation is never freed). Rust parity:
+// `Box::leak`. Built on `box_into_raw` — same ownership give-up, just exposed
+// as a reference instead of a raw pointer.
+pub fn box_leak<T>(b: Box<T>) -> &mut T {
+    let p: *mut T = box_into_raw::<T>(b);
+    unsafe { return &mut *p; }
 }
 
 impl<T> Box<T> {

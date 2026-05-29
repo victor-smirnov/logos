@@ -1,0 +1,25 @@
+// pass — Box::into_raw / from_raw / leak (Rust-parity raw ownership transfer).
+package test;
+
+use logos.mem.boxed;
+
+fn main() -> i32 {
+    unsafe {
+        // into_raw gives up ownership WITHOUT freeing; from_raw retakes it.
+        let b: Box<i32> = box_new::<i32>(7);
+        let raw: *mut i32 = box_into_raw::<i32>(b);
+        if *raw != 7 { return 1; }
+        *raw = 13;
+        // Reconstitute — the Box's Drop will free the block at scope exit.
+        let b2: Box<i32> = box_from_raw::<i32>(raw);
+        if *b2.get() != 13 { return 2; }
+
+        // leak — never freed, returns a &mut T.
+        let lb: Box<i32> = box_new::<i32>(100);
+        let r: &mut i32 = box_leak::<i32>(lb);
+        if *r != 100 { return 3; }
+        *r = 200;
+        if *r != 200 { return 4; }
+    }
+    return 42;
+}
