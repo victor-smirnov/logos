@@ -1,0 +1,9 @@
+package test;
+fn main() -> i32 {
+    let mut arr: [i32; 3] = [1, 2, 3];
+    let r = &mut arr[0];     // mut borrow of element
+    let s = &mut arr[1];     // should conflict (Rust: rejected)
+    *r = 10;
+    *s = 20;
+    return arr[0] + arr[1];
+}

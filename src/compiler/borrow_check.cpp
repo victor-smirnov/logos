@@ -631,9 +631,10 @@ class BorrowChecker {
             else
                 report(line, std::format("use of moved value '{}'", name));
         }
-        if (it->second.mut_borrowed)
+        if (it->second.mut_borrowed) {
             report(line, std::format(
                 "cannot use '{}' while it is mutably borrowed", name));
+        }
     }
 
     // ── Phase 4: provenance of a reference expression ─────────────────────
@@ -916,20 +917,42 @@ class BorrowChecker {
                 auto inner = v.inner();
                 std::string root;
                 std::string path;
+                // Any IndexRead / SliceIndex in the chain collapses precision to
+                // a WHOLE-ROOT borrow (Rust-static rule: `&[mut] arr[i]` borrows
+                // the whole array — disjointness on element indices can't be
+                // proven without `split_at_mut`). Closes the element-borrow gap:
+                // `&mut arr[0]; &mut arr[1]` / `&mut arr[0]; &mut arr` /
+                // `&arr[0]; arr[1] = …` are now all rejected.
+                bool index_in_chain = false;
                 {
                     auto cur = inner;
                     std::vector<std::string> path_parts;
-                    while (cur && cur.kind() == Code::FieldRead) {
-                        EFieldReadView fv{cur};
-                        path_parts.push_back(std::string(fv.field()));
-                        cur = fv.receiver();
+                    while (cur) {
+                        if (cur.kind() == Code::FieldRead) {
+                            EFieldReadView fv{cur};
+                            if (!index_in_chain)
+                                path_parts.push_back(std::string(fv.field()));
+                            cur = fv.receiver();
+                        } else if (cur.kind() == Code::IndexRead) {
+                            index_in_chain = true;
+                            path_parts.clear();   // path precision lost
+                            cur = EIndexReadView{cur}.receiver();
+                        } else if (cur.kind() == Code::SliceIndex) {
+                            index_in_chain = true;
+                            path_parts.clear();
+                            cur = ESliceIndexView{cur}.slice();
+                        } else {
+                            break;
+                        }
                     }
                     if (cur && cur.kind() == Code::VarRef) {
                         root = std::string(EVarRefView{cur}.name());
-                        // Path built in reverse — outermost field first.
-                        for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
-                            if (!path.empty()) path.push_back('.');
-                            path.append(*it);
+                        if (!index_in_chain) {
+                            // Path built in reverse — outermost field first.
+                            for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
+                                if (!path.empty()) path.push_back('.');
+                                path.append(*it);
+                            }
                         }
                     }
                 }
@@ -948,6 +971,16 @@ class BorrowChecker {
                                 root, outer, mit->second));
                             break;
                         }
+                    }
+                    if (index_in_chain) {
+                        // Index/slice-element borrow → whole-root borrow.
+                        // Visit inner FIRST (sub-checks on the index expr etc.)
+                        // BEFORE registering the borrow, else the recursive
+                        // VarRef visit hits check_live on the root we just
+                        // borrowed → spurious self-conflict.
+                        if (inner) visit(inner, /*consuming=*/false, line);
+                        take_borrow(root, v.is_mut(), line, holder);
+                        break;
                     }
                     if (!path.empty()) {
                         bool is_mut = v.is_mut();
@@ -1499,18 +1532,47 @@ class BorrowChecker {
             }
 
             // ── Index write: arr[i] = value ──────────────────────────────
+            // Element borrow gap: `arr[i] = v` writes through the container,
+            // so it must respect existing borrows on the container — mirror
+            // the SAssign exclusivity check (any active shared or mut borrow
+            // of `arr` blocks the write). This matches Rust: an `&arr[i]`
+            // shared borrow blocks any element write; `&mut arr[i]` blocks it.
             case Code::IndexWrite: {
                 SIndexWriteView v{sr};
-                check_live(std::string(v.arr()), ln);
+                std::string nm(v.arr());
+                if (auto it = states_.find(nm); it != states_.end()) {
+                    if (it->second.shared_borrows > 0)
+                        report(ln, std::format(
+                            "cannot assign to '{}[..]' because '{}' is borrowed",
+                            nm, nm));
+                    if (it->second.mut_borrowed)
+                        report(ln, std::format(
+                            "cannot assign to '{}[..]' while '{}' is mutably borrowed",
+                            nm, nm));
+                }
+                check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
                 visit(v.value(), /*consuming=*/true, ln);
                 break;
             }
 
             // ── Field-index write: recv.field[i] = value ─────────────────
+            // Same exclusivity check as IndexWrite — writing through the
+            // receiver respects borrows on the receiver.
             case Code::FieldIndexWrite: {
                 SFieldIndexWriteView v{sr};
-                check_live(std::string(v.receiver()), ln);
+                std::string nm(v.receiver());
+                if (auto it = states_.find(nm); it != states_.end()) {
+                    if (it->second.shared_borrows > 0)
+                        report(ln, std::format(
+                            "cannot assign to '{}.{}[..]' because '{}' is borrowed",
+                            nm, std::string(v.field()), nm));
+                    if (it->second.mut_borrowed)
+                        report(ln, std::format(
+                            "cannot assign to '{}.{}[..]' while '{}' is mutably borrowed",
+                            nm, std::string(v.field()), nm));
+                }
+                check_live(nm, ln);
                 visit(v.index(), /*consuming=*/true, ln);
                 visit(v.value(), /*consuming=*/true, ln);
                 break;
@@ -1533,8 +1595,43 @@ class BorrowChecker {
             }
 
             // ── Deref write: *ptr = value ─────────────────────────────────
+            // `arr[i] = v` and other place writes lower to SDerefWrite of
+            // AddrOfTemp(<place>). When the place is `<root>[i]…` / `<root>.f[i]…`,
+            // the write conflicts with any active borrow on the root (Rust:
+            // `&arr[0]; arr[1] = …` rejected — shared borrow blocks any element
+            // write; `&mut arr[0]; arr[1] = …` also rejected). Walk the AddrOfTemp
+            // chain through FieldRead/IndexRead/SliceIndex to extract the root,
+            // then check the root's borrow state directly (no lasting borrow:
+            // the write is transient at this statement).
             case Code::DerefWrite: {
                 SDerefWriteView v{sr};
+                auto ptr = v.ptr();
+                using EC = lir_schema::expr::Code;
+                if (ptr && ptr.kind() == EC::AddrOfTemp) {
+                    EAddrOfTempView atv{ptr};
+                    auto cur = atv.inner();
+                    bool saw_index = false;
+                    while (cur) {
+                        if (cur.kind() == EC::FieldRead)      cur = EFieldReadView{cur}.receiver();
+                        else if (cur.kind() == EC::IndexRead) { saw_index = true; cur = EIndexReadView{cur}.receiver(); }
+                        else if (cur.kind() == EC::SliceIndex){ saw_index = true; cur = ESliceIndexView{cur}.slice(); }
+                        else if (cur.kind() == EC::TupleIndex){ cur = ETupleIndexView{cur}.receiver(); }
+                        else break;
+                    }
+                    if (saw_index && cur && cur.kind() == EC::VarRef) {
+                        std::string root(EVarRefView{cur}.name());
+                        if (auto it = states_.find(root); it != states_.end()) {
+                            if (it->second.shared_borrows > 0)
+                                report(ln, std::format(
+                                    "cannot assign through '{}[..]' because '{}' is borrowed",
+                                    root, root));
+                            if (it->second.mut_borrowed)
+                                report(ln, std::format(
+                                    "cannot assign through '{}[..]' while '{}' is mutably borrowed",
+                                    root, root));
+                        }
+                    }
+                }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
                 break;

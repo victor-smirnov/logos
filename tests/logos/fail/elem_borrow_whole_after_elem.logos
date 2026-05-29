@@ -1,0 +1,8 @@
+package test;
+fn main() -> i32 {
+    let mut arr: [i32; 3] = [1, 2, 3];
+    let r = &mut arr[0];
+    let s = &mut arr;        // CONFLICT: arr borrowed while element &mut
+    *r = 10;
+    return arr[0];
+}
