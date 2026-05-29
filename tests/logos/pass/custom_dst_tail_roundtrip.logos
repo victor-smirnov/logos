@@ -1,0 +1,18 @@
+package test;
+struct Buf { hdr: i32, tail: [u8] }
+
+unsafe fn read(b: &Buf) -> i32 {
+    let mut acc: i32 = b.hdr;
+    let s: &[u8] = b.tail;
+    let mut i: i64 = 0;
+    while i < s.len() { acc = acc + (s[i] as i32); i = i + 1; }
+    return acc;
+}
+
+unsafe fn main() -> i32 {
+    // Manually lay out: [i32 hdr][u8 tail...]. hdr at off 0, tail at off 4.
+    let buf: [u8; 8] = [100u8,0u8,0u8,0u8, 1u8,2u8,3u8,4u8];  // hdr=100, tail=[1,2,3,4]
+    let raw: *const u8 = &buf as *const [u8] as *const u8;
+    let f: &Buf = dst_from_raw_parts::<Buf>(raw, 4 as i64);
+    return read(f);   // 100 + 1+2+3+4 = 110
+}
