@@ -259,8 +259,13 @@ its frame is the user's `unsafe` responsibility; if a bare escape handle is ever
 wanted it would be a `*u8`/system-type widened via an intrinsic (no `Box::into_raw`
 /`from_raw` exist yet — a future Box raw-ownership API, orthogonal to this repr).
 
-**Cleanups:** two parallel `is_move_type`/`needs_drop` impls (sema vs borrow_check)
-remain; worth unifying.
+**Cleanups: ✅ DONE.** `is_move_type`'s aggregate recursion is single-sourced
+(`move_classify.hpp` skeleton + per-phase callbacks, `54bb4f77`); `needs_drop` /
+`has_droppable_fields` intentionally stay phase-specific (sema's is generic-aware
+on live TypePool state, borrow_check's is the minimal post-mono form — merging
+them would be net-negative). The enum heap-promotion band-aid was removed by the
+enum value-repr landing (`51d2e29e`), and Vec's dual manual-free (`vec_free`) by
+the container element-drop landing.
 
 ---
 
