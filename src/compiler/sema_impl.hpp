@@ -1909,6 +1909,9 @@ private:
         TypeRef ret_type = nullptr;
         bool has_default = false;   // trait method has a default body
         bool is_unsafe = false;     // declared unsafe fn in trait
+        bool has_self_receiver = false;  // first param is `self`/`&self`/`&mut self`/`self: …`
+        bool requires_sized_self = false;  // `where Self: Sized` → excluded from the
+                                            // vtable (ignored for object-safety, P2-15)
         hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
         hermes::MemHolder* default_holder = nullptr;  // zone that owns default_ast
         std::string doc;     // Phase A.2: outer `///` doc-comment

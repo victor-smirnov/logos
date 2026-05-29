@@ -1,0 +1,12 @@
+// P2-15 object-safety: an associated function with no `self` receiver can't be
+// dispatched through a trait object. (A `where Self: Sized` bound would exclude
+// it from the vtable and keep the trait dyn-safe.)
+package object_safety_no_receiver;
+trait Factory { fn make() -> i64; }
+struct S {}
+impl Factory for S { fn make() -> i64 { return 1i64; } }
+fn main() -> i32 {
+    let s: S = S {};
+    let f: &dyn Factory = &s;   // ERROR: `Factory` not object-safe (no `self`)
+    return 0i32;
+}

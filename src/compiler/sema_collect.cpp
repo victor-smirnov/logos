@@ -1972,6 +1972,15 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         auto params = arr_of(plist.get(la::ITEMS.code));
                         for (uint64_t j = 0; j < params.size(); ++j) {
                             auto p = map_of(params.get(j));
+                            // P2-15: the first param is the `self` receiver if it
+                            // lacks an explicit TYPE (`&self`/`&mut self`/`self`)
+                            // or is named `self` (`self: &S` — concretely typed).
+                            if (j == 0) {
+                                bool no_type = !p.has_key(la::TYPE);
+                                std::string pn = p.has_key(la::NAME)
+                                    ? std::string(str_of(p.get(la::NAME.code))) : "";
+                                mi.has_self_receiver = no_type || pn == "self";
+                            }
                             if (p.has_key(la::TYPE)) {
                                 mi.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
                             } else {
@@ -1994,6 +2003,31 @@ void SemaChecker::collect_trait(TinyMapView node) {
             }
             mi.ret_type = m.has_key(la::RET_TYPE)
                 ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
+            // P2-15: a `where Self: Sized` method is excluded from the vtable, so
+            // it never affects object-safety (the trait-method where-clause is now
+            // captured under WHERE — grammar fix). Scan for a `Self: Sized` bound.
+            if (m.has_key(la::WHERE)) {
+                AnyVal wav = m.get(la::WHERE.code);
+                if (!wav.is_null()) {
+                    auto wmap = map_of(wav);
+                    if (wmap.has_key(la::ITEMS)) {
+                        auto witems = arr_of(wmap.get(la::ITEMS.code));
+                        for (uint64_t wi = 0; wi < witems.size(); ++wi) {
+                            auto witem = map_of(witems.get(wi));
+                            if (code_of(witem) != la::TYPE_PARAM) continue;
+                            if (std::string(str_of(witem.get(la::NAME.code))) != "Self") continue;
+                            if (!witem.has_key(la::ITEMS)) continue;
+                            auto inner = arr_of(witem.get(la::ITEMS.code));
+                            for (uint64_t bj = 0; bj < inner.size(); ++bj) {
+                                auto bnode = map_of(inner.get(bj));
+                                if (code_of(bnode) == la::TRAIT_BOUND &&
+                                    std::string(str_of(bnode.get(la::NAME.code))) == "Sized")
+                                    mi.requires_sized_self = true;
+                            }
+                        }
+                    }
+                }
+            }
             mi.has_default = m.has_key(la::BODY);
             if (mi.has_default) {
                 mi.default_ast    = items.get(i);

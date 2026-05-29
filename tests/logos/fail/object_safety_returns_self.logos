@@ -1,0 +1,12 @@
+// P2-15 object-safety: a method returning `Self` by value has no fixed size
+// behind a trait object — the trait can't be `dyn`. (A `where Self: Sized`
+// bound would exclude the method from the vtable and make the trait dyn-safe.)
+package object_safety_returns_self;
+trait Dup { fn dup(&self) -> Self; }
+struct S {}
+impl Dup for S { fn dup(&self) -> S { return S {}; } }
+fn main() -> i32 {
+    let s: S = S {};
+    let d: &dyn Dup = &s;   // ERROR: `Dup` not object-safe (returns `Self`)
+    return 0i32;
+}

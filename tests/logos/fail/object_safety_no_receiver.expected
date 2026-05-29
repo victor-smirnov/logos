@@ -1,0 +1,1 @@
+the trait `Factory` is not object-safe (cannot be a `dyn Factory` trait object) because its associated function `make` has no `self` receiver

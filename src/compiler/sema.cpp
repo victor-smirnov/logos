@@ -2610,26 +2610,56 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
 
 // P2-15 object-safety (Rust E0038 / dyn-compatibility). A trait coerced to a
 // trait object must be dyn-dispatchable: every method needs a vtable slot. Reject
-// (once per trait) when a method can't have one. Currently the reliably-detectable
-// case: a GENERIC method (`fn f<T>`) — there is no single monomorphized slot, so
-// dispatch through the vtable reads a garbage entry and crashes (the verified
-// E0038 crash). Other E0038 cases (no `self` receiver, returns `Self`, `Self` in
-// an argument) need method-level `self`-receiver + `where Self: Sized` signals
-// that the trait collection doesn't yet record — added in a follow-up so they
-// don't over-reject a `where Self: Sized` method (excluded from the vtable) or a
-// concretely-typed `self: &S` receiver.
+// (once per trait) when a method can't have one. A method with `where Self: Sized`
+// is EXCLUDED from the vtable, so it never affects object-safety (skipped here).
+// Detected E0038 cases:
+//   • generic method (`fn f<T>`)         — no single monomorphized slot;
+//   • no `self` receiver (associated fn) — nothing to dispatch on;
+//   • returns `Self` by value            — size unknown behind the object;
+//   • `Self` by value in a parameter     — caller can't name the erased type.
 void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
     if (dyn_safety_reported_.count(trait_name)) return;  // dedup: report once
     auto [pkg, ti] = find_trait_by_name(trait_name);
     if (!ti) return;  // unknown trait already diagnosed at the call site
+    auto is_self = [](TypeRef t) {
+        return t && TypeRef(t).kind() == LogosType::Kind::TypeVar &&
+               std::string(TypeRef(t).type_var_name()) == "Self";
+    };
+    std::function<bool(TypeRef)> mentions_self = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        if (is_self(t)) return true;
+        for (auto a : TypeRef(t).type_args()) if (mentions_self(a)) return true;
+        if (TypeRef(t).pointee() && mentions_self(TypeRef(t).pointee())) return true;
+        if (TypeRef(t).elem() && mentions_self(TypeRef(t).elem())) return true;
+        for (auto e : TypeRef(t).tuple_elems()) if (mentions_self(e)) return true;
+        return false;
+    };
     for (auto& m : ti->methods) {
-        if (!m.type_params.empty()) {
+        if (m.requires_sized_self) continue;   // excluded from the vtable
+        std::string reason;
+        if (!m.type_params.empty())
+            reason = "it has a generic method `" + m.name +
+                     "` (a generic method has no vtable slot)";
+        else if (!m.has_self_receiver)
+            reason = "its associated function `" + m.name +
+                     "` has no `self` receiver (nothing to dispatch on)";
+        else if (mentions_self(m.ret_type))
+            reason = "its method `" + m.name + "` returns `Self` (size unknown "
+                     "behind a trait object)";
+        else {
+            for (size_t i = 1; i < m.param_types.size(); ++i)
+                if (is_self(m.param_types[i])) {
+                    reason = "its method `" + m.name +
+                             "` takes `Self` by value as a parameter";
+                    break;
+                }
+        }
+        if (!reason.empty()) {
             dyn_safety_reported_.insert(trait_name);
             error(std::format("the trait `{}` is not object-safe (cannot be a "
-                              "`dyn {}` trait object) because it has a generic "
-                              "method `{}` — a generic method has no vtable slot; "
-                              "give it a `where Self: Sized` bound or avoid `dyn`",
-                              trait_name, trait_name, m.name));
+                              "`dyn {}` trait object) because {} — give it a "
+                              "`where Self: Sized` bound or avoid `dyn`",
+                              trait_name, trait_name, reason));
             return;
         }
     }
