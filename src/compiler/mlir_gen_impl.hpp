@@ -232,6 +232,20 @@ private:
     // { x = a; } x = b;` drops `a` iff c was true) that no static analysis can
     // resolve. name → flag alloca.
     std::unordered_map<std::string, mlir::Value>  uninit_drop_flag_;
+    // B8 drop elaboration (Rust-style): a declared-uninit var needs a RUNTIME
+    // drop flag ONLY if its init state is not statically determinable — i.e. it
+    // has an assignment nested inside a conditional/loop (deeper than its decl).
+    // Determined by a pre-scan of the fn body (prescan_uninit_flags). Vars whose
+    // every assignment statically dominates (straight-line) are flag-FREE: drops
+    // are placed statically via the `assigned` set tracked during codegen
+    // (uninit_static_ = needs static tracking, uninit_assigned_ = currently holds
+    // a live value at this codegen point). This elides the flag + branch for the
+    // common straight-line case, matching Rust's MIR drop elaboration.
+    std::unordered_set<std::string>               uninit_flag_needed_;
+    std::unordered_set<std::string>               uninit_static_;
+    std::unordered_set<std::string>               uninit_assigned_;
+    void prescan_uninit_flags(lir_view::BlockRef block, int depth,
+                              std::unordered_map<std::string, int>& decl_depth);
     // Per-function: let-vars bound directly from a container accessor returning
     // `*const/*mut dyn` (e.g. `let p = map.get(&k);` → `*const Box<dyn>`). Such a
     // var holds a pointer-INTO-storage, so `*p` must LOAD the stored handle —

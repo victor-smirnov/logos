@@ -219,6 +219,9 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     scope_.clear();
     let_vars_.clear();
     uninit_drop_flag_.clear();
+    uninit_flag_needed_.clear();
+    uninit_static_.clear();
+    uninit_assigned_.clear();
     var_elem_types_.clear();
     var_struct_.clear();
     var_subscript_.clear();
@@ -380,6 +383,13 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn.ret_type;
     cur_fn_name_ = fn.name;
+
+    // B8 drop elaboration: decide which declared-uninit vars need a runtime drop
+    // flag (any conditional/loop assignment) BEFORE codegen — a flagged var must
+    // maintain its flag from its very first assignment, which is lowered before
+    // we'd otherwise discover a later conditional assignment.
+    { std::unordered_map<std::string, int> decl_depth;
+      prescan_uninit_flags(block_ref_of(fn.body), 0, decl_depth); }
 
     gen_block(block_ref_of(fn.body));
 

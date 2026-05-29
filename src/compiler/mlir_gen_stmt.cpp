@@ -162,6 +162,51 @@ void MLIRGenImpl::gen_block(lir_view::BlockRef block) {
     });
 }
 
+// B8 drop elaboration pre-scan: a `let mut x: T;` (declared uninit) needs a
+// runtime drop flag iff it has an assignment nested DEEPER than its declaration
+// (inside a conditional / loop body) — then its init state isn't statically
+// known. Vars assigned only at their declaration depth (straight-line) are
+// flag-free (static drop placement). `depth` counts conditional/loop nesting;
+// a plain `{ }` block does not increase it (it executes unconditionally).
+void MLIRGenImpl::prescan_uninit_flags(lir_view::BlockRef block, int depth,
+                                       std::unordered_map<std::string, int>& decl_depth) {
+    if (!block) return;
+    using C = lir_schema::stmt::Code;
+    block.each_stmt([&](lir_view::StmtRef s) {
+        switch (s.kind()) {
+        case C::Let: {
+            lir_view::SLetView v{s};
+            if (!v.value())                       // declared WITHOUT initializer
+                decl_depth[std::string(v.name())] = depth;
+            break;
+        }
+        case C::Assign: {
+            lir_view::SAssignView v{s};
+            auto it = decl_depth.find(std::string(v.name()));
+            if (it != decl_depth.end() && depth > it->second)
+                uninit_flag_needed_.insert(std::string(v.name()));
+            break;
+        }
+        case C::If:
+            prescan_uninit_flags(lir_view::SIfView{s}.then_block(), depth + 1, decl_depth);
+            prescan_uninit_flags(lir_view::SIfView{s}.else_block(), depth + 1, decl_depth);
+            break;
+        case C::While:   prescan_uninit_flags(lir_view::SWhileView{s}.body(),   depth + 1, decl_depth); break;
+        case C::Loop:    prescan_uninit_flags(lir_view::SLoopView{s}.body(),    depth + 1, decl_depth); break;
+        case C::For:     prescan_uninit_flags(lir_view::SForView{s}.body(),     depth + 1, decl_depth); break;
+        case C::ForEach: prescan_uninit_flags(lir_view::SForEachView{s}.body(), depth + 1, decl_depth); break;
+        case C::Match:
+            lir_view::SMatchView{s}.each_arm([&](lir_view::EMatchArmRef arm){
+                prescan_uninit_flags(arm.body(), depth + 1, decl_depth);
+            });
+            break;
+        case C::Block:   prescan_uninit_flags(lir_view::SBlockView{s}.body(),   depth,     decl_depth); break;
+        case C::LetElse: prescan_uninit_flags(lir_view::SLetElseView{s}.else_block(), depth + 1, decl_depth); break;
+        default: break;
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Statement dispatch
 // ---------------------------------------------------------------------------
@@ -780,6 +825,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         builder_.setInsertionPointToStart(cont_blk);
         return;
     }
+    // B8 static-uninit var: drop only if it currently holds a live value at this
+    // codegen point (statically tracked); an early return before the first
+    // assignment, or a never-assigned var, drops nothing.
+    if (uninit_static_.count(var_name)) {
+        if (uninit_assigned_.count(var_name)) emit_body();
+        return;
+    }
     emit_body();
 }
 
@@ -900,14 +952,24 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         var_elem_types_[nm] = mt;
         if (ty && TypeRef(ty).kind() == LogosType::Kind::Struct)
             var_struct_[nm] = mlir_struct_key(ty);
-        // B8 dynamic drop flag: the slot is uninitialised, so install a flag
-        // (init 0) that assignment/scope-exit drops consult. A non-droppable T
-        // gets one too (cheap i8, drop is a no-op) so the assign/drop paths can
-        // gate uniformly on map presence without a droppability re-check.
-        auto flag = create_entry_alloca(builder_.getI8Type());
-        builder_.create<mlir::LLVM::StoreOp>(
-            loc_, builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8), flag);
-        uninit_drop_flag_[nm] = flag;
+        // B8 drop elaboration: a fresh declaration resets any stale assigned /
+        // flag state from an earlier same-named binding (sequential blocks).
+        uninit_assigned_.erase(nm);
+        if (uninit_flag_needed_.count(nm)) {
+            // Init state not statically known (conditional/loop assignment): a
+            // runtime drop flag (init 0) decides drop-before-replace + scope-exit
+            // drop. The flag-init store sits HERE (re-runs each loop iteration if
+            // the decl is in a loop body → correct per-iteration reset).
+            auto flag = create_entry_alloca(builder_.getI8Type());
+            builder_.create<mlir::LLVM::StoreOp>(
+                loc_, builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8), flag);
+            uninit_drop_flag_[nm] = flag;
+        } else {
+            // Every assignment statically dominates: track init via uninit_assigned_
+            // during codegen, place drops statically (no flag, no branch).
+            uninit_drop_flag_.erase(nm);
+            uninit_static_.insert(nm);
+        }
         return;
     }
     struct LetCtx {
@@ -1383,6 +1445,15 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         }
         builder_.create<mlir::LLVM::StoreOp>(
             loc_, builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 8), flag_it->second);
+    } else if (uninit_static_.count(name)) {
+        // B8 static-uninit var: its init state is statically tracked. The FIRST
+        // (dominating) assignment overwrites garbage → no drop; later ones drop
+        // the live value unconditionally.
+        if (uninit_assigned_.count(name)) {
+            if (val_le && val_le->type) gen_drop_value(it->second, TypeRef(val_le->type));
+        } else {
+            uninit_assigned_.insert(name);
+        }
     } else if (v.drop_old() && val_le && val_le->type) {
         gen_drop_value(it->second, TypeRef(val_le->type));
     }
