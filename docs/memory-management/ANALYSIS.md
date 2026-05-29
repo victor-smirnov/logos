@@ -165,7 +165,7 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 | **Rc/Arc** | heap inner | ✅ block at rc0; ✅ T dropped | clone = refcount; move | ok | ⚠️ no Weak |
 | **String** | heap, grow | ✅ Drop | move | ok | ✅ |
 | **closure** | env: stack (non-escaping) / heap (escaping); value `{fn,env}` 16-B fat | ✅ escaping env freed via `__closure_drop__` glue; captures dropped | move captures (escaping `move` owns inline) | 🐞 capture-mode not enforced | ✅ (capture-mode gap only) |
-| **dyn trait** | inline 16-B fat (stack), static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | ok | ✅ uniform fat — `&dyn`/`*dyn`/`Box<dyn>` all 16-B; no heap handle |
+| **dyn trait** | inline 16-B fat (stack), static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | 🐞 no object-safety check (P2-15) | ✅ uniform fat repr (`&dyn`/`*dyn`/`Box<dyn>` all 16-B, no heap handle); ⚠️ no upcasting / `+Send` / object-safety gate |
 | **assignment `x=y`** | — | ✅ drop-before-replace + Rust **drop elaboration** (static placement, flags only for maybe-init) | source moved (suppress double-free) | assign-while-borrowed ✅ | ✅ full Rust drop semantics |
 | **match** | binds payload (may move scrutinee) | scrutinee-move avoids double-free; match-temp dropped | `mark_match_scrutinee_moved` (incl PLACE) | per-arm move union | ✅ |
 | **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | 🐞 **body not borrow-checked** | ⚠️ |
@@ -198,11 +198,20 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     for moved tuples/enums/arrays.
 13. 🐞 closure-capture-mode (Fn/FnMut/FnOnce) exclusivity not enforced.
 14. ⚠️ array element move-out unsupported (clean reject).
+15. 🐞 **No object-safety check** (verified 2026-05-29): a non-dyn-compatible trait
+    (generic method `fn f<T>`, `Self`-returning, no `&self`, …) is silently accepted
+    as `&dyn`/`Box<dyn>` — no vtable slot for the offending method → crash on
+    dispatch. Rust rejects at sema (E0038). Needs an object-safety gate when a
+    trait is coerced to a trait object.
 
 **Missing features (not bugs):** `Rc`/`Arc` `Weak` references + cycle handling;
-Box `?Sized` / `Box<dyn>` at the type level (works via owning-TraitObject collapse,
-not a generic `Box<?Sized>`); modern Deref/DerefMut Box/Rc accessors (still
-raw-ptr-self in places).
+Box `?Sized` / `Box<?Sized>` at the type level (`Box<dyn>` works via
+owning-TraitObject collapse, not a generic `Box<?Sized>`); modern Deref/DerefMut
+Box/Rc accessors (still raw-ptr-self in places); **supertrait upcasting** (`&dyn
+Sub` → `&dyn Super` — verified rejected with a type mismatch; Rust stabilized
+1.86, needs vtable upcast slots/prefix); **`dyn Trait + Send`/`+ Sync`**
+auto-trait composition on trait objects (untested/unsupported); **`Box::into_raw`
+/ `from_raw` / `leak`** raw-ownership API (don't exist).
 
 **Raw `*dyn` escape:** `*const dyn`/`*mut dyn` is a 16-B fat pair like `&dyn`
 (sema folds literal `*dyn`→bare TraitObject). There is no thin-handle heap
