@@ -1,0 +1,5 @@
+// B6/P2-11: writing an element through a shared `&[T]` slice is rejected
+// (mutating through a shared reference). Use `&mut [T]`.
+package slice_write_through_shared;
+fn writ(s: &[i64]) { s[0] = 9i64; }   // ERROR: shared slice is not writable
+fn main() -> i32 { return 0i32; }

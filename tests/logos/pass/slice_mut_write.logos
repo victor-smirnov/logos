@@ -1,0 +1,12 @@
+// B6/P2-11: `&mut [T]` is writable; a `&mut [T]` arg downgrades to a `&[T]`
+// shared-slice callee.
+package slice_mut_write;
+fn writ(s: &mut [i64]) { s[0] = 9i64; s[1] = 8i64; }
+fn sum(s: &[i64]) -> i64 { return s[0] + s[1]; }
+fn main() -> i32 {
+    let mut a: [i64; 3] = [1i64, 2i64, 3i64];
+    writ(&mut a);                       // &mut [i64;3] -> &mut [i64]
+    if a[0] != 9i64 { return 1i32; }
+    if sum(&mut a) != 17i64 { return 2i32; }   // &mut [i64;3] -> &[i64] (downgrade)
+    return 42i32;
+}

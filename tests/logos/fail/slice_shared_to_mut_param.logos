@@ -1,0 +1,6 @@
+// B6/P2-11: a shared `&[T]` cannot be passed where `&mut [T]` is expected
+// (gaining mutability). The reverse (`&mut [T]` -> `&[T]`) is allowed.
+package slice_shared_to_mut_param;
+fn needs_mut(s: &mut [i64]) -> i64 { s[0] = 9i64; return s[0]; }
+fn passthru(r: &[i64]) -> i64 { return needs_mut(r); }  // ERROR
+fn main() -> i32 { return 0i32; }

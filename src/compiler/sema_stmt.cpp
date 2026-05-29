@@ -6239,9 +6239,15 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
         TypeRef rt = resolve_place_type(recv);
         if (rt && TypeRef(rt).kind() == LogosType::Kind::MutRef)
             return true;
-        // Slice element write: slice mutability is not type-tracked (DIVERGENCE).
-        if (rt && TypeRef(rt).kind() == LogosType::Kind::Slice)
+        // Slice element write (B6/P2-11): a `&mut [T]` is writable, a shared
+        // `&[T]` is not — reject `s[i] = v` through a shared slice.
+        if (rt && TypeRef(rt).kind() == LogosType::Kind::Slice) {
+            if (!TypeRef(rt).mut_ptr()) {
+                error("cannot write through a shared `&[T]` slice (need `&mut [T]`)");
+                return false;
+            }
             return true;
+        }
         if (rt && TypeRef(rt).kind() == LogosType::Kind::Ptr) {
             if (!TypeRef(rt).mut_ptr()) {
                 error("assignment through a `*const` pointer");

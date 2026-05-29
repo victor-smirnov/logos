@@ -339,11 +339,17 @@ private:
         if (!pointee || pointee.kind() != LogosType::Kind::Array) return false;
         if (!types_compatible(pointee.elem(), et.elem())) return false;
         int64_t n = static_cast<int64_t>(pointee.arr_size());
+        // B6/P2-11: carry the source's mutability — `&mut [T;N]` (or `*mut`)
+        // decays to a `&mut [T]` slice, `&[T;N]` to a shared `&[T]`. Without
+        // this a `&mut arr` arg would become a shared slice and be (wrongly)
+        // rejected against a `&mut [T]` param.
+        bool src_mut = at.kind() == LogosType::Kind::MutRef ||
+                       (at.kind() == LogosType::Kind::Ptr && at.mut_ptr());
         // Build a slice_lit using the ref/ptr value as the data ptr and N as
         // the length. arg holds the address expression; reuse it directly.
         auto len = builder().lit_int(n, prim(LogosType::Kind::I64));
         arg = builder().slice_lit(std::move(arg), std::move(len),
-                                  make_slice_type(et.elem()));
+                                  make_slice_type(et.elem(), src_mut));
         return true;
     }
     // Inverse of the above. `&arr` over an array *variable* is lowered
@@ -536,9 +542,10 @@ private:
         arg = builder().closure_to_fnptr(arg, fp_ty);
         return true;
     }
-    TypeRef make_slice_type(TypeRef elem) {
+    TypeRef make_slice_type(TypeRef elem, bool is_mut = false) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
+        t.mut_ptr = is_mut;
         return pool_->alloc(std::move(t));
     }
     // Phase 1B: bare `[T]` — the unsized form, distinct from `&[T]` (Slice).

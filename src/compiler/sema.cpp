@@ -195,11 +195,13 @@ public:
         hermes::AnyVal v_type_args, v_tuple_elems, v_closure_params, v_gat_args;
         hermes::AnyVal v_lifetime_args;
 
-        // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef). (TraitObject's
-        // owning kind rides in const_val instead — persisted below.) Persist
-        // whenever set so the read-back matches the builder value when interning.
+        // mut_ptr slot: *mut vs *const (Ptr), &mut vs & (DstRef), &mut [T] vs
+        // &[T] (Slice — B6/P2-11). (TraitObject's owning kind rides in const_val
+        // instead — persisted below.) Persist whenever set so the read-back
+        // matches the builder value when interning.
         if ((t.kind == LogosType::Kind::Ptr ||
-             t.kind == LogosType::Kind::DstRef) && t.mut_ptr) {
+             t.kind == LogosType::Kind::DstRef ||
+             t.kind == LogosType::Kind::Slice) && t.mut_ptr) {
             v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(1, hermes::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
@@ -805,6 +807,7 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         for (auto e : t.tuple_elems) put_sub(buf, impl, e);
         break;
     case K::Slice:
+        put_byte(buf, t.mut_ptr ? 1 : 0);
         put_sub(buf, impl, t.elem);
         break;
     case K::UnsizedSlice:
@@ -936,6 +939,10 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Tuple:
         return vec_ptr_eq(t.tuple_elems, r.tuple_elems());
     case K::Slice:
+        // B6/P2-11: `&mut [T]` and `&[T]` are distinct (mutability in identity);
+        // without this the type-pool dedups a fresh `&mut [T]` into an existing
+        // `&[T]` and the mut bit is silently lost.
+        return t.elem == r.elem() && t.mut_ptr == r.mut_ptr();
     case K::UnsizedSlice:
         return t.elem == r.elem();
     case K::UnsizedDyn:
@@ -1633,6 +1640,10 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (TypeRef(from).kind() == LogosType::Kind::Array && TypeRef(to).kind() == LogosType::Kind::Array &&
         TypeRef(from).arr_size() == TypeRef(to).arr_size() && TypeRef(from).elem() && TypeRef(to).elem())
         return types_compatible(TypeRef(from).elem(), TypeRef(to).elem());
+    if (from.kind() == LogosType::Kind::Slice && to.kind() == LogosType::Kind::Slice && from.elem() && to.elem()) {
+        if (!from.mut_ptr() && to.mut_ptr()) return false;
+        return types_compatible(from.elem(), to.elem());
+    }
     // Tuple: element-wise compatibility (e.g. ({integer}, {integer}) → (i32, i32))
     if (TypeRef(from).kind() == LogosType::Kind::Tuple && TypeRef(to).kind() == LogosType::Kind::Tuple) {
         if (TypeRef(from).tuple_elems().size() != TypeRef(to).tuple_elems().size()) return false;
@@ -1806,7 +1817,8 @@ std::string type_str(TypeRef t) {
         }
         return r + ")"; }
     case LogosType::Kind::Slice:
-        return std::format("&[{}]", type_str(TypeRef(t).elem()));
+        return std::format("&{}[{}]", TypeRef(t).mut_ptr() ? "mut " : "",
+                           type_str(TypeRef(t).elem()));
     case LogosType::Kind::UnsizedSlice:
         return std::format("[{}]", type_str(TypeRef(t).elem()));
     case LogosType::Kind::UnsizedDyn:
@@ -3681,7 +3693,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // is dropped here because Kind::Slice does not carry per-instance
         // lifetimes (Logos lifetime model is elision-based at this layer).
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem());
+            return make_slice_type(inner.elem(), t.kind() == LogosType::Kind::MutRef);
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
@@ -3787,7 +3799,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     case LogosType::Kind::Slice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
         if (elem == t.elem()) return t;
-        return make_slice_type(elem);
+        return make_slice_type(elem, t.mut_ptr());
     }
     case LogosType::Kind::UnsizedSlice: {
         auto elem = subst_type_sema(t.elem(), s, ls);
@@ -4826,7 +4838,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             lt = std::string(str_of(node.get(la::LIFETIME.code)));
         // Phase 1B-11: same canonicalisation for `&mut`.
         if (inner && inner.kind() == LogosType::Kind::UnsizedSlice)
-            return make_slice_type(inner.elem());
+            return make_slice_type(inner.elem(), /*is_mut=*/true);
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
             return make_trait_object(inner.trait_name(), std::move(args_vec));
@@ -4862,10 +4874,10 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
     }
 
     if (tc == la::SLICE_TYPE) {
-        auto elem = node.has_key(la::TYPE)
-            ? resolve_type(map_of(node.get(la::TYPE.code)))
-            : error_t();
-        return make_slice_type(elem);
+        auto elem = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : error_t();
+        bool is_mut = false;
+        if (node.has_key(la::MUTPTR)) { AnyVal mv = node.get(la::MUTPTR.code); is_mut = !mv.is_null() && mv.is_value() && mv.as_value<uint8_t>() != 0; }
+        return make_slice_type(elem, is_mut);
     }
 
     if (tc == la::UNSIZED_SLICE_TYPE) {
