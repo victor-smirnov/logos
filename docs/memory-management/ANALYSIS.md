@@ -1,9 +1,10 @@
 # Logos Memory Management — Full Analysis
 
 *Originally synthesized 2026-05-26 from a 5-track code audit (allocation, drop,
-move/Copy, borrow, stdlib). **Re-verified against the tree 2026-05-28** — most of
-the original P0/P1 leak inventory has since been fixed; this revision reflects the
-current state.*
+move/Copy, borrow, stdlib). **Re-verified against the tree 2026-05-29** — the
+P0/P1 leak inventory, all P2 soundness gaps, and the entire "missing features"
+shelf (Rc/Arc Weak, supertrait upcasting, Box::into_raw, Box<[T]>, custom-DST,
+RFC-2229 phases 1+2) are now closed; this revision reflects the current state.*
 
 Canonical map of how `logosc` manages memory and how every language feature
 interacts with it. Read this before touching allocation / drop / move / borrow /
@@ -66,8 +67,8 @@ now reclaimed. Remaining `call_malloc` sites:
 |---|---|---|---|
 | String | ✅ | n/a | OOM/overflow-hardened (`string.logos:271`) |
 | Vec<T> | ✅ (`vec.logos:393`) | ✅ per-element move-and-drop | manual `vec_free` REMOVED; `into_iter` transfers via ptr-zero; eager cap-8 |
-| Rc<T> / Arc<T> | ✅ block at rc0 | ✅ **T's destructor run** (`93dd38cf`; `drop_rc`/`drop_arc` move `inner.val` out → fires Drop before dealloc) | no Weak |
-| Box<T> | ✅ **`impl Drop`** (`d76ce7a7`): drop T + dealloc, move-only | ✅ | accessors still raw-ptr-self; no `?Sized` at type level |
+| Rc<T> / Arc<T> | ✅ block at rc0 | ✅ **T's destructor run** (`93dd38cf`; `drop_rc`/`drop_arc` move `inner.val` out → fires Drop before dealloc) | ✅ **Weak** (`d8499d1b`) — `{strong,weak,val}` control block (Rust scheme); val drops at strong→0, block at weak→0; cycle-breaking; Arc upgrade load-then-bump (full lock-free CAS = noted follow-up) |
+| Box<T> | ✅ **`impl Drop`** (`d76ce7a7`): drop T + dealloc, move-only | ✅ | ✅ `Deref`/`DerefMut` (auto-deref `b.field`/`*b`); ✅ `into_raw`/`from_raw`/`leak` (`f3176745`); ✅ `Box<[T]>` (`8c49d59b`) heap-owned fat slice; ✅ `Box<Foo>` custom-DST owning (`ac85cb0e`); `Box<dyn>` via owning-TraitObject. `T:?Sized` accepted on the Box stdlib struct |
 | HashMap / VecDeque / HashSet | ✅ **`impl Drop`** (`b98f8e72`): drops each element (move-out + T's Drop) + frees buffers; manual `*_free` removed; `clear()` drops live entries | ✅ | Rust parity (HashSet via inner HashMap field) |
 
 ---
@@ -144,10 +145,12 @@ release + region inference); **dropck** (B87); **dangling-ref** (return ref to
 local/temp); **named lifetimes + elision + outlives** on returns. Raw-ptr roots
 bypass exclusivity (B93.2); `&mut`-roots also skip the binding-mut requirement.
 
-**NOT checked (gaps vs Rust)**: generic fn bodies; index/slice **element** borrows
-(`arr[i]` aliasing/exclusivity not modeled); reborrows (not first-class);
-closure-capture-mode (Fn/FnMut/FnOnce) exclusivity; cross-function lifetime
-provenance (intra-procedural only); self-referential structs; move-out-of-deref.
+**NOT checked (gaps vs Rust)**: index/slice **element** borrows (`arr[i]`
+aliasing/exclusivity not modeled); reborrows (not first-class); cross-function
+lifetime provenance (intra-procedural only); self-referential structs;
+move-out-of-deref. (Generic-fn-body borrow-check and closure-capture-mode
+exclusivity — formerly listed here — are now implemented per P2-10 and P2-13
+respectively.)
 
 ---
 
@@ -159,16 +162,17 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
 | **struct** | stack alloca | field-recursive drop; auto-Copy | move unless Copy; partial field moves | field-path borrows ✅ | ✅ |
 | **tuple** | stack; **inline-by-value** in fields/arrays/nesting (G1 `81b28479`) | element-recursive drop | move iff any elem move | ok | ✅ |
 | **array `[T;N]`** | stack | per-elem drop | move iff elem move; ⚠️ move-out by index = clean reject | 🐞 no element-level borrow | ⚠️ element ops limited |
-| **slice `&[T]`** | fat {ptr,len}; ✅ returned by value | Copy (no drop) | Copy | 🐞 no element borrow; ⚠️ `&[T]`/`&mut [T]` both `Kind::Slice` (mut not tracked, B6) | ⚠️ |
+| **slice `&[T]`** | fat {ptr,len}; ✅ returned by value | Copy (no drop) | Copy | 🐞 no element borrow (`arr[i]`) | ✅ mut tracked on Slice (B6 closed, `c971c97f`); ⚠️ element-borrow gap is the only remaining piece |
 | **Box<T>** | heap (`box_new`) | ✅ `impl Drop` (drop T + dealloc); move-only | move | ok | ✅ (accessors raw-ptr-self; `?Sized` later) |
 | **Vec<T>** | heap, grow | ✅ Drop frees + drops elems | move; `into_iter` ptr-zero | IndexMut place-write ✅ | ✅ |
-| **Rc/Arc** | heap inner | ✅ block at rc0; ✅ T dropped | clone = refcount; move | ok | ⚠️ no Weak |
+| **Rc/Arc** | heap inner `{strong,weak,val}` | ✅ block at rc0 (val drop at strong→0; block free at weak→0) | clone = refcount; move | ok | ✅ **Weak** + cycle handling (`d8499d1b`) |
 | **String** | heap, grow | ✅ Drop | move | ok | ✅ |
-| **closure** | env: stack (non-escaping) / heap (escaping); value `{fn,env}` 16-B fat | ✅ escaping env freed via `__closure_drop__` glue; captures dropped | move captures (escaping `move` owns inline) | 🐞 capture-mode not enforced | ✅ (capture-mode gap only) |
-| **dyn trait** | inline 16-B fat (stack), static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | 🐞 no object-safety check (P2-15) | ✅ uniform fat repr (`&dyn`/`*dyn`/`Box<dyn>` all 16-B, no heap handle); ⚠️ no upcasting / `+Send` / object-safety gate |
+| **closure** | env: stack (non-escaping) / heap (escaping); value `{fn,env}` 16-B fat; **narrow captures**: env field is FIELD-sized (escaping only) | ✅ escaping env freed via `__closure_drop__` glue; **drop-glue drops the FIELD type** for narrow captures (`e792341a`) | move captures (escaping `move` owns inline); **RFC-2229**: narrow path `p.x.y` records the leaf field type + path-precise move-tracking (escaping only) | ✅ **field-path borrow exclusivity** (`20c817d5`): `||p.x` registers a borrow on the path, disjoint `&mut p.y` allowed | ✅ **RFC-2229 phases 1 + 2** (`20c817d5`, `cda40eb2`, `e792341a`) — borrow-check field-path + move-precision env (single + multi-level, gated on escaping for owning-semantics) |
+| **dyn trait** | inline 16-B fat (stack), static `.rodata` vtable | ✅ owning `Box<dyn>` drop = vtable[0]+free; `&dyn` Copy | Copy (`&dyn`); `Box<dyn>` move | ✅ object-safety (P2-15); ✅ supertrait method dispatch | ✅ uniform fat repr; ✅ **upcasting** `&dyn Sub→&dyn Super` (`527182b9`) via stored super-vtable pointers (diamonds work); ✅ `+ Send`/`+ Sync` auto-trait bound lists (`562b687d`) |
+| **custom-DST** | fat `&Foo` `{data,len}` carrying tail length; owning `Box<Foo>` = owning DstRef (collapse, like `Box<[T]>`) | ✅ `Box<Foo>` drop = prefix fields + tail elements (runtime loop) + free | move (owning DstRef); construct via `dst_from_raw_parts::<Foo>(raw,n)` (+`as Box<Foo>` for owning) | unsafe (raw-pointer-shaped field access) | ✅ **B2 complete** (`1088b703` read + `ac85cb0e` owning) — `struct Foo { hdr:H, tail:[T] }` end-to-end |
 | **assignment `x=y`** | — | ✅ drop-before-replace + Rust **drop elaboration** (static placement, flags only for maybe-init) | source moved (suppress double-free) | assign-while-borrowed ✅ | ✅ full Rust drop semantics |
 | **match** | binds payload (may move scrutinee) | scrutinee-move avoids double-free; match-temp dropped | `mark_match_scrutinee_moved` (incl PLACE) | per-arm move union | ✅ |
-| **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | 🐞 **body not borrow-checked** | ⚠️ |
+| **generic fn** | per-mono | drop via mono re-mangle | move deferred to mono | ✅ body borrow-checked pre-mono in exclusivity-only mode (P2-10, `42998241`); concrete moves checked on specializations | ✅ (full generic-aware move analysis remains a refinement) |
 | **Zone/Hermes** | arena bump (MemHolder) | region freed at rc0; no per-object drop | RelPtr/AnyVal offsets; manual retain/release | n/a (offsets) | ✅ blessed divergence |
 
 ---
@@ -212,25 +216,37 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
     now rejected (was a dangling-ref gap; whole-value use-after-move was already
     caught by sema). Recurses structurally, gated on not-Copy.
-13. ✅ closure mut-capture exclusivity (`4f36fd4d`). A `let`-bound closure that
-    MUTATES a capture registers a `&mut` borrow held by the closure var (NLL
-    release at its last use), so using/`&mut`-ing the variable while the closure
-    is live is rejected. Shared (read) captures stay liveness-only — Logos
-    captures a whole variable, so a whole-var shared borrow would wrongly block
-    RFC-2229 disjoint sibling mutation. **Remaining = RFC-2229 (own session,
-    2026-05-29 plan):** Logos closures capture WHOLE variables (sema_expr capture
-    scanner walks `p.x`→root `p`; env layout, codegen unpack, borrow-check all
-    whole-var). True disjoint capture is a 4-layer rewrite: (1) capture analysis
-    records field PATHS `p.x` + per-path mode; (2) env layout stores the field
-    not the whole struct (needed so `move ||p.x` leaves `p.y` usable — the
-    move-precision part); (3) mlir-gen env-field access by path; (4) borrow-check
-    field-path capture-borrow (reuse B83). For NON-`move` closures layers 2/3
-    aren't needed for correctness (whole-`p`-by-ref + read `p.x` is runtime-
-    equivalent) → a phase-1 "borrow-check exclusivity only" (layers 1+4) gives
-    `||p.x` + `&mut p.x` rejection + disjoint `&mut p.y` soundly; risky
-    move-disjointness is layers 2+3. b156 currently passes via the
-    shared-capture-liveness-only choice, NOT field-path capture. Also: exclusivity
-    for inline (non-`let`-bound) closures.
+13. ✅ closure mut-capture exclusivity (`4f36fd4d`) + ✅ **RFC-2229 phases 1 + 2**
+    (`20c817d5`, `cda40eb2`, `e792341a`). The 4-layer plan recorded in the
+    earlier revision is now LANDED:
+    * **Phase 1 — capture analysis records PATHS + borrow-check field-path
+      exclusivity** (`20c817d5`). The sema scanner builds per-capture dotted
+      paths (`p.x.y`; FieldRead chain → root + relative path; LCA-widened when
+      the body reads multiple paths off the same root). `EClosure.capture_paths`
+      threads through the LIR; `lir_mirror`/`lir_view`/`mono_clone` ship it
+      post-mono. `borrow_check`'s ClosureBox handler now splits the path into
+      `(root, rel)` and calls `take_field_borrow` for narrow paths
+      (`take_borrow` whole-value for `rel.empty()`) — `&mut p.y` next to `||p.x`
+      is allowed; `&mut p.x` while `||p.x` is live is rejected with the precise
+      path message; `closure_mut_capture_use` still rejects on whole-root.
+    * **Phase 2 — move-precision env layout** (`cda40eb2` single-level, then
+      multi-level + soundness gating in `e792341a`). `EClosure.capture_field_types`
+      carries the leaf TypeRef for narrow paths (sema `field_type_for_path` walks
+      nested Struct fields; null → whole-root). mlir-gen's `gep_field_chain`
+      shared helper handles env-fill (source = leaf address in outer struct) and
+      body-unpack (destination = leaf slot in a fake-root alloca whose other
+      fields are untouched — LCA guarantees the body only reads the captured
+      path). `inline_cap_type` sizes the env slot for aggregate fields. **Gating
+      for soundness:** narrow owning-semantics fire only for `heap_env_pre &&
+      v.is_move()` (escaping closures — env-glue actually fires on Box drop).
+      Non-escaping narrow stays whole-root borrow-by-pointer; sema skips
+      `mark_moved` entirely for that case (the outer root keeps ownership +
+      drops the field at scope-exit, no leak). `emit_closure_drop_glue` now
+      drops the FIELD type for narrow captures (root-typed drop was over-
+      walking past the env field — caught while validating multi-level).
+    * Remaining (deferred refinements, not soundness): full lock-free CAS in
+      `Weak::upgrade` for Arc; exclusivity for inline (non-`let`-bound) closures;
+      multi-supertrait narrow capture paths walking ZonedStruct boundaries.
 14. ✅ array element move-out of a **droppable** elem cleanly rejected (anti
     double-free guard); a non-droppable elem is accepted (sound — effectively a
     copy, no Drop). Minor: non-droppable move-out diagnostic differs from Rust.
@@ -243,21 +259,46 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     "`where Self: Sized` ignored" bug) — now mapped to `WHERE` on the body-less FN
     productions. Tests object_safety_{generic_method,returns_self,no_receiver}.
 
-**Missing features (not bugs):** `Rc`/`Arc` `Weak` references + cycle handling;
-Box `?Sized` / `Box<?Sized>` at the type level (`Box<dyn>` works via
-owning-TraitObject collapse, not a generic `Box<?Sized>`); modern Deref/DerefMut
-Box/Rc accessors (still raw-ptr-self in places); **supertrait upcasting** (`&dyn
-Sub` → `&dyn Super` — verified rejected with a type mismatch; Rust stabilized
-1.86, needs vtable upcast slots/prefix); **`dyn Trait + Send`/`+ Sync`**
-auto-trait composition on trait objects (untested/unsupported); **`Box::into_raw`
-/ `from_raw` / `leak`** raw-ownership API (don't exist).
+**Missing features — ✅ ALL CLOSED (2026-05-29):**
+* ✅ `Rc`/`Arc` `Weak` + cycles (`d8499d1b`) — `{strong, weak, val}` control
+  block (Rust scheme); val drops at strong→0, block at weak→0; Arc weak is
+  atomic. Residual: full lock-free CAS upgrade (load-then-bump today).
+* ✅ Box `?Sized` / `Box<[T]>` (`8c49d59b`) — `Box<T:?Sized>` accepted at the
+  type level; `Box<[T]>` collapses to an owning Slice (`OwningKind::Box` in
+  the slice `const_val`), reusing slice layout/deref/index; construction
+  `box_new::<[T;N]>(..) as Box<[T]>` (unsize coercion); `&b` deref-coerces to
+  `&[T]`; drop = per-element drop (runtime loop) + buffer free. Verified
+  valgrind 0/0.
+* ✅ Box `Deref`/`DerefMut` — already landed in stdlib (`*b`, auto-deref
+  `b.field`/`b.method()`).
+* ✅ **Supertrait upcasting** + supertrait-method dispatch (`527182b9`) — full
+  Rust design: stored super-vtable pointers; vtable layout is
+  `[drop, size, align, transitive-method-slots, super-vtable-ptrs]`; supertrait
+  methods get real slots (dispatch via `&dyn Sub`); upcast `&dyn Sub→&dyn Super`
+  loads the stored super ptr — diamonds work. Single-sourced: sema
+  `trait_vtable_layout` → `LTraitDef`, mlir-gen reads verbatim.
+* ✅ `dyn Trait + Send`/`+ Sync` auto-trait bound lists (`562b687d`) — grammar
+  accepts `+ IDENT`/`+ 'lifetime` after a trait object; vtable identical (auto
+  traits add no methods). Diagnostic refinement (rejecting two non-auto traits,
+  Rust E0225) recorded as a follow-up.
+* ✅ `Box::into_raw`/`from_raw`/`leak` (`f3176745`) — Rust-faithful via
+  `ManuallyDrop` suppression of the Box destructor; valgrind verifies the
+  round-trip frees cleanly (and `leak` deliberately doesn't).
+* ✅ Custom-DST tail-slice (B2) (`1088b703` read + `ac85cb0e` owning) —
+  `struct Foo { hdr:H, tail:[T] }`: fat `&Foo` carries the tail length, prefix
+  field access, tail-as-slice + `.len()` + indexing, `dst_from_raw_parts::<Foo>`
+  construction over existing memory; **owning `Box<Foo>`** collapses to owning
+  DstRef, construct via `dst_from_raw_parts(..) as Box<Foo>`, `&bb` deref-coerce
+  to `&Foo`, drop = prefix-field drops + tail-element loop + free. HermesString
+  stays Zone-hand-rolled (thin ptr + length-in-content + variable prefix — a
+  different model, intentional Zone-side divergence).
 
 **Raw `*dyn` escape:** `*const dyn`/`*mut dyn` is a 16-B fat pair like `&dyn`
 (sema folds literal `*dyn`→bare TraitObject). There is no thin-handle heap
 promotion (removed `282c5af3`). A raw dyn pointer that genuinely needs to outlive
-its frame is the user's `unsafe` responsibility; if a bare escape handle is ever
-wanted it would be a `*u8`/system-type widened via an intrinsic (no `Box::into_raw`
-/`from_raw` exist yet — a future Box raw-ownership API, orthogonal to this repr).
+its frame is the user's `unsafe` responsibility. The Box raw-ownership API
+(`Box::into_raw`/`from_raw`/`leak`, `f3176745`) closes the explicit-give-up case
+for `Box<T>`; for a bare dyn escape, widen via the existing pointer cast surface.
 
 **Cleanups: ✅ DONE.** `is_move_type`'s aggregate recursion is single-sourced
 (`move_classify.hpp` skeleton + per-phase callbacks, `54bb4f77`); `needs_drop` /
@@ -301,7 +342,59 @@ The memory-management initiative ran 2026-05-26 → 05-28. Landmark work, in ord
   Rust's MIR drop elaboration. A systematic exact-drop-count test matrix
   (`b8_uninit_drop_matrix`) drove out an early-return-before-init UB along the way.
 
+**2026-05-29 session — entire "missing features" shelf + RFC-2229, in order:**
+
+- **Box::into_raw/from_raw/leak** (`f3176745`) — `ManuallyDrop` suppression of
+  the Box destructor on ownership transfer; valgrind round-trip clean.
+- **`dyn Trait + Send`/`+ Sync`** (`562b687d`) — grammar `dyn_auto_bounds`
+  suffix; auto traits add no vtable slots so layout/dispatch unchanged.
+- **Supertrait upcasting + supertrait-method dispatch** (`527182b9`) — vtable
+  layout extended to `[drop, size, align, transitive method slots, stored
+  super-vtable pointers]`. Sema `trait_vtable_layout` is the single source of
+  truth (LTraitDef carries `vtable_method_order` + `upcast_supertraits`); mlir-
+  gen reads them verbatim. Cast codegen loads the stored super-vtable ptr —
+  diamonds verified. The post-lowering materialiser handles a new
+  `__logos_vtref__<sym>` slot kind for the stored vtable references.
+- **Rc/Arc Weak** (`d8499d1b`) — control block expanded to `{strong, weak, val}`;
+  val drop at strong→0, block free at weak→0 (the Rust scheme). Two-i32 header
+  shifts `val`'s offset → the Rc/Arc<dyn> unsize+drop codegen offset goes
+  `round_up(4,…)` → `round_up(8,…)` (mlir_gen_expr + mlir_gen_stmt).
+- **Box<[T]>** (`8c49d59b`) — `Box<T:?Sized>` accepted; `Box<[T]>` collapses to
+  an OWNING Slice (kind `Slice` with `OwningKind::Box` in `const_val`, folded
+  into TypeUID + equality). Unsize coercion `Box<[T;N]> as Box<[T]>` in the cast
+  handler builds `{data, len=N}`; `&b` deref-coerce to `&[T]`; drop = per-element
+  runtime loop + buffer free. Mirrors the `Box<dyn>` owning-trait-object collapse.
+- **Custom-DST tail-slice (B2)** (`1088b703` read + `ac85cb0e` owning) — read
+  side was already partial (DstRef machinery for `&Foo`, prefix field access,
+  tail-as-slice, `dst_from_raw_parts`); locked in with an end-to-end test, then
+  added **owning `Box<Foo>`** via the same collapse pattern: `Box<DstStruct>` →
+  owning DstRef with `OwningKind::Box` in `const_val`. Construction via
+  `dst_from_raw_parts(..) as Box<Foo>`; `&bb` deref-coerce to `&Foo` (var_ref
+  load — the owning DstRef value IS a reference, and DstRef is an alloca
+  binding); `gen_drop_owning_dst` drops prefix fields (gep_field) + tail
+  elements (runtime loop, gep_field to tail base) + frees the block. Lesson
+  baked into the memory file: HermesString stays Zone-hand-rolled (thin ptr,
+  length-in-content, variable prefix — a different model from Rust fat-DST and
+  intentionally NOT migrated).
+- **RFC-2229 phase 1 — field-path capture exclusivity** (`20c817d5`) — sema
+  scanner emits per-capture dotted paths + LCA widening; LIR + mirror + view +
+  mono_clone thread the path post-mono; borrow_check splits the path into
+  (root, rel) and uses `take_field_borrow` for narrow paths. `||p.x` next to
+  `&mut p.y` is allowed; `&mut p.x` is precisely rejected.
+- **RFC-2229 phase 2 — move-precision env layout** (`cda40eb2` single-level →
+  `e792341a` multi-level + gating + drop-glue fix). `EClosure.capture_field_types`
+  parallel array carries the leaf field TypeRef; sema `field_type_for_path`
+  walks nested Struct fields; mlir-gen `gep_field_chain` handles env-fill
+  source (leaf in outer struct) and body-unpack destination (leaf in fake-root
+  alloca). `inline_cap_type` sizes the env slot for aggregate fields.
+  Soundness gating: narrow owning-semantics fire only for `heap_env_pre &&
+  v.is_move()` (escaping closures); non-escaping narrow stays whole-root
+  borrow-by-pointer and sema skips `mark_moved` entirely so the outer root
+  drops the field at scope-exit. Drop-glue widened to drop the FIELD type (not
+  the root) — pre-fix it over-walked past the env field, caught when validating
+  multi-level Noisy droppable elements.
+
 **Gating discipline (still in force):** every step gates on the FULL suite
-(`bash ../tests/logos/ctest-summary.sh`, currently 5255/5255) and valgrind on a
-representative droppable round-trip; rebuild clean (a stale `.o` once hid a
+(`bash ../tests/logos/ctest-summary.sh`, currently **5282/5282**) and valgrind on
+a representative droppable round-trip; rebuild clean (a stale `.o` once hid a
 regression). Memory work is verified by *exact drop counts*, not just pass/fail.
