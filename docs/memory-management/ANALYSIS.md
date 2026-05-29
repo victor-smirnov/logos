@@ -197,15 +197,18 @@ provenance (intra-procedural only); self-referential structs; move-out-of-deref.
     REVERTED. Foundation works (add `mut_ptr` to the Slice type + its TypeUID,
     `make_slice_type(elem, is_mut)`, preserve in subst, `types_compatible` allows
     `&mut[T]`→`&[T]` downgrade & rejects the reverse; L2-green, method resolution
-    is kind-based so identity change is transparent). BLOCKER: enforcement never
-    fires because a `&mut [T]` in **parameter** position parses to a `SLICE_TYPE`
-    AST node WITHOUT the `MUTPTR` key (verified: 4 SLICE_TYPE nodes carry MUTPTR,
-    26 don't; the `s: &mut [T]` param's node is among the MUTPTR-less 26), so its
-    FuncInfo param type resolves `mut=0` and the call-arg / write checks see a
-    shared slice. Type-annotation `&mut [T]` DOES carry MUTPTR. Next: find why the
-    param-position `&mut [T]` slice_type production drops MUTPTR (grammar/parser
-    layer), then add the index-write-through-shared-slice rejection. A focused
-    parser-level sub-project.
+    is kind-based so identity change is transparent). **The parser is NOT the
+    blocker** (a first guess was wrong): `&mut [T]` in BOTH param and annotation
+    position resolves through the `SLICE_TYPE` branch with `mut=1` — verified by
+    path markers (`&mut[i32]` → SLICE_TYPE mut=1; `&[i64]` → mut=0; MUTPTR present
+    on the param's node). BLOCKER: the free-fn `SemaFuncInfo` param type still
+    reaches the call-arg check as `mut=0` even though `resolve_type` returned
+    `mut=1` for that param — so the signature the call reads is built via a SECOND
+    param-resolution path that drops the bit (candidate: `decl_param_types`
+    `sema_decl.cpp:300`, or a `make_slice_type(elem)` site omitting mut such as
+    `sema_impl.hpp:346`). Next: unify free-fn param-type resolution onto the
+    mut-carrying path, then add the index-write-through-shared-slice rejection.
+    A focused sema (NOT parser) sub-project.
 12. ✅ borrow-check `is_move_type` widened to tuple/enum/array (`4d909afe`):
     move-while-borrowed of a `(String,i64)` / `[String;N]` / move-payload enum is
     now rejected (was a dangling-ref gap; whole-value use-after-move was already
