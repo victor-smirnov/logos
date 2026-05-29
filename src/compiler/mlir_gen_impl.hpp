@@ -224,6 +224,14 @@ private:
     // Per-function state.
     std::unordered_map<std::string, mlir::Value>  scope_;
     std::unordered_set<std::string>               let_vars_;
+    // B8 dynamic drop flags: a `let mut x: T;` declared WITHOUT an initializer
+    // gets a hidden i8 flag (0 = slot empty, 1 = holds a live value), like
+    // Rust's drop flags. Each assignment drops the OLD value only if the flag
+    // is set, then sets it; scope-exit/return drops only if set. This gives
+    // exact drop semantics for conditionally-initialized vars (`let mut x; if c
+    // { x = a; } x = b;` drops `a` iff c was true) that no static analysis can
+    // resolve. name → flag alloca.
+    std::unordered_map<std::string, mlir::Value>  uninit_drop_flag_;
     // Per-function: let-vars bound directly from a container accessor returning
     // `*const/*mut dyn` (e.g. `let p = map.get(&k);` → `*const Box<dyn>`). Such a
     // var holds a pointer-INTO-storage, so `*p` must LOAD the stored handle —

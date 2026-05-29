@@ -655,6 +655,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     std::string var_name(v.var_name());
     auto it = scope_.find(var_name);
     if (it == scope_.end()) return;
+    // The full drop body, captured so a B8 drop-flag var can run it conditionally.
+    auto emit_body = [&]() {
     auto mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 
     // 0. Owning smart-pointer dyn (sema sentinel `__box_dyn__drop`): the
@@ -752,6 +754,33 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             gen_drop_value(it->second, st);
         }
     }
+    };  // end emit_body
+
+    // B8 dynamic drop flag: a declared-uninit var only runs its destructor if
+    // it currently holds a live value (flag==1) — an early `return` before the
+    // first assignment, or the !c path of a conditional init, leaves it 0 → the
+    // drop is a no-op (never runs the destructor on garbage).
+    auto fit = uninit_drop_flag_.find(var_name);
+    if (fit != uninit_drop_flag_.end()) {
+        auto i8t  = builder_.getI8Type();
+        auto flag = builder_.create<mlir::LLVM::LoadOp>(loc_, i8t, fit->second);
+        auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8);
+        auto live = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::ne, flag, zero);
+        auto* region   = builder_.getBlock()->getParent();
+        auto* then_blk = new mlir::Block();
+        auto* cont_blk = new mlir::Block();
+        region->push_back(then_blk);
+        region->push_back(cont_blk);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, live, then_blk, cont_blk);
+        builder_.setInsertionPointToStart(then_blk);
+        emit_body();
+        if (!is_terminated(builder_.getBlock()))
+            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+        builder_.setInsertionPointToStart(cont_blk);
+        return;
+    }
+    emit_body();
 }
 
 void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
@@ -871,6 +900,14 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
         var_elem_types_[nm] = mt;
         if (ty && TypeRef(ty).kind() == LogosType::Kind::Struct)
             var_struct_[nm] = mlir_struct_key(ty);
+        // B8 dynamic drop flag: the slot is uninitialised, so install a flag
+        // (init 0) that assignment/scope-exit drops consult. A non-droppable T
+        // gets one too (cheap i8, drop is a no-op) so the assign/drop paths can
+        // gate uniformly on map presence without a droppability re-check.
+        auto flag = create_entry_alloca(builder_.getI8Type());
+        builder_.create<mlir::LLVM::StoreOp>(
+            loc_, builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8), flag);
+        uninit_drop_flag_[nm] = flag;
         return;
     }
     struct LetCtx {
@@ -1321,8 +1358,34 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
     // is already computed above (RHS evaluated — so `x = f(x)` read the old x
     // safely); drop the OLD value now, before the store below overwrites it.
     // gen_drop_value runs the full destructor (user Drop impl + owned children).
-    if (v.drop_old() && val_le && val_le->type)
+    auto flag_it = uninit_drop_flag_.find(name);
+    if (flag_it != uninit_drop_flag_.end()) {
+        // B8 dynamic drop flag: drop the OLD value only if the slot currently
+        // holds a live one (flag==1) — `x = b` after a conditional `if c {x=a;}`
+        // drops `a` iff c ran. RHS already evaluated above (`x=f(x)` safe). Then
+        // mark the slot live; the store below writes the new value.
+        if (val_le && val_le->type) {
+            auto i8t  = builder_.getI8Type();
+            auto flag = builder_.create<mlir::LLVM::LoadOp>(loc_, i8t, flag_it->second);
+            auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 8);
+            auto live = builder_.create<mlir::LLVM::ICmpOp>(
+                loc_, mlir::LLVM::ICmpPredicate::ne, flag, zero);
+            auto* region   = builder_.getBlock()->getParent();
+            auto* then_blk = new mlir::Block();
+            auto* cont_blk = new mlir::Block();
+            region->push_back(then_blk);
+            region->push_back(cont_blk);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, live, then_blk, cont_blk);
+            builder_.setInsertionPointToStart(then_blk);
+            gen_drop_value(it->second, TypeRef(val_le->type));
+            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+            builder_.setInsertionPointToStart(cont_blk);
+        }
+        builder_.create<mlir::LLVM::StoreOp>(
+            loc_, builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 8), flag_it->second);
+    } else if (v.drop_old() && val_le && val_le->type) {
         gen_drop_value(it->second, TypeRef(val_le->type));
+    }
     // Enum value-repr: the slot IS the inline {disc,payload} storage (one
     // level, like a Struct). Memcpy the new enum value's footprint into it
     // (NOT a ptr store, which would overwrite only the disc word). `val` is a

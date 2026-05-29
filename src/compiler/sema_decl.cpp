@@ -487,8 +487,6 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // locals never leaked (distinct scopes/names), which masked this.
     moved_vars_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
-    decl_uninit_depth_.clear();
-    cond_depth_ = 0;
 
     // P4-pm-19: tuple-destructure parameters. Track synth-name +
     // user-name list for each; after the body is lowered, prepend

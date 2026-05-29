@@ -1,22 +1,10 @@
-// B8 declared-uninit drop SOUNDNESS matrix. Each case counts the EXACT number of
-// `Noisy::drop` calls via a shared heap counter (like rc_drop_inner) — catching
-// BOTH under-drop (leak: count too low) and over-drop (double-free/UB: count too
-// high), plus the early-return-of-uninit UB (dropping a never-assigned var would
-// run Drop on garbage → wrong count / corruption).
-//
-// Semantics verified:
-//   • straight-line reassignment drops the prior value on the 2nd+ assign;
-//   • a declared-uninit var promoted by a same-depth first assign is then
-//     dropped at scope exit (and a later reassign drops it);
-//   • an early `return` BEFORE the first assignment does NOT drop the uninit var;
-//   • plain (non-conditional) nested blocks promote; loops drop each iteration.
-//
-// KNOWN CONSERVATIVE DIVERGENCE (case 3, cond_init b=true): a first assignment
-// inside a conditional (no else) does NOT promote — so a SECOND unconditional
-// assignment does not drop the conditionally-stored value (it may be uninit on
-// the !b path). Result: that value's destructor is skipped (count 1, not the 2
-// Rust would get via dynamic drop flags). This is a leak, never UB. Closing it
-// needs full definite-assignment analysis / drop flags.
+// B8 declared-uninit drop SOUNDNESS + EXACTNESS matrix. Each case counts the
+// EXACT number of `Noisy::drop` calls via a shared heap counter (like
+// rc_drop_inner) — catching under-drop (leak), over-drop (double-free/UB), and
+// the early-return-of-uninit UB (dropping a never-assigned var runs Drop on
+// garbage). Values are the Rust-correct counts, achieved via dynamic drop flags
+// (a hidden per-var i8 set on assignment, consulted on reassign + scope exit) —
+// so even genuinely-conditional init (`if c { x = a; }`) drops `a` iff c ran.
 package b8_uninit_drop_matrix;
 use logos.lang.mem;
 
@@ -41,20 +29,24 @@ fn loop_inner_decl(c: *mut i64) {
     let mut i: i64 = 0i64;
     while i < 3i64 { let mut x: Noisy; x = mk(c); x = mk(c); i = i + 1i64; }
 }
+// conditional-only init (no later unconditional assign): drops iff the branch ran
+fn cond_only(c: *mut i64, b: bool) { let mut x: Noisy; if b { x = mk(c); } }
 
 fn main() -> i32 {
     unsafe {
         let c: *mut i64 = alloc(sizeof::<i64>()) as *mut i64;
-        c[0] = 0i64; straight_two(c);            if c[0] != 2i64 { return 1i32; }
-        c[0] = 0i64; straight_three(c);          if c[0] != 3i64 { return 2i32; }
-        c[0] = 0i64; cond_init(c, true);         if c[0] != 1i64 { return 3i32; }  // conservative
-        c[0] = 0i64; cond_init(c, false);        if c[0] != 1i64 { return 4i32; }
-        c[0] = 0i64; promote_then_cond(c, true); if c[0] != 2i64 { return 5i32; }
-        c[0] = 0i64; promote_then_cond(c, false);if c[0] != 1i64 { return 6i32; }
-        c[0] = 0i64; nested_block(c);            if c[0] != 2i64 { return 7i32; }
-        c[0] = 0i64; let _ = early_uninit(c, true);  if c[0] != 0i64 { return 8i32; }
-        c[0] = 0i64; let _ = early_uninit(c, false); if c[0] != 1i64 { return 9i32; }
-        c[0] = 0i64; loop_inner_decl(c);         if c[0] != 6i64 { return 10i32; }
+        c[0]=0i64; straight_two(c);            if c[0]!=2i64 { return 1i32; }
+        c[0]=0i64; straight_three(c);          if c[0]!=3i64 { return 2i32; }
+        c[0]=0i64; cond_init(c,true);          if c[0]!=2i64 { return 3i32; }   // drop a (cond) + b
+        c[0]=0i64; cond_init(c,false);         if c[0]!=1i64 { return 4i32; }   // only b
+        c[0]=0i64; promote_then_cond(c,true);  if c[0]!=2i64 { return 5i32; }
+        c[0]=0i64; promote_then_cond(c,false); if c[0]!=1i64 { return 6i32; }
+        c[0]=0i64; nested_block(c);            if c[0]!=2i64 { return 7i32; }
+        c[0]=0i64; let _=early_uninit(c,true);  if c[0]!=0i64 { return 8i32; }  // uninit: no drop
+        c[0]=0i64; let _=early_uninit(c,false); if c[0]!=1i64 { return 9i32; }
+        c[0]=0i64; loop_inner_decl(c);         if c[0]!=6i64 { return 10i32; }
+        c[0]=0i64; cond_only(c,true);          if c[0]!=1i64 { return 11i32; } // drops on c=true
+        c[0]=0i64; cond_only(c,false);         if c[0]!=0i64 { return 12i32; } // nothing assigned
         dealloc(c as *mut u8);
     }
     return 42i32;

@@ -2609,13 +2609,12 @@ const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
 }
 
 std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, const VarInfo& info) const {
-    // B8: a still-declared-uninit var (`let mut x: T;` not yet assigned at this
-    // program point) holds NO live value — dropping it would run T's destructor
-    // on garbage (UB). Skip it. decl_uninit_vars_ reflects uninit-ness AT THIS
-    // point (linear lowering): an early `return` before the first assignment
-    // sees the var still uninit → skip; the first same-depth assignment promotes
-    // it out of the set, so a later scope-exit/return correctly drops it.
-    if (decl_uninit_vars_.count(name)) return std::nullopt;
+    // B8: a declared-uninit var's drop is gated at RUNTIME by mlir-gen's dynamic
+    // drop flag (it only runs the destructor if the slot holds a live value), so
+    // we EMIT the drop here regardless of static init-state — the flag handles
+    // the early-return / conditional-init paths. (Previously this skipped uninit
+    // vars statically; the flag is exact and also drops conditionally-stored
+    // values that the static skip leaked.)
     // Owning `Box<dyn Trait>` (an owning TraitObject — value fat-pair, heap-
     // owned data): emit a drop with the `__box_dyn__drop` sentinel; mlir-gen's
     // SDrop calls vtable slot-0 drop_in_place + frees the boxed data. Now
