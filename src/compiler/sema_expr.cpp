@@ -2013,6 +2013,12 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 auto len  = builder().lit_int((int64_t)TypeRef(vt).arr_size(), prim(LogosType::Kind::I64));
                 return builder().slice_lit(std::move(addr), std::move(len), make_slice_type(TypeRef(vt).elem()));
             }
+            // &Box<[T]> → borrowed &[T] (Deref coercion). An owning slice shares
+            // the borrowed slice's {data,len} representation, so the same storage
+            // ptr re-typed as a borrowed slice is the view — no copy, no move.
+            if (TypeRef(vt).kind() == LogosType::Kind::Slice && TypeRef(vt).owning_slice())
+                return builder().addr_of(std::string(var_name),
+                                         make_slice_type(TypeRef(vt).elem(), TypeRef(vt).mut_ptr()));
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }
         // `&*ptr` — pointer/ref identity peephole (see ADDR_OF_MUT

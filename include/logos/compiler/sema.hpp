@@ -222,6 +222,17 @@ public:
     bool owning_trait_object() const noexcept {
         return trait_owning_kind() != OwningKind::Borrow;
     }
+    // Owning kind of a Slice — `Box<[T]>` collapses to an owning fat slice
+    // (OwningKind::Box): same {data,len} layout as `&[T]`, but move-only +
+    // droppable (frees the buffer). Borrow for a plain `&[T]`.
+    OwningKind slice_owning_kind() const noexcept {
+        if (kind() != LogosType::Kind::Slice) return OwningKind::Borrow;
+        auto cv = const_val();
+        return cv ? OwningKind(uint8_t(*cv)) : OwningKind::Borrow;
+    }
+    bool owning_slice() const noexcept {
+        return slice_owning_kind() != OwningKind::Borrow;
+    }
     uint64_t arr_size() const noexcept {
         auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
         if (av.is_null()) return 0;

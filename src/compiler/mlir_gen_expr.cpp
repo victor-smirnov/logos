@@ -2751,6 +2751,40 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         }
     }
 
+    // `Box<[T;N]>` → `Box<[T]>` (owning fat slice): unsize coercion. The operand
+    // is the stdlib Box struct {ptr:*mut [T;N]} (a thin heap ptr to the N-element
+    // array); the target is an OWNING Slice {data,len}. Take the box's heap ptr as
+    // `data` and the array length N as `len` — Rust's `Box::new([..]) as Box<[T]>`.
+    if (type && TypeRef(type).kind() == LogosType::Kind::Slice &&
+        TypeRef(type).owning_slice() && op_le->type &&
+        stdlib_smart_ptr_kind(op_le->type) == TypeRef::OwningKind::Box &&
+        TypeRef(op_le->type).type_args().size() == 1 &&
+        TypeRef(TypeRef(op_le->type).type_args()[0]).kind() == LogosType::Kind::Array) {
+        uint64_t n = TypeRef(TypeRef(op_le->type).type_args()[0]).arr_size();
+        mlir::Value data_ptr;
+        if (val.getType() == ptr_type()) {
+            auto bt = struct_types_.find(concrete_struct_name(op_le->type));
+            mlir::Type sp_ty = bt != struct_types_.end() ? bt->second.llvm_type
+                : mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), {ptr_type()});
+            llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(0)};
+            auto fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sp_ty, val, gi);
+            data_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+        } else {
+            data_ptr = builder_.create<mlir::LLVM::ExtractValueOp>(
+                loc_, val, llvm::ArrayRef<int64_t>{0});
+        }
+        auto stype = slice_llvm_type();
+        auto out = create_entry_alloca(stype);
+        llvm::SmallVector<mlir::LLVM::GEPArg> i0{int32_t(0), int32_t(0)};
+        llvm::SmallVector<mlir::LLVM::GEPArg> i1{int32_t(0), int32_t(1)};
+        auto p0 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, out, i0);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, p0);
+        auto p1 = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, out, i1);
+        auto nval = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)n, 64);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, nval, p1);
+        return out;
+    }
+
     // str (Slice<u8> = fat pointer {ptr, i64}) as *const u8 → extract field 0.
     // Must be checked BEFORE the val.getType() == target early-return because
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.

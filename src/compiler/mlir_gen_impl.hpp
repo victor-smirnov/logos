@@ -782,6 +782,9 @@ private:
     // (drop_in_place runs the concrete's destructor + its owned fields);
     // free(data) (the boxed concrete); free(handle) (the fat slot).
     void gen_drop_owning_dyn_handle(mlir::Value handle, TypeRef::OwningKind kind);
+    // Drop an owning `Box<[T]>` fat slice: drop each element (runtime loop, if T
+    // is droppable) then free the heap buffer. `slice_ptr` points at {data,len}.
+    void gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty);
     // Rc<dyn>/Arc<dyn>.clone(): bump strong (at data − round_up(4, vtable.align);
     // atomic for Arc) and return a copy of the {data,vtable} fat pair.
     mlir::Value gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t);

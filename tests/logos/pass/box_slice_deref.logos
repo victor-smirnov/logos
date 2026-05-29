@@ -1,0 +1,16 @@
+package test;
+use logos.mem.boxed;
+
+fn sum(s: &[i32]) -> i32 {
+    let mut t: i32 = 0;
+    let mut i: i64 = 0;
+    while i < s.len() { t = t + s[i]; i = i + 1; }
+    return t;
+}
+
+fn main() -> i32 {
+    let b: Box<[i32]> = box_new::<[i32; 4]>([1,2,3,4]) as Box<[i32]>;
+    let n: i64 = b.len();         // 4
+    let s: i32 = sum(&b);         // deref Box<[i32]> → &[i32]; 1+2+3+4=10
+    return s + (n as i32);        // 14
+}

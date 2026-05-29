@@ -543,10 +543,16 @@ private:
         arg = builder().closure_to_fnptr(arg, fp_ty);
         return true;
     }
-    TypeRef make_slice_type(TypeRef elem, bool is_mut = false) {
+    TypeRef make_slice_type(TypeRef elem, bool is_mut = false,
+                            TypeRef::OwningKind owning = TypeRef::OwningKind::Borrow) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Slice;
         t.elem = elem;
         t.mut_ptr = is_mut;
+        // Owning `Box<[T]>` slice — same 16-byte {data,len} layout as a borrowed
+        // `&[T]`, but move-only and droppable (frees the buffer + drops elements).
+        // Rides in const_val, exactly like TraitObject's owning kind.
+        if (owning != TypeRef::OwningKind::Borrow)
+            t.const_val = int64_t(uint8_t(owning));
         return pool_->alloc(std::move(t));
     }
     // Phase 1B: bare `[T]` — the unsized form, distinct from `&[T]` (Slice).

@@ -1,0 +1,10 @@
+package test;
+use logos.mem.boxed;
+fn make() -> Box<[i32]> {
+    return box_new::<[i32; 3]>([5,6,7]) as Box<[i32]>;   // moved out
+}
+fn main() -> i32 {
+    let b: Box<[i32]> = make();      // moved in
+    let x: i32 = b[2];               // 7
+    return x;
+}

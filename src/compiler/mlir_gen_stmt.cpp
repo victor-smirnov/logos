@@ -326,6 +326,9 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     // An owning Box<dyn Trait> (value fat-pair, heap-owned data) is droppable;
     // a borrowed &dyn is not. Distinguished by the type's owning bit.
     if (k == K::TraitObject) return TypeRef(ty).owning_trait_object();
+    // An owning `Box<[T]>` slice owns its heap buffer (free it; drop elements);
+    // a borrowed `&[T]` is not droppable. Distinguished by the slice owning bit.
+    if (k == K::Slice) return TypeRef(ty).owning_slice();
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
         if (!resolve_method_symbol(name, "drop").empty()) return true;
@@ -470,6 +473,70 @@ void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
     builder_.setInsertionPointToStart(cont_blk);
 }
 
+void MLIRGenImpl::gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty) {
+    if (!slice_ptr) return;
+    auto stype = slice_llvm_type();   // { ptr, i64 }
+    if (slice_ptr.getType() == stype) slice_ptr = spill_to_alloca(slice_ptr);
+    if (slice_ptr.getType() != ptr_type()) return;
+    auto i64_t = builder_.getI64Type();
+    // data = field0, len = field1.
+    llvm::SmallVector<mlir::LLVM::GEPArg> i0{int32_t(0), int32_t(0)};
+    llvm::SmallVector<mlir::LLVM::GEPArg> i1{int32_t(0), int32_t(1)};
+    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
+        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice_ptr, i0));
+    auto len = builder_.create<mlir::LLVM::LoadOp>(loc_, i64_t,
+        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice_ptr, i1));
+    // Null-guard (a moved-from slice is null).
+    auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    auto nn = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, data, null);
+    auto* region = builder_.getBlock()->getParent();
+    auto* then_blk = new mlir::Block();
+    auto* cont_blk = new mlir::Block();
+    region->push_back(then_blk);
+    region->push_back(cont_blk);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
+    builder_.setInsertionPointToStart(then_blk);
+
+    TypeRef et = TypeRef(ty).elem();
+    if (et && value_needs_drop(et)) {
+        // Runtime loop: for i in [0,len) drop element at data + i*stride.
+        uint64_t stride = layout_of(et).size; if (!stride) stride = 1;
+        auto strideC = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)stride, 64);
+        auto* cond_blk = new mlir::Block();
+        auto* body_blk = new mlir::Block();
+        auto* exit_blk = new mlir::Block();
+        cond_blk->addArgument(i64_t, loc_);
+        region->push_back(cond_blk);
+        region->push_back(body_blk);
+        region->push_back(exit_blk);
+        auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        builder_.create<mlir::cf::BranchOp>(loc_, cond_blk, mlir::ValueRange{zero});
+        builder_.setInsertionPointToStart(cond_blk);
+        auto iv = cond_blk->getArgument(0);
+        auto lt = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::slt, iv, len);
+        builder_.create<mlir::cf::CondBranchOp>(
+            loc_, lt, body_blk, mlir::ValueRange{}, exit_blk, mlir::ValueRange{});
+        builder_.setInsertionPointToStart(body_blk);
+        auto off = builder_.create<mlir::arith::MulIOp>(loc_, iv, strideC);
+        llvm::SmallVector<mlir::LLVM::GEPArg> ei{off.getResult()};
+        auto ep = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), builder_.getI8Type(), data, ei);
+        gen_drop_value(ep, et);
+        auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+        auto inc = builder_.create<mlir::arith::AddIOp>(loc_, iv, one);
+        builder_.create<mlir::cf::BranchOp>(loc_, cond_blk, mlir::ValueRange{inc.getResult()});
+        builder_.setInsertionPointToStart(exit_blk);
+        call_free(data);
+        builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    } else {
+        call_free(data);
+        builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    }
+    builder_.setInsertionPointToStart(cont_blk);
+}
+
 mlir::Value MLIRGenImpl::gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t) {
     auto recv = gen_expr(*recv_le);
     if (!recv) return nullptr;
@@ -538,6 +605,12 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
     if (k == K::TraitObject) {
         if (TypeRef(ty).owning_trait_object())
             gen_drop_owning_dyn_handle(value_ptr, TypeRef(ty).trait_owning_kind());
+        return;
+    }
+    // Owning `Box<[T]>` fat slice: drop elements (if droppable) + free buffer.
+    if (k == K::Slice) {
+        if (TypeRef(ty).owning_slice())
+            gen_drop_owning_slice(value_ptr, ty);
         return;
     }
     // Closure drop is driven explicitly (Box<Closure>), not via value_needs_drop
@@ -800,6 +873,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             // gen_drop_value runs the env's drop glue (null-guarded no-op for
             // non-owning closures).
             gen_drop_value(it->second, st);
+        } else if (k == K::Slice && st.owning_slice()) {
+            // Owning `Box<[T]>` fat slice: it->second points at {data,len}.
+            // Drop elements (if droppable) + free the heap buffer.
+            gen_drop_owning_slice(it->second, st);
         }
     }
     };  // end emit_body

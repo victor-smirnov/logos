@@ -809,6 +809,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         break;
     case K::Slice:
         put_byte(buf, t.mut_ptr ? 1 : 0);
+        // const_val carries the owning kind (Borrow vs Box) — an owning
+        // `Box<[T]>` slice interns distinctly from a borrowed `&[T]`.
+        put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
         put_sub(buf, impl, t.elem);
         break;
     case K::UnsizedSlice:
@@ -942,8 +945,10 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Slice:
         // B6/P2-11: `&mut [T]` and `&[T]` are distinct (mutability in identity);
         // without this the type-pool dedups a fresh `&mut [T]` into an existing
-        // `&[T]` and the mut bit is silently lost.
-        return t.elem == r.elem() && t.mut_ptr == r.mut_ptr();
+        // `&[T]` and the mut bit is silently lost. const_val = owning kind so an
+        // owning `Box<[T]>` slice is distinct from a borrowed `&[T]`.
+        return t.elem == r.elem() && t.mut_ptr == r.mut_ptr() &&
+               t.const_val == r.const_val();
     case K::UnsizedSlice:
         return t.elem == r.elem();
     case K::UnsizedDyn:
@@ -2269,6 +2274,9 @@ bool SemaChecker::is_move_type(TypeRef t) const {
         // move-tracking site (let-RHS, call args, field / tuple-element moves)
         // suppress the source's drop uniformly — no per-site owning-dyn casing.
         if (TypeRef(x).owning_trait_object()) return true;
+        // An owning `Box<[T]>` slice owns its heap buffer (non-Copy) → move type;
+        // a borrowed `&[T]` is Copy-like (not a move type).
+        if (TypeRef(x).owning_slice()) return true;
         // TypeVar — generic body. We don't know if T resolves to a Copy or move
         // type at sema; treat as move (conservative). If T resolves to Copy at
         // mono, the suppressed scope-exit drop is harmless (Copy has no Drop). If
@@ -2417,6 +2425,9 @@ bool SemaChecker::has_droppable_fields(TypeRef t) const {
     // An owning Box<dyn Trait> owns its heap data (dropped via vtable[0]
     // drop_in_place + free). A borrowed &dyn is not droppable.
     if (TypeRef(t).owning_trait_object()) return true;
+    // An owning `Box<[T]>` slice owns its heap buffer (free + element drops);
+    // a borrowed `&[T]` is not droppable.
+    if (TypeRef(t).owning_slice()) return true;
     // G158-4: an array `[T; N]` owns its elements — droppable if the element is.
     if (TypeRef(t).kind() == LogosType::Kind::Array)
         return member_droppable(TypeRef(t).elem());
@@ -4550,12 +4561,30 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
             find_struct_by_name(name).first == sp_pkg) {
             auto items = arr_of(node.get(la::ITEMS.code));
             if (items.size() == 1) {
+                // Box/Rc/Arc hold the value behind a pointer, so the inner type
+                // may be unsized (`Box<dyn Trait>`, `Box<[T]>`). Probe under
+                // unsized_ok_ so a bare `[T]` / `dyn` inner resolves here without
+                // the unsized-by-value diagnostic (matches the ?Sized param).
+                bool was_ok = unsized_ok_;
+                unsized_ok_ = true;
                 auto inner = resolve_type(map_of(items.get(0)));
-                if (inner && TypeRef(inner).kind() == LogosType::Kind::TraitObject) {
+                unsized_ok_ = was_ok;
+                // TraitObject OR UnsizedDyn (the probe runs under unsized_ok_, so
+                // bare `dyn Trait` now resolves to the unsized form — both denote
+                // the same owning trait object).
+                if (inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
+                              TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
                     TypeRef ti(inner);
                     std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind);
                 }
+                // `Box<[T]>` (and Rc/Arc<[T]>) — heap unsized slice. Collapse to
+                // an OWNING fat slice {data,len}: same layout as `&[T]`, move-only,
+                // droppable per sp_kind (Box→free+drop-elems). Mirrors the
+                // Box<dyn> collapse above (CoerceUnsized lang-item behaviour).
+                if (inner && TypeRef(inner).kind() == LogosType::Kind::UnsizedSlice &&
+                    TypeRef(inner).elem() && sp_kind == TypeRef::OwningKind::Box)
+                    return make_slice_type(TypeRef(inner).elem(), /*is_mut=*/false, sp_kind);
             }
         }
     }

@@ -1,0 +1,18 @@
+package test;
+use logos.mem.boxed;
+use logos.lang.mem;
+
+struct Noisy { p: *mut i64 }
+impl Drop for Noisy {
+    fn drop(self: Noisy) { unsafe { self.p[0] = self.p[0] + 1; } }
+}
+
+fn main() -> i32 {
+    let mut count: i64 = 0;
+    let cp: *mut i64 = &mut count as *mut i64;
+    {
+        let b: Box<[Noisy]> = box_new::<[Noisy; 3]>([Noisy{p:cp}, Noisy{p:cp}, Noisy{p:cp}]) as Box<[Noisy]>;
+        unsafe { if b[0].p != cp { return 99; } }
+    }   // b drops here → 3 element drops
+    return count as i32;   // expect 3
+}

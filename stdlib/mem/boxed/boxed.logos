@@ -10,7 +10,7 @@ use logos.lang.mem;
 use logos.lang.ops;
 use logos.mem.manually_drop;
 
-pub struct Box<T> {
+pub struct Box<T: ?Sized> {
     ptr: *mut T,
 }
 
