@@ -352,6 +352,10 @@ private:
         mlir::Type cap_struct,
         const std::vector<std::string>& captures,
         const std::vector<TypeRef>& capture_types,
+        // RFC-2229 phase-2: per-capture narrow FIELD type (null = whole-root).
+        // Drop-glue drops the FIELD value when set (only the narrow piece the
+        // env actually owns), not the root.
+        const std::vector<TypeRef>& capture_field_types,
         const std::vector<bool>& capture_drops,
         bool heap_env);
 

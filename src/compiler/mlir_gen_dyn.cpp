@@ -879,6 +879,7 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
         mlir::Type cap_struct,
         const std::vector<std::string>& /*captures*/,
         const std::vector<TypeRef>& capture_types,
+        const std::vector<TypeRef>& capture_field_types,
         const std::vector<bool>& capture_drops,
         bool heap_env) {
     if (auto it = closure_drop_glue_.find(closure_id);
@@ -906,13 +907,17 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
     bool saved_in_llvm = in_llvm_func_;
     in_llvm_func_ = true;
     auto env_ptr = entry->getArgument(0);
-    // Drop each owned droppable capture (env field i+1).
+    // Drop each owned droppable capture (env field i+1). RFC-2229 phase-2:
+    // when capture_field_types[i] is set the env field holds the NARROW field's
+    // value (not the root); drop the FIELD type, not the root.
     for (size_t i = 0; i < capture_types.size(); ++i) {
         if (i >= capture_drops.size() || !capture_drops[i]) continue;
         llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i + 1)};
         auto fp = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), cap_struct, env_ptr, gi);
-        gen_drop_value(fp, capture_types[i], /*top_level=*/true);
+        TypeRef drop_t = (i < capture_field_types.size() && capture_field_types[i])
+            ? capture_field_types[i] : capture_types[i];
+        gen_drop_value(fp, drop_t, /*top_level=*/true);
     }
     // Free the heap env (escaping closure).
     if (heap_env) call_free(env_ptr);
@@ -1482,6 +1487,43 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     capture_field_ts.reserve(captures.size());
     for (uint64_t i = 0; i < captures.size(); ++i)
         capture_field_ts.push_back(v.capture_field_type(pool_impl(), i));
+    // Walk a dotted `field.field…` chain through nested Struct fields starting
+    // from `start` (a pointer to a value of `root_t`) and return the address of
+    // the leaf field. nullptr if any intermediate isn't a known Struct (then
+    // the caller falls back to whole-root capture). Used by both env-fill (read
+    // outer struct's leaf at closure CREATION) and body-unpack (write env value
+    // into the fake-root struct's leaf at closure ENTRY).
+    auto gep_field_chain = [&](mlir::Value start, TypeRef root_t,
+                                const std::string& rel_path) -> mlir::Value {
+        if (rel_path.empty()) return start;
+        TypeRef cur_t = root_t;
+        mlir::Value cur = start;
+        std::string_view rem(rel_path);
+        while (!rem.empty()) {
+            if (!cur_t || TypeRef(cur_t).kind() != LogosType::Kind::Struct) {
+                return mlir::Value{};
+            }
+            auto skey = mlir_struct_key(cur_t);
+            auto sit = struct_types_.find(skey);
+            if (sit == struct_types_.end())
+                sit = struct_types_.find(std::string(TypeRef(cur_t).struct_name()));
+            auto sdit = all_struct_defs_.find(skey);
+            if (sdit == all_struct_defs_.end())
+                sdit = all_struct_defs_.find(std::string(TypeRef(cur_t).struct_name()));
+            auto dot = rem.find('.');
+            std::string fname(rem.substr(0, dot));
+            auto fp = gep_field(cur, sit->second, fname);
+            if (!fp) return mlir::Value{};
+            TypeRef next;
+            for (auto& f : sdit->second->fields)
+                if (f.name == fname) { next = f.type; break; }
+            if (dot == std::string_view::npos) return fp;
+            rem = rem.substr(dot + 1);
+            cur = fp;
+            cur_t = next;
+        }
+        return cur;
+    };
     TypeRef ret_t        = v.ret_type(pool_impl());
     std::string closure_id(v.closure_id());
     bool        as_fn_ptr_flag = v.as_fn_ptr();
@@ -1640,13 +1682,12 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             capture_own_inline[i] = true;
         }
     }
-    // RFC-2229 phase-2: a narrow single-level path on a Struct root in a `move`
-    // closure ALWAYS owns its FIELD value inline — regardless of escaping — so
-    // the env field is field-sized + value-by-move semantics match sema's
-    // mark_moved(p.x). Body unpack materialises a fake root with only that
-    // field populated (other fields untouched: sema guaranteed body doesn't
-    // read them).
-    if (v.is_move()) {
+    // RFC-2229 phase-2: a narrow capture on a Struct root in an ESCAPING (heap-
+    // env) `move` closure owns its FIELD value inline — env-glue fires on the
+    // Box<dyn Fn> drop, so the field's Drop runs. Non-escaping stays borrow-by-
+    // pointer (whole-root model) — sema's mark_moved(path) is also gated on
+    // escaping so the original root still drops the field at scope-exit.
+    if (heap_env_pre && v.is_move()) {
         for (size_t i = 0; i < captures.size(); ++i)
             if (capture_field_ts[i]) capture_own_inline[i] = true;
     }
@@ -1689,10 +1730,13 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         mlir::Type ft;
         if (capture_own_inline[i]) {
             // RFC-2229 phase-2: a narrow move-captured field has a FIELD-sized
-            // env slot (else whole-root inline).
+            // env slot. Prefer inline_cap_type — for an aggregate field (a
+            // sub-Struct / Tuple / Enum) it returns the VALUE type; logos_to_mlir
+            // would return ptr_type and the memcpy size would not match the
+            // slot layout. Falls back to logos_to_mlir for scalars.
             if (capture_field_ts[i]) {
-                ft = logos_to_mlir(capture_field_ts[i]);
-                if (!ft) ft = inline_cap_type(capture_field_ts[i]);
+                ft = inline_cap_type(capture_field_ts[i]);
+                if (!ft) ft = logos_to_mlir(capture_field_ts[i]);
             } else {
                 ft = inline_cap_type(ct);  // moved-in whole root
             }
@@ -1795,10 +1839,16 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             auto sit  = struct_types_.find(skey);
             std::string fpath(v.capture_path(i));
             auto dot = fpath.find('.');
-            std::string fname = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
-            if (sit != struct_types_.end() && !fname.empty()) {
+            std::string rel = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
+            if (sit != struct_types_.end() && !rel.empty()) {
+                // Fake root struct on the closure stack; chain-GEP through
+                // nested Struct fields to reach the leaf slot and memcpy the
+                // env-deposited field bytes into it. Intermediate sub-struct
+                // slots are uninitialised (sema guarantees the body only reads
+                // the captured path — anything wider would LCA-widen the path
+                // back to the root and disable this narrow code path).
                 auto fake = create_entry_alloca(sit->second.llvm_type);
-                if (auto fslot = gep_field(fake, sit->second, fname)) {
+                if (auto fslot = gep_field_chain(fake, ct, rel)) {
                     builder_.create<mlir::LLVM::MemcpyOp>(
                         loc_, fslot, fp, size_const(capture_field_ts[i]), false);
                     scope_[captures[i]] = fake;
@@ -1939,7 +1989,10 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         if (!capture_own_inline[i]) {
             if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
         }
-        if (capture_types[i] && value_needs_drop(capture_types[i])) {
+        // RFC-2229 phase-2: for a narrow capture the env owns the FIELD value
+        // only; its dropability is the FIELD's, not the root's.
+        TypeRef drop_t = capture_field_ts[i] ? capture_field_ts[i] : capture_types[i];
+        if (drop_t && value_needs_drop(drop_t)) {
             capture_drops[i] = true;
             need_glue = true;
         }
@@ -1949,8 +2002,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     mlir::Value glue_val;
     if (need_glue) {
         std::string glue_sym = emit_closure_drop_glue(
-            closure_id, cap_struct, captures, capture_types, capture_drops,
-            heap_env);
+            closure_id, cap_struct, captures, capture_types, capture_field_ts,
+            capture_drops, heap_env);
         glue_val = builder_.create<mlir::LLVM::AddressOfOp>(
             loc_, ptr_type(), glue_sym);
     } else {
@@ -1978,19 +2031,17 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
                 loc_, ptr_type(), cap_struct, env_alloca, oidx);
             mlir::Value src = it->second;
             mlir::Value sz  = size_const(capture_types[i]);
-            // RFC-2229 phase-2: narrow capture — source = GEP outer struct's
-            // FIELD slot; size = field's size (move only the field, not whole p).
+            // RFC-2229 phase-2: narrow capture — source = chain-GEP into the
+            // outer struct to reach the LEAF field (handles multi-level paths
+            // `p.x.y.z` via nested Struct fields); size = leaf's size (move
+            // only the leaf, not whole `p`).
             if (capture_field_ts[i]) {
                 std::string fpath(v.capture_path(i));
                 auto dot = fpath.find('.');
-                std::string fname = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
-                auto skey = mlir_struct_key(capture_types[i]);
-                auto sit = struct_types_.find(skey);
-                if (sit != struct_types_.end() && !fname.empty()) {
-                    if (auto fp = gep_field(it->second, sit->second, fname)) {
-                        src = fp;
-                        sz  = size_const(capture_field_ts[i]);
-                    }
+                std::string rel = (dot != std::string::npos) ? fpath.substr(dot + 1) : "";
+                if (auto fp = gep_field_chain(it->second, capture_types[i], rel)) {
+                    src = fp;
+                    sz  = size_const(capture_field_ts[i]);
                 }
             }
             builder_.create<mlir::LLVM::MemcpyOp>(

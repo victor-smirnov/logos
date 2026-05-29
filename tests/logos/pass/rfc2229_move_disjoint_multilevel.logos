@@ -1,0 +1,9 @@
+package test;
+struct Wrap { v: i64 }
+struct P { x: Wrap, y: Wrap }
+fn main() -> i32 {
+    let p: P = P { x: Wrap { v: 42 }, y: Wrap { v: 99 } };
+    let c = move || -> i64 { return p.x.v; };
+    let r: i64 = c();
+    return r as i32;
+}

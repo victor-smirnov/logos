@@ -12434,28 +12434,39 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         if (cut == b.size() && a[cut] == '.') return std::string(b);
         return std::string(a.substr(0, last_seg));
     };
-    // RFC-2229 phase-2: for a SINGLE-LEVEL path `root.field` on a Struct root,
-    // return the field's TypeRef so codegen can size the env slot at the FIELD
-    // (not the root). Multi-level / non-struct narrow paths return null (env
-    // still captures the whole root — borrow-check exclusivity still works).
-    auto field_type_for_single_level = [&](TypeRef root_t,
-                                            const std::string& path,
-                                            const std::string& root_name)
+    // RFC-2229 phase-2: walk a dotted `root.x.y.z` path through nested Struct
+    // fields and return the LEAF field's TypeRef so codegen can size the env
+    // slot at the leaf (not the whole root). Returns null for non-Struct
+    // intermediates / unknown fields / paths that aren't `root.…` — env still
+    // captures the whole root (borrow-check exclusivity still works via the
+    // phase-1 path tracking).
+    auto field_type_for_path = [&](TypeRef root_t,
+                                    const std::string& path,
+                                    const std::string& root_name)
         -> TypeRef {
         if (!root_t || path.size() <= root_name.size() + 1) return TypeRef{};
         if (path.compare(0, root_name.size(), root_name) != 0) return TypeRef{};
         if (path[root_name.size()] != '.') return TypeRef{};
-        std::string_view fld(path.data() + root_name.size() + 1,
+        std::string_view rem(path.data() + root_name.size() + 1,
                              path.size() - root_name.size() - 1);
-        // Single-level only (no further `.`) — multi-level needs nested fake
-        // structs at body unpack; leave as a follow-up.
-        if (fld.find('.') != std::string_view::npos) return TypeRef{};
-        // Struct (not ZonedStruct: zoned has its own ABI/dispatch — leave it).
-        if (TypeRef(root_t).kind() != LogosType::Kind::Struct) return TypeRef{};
-        auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(root_t).struct_name()));
-        if (!ssi) return TypeRef{};
-        for (auto& f : ssi->fields) if (f.name == fld) return f.type;
-        return TypeRef{};
+        TypeRef cur = root_t;
+        while (!rem.empty()) {
+            // Walk through plain Struct only (ZonedStruct has its own ABI).
+            if (TypeRef(cur).kind() != LogosType::Kind::Struct) return TypeRef{};
+            auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(cur).struct_name()));
+            if (!ssi) return TypeRef{};
+            auto dot = rem.find('.');
+            std::string_view fname = (dot == std::string_view::npos)
+                ? rem : rem.substr(0, dot);
+            TypeRef next;
+            for (auto& f : ssi->fields)
+                if (f.name == fname) { next = f.type; break; }
+            if (!next) return TypeRef{};
+            cur = next;
+            if (dot == std::string_view::npos) break;
+            rem = rem.substr(dot + 1);
+        }
+        return cur;
     };
     // Record a capture of `root` via the precise field `path` (e.g. "p.x.y").
     // For a fresh capture, the path is stored; for an existing one it is LCA-
@@ -12467,7 +12478,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 std::string widened = path_lca(capture_paths[i], path);
                 capture_paths[i] = widened;
                 // Path widened back to whole-root → drop the field-type marker.
-                capture_field_types[i] = field_type_for_single_level(
+                capture_field_types[i] = field_type_for_path(
                     capture_types[i], widened, root);
                 return;
             }
@@ -12478,7 +12489,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         captures.push_back(root);
         capture_types.push_back(t);
         capture_paths.push_back(path);
-        capture_field_types.push_back(field_type_for_single_level(t, path, root));
+        capture_field_types.push_back(field_type_for_path(t, path, root));
         seen.insert(root);
     };
     // Try to extract a `root[.field]*` dotted path from an expression. Returns
@@ -12789,18 +12800,27 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
 
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
-            // RFC-2229 phase-2: when the capture is a narrow single-level field
-            // path on a Struct (capture_field_types[i] non-null), check move-ness
-            // on the FIELD type and mark the PATH moved (not the whole root) —
-            // leaves sibling fields usable. Codegen also evaluates+moves only
-            // the field into the env (mlir_gen_dyn env-fill / body-unpack).
-            TypeRef move_check_t = (i < ec->capture_field_types.size() &&
-                                    ec->capture_field_types[i])
+            // RFC-2229 phase-2: a narrow capture (capture_field_types[i] non-
+            // null) marks the PATH moved (not the root) — leaving sibling
+            // fields usable — but ONLY when the closure ESCAPES. Non-escaping
+            // closures stay whole-root borrow-by-pointer; sema marks nothing
+            // moved for narrow non-escaping, so the original root drops its
+            // field at scope-exit (no leak). Codegen matches this gating in
+            // mlir_gen_dyn (capture_own_inline narrow gated on heap_env_pre).
+            bool is_narrow = i < ec->capture_field_types.size() &&
+                              ec->capture_field_types[i];
+            bool narrow_owned = ec->escapes && is_narrow;
+            // Non-escaping narrow: env borrows a pointer to outer root (codegen
+            // gate); the outer root keeps ownership + drops the field at scope-
+            // exit. Skip mark_moved entirely — phase-1's borrow-check exclusivity
+            // on the field path is enough for soundness, and `let yy = p.y`
+            // stays usable (whole `p` is not moved).
+            if (is_narrow && !ec->escapes) continue;
+            TypeRef move_check_t = narrow_owned
                 ? TypeRef(ec->capture_field_types[i])
                 : TypeRef(ec->capture_types[i]);
             const std::string& move_target =
-                (i < ec->capture_field_types.size() && ec->capture_field_types[i])
-                ? ec->capture_paths[i] : ec->captures[i];
+                narrow_owned ? ec->capture_paths[i] : ec->captures[i];
             if (is_move_type(move_check_t)) {
                 mark_moved(move_target);
                 // Phase-2 narrow capture: env owns just the field's value (the
@@ -12808,8 +12828,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // scope. moved_vars_ tracks the path, so the root's scope-exit
                 // drop skips the moved field — no double-free. Skip the
                 // whole-root closure_owned_drop_ machinery below.
-                if (i < ec->capture_field_types.size() && ec->capture_field_types[i])
-                    continue;
+                if (narrow_owned) continue;
                 if (!needs_drop(ec->capture_types[i])) continue;
                 // OWNERSHIP TRANSFER (must match mlir-gen `capture_own_inline`):
                 // an ESCAPING (heap-env) `move` closure capturing a droppable
