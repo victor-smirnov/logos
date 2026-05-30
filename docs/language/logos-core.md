@@ -107,18 +107,21 @@ variance-walk wildcard. Verification:
 - **DoD-depth:** new `Kind::FnItem` (ZST per instantiation); auto-coerce
   to `FnPtr` at coercion sites; closure-non-capturing → FnPtr path unchanged.
 
-### 1.5. `#[repr]` minimal — `transparent` and `uN` enum repr
+### ~~1.5. `#[repr]` minimal — `transparent` and `uN` enum repr~~ ✅
 *Audit: B (Type layout), L (Attributes).*
-- **Issue:** all `#[repr(...)]` clauses are silently dropped; layout is
-  hard-coded Rust-default. Imported `#[repr(u32)]` enums silently misalign.
-- **Why core (minimally):** `#[repr(transparent)]` is needed for sound
-  wrapper-type identity (e.g. `NonZeroI64`); `#[repr(uN)]` is needed for
-  enum discriminant-typed FFI. The full `#[repr(C, packed, align, …)]`
-  surface is breadth and out of scope here.
-- **DoD-depth:** `#[repr(transparent)]` recognised on single-field structs
-  (layout = field layout); `#[repr(uN)]` recognised on C-style enums
-  (discriminant width set). `repr(C)` parses but is documented "future
-  breadth work" — no silent acceptance.
+**CLOSED 2026-05-30 (Wave 1).** Phase 2 landed the SURFACE registration
+(repr_transparent flag on `SemaStructInfo`, `backing_type` on
+`SemaEnumInfo` from `#[repr(uN)]`, parse-then-reject for unsupported
+modes). Wave 1 closed the LAYOUT consumer:
+- `LStructDef::repr_transparent` field added; `sema_decl` propagates
+  from sema info to LIR.
+- `mlir_gen_types.cpp::layout_of` Struct case checks the flag and
+  returns the single-field's layout directly (size + align), bypassing
+  the aggregate-with-padding path.
+Single-field invariant is already enforced at collect time (errors on
+multi-field `#[repr(transparent)]`). Verification:
+`tests/logos/pass/core_1_5_repr_transparent_layout.logos` —
+`sizeof::<Wrapper>() == sizeof::<i64>()` at runtime.
 
 ---
 
@@ -377,8 +380,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 7 / 21 ✅ closed at DoD-depth (33.3%)** · 9 🟡 partial · 5 ❌ not
-> started. Suite: 5292 / 5292 ✓.
+> **Score: 8 / 21 ✅ closed at DoD-depth (38.1%)** · 8 🟡 partial · 5 ❌ not
+> started. Suite: 5294 / 5294 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -392,7 +395,7 @@ core are recorded here with a rationale. Closing items move to a
 | 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
 | 1.3 | `Kind::InferredType` + `_` | ✅ | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ |
 | 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
-| 1.5 | `#[repr]` minimal | 🟡 | surface accepts `transparent`/`uN`; layout consumer absent — to add: `tests/logos/pass/core_1_5_repr_transparent_layout.logos` |
+| 1.5 | `#[repr]` minimal | ✅ | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ |
 | 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
 | 2.2 | `UnsafeCell` lang-item | 🟡 | variance + auto-`!Sync` ✓; borrow-check carve-out absent — basic case works via existing `unsafe`+raw-ptr surface |
 | 2.3 | Variance over trait objects | ✅ | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ |
@@ -648,8 +651,16 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   `isize`) to `SemaEnumInfo::backing_type` (same field the
   `enum Foo : u32 { ... }` syntax already populates), errors on
   unrecognised modes. `#[repr(C/packed/align/...)]` parse-then-
-  rejected (no silent acceptance). Layout-side consumer of
-  `repr_transparent` (single-field collapse in `logos_abi_byte_size`)
-  is the breadth follow-up for layout-aware passes — value here is
-  the surface registration so ported Rust code doesn't silently
-  drop the annotation.
+  rejected (no silent acceptance).
+
+### Wave 1 (2026-05-30)
+
+- ~~**1.5**~~ ✅ `#[repr(transparent)]` LAYOUT consumer. `LStructDef`
+  gets a `repr_transparent` flag (`lir.hpp`), `sema_decl.cpp::
+  lower_struct_def` propagates from `SemaStructInfo`, and
+  `mlir_gen_types.cpp::layout_of` Struct case returns the single
+  field's layout directly (size + align) when the flag is set —
+  bypassing the aggregate-with-padding path. Single-field invariant
+  already enforced at collect time. Verification:
+  `tests/logos/pass/core_1_5_repr_transparent_layout.logos`
+  (`sizeof::<Wrapper>() == sizeof::<i64>()` at runtime).

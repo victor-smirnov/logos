@@ -401,9 +401,19 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         if (!seen.insert(cname).second) return {8, 8};  // cycle guard
         Layout r{8, 8};
         if (auto it = all_struct_defs_.find(cname); it != all_struct_defs_.end()) {
-            LayoutAgg agg;
-            for (auto& f : it->second->fields) agg.push(aggregate_member_layout(f.type, seen));
-            r = agg.finish();
+            // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper
+            // inherits its field's layout exactly (no aggregate padding).
+            // `NonZeroI64`-style wrappers at FFI boundaries depend on this.
+            // The single-field invariant is enforced by sema_collect at
+            // collect time (errors on multi-field `#[repr(transparent)]`),
+            // so we can trust fields.size() == 1 here.
+            if (it->second->repr_transparent && it->second->fields.size() == 1) {
+                r = aggregate_member_layout(it->second->fields[0].type, seen);
+            } else {
+                LayoutAgg agg;
+                for (auto& f : it->second->fields) agg.push(aggregate_member_layout(f.type, seen));
+                r = agg.finish();
+            }
         }
         seen.erase(cname);
         return r;

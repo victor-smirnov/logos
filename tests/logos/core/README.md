@@ -37,7 +37,7 @@ in `pass/` and `fail/`. Two reasons:
 | 1.2 | Coercion canonical order | verified-by-suite (pure refactor) | ✅ |
 | 1.3 | `Kind::InferredType` | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ | ✅ |
 | 1.4 | `Kind::FnItem` distinct | `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` | not started (❌) |
-| 1.5 | `#[repr]` minimal | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` | to add (🟡) |
+| 1.5 | `#[repr]` minimal | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ | ✅ |
 | 2.1 | region_infer wire | (consumer test under regions/ already) | partial (🟡) |
 | 2.2 | UnsafeCell | `tests/logos/pass/core_2_2_unsafecell_write.logos` (basic case) | partial (🟡) |
 | 2.3 | TraitObject variance | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ | ✅ |

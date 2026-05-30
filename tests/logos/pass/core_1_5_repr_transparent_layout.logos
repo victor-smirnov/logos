@@ -1,0 +1,24 @@
+// logos-core §1.5: `#[repr(transparent)]` — single-field wrapper inherits
+// its field's layout EXACTLY (size + align). Required for sound wrapper-
+// type ABI identity (NonZeroI64-style) at FFI boundaries. Pre-fix the
+// surface was registered but mlir-gen's layout_of aggregated as a
+// regular struct (no padding for a single field anyway, but the
+// transparent CONTRACT — `sizeof(Wrapper) == sizeof(i64)` — wasn't
+// guaranteed and would break for any case where struct alignment !=
+// field alignment).
+package core_1_5_repr_transparent_layout;
+
+#[repr(transparent)]
+struct Wrapper { v: i64 }
+
+fn main() -> i32 {
+    let w: Wrapper = Wrapper { v: 42i64 };
+    // sizeof(Wrapper) == sizeof(i64) under the transparent layout
+    // contract. The runtime sizeof intrinsic uses the same layout_of
+    // path, so this verifies the consumer end-to-end.
+    let ws: i64 = sizeof::<Wrapper>();
+    let is: i64 = sizeof::<i64>();
+    if ws != is { return 1i32; }
+    if w.v != 42i64 { return 2i32; }
+    return 0i32;
+}

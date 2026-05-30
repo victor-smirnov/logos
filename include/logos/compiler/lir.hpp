@@ -841,6 +841,13 @@ struct LStructDef {
     // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
     // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
     bool                     is_dst        = false;
+    // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper inherits
+    // its field's layout EXACTLY (size + align). Recognised by sema_collect
+    // (`SemaStructInfo::repr_transparent`); consumed by mlir-gen's `layout_of`
+    // Struct case to return the field's layout directly, bypassing the
+    // aggregate-with-padding path. Required for sound `NonZeroI64`-style
+    // wrapper-type ABI identity at FFI boundaries.
+    bool                     repr_transparent = false;
     // SHA-256 of canonical type string, truncated to 23 bytes; all-zero = not yet computed
     // (zero for generic templates — hashed at instantiation time in mono_pass).
     std::array<uint8_t, 23>  type_hash     = {};

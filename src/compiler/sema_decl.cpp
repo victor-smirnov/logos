@@ -860,6 +860,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
     sd.is_dst = sinfo->is_dst;
+    // logos-core 1.5: propagate `#[repr(transparent)]` so mlir-gen's
+    // `layout_of` Struct case can collapse to the field's layout.
+    sd.repr_transparent = sinfo->repr_transparent;
     // B65: outlives bounds from `struct Foo<'a, 'b: 'a>` + validate names.
     sd.lifetime_outlives = read_lifetime_outlives(node);
     // B68.3: also pick up where-clause outlives + type-outlives bounds.
