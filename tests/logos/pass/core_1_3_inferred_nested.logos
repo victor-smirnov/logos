@@ -1,0 +1,12 @@
+// logos-core §1.3: `_` placeholder in NESTED position — `Vec<_>` accepts
+// `Vec<i32>` from the RHS, generic-arg inference fills the slot. Pre-fix
+// `types_compatible` only handled top-level `_` (or rather, my Phase 2
+// landing left the Struct-vs-Struct + variance walks rejecting nested
+// `_`). Now the structural type-args walk treats `_` as a wildcard.
+package core_1_3_inferred_nested;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let v: Vec<_> = vec_new::<i32>();
+    return v.length() as i32;
+}

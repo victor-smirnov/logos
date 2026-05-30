@@ -54,6 +54,13 @@ namespace detail {
 inline bool types_equal_with_lifetimes(TypeRef a, TypeRef b,
                                        const OutlivesAdj* adj = nullptr) {
     if (!a || !b) return a == b;
+    // logos-core 1.3 (nested): `_` placeholder acts as a wildcard at any
+    // position — variance/subtype walks through Vec<_> ≡ Vec<i32> by
+    // treating the InferredType slot as compatible with whatever it
+    // meets. types_compatible already accepts the same direction; this
+    // is the variance-check parallel.
+    if (a.kind() == LogosType::Kind::InferredType ||
+        b.kind() == LogosType::Kind::InferredType) return true;
     if (a.kind() != b.kind()) return false;
     auto lt_eq = [&](std::string_view x, std::string_view y) {
         if (x.empty() || y.empty()) return true;

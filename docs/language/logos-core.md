@@ -83,15 +83,18 @@ fully closed.
   order (suite-gated) or are documented as load-bearing with a test that
   pins the order. Lambda duplicate eliminated.
 
-### 1.3. `Kind::InferredType` (the `_` placeholder)
+### ~~1.3. `Kind::InferredType` (the `_` placeholder)~~ ✅
 *Audit: B (Inferred type `_`).*
-- **Issue:** Logos rejects `_` in type position (`let x: Vec<_> = ...`);
-  imported tests rewrite to explicit annotations or to TypeVars by accident.
-- **Why core:** Hindley-Milner inference baseline; every generic call
-  with a partial annotation hits this.
-- **DoD-depth:** `Kind::InferredType` added; grammar `type_ref` accepts
-  bare `_`; sema lowers `_` to a fresh inference var unified later; all
-  sites that today reject `_` in type position accept it.
+**CLOSED 2026-05-30 (Wave 1).** Phase 2 landed `Kind::InferredType`,
+`_` recognition in `resolve_type`, top-level `let x: _ = rhs` (ann
+dropped → RHS's type wins), and `types_compatible` permissive on
+either side. Wave 1 closed the nested-`_` gap (`let v: Vec<_> =
+vec_new::<i32>()`): added a Struct-vs-Struct element-wise rule to
+`types_compatible` (`sema.cpp` after the InferredType permissive
+case) AND extended `types_equal_with_lifetimes` in
+`include/logos/compiler/subtype.hpp` to treat `InferredType` as a
+variance-walk wildcard. Verification:
+`tests/logos/pass/core_1_3_inferred_nested.logos`.
 
 ### 1.4. `Kind::FnItem` separate from `Kind::FnPtr`
 *Audit: B (Function-item types).*
@@ -374,8 +377,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 6 / 21 ✅ closed at DoD-depth (28.6%)** · 10 🟡 partial · 5 ❌ not
-> started. Suite: 5291 / 5291 ✓.
+> **Score: 7 / 21 ✅ closed at DoD-depth (33.3%)** · 9 🟡 partial · 5 ❌ not
+> started. Suite: 5292 / 5292 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -387,7 +390,7 @@ core are recorded here with a rationale. Closing items move to a
 |---|------|--------|--------------|
 | 1.1 | `Never` / `!` + divergence end-to-end | 🟡 | `!`-fallback needs per-var constraint tracking in `infer_type_args` — bigger than DoD assumed (see §-body) |
 | 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
-| 1.3 | `Kind::InferredType` + `_` | 🟡 | top-level `_` works; nested `Vec<_>` not verified — to add: `tests/logos/pass/core_1_3_inferred_nested.logos` |
+| 1.3 | `Kind::InferredType` + `_` | ✅ | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ |
 | 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
 | 1.5 | `#[repr]` minimal | 🟡 | surface accepts `transparent`/`uN`; layout consumer absent — to add: `tests/logos/pass/core_1_5_repr_transparent_layout.logos` |
 | 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |

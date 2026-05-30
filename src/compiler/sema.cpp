@@ -1644,6 +1644,24 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     // (logos-core 1.3).
     if (from.kind() == LogosType::Kind::InferredType ||
         to.kind()   == LogosType::Kind::InferredType) return true;
+    // logos-core 1.3 (nested): Struct-vs-Struct with the same base
+    // name and arity is compatible iff every pair of type-args is
+    // compatible. Enables `let v: Vec<_> = vec_new::<i32>();` —
+    // `Vec<i32>` and `Vec<_>` aren't `types_equal` (different
+    // TypeUIDs), but the element-wise rule lets `i32` match `_`.
+    if (from.kind() == LogosType::Kind::Struct &&
+        to.kind()   == LogosType::Kind::Struct &&
+        from.struct_name() == to.struct_name() &&
+        from.pkg_name()    == to.pkg_name()) {
+        auto fa = from.type_args();
+        auto ta = to.type_args();
+        if (fa.size() == ta.size()) {
+            for (size_t i = 0; i < fa.size(); ++i)
+                if (!types_compatible(fa[i], ta[i])) goto struct_mismatch;
+            return true;
+        }
+    }
+    struct_mismatch:;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
