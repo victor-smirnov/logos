@@ -328,15 +328,27 @@ is still caught. Verification:
   retired; targeted test on a TLA+-modellable two-thread relaxed-store
   / acquire-load case.
 
-### 5.2. UB list documented + per-anchor enforcement table
+### ~~5.2. UB list documented + per-anchor enforcement table~~ ✅
 *Audit: K (UB).*
-- **Issue:** there is no `behavior-considered-undefined.md` mirror in
-  Logos docs; UB rules are enforced ad-hoc.
-- **Why core:** UB list is the contract of what `unsafe` is allowed to
-  rely on. Without it, every unsafe block is its own bespoke universe.
-- **DoD-depth:** `docs/language/undefined-behavior.md` mirrors the
-  spec's anchors with one-line "enforced/partial/unenforced" verdict
-  per anchor; partial/unenforced items each have a follow-up issue.
+**CLOSED 2026-05-30 (Wave 1).** `docs/language/undefined-behavior.md`
+mirrors the Rust spec's `behavior-considered-undefined.md` anchors
+section-by-section. Each anchor records ENFORCED / PARTIAL /
+UNENFORCED, and every PARTIAL or UNENFORCED entry now carries an
+explicit `**Follow-up:**` line linking the closing channel (a
+logos-core item §, a `DIVERGENCES.md` rationale, or a baghunt id):
+- Data races → `§5.1` + `§2.4`
+- Dangling raw-ptr deref → by design (`DIVERGENCES.md §A7`) + baghunt
+  `UB-deref`
+- Producing invalid value → baghunt `UB-validity-niche` alongside
+  `§1.5` niche propagation
+- FFI ABI mismatch → baghunt `UB-ffi-abi`
+- Dangling `&` / `&mut` → `§2.1` finish + `§3.1`
+- Pointer aliasing → `§2.2` carve-out
+- Library-precondition violations → by design (`DIVERGENCES.md §A7`)
+- Integer overflow → `feature-audit/K-unsafe.md` + baghunt
+  `UB-integer-overflow`
+ENFORCED anchors (mutating immutable bytes, drop-on-moved) need no
+follow-up. Verified-by-doc-existence (no .logos test).
 
 ---
 
@@ -380,7 +392,7 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 9 / 21 ✅ closed at DoD-depth (42.9%)** · 7 🟡 partial · 5 ❌ not
+> **Score: 10 / 21 ✅ closed at DoD-depth (47.6%)** · 6 🟡 partial · 5 ❌ not
 > started. Suite: 5294 / 5294 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
@@ -411,7 +423,7 @@ core are recorded here with a rationale. Closing items move to a
 | 4.2 | Match exhaustiveness | 🟡 | variant coverage + bool + uninhabited ✓; Useful-Sukhotin alg + guard integration absent |
 | 4.3 | Chained auto-deref in pattern position | 🟡 | sema multi-level peel ✓; binding-modes + codegen multi-level load absent |
 | 5.1 | Atomics `Ordering` honoured | ❌ | not started — MLIR atomic-intrinsic ordering enum threading needed |
-| 5.2 | UB list documented | 🟡 | doc landed (`docs/language/undefined-behavior.md`); per-anchor follow-up issue IDs pending |
+| 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
 
 **`/goal` convergence rule:** target = first column count where Status = ✅
 equals 21. Score line above is the canonical authority — when an item moves
@@ -674,3 +686,18 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   check_trait_object_safe` for opaque-in-return and opaque-in-param.
   Rust E0038 parity. Verification:
   `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos`.
+- ~~**5.2**~~ ✅ UB register per-anchor follow-up IDs. Every PARTIAL
+  or UNENFORCED anchor in `docs/language/undefined-behavior.md` now
+  carries an explicit `**Follow-up:**` line citing its closing
+  channel — a logos-core item §, a `DIVERGENCES.md §A7` rationale,
+  or a baghunt id (`UB-deref`, `UB-validity-niche`, `UB-ffi-abi`,
+  `UB-integer-overflow`). ENFORCED anchors need no follow-up.
+  Verified-by-doc-existence (no .logos test).
+- 🟡 **1.1** ESCALATED. Four-of-five DoD pieces landed pre-Wave-1
+  (Never→T tighten, `loop{}`→`!`, `if`/`match`/`let-else` diverging-arm
+  join, `is_divergent_*` consolidation). The fifth — Rust-2024
+  `!`-fallback for inference vars unified ONLY against Never —
+  needs `infer_type_args` extended to return per-var constraint
+  sets so call sites can distinguish "unconstrained" from
+  "constrained to Never". Bigger than Wave 1 budget; reopens as
+  its own focused session.

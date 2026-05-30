@@ -25,6 +25,8 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   *compile time* only when both writers are in the same fn body. Cross-
   thread sharing requires `Sync`; the auto-trait machinery is partly
   permissive (closures-walk-captures landed in logos-core 2.4).
+- **Follow-up:** `logos-core.md §5.1` (atomics Ordering threading) +
+  `logos-core.md §2.4` (auto-trait propagation `dyn+Auto` enforce).
 
 ## Dereferencing a dangling, null, or unaligned raw pointer
 *Rust anchor:* `undefined.deref`.
@@ -35,6 +37,10 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 - Dropping the dangling-ref through references *is* enforced by the
   borrow checker: a `&'a T` whose source is a local is rejected at the
   return site (B66 outlives + region_infer named lifetimes, partial).
+- **Follow-up:** by design — `unsafe { *p }` is the programmer's
+  contract per the panic-strategy register (`DIVERGENCES.md §A7`). A
+  static lint for null-checked-by-construction raw pointers would be
+  breadth-tier (not core); track via baghunt `UB-deref` when needed.
 
 ## Producing an invalid value
 *Rust anchor:* `undefined.validity`.
@@ -46,6 +52,10 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 - Reading uninitialized memory through `mem::uninitialized()` — Logos
   uses zero-init via `alloc()`, so this category is reduced but not
   eliminated when raw-ptr work re-introduces it.
+- **Follow-up:** niche-validity check at `transmute` callsite needs the
+  same niche-optimization metadata used by enum layout; track as a
+  baghunt `UB-validity-niche` entry alongside `#[repr(transparent)]`
+  niche propagation (`logos-core.md §1.5` extension).
 
 ## Mutating immutable bytes
 *Rust anchor:* `undefined.mut_immutable`.
@@ -68,6 +78,9 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 - `extern "C"` calls: signature match between declaration and host
   library is the user's responsibility; the compiler has no link-time
   ABI validation.
+- **Follow-up (FFI side):** link-time ABI validation needs a
+  cross-source signature register; track via baghunt `UB-ffi-abi` when
+  a real link-time mismatch surfaces in imports.
 
 ## Producing a dangling `&` / `&mut`
 *Rust anchor:* `undefined.dangling`.
@@ -78,6 +91,9 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   rejected (`721a3780`).
 - Reborrow chains are first-class as of M2 (`AddrOfTemp(Deref(VarRef))`
   shape preserved through LIR; borrow_check unwraps at the use site).
+- **Follow-up:** the "common cases" still excludes default
+  trait-object lifetime + full HRTB instantiation — see
+  `logos-core.md §2.1` finish + `§3.1`.
 
 ## Breaking the pointer aliasing rules
 *Rust anchor:* `undefined.aliasing`.
@@ -87,6 +103,10 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   landing). Two-phase borrows (B82) accepted.
 - Overlapping `&mut` and `*mut` derived from the same source: UNENFORCED
   (raw-ptr writes inside `unsafe` are programmer's responsibility).
+- **Follow-up:** the `UnsafeCell<T>` borrow-check carve-out
+  (`logos-core.md §2.2`) — distinguish "write through `&UnsafeCell<T>.get()`"
+  from a generic `&T → *mut T` violation. Today both work via the
+  unsafe-block escape hatch.
 
 ## Calling `Drop` on a moved value
 *Rust anchor:* (drop ordering).
@@ -105,6 +125,10 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   invariants in doc-comments; callers in `unsafe { ... }` blocks assert
   compliance. No compile-time enforcement beyond the `unsafe` keyword
   itself.
+- **Follow-up:** by design — same panic-strategy contract as raw-ptr
+  deref (`DIVERGENCES.md §A7`). Tooling around invariant assertions
+  (`debug_assert!` extensions, refinement types) is breadth-tier; no
+  core item.
 
 ## Integer overflow
 *Rust anchor:* (numeric).
@@ -114,6 +138,11 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   1 intlit fits check).
 - Runtime overflow of `+`/`-`/`*` on integers wraps (Rust release-mode
   default). No debug-mode panic on overflow.
+- **Follow-up:** runtime overflow checks (`debug_assert!`-on-overflow)
+  are tracked in `docs/language/feature-audit/K-unsafe.md` (audit
+  cross-category #1 for K). Not a logos-core item; track via baghunt
+  `UB-integer-overflow` when an import depends on Rust's debug-mode
+  semantics.
 
 ## Inline assembly
 *Rust anchor:* `undefined.asm`.
