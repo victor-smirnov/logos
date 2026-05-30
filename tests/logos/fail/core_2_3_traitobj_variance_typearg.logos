@@ -1,0 +1,24 @@
+// logos-core §2.3: TraitObject variance — each type-arg is INVARIANT.
+// `dyn T<&'a U>` and `dyn T<&'b U>` are NOT exchangeable across lifetimes;
+// the if-arm join must reject the structural disagreement instead of
+// falling through to BiVar. Pre-fix this site fell through and accepted
+// the join silently (audit cross-category #1/#4 — variance soundness).
+package core_2_3_traitobj_variance_typearg;
+
+trait Holder<T> { fn read(self: &Self) -> T; }
+
+fn main() -> i32 {
+    // Distinct concrete lifetime-bearing args on the same trait — the
+    // join must reject. (Logos-style: any pair of differently-shaped
+    // dyn-trait types fails the if-arm common-type unifier.)
+    let x: i32 = 1i32;
+    let y: i32 = 2i32;
+    let _r: i32 = if x == 1i32 {
+        let _h: &dyn Holder<&'static i32> = &x;  // type-args differ
+        0i32
+    } else {
+        let _h: &dyn Holder<&i32> = &y;
+        0i32
+    };
+    return 0i32;
+}

@@ -1,0 +1,12 @@
+// logos-core §2.6: slice mutability tracked at type level — writing
+// through a shared `&[T]` must be rejected. The mut bit on `Kind::Slice`
+// (the schema's `MUT_PTR` field) flips at sema resolve time; the write
+// site at `sema_stmt.cpp:6273` consults it.
+package core_2_6_slice_write_through_shared;
+
+fn write_through_shared(s: &[i32]) -> i32 {
+    s[0] = 99i32;  // must be rejected: `&[i32]` is read-only
+    return 0i32;
+}
+
+fn main() -> i32 { return 0i32; }

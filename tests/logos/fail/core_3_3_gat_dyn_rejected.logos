@@ -1,0 +1,21 @@
+// logos-core §3.3: GAT + object-safety — a trait with a Generic
+// Associated Type item is NOT object-safe (vtable can't carry a
+// GAT-parameterised slot). Rust E0038. The check fires in
+// `check_trait_object_safe` (sema.cpp). Pre-fix the trait was
+// silently coerced to `dyn`, then dispatch crashed at codegen.
+package core_3_3_gat_dyn_rejected;
+
+trait Container { type Item<T>; fn store<T>(self: &mut Self, x: T); }
+
+struct Bag { v: i32 }
+impl Container for Bag {
+    type Item<T> = T;
+    fn store<T>(self: &mut Bag, _x: T) {}
+}
+
+fn use_dyn(_x: &dyn Container) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let mut b: Bag = Bag { v: 42i32 };
+    return use_dyn(&b);
+}

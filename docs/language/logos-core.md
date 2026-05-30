@@ -359,6 +359,50 @@ core are recorded here with a rationale. Closing items move to a
 
 ---
 
+## 7a. Score (canonical — `/goal` reads this)
+
+> **Score: 6 / 21 ✅ closed at DoD-depth (28.6%)** · 10 🟡 partial · 5 ❌ not
+> started. Suite: 5288 / 5288 ✓.
+>
+> Updated 2026-05-30. **Single source of truth for "closed" status — every
+> item's status here MUST match the actual implementation tree.** No item
+> is ✅ unless its DoD-depth (verbatim from §§ 1-5 above) is met AND a
+> verification test exists at `tests/logos/{pass,fail}/core_<§>_<slug>.logos`
+> (or the item is marked "verified-by-suite" for pure-refactor cases).
+
+| § | Item | Status | Verification |
+|---|------|--------|--------------|
+| 1.1 | `Never` / `!` + divergence end-to-end | 🟡 | `!`-fallback inference rule absent — to add: `tests/logos/pass/core_1_1_never_fallback.logos` |
+| 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
+| 1.3 | `Kind::InferredType` + `_` | 🟡 | top-level `_` works; nested `Vec<_>` not verified — to add: `tests/logos/pass/core_1_3_inferred_nested.logos` |
+| 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
+| 1.5 | `#[repr]` minimal | 🟡 | surface accepts `transparent`/`uN`; layout consumer absent — to add: `tests/logos/pass/core_1_5_repr_transparent_layout.logos` |
+| 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
+| 2.2 | `UnsafeCell` lang-item | 🟡 | variance + auto-`!Sync` ✓; borrow-check carve-out absent — basic case works via existing `unsafe`+raw-ptr surface |
+| 2.3 | Variance over trait objects | ✅ | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ |
+| 2.4 | Auto-trait propagation | 🟡 | closures + Arc ✓; `dyn+Auto` unsize enforce absent (schema field `auto_bounds` missing) |
+| 2.5 | `&mut T` out of Copy-trivial | ✅ | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ |
+| 2.6 | Slice mutability tracked | ✅ | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ |
+| 2.7 | Definite-assignment | ❌ | not started — CFG forward dataflow needed |
+| 2.8 | Object-safety enforcement | 🟡 | generic-method / no-self / Self-by-value / Self-ret / GAT ✓; "opaque return" + spec refinements pending |
+| 3.1 | HRTB instantiation | ❌ | not started — depends on 2.1 default trait-obj lt rule |
+| 3.2 | `?Sized` / `Sized` invariants | ❌ | not started — receiver-shape walker absent |
+| 3.3 | GAT + object-safety | ✅ | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ |
+| 4.1 | `is_refutable` single foundation | ✅ | verified-by-suite (predicate `lir_view::is_irrefutable_pattern` consumed by 3 sites) |
+| 4.2 | Match exhaustiveness | 🟡 | variant coverage + bool + uninhabited ✓; Useful-Sukhotin alg + guard integration absent |
+| 4.3 | Chained auto-deref in pattern position | 🟡 | sema multi-level peel ✓; binding-modes + codegen multi-level load absent |
+| 5.1 | Atomics `Ordering` honoured | ❌ | not started — MLIR atomic-intrinsic ordering enum threading needed |
+| 5.2 | UB list documented | 🟡 | doc landed (`docs/language/undefined-behavior.md`); per-anchor follow-up issue IDs pending |
+
+**`/goal` convergence rule:** target = first column count where Status = ✅
+equals 21. Score line above is the canonical authority — when an item moves
+from 🟡/❌ to ✅, BOTH the per-item §-body AND this scoreboard row update in
+the same commit. No ✅ without (a) DoD-depth code change OR explicit
+"verified-by-suite" rationale; (b) a verification test by the recorded
+path; (c) full suite gate.
+
+---
+
 ## 8. Implementation plan
 
 Effort labels: **S** ≈ single session ≤ 3 h, **M** ≈ 1-2 sessions ≤ 8 h, **L** ≈
