@@ -230,6 +230,68 @@ struct ScopeFrame {
     std::vector<FieldBorrow>  field_borrows;  // B83: tracked field-path borrows
 };
 
+// Single foundation for "what is being borrowed when we see an `AddrOfTemp`?".
+// Walks `inner` outer→inner accumulating field-path components. Fields ABOVE
+// the first IndexRead/SliceIndex describe layout WITHIN the indexed element
+// (not the path TO the indexed container), so they're discarded when an
+// index is crossed; fields BELOW the index are the path to the container.
+// Whole-element granularity (Rust-conservative: we don't prove disjointness
+// on the index value).
+//
+// Examples (with the outermost expression first):
+//   `&p.f.g`        → root=p,   path="f.g",  index_in_chain=false
+//   `&p.arr[i]`     → root=p,   path="arr",  index_in_chain=true
+//   `&p.arr[i].x`   → root=p,   path="arr",  index_in_chain=true  (.x is within-elem)
+//   `&self.data[i]` → root=self,path="data", index_in_chain=true  (self.idx disjoint)
+//   `&x`            → root=x,   path="",     index_in_chain=false
+//   `&*r`           → root="",  path="",     index_in_chain=false (deref outside scope —
+//                                            reborrow shape is recognised separately)
+//
+// Both the RECORD pass (`take_ref_borrows::AddrOfTemp`) and the CHECK pass
+// (`visit::AddrOfTemp`) use this so the structural rule cannot drift between
+// them. Each call site applies its own POLICY (take vs check) to the result.
+struct BorrowPlace {
+    std::string root;             // empty if walker did not reach a VarRef
+    std::string path;             // dotted, outermost-inside-root first
+    bool        index_in_chain = false;
+    TypeRef     root_type = nullptr;   // for raw-ptr / &mut root classification
+};
+
+static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
+                                         const TypePoolImpl* pool) {
+    using namespace lir_view;
+    using Code = lir_schema::expr::Code;
+    BorrowPlace bp;
+    auto cur = inner;
+    std::vector<std::string> path_parts;
+    while (cur) {
+        if (cur.kind() == Code::FieldRead) {
+            EFieldReadView fv{cur};
+            path_parts.push_back(std::string(fv.field()));
+            cur = fv.receiver();
+        } else if (cur.kind() == Code::IndexRead) {
+            path_parts.clear();
+            bp.index_in_chain = true;
+            cur = EIndexReadView{cur}.receiver();
+        } else if (cur.kind() == Code::SliceIndex) {
+            path_parts.clear();
+            bp.index_in_chain = true;
+            cur = ESliceIndexView{cur}.slice();
+        } else {
+            break;
+        }
+    }
+    if (cur && cur.kind() == Code::VarRef) {
+        bp.root = std::string(EVarRefView{cur}.name());
+        bp.root_type = cur.type(pool);
+        for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
+            if (!bp.path.empty()) bp.path.push_back('.');
+            bp.path.append(*it);
+        }
+    }
+    return bp;
+}
+
 // Merge Phase-1 move state from 'other' into 'base' (union of moved sets).
 // Borrows are scope-local and do not survive merges.
 static void merge_moves(StateMap& base, const StateMap& other) {
@@ -958,60 +1020,15 @@ class BorrowChecker {
                         }
                     }
                 }
-                std::string root;
-                std::string path;
-                // Any IndexRead / SliceIndex in the chain collapses precision to
-                // a WHOLE-ROOT borrow (Rust-static rule: `&[mut] arr[i]` borrows
-                // the whole array — disjointness on element indices can't be
-                // proven without `split_at_mut`). Closes the element-borrow gap:
-                // `&mut arr[0]; &mut arr[1]` / `&mut arr[0]; &mut arr` /
-                // `&arr[0]; arr[1] = …` are now all rejected.
-                bool index_in_chain = false;
-                {
-                    // Walk outer→inner, collecting field-path components. Fields
-                    // ABOVE an IndexRead/SliceIndex describe layout WITHIN the
-                    // indexed element (not part of the path TO the container),
-                    // so when we hit an index we discard any fields gathered so
-                    // far and keep collecting below the index. Below-index fields
-                    // ARE the path to the indexed container, which we borrow at
-                    // whole-element granularity (Rust-conservative — we don't
-                    // prove disjointness on the index value itself).
-                    // Examples:
-                    //   `&p.f.g`       → path=`f.g`,  root=p   (no index)
-                    //   `&p.arr[i]`    → path=`arr`,  root=p   (index closes path)
-                    //   `&p.arr[i].x`  → path=`arr`,  root=p   (`.x` is within-elem)
-                    //   `&self.data[i]`→ path=`data`, root=self (vec.next case —
-                    //     `self.idx` remains a disjoint sibling).
-                    auto cur = inner;
-                    std::vector<std::string> path_parts;
-                    while (cur) {
-                        if (cur.kind() == Code::FieldRead) {
-                            EFieldReadView fv{cur};
-                            path_parts.push_back(std::string(fv.field()));
-                            cur = fv.receiver();
-                        } else if (cur.kind() == Code::IndexRead) {
-                            // Index closes the within-element segment: discard
-                            // above-index fields, mark and continue.
-                            path_parts.clear();
-                            index_in_chain = true;
-                            cur = EIndexReadView{cur}.receiver();
-                        } else if (cur.kind() == Code::SliceIndex) {
-                            path_parts.clear();
-                            index_in_chain = true;
-                            cur = ESliceIndexView{cur}.slice();
-                        } else {
-                            break;
-                        }
-                    }
-                    if (cur && cur.kind() == Code::VarRef) {
-                        root = std::string(EVarRefView{cur}.name());
-                        // Path built in reverse — outermost-inside-root first.
-                        for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
-                            if (!path.empty()) path.push_back('.');
-                            path.append(*it);
-                        }
-                    }
-                }
+                // Structural decomposition of the borrowed PLACE — single
+                // foundation shared with the check pass (`visit::AddrOfTemp`).
+                // `index_in_chain` flips on if any `[i]` was crossed; the path
+                // is the field-chain to the indexed container (whole-element
+                // borrow rule). See `extract_borrow_place`.
+                BorrowPlace bp = extract_borrow_place(inner, pool);
+                std::string root = bp.root;
+                std::string path = bp.path;
+                bool index_in_chain = bp.index_in_chain;
                 if (!root.empty()) {
                     auto sit = states_.find(root);
                     if (sit != states_.end() && !path.empty()) {
@@ -1963,45 +1980,29 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
         // B81 + B93.2: method-call receivers (and other implicit
         // borrow-takes via AddrOfTemp) need the same path-aware conflict
-        // checks as explicit `&mut x` / `&mut x.f`. Walk inner FieldRead
-        // chain to extract root + dotted path; route through
-        // take_field_borrow so existing whole-value and field-path
-        // borrows are consulted.
+        // checks as explicit `&mut x` / `&mut x.f`. Decompose via the same
+        // foundation as the RECORD pass so the structural rule cannot drift
+        // — pre-foundation this site only walked FieldRead chains and
+        // silently mis-handled `&mut self.data[i]` (no Index branch). The
+        // POLICY here is check-only: AddrOfTemp in visit() is a transient
+        // auto-borrow (method-call receiver, arg materialization, …) — NLL
+        // releases at the enclosing scope-pop. Recording for explicit
+        // let-bindings `let r = &mut p.f` happens via take_ref_borrows.
         case Code::AddrOfTemp: {
             EAddrOfTempView v{e};
             auto inner = v.inner();
             bool is_mut = is_mut_ref(e.type(pool));
-            // Walk FieldRead chain to root.
-            std::string root;
-            std::string path;
-            bool root_is_raw_ptr = false;
-            {
-                auto cur = inner;
-                std::vector<std::string> parts;
-                while (cur && cur.kind() == Code::FieldRead) {
-                    EFieldReadView fv{cur};
-                    parts.push_back(std::string(fv.field()));
-                    cur = fv.receiver();
-                }
-                if (cur && cur.kind() == Code::VarRef) {
-                    root = std::string(EVarRefView{cur}.name());
-                    // B93.2: if root has raw-pointer type, skip mut-binding +
-                    // field-borrow tracking — borrow goes through pointer
-                    // deref, doesn't constrain the binding itself. Same for a
-                    // `&mut T` root: `r.field = v` / `&mut r.field` writes
-                    // THROUGH the reference and needs no `mut r` binding (Rust
-                    // parity) — the place path's AddrOfTemp now reaches here for
-                    // every `a.b = v`, so a `&mut` receiver must be skipped too.
-                    auto rt = cur.type(pool);
-                    if (rt && (rt.kind() == LogosType::Kind::Ptr ||
-                               rt.kind() == LogosType::Kind::MutRef))
-                        root_is_raw_ptr = true;
-                    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
-                        if (!path.empty()) path.push_back('.');
-                        path.append(*it);
-                    }
-                }
-            }
+            BorrowPlace bp = extract_borrow_place(inner, pool);
+            std::string root = bp.root;
+            std::string path = bp.path;
+            // B93.2: a raw-pointer or `&mut T` root means the borrow goes
+            // THROUGH the reference — skip mut-binding + field-borrow
+            // tracking (writing through the ref needs no `mut r` binding,
+            // Rust parity).
+            bool root_is_raw_ptr =
+                bp.root_type &&
+                (bp.root_type.kind() == LogosType::Kind::Ptr ||
+                 bp.root_type.kind() == LogosType::Kind::MutRef);
             if (!root.empty() && !root_is_raw_ptr && states_.count(root)) {
                 auto sit = states_.find(root);
                 // Mut-binding check (root-level).

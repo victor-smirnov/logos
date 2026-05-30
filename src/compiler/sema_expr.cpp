@@ -6618,11 +6618,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             track_args_moved(arg_exprs);
-            if (chosen_method && !chosen_method->param_types.empty()) {
-                try_implicit_reborrow_mut(mc.receiver, chosen_method->param_types[0],
-                                          /*allow_downgrade=*/false);
-                track_recv_moved(mc.receiver, chosen_method->param_types[0]);
-            }
+            if (chosen_method && !chosen_method->param_types.empty())
+                bind_method_receiver(mc.receiver, chosen_method->param_types[0]);
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
@@ -7855,8 +7852,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 auto pt0 = struct_subst.empty()
                          ? fi.param_types[0]
                          : subst_type_sema(fi.param_types[0], struct_subst);
-                try_implicit_reborrow_mut(recv, pt0, /*allow_downgrade=*/false);
-                track_recv_moved(recv, fi.param_types[0]);
+                bind_method_receiver(recv, pt0);
             }
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
@@ -7946,10 +7942,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
     track_args_moved(arg_exprs);
-    if (!fi.param_types.empty()) {
-        try_implicit_reborrow_mut(recv, fi.param_types[0], /*allow_downgrade=*/false);
-        track_recv_moved(recv, fi.param_types[0]);
-    }
+    if (!fi.param_types.empty())
+        bind_method_receiver(recv, fi.param_types[0]);
     lir::EMethodCall mc;
     mc.receiver     = std::move(recv);
     mc.method       = std::string(method_name);
@@ -11196,6 +11190,13 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
 // the original value), but borrow-check now sees a reborrow shape and ties
 // the borrow's NLL release to the call's holder, leaving `r` usable after.
 // Skip when `arg` is already an AddrOfTemp (already reborrowed or fresh ref).
+void SemaChecker::bind_method_receiver(lir::LExprPtr& recv,
+                                         TypeRef formal_self) {
+    if (!formal_self) return;
+    try_implicit_reborrow_mut(recv, formal_self, /*allow_downgrade=*/false);
+    track_recv_moved(recv, formal_self);
+}
+
 bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                               bool allow_downgrade) {
     // Rust auto-reborrows `&mut T` at call/method coercion sites where the

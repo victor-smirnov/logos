@@ -404,6 +404,14 @@ private:
     bool try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                    bool allow_downgrade = true);
 
+    // Single chokepoint that binds a method receiver to its formal `self`
+    // slot: implicit reborrow (Rust auto-reborrow at method-recv coercion
+    // sites, downgrade DISABLED so `&mut Self` doesn't get downgraded to
+    // `&Self` — that would dispatch through the wrong impl key for
+    // `impl X for &mut M`-style ref-impls) and by-value-self move tracking.
+    // Every method-dispatch path calls this so the pair can't drift.
+    void bind_method_receiver(lir::LExprPtr& recv, TypeRef formal_self);
+
     // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
     // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`
     // does a content compare. Returns null if `str_eq` isn't in scope.
