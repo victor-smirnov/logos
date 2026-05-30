@@ -191,6 +191,40 @@ bool SemaChecker::block_always_diverts(TinyMapView block) {
     return false;
 }
 
+// logos-core 1.1: STRICTER than block_always_returns — a normal `return X;`
+// does NOT count as "diverges". We want: body ends in `panic(...)`,
+// `loop { … }` with no break, or any callee whose return type is `!`.
+// Used to gate the Rust-2024 `!`-fallback at infer_type_args: a type-param
+// is allowed to fall back to `!` only when the callee's body provably
+// never returns normally. Distinguishes the targeted shape
+// `fn f<T>() -> T { panic(); }` (T → !) from the existing fail-test
+// `fn f<T>() -> T { return 0; }` (T unbound → ambiguous, correct error).
+bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
+    if (!body_node.has_key(la::ITEMS)) return false;
+    auto stmts = arr_of(body_node.get(la::ITEMS.code));
+    if (stmts.size() == 0) return false;
+    auto last = map_of(stmts.get(stmts.size() - 1));
+    int32_t c = code_of(last);
+    auto is_divergent_call = [&](TinyMapView node) -> bool {
+        int32_t cc = code_of(node);
+        if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
+        auto callee = str_of(node.get(la::CALLEE.code));
+        if (callee == "panic") return true;
+        for (auto* fi : find_func_candidates(std::string(callee)))
+            if (fi && fi->ret_type &&
+                TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
+                return true;
+        return false;
+    };
+    if ((c == la::EXPR_STMT || c == la::TAIL_EXPR) && last.has_key(la::VALUE)) {
+        auto e = map_of(last.get(la::VALUE.code));
+        if (is_divergent_call(e)) return true;
+        if (code_of(e) == la::LOOP) return true;
+    }
+    if (c == la::LOOP) return true;
+    return false;
+}
+
 // A fresh owned rvalue (not a place / borrow) — the kinds whose materialized
 // temporary needs a statement-scope drop. Mirrors the B140-G1 is_place check.
 bool SemaChecker::is_hoistable_temp_rvalue(const lir::LExpr& e) {

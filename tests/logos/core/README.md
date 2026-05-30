@@ -33,7 +33,7 @@ in `pass/` and `fail/`. Two reasons:
 
 | § | Item | Test path(s) | Status |
 |---|------|--------------|--------|
-| 1.1 | Never/divergence | `tests/logos/pass/core_1_1_never_fallback.logos` (escalated; see §-body) | 🟡 |
+| 1.1 | Never/divergence | `tests/logos/pass/core_1_1_never_fallback.logos` ✓ | ✅ |
 | 1.2 | Coercion canonical order | verified-by-suite (pure refactor) | ✅ |
 | 1.3 | `Kind::InferredType` | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ | ✅ |
 | 1.4 | `Kind::FnItem` distinct | `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` | not started (❌) |

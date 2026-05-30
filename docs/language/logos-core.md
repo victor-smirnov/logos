@@ -43,32 +43,31 @@ fully closed.
 
 ## 1. Type system core
 
-### 1.1. `Never` / `!` and divergence end-to-end
+### ~~1.1. `Never` / `!` and divergence end-to-end~~ ✅
 *Audit: B (Never), E (return/loop/if-merge), O (Panic, Divergence).*
-- **Issue:** `Never → T` and `T → Never` are both accepted in `sema.cpp:1614-1619`;
-  `loop {}` types as `Void` not `!`; `let-else` doesn't assert the else
-  block ends in a hard terminator. `!`-fallback (Rust-2024) absent.
-- **Why core:** every CFG-merge join, exhaustiveness check, and trait
-  resolution that hits an uninhabited type funnels through this.
-- **DoD-depth:** Never coerces TO every type but never FROM; `loop {}`
-  yields `Never`; `let-else`/`if`/`match` join correctly recognises diverging
-  arms (extends the `cur_diverged_` work in `borrow_check.cpp`); `!`-fallback
-  for inference vars unified only against Never; one `is_divergent_*`
-  predicate replaces the scattered `callee == "panic"` carve-outs at
-  `sema_expr.cpp:11899-11905` and `:12057-12095`.
-- **Wave 1 escalation (2026-05-30):** four of five DoD pieces landed in
-  Phase 1 + earlier waves (Never→T tighten, `loop{}`→`!`,
-  `if`/`match`/`let-else` diverging-arm join via `cur_diverged_`,
-  `is_divergent_*` unification). The fifth — Rust-2024 `!`-fallback
-  for inference vars unified ONLY against Never — turned out to need
-  `infer_type_args` extended to return the per-var constraint set so
-  the call site can distinguish "unconstrained" from "constrained to
-  Never". A naive "fallback any unbound type-param" rule passes the
-  targeted test (`fn make<T>() -> T { panic(); }`) but breaks the
-  pre-existing `type_infer_fail_ambiguous` (which uses the SAME shape
-  but a non-diverging body — Rust correctly errors there too).
-  Bigger than the Wave 1 budget; reopen as its own focused session
-  with the inference-engine extension.
+**CLOSED 2026-05-30 (Wave 1).** Five DoD pieces, landed across the
+Phase 1 super-sprint + Wave 1 finish:
+1. Never→T coercion tightened to ONE direction at `sema.cpp:1618-1622`
+   (Never coerces TO every type, never FROM).
+2. `loop {/* no break */}` types as `Never` via the new
+   `last_loop_diverged_` channel from `lower_loop`.
+3. `if`/`match`/`let-else` join recognises diverging arms through
+   `cur_diverged_` (borrow_check.cpp).
+4. `is_divergent_call_node` single predicate at `sema.cpp:1538-1558`
+   replaces the scattered `callee == "panic"` carve-outs.
+5. **Wave 1 finish:** Rust-2024 `!`-fallback for unbound type-params
+   when the callee's body always diverges. The naive "fallback any
+   unbound T to !" rule broke `type_infer_fail_ambiguous`
+   (`fn f<T>() -> T { return 0; }` correctly errors in Rust too).
+   The discriminator is the CALLEE's body always diverging
+   (panic-tail / loop{}-tail / never-return-call) — precomputed at
+   collect time via `body_always_diverges_simple` (sema_stmt.cpp)
+   and stored on `SemaFuncInfo::body_always_diverges`. At
+   `infer_type_args`'s "param not inferrable" branch, an unbound
+   type-param now falls back to `never_t()` when (and only when) the
+   flag is set. `fn f<T>() -> T { panic(); }` now resolves T = !;
+   `fn f<T>() -> T { return 0; }` still errors as ambiguous.
+   Verification: `tests/logos/pass/core_1_1_never_fallback.logos`.
 
 ### 1.2. Coercion pipeline canonical order
 *Audit: B (Coercions), partially landed via M2's `coerce_arg_to_param`.*
@@ -392,8 +391,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 10 / 21 ✅ closed at DoD-depth (47.6%)** · 6 🟡 partial · 5 ❌ not
-> started. Suite: 5294 / 5294 ✓.
+> **Score: 11 / 21 ✅ closed at DoD-depth (52.4%)** · 5 🟡 partial · 5 ❌ not
+> started. Suite: 5295 / 5295 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -403,7 +402,7 @@ core are recorded here with a rationale. Closing items move to a
 
 | § | Item | Status | Verification |
 |---|------|--------|--------------|
-| 1.1 | `Never` / `!` + divergence end-to-end | 🟡 | `!`-fallback needs per-var constraint tracking in `infer_type_args` — bigger than DoD assumed (see §-body) |
+| 1.1 | `Never` / `!` + divergence end-to-end | ✅ | `tests/logos/pass/core_1_1_never_fallback.logos` ✓ |
 | 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
 | 1.3 | `Kind::InferredType` + `_` | ✅ | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ |
 | 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
@@ -693,11 +692,17 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   or a baghunt id (`UB-deref`, `UB-validity-niche`, `UB-ffi-abi`,
   `UB-integer-overflow`). ENFORCED anchors need no follow-up.
   Verified-by-doc-existence (no .logos test).
-- 🟡 **1.1** ESCALATED. Four-of-five DoD pieces landed pre-Wave-1
-  (Never→T tighten, `loop{}`→`!`, `if`/`match`/`let-else` diverging-arm
-  join, `is_divergent_*` consolidation). The fifth — Rust-2024
-  `!`-fallback for inference vars unified ONLY against Never —
-  needs `infer_type_args` extended to return per-var constraint
-  sets so call sites can distinguish "unconstrained" from
-  "constrained to Never". Bigger than Wave 1 budget; reopens as
-  its own focused session.
+- ~~**1.1**~~ ✅ Rust-2024 `!`-fallback finish. Initial escalation
+  (naive "fallback any unbound T") broke `type_infer_fail_ambiguous`
+  because the rule didn't distinguish a never-constrained var from
+  one constrained by a non-diverging body. Re-attacked with a
+  cheaper discriminator: precompute `body_always_diverges` on
+  `SemaFuncInfo` at collect time (`body_always_diverges_simple`
+  walks the body's last-stmt for panic-tail / loop{}-tail /
+  never-return-call) and gate the fallback on the callee's flag.
+  `infer_type_args`'s "param not inferrable" branch now falls back
+  unbound type-params to `never_t()` IFF
+  `fi.body_always_diverges`. `type_infer_fail_ambiguous`
+  (`fn f<T>() -> T { return 0; }`) preserved as the counter-shape
+  — RETURN does not count as divergence under the new helper.
+  Verification: `tests/logos/pass/core_1_1_never_fallback.logos`.

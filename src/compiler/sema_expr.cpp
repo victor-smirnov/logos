@@ -3186,7 +3186,21 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     out_type_args.clear();
     for (size_t i = 0; i < non_variadic_count; ++i) {
         auto it = bindings.find(fi.type_params[i].name);
-        if (it == bindings.end()) return false;  // param not inferrable
+        if (it == bindings.end()) {
+            // logos-core 1.1: Rust-2024 `!`-fallback. If the callee's body
+            // is statically known to always diverge (panic-tail / loop{}-
+            // tail / never-return-call), an otherwise unbound type-param
+            // unifies with the `!` value that's never produced — fall
+            // back to Never. Discriminator must be the CALLEE's body (not
+            // the callsite's surrounding divergence) so `fn f<T>() -> T
+            // { return 0; }` correctly errors as ambiguous while
+            // `fn f<T>() -> T { panic(); }` resolves T = !.
+            if (fi.body_always_diverges) {
+                out_type_args.push_back(never_t());
+                continue;
+            }
+            return false;  // param not inferrable
+        }
         out_type_args.push_back(it->second);
     }
 

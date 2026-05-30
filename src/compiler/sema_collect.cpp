@@ -3940,6 +3940,13 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.ret_type = node.has_key(la::RET_TYPE)
         ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
         : void_t();
+    // logos-core 1.1: precompute "body always diverges" for the
+    // Rust-2024 `!`-fallback rule at infer_type_args. Cheap AST walk over
+    // the body's last-stmt — see body_always_diverges_simple.
+    if (node.has_key(la::BODY)) {
+        info.body_always_diverges =
+            body_always_diverges_simple(map_of(node.get(la::BODY.code)));
+    }
     if (node.has_key(la::IS_VARARG)) {
         AnyVal av = node.get(la::IS_VARARG.code);
         info.is_vararg = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

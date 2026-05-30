@@ -1975,6 +1975,17 @@ private:
                             // same trait name for one type at distinct args mangle
                             // their methods by these so they coexist + dispatch.
                             std::vector<TypeRef> trait_type_args;
+                            // logos-core 1.1: Rust-2024 `!`-fallback for
+                            // inference vars unified ONLY against Never.
+                            // Discriminator: did the callee's body always
+                            // diverge (panic-tail / loop {}-tail)? If yes
+                            // AND a type-param is otherwise unbound at the
+                            // callsite, fall back to `!`. Computed by
+                            // `body_always_diverges_simple` at collect time.
+                            // Distinguishes `fn f<T>() -> T { panic(); }`
+                            // (T → ! via fallback) from `fn f<T>() -> T
+                            // { return 0; }` (T unbound → ambiguous error).
+                            bool body_always_diverges = false;
                           };
     struct SemaVariantInfo{
         std::string_view name; int64_t value;
@@ -2996,6 +3007,12 @@ private:
     // arm body: `{ ...; break; }` never reaches a tail expression.
     bool stmt_always_diverts(hermes::TinyMapView stmt);
     bool block_always_diverts(hermes::TinyMapView block);
+    // logos-core 1.1: callee-body always diverges (panic-tail / loop{}-tail).
+    // STRICTER than *_returns — RETURN normal-paths return false. Used by
+    // `infer_type_args` to fall back unbound type-params to `!`
+    // (Rust-2024 `!`-fallback rule, narrowed to: var unbound AND callee
+    // body always diverges).
+    bool body_always_diverges_simple(hermes::TinyMapView body_node);
 
     // ── Lowering helpers ─────────────────────────────────────────
 

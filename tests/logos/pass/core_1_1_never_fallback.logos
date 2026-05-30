@@ -1,0 +1,26 @@
+// logos-core §1.1: Rust-2024 `!`-fallback rule for inference vars
+// unified only against Never. `fn make<T>() -> T { panic(); }` has a
+// body that always diverges (last stmt is `panic(...)` — never returns
+// normally). At `let _x = make();` the type-param T is otherwise
+// unbound, and pre-fix `infer_type_args` errored "could not infer all
+// type arguments". Rust 2024 falls back T → ! so the call type-checks
+// (the resulting `_x: !` is dead, since the panic kills the program
+// before the binding). The discriminator is the callee's body always
+// diverging; `fn other<T>() -> T { return 0; }` is the counter-shape
+// and still errors as ambiguous (see fail/type_infer_fail_ambiguous).
+package core_1_1_never_fallback;
+
+fn make<T>() -> T { panic("unreachable"); }
+
+fn main() -> i32 {
+    // Without `!`-fallback this errored: "call to 'make': could not
+    // infer all type arguments". With fallback T → !, the call
+    // type-checks and produces `_x: !`. The dead branch keeps the
+    // panic from actually firing at runtime.
+    let cond: bool = false;
+    if cond {
+        let _x = make();
+        return 1i32;  // dead — make() diverges
+    }
+    return 0i32;
+}
