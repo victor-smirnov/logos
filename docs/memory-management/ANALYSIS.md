@@ -171,19 +171,26 @@ Runs on LIR via `borrow_check(LProgram, bool generic_templates_only)`
   borrow-source dies before the binding;
 - **dangling-ref** — `prov_of` walks the expression's provenance; returning
   a ref whose root is a local/temp (`is_local=true`) is rejected;
+- **cross-fn provenance through ref-returning calls** (`721a3780`) — `let r =
+  f(&a, &b)` registers a borrow on each ref-arg held by `r` (sound upper
+  bound via Rust's elision conservatism; may overshoot when an explicit
+  lifetime ties the return to a specific input — refining = future work);
 - **named lifetimes + elision + outlives** on returns (B66 outlives graph
   from `fn.lifetime_outlives`; B86 per-param inner-struct `lifetime_args`).
 
 Raw-ptr roots bypass exclusivity (B93.2); `&mut`-roots also skip the
 binding-mut requirement.
 
-**NOT checked (gaps vs Rust)**: reborrows (not first-class); cross-function
-lifetime provenance (intra-procedural only); self-referential structs;
-move-out-of-deref. (Generic-fn-body borrow-check, closure-capture-mode
-exclusivity, and index/slice element borrows — formerly listed here — are now
-implemented per P2-10, P2-13/RFC-2229, and `b1ba5dd3` respectively. Refinement
-follow-up on element borrows: compile-time-known disjoint indices like
-`split_at_mut`-style two-step access without the helper.)
+**NOT checked (gaps vs Rust)**: reborrows (not first-class — and entangled
+with the sema peephole `&mut *r ≡ r`, which makes reborrow and rebind
+LIR-indistinguishable; a sound fix needs preserving the `AddrOfTemp(Deref(…))`
+shape or emitting a reborrow marker); self-referential structs; move-out-of-
+deref. (Generic-fn-body borrow-check, closure-capture-mode exclusivity,
+index/slice element borrows, and cross-function ref-return provenance —
+formerly listed here — are now implemented per P2-10, P2-13/RFC-2229,
+`b1ba5dd3`, and `721a3780` respectively. Refinement follow-up on element
+borrows: compile-time-known disjoint indices like `split_at_mut`-style
+two-step access without the helper.)
 
 ---
 
