@@ -133,17 +133,49 @@ By-value params/`self` **do** auto-drop at callee scope exit.
 
 ## 4. Borrow checker
 
-Runs on LIR, **concrete fns only** (`borrow_check.cpp:2063` scans
-`prog.specializations` — **generic fn bodies are NOT borrow-checked**; only their
-monomorphizations). Two analyses: structural `BorrowChecker` + `RegionInferer`
-(`region_infer.cpp`).
+Runs on LIR via `borrow_check(LProgram, bool generic_templates_only)`
+(`borrow_check.cpp:2201`). Two passes:
 
-**Enforced**: use-after-move / partial-move; `&mut` exclusivity vs `&`;
-assign-while-borrowed; mut-binding requirement for `&mut` (params whitelisted);
-**field-path disjoint borrows** (B83); **two-phase borrows** (B82); **NLL** (last-use
-release + region inference); **dropck** (B87); **dangling-ref** (return ref to
-local/temp); **named lifetimes + elision + outlives** on returns. Raw-ptr roots
-bypass exclusivity (B93.2); `&mut`-roots also skip the binding-mut requirement.
+1. **Pre-mono on generic templates** (P2-10, `42998241`) — `prog.functions` with
+   non-empty type-params, in **exclusivity-only mode** (`exclusivity_only_=true`):
+   move-tracking is imprecise on TypeVars, so move-related diagnostics are
+   suppressed; reference exclusivity / mut-binding / dropck still fire. This
+   catches `&mut p + &mut p` etc. in a generic body even if it's never
+   instantiated. Region inference is skipped for this pass (lifetime args are
+   abstract on a template).
+2. **Post-mono on concrete fns + specializations** — full mode. Two analyses
+   run per fn: the structural `BorrowChecker` (this file) and the
+   `RegionInferer` (`region_infer.cpp`).
+
+**Enforced**:
+
+- use-after-move / partial-move (sema + borrow_check trackers; structural
+  `is_move_type` widened to tuple/enum/array — P2-12);
+- `&mut` exclusivity vs `&` (whole-value);
+- **field-path disjoint borrows** (B83) — `take_field_borrow` with
+  path-overlap rule; sibling paths off the same root are disjoint;
+- **RFC-2229 closure capture exclusivity** (P2-13 / RFC-2229 phase 1,
+  `20c817d5`) — `||p.x` registers a borrow on the path `p.x`, disjoint
+  `&mut p.y` allowed, conflicting `&mut p.x` rejected;
+- **array/slice element borrow** (`b1ba5dd3`) — `&[mut] arr[i]` registers a
+  whole-container borrow (Rust-conformant: `Index`/`IndexMut` take
+  `&[mut] self`); `arr[i] = v` checks container borrow state;
+- assign-while-borrowed (both whole-value and field-path);
+- mut-binding requirement for `&mut` (params whitelisted via `param_names_`);
+- **two-phase borrows** (B82) — `&mut` taken inside fn-call args is a
+  reservation compatible with subsequent shared borrows in the same call;
+- **NLL** (`release_dead_borrows` via per-holder `last_use_line_`) + region
+  inference;
+- **dropck** (B87) — `dropck_borrow_sources_` tracks which locals a
+  Drop-having lifetime-parameterised binding borrows from, rejects when the
+  borrow-source dies before the binding;
+- **dangling-ref** — `prov_of` walks the expression's provenance; returning
+  a ref whose root is a local/temp (`is_local=true`) is rejected;
+- **named lifetimes + elision + outlives** on returns (B66 outlives graph
+  from `fn.lifetime_outlives`; B86 per-param inner-struct `lifetime_args`).
+
+Raw-ptr roots bypass exclusivity (B93.2); `&mut`-roots also skip the
+binding-mut requirement.
 
 **NOT checked (gaps vs Rust)**: reborrows (not first-class); cross-function
 lifetime provenance (intra-procedural only); self-referential structs;
