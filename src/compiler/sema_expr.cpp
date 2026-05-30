@@ -11136,7 +11136,22 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     }
     if (bare.empty()) return false;
     logos::compiler::StrSet seen2;
-    return sema_has_impl_recursive(trait, concrete, bare, seen2);
+    if (!sema_has_impl_recursive(trait, concrete, bare, seen2)) return false;
+    // logos-core 2.4(c): auto-trait bound enforcement at the unsize site.
+    // `&NotSend → &dyn Trait + Send` must be rejected: the trait object's
+    // contract is that the erased type satisfies every `+ Auto` bound. The
+    // check runs over the pointee (the unsized type being erased), reusing
+    // `is_auto_trait_satisfied`'s structural walk. Currently Send/Sync are
+    // the only auto-traits represented in the TraitObject's const_val bits.
+    if (TypeRef(pt).trait_requires_send()) {
+        StrSet seen_send;
+        if (!is_auto_trait_satisfied(pointee, "Send", seen_send)) return false;
+    }
+    if (TypeRef(pt).trait_requires_sync()) {
+        StrSet seen_sync;
+        if (!is_auto_trait_satisfied(pointee, "Sync", seen_sync)) return false;
+    }
+    return true;
 }
 
 lir::LExprPtr SemaChecker::make_str_eq_guard(lir::LExprPtr a, lir::LExprPtr b) {
@@ -11217,6 +11232,69 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     if (flags & CFLAG_ARG_TO_DYN)       coerce_arg_to_dyn(arg, pt);
     if (flags & CFLAG_IMPLICIT_REBORROW) try_implicit_reborrow_mut(arg, pt);
     if (flags & CFLAG_WIDEN_INT)        widen_int_expr(arg, pt, builder());
+    // logos-core 2.4(c): unsize-to-dyn auto-trait bound enforcement.
+    // types_compatible's `Struct → TraitObject` branch (sema.cpp:1727) is a
+    // blanket-accept (impl check deferred to codegen), which means the
+    // type-check pipeline never sees a Send/Sync mismatch. Enforce here:
+    // when the FORMAL parameter is `&dyn Trait + Send` (or `+ Sync`) — bare
+    // TraitObject or peeled out of a Ref/MutRef — the SOURCE pointee must
+    // structurally satisfy the auto-bound (`is_auto_trait_satisfied`).
+    // Emits a specific diagnostic on failure; the generic
+    // "expected X, got Y" upstream fires too (types_compatible may still
+    // return true), so users see both lines.
+    check_dyn_auto_bounds_at_coercion(*arg, pt);
+}
+
+void SemaChecker::check_dyn_auto_bounds_at_coercion(const lir::LExpr& arg,
+                                                     TypeRef pt) {
+    if (!pt) return;
+    // Peel a Ref / MutRef to look at the TraitObject target.
+    TypeRef pdyn = pt;
+    auto pk = TypeRef(pt).kind();
+    if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
+        TypeRef(pt).pointee())
+        pdyn = TypeRef(pt).pointee();
+    if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return;
+    bool need_send = TypeRef(pdyn).trait_requires_send();
+    bool need_sync = TypeRef(pdyn).trait_requires_sync();
+    if (!need_send && !need_sync) return;
+    // The source's structural-Send/Sync check walks the pointee of `arg->type`
+    // (`&Foo → Foo`) or `arg->type` itself if it's already a struct/enum.
+    TypeRef src = arg.type;
+    if (!src) return;
+    TypeRef src_pointee = src;
+    auto sk = TypeRef(src).kind();
+    if ((sk == LogosType::Kind::Ref || sk == LogosType::Kind::MutRef ||
+         sk == LogosType::Kind::Ptr) && TypeRef(src).pointee())
+        src_pointee = TypeRef(src).pointee();
+    // Only enforce when the source is a CONCRETE type being unsize-erased into
+    // a dyn target — Struct / ZonedStruct / Enum. TraitObject-to-TraitObject
+    // coercion (e.g. dyn-upcast or identity) carries its own bound info on the
+    // source side; bound preservation across that path is handled by
+    // types_compatible's TypeUID-based equality (the const_val bits make
+    // `&dyn T` and `&dyn T + Send` interrn as distinct types). TypeVar
+    // sources are deferred to the mono-instantiation site.
+    auto spk = TypeRef(src_pointee).kind();
+    if (spk != LogosType::Kind::Struct &&
+        spk != LogosType::Kind::ZonedStruct &&
+        spk != LogosType::Kind::Enum)
+        return;
+    if (need_send) {
+        StrSet seen;
+        if (!is_auto_trait_satisfied(src_pointee, "Send", seen))
+            error(std::format(
+                "coercion to `&dyn {} + Send`: source type `{}` does not "
+                "satisfy `Send`",
+                std::string(TypeRef(pdyn).trait_name()), type_str(src_pointee)));
+    }
+    if (need_sync) {
+        StrSet seen;
+        if (!is_auto_trait_satisfied(src_pointee, "Sync", seen))
+            error(std::format(
+                "coercion to `&dyn {} + Sync`: source type `{}` does not "
+                "satisfy `Sync`",
+                std::string(TypeRef(pdyn).trait_name()), type_str(src_pointee)));
+    }
 }
 
 bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,

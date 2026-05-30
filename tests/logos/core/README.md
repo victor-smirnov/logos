@@ -41,7 +41,7 @@ in `pass/` and `fail/`. Two reasons:
 | 2.1 | region_infer wire | (consumer test under regions/ already) | partial (🟡) |
 | 2.2 | UnsafeCell | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ | ✅ |
 | 2.3 | TraitObject variance | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ | ✅ |
-| 2.4 | Auto-trait propagation | `tests/logos/pass/core_2_4_arc_send_sync.logos` + fail dyn+Send | partial (🟡) |
+| 2.4 | Auto-trait propagation | `tests/logos/fail/core_2_4c_dyn_send_violation.logos` ✓ | ✅ |
 | 2.5 | MutRef Copy-trivial | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ | ✅ |
 | 2.6 | Slice mut | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ | ✅ |
 | 2.7 | Definite-assignment | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ | ✅ |

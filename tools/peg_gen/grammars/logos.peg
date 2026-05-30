@@ -302,6 +302,8 @@
     DESTRUCTURE_ASSIGN          = 243   // G149-7 (RFC 2909): destructuring assignment `(a,b)=e` / `[a,b]=e` / `S{a,b}=e` into EXISTING places. OP=0 tuple (NAMES=pat_binding_list), 1 array (NAMES), 2 struct (NAME=struct, FIELDS=pat_field_list); VALUE=rhs. Sema desugars to `let __da=rhs;` + per-place assigns.
     PAT_STR                     = 245   // G172-1: string-literal pattern `match s { "foo" => … }`. VALUE = string source. Sema lowers to a `str_eq` guard.
     PLACE_ASSIGN                = 244   // G163-2: general place write — a postfix-chain lvalue (`a[i][j]`, `(*p).0`, `m.f[i].g`, deep mixes) on the assignment LHS that the specialized write productions don't cover. RECEIVER = the place (a postfix read-expr: IndexRead/FieldRead/TupleIndex/Deref chain), VALUE = rhs. Sema lowers to `deref_write(&mut <place>, rhs)`.
+    AUTO_TRAIT_BOUND            = 246   // logos-core 2.4(c): `+ Send` / `+ Sync` etc. on a trait object (`&dyn Trait + Send`). NAME = bound's identifier. Collected into the dyn_type's ITEMS array alongside type-args; resolve_type filters by CODE to bucket bounds vs args. Folded into TraitObject TypeRef via const_val bits for the dyn+Auto enforce at unsize coercion.
+    AUTO_LIFE_BOUND             = 247   // logos-core 2.4(c): `+ 'a` lifetime bound on a trait object (`&dyn Trait + 'a`). NAME = lifetime label. Same collection path as AUTO_TRAIT_BOUND; sema currently logs but does not enforce lifetime-bounds at unsize sites (depends on §2.1 region_infer wiring).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -1343,110 +1345,113 @@
     // so the slot is informational. Position FIRST so PEG tries it before
     // the no-lifetime variants below.
     //
-    // dyn_auto_bounds — the trailing bound list of a trait object:
-    // `dyn Trait + Send + Sync + 'a`. The principal trait is the leading
-    // IDENT; everything after a `+` is either an auto-trait marker (Send,
-    // Sync, …) or a lifetime bound. Auto traits add no vtable methods, so the
-    // trait object is structurally identical to the bare `dyn Trait` — sema
-    // records the markers (for future Send/Sync-of-dyn checking) but the
-    // vtable/layout are unchanged. Accepted-and-currently-informational, same
-    // posture as the old `+ 'lifetime` form it replaces.
-    dyn_auto_bounds <- (PLUS IDENT / PLUS LIFETIME)*
-    dyn_type <- AMP LIFETIME KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+    // dyn_auto_bound — one trailing `+ X` bound on a trait object. Either
+    // `+ IDENT` (auto-trait marker like Send / Sync) or `+ 'lt` (lifetime
+    // outlives bound). Each emits its own AST node (AUTO_TRAIT_BOUND /
+    // AUTO_LIFE_BOUND with NAME = identifier / lifetime label), which the
+    // parent dyn_type production collects via `ITEMS: $...` into the same
+    // array as type-args; resolve_type DYN_TYPE filters by CODE to bucket
+    // bounds vs args. Folded into TraitObject TypeRef via const_val bits
+    // (Send / Sync) for the dyn+Auto enforce at unsize coercion
+    // (logos-core 2.4(c)). Lifetime bounds are recorded but not yet
+    // enforced (depends on §2.1 region_infer wiring).
+    dyn_auto_bound <- PLUS IDENT    => { CODE: AUTO_TRAIT_BOUND, NAME: $2 }
+                   / PLUS LIFETIME => { CODE: AUTO_LIFE_BOUND,  NAME: $2 }
+    dyn_type <- AMP LIFETIME KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $... }
-              / AMP LIFETIME KW_MUT KW_DYN IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true }
-              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, RET_TYPE: $9 }
-              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, RET_TYPE: $8 }
-              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6 }
-              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2 }
-              / AMP LIFETIME KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / AMP LIFETIME KW_MUT KW_DYN IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, LIFETIME: $2, IS_MUT: true, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, RET_TYPE: $8, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, PARAMS: $6, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
-              / AMP LIFETIME KW_DYN IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2 }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / AMP LIFETIME KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+              / AMP LIFETIME KW_DYN IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, LIFETIME: $2, ITEMS: $... }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, RET_TYPE: $10 }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, RET_TYPE: $9 }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7 }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4 }
-              / AMP KW_MUT KW_DYN hrtb_binder IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4 }
-              / AMP KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, RET_TYPE: $10, ITEMS: $... }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, RET_TYPE: $9, ITEMS: $... }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, PARAMS: $7, ITEMS: $... }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
+              / AMP KW_MUT KW_DYN hrtb_binder IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $5, IS_MUT: true, HRTB_BINDERS: $4, ITEMS: $... }
+              / AMP KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
-              / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, RET_TYPE: $9 }
-              / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, RET_TYPE: $8 }
-              / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6 }
-              / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3 }
-              / AMP KW_DYN hrtb_binder IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3 }
-              / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, RET_TYPE: $9 }
-              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, RET_TYPE: $8 }
-              / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6 }
-              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
-              / AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+              / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, RET_TYPE: $8, ITEMS: $... }
+              / AMP KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, PARAMS: $6, ITEMS: $... }
+              / AMP KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
+              / AMP KW_DYN hrtb_binder IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, HRTB_BINDERS: $3, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, RET_TYPE: $9, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, RET_TYPE: $8, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, PARAMS: $6, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
-              / AMP KW_MUT KW_DYN IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true }
-              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
-              / AMP KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, RET_TYPE: $7 }
-              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5 }
-              / AMP KW_DYN IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3 }
-              / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / AMP KW_MUT KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+              / AMP KW_MUT KW_DYN IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $4, IS_MUT: true, ITEMS: $... }
+              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, RET_TYPE: $8, ITEMS: $... }
+              / AMP KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, RET_TYPE: $7, ITEMS: $... }
+              / AMP KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, PARAMS: $5, ITEMS: $... }
+              / AMP KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
-              / AMP KW_DYN IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3 }
+              / AMP KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
+              / AMP KW_DYN IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, ITEMS: $... }
               // B63.3: HRTB-quantified `dyn for<'a> Trait<&'a T>` and Fn-family
               // variants. Binders captured into HRTB_BINDERS for future region
               // inference; sema currently treats them as plain bound forms.
-              / KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / KW_DYN hrtb_binder IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, ITEMS: $... }
-              / KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, PARAMS: $5, RET_TYPE: $8 }
-              / KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, RET_TYPE: $7 }
-              / KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, PARAMS: $5 }
-              / KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2 }
-              / KW_DYN hrtb_binder IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2 }
+              / KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, PARAMS: $5, RET_TYPE: $8, ITEMS: $... }
+              / KW_DYN hrtb_binder IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, RET_TYPE: $7, ITEMS: $... }
+              / KW_DYN hrtb_binder IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, PARAMS: $5, ITEMS: $... }
+              / KW_DYN hrtb_binder IDENT LPAREN RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, ITEMS: $... }
+              / KW_DYN hrtb_binder IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $3, HRTB_BINDERS: $2, ITEMS: $... }
               // Fn-family forms with parens — `dyn Fn(T1,…) -> R` / `dyn FnMut()` /
               // `dyn FnOnce()`. Arg-type list goes into PARAMS; optional `-> R`
               // into RET_TYPE. Optional `+ 'lt` lifetime bound accepted and
               // ignored by sema (Logos's lifetime model is elision-based).
-              / KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
-              / KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $2, RET_TYPE: $6 }
-              / KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4 }
-              / KW_DYN IDENT LPAREN RPAREN dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $2 }
-              / KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bounds
+              / KW_DYN IDENT LPAREN closure_type_args RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7, ITEMS: $... }
+              / KW_DYN IDENT LPAREN RPAREN ARROW type_ref dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $2, RET_TYPE: $6, ITEMS: $... }
+              / KW_DYN IDENT LPAREN closure_type_args RPAREN dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $2, PARAMS: $4, ITEMS: $... }
+              / KW_DYN IDENT LPAREN RPAREN dyn_auto_bound*
              => { CODE: DYN_TYPE, NAME: $2, ITEMS: $... }
-              / KW_DYN IDENT dyn_auto_bounds
-             => { CODE: DYN_TYPE, NAME: $2 }
+              / KW_DYN IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $2, ITEMS: $... }
+              / KW_DYN IDENT dyn_auto_bound*
+             => { CODE: DYN_TYPE, NAME: $2, ITEMS: $... }
 
     // &[T] and &mut [T] — slice types (fat pointer: ptr + len).
     // L2: with explicit lifetime — `&'a [T]` / `&'a mut [T]`. Lifetime

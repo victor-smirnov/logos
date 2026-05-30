@@ -183,23 +183,42 @@ writes through each, and observes the mutations.
   lifetime covariant; auto-trait bounds Co (they're set-membership, not
   type identity).
 
-### 2.4. Auto-trait propagation: closures, Arc, Send/Sync edges
+### ~~2.4. Auto-trait propagation: closures, Arc, Send/Sync edges~~ ✅
 *Audit: H (Send/Sync), A (Variance), B (closures, dyn).*
-- **Issue:**
-  (a) Closures conservatively `!Send`/`!Sync` (`sema_auto_trait.cpp:199-201`)
-      — closure types don't walk capture types.
-  (b) `Arc<T>` has no `unsafe impl Send/Sync for Arc<T>` in
-      `stdlib/mem/sync/arc.logos`, so the structural derivation rejects it
-      because of its raw `*mut` field.
-  (c) `dyn Trait + Send` parses but is informational only — no
-      enforcement at unsize coercion. The bound on the source type isn't
-      checked when coercing to `&dyn Trait + Send`.
-- **Why core:** Send/Sync is the basis for cross-thread safety; getting
-  it wrong is a silent UB pipeline.
-- **DoD-depth:** closures propagate Send/Sync structurally (auto-trait
-  walks captures); `Arc<T: Send + Sync>: Send + Sync` via `unsafe impl`;
-  unsize coercion `&T → &dyn Trait + Auto` verifies `T: Auto` at the
-  coercion site.
+**CLOSED 2026-05-30 (Wave 2).** All three DoD pieces landed:
+- **(a)** Closures walk capture types for Send/Sync structurally
+  (`sema_auto_trait.cpp`).
+- **(b)** `Arc<T>` carries `unsafe impl Send/Sync` in stdlib.
+- **(c) Wave 2 finish:** `&T → &dyn Trait + Auto` unsize coercion now
+  verifies `T: Auto` at the coercion site. Implementation pipeline:
+  - **Grammar:** new `dyn_auto_bound` rule emits per-bound
+    `AUTO_TRAIT_BOUND` / `AUTO_LIFE_BOUND` nodes (NAME = ident /
+    lifetime label). The 44 `dyn_type` alternatives in
+    `tools/peg_gen/grammars/logos.peg` now all collect their
+    `dyn_auto_bound*` results into `ITEMS: $...` alongside any
+    type-args. Schema field codes 246 / 247.
+  - **TypeRef encoding:** `TraitObject`'s otherwise-unused `const_val`
+    slot grows two bits (bit 8 = `+ Send`, bit 9 = `+ Sync`)
+    alongside the existing owning-kind low byte. Folded into
+    TypeUID (`put_u64` instead of `put_byte`) and equality so
+    `&dyn T` and `&dyn T + Send` intern distinctly. Accessors
+    `trait_requires_send()` / `trait_requires_sync()` on `TypeRef`.
+  - **Sema:** `resolve_type` DYN_TYPE filters ITEMS by code to
+    bucket type-args vs auto-bounds and passes the latter to
+    `make_trait_object`'s new `req_send` / `req_sync` params.
+    `subst_type_sema` preserves bounds across substitution.
+  - **Check:** `check_dyn_auto_bounds_at_coercion` (called from
+    `coerce_arg_to_param`) walks the source pointee through
+    `is_auto_trait_satisfied` for each required auto-trait. Restricted
+    to Struct/Enum sources — TraitObject-to-TraitObject is handled
+    by the type-UID equality path. Emits a specific diagnostic
+    "coercion to `&dyn Trait + Send`: source type `X` does not
+    satisfy `Send`" (Rust E0277 equivalent).
+Verification: `tests/logos/fail/core_2_4c_dyn_send_violation.logos`
+(struct holding `*mut u8` rejected at `&NotSend → &dyn Speak + Send`
+coercion). Counter:
+`tests/logos/pass/dyn_auto_trait_bounds.logos` (struct with only `i32`
+field auto-Sends) continues to compile.
 
 ### 2.5. `&mut T` no longer auto-promotes Copy structs
 *Audit: A (Copy).*
@@ -425,8 +444,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 13 / 21 ✅ closed at DoD-depth (61.9%)** · 4 🟡 partial · 4 ❌ not
-> started. Suite: 5297 / 5297 ✓.
+> **Score: 14 / 21 ✅ closed at DoD-depth (66.7%)** · 3 🟡 partial · 4 ❌ not
+> started. Suite: 5298 / 5298 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -444,7 +463,7 @@ core are recorded here with a rationale. Closing items move to a
 | 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
 | 2.2 | `UnsafeCell` lang-item | ✅ | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ — lang-item ✓, variance Inv-in-T ✓, auto-`!Sync` ✓, write exemption by-construction via raw-ptr escape (see §-body) |
 | 2.3 | Variance over trait objects | ✅ | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ |
-| 2.4 | Auto-trait propagation | 🟡 | closures + Arc ✓; `dyn+Auto` unsize enforce absent (schema field `auto_bounds` missing) |
+| 2.4 | Auto-trait propagation | ✅ | `tests/logos/fail/core_2_4c_dyn_send_violation.logos` ✓ — closures + Arc + dyn+Auto enforcement |
 | 2.5 | `&mut T` out of Copy-trivial | ✅ | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ |
 | 2.6 | Slice mutability tracked | ✅ | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ |
 | 2.7 | Definite-assignment | ✅ | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ — `currently_uninit_vars_` tracker + union merge at if/match + conservative loops |
@@ -756,16 +775,23 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   Verification: `tests/logos/pass/core_2_2_unsafecell_write.logos`
   exercises shared-borrow + write-through-`.get()` + observation
   across multiple `&UnsafeCell<T>` refs to the same cell.
-- 🟡 **2.4(c)** ESCALATED. dyn+Auto enforcement at the unsize
-  coercion site needs grammar surgery: `dyn_auto_bounds` (parsed
-  as `(PLUS IDENT / PLUS LIFETIME)*` per
-  `tools/peg_gen/grammars/logos.peg:1354`) is discarded by every
-  `dyn_type` action — no AST slot carries the bound list. Closing
-  needs: (a) grammar action capture, (b) `DYN_TYPE` schema field,
-  (c) `TraitObject` TypeRef extension to carry the bound set, (d)
-  the actual `auto-trait T satisfies dyn's bounds` check at
-  `ref_arg_satisfies_dyn` / `coerce_arg_to_dyn`. Session-scale;
-  reopens as its own item.
+- ~~**2.4(c)**~~ ✅ dyn+Auto enforce at the unsize coercion site
+  (initially escalated, then completed in-session). The 4-stage
+  pipeline landed: (a) grammar — new `dyn_auto_bound` rule emits
+  per-bound `AUTO_TRAIT_BOUND` / `AUTO_LIFE_BOUND` nodes (schema
+  246/247); all 44 `dyn_type` alts now collect them into ITEMS via
+  `$...`. (b) TraitObject TypeRef extension — `const_val`'s low byte
+  still carries owning-kind, bits 8/9 now carry `+ Send` / `+ Sync`;
+  TypeUID hash widened to `put_u64` so `&dyn T` and `&dyn T + Send`
+  intern distinctly. (c) `resolve_type` DYN_TYPE filters ITEMS by
+  code and threads bound bits into `make_trait_object` via new
+  `req_send`/`req_sync` params; `subst_type_sema` preserves them
+  across substitution. (d) check —
+  `check_dyn_auto_bounds_at_coercion` (in `coerce_arg_to_param`)
+  walks the source pointee via `is_auto_trait_satisfied`, restricted
+  to Struct/Enum sources; emits a specific
+  "source type `X` does not satisfy `Send`" diagnostic.
+  Verification: `tests/logos/fail/core_2_4c_dyn_send_violation.logos`.
 - 🟡 **5.1** ESCALATED. Atomics Ordering threading needs the full
   retire of `extern fn logos_atomic_*` ad-hoc stubs at
   `stdlib/lang/atomic/atomic.logos:48-56` (their bodies live in

@@ -392,6 +392,12 @@ private:
     // fat pointer (keying on the arg's still-`&T` type). Defined in
     // sema_expr.cpp (needs find_trait_iter_scoped / impls_).
     bool ref_arg_satisfies_dyn(TypeRef at, TypeRef pt);
+    // logos-core 2.4(c): enforce `+ Send` / `+ Sync` auto-trait bounds on a
+    // dyn target at coercion sites. types_compatible's Struct→TraitObject
+    // branch is a blanket-accept (impl check deferred), so this is the
+    // soundness gate that emits a specific diagnostic when the source's
+    // pointee doesn't structurally satisfy the bound.
+    void check_dyn_auto_bounds_at_coercion(const lir::LExpr& arg, TypeRef pt);
 
     // If param `pt` is a trait-object (`&dyn Trait` / `&mut dyn Trait`) and
     // `arg` is a `&Concrete`/`&mut Concrete` that satisfies the trait (directly
@@ -712,15 +718,25 @@ private:
     // differ in release semantics. The kind rides in the otherwise-unused
     // `const_val` slot (overloaded for TraitObject only — no schema change)
     // and is folded into TypeUID + equality so the four forms intern distinctly.
+    // logos-core 2.4(c): the same const_val slot encodes auto-trait bounds in
+    // its upper bits — bit 8 = `+ Send`, bit 9 = `+ Sync`. Folded into
+    // TypeUID/equality so `&dyn T` and `&dyn T + Send` intern distinctly.
     using TraitOwningKind = TypeRef::OwningKind;
+    static constexpr uint64_t TRAIT_BOUND_SEND_BIT = 1ull << 8;
+    static constexpr uint64_t TRAIT_BOUND_SYNC_BIT = 1ull << 9;
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {},
-                              TraitOwningKind owning = TraitOwningKind::Borrow) {
+                              TraitOwningKind owning = TraitOwningKind::Borrow,
+                              bool req_send = false,
+                              bool req_sync = false) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::TraitObject;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
-        if (owning != TraitOwningKind::Borrow)
-            t.const_val = int64_t(uint8_t(owning));
+        uint64_t packed = uint8_t(owning);
+        if (req_send) packed |= TRAIT_BOUND_SEND_BIT;
+        if (req_sync) packed |= TRAIT_BOUND_SYNC_BIT;
+        if (packed != 0)
+            t.const_val = int64_t(packed);
         return pool_->alloc(std::move(t));
     }
     TypeRef make_typevar(std::string_view name) {

@@ -229,6 +229,22 @@ public:
     bool owning_trait_object() const noexcept {
         return trait_owning_kind() != OwningKind::Borrow;
     }
+    // logos-core 2.4(c): bit 8 / bit 9 of TraitObject's const_val carry the
+    // `+ Send` / `+ Sync` auto-trait bounds (the trait object MUST satisfy
+    // these at the unsize-coercion site). Encoded by make_trait_object's
+    // optional `req_send`/`req_sync` params; folded into TypeUID + equality
+    // (see put_u64 in TypeUID hashing). Borrow-form `&dyn T` with no bound
+    // returns false for both.
+    bool trait_requires_send() const noexcept {
+        if (kind() != LogosType::Kind::TraitObject) return false;
+        auto cv = const_val();
+        return cv && ((uint64_t(*cv) >> 8) & 1u);
+    }
+    bool trait_requires_sync() const noexcept {
+        if (kind() != LogosType::Kind::TraitObject) return false;
+        auto cv = const_val();
+        return cv && ((uint64_t(*cv) >> 9) & 1u);
+    }
     // Owning kind of a Slice — `Box<[T]>` collapses to an owning fat slice
     // (OwningKind::Box): same {data,len} layout as `&[T]`, but move-only +
     // droppable (frees the buffer). Borrow for a plain `&[T]`.

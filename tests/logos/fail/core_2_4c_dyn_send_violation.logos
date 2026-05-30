@@ -1,0 +1,32 @@
+// logos-core §2.4(c): unsize coercion `&T → &dyn Trait + Send` must
+// REJECT when T doesn't satisfy Send. Pre-fix the `+ Send` bound parsed
+// but was discarded by the grammar; sema saw no auto-trait info on the
+// TraitObject and the check was absent. With the grammar pipeline +
+// const_val bit-encoding + `is_auto_trait_satisfied` walk at
+// `ref_arg_satisfies_dyn`, an !Send source is now rejected at the
+// coercion site (Rust's E0277 equivalent — bound not satisfied).
+//
+// Source struct holds a raw pointer (`*mut u8`), which is hardcoded
+// !Send / !Sync in `sema_auto_trait.cpp` (the canonical !Send shape).
+// Trait Speak is plain (no auto-trait bounds itself); the violation is
+// purely from `+ Send` on the dyn target.
+package core_2_4c_dyn_send_violation;
+
+trait Speak {
+    fn speak(&self) -> i32;
+}
+
+struct NotSend {
+    ptr: *mut u8,
+}
+
+impl Speak for NotSend {
+    fn speak(&self) -> i32 { return 42i32; }
+}
+
+fn hear(s: &dyn Speak + Send) -> i32 { return s.speak(); }
+
+fn main() -> i32 {
+    let n: NotSend = NotSend { ptr: 0 as *mut u8 };
+    return hear(&n);  // ERROR: &NotSend → &dyn Speak + Send rejected (NotSend is !Send)
+}

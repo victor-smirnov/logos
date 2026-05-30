@@ -836,8 +836,11 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_sub(buf, impl, t.closure_ret);
         break;
     case K::TraitObject:
-        // const_val carries the owning kind (Borrow/Box/Rc/Arc) — distinct types.
-        put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
+        // const_val carries the owning kind (Borrow/Box/Rc/Arc) in the LOW
+        // byte; logos-core 2.4(c) adds bit 8 = `+ Send` and bit 9 = `+ Sync`
+        // auto-trait bounds. Hash the FULL u64 so `&dyn T` and `&dyn T + Send`
+        // get distinct TypeUIDs.
+        put_u64(buf, uint64_t(t.const_val.value_or(0)));
         put_str(buf, t.trait_name);
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
@@ -3946,7 +3949,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         if (!changed) return t;
         return make_trait_object(t.trait_name(), std::move(new_args),
-                                 /*owning=*/t.trait_owning_kind());
+                                 /*owning=*/t.trait_owning_kind(),
+                                 /*req_send=*/t.trait_requires_send(),
+                                 /*req_sync=*/t.trait_requires_sync());
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnPtr: {
@@ -4681,7 +4686,9 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                               TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
                     TypeRef ti(inner);
                     std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());
-                    return make_trait_object(ti.trait_name(), std::move(targs), sp_kind);
+                    return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
+                                             /*req_send=*/ti.trait_requires_send(),
+                                             /*req_sync=*/ti.trait_requires_sync());
                 }
                 // `Box<[T]>` (and Rc/Arc<[T]>) — heap unsized slice. Collapse to
                 // an OWNING fat slice {data,len}: same layout as `&[T]`, move-only,
@@ -5104,7 +5111,14 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (!traits_.count(tname))
             error(std::format("unknown trait '{}' in &dyn type", tname));
         // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.
+        // logos-core 2.4(c): the grammar now also collects per-bound AUTO_TRAIT_BOUND
+        // (`+ Send`/`+ Sync`/…) and AUTO_LIFE_BOUND (`+ 'a`) nodes into the
+        // SAME ITEMS array. Filter by CODE here to bucket them: type-args drive
+        // the TraitObject's type_args; AUTO_TRAIT_BOUND folds into the bound
+        // set we'll fold into TraitObject's const_val (Send / Sync bits); the
+        // lifetime bound is recorded for future §2.1 region_infer wiring.
         std::vector<TypeRef> args;
+        bool req_send = false, req_sync = false;
         if (node.has_key(la::ITEMS)) {
             auto items = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < items.size(); ++i) {
@@ -5116,6 +5130,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 // L1: skip LIFETIME_PARAM at trait-arg position; lifetimes
                 // aren't part of TypeUID for trait dispatch.
                 if (ic == la::LIFETIME_PARAM) continue;
+                // logos-core 2.4(c) bounds — filter out and collect.
+                if (ic == la::AUTO_TRAIT_BOUND.code) {
+                    auto bname = std::string(str_of(item.get(la::NAME.code)));
+                    if (bname == "Send") req_send = true;
+                    else if (bname == "Sync") req_sync = true;
+                    // Other auto-traits (Copy, Unpin, ...) recorded as no-ops
+                    // — extend the bit-field when they become load-bearing.
+                    continue;
+                }
+                if (ic == la::AUTO_LIFE_BOUND.code) continue;  // lifetime bound — recorded by grammar but enforce-phase (§2.1) absent
                 args.push_back(resolve_type(item));
             }
         }
@@ -5133,7 +5157,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // object-safe (dyn-compatible). A non-object-safe method has no vtable
         // slot → dispatch would crash; reject at the type-resolution point.
         check_trait_object_safe(tname);
-        return make_trait_object(tname, std::move(args));
+        // logos-core 2.4(c): pass the auto-trait bounds we extracted from
+        // ITEMS so the TraitObject carries `+ Send` / `+ Sync` in its
+        // const_val bits, enabling the unsize-coercion check downstream.
+        return make_trait_object(tname, std::move(args),
+                                 TraitOwningKind::Borrow,
+                                 req_send, req_sync);
     }
 
     if (tc == la::TAGGED_TYPE) {
