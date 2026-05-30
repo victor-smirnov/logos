@@ -168,6 +168,20 @@ public:
         return it == named_regions_.end() ? NO_REGION : it->second;
     }
 
+    // logos-core 2.1 (consumer): does the named lifetime `longer` outlive
+    // `shorter`? Reads from the SOLVED Outlives constraint graph that
+    // `analyze()` populates: longer outlives shorter iff longer's point
+    // set is a superset of shorter's. Equivalent to (and now the
+    // canonical replacement for) borrow_check's `outlives()` BFS over
+    // `outlives_adj_`. Returns true also when longer == shorter (the
+    // reflexive case), and when either name is absent (lifetime not
+    // declared on this fn — caller's domain to gate).
+    //
+    // `'static` is special-cased: it outlives every concrete `'a` and is
+    // outlived by none (matches Rust's `'static: 'a` and `!('a: 'static)`).
+    bool outlives_named(const std::string& longer,
+                        const std::string& shorter) const noexcept;
+
 private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};
@@ -205,6 +219,12 @@ private:
     // them by string. Outlives clauses (`'a: 'b`) seed Outlives
     // constraints between the corresponding RegionIds.
     std::unordered_map<std::string, RegionId> named_regions_;
+    // The fn's raw `lifetime_outlives` pairs (longer, shorter), stored at
+    // analyze() time so `outlives_named()` can BFS over the string graph
+    // — equivalent to borrow_check's `outlives_adj_`, and able to walk
+    // through `'static` (which is never a named-region entry but IS a
+    // legal source/target in a declared `'a: 'static` clause).
+    std::vector<std::pair<std::string, std::string>> outlives_pairs_;
     // B73: source line per CFG point (StmtPoint → line number from
     // the originating LStmt). Used to produce human-readable
     // diagnostics that point back at the source.

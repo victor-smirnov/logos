@@ -346,6 +346,13 @@ class BorrowChecker {
     // moves from a diverged arm — otherwise an early-return inside one arm
     // would pollute the join with moves that the OTHER arm never sees.
     bool cur_diverged_ = false;
+    // logos-core 2.1 (consumer): optional region_infer for declared-
+    // lifetime outlives queries. When non-null, the named-region BFS
+    // replaces the string-graph BFS at return-value lifetime checks
+    // (both share `fn.lifetime_outlives` as the source). Null in
+    // exclusivity-only / generic-template mode (region_infer is
+    // imprecise on TypeVars).
+    const RegionInferer* ri_ = nullptr;
     // Phase 9 (NLL): max line at which each local variable is read.
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
@@ -905,8 +912,17 @@ class BorrowChecker {
                 if (src_lt == ret_lt) continue;
                 // Strict mode (no permissive-empty) — an elided source
                 // lifetime cannot silently match a declared return lifetime.
-                if (outlives(src_lt, ret_lt, outlives_adj_, /*permissive_empty=*/false))
-                    continue;
+                // logos-core 2.1 (consumer): prefer region_infer's
+                // named-region BFS over the local string-graph BFS when
+                // available — both consume `fn.lifetime_outlives` as the
+                // source, so the two paths agree on every input, but the
+                // region_infer view is the canonical one downstream
+                // (HRTB, dropck). Falls back to the string graph when
+                // ri_ is null (exclusivity-only mode).
+                bool ok = ri_ ? ri_->outlives_named(src_lt, ret_lt)
+                              : outlives(src_lt, ret_lt, outlives_adj_,
+                                         /*permissive_empty=*/false);
+                if (ok) continue;
                 // B86: if outer ref lt is elided AND the param points to an
                 // aggregate, defer to type-checker. The lt structure of
                 // fields is verified there; we'd otherwise reject valid
@@ -1868,9 +1884,10 @@ class BorrowChecker {
 public:
     BorrowChecker(SemaResult& diags, std::string fn_name,
                   const lir::LProgram& prog, const TypeSets& ts,
-                  bool exclusivity_only = false)
+                  bool exclusivity_only = false,
+                  const RegionInferer* ri = nullptr)
         : diags_(diags), fn_name_(std::move(fn_name)), prog_(prog), ts_(ts),
-          exclusivity_only_(exclusivity_only) {}
+          ri_(ri), exclusivity_only_(exclusivity_only) {}
     // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
     // tracking is imprecise (TypeVar values + generic method-call move
     // semantics → false positives like a spurious "use of moved 'out'"). In
@@ -2317,17 +2334,20 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         // region inference (also imprecise on generics). The normal POST-mono pass
         // checks concrete fns + specializations and ignores any leftover generics.
         if (generic_templates_only != is_generic) return;
-        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)),
-                      prog, ts, /*exclusivity_only=*/generic_templates_only).check(fn);
-        if (generic_templates_only) return;   // skip region inference for generics
-        // B72: region-based borrow conflict check. Runs alongside the
-        // B61 min-viable NLL — both contribute diagnostics. min-viable
-        // catches the simple lexical-scope cases; region inference
-        // catches flow-sensitive conflicts via the solved per-borrow
-        // point sets. When both fire on the same conflict, we expect
-        // them to agree (and one will dedupe later).
+        // logos-core 2.1 (consumer): run region_infer FIRST so its
+        // named-lifetime regions and solved Outlives graph are available
+        // to borrow_check. Both passes now consult the SAME source for
+        // declared `'a: 'b` outlives, removing the parallel-paths drift
+        // risk that the audit's #1 cross-category finding called out
+        // (region_infer scaffolding-only). Generic templates skip
+        // region inference (imprecise on TypeVars).
         RegionInferer ri;
-        ri.analyze(fn, prog);
+        if (!generic_templates_only)
+            ri.analyze(fn, prog);
+        BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)),
+                      prog, ts, /*exclusivity_only=*/generic_templates_only,
+                      generic_templates_only ? nullptr : &ri).check(fn);
+        if (generic_templates_only) return;
         if (std::getenv("LOGOS_DUMP_REGIONS"))
             ri.dump(std::string(bare_fn_name(fn.name)));
         // B72/B73: region-based conflict diagnostics. Phrased in

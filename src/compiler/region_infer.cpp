@@ -34,6 +34,7 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     use_.clear();
     def_.clear();
     named_regions_.clear();
+    outlives_pairs_.clear();
     next_region_id_ = 1;
     prog_for_liveness_ = &prog;
 
@@ -46,6 +47,7 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     // consume named_region(name) → RegionId.
     for (auto& lp : fn.lifetime_params)
         if (!lp.empty()) named_regions_[lp] = fresh_region();
+    outlives_pairs_ = fn.lifetime_outlives;
     for (auto& [longer, shorter] : fn.lifetime_outlives) {
         // Skip outlives clauses that mention an unknown lifetime — that
         // is a sema-level error already reported (region_infer is best-
@@ -95,6 +97,52 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
         }
     }
     solve();
+}
+
+bool RegionInferer::outlives_named(const std::string& longer,
+                                    const std::string& shorter) const noexcept {
+    // Reflexive.
+    if (longer == shorter) return true;
+    // `'static` is the longest lifetime — outlives everything; nothing
+    // concrete outlives it *unless* the user explicitly declares so
+    // (a `'a: 'static` clause asserts 'a IS as long as 'static, which
+    // Rust allows). So the static-at-top fast-path only fires for
+    // `longer == 'static`; the `shorter == 'static` case falls through
+    // to BFS so a declared `longer: 'static` edge wins.
+    auto norm = [](const std::string& s) -> std::string {
+        // Strip a leading `'` so the graph keys agree with the
+        // outlives_adj convention shared with `outlives.hpp`.
+        if (!s.empty() && s.front() == '\'') return s.substr(1);
+        return s;
+    };
+    std::string L = norm(longer);
+    std::string S = norm(shorter);
+    if (L == "static") return true;
+    if (S.empty()) return true;  // unconstrained shorter — vacuously
+    if (L.empty()) return false; // strict mode (matches outlives() with permissive_empty=false)
+    // BFS over the original `(longer, shorter)` pairs — directly
+    // equivalent to `outlives_adj` in `outlives.hpp`. We can walk
+    // through `'static` (which is never a named-region) because it
+    // appears as a string key/value in the pairs.
+    std::unordered_set<std::string> seen;
+    std::vector<std::string> queue;
+    queue.push_back(L);
+    seen.insert(L);
+    while (!queue.empty()) {
+        std::string cur = std::move(queue.back());
+        queue.pop_back();
+        if (cur == S) return true;
+        for (auto& [pa, pb] : outlives_pairs_) {
+            std::string na = norm(pa);
+            std::string nb = norm(pb);
+            if (na != cur) continue;
+            if (nb == S) return true;
+            if (seen.insert(nb).second) queue.push_back(std::move(nb));
+        }
+    }
+    // Conservative reject: matches `outlives(..., permissive_empty=false)`
+    // at the borrow_check return-value path.
+    return false;
 }
 
 void RegionInferer::solve() {
