@@ -1,0 +1,8 @@
+package test;
+fn ret_ref(x: &i32) -> &i32 { return x; }
+fn main() -> i32 {
+    let mut a: i32 = 10;
+    let r: &i32 = ret_ref(&a);          // r aliases a via fn-call
+    a = 20;                              // CONFLICT in Rust (r holds shared borrow of a)
+    return *r;
+}

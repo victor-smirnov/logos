@@ -1000,6 +1000,33 @@ class BorrowChecker {
                 take_ref_borrows(v.else_val(), line, holder);
                 break;
             }
+            // Cross-fn provenance (conservative): when a function-call result is
+            // bound to a ref (`let r = f(&a, &b)`), the returned ref MAY alias
+            // any of the ref-typed input arguments — without per-fn signature
+            // analysis, register a borrow on each ref-arg held by `holder` (the
+            // let var). NLL releases at the holder's last use; `a = …` /
+            // `&mut a` while r is live is now rejected. Sound (matches Rust's
+            // elision conservative upper bound); may overshoot when the callee
+            // tighter-binds the return to a specific input — refining that
+            // needs per-fn signature provenance (future work).
+            case Code::Call: {
+                ECallView v{e};
+                v.each_arg([&](ExprRef a) {
+                    if (a && is_ref_kind(a.type(pool)))
+                        take_ref_borrows(a, line, holder);
+                });
+                break;
+            }
+            case Code::MethodCall: {
+                EMethodCallView v{e};
+                if (auto recv = v.receiver(); recv && is_ref_kind(recv.type(pool)))
+                    take_ref_borrows(recv, line, holder);
+                v.each_arg([&](ExprRef a) {
+                    if (a && is_ref_kind(a.type(pool)))
+                        take_ref_borrows(a, line, holder);
+                });
+                break;
+            }
             case Code::MatchExpr: {
                 EMatchExprView v{e};
                 visit(v.scrut(), /*consuming=*/false, line);
