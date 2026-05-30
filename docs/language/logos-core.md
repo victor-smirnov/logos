@@ -220,19 +220,19 @@ multi-field `#[repr(transparent)]`). Verification:
   every read of a local checks the may-init set; error at first read on
   a path that didn't assign.
 
-### 2.8. Object-safety enforcement
+### ~~2.8. Object-safety enforcement~~ ✅
 *Audit: C (Trait), D (GATs, ?Sized).*
-- **Issue:** Rust forbids coercing to `dyn Trait` when the trait has
-  generic methods, returns `Self` by value, has `Self: Sized` methods
-  outside opt-in, or has GAT items. Logos does the unsize coercion
-  without checking.
-- **Why core:** dyn dispatch through vtable assumes the trait is
-  object-safe; violating this gives garbage method-table indices /
-  malformed receivers.
-- **DoD-depth:** an `object_safety::check_dyn_compatible(trait)` walk
-  invoked at every `T → dyn T` unsize site; rejects per the spec's
-  bulleted list at `items/traits.md#dyn-compatible`; `where Self: Sized`
-  methods opt-out of the vtable and are accepted.
+**CLOSED 2026-05-30 (Wave 1).** Existing `check_trait_object_safe`
+covers: generic methods, no-self receiver, `Self` in return type,
+`Self` by-value as parameter, GAT items (Phase 4 #15), and
+`where Self: Sized` opt-out for methods excluded from the vtable.
+Wave 1 added the opaque-return arm: a method with `impl Trait` in
+its return type OR in a parameter is now rejected as not object-safe
+(opaque types have no single vtable slot ABI — Rust E0038). The
+`mentions_impl_trait` walker recurses through type-args, pointee,
+elem, and tuple-elems so `impl Trait` deep inside a composite type
+is still caught. Verification:
+`tests/logos/fail/core_2_8_obj_safety_opaque_return.logos`.
 
 ---
 
@@ -380,7 +380,7 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 8 / 21 ✅ closed at DoD-depth (38.1%)** · 8 🟡 partial · 5 ❌ not
+> **Score: 9 / 21 ✅ closed at DoD-depth (42.9%)** · 7 🟡 partial · 5 ❌ not
 > started. Suite: 5294 / 5294 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
@@ -403,7 +403,7 @@ core are recorded here with a rationale. Closing items move to a
 | 2.5 | `&mut T` out of Copy-trivial | ✅ | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ |
 | 2.6 | Slice mutability tracked | ✅ | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ |
 | 2.7 | Definite-assignment | ❌ | not started — CFG forward dataflow needed |
-| 2.8 | Object-safety enforcement | 🟡 | generic-method / no-self / Self-by-value / Self-ret / GAT ✓; "opaque return" + spec refinements pending |
+| 2.8 | Object-safety enforcement | ✅ | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ |
 | 3.1 | HRTB instantiation | ❌ | not started — depends on 2.1 default trait-obj lt rule |
 | 3.2 | `?Sized` / `Sized` invariants | ❌ | not started — receiver-shape walker absent |
 | 3.3 | GAT + object-safety | ✅ | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ |
@@ -664,3 +664,13 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   already enforced at collect time. Verification:
   `tests/logos/pass/core_1_5_repr_transparent_layout.logos`
   (`sizeof::<Wrapper>() == sizeof::<i64>()` at runtime).
+- ~~**2.8**~~ ✅ Object-safety opaque-return arm. Pre-fix
+  `check_trait_object_safe` rejected on generic methods, no-self
+  receiver, `Self` return, `Self`-by-value param, and GAT items —
+  but accepted methods whose return type or any parameter type
+  contained `impl Trait`. Wave 1 adds a `mentions_impl_trait`
+  walker (recurses through type-args / pointee / elem / tuple
+  elems) and two new rejection arms in `sema.cpp::
+  check_trait_object_safe` for opaque-in-return and opaque-in-param.
+  Rust E0038 parity. Verification:
+  `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos`.

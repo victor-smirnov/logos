@@ -2724,6 +2724,19 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
             return;
         }
     }
+    // logos-core 2.8 (opaque return): a method that returns `impl Trait`
+    // (or has `impl Trait` in a param) is NOT object-safe — the concrete
+    // type isn't known until monomorphisation, so the vtable slot has no
+    // single ABI. Walk param/ret recursively for any ImplTrait kind.
+    std::function<bool(TypeRef)> mentions_impl_trait = [&](TypeRef t) -> bool {
+        if (!t) return false;
+        if (TypeRef(t).kind() == LogosType::Kind::ImplTrait) return true;
+        for (auto a : TypeRef(t).type_args()) if (mentions_impl_trait(a)) return true;
+        if (TypeRef(t).pointee() && mentions_impl_trait(TypeRef(t).pointee())) return true;
+        if (TypeRef(t).elem() && mentions_impl_trait(TypeRef(t).elem())) return true;
+        for (auto e : TypeRef(t).tuple_elems()) if (mentions_impl_trait(e)) return true;
+        return false;
+    };
     for (auto& m : ti->methods) {
         if (m.requires_sized_self) continue;   // excluded from the vtable
         std::string reason;
@@ -2736,6 +2749,9 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
         else if (mentions_self(m.ret_type))
             reason = "its method `" + m.name + "` returns `Self` (size unknown "
                      "behind a trait object)";
+        else if (mentions_impl_trait(m.ret_type))
+            reason = "its method `" + m.name + "` returns `impl Trait` "
+                     "(opaque return type — no single vtable slot ABI)";
         else {
             for (size_t i = 1; i < m.param_types.size(); ++i)
                 if (is_self(m.param_types[i])) {
@@ -2743,6 +2759,15 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
                              "` takes `Self` by value as a parameter";
                     break;
                 }
+            if (reason.empty()) {
+                for (size_t i = 1; i < m.param_types.size(); ++i)
+                    if (mentions_impl_trait(m.param_types[i])) {
+                        reason = "its method `" + m.name +
+                                 "` takes `impl Trait` as a parameter "
+                                 "(opaque type — no single vtable slot ABI)";
+                        break;
+                    }
+            }
         }
         if (!reason.empty()) {
             dyn_safety_reported_.insert(trait_name);

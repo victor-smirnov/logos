@@ -1,0 +1,29 @@
+// logos-core §2.8: object-safety walk — a trait method returning
+// `impl Trait` is NOT object-safe. The opaque return has no single
+// vtable slot ABI (monomorphisation picks the concrete type per impl,
+// but dyn dispatch must commit to one slot shape). Rust E0038.
+// Pre-fix the check fired only on type-params, no-self, Self-return,
+// Self-by-value-param, GAT (Phase 4 #15). The "impl Trait in
+// signature" arm was missing.
+package core_2_8_obj_safety_opaque_return;
+
+trait Display {
+    fn fmt(self: &Self) -> i32;
+}
+
+trait MakeDisplayable {
+    fn make(self: &Self) -> impl Display;  // opaque return — !object-safe
+}
+
+struct Foo { v: i32 }
+impl Display for Foo { fn fmt(self: &Foo) -> i32 { return self.v; } }
+impl MakeDisplayable for Foo {
+    fn make(self: &Foo) -> impl Display { return Foo { v: self.v }; }
+}
+
+fn use_dyn(_x: &dyn MakeDisplayable) -> i32 { return 0i32; }
+
+fn main() -> i32 {
+    let f: Foo = Foo { v: 42i32 };
+    return use_dyn(&f);
+}
