@@ -1639,6 +1639,11 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     // suppressing exhaustiveness or divergence checks downstream). Rust
     // rejects `T → !`; we do too now (logos-core item 1.1).
     if (from.kind() == LogosType::Kind::Never) return true;
+    // `_` placeholder unifies with anything in either direction —
+    // resolution happens via the surrounding annotation/RHS unifier
+    // (logos-core 1.3).
+    if (from.kind() == LogosType::Kind::InferredType ||
+        to.kind()   == LogosType::Kind::InferredType) return true;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
@@ -1920,6 +1925,7 @@ std::string type_str(TypeRef t) {
     case LogosType::Kind::CfgSlotType: return "<cfg-slot-type>";
     case LogosType::Kind::Error:       return "<error>";
     case LogosType::Kind::Never:       return "!";
+    case LogosType::Kind::InferredType: return "_";
     }
     return "<unknown>";
 }
@@ -2219,6 +2225,7 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::FloatLit);
     ap(LogosType::Kind::Error);
     ap(LogosType::Kind::Never);
+    ap(LogosType::Kind::InferredType);
 }
 
 TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
@@ -5336,6 +5343,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::TYPE_REF) {
         auto name = str_of(node.get(la::NAME.code));
+        // `_` as a type — Rust's placeholder for type inference (`let x:
+        // Vec<_> = vec_new::<i32>();`). Sema renders it as `Kind::InferredType`
+        // and `types_compatible` is permissive on either side; downstream
+        // context (annotation-RHS unification, generic-arg inference) is
+        // expected to resolve it (logos-core 1.3).
+        if (name == "_") return inferred_t();
         if (name == "Self") {
             auto tvit = current_type_params_.find("Self");
             if (tvit != current_type_params_.end()) return tvit->second;

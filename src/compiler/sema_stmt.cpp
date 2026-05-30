@@ -1535,6 +1535,14 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // type) — no need to re-sniff the written name. A borrowed `&dyn` is a
         // non-owning TraitObject and is correctly excluded.
         if (ann && TypeRef(ann).owning_trait_object()) ann_is_box_dyn = true;
+        // `let x: _ = rhs;` — top-level `_` placeholder: defer entirely to
+        // the RHS's type by dropping the annotation. (logos-core 1.3.)
+        // Nested `_` inside a composite annotation (`Vec<_>`) is handled by
+        // the type-arg substitution path — the binding's surface type
+        // keeps the InferredType slot until generic-arg inference fills
+        // it.
+        if (ann && TypeRef(ann).kind() == LogosType::Kind::InferredType)
+            ann = nullptr;
     }
 
     // Set enum/struct hints so literal lowering can fill in unresolved type params

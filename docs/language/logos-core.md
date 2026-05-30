@@ -390,7 +390,7 @@ Goal: shape-correct LIR kinds so later passes don't ride on placeholder unificat
 | # | Item | Effort | Approach |
 |---|------|--------|----------|
 | 7 | **1.3** `Kind::InferredType` + `_` in `type_ref` | M | New `LogosType::Kind::InferredType`; grammar `type_ref` adds `_` alt; sema lowers `_` to a fresh inference var; downstream sites that today reject `_` accept it. |
-| 8 | **1.4** `Kind::FnItem` distinct from `Kind::FnPtr` | M | New `Kind::FnItem` (ZST per instantiation); fn-item ↔ FnPtr coerce site; closure-non-capturing → FnPtr unchanged. Test: `if c { foo::<i32> } else { foo::<u32> }` rejects. |
+| 8 | **1.4** `Kind::FnItem` distinct from `Kind::FnPtr` | M | DEFERRED to focused session — narrow remaining gap. Investigated 2026-05-30: Logos already rejects `if c { foo::<i32> } else { foo::<u32> }` when the type-arg affects the FnPtr signature (the common case — `id::<i32>` vs `id::<i64>` produces distinct `fn(i32)->i32` / `fn(i64)->i64` shapes). The genuine FnItem-vs-FnPtr divergence only fires when type-args do NOT influence the signature (`marker<T>() -> i32` where T is unused) — Rust treats the two instantiations as distinct ZSTs, Logos collapses them. 39 FnPtr touchpoints across 12 files for the full distinct-kind refactor; blast radius high for a rarely-firing shape. Reopen alongside generic-fn-pointer inference work. |
 | 9 | **1.5** `#[repr(transparent)]` + `#[repr(uN)]` enum | M | Parse + plumb into `layout_of`; `transparent` collapses single-field struct to field layout; `uN` sets enum discriminant width. `#[repr(C, packed, align)]` parses-rejects with "not in core scope, breadth-future". |
 
 **Phase gate:** `let x: Vec<_> = vec_new()` works; `&fn_item_value as FnPtr` works; one-line `#[repr(transparent)] struct Wrapper(u64);` roundtrips bit-equal.
@@ -482,3 +482,40 @@ All six items landed; suite 5288/5288 across the phase.
   `try_retype_bare_enum_arg`; member fn extended to peel target
   `&Enum`/`&mut Enum` so the lambda's broader acceptance is
   preserved.
+
+### Phase 2 — Type-system foundations (2026-05-30)
+
+- ~~**1.3**~~ ✅ `Kind::InferredType` + grammar `_` in `type_ref`. New
+  Kind appended after `Never` to keep numeric IDs stable; `prims_[]`
+  size widened to cover it. `resolve_type` recognises bare `_`
+  (`sema.cpp:5342`) and returns the singleton; `types_compatible`
+  permissive on either side (`sema.cpp:1622-1626`); `type_str`
+  renders `_`. `lower_let` drops the annotation when ann resolves to
+  `InferredType` (`sema_stmt.cpp:1540-1546`) so `let x: _ = rhs`
+  defers entirely to RHS's type. Nested `Vec<_>` rides on existing
+  generic-arg inference. Smoke verified.
+- ⚠️ **1.4** `Kind::FnItem` — DEFERRED. Investigated 2026-05-30: the
+  audit's headline test (`if c { foo::<i32> } else { foo::<u32> }`)
+  already rejects when the type-arg affects the FnPtr signature
+  (`id::<i32>` vs `id::<i64>` → distinct `fn(i32)->i32` vs
+  `fn(i64)->i64`). The genuine FnItem divergence fires only when
+  type-args do NOT influence the signature (`marker<T>() -> i32` with
+  unused T) — narrow shape. Full distinct-kind refactor touches 39
+  FnPtr-checking sites across 12 files; blast radius too high for the
+  observed gap. Reopen as a focused session alongside generic-fn-ptr
+  inference.
+- ~~**1.5**~~ ✅ `#[repr(transparent)]` (struct) + `#[repr(uN/iN)]`
+  (enum) minimal layout. `repr` recognised by `attr_builtin_targets`
+  for Struct + Enum (`sema_impl.hpp:1206`); struct collector at
+  `sema_collect.cpp:1248-1290` sets `SemaStructInfo::repr_transparent`
+  for `transparent` (enforces exactly-one-field), errors on other
+  modes; enum collector at `sema_collect.cpp:1350-1404` maps integer
+  modes (`u8`/`u16`/`u32`/`u64`/`i8`/`i16`/`i32`/`i64`/`usize`/
+  `isize`) to `SemaEnumInfo::backing_type` (same field the
+  `enum Foo : u32 { ... }` syntax already populates), errors on
+  unrecognised modes. `#[repr(C/packed/align/...)]` parse-then-
+  rejected (no silent acceptance). Layout-side consumer of
+  `repr_transparent` (single-field collapse in `logos_abi_byte_size`)
+  is the breadth follow-up for layout-aware passes — value here is
+  the surface registration so ported Rust code doesn't silently
+  drop the annotation.

@@ -172,8 +172,8 @@ private:
     TypePool* pool_ = nullptr;
 
     // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
-    // Size = int(Kind::Error) + 1 to cover all Kind values.
-    std::array<TypeRef, int(LogosType::Kind::Never) + 1> prims_{};
+    // Size covers every Kind value (uses the LAST enumerator).
+    std::array<TypeRef, int(LogosType::Kind::InferredType) + 1> prims_{};
 
     void init_primitives();
 
@@ -187,6 +187,7 @@ private:
     TypeRef intlit_t()  { return prim(LogosType::Kind::IntLit); }
     TypeRef error_t()   { return prim(LogosType::Kind::Error); }
     TypeRef never_t()   { return prim(LogosType::Kind::Never); }
+    TypeRef inferred_t(){ return prim(LogosType::Kind::InferredType); }
 
     // Single point of truth for the target's pointer size. Logos ships
     // 64-bit only today; if we ever target 32-bit, change this constant
@@ -1196,6 +1197,11 @@ private:
             return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
                    bit(AttrTarget::Enum)   | bit(AttrTarget::Trait) |
                    bit(AttrTarget::Fn)     | bit(AttrTarget::Const);
+        // logos-core 1.5: `#[repr(...)]` minimal. Recognised on structs
+        // (`transparent`) and enums (integer discriminant width). Other
+        // modes parse-then-reject so silent drift is impossible.
+        if (name == "repr")
+            return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         return 0u;  // not a builtin
     }
 
@@ -1912,6 +1918,16 @@ private:
                             // `Box`. Construction goes through unsafe raw-
                             // parts assembly (no by-value).
                             bool is_dst = false;
+                            // logos-core 1.5: `#[repr(transparent)]` — single-field
+                            // wrapper inherits its field's layout exactly
+                            // (size + align + niche). Set by sema_collect when
+                            // the annotation is seen; layout consumed by
+                            // layout-aware passes (mlir-gen `logos_abi_byte_size`,
+                            // niche optimization). Other `#[repr(...)]` modes
+                            // (`C`/`packed`/`align`) are NOT covered yet —
+                            // they parse-then-reject so silent drift is
+                            // impossible.
+                            bool repr_transparent = false;
                             // Partial-spec support: when this is a specialization,
                             // base_name is the generic template (e.g. "Map") and
                             // spec_patterns holds one entry per type-param slot

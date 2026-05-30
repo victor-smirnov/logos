@@ -96,7 +96,7 @@ struct LogosType {
                                   //              `&Wrap<T>` to DstRef when Wrap is_dst at
                                   //              instantiation time.
         Error,                    // sentinel for ill-typed expressions
-        Never                     // the `!` never type — value of a diverging
+        Never,                    // the `!` never type — value of a diverging
                                   // expression (return / break / continue /
                                   // panic / `-> !` call / `loop {}`). A subtype
                                   // of every type: coerces to any expected type,
@@ -104,6 +104,13 @@ struct LogosType {
                                   // materialises a value at codegen (the
                                   // diverging expr emits its own terminator).
                                   // Appended after Error to keep kind IDs stable.
+        InferredType              // the `_` placeholder in type position
+                                  // (logos-core 1.3). `let x: Vec<_> = …` /
+                                  // `&_ as *const i32`. Compatibility-permissive
+                                  // on both sides (unifies with any concrete);
+                                  // resolved by surrounding context at use
+                                  // sites. Appended last to keep kind IDs
+                                  // stable across the schema.
     };
 
     // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()

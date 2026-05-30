@@ -1245,6 +1245,45 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.no_auto_drop = true;
                                 break;
                             }
+                        // `#[repr(...)]` minimal (logos-core 1.5). For struct
+                        // items only `transparent` is recognised so far — sets
+                        // the struct's `repr_transparent` flag (single-field
+                        // wrapper inherits its field's layout exactly). Other
+                        // modes (`C` / `packed` / `align(...)`) are parse-then-
+                        // reject — no silent acceptance, no quiet drift if a
+                        // ported test expects them to do something.
+                        for (auto& ann : pending_annots) {
+                            if (str_of(ann.get(la::NAME.code)) != "repr") continue;
+                            if (!ann.has_key(la::ARGS.code)) {
+                                error(std::format("#[repr] on '{}' requires an argument", sname));
+                                continue;
+                            }
+                            auto args_map = map_of(ann.get(la::ARGS.code));
+                            if (!args_map.has_key(la::ITEMS.code)) continue;
+                            auto args_items = arr_of(args_map.get(la::ITEMS.code));
+                            for (uint64_t kk = 0; kk < args_items.size(); ++kk) {
+                                auto a = map_of(args_items.get(kk));
+                                if (!a.has_key(la::NAME.code)) continue;
+                                std::string mode(str_of(a.get(la::NAME.code)));
+                                if (mode == "transparent") {
+                                    auto skey = sema_key(cur_package_, sname);
+                                    auto sit = structs_.find(skey);
+                                    if (sit == structs_.end()) sit = structs_.find(sname);
+                                    if (sit != structs_.end()) {
+                                        if (sit->second.fields.size() != 1)
+                                            error(std::format(
+                                                "#[repr(transparent)] on '{}' requires exactly one non-zero-sized field, found {}",
+                                                sname, sit->second.fields.size()));
+                                        else sit->second.repr_transparent = true;
+                                    }
+                                } else {
+                                    error(std::format(
+                                        "#[repr({})] on struct '{}' is not yet supported "
+                                        "(only `transparent` is recognised in the core layout pass)",
+                                        mode, sname));
+                                }
+                            }
+                        }
                     }
                 }
             } else if (c == la::DATATYPE) {
@@ -1309,6 +1348,59 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       item_has_type_params(item), pending_annots);
                 }
                 collect_enum(item);
+                // `#[repr(uN)]` on an enum — set discriminant width if the
+                // enum didn't already declare one via the Logos-native
+                // `enum Foo : u32 { ... }` ascription. Maps directly to
+                // `SemaEnumInfo::backing_type`. `#[repr(C)]` and other modes
+                // parse-then-reject (no silent acceptance — logos-core 1.5).
+                if (item.has_key(la::NAME.code)) {
+                    std::string ename(str_of(item.get(la::NAME.code)));
+                    for (auto& ann : pending_annots) {
+                        if (str_of(ann.get(la::NAME.code)) != "repr") continue;
+                        if (!ann.has_key(la::ARGS.code)) {
+                            error(std::format("#[repr] on enum '{}' requires an argument", ename));
+                            continue;
+                        }
+                        auto args_map = map_of(ann.get(la::ARGS.code));
+                        if (!args_map.has_key(la::ITEMS.code)) continue;
+                        auto args_items = arr_of(args_map.get(la::ITEMS.code));
+                        for (uint64_t kk = 0; kk < args_items.size(); ++kk) {
+                            auto a = map_of(args_items.get(kk));
+                            if (!a.has_key(la::NAME.code)) continue;
+                            std::string mode(str_of(a.get(la::NAME.code)));
+                            // Recognise integer-type names; map to backing_type.
+                            LogosType::Kind disc_kind = LogosType::Kind::Error;
+                            if      (mode == "u8")    disc_kind = LogosType::Kind::U8;
+                            else if (mode == "u16")   disc_kind = LogosType::Kind::U16;
+                            else if (mode == "u32")   disc_kind = LogosType::Kind::U32;
+                            else if (mode == "u64")   disc_kind = LogosType::Kind::U64;
+                            else if (mode == "i8")    disc_kind = LogosType::Kind::I8;
+                            else if (mode == "i16")   disc_kind = LogosType::Kind::I16;
+                            else if (mode == "i32")   disc_kind = LogosType::Kind::I32;
+                            else if (mode == "i64")   disc_kind = LogosType::Kind::I64;
+                            else if (mode == "usize") disc_kind = LogosType::Kind::Usize;
+                            else if (mode == "isize") disc_kind = LogosType::Kind::Isize;
+                            if (disc_kind != LogosType::Kind::Error) {
+                                auto eit = enums_.find(ename);
+                                if (eit != enums_.end()) {
+                                    if (eit->second.backing_type &&
+                                        TypeRef(eit->second.backing_type).kind() != disc_kind) {
+                                        error(std::format(
+                                            "#[repr({})] on enum '{}' conflicts with declared backing type '{}'",
+                                            mode, ename, type_str(eit->second.backing_type)));
+                                    } else {
+                                        eit->second.backing_type = prim(disc_kind);
+                                    }
+                                }
+                            } else {
+                                error(std::format(
+                                    "#[repr({})] on enum '{}' is not yet supported "
+                                    "(integer discriminant widths uN/iN/usize/isize only in core)",
+                                    mode, ename));
+                            }
+                        }
+                    }
+                }
             }
             else if (c == la::FN || c == la::EXTERN_FN)   {
                 if (item.has_key(la::NAME.code)) {
