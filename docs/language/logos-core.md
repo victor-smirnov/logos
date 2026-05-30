@@ -510,10 +510,13 @@ lifetime rule is a focused follow-up sized for one session by itself.
   DEFERRED. Recognised at the type level (`dyn_auto_bounds`); the
   enforcement at the source-type unsize site (verifying `T: Auto`
   when coercing `T → dyn Trait + Auto`) is its own focused session.
-- ⚠️ **2.6 slice mut bit** — DEFERRED (B6 in DIVERGENCES §B).
-  Multi-session refactor: schema `MUT_PTR` threading, pool no longer
-  aliases `&[T]`/`&mut [T]`, `str = Slice<u8>` invariant preservation,
-  `&mut [T] → &[T]` coercion. Standalone sprint.
+- ~~**2.6 slice mut bit**~~ ✅ Investigated 2026-05-30 — actually
+  CLOSED in tree (DIVERGENCES §B B6 moved to "Recently caught up").
+  `Kind::Slice` carries `mut_ptr`; `make_slice_type` accepts the bit;
+  write through `&[T]` rejects at `sema_stmt.cpp:6273` with "cannot
+  write through a shared `&[T]` slice (need `&mut [T]`)". `&mut [T]
+  → &[T]` downgrade works. Audit was based on a pre-fix snapshot.
+  Pool UID split is residual hygiene, not soundness.
 - ~~**2.8 / 3.3**~~ ✅ Object-safety already implemented for the
   bulleted list at `items/traits.md#dyn-compatible` (generic methods,
   no-self receivers, Self in return / by-value param,
