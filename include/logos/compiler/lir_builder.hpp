@@ -85,6 +85,20 @@ public:
     lir::LExprPtr fn_ptr_call(lir::LExprPtr callee,
                               std::vector<lir::LExprPtr> args, TypeRef ty);
     lir::LExprPtr addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef ty);
+
+    // Re-emit a `&mut T` LIR expression for a second consuming use, wrapping
+    // it as an implicit reborrow `AddrOfTemp(Deref(orig))` of the SAME type
+    // — `orig` itself stays as the canonical place to clone for further
+    // re-uses. This is the codegen-side complement to sema's
+    // `try_implicit_reborrow_mut`: anywhere a mono/synthesizer builds N
+    // calls reusing one `&mut T` arg, each subsequent reuse must be wrapped
+    // (without it, borrow_check — which treats `&mut T` as a move-type —
+    // consumes the arg on call #1 and rejects calls #2..#N).
+    //
+    // Returns `orig` unchanged if its type isn't `&mut T` (no reborrow
+    // needed) or has no pointee (degenerate); callers can ignore the
+    // distinction and always wrap.
+    lir::LExprPtr reuse_mut_ref(const lir::LExprPtr& orig);
     lir::LExprPtr slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty);
     lir::LExprPtr slice_len(lir::LExprPtr slice, TypeRef ty);
     lir::LExprPtr slice_ptr(lir::LExprPtr slice, TypeRef ty);

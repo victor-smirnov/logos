@@ -1706,4 +1706,25 @@ inline uint32_t stmt_line(const StmtRef& s) noexcept {
     return detail::read_u32(s, sc::LINE.code);
 }
 
+// Reborrow / pointer-identity shape: `AddrOfTemp(Deref(VarRef r))`. Inserted
+// by sema's `try_implicit_reborrow_mut` at coercion sites that auto-reborrow
+// a `&mut T` PLACE (Rust auto-reborrow). Multiple subsystems pattern-match
+// it: borrow_check recognises the reborrow to register a borrow on `r`,
+// mlir-gen's `gen_dyn_dispatch` unwraps the shape so vtable dispatch reads
+// the underlying VarRef, and the sema reborrow-insert helper refuses to
+// re-wrap an already-wrapped expression. Single recogniser keeps the shape
+// check in one place.
+//
+// Returns true iff `e` is the reborrow shape; if `out_varref` is non-null,
+// it receives the inner `VarRef` (so the caller can read .name() / .type()).
+inline bool is_reborrow_shape(ExprRef e, ExprRef* out_varref = nullptr) noexcept {
+    if (!e || e.kind() != lir_schema::expr::Code::AddrOfTemp) return false;
+    auto inner = EAddrOfTempView{e}.inner();
+    if (!inner || inner.kind() != lir_schema::expr::Code::Deref) return false;
+    auto op = EDerefView{inner}.operand();
+    if (!op || op.kind() != lir_schema::expr::Code::VarRef) return false;
+    if (out_varref) *out_varref = op;
+    return true;
+}
+
 } // namespace logos::compiler::lir_view

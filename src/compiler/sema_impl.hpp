@@ -412,6 +412,45 @@ private:
     // Every method-dispatch path calls this so the pair can't drift.
     void bind_method_receiver(lir::LExprPtr& recv, TypeRef formal_self);
 
+    // Canonical arg→param coercion pipeline. The 8 implicit coercions Logos
+    // applies at coercion sites — `bare_enum → typed_enum`, closure literal
+    // → fn-ptr, `&[T;N] ↔ &[T]`, `&dyn Sub → &dyn Super`, `&Concrete →
+    // &dyn Trait`, `&mut T` auto-reborrow, integer widening — are all
+    // individually-callable helpers, and the ORDER they run in is the
+    // chokepoint that used to drift across ~15 hand-rolled call sites. This
+    // helper enshrines the canonical order in one place; each call site
+    // declares which coercions it wants via a flag mask (Standard = all 8,
+    // Minimal = reborrow + widen for sites where the type-coerce surface is
+    // intentionally narrow). Adding a new coercion in the future = one edit
+    // here, not 15.
+    //
+    // Sites kept INLINE (deliberately not converted): struct-literal field
+    // assignment (Rust MOVES — no reborrow), the `widen-first` struct-
+    // method exact path which uses a different order, and the
+    // `coerce_arg_to_dyn-after-widen` trait-method / generic-method-arg
+    // sites — those orderings have been load-bearing under the suite and
+    // pinning them with a comment is cheaper than provably-equivalent flag
+    // expansion. Adding a flag to this helper to express them would defeat
+    // the foundation's value (one canonical order).
+    enum CoerceFlag : uint32_t {
+        CFLAG_NONE             = 0,
+        CFLAG_BARE_ENUM        = 1u << 0,  // try_retype_bare_enum_arg
+        CFLAG_CLOSURE_TO_FNPTR = 1u << 1,
+        CFLAG_ARRAY_TO_SLICE   = 1u << 2,  // try_coerce_array_ref_to_slice
+        CFLAG_SLICE_TO_ARRAY   = 1u << 3,  // try_coerce_slice_to_array_ref
+        CFLAG_DYN_UPCAST       = 1u << 4,  // coerce_dyn_upcast
+        CFLAG_ARG_TO_DYN       = 1u << 5,  // coerce_arg_to_dyn
+        CFLAG_IMPLICIT_REBORROW = 1u << 6, // try_implicit_reborrow_mut
+        CFLAG_WIDEN_INT        = 1u << 7,
+        CFLAG_STANDARD = CFLAG_BARE_ENUM | CFLAG_CLOSURE_TO_FNPTR |
+                         CFLAG_ARRAY_TO_SLICE | CFLAG_SLICE_TO_ARRAY |
+                         CFLAG_DYN_UPCAST | CFLAG_IMPLICIT_REBORROW |
+                         CFLAG_WIDEN_INT,
+        CFLAG_MINIMAL  = CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT,
+    };
+    void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
+                              uint32_t flags = CFLAG_STANDARD);
+
     // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
     // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`
     // does a content compare. Returns null if `str_eq` isn't in scope.

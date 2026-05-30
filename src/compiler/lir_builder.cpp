@@ -231,6 +231,13 @@ lir::LExprPtr LirBuilder::addr_of_temp(lir::LExprPtr inner, bool is_mut, TypeRef
         [&](auto& p, TypeRef t){ return lir_mirror_emit_addr_of_temp(p, t, inner, is_mut); });
 }
 
+lir::LExprPtr LirBuilder::reuse_mut_ref(const lir::LExprPtr& orig) {
+    if (!orig || !orig->type) return orig;
+    TypeRef t = orig->type;
+    if (t.kind() != LogosType::Kind::MutRef || !t.pointee()) return orig;
+    return addr_of_temp(deref(orig, t.pointee()), /*is_mut=*/true, t);
+}
+
 lir::LExprPtr LirBuilder::slice_lit(lir::LExprPtr base, lir::LExprPtr len, TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_slice_lit(p, t, base, len); });

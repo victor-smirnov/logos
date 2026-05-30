@@ -2340,8 +2340,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
-                try_implicit_reborrow_mut(arg_exprs[i], TypeRef(callee_type).closure_params()[i]);
-                widen_int_expr(arg_exprs[i], TypeRef(callee_type).closure_params()[i], builder());
+                coerce_arg_to_param(arg_exprs[i], TypeRef(callee_type).closure_params()[i],
+                                    CFLAG_MINIMAL);
                 auto at = arg_exprs[i]->type;
                 auto pt = TypeRef(callee_type).closure_params()[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -2614,13 +2614,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee, exact_fi->param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
-                try_coerce_closure_to_fnptr(arg_exprs[i], exact_fi->param_types[i]);
-                try_coerce_array_ref_to_slice(arg_exprs[i], exact_fi->param_types[i]);
-                try_coerce_slice_to_array_ref(arg_exprs[i], exact_fi->param_types[i]);
-                try_retype_bare_enum_arg(arg_exprs[i], exact_fi->param_types[i]);
-                coerce_dyn_upcast(arg_exprs[i], exact_fi->param_types[i]);  // &dyn Sub → &dyn Super
-                try_implicit_reborrow_mut(arg_exprs[i], exact_fi->param_types[i]);
-                widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
+                coerce_arg_to_param(arg_exprs[i], exact_fi->param_types[i]);
                 auto at = arg_exprs[i]->type;
                 auto pt = exact_fi->param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -2844,9 +2838,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                   callee, fi.param_types.size(), n_args));
         } else {
             for (uint64_t i = 0; i < fi.param_types.size(); ++i) {
-                try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
-                try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
-                widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
+                coerce_arg_to_param(arg_exprs[i], fi.param_types[i],
+                                    CFLAG_CLOSURE_TO_FNPTR | CFLAG_MINIMAL);
                 auto at = arg_exprs[i]->type;
                 auto pt = fi.param_types[i];
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -2868,13 +2861,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
               callee, fi.param_types.size(), n_args));
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
-            try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
-            try_coerce_array_ref_to_slice(arg_exprs[i], fi.param_types[i]);
-            try_coerce_slice_to_array_ref(arg_exprs[i], fi.param_types[i]);
-            try_retype_bare_enum_arg(arg_exprs[i], fi.param_types[i]);
-            coerce_dyn_upcast(arg_exprs[i], fi.param_types[i]);  // &dyn Sub → &dyn Super
-            try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
-            widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
+            coerce_arg_to_param(arg_exprs[i], fi.param_types[i]);
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -5263,9 +5250,8 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                               n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
-                try_implicit_reborrow_mut(arg_exprs[i], TypeRef(rt).closure_params()[i]);
-                widen_int_expr(arg_exprs[i],
-                               TypeRef(rt).closure_params()[i], builder());
+                coerce_arg_to_param(arg_exprs[i], TypeRef(rt).closure_params()[i],
+                                    CFLAG_MINIMAL);
                 auto pt = TypeRef(rt).closure_params()[i];
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -11197,6 +11183,20 @@ void SemaChecker::bind_method_receiver(lir::LExprPtr& recv,
     track_recv_moved(recv, formal_self);
 }
 
+void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
+                                       uint32_t flags) {
+    if (!arg || !pt) return;
+    // Canonical order — see header. Each step is a no-op when not applicable.
+    if (flags & CFLAG_BARE_ENUM)        try_retype_bare_enum_arg(arg, pt);
+    if (flags & CFLAG_CLOSURE_TO_FNPTR) try_coerce_closure_to_fnptr(arg, pt);
+    if (flags & CFLAG_ARRAY_TO_SLICE)   try_coerce_array_ref_to_slice(arg, pt);
+    if (flags & CFLAG_SLICE_TO_ARRAY)   try_coerce_slice_to_array_ref(arg, pt);
+    if (flags & CFLAG_DYN_UPCAST)       coerce_dyn_upcast(arg, pt);
+    if (flags & CFLAG_ARG_TO_DYN)       coerce_arg_to_dyn(arg, pt);
+    if (flags & CFLAG_IMPLICIT_REBORROW) try_implicit_reborrow_mut(arg, pt);
+    if (flags & CFLAG_WIDEN_INT)        widen_int_expr(arg, pt, builder());
+}
+
 bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                               bool allow_downgrade) {
     // Rust auto-reborrows `&mut T` at call/method coercion sites where the
@@ -11834,8 +11834,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
               mangled, fi.param_types.size(), n_args));
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
-            try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
-            widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
+            coerce_arg_to_param(arg_exprs[i], fi.param_types[i], CFLAG_MINIMAL);
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
             if (TypeRef(at).kind() != LogosType::Kind::Error &&

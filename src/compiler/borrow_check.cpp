@@ -990,34 +990,28 @@ class BorrowChecker {
             case Code::AddrOfTemp: {
                 EAddrOfTempView v{e};
                 auto inner = v.inner();
-                // Reborrow / implicit-reborrow shape: `AddrOfTemp(Deref(VarRef r))`
-                // where r is itself a ref-typed local. Register a borrow on r —
-                // r can't be used (read or written) while the reborrow lives.
-                // Skip the is_mut_binding requirement on r (reborrow draws from
-                // r's "borrow capacity", not the binding's mutness; `&mut`-ness
-                // comes from r's type, which the type-checker has already
-                // verified at sema). NLL releases the borrow on the holder's
-                // last use, restoring r's usability — this is what makes
-                // implicit-reborrow at call args work: r is "frozen" only for
-                // the duration of the call's scope.
-                if (inner && inner.kind() == Code::Deref) {
-                    auto op = EDerefView{inner}.operand();
-                    if (op && op.kind() == Code::VarRef &&
-                        is_ref_kind(op.type(pool))) {
-                        std::string rname(EVarRefView{op}.name());
-                        if (auto sit = states_.find(rname); sit != states_.end()) {
-                            // Route through take_borrow so two-phase reservation
-                            // (B82) and prefix-aware diagnostics kick in. The
-                            // reborrow draws from r's borrow capacity rather
-                            // than the binding's mutness — bypass the
-                            // is_mut_binding check by faking param_names_.
-                            bool fake_param = !sit->second.is_mut_binding &&
-                                              !param_names_.count(rname);
-                            if (fake_param) param_names_.insert(rname);
-                            take_borrow(rname, v.is_mut(), line, holder);
-                            if (fake_param) param_names_.erase(rname);
-                            break;
-                        }
+                // Reborrow shape `AddrOfTemp(Deref(VarRef r))` where r is
+                // ref-typed — register a borrow on r (NOT on what r points
+                // to). NLL releases on the holder's last use, restoring r's
+                // usability — this is what makes implicit-reborrow at call
+                // args work: r is "frozen" only for the call's scope.
+                if (ExprRef inner_var; lir_view::is_reborrow_shape(e, &inner_var)
+                    && is_ref_kind(inner_var.type(pool))) {
+                    std::string rname(EVarRefView{inner_var}.name());
+                    if (auto sit = states_.find(rname); sit != states_.end()) {
+                        // Route through take_borrow so two-phase reservation
+                        // (B82) and prefix-aware diagnostics kick in. Bypass
+                        // the is_mut_binding check (reborrow draws from r's
+                        // borrow capacity, not its binding mutness; the
+                        // `&mut`-ness comes from r's type, which sema has
+                        // already verified) via a temporary param_names_
+                        // insertion.
+                        bool fake_param = !sit->second.is_mut_binding &&
+                                          !param_names_.count(rname);
+                        if (fake_param) param_names_.insert(rname);
+                        take_borrow(rname, v.is_mut(), line, holder);
+                        if (fake_param) param_names_.erase(rname);
+                        break;
                     }
                 }
                 // Structural decomposition of the borrowed PLACE — single

@@ -1347,22 +1347,16 @@ mlir::Value MLIRGenImpl::gen_dyn_dispatch(lir_view::EMethodCallView v,
     auto recv_ref = v.receiver();
     auto* recv_le = lexpr_of(recv_ref);
     if (!recv_le) return nullptr;
-    // Unwrap an implicit-reborrow wrap `AddrOfTemp(Deref(VarRef))` (inserted
-    // by sema's try_implicit_reborrow_mut). The wrap exists for borrow_check;
-    // for vtable dispatch we need the underlying VarRef so the var_dyn_trait_
-    // / fat-pair-load logic below fires correctly. Without this unwrap, the
+    // Unwrap the implicit-reborrow wrap (inserted by sema's
+    // try_implicit_reborrow_mut). The wrap exists for borrow_check; for
+    // vtable dispatch we need the underlying VarRef so the var_dyn_trait_ /
+    // fat-pair-load logic below fires correctly — without the unwrap, the
     // wrap appears as a non-VarRef receiver, the loader treats it as a
     // by-value fat pair, and field-0/field-1 GEPs misread → segfault.
-    if (recv_ref && recv_ref.kind() == lir_schema::expr::Code::AddrOfTemp) {
-        auto inner = lir_view::EAddrOfTempView{recv_ref}.inner();
-        if (inner && inner.kind() == lir_schema::expr::Code::Deref) {
-            auto op = lir_view::EDerefView{inner}.operand();
-            if (op && op.kind() == lir_schema::expr::Code::VarRef) {
-                recv_ref = op;
-                recv_le  = lexpr_of(op);
-                if (!recv_le) return nullptr;
-            }
-        }
+    if (lir_view::ExprRef inner_var; lir_view::is_reborrow_shape(recv_ref, &inner_var)) {
+        recv_ref = inner_var;
+        recv_le  = lexpr_of(inner_var);
+        if (!recv_le) return nullptr;
     }
 
     // Check if receiver is a variable we know is dyn
