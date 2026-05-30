@@ -463,6 +463,13 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     }
     if (moved_vars_.count(std::string(name)))
         error(std::format("use of moved variable '{}'", name));
+    // logos-core 2.7: definite-assignment — reading a binding that's currently
+    // uninitialised on this path is rejected (Rust's E0381). The
+    // `currently_uninit_vars_` set tracks vars after `let x: T;` until the
+    // first definite assignment; at if/match merge points it's the union
+    // across branches (uninit if uninit on ANY incoming path).
+    if (currently_uninit_vars_.count(std::string(name)))
+        error(std::format("use of possibly uninitialised binding '{}'", name));
     return builder().var_ref(std::string(name), t);
 }
 

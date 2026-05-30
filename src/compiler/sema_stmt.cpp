@@ -818,6 +818,11 @@ lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
             "destructuring assignment to undefined variable '{}'", nm)); return; }
         if (!lookup_is_mut(nm))
             error(std::format("assignment to immutable variable '{}'", nm));
+        // logos-core 2.7: destructuring assignment initialises each LHS
+        // place — clear from currently_uninit_vars_ same as a scalar
+        // `lower_assign` would (this path bypasses lower_assign by going
+        // through builder().stmt_assign directly).
+        currently_uninit_vars_.erase(nm);
         blk->stmts.push_back(builder().stmt_assign(nm, std::move(acc), node_line_));
     };
 
@@ -1704,6 +1709,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // B8: a `let x = v` (with value) re-declaration clears any stale
         // declared-uninit mark from an earlier `let x: T;` shadow.
         decl_uninit_vars_.erase(std::string(name));
+        currently_uninit_vars_.erase(std::string(name));  // logos-core 2.7
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
         if (is_ref_bind) {
@@ -1727,6 +1733,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // NOT drop-before-replace (the slot holds no live value yet, and a
         // conditional path may leave it uninit).
         decl_uninit_vars_.insert(std::string(name));
+        currently_uninit_vars_.insert(std::string(name));  // logos-core 2.7
         rhs      = nullptr;
         rhs_type = ann;
     } else {
@@ -2455,6 +2462,12 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
+    // logos-core 2.7: definite-assignment — an assignment to `name` initialises
+    // the var at this point (no longer "currently uninit"). decl_uninit_vars_
+    // stays set (it's a permanent property of the declaration, governing the
+    // drop_old hint at every reassignment); only currently_uninit_vars_ tracks
+    // the CURRENT init state and is what var-read uses.
+    currently_uninit_vars_.erase(std::string(name));
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
@@ -5384,24 +5397,40 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
                k == lir_schema::stmt::Code::Continue;
     };
 
+    // logos-core 2.7: definite-assignment merge across the if's branches.
+    // Snapshot before each branch; after non-diverging branches, union their
+    // currently_uninit_vars_ into if_post_uninit (var is uninit at merge if
+    // uninit on ANY incoming non-diverging path). Diverging branches
+    // contribute nothing (their tail is return/break/continue/panic so
+    // control doesn't fall through to the merge).
+    auto if_pre_uninit = currently_uninit_vars_;
+    std::set<std::string> if_post_uninit;
+    bool if_post_uninit_initialized = false;
+
     auto then_block = lir::alloc_block(*cur_prog_);
     if (node.has_key(la::THEN)) {
         moved_vars_ = if_pre_moves;
+        currently_uninit_vars_ = if_pre_uninit;
         *then_block = lower_block(map_of(node.get(la::THEN.code)));
         if (!branch_diverges(*then_block)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
+            for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
+            if_post_uninit_initialized = true;
         }
     } else {
         // No then-block ≡ no body executed; behaves as non-diverging (just fall-through).
         if_any_non_diverging = true;
         for (auto& m : if_pre_moves) if_post_moves.insert(m);
+        for (auto& v : if_pre_uninit) if_post_uninit.insert(v);
+        if_post_uninit_initialized = true;
     }
 
     std::optional<lir::LBlockPtr> else_opt;
     if (node.has_key(la::ELSE)) {
         auto else_node = map_of(node.get(la::ELSE.code));
         moved_vars_ = if_pre_moves;
+        currently_uninit_vars_ = if_pre_uninit;
         if (code_of(else_node) == la::BLOCK) {
             else_opt = lir::alloc_block(*cur_prog_, lower_block(else_node));
         } else {
@@ -5414,13 +5443,19 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
         if (!branch_diverges(**else_opt)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
+            for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
+            if_post_uninit_initialized = true;
         }
     } else {
         // Else absent ≡ control falls through with pre-state.
         if_any_non_diverging = true;
         for (auto& m : if_pre_moves) if_post_moves.insert(m);
+        for (auto& v : if_pre_uninit) if_post_uninit.insert(v);
+        if_post_uninit_initialized = true;
     }
     moved_vars_ = if_any_non_diverging ? std::move(if_post_moves) : std::move(if_pre_moves);
+    currently_uninit_vars_ = if_any_non_diverging && if_post_uninit_initialized
+        ? std::move(if_post_uninit) : std::move(if_pre_uninit);
 
     lir::SIf sif;
     sif.cond  = std::move(cond);
@@ -5430,6 +5465,15 @@ lir::LStmt SemaChecker::lower_if(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_while(TinyMapView node) {
+    // logos-core 2.7: a while may not run at all → body's assignments don't
+    // count at the outer scope. RAII-restore the definite-assignment tracker
+    // on every exit path.
+    struct WhileUninitGuard {
+        std::set<std::string>& slot;
+        std::set<std::string>  saved;
+        WhileUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
+        ~WhileUninitGuard() { slot = std::move(saved); }
+    } _uninit_guard(currently_uninit_vars_);
     // ── while let pattern = expr { ... } ──────────────────────────
     // Desugars to: loop { match expr { PAT => body, _ => break } }
     if (node.has_key(la::PAT)) {
@@ -5573,6 +5617,13 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_for(TinyMapView node) {
+    // logos-core 2.7: a for may not run at all; restore tracker on exit.
+    struct ForUninitGuard {
+        std::set<std::string>& slot;
+        std::set<std::string>  saved;
+        ForUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
+        ~ForUninitGuard() { slot = std::move(saved); }
+    } _uninit_guard(currently_uninit_vars_);
     auto var_name = str_of(node.get(la::NAME.code));
 
     lir::LExprPtr lo = node.has_key(la::LHS)
@@ -5653,6 +5704,13 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
 }
 
 lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
+    // logos-core 2.7: for-each may not run at all; restore tracker on exit.
+    struct ForEachUninitGuard {
+        std::set<std::string>& slot;
+        std::set<std::string>  saved;
+        ForEachUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
+        ~ForEachUninitGuard() { slot = std::move(saved); }
+    } _uninit_guard(currently_uninit_vars_);
     // G-CONF-1: `for PATTERN in iter`. A bare-ident loop var arrives as NAME
     // (fast path); a destructuring pattern (`for (a,b) in v`) arrives as PAT.
     // Bind a synthetic element var and destructure the pattern from it as a
@@ -6149,6 +6207,10 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
     auto body = lir::alloc_block(*cur_prog_);
     TypeRef frame_value_type = nullptr;
     bool frame_break_reached = false;
+    // logos-core 2.7: loops are CONSERVATIVE — the body may run zero times,
+    // so any var initialised only inside the body must stay "uninit" at the
+    // outer scope. Snapshot pre-state; restore after to discard body inits.
+    auto loop_pre_uninit = currently_uninit_vars_;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
@@ -6162,6 +6224,7 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
+    currently_uninit_vars_ = std::move(loop_pre_uninit);
     // `loop { /* no break */ }` diverges: its expression form types as `!`
     // (logos-core 1.1). Communicated to the caller via last_loop_diverged_.
     last_loop_diverged_ = !frame_break_reached;
@@ -7516,6 +7579,12 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // through path is considered moved post-match).
         auto pre_moves = moved_vars_;
         std::set<std::string> post_moves;
+        // logos-core 2.7: definite-assignment merge across match arms — same
+        // shape as if/else (union over non-diverging arms; diverging arms
+        // contribute nothing). All arms see the same pre-state.
+        auto pre_uninit = currently_uninit_vars_;
+        std::set<std::string> post_uninit;
+        bool post_uninit_initialized = false;
         bool any_non_diverging = false;
         // P4-pm-25: fan out or-pattern arms whose alternatives have
         // differing variant discriminants. The existing PatOr mlir-gen
@@ -7616,6 +7685,9 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
 
             // Reset moves to pre-match state at each arm boundary.
             moved_vars_ = pre_moves;
+            // logos-core 2.7: reset definite-assignment state too — each arm
+            // sees the same scrutinee-side pre-state.
+            currently_uninit_vars_ = pre_uninit;
 
             // Synthesize guard for Hermes patterns (scalar + structural).
             lir::LExprPtr synth_guard = nullptr;
@@ -7883,12 +7955,18 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             if (!arm_diverges) {
                 any_non_diverging = true;
                 for (auto& m : moved_vars_) post_moves.insert(m);
+                // logos-core 2.7: union the arm's currently_uninit_vars_ into
+                // post_uninit so the post-match state is uninit-if-uninit-on-ANY-arm.
+                for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
+                post_uninit_initialized = true;
             }
 
             smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
         }
         // Merge per-arm contributions back into moved_vars_.
         moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
+        currently_uninit_vars_ = (any_non_diverging && post_uninit_initialized)
+            ? std::move(post_uninit) : std::move(pre_uninit);
     }
     // Exhaustiveness: enum/bool scrutinee must cover all cases. K4: prove
     // nested-enum-pattern exhaustiveness at the AST level (unguarded arms),

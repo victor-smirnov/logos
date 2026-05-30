@@ -1579,6 +1579,16 @@ private:
     // each a runtime drop flag that decides drop-before-replace + scope-exit drop
     // exactly; sema only uses this set to suppress the static drop_old hint.
     std::set<std::string> decl_uninit_vars_;
+    // logos-core 2.7: definite-assignment tracker — vars CURRENTLY uninitialised
+    // at this program point. Parallel to decl_uninit_vars_ but DROPS the var on
+    // first assignment (so subsequent reads see "init"). Reading a var in this
+    // set is a hard error ("use of possibly uninitialised binding"). At a
+    // CFG-merge (if/else, match), the post-merge state is the UNION of the
+    // branches — i.e. uninit if uninit on ANY incoming path. Diverging branches
+    // (the ones whose tail is a return/break/continue/panic) contribute nothing.
+    // Loops are conservative: vars assigned only inside the body do not become
+    // init at the outer scope. Closures get their own (saved+restored) tracker.
+    std::set<std::string> currently_uninit_vars_;
     // G156-7: vars moved into a `move` closure that nonetheless must still be
     // DROPPED at their scope exit. A move closure's env stores a POINTER to the
     // source's storage (borrows it; closures have no capture drop-glue), and the

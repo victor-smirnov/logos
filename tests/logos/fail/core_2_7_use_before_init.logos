@@ -1,0 +1,12 @@
+// logos-core §2.7 (definite-assignment): a `let x: T;` declaration
+// followed by a read of `x` before any assignment is rejected. Rust
+// rejects this with E0381; pre-fix Logos silently accepted (the
+// declared-uninit tracker existed for drop-elaboration purposes but
+// the read-side check was absent). The check fires at the var-read
+// site and emits "use of possibly uninitialised binding 'x'".
+package core_2_7_use_before_init;
+
+fn main() -> i32 {
+    let x: i32;
+    return x;  // ERROR: x is declared uninit and never assigned on this path.
+}

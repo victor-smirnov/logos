@@ -44,7 +44,7 @@ in `pass/` and `fail/`. Two reasons:
 | 2.4 | Auto-trait propagation | `tests/logos/pass/core_2_4_arc_send_sync.logos` + fail dyn+Send | partial (🟡) |
 | 2.5 | MutRef Copy-trivial | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ | ✅ |
 | 2.6 | Slice mut | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ | ✅ |
-| 2.7 | Definite-assignment | `tests/logos/fail/core_2_7_use_before_init.logos` | not started (❌) |
+| 2.7 | Definite-assignment | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ | ✅ |
 | 2.8 | Object-safety | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ | ✅ |
 | 3.1 | HRTB instantiation | `tests/logos/pass/core_3_1_hrtb_closure_arg.logos` | not started (❌) |
 | 3.2 | `?Sized` invariants | `tests/logos/pass/core_3_2_qsized_box_dyn.logos` | not started (❌) |

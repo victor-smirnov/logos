@@ -223,16 +223,35 @@ writes through each, and observes the mutations.
   longer aliases the two as one TypeRef. `str = Slice<u8>` keeps the
   shared-only invariant.
 
-### 2.7. Definite-assignment analysis
+### ~~2.7. Definite-assignment analysis~~ ✅
 *Audit: G (Variables), B8 in DIVERGENCES.*
-- **Issue:** `let x: T;` followed by partial init (e.g. `if c { x = ...; }`)
-  doesn't error today. M2's drop elaboration handles the drop-side correctly
-  (no garbage drop), but Rust's read-side rule (use of `x` is rejected
-  unless every CFG path assigned it) is not enforced.
-- **Why core:** completes the assignment-soundness story.
-- **DoD-depth:** definite-assignment forward-analysis over the LIR CFG;
-  every read of a local checks the may-init set; error at first read on
-  a path that didn't assign.
+**CLOSED 2026-05-30 (Wave 2).** Implemented as a sema-time forward
+pass over the AST stmt sequence (a structured-CFG walk rather than
+a full LIR-CFG dataflow lattice — adequate because Logos's surface
+constructs already make joins explicit at `if`/`match`/loop nodes).
+- New `currently_uninit_vars_` tracker on `SemaChecker` (parallel to
+  `decl_uninit_vars_`, but DROPS the var on first assignment so
+  subsequent reads see "init").
+- `lower_let` inserts on `let x: T;` (no initializer); erases on a
+  `let x = v;` re-declaration that shadows an uninit prior.
+- `lower_assign` erases on assignment to a `VarRef` LHS — first
+  assign initialises the binding at this point.
+- `lower_var_ref` is the read-side check: if the name is in
+  `currently_uninit_vars_`, emit
+  `use of possibly uninitialised binding 'x'` (Rust's E0381).
+- `lower_if` and `lower_match` snapshot the set before each branch,
+  reset between branches, and union the post-state across
+  non-diverging branches (uninit at merge ⇔ uninit on ANY incoming
+  non-diverging path; diverging arms — those whose tail is
+  return/break/continue/panic — contribute nothing).
+- `lower_while` / `lower_for` / `lower_for_each` are CONSERVATIVE:
+  the body may run zero times, so assignments inside the loop body
+  don't promote vars to init at the outer scope (RAII guards
+  restore the pre-state on every exit path).
+Verification: `tests/logos/fail/core_2_7_use_before_init.logos`
+(`let x: i32; return x;` errors). Counter-test
+`tests/logos/pass/assign_uninit_reassign_drop.logos` continues to
+compile (assigns before reads).
 
 ### ~~2.8. Object-safety enforcement~~ ✅
 *Audit: C (Trait), D (GATs, ?Sized).*
@@ -406,8 +425,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 12 / 21 ✅ closed at DoD-depth (57.1%)** · 4 🟡 partial · 5 ❌ not
-> started. Suite: 5296 / 5296 ✓.
+> **Score: 13 / 21 ✅ closed at DoD-depth (61.9%)** · 4 🟡 partial · 4 ❌ not
+> started. Suite: 5297 / 5297 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -428,7 +447,7 @@ core are recorded here with a rationale. Closing items move to a
 | 2.4 | Auto-trait propagation | 🟡 | closures + Arc ✓; `dyn+Auto` unsize enforce absent (schema field `auto_bounds` missing) |
 | 2.5 | `&mut T` out of Copy-trivial | ✅ | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ |
 | 2.6 | Slice mutability tracked | ✅ | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ |
-| 2.7 | Definite-assignment | ❌ | not started — CFG forward dataflow needed |
+| 2.7 | Definite-assignment | ✅ | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ — `currently_uninit_vars_` tracker + union merge at if/match + conservative loops |
 | 2.8 | Object-safety enforcement | ✅ | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ |
 | 3.1 | HRTB instantiation | ❌ | not started — depends on 2.1 default trait-obj lt rule |
 | 3.2 | `?Sized` / `Sized` invariants | ❌ | not started — receiver-shape walker absent |
@@ -754,3 +773,21 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   carrying the matching ordering enum, plus a multi-thread test
   harness for the relaxed-store / acquire-load TLA+-modellable
   case. Codegen + runtime + test-infra change; session-scale.
+- ~~**2.7**~~ ✅ Definite-assignment analysis. Sema-time forward
+  pass over the AST stmt sequence (structured-CFG walk; adequate
+  because surface `if`/`match`/loop nodes already make joins
+  explicit). New `currently_uninit_vars_` tracker on `SemaChecker`,
+  parallel to `decl_uninit_vars_` but DROPS the var on first
+  assignment so subsequent reads see "init". Six wiring points:
+  `lower_let` no-init inserts, `lower_let` re-decl + `lower_assign`
+  + `lower_destructure_assign::assign_place` erase, `lower_var_ref`
+  is the read-side check. CFG-merge logic: `lower_if` and
+  `lower_match` snapshot the set before each branch, reset between
+  branches, and union the post-state across non-diverging branches
+  (uninit at merge ⇔ uninit on ANY incoming path; diverging arms —
+  return/break/continue/panic tails — contribute nothing).
+  `lower_while`/`lower_for`/`lower_for_each` are CONSERVATIVE via
+  RAII guards: body assignments don't promote outer vars (the loop
+  may run zero times). Verification:
+  `tests/logos/fail/core_2_7_use_before_init.logos` (`let x: i32;
+  return x;` errors as "use of possibly uninitialised binding").
