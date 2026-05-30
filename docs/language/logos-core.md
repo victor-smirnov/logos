@@ -56,6 +56,19 @@ fully closed.
   for inference vars unified only against Never; one `is_divergent_*`
   predicate replaces the scattered `callee == "panic"` carve-outs at
   `sema_expr.cpp:11899-11905` and `:12057-12095`.
+- **Wave 1 escalation (2026-05-30):** four of five DoD pieces landed in
+  Phase 1 + earlier waves (Never→T tighten, `loop{}`→`!`,
+  `if`/`match`/`let-else` diverging-arm join via `cur_diverged_`,
+  `is_divergent_*` unification). The fifth — Rust-2024 `!`-fallback
+  for inference vars unified ONLY against Never — turned out to need
+  `infer_type_args` extended to return the per-var constraint set so
+  the call site can distinguish "unconstrained" from "constrained to
+  Never". A naive "fallback any unbound type-param" rule passes the
+  targeted test (`fn make<T>() -> T { panic(); }`) but breaks the
+  pre-existing `type_infer_fail_ambiguous` (which uses the SAME shape
+  but a non-diverging body — Rust correctly errors there too).
+  Bigger than the Wave 1 budget; reopen as its own focused session
+  with the inference-engine extension.
 
 ### 1.2. Coercion pipeline canonical order
 *Audit: B (Coercions), partially landed via M2's `coerce_arg_to_param`.*
@@ -362,9 +375,9 @@ core are recorded here with a rationale. Closing items move to a
 ## 7a. Score (canonical — `/goal` reads this)
 
 > **Score: 6 / 21 ✅ closed at DoD-depth (28.6%)** · 10 🟡 partial · 5 ❌ not
-> started. Suite: 5288 / 5288 ✓.
+> started. Suite: 5291 / 5291 ✓.
 >
-> Updated 2026-05-30. **Single source of truth for "closed" status — every
+> Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
 > is ✅ unless its DoD-depth (verbatim from §§ 1-5 above) is met AND a
 > verification test exists at `tests/logos/{pass,fail}/core_<§>_<slug>.logos`
@@ -372,7 +385,7 @@ core are recorded here with a rationale. Closing items move to a
 
 | § | Item | Status | Verification |
 |---|------|--------|--------------|
-| 1.1 | `Never` / `!` + divergence end-to-end | 🟡 | `!`-fallback inference rule absent — to add: `tests/logos/pass/core_1_1_never_fallback.logos` |
+| 1.1 | `Never` / `!` + divergence end-to-end | 🟡 | `!`-fallback needs per-var constraint tracking in `infer_type_args` — bigger than DoD assumed (see §-body) |
 | 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
 | 1.3 | `Kind::InferredType` + `_` | 🟡 | top-level `_` works; nested `Vec<_>` not verified — to add: `tests/logos/pass/core_1_3_inferred_nested.logos` |
 | 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
