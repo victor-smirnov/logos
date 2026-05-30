@@ -1714,14 +1714,16 @@ private:
                        TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
                       TypeRef(rt).pointee() &&
                       TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Array));
-                if (from_array)
+                if (from_array) {
+                    // Use the bare array type (peel any &/&mut/* prefix the
+                    // receiver came in with) so the message reads `[T; N]`,
+                    // matching rustc's E0508 wording exactly.
+                    TypeRef arr_t = (TypeRef(rt).kind() == LogosType::Kind::Array)
+                        ? rt : TypeRef(rt).pointee();
                     error(std::format(
-                        "cannot move a Drop-bearing element (type `{}`) out of an "
-                        "array by index — `arr[i]` shallow-copies it while the "
-                        "array still drops it (double-free). Use `&arr[i]` for a "
-                        "reference, destructure (`let [a, b] = arr;`), or "
-                        "`arr[i].clone()`.",
-                        type_str(et)));
+                        "cannot move out of type `{}`, a non-copy array",
+                        type_str(arr_t)));
+                }
             }
         }
     }
