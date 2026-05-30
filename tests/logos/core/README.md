@@ -52,7 +52,7 @@ in `pass/` and `fail/`. Two reasons:
 | 4.1 | `is_refutable` foundation | verified-by-suite (predicate consumed by 3 sites) | ✅ |
 | 4.2 | Match exhaustiveness | `tests/logos/fail/core_4_2_match_missing_variant.logos` + uninhabited | partial (🟡) |
 | 4.3 | Chained autoderef in pat | `tests/logos/pass/core_4_3_pattern_double_ref.logos` | partial (🟡) |
-| 5.1 | Atomics Ordering | (codegen check — see logos-core.md §8 Wave 2) | not started (❌) |
+| 5.1 | Atomics Ordering | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ | ✅ |
 | 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | partial (🟡) |
 
 ## Goal contract

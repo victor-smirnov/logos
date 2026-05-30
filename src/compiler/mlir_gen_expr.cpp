@@ -1722,6 +1722,86 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         return std::string(body);
     }();
 
+    // logos-core 5.1: atomic intrinsics. Replace the assembly-stub call shape
+    // (`logos_atomic_load32` / `_store32` / `_fetch_add32` / `_cas32` and the
+    // 64-bit twins) with MLIR LLVM atomic ops carrying seq-cst ordering. On
+    // x86 this generates the same machine code as the hand-written stubs in
+    // `stdlib/rt/atomic_ops.S` (plain mov + LOCK-prefixed RMW), but the
+    // ordering attribute carries through so non-x86 backends emit correct
+    // dmb/lr-sc sequences. The stubs become dead code and link-time garbage-
+    // collected; ABI-level ordering Send/Sync soundness lives in the MLIR op
+    // rather than scattered in hand-written assembly.
+    //
+    // Note: the stdlib `_ordered` API variants (`load_ordered`,
+    // `store_ordered`, etc.) currently route to the same primitives with the
+    // Ordering arg discarded — the lowered MLIR op gets seq-cst regardless.
+    // That's CONSERVATIVE (over-synchronizing): correctness preserved across
+    // every Ordering value, performance leaves cycles on the table only for
+    // Relaxed/Acquire/Release variants on weak-memory targets. Threading the
+    // const Ordering value into a per-variant atomic-op attribute is a
+    // separate follow-up (depends on Ordering enum const-evaluation).
+    auto emit_atomic_load = [&](mlir::Type res_type, unsigned align) -> mlir::Value {
+        if (arg_les.size() != 1) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        return builder_.create<mlir::LLVM::LoadOp>(
+            loc_, res_type, ptr_v, align, /*isVolatile=*/false,
+            /*isNonTemporal=*/false, /*isInvariant=*/false,
+            /*isInvariantGroup=*/false,
+            mlir::LLVM::AtomicOrdering::seq_cst);
+    };
+    auto emit_atomic_store = [&](unsigned align) -> mlir::Value {
+        if (arg_les.size() != 2) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        builder_.create<mlir::LLVM::StoreOp>(
+            loc_, val_v, ptr_v, align, /*isVolatile=*/false,
+            /*isNonTemporal=*/false, /*isInvariantGroup=*/false,
+            mlir::LLVM::AtomicOrdering::seq_cst);
+        // Store returns nothing; emit a dummy 0 so call sites that expect a
+        // value (rare for store, but the call expression has a type slot)
+        // have something to consume. Logos's atomic store fns are typed
+        // `()` — the dummy is discarded by the caller.
+        return builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, /*value=*/0, /*width=*/32);
+    };
+    auto emit_atomic_fetch_add = [&](mlir::Type res_type) -> mlir::Value {
+        if (arg_les.size() != 2) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        return builder_.create<mlir::LLVM::AtomicRMWOp>(
+            loc_, mlir::LLVM::AtomicBinOp::add, ptr_v, val_v,
+            mlir::LLVM::AtomicOrdering::seq_cst);
+    };
+    auto emit_atomic_cas = [&](mlir::Type val_type) -> mlir::Value {
+        if (arg_les.size() != 3) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto exp_v = gen_expr(*arg_les[1]); if (!exp_v) return nullptr;
+        auto des_v = gen_expr(*arg_les[2]); if (!des_v) return nullptr;
+        auto cmpxchg = builder_.create<mlir::LLVM::AtomicCmpXchgOp>(
+            loc_, ptr_v, exp_v, des_v,
+            mlir::LLVM::AtomicOrdering::seq_cst,
+            mlir::LLVM::AtomicOrdering::seq_cst);
+        // cmpxchg returns the struct {val_type, i1}; extract field 1 = did_exchange.
+        return builder_.create<mlir::LLVM::ExtractValueOp>(
+            loc_, cmpxchg, mlir::ArrayRef<int64_t>{1});
+    };
+    if (bare_intrinsic == "logos_atomic_load32")
+        if (auto v = emit_atomic_load(builder_.getI32Type(), 4)) return v;
+    if (bare_intrinsic == "logos_atomic_load64")
+        if (auto v = emit_atomic_load(builder_.getI64Type(), 8)) return v;
+    if (bare_intrinsic == "logos_atomic_store32")
+        if (auto v = emit_atomic_store(4)) return v;
+    if (bare_intrinsic == "logos_atomic_store64")
+        if (auto v = emit_atomic_store(8)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_add32")
+        if (auto v = emit_atomic_fetch_add(builder_.getI32Type())) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_add64")
+        if (auto v = emit_atomic_fetch_add(builder_.getI64Type())) return v;
+    if (bare_intrinsic == "logos_atomic_cas32")
+        if (auto v = emit_atomic_cas(builder_.getI32Type())) return v;
+    if (bare_intrinsic == "logos_atomic_cas64")
+        if (auto v = emit_atomic_cas(builder_.getI64Type())) return v;
+
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.
     if (bare_intrinsic == "str__str_from_raw" || bare_intrinsic == "str_from_raw") {

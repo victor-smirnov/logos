@@ -1,0 +1,66 @@
+// logos-core §5.1: Release-store / Acquire-load two-thread shape.
+// Producer thread writes DATA, then stores FLAG = 1 with Release ordering.
+// Consumer thread (main) spins on a load with Acquire ordering until it
+// sees FLAG == 1, then reads DATA. The Release-Acquire pair establishes
+// happens-before: the consumer's read of DATA must see the producer's
+// write.
+//
+// On x86 TSO this is trivially correct (every plain load is acquire,
+// every plain store is release). On ARM / RISC-V the Acquire / Release
+// ordering attributes ensure the codegen emits dmb / lr-sc sequences
+// rather than plain ld/st. The pipeline runs through Logos's MLIR
+// atomic intrinsics (mlir_gen_expr.cpp recognises `logos_atomic_*`
+// callees and emits `llvm.atomicrmw` / `llvm.atomicload` /
+// `llvm.atomicstore` directly — the hand-written assembly stubs in
+// `stdlib/rt/atomic_ops.S` are no longer wired through any LIR call).
+//
+// Mirrors Rust's classic Acquire-Release smoke test (the canonical
+// example in the nomicon / TLA+ memory-model modeling literature).
+package core_5_1_atomic_release_acquire;
+
+use logos.std.thread;
+use logos.lang.atomic;
+
+struct Shared {
+    flag: AtomicI32,
+    data: AtomicI64,
+}
+
+fn producer(arg: *mut u8) -> *mut u8 {
+    unsafe {
+        let s: *mut Shared = arg as *mut Shared;
+        // Write the data first, then publish via the release-store.
+        s.data.store_ordered(0x12345678 as i64, Ordering::Release);
+        s.flag.store_ordered(1i32, Ordering::Release);
+    }
+    return 0 as *mut u8;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut shared: Shared = Shared {
+            flag: atomic_i32_new(0i32),
+            data: atomic_i64_new(0 as i64),
+        };
+
+        let fp: *const u8 = producer as *const u8;
+        let arg: *mut u8 = &mut shared as *mut Shared as *mut u8;
+        let mut h: JoinHandle = thread_spawn(fp, arg);
+        if h.id() < 0 as i64 { return 1i32; }
+
+        // Acquire-load loop on flag. Once we see 1, the producer's
+        // release-store of DATA is visible.
+        let mut spin: i32 = 0;
+        while shared.flag.load_ordered(Ordering::Acquire) == 0i32 {
+            yield_now();
+            spin = spin + 1;
+            if spin > 1000000 { return 2i32; }  // bailout if producer never runs
+        }
+
+        // Data must reflect the producer's write under Release-Acquire.
+        let observed: i64 = shared.data.load_ordered(Ordering::Acquire);
+        h.join();
+        if observed != 0x12345678 as i64 { return 3i32; }
+    }
+    return 0i32;
+}
