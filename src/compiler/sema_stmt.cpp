@@ -1719,6 +1719,18 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         }
     }
     if (rhs && ann != nullptr) {
+        // Rust auto-reborrows `&mut T` at COERCION sites in `let _: T = rhs`
+        // when rhs is `&mut T` and ann is a ref-or-ptr type (`&mut T`, `&T`,
+        // `*const T`, `*mut T`). Per Rust the explicit type ascription IS a
+        // coercion site, so even same-type `let m: &mut T = v` reborrows
+        // (NLL releases on m's last use, restoring v's usability).
+        if (TypeRef(rhs->type).kind() == LogosType::Kind::MutRef &&
+            (TypeRef(ann).kind() == LogosType::Kind::MutRef ||
+             TypeRef(ann).kind() == LogosType::Kind::Ref ||
+             TypeRef(ann).kind() == LogosType::Kind::Ptr)) {
+            if (try_implicit_reborrow_mut(rhs, ann))
+                rhs_type = rhs->type;
+        }
         // impl Trait annotation: any concrete struct that was returned from an
         // impl-Trait-returning function is acceptable — treat the variable type as the
         // concrete rhs type so method calls work.

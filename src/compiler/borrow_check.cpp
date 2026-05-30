@@ -109,7 +109,15 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
     // Shared aggregate-recursion skeleton (moveclass::is_move_type); the
     // callbacks reproduce borrow_check's exact (post-mono) semantics. Tuple /
     // Array recursion is single-sourced in the skeleton.
-    auto leaf = [&](TypeRef) -> std::optional<bool> { return std::nullopt; };
+    auto leaf = [&](TypeRef x) -> std::optional<bool> {
+        // Rust: `&mut T` is NOT Copy — passing/binding it MOVES the unique
+        // mut-reference. `&T` is Copy. Reborrow-shaped uses (`&mut *r`) are
+        // wrapped at sema (try_implicit_reborrow_mut) and surface here as
+        // AddrOfTemp(Deref(r)), which the AddrOfTemp handler routes to a
+        // borrow on r — they don't pass through the move path.
+        if (x && x.kind() == LogosType::Kind::MutRef) return true;
+        return std::nullopt;
+    };
     auto struct_is_move = [&](TypeRef x) {
         return needs_drop(x, prog, ts) &&
                !ts.copy_types.count(std::string(TypeRef(x).struct_name()));
@@ -271,6 +279,11 @@ class BorrowChecker {
     std::unordered_map<std::string, std::unordered_set<std::string>> outlives_adj_;
     // Phase 3/4: return type of current function.
     TypeRef         ret_type_ = nullptr;
+    // CFG divergence flag. Set true when a stmt diverges (Return/Break/
+    // Continue). If/Match merges check it on each branch and skip merging
+    // moves from a diverged arm — otherwise an early-return inside one arm
+    // would pollute the join with moves that the OTHER arm never sees.
+    bool cur_diverged_ = false;
     // Phase 9 (NLL): max line at which each local variable is read.
     // Populated by scan_uses_block over the entire fn body before checking.
     // A borrow with non-empty holder is released once cur_line >= last_use_line_[holder].
@@ -915,6 +928,36 @@ class BorrowChecker {
             case Code::AddrOfTemp: {
                 EAddrOfTempView v{e};
                 auto inner = v.inner();
+                // Reborrow / implicit-reborrow shape: `AddrOfTemp(Deref(VarRef r))`
+                // where r is itself a ref-typed local. Register a borrow on r —
+                // r can't be used (read or written) while the reborrow lives.
+                // Skip the is_mut_binding requirement on r (reborrow draws from
+                // r's "borrow capacity", not the binding's mutness; `&mut`-ness
+                // comes from r's type, which the type-checker has already
+                // verified at sema). NLL releases the borrow on the holder's
+                // last use, restoring r's usability — this is what makes
+                // implicit-reborrow at call args work: r is "frozen" only for
+                // the duration of the call's scope.
+                if (inner && inner.kind() == Code::Deref) {
+                    auto op = EDerefView{inner}.operand();
+                    if (op && op.kind() == Code::VarRef &&
+                        is_ref_kind(op.type(pool))) {
+                        std::string rname(EVarRefView{op}.name());
+                        if (auto sit = states_.find(rname); sit != states_.end()) {
+                            // Route through take_borrow so two-phase reservation
+                            // (B82) and prefix-aware diagnostics kick in. The
+                            // reborrow draws from r's borrow capacity rather
+                            // than the binding's mutness — bypass the
+                            // is_mut_binding check by faking param_names_.
+                            bool fake_param = !sit->second.is_mut_binding &&
+                                              !param_names_.count(rname);
+                            if (fake_param) param_names_.insert(rname);
+                            take_borrow(rname, v.is_mut(), line, holder);
+                            if (fake_param) param_names_.erase(rname);
+                            break;
+                        }
+                    }
+                }
                 std::string root;
                 std::string path;
                 // Any IndexRead / SliceIndex in the chain collapses precision to
@@ -925,21 +968,36 @@ class BorrowChecker {
                 // `&arr[0]; arr[1] = …` are now all rejected.
                 bool index_in_chain = false;
                 {
+                    // Walk outer→inner, collecting field-path components. Fields
+                    // ABOVE an IndexRead/SliceIndex describe layout WITHIN the
+                    // indexed element (not part of the path TO the container),
+                    // so when we hit an index we discard any fields gathered so
+                    // far and keep collecting below the index. Below-index fields
+                    // ARE the path to the indexed container, which we borrow at
+                    // whole-element granularity (Rust-conservative — we don't
+                    // prove disjointness on the index value itself).
+                    // Examples:
+                    //   `&p.f.g`       → path=`f.g`,  root=p   (no index)
+                    //   `&p.arr[i]`    → path=`arr`,  root=p   (index closes path)
+                    //   `&p.arr[i].x`  → path=`arr`,  root=p   (`.x` is within-elem)
+                    //   `&self.data[i]`→ path=`data`, root=self (vec.next case —
+                    //     `self.idx` remains a disjoint sibling).
                     auto cur = inner;
                     std::vector<std::string> path_parts;
                     while (cur) {
                         if (cur.kind() == Code::FieldRead) {
                             EFieldReadView fv{cur};
-                            if (!index_in_chain)
-                                path_parts.push_back(std::string(fv.field()));
+                            path_parts.push_back(std::string(fv.field()));
                             cur = fv.receiver();
                         } else if (cur.kind() == Code::IndexRead) {
+                            // Index closes the within-element segment: discard
+                            // above-index fields, mark and continue.
+                            path_parts.clear();
                             index_in_chain = true;
-                            path_parts.clear();   // path precision lost
                             cur = EIndexReadView{cur}.receiver();
                         } else if (cur.kind() == Code::SliceIndex) {
-                            index_in_chain = true;
                             path_parts.clear();
+                            index_in_chain = true;
                             cur = ESliceIndexView{cur}.slice();
                         } else {
                             break;
@@ -947,12 +1005,10 @@ class BorrowChecker {
                     }
                     if (cur && cur.kind() == Code::VarRef) {
                         root = std::string(EVarRefView{cur}.name());
-                        if (!index_in_chain) {
-                            // Path built in reverse — outermost field first.
-                            for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
-                                if (!path.empty()) path.push_back('.');
-                                path.append(*it);
-                            }
+                        // Path built in reverse — outermost-inside-root first.
+                        for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
+                            if (!path.empty()) path.push_back('.');
+                            path.append(*it);
                         }
                     }
                 }
@@ -973,13 +1029,15 @@ class BorrowChecker {
                         }
                     }
                     if (index_in_chain) {
-                        // Index/slice-element borrow → whole-root borrow.
                         // Visit inner FIRST (sub-checks on the index expr etc.)
                         // BEFORE registering the borrow, else the recursive
                         // VarRef visit hits check_live on the root we just
                         // borrowed → spurious self-conflict.
                         if (inner) visit(inner, /*consuming=*/false, line);
-                        take_borrow(root, v.is_mut(), line, holder);
+                        if (!path.empty())
+                            take_field_borrow(root, std::move(path), v.is_mut(), line);
+                        else
+                            take_borrow(root, v.is_mut(), line, holder);
                         break;
                     }
                     if (!path.empty()) {
@@ -1542,6 +1600,7 @@ class BorrowChecker {
                     check_return_value(val, ln);
                     visit(val, /*consuming=*/true, ln);
                 }
+                cur_diverged_ = true;
                 break;
             }
 
@@ -1682,14 +1741,34 @@ class BorrowChecker {
                 visit(v.cond(), /*consuming=*/true, ln);
                 auto saved_s = states_;
                 auto saved_p = prov_;
+                bool saved_div = cur_diverged_;
+                cur_diverged_ = false;
                 if (auto then_b = block_ptr(v.then_block())) visit_block(*then_b);
                 auto then_s = states_;
                 auto then_p = prov_;
+                bool then_div = cur_diverged_;
                 states_ = saved_s;
                 prov_   = saved_p;
+                cur_diverged_ = false;
                 if (auto else_b = block_ptr(v.else_block())) visit_block(*else_b);
-                merge_moves(states_, then_s);
-                merge_provs(prov_,   then_p);
+                bool else_div = cur_diverged_;
+                // A diverged branch (return/break/continue at the join point)
+                // contributes nothing to the post-if move state — only the
+                // surviving branch propagates. If BOTH diverged, the whole if
+                // diverges. If ELSE diverged, the post-if state IS then's.
+                if (then_div && else_div) {
+                    cur_diverged_ = true;
+                } else if (then_div) {
+                    cur_diverged_ = saved_div;  // states_ = else's
+                } else if (else_div) {
+                    states_ = then_s;
+                    prov_   = then_p;
+                    cur_diverged_ = saved_div;
+                } else {
+                    merge_moves(states_, then_s);
+                    merge_provs(prov_,   then_p);
+                    cur_diverged_ = saved_div;
+                }
                 break;
             }
 
@@ -1764,7 +1843,12 @@ class BorrowChecker {
                 break;
             }
 
-            // SBreak, SContinue, LetElse — no variable effects in this pass.
+            // SBreak, SContinue, LetElse — no variable effects in this pass,
+            // but Break/Continue still diverge the current stmt-flow.
+            case Code::Break:
+            case Code::Continue:
+                cur_diverged_ = true;
+                break;
             default:
                 break;
         }

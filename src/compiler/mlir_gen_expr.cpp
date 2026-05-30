@@ -1325,6 +1325,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
             return addr;
     }
 
+    // Reborrow / pointer-identity peephole: `&[mut] *r` ≡ r when r already
+    // holds a Ref/MutRef/Ptr — load r's value (which IS the pointer = the
+    // reference). The sema peephole used to do this directly; moving it here
+    // preserves the explicit `AddrOfTemp(Deref(...))` shape in LIR so borrow-
+    // check can distinguish a reborrow from a rebind for `&mut T`.
+    if (inner_ref.kind() == ec::Code::Deref) {
+        auto deref_op = lir_view::EDerefView{inner_ref}.operand();
+        if (deref_op) {
+            TypeRef dt = deref_op.type(pool_impl());
+            if (dt && (TypeRef(dt).kind() == LogosType::Kind::Ptr ||
+                       TypeRef(dt).kind() == LogosType::Kind::MutRef ||
+                       TypeRef(dt).kind() == LogosType::Kind::Ref)) {
+                if (auto* op_le = lexpr_of(deref_op))
+                    return gen_expr(*op_le);
+            }
+        }
+    }
+
     // Special case: &mut <field_read> on an inline struct field must return a
     // GEP into the original struct, NOT a copy.  gen_expr(EFieldRead) always
     // loads, which would give us a by-value copy — useless for mutation.

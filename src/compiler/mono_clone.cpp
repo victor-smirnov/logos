@@ -2274,14 +2274,29 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 auto self_r = sub_args[0];
                 auto f_r    = sub_args[1];
+                // f_r is `&mut Formatter` reused at every call below. Without
+                // a reborrow wrap, borrow_check (which treats `&mut T` as a
+                // move-type) consumes f_r on the first pass and rejects every
+                // subsequent use. Wrap each use as `AddrOfTemp(Deref(f_r))`
+                // (the implicit-reborrow shape) so each call site sees an
+                // active borrow of the underlying parameter, NLL-released at
+                // the call's end. f_r itself stays usable across the chain.
+                auto reborrow_f = [&]() -> lir::LExprPtr {
+                    TypeRef ft = f_r->type;
+                    if (!ft || ft.kind() != LogosType::Kind::MutRef ||
+                        !ft.pointee()) return f_r;
+                    TypeRef pte = ft.pointee();
+                    auto dr = lb.deref(f_r, pte);
+                    return lb.addr_of_temp(dr, true, ft);
+                };
                 std::function<lir::LExprPtr(TypeRef, lir::LExprPtr)>
                 build = [&](TypeRef TT, lir::LExprPtr selfr) -> lir::LExprPtr {
                     auto es = TT.tuple_elems();
                     size_t n = es.size();
-                    lir::LExprPtr chain = lb.call(open_sym, {}, { f_r }, res_t);
+                    lir::LExprPtr chain = lb.call(open_sym, {}, { reborrow_f() }, res_t);
                     for (size_t i = 0; i < n; ++i) {
                         if (i > 0) {
-                            auto sep = lb.call(sep_sym, {}, { f_r }, res_t);
+                            auto sep = lb.call(sep_sym, {}, { reborrow_f() }, res_t);
                             chain = lb.call(seq_sym, {}, { chain, sep }, res_t);
                         }
                         TypeRef et = es[i];
@@ -2300,11 +2315,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             std::string sym = resolve_dbg(en);
                             // By-value receiver; mlir-gen's primitive-receiver
                             // fast-path spills it for the `&self` param.
-                            fld = lb.method_call(field, "fmt", sym, {}, { f_r }, -1, res_t);
+                            fld = lb.method_call(field, "fmt", sym, {}, { reborrow_f() }, -1, res_t);
                         }
                         chain = lb.call(seq_sym, {}, { chain, fld }, res_t);
                     }
-                    auto cl = lb.call(n == 1 ? close1_sym : close_sym, {}, { f_r }, res_t);
+                    auto cl = lb.call(n == 1 ? close1_sym : close_sym, {}, { reborrow_f() }, res_t);
                     chain = lb.call(seq_sym, {}, { chain, cl }, res_t);
                     return chain;
                 };

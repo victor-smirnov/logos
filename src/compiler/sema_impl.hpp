@@ -401,6 +401,8 @@ private:
     // already fits `pt` or `pt` is not a trait object.
     bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
     bool coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt);
+    bool try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
+                                   bool allow_downgrade = true);
 
     // Build a `str_eq(a, b)` bool guard for a string-literal pattern. A raw
     // `a == b` LBinOp would pointer-compare two str slices; the stdlib `str_eq`

@@ -814,24 +814,23 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 return builder().addr_of(std::string(var_name), make_ref(true, vt));
             return builder().addr_of(std::string(var_name), make_ref(true, vt));
         }
-        // `&mut *ptr` — short-circuit to ptr with re-typed reference.
-        // Without this, the literal load+spill-to-temp chain emitted
-        // for `*ptr` followed by addr_of_temp produces a reference to a
-        // FRESH alloca holding a value copy, not to the original
-        // pointee. Standard pointer/ref identity from Rust:
-        //   &mut *p ≡ p (with type Ptr<T> → MutRef<T>).
+        // `&mut *ptr` — the pointer/ref identity peephole moved to mlir-gen
+        // (gen_expr_kind(EAddrOfTempView)) so borrow_check can distinguish a
+        // reborrow `&mut *r` from a rebind `let r2 = r;` for `&mut T`. We
+        // preserve the explicit `AddrOfTemp(Deref(operand))` shape; mlir-gen
+        // recognises it and emits the operand's value (load) directly,
+        // identical to what the sema peephole used to do.
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
-            auto inner = lower_expr(map_of(child.get(la::VALUE.code)));
-            auto it = inner->type;
-            if (TypeRef(it).kind() == LogosType::Kind::Ptr ||
-                TypeRef(it).kind() == LogosType::Kind::MutRef ||
-                TypeRef(it).kind() == LogosType::Kind::Ref) {
-                auto ret_t = make_ref(true, TypeRef(it).pointee());
-                inner->type = ret_t;
-                lir_mirror_update_type(*cur_prog_, *inner);
-                return inner;
+            auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
+            auto op_t = operand->type;
+            if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
+                TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
+                TypeRef(op_t).kind() == LogosType::Kind::Ref) {
+                TypeRef pointee_t = TypeRef(op_t).pointee();
+                auto deref = builder().deref(std::move(operand), pointee_t);
+                return builder().addr_of_temp(std::move(deref), true, make_ref(true, pointee_t));
             }
-            return builder().addr_of_temp(std::move(inner), true, make_ref(true, it));
+            return builder().addr_of_temp(std::move(operand), true, make_ref(true, op_t));
         }
         // &mut f[i] over a user IndexMut struct → index_mut() place ref.
         if (code_of(child) == la::INDEX_READ) {
@@ -2032,20 +2031,19 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             }
             return builder().addr_of(std::string(var_name), make_ref(false, vt));
         }
-        // `&*ptr` — pointer/ref identity peephole (see ADDR_OF_MUT
-        // case above for rationale).
+        // `&*ptr` — preserve the `AddrOfTemp(Deref(operand))` shape so borrow-
+        // check can see the reborrow; mlir-gen peepholes it back at codegen.
         if (code_of(child) == la::DEREF && child.has_key(la::VALUE)) {
-            auto inner_v = lower_expr(map_of(child.get(la::VALUE.code)));
-            auto it = inner_v->type;
-            if (TypeRef(it).kind() == LogosType::Kind::Ptr ||
-                TypeRef(it).kind() == LogosType::Kind::MutRef ||
-                TypeRef(it).kind() == LogosType::Kind::Ref) {
-                auto ret_t = make_ref(false, TypeRef(it).pointee());
-                inner_v->type = ret_t;
-                lir_mirror_update_type(*cur_prog_, *inner_v);
-                return inner_v;
+            auto operand = lower_expr(map_of(child.get(la::VALUE.code)));
+            auto op_t = operand->type;
+            if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
+                TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
+                TypeRef(op_t).kind() == LogosType::Kind::Ref) {
+                TypeRef pointee_t = TypeRef(op_t).pointee();
+                auto deref = builder().deref(std::move(operand), pointee_t);
+                return builder().addr_of_temp(std::move(deref), false, make_ref(false, pointee_t));
             }
-            return builder().addr_of_temp(std::move(inner_v), false, make_ref(false, it));
+            return builder().addr_of_temp(std::move(operand), false, make_ref(false, op_t));
         }
         // &f[i] over a user Index struct → index() place ref (no deref/temp).
         if (code_of(child) == la::INDEX_READ) {
@@ -2342,6 +2340,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error(std::format("{}: expected {} args, got {}", kind_str, n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
+                try_implicit_reborrow_mut(arg_exprs[i], TypeRef(callee_type).closure_params()[i]);
                 widen_int_expr(arg_exprs[i], TypeRef(callee_type).closure_params()[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = TypeRef(callee_type).closure_params()[i];
@@ -2620,6 +2619,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 try_coerce_slice_to_array_ref(arg_exprs[i], exact_fi->param_types[i]);
                 try_retype_bare_enum_arg(arg_exprs[i], exact_fi->param_types[i]);
                 coerce_dyn_upcast(arg_exprs[i], exact_fi->param_types[i]);  // &dyn Sub → &dyn Super
+                try_implicit_reborrow_mut(arg_exprs[i], exact_fi->param_types[i]);
                 widen_int_expr(arg_exprs[i], exact_fi->param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = exact_fi->param_types[i];
@@ -2845,6 +2845,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         } else {
             for (uint64_t i = 0; i < fi.param_types.size(); ++i) {
                 try_coerce_closure_to_fnptr(arg_exprs[i], fi.param_types[i]);
+                try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
                 widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
                 auto at = arg_exprs[i]->type;
                 auto pt = fi.param_types[i];
@@ -2872,6 +2873,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             try_coerce_slice_to_array_ref(arg_exprs[i], fi.param_types[i]);
             try_retype_bare_enum_arg(arg_exprs[i], fi.param_types[i]);
             coerce_dyn_upcast(arg_exprs[i], fi.param_types[i]);  // &dyn Sub → &dyn Super
+            try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
             widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];
@@ -3451,7 +3453,23 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
         }
 
     if (has_pack_expand) {
-        // pass — mono expands
+        // Mono expands the pack at instantiation; arg types/positions stay
+        // generic here. But fixed (non-pack) args still match concrete param
+        // types and can carry implicit `&mut T` reborrows that borrow_check
+        // (running post-mono) requires. Apply reborrow for fixed args whose
+        // formal is ref-shaped so a chain like `fmt_into(pat, fi, flen, f,
+        // rest...)` keeps `f` usable across consecutive recursive calls.
+        size_t fixed_params = 0;
+        if (has_variadic && !fi.param_types.empty())
+            fixed_params = fi.param_types.size() - 1;
+        else
+            fixed_params = fi.param_types.size();
+        for (uint64_t i = 0; i < n_args && i < fixed_params; ++i) {
+            if (expr_ref_of(*arg_exprs[i]).kind() ==
+                lir_schema::expr::Code::PackExpand) continue;
+            auto pt = subst_type_sema(fi.param_types[i], subst);
+            try_implicit_reborrow_mut(arg_exprs[i], pt);
+        }
     } else if (has_variadic) {
         // `has_variadic` means the function has a variadic *type* parameter.
         // It may or may not have a corresponding variadic *value* parameter:
@@ -3465,6 +3483,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             auto pt = subst_type_sema(fi.param_types[i], subst);
             retype_bare_enum_arg(arg_exprs[i], pt);
             try_coerce_closure_to_fnptr(arg_exprs[i], pt);
+            try_implicit_reborrow_mut(arg_exprs[i], pt);
             widen_int_expr(arg_exprs[i], pt, builder());
             auto at = arg_exprs[i]->type;
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -3494,6 +3513,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 try_coerce_closure_to_fnptr(arg_exprs[i], pt);
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 try_coerce_slice_to_array_ref(arg_exprs[i], pt);
+                try_implicit_reborrow_mut(arg_exprs[i], pt);
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -5243,6 +5263,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
                               n_params, n_args));
         } else {
             for (uint64_t i = 0; i < n_args; ++i) {
+                try_implicit_reborrow_mut(arg_exprs[i], TypeRef(rt).closure_params()[i]);
                 widen_int_expr(arg_exprs[i],
                                TypeRef(rt).closure_params()[i], builder());
                 auto pt = TypeRef(rt).closure_params()[i];
@@ -5825,6 +5846,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                     self_subst["Self"] = recv->type;
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
+                        try_implicit_reborrow_mut(arg_exprs[i], pt);
                         widen_int_expr(arg_exprs[i], pt, builder());
                         coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
                         auto at = arg_exprs[i]->type;
@@ -6376,6 +6398,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
+                    try_implicit_reborrow_mut(arg_exprs[i], pt);
                     widen_int_expr(arg_exprs[i], pt, builder());
                     coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
                     auto at = arg_exprs[i]->type;
@@ -6595,8 +6618,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             track_args_moved(arg_exprs);
-            if (chosen_method && !chosen_method->param_types.empty())
+            if (chosen_method && !chosen_method->param_types.empty()) {
+                try_implicit_reborrow_mut(mc.receiver, chosen_method->param_types[0],
+                                          /*allow_downgrade=*/false);
                 track_recv_moved(mc.receiver, chosen_method->param_types[0]);
+            }
             mc.args     = std::move(arg_exprs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
@@ -7672,6 +7698,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // B171: implicit `&Concrete → &dyn Trait` unsize at struct-method
                 // args (`v.push(&42i64)` into `Vec<&dyn Tr>`).
                 coerce_arg_to_dyn(arg_exprs[i], pt);
+                try_implicit_reborrow_mut(arg_exprs[i], pt);
             }
             auto at = arg_exprs[i]->type;
             if (pi < fi.param_types.size()) {
@@ -7824,7 +7851,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             track_args_moved(arg_exprs);
-            if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
+            if (!fi.param_types.empty()) {
+                auto pt0 = struct_subst.empty()
+                         ? fi.param_types[0]
+                         : subst_type_sema(fi.param_types[0], struct_subst);
+                try_implicit_reborrow_mut(recv, pt0, /*allow_downgrade=*/false);
+                track_recv_moved(recv, fi.param_types[0]);
+            }
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
@@ -7913,7 +7946,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
     track_args_moved(arg_exprs);
-    if (!fi.param_types.empty()) track_recv_moved(recv, fi.param_types[0]);
+    if (!fi.param_types.empty()) {
+        try_implicit_reborrow_mut(recv, fi.param_types[0], /*allow_downgrade=*/false);
+        track_recv_moved(recv, fi.param_types[0]);
+    }
     lir::EMethodCall mc;
     mc.receiver     = std::move(recv);
     mc.method       = std::string(method_name);
@@ -11151,6 +11187,66 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
 // the stored super-vtable-pointer slot). Narrowly scoped to a dyn SOURCE so the
 // concrete→dyn coercion (handled implicitly at mlir-gen call sites) is left
 // untouched. Returns true if a cast was inserted.
+// Implicit `&mut T` reborrow at a call-arg position (Rust ergonomics: a `&mut`
+// passed to a `&mut T` parameter is automatically reborrowed as `&mut *r`, not
+// moved). Without this, every call site of an `&mut`-taking fn would either
+// consume the local `r` (sound `&mut` is move-only) or require the user to
+// write `&mut *r` by hand. Wraps `arg` as `AddrOfTemp(Deref(arg), is_mut=true)`
+// — semantically identical at codegen (mlir-gen's peephole emits a load of
+// the original value), but borrow-check now sees a reborrow shape and ties
+// the borrow's NLL release to the call's holder, leaving `r` usable after.
+// Skip when `arg` is already an AddrOfTemp (already reborrowed or fresh ref).
+bool SemaChecker::try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
+                                              bool allow_downgrade) {
+    // Rust auto-reborrows `&mut T` at call/method coercion sites where the
+    // formal expects either `&mut T` (mut reborrow) or `&T` (downgrade
+    // reborrow as shared). The wrapped expression — AddrOfTemp(Deref(r)) —
+    // routes through borrow_check's AddrOfTemp(Deref(VarRef ref-typed))
+    // handler, which registers a borrow on r rather than consuming it.
+    // Without this, every fn call passing a `&mut T` arg would move it,
+    // making Rust-idiom (`f.write_str(x); v.fmt(f);`) reject.
+    //
+    // The reborrow is purely STRUCTURAL — the wrapped expression has the
+    // SAME type as `arg`, so we don't require `types_compatible(arg, pt)`:
+    // the existing argument type-check will run after this and flag any
+    // genuine mismatch. We only need to know the FORMAL is ref-shaped
+    // (mut or shared) so the reborrow makes semantic sense; in particular
+    // a generic `pt = &mut Self` (TypeVar pointee) is fine — the reborrow
+    // doesn't reify Self.
+    if (!arg || !pt) return false;
+    if (TypeRef(arg->type).kind() != LogosType::Kind::MutRef) return false;
+    auto pkind = TypeRef(pt).kind();
+    bool dest_mut;
+    if (pkind == LogosType::Kind::MutRef) dest_mut = true;
+    else if (pkind == LogosType::Kind::Ref) {
+        // Downgrading reborrow `&mut → &` is correct for fn-arg coercion
+        // (Rust auto-downgrades), but at the method-receiver position the
+        // formal `&Self` carries Self = `&mut X` for an `impl Trait for &mut
+        // X` (Self IS the ref), and downgrading would dispatch through the
+        // wrong impl key. Caller passes allow_downgrade=false there.
+        if (!allow_downgrade) return false;
+        dest_mut = false;
+    }
+    else if (pkind == LogosType::Kind::Ptr) dest_mut = TypeRef(pt).mut_ptr();
+    else return false;
+    TypeRef arg_pointee = TypeRef(arg->type).pointee();
+    if (!arg_pointee) return false;
+    // Reborrow only applies to a PLACE holding a `&mut T` — a binding (VarRef)
+    // or a field access yielding `&mut T`. Bare `&mut x` / `&mut p.f` is
+    // already a FRESH borrow expression (AddrOf/AddrOfTemp) — wrapping it in
+    // a reborrow shape would hide it from borrow_check's normal recording
+    // path, silently dropping the borrow.
+    auto k = expr_ref_of(*arg).kind();
+    if (k != lir_schema::expr::Code::VarRef &&
+        k != lir_schema::expr::Code::FieldRead &&
+        k != lir_schema::expr::Code::IndexRead)
+        return false;
+    auto deref = builder().deref(std::move(arg), arg_pointee);
+    arg = builder().addr_of_temp(std::move(deref), /*is_mut=*/dest_mut,
+                                  make_ref(dest_mut, arg_pointee));
+    return true;
+}
+
 bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
     TypeRef at(arg->type);
@@ -11737,6 +11833,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
               mangled, fi.param_types.size(), n_args));
     } else {
         for (uint64_t i = 0; i < n_args; ++i) {
+            try_implicit_reborrow_mut(arg_exprs[i], fi.param_types[i]);
             widen_int_expr(arg_exprs[i], fi.param_types[i], builder());
             auto at = arg_exprs[i]->type;
             auto pt = fi.param_types[i];

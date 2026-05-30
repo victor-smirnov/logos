@@ -4,7 +4,8 @@
 move/Copy, borrow, stdlib). **Re-verified against the tree 2026-05-29** — the
 P0/P1 leak inventory, all P2 soundness gaps, and the entire "missing features"
 shelf (Rc/Arc Weak, supertrait upcasting, Box::into_raw, Box<[T]>, custom-DST,
-RFC-2229 phases 1+2) are now closed; this revision reflects the current state.*
+RFC-2229 phases 1+2, **first-class reborrow + `&mut T` non-Copy**) are now
+closed; this revision reflects the current state.*
 
 Canonical map of how `logosc` manages memory and how every language feature
 interacts with it. Read this before touching allocation / drop / move / borrow /
@@ -126,8 +127,12 @@ alive; an escaping `move` closure capturing a droppable owns it inline). Per-bra
 `moved_vars_` snapshot+union merge for if/match.
 
 Copy: primitives, `&T`/`&dyn`, `*const/*mut`, `&[T]`, fn-ptr, trait-object — all
-Copy; **`&mut T` NOT Copy** (Rust parity). Auto-Copy for all-Copy plain structs.
-By-value params/`self` **do** auto-drop at callee scope exit.
+Copy; **`&mut T` NOT Copy** (Rust parity — `is_move_type` leaf returns `true`
+for `MutRef`; flowing a `&mut T` into a consuming position MOVES it, and a
+re-use requires either an explicit place (`&mut *r`) or the implicit reborrow
+sema inserts at coercion sites — see §4 *first-class reborrow*). Auto-Copy for
+all-Copy plain structs. By-value params/`self` **do** auto-drop at callee
+scope exit.
 
 ---
 
@@ -176,21 +181,55 @@ Runs on LIR via `borrow_check(LProgram, bool generic_templates_only)`
   bound via Rust's elision conservatism; may overshoot when an explicit
   lifetime ties the return to a specific input — refining = future work);
 - **named lifetimes + elision + outlives** on returns (B66 outlives graph
-  from `fn.lifetime_outlives`; B86 per-param inner-struct `lifetime_args`).
+  from `fn.lifetime_outlives`; B86 per-param inner-struct `lifetime_args`);
+- **`&mut T` move-type + first-class reborrow** — `is_move_type` (leaf)
+  returns `true` for `MutRef` so a `&mut T` flowing into a consuming position
+  is moved, matching Rust's non-Copy semantics. The reborrow shape
+  `AddrOfTemp(Deref(VarRef r))` is preserved end-to-end:
+  - sema's `try_implicit_reborrow_mut(arg, pt, allow_downgrade)`
+    auto-inserts the wrap at every coercion site where Rust auto-reborrows
+    — call/method args (8 paths incl. exact-fi, vararg, generic, method-
+    call, pack-expand fixed args, struct-method, static call), method
+    *receivers* (`allow_downgrade=false` — keeps `&mut Self` from being
+    downgraded to `&Self` which would dispatch through the wrong impl key
+    for `impl X for &mut M`), and `let _: T = rhs` when ann is
+    `&[mut]/*const/*mut` (Rust's type-ascription is a coercion site;
+    same-type `let m: &mut T = v` also reborrows, NLL-released on `m`'s
+    last use);
+  - borrow_check's AddrOfTemp handler routes the wrap through `take_borrow`
+    on the underlying VarRef (B82 two-phase reservation applies; the
+    `is_mut_binding` requirement is bypassed via a temporary `param_names_`
+    insertion since `&mut`-ness comes from `r`'s type, not its binding);
+  - the sema `&[mut] *r ≡ r` peephole was **moved to mlir-gen**
+    (`gen_expr_kind(EAddrOfTempView)`), so the explicit `AddrOfTemp(Deref(...))`
+    shape persists through the LIR for borrow-check while codegen still
+    emits the operand's value verbatim (no pointer round-trip);
+  - mlir-gen's `gen_dyn_dispatch` unwraps the reborrow shape so vtable
+    dispatch on a substituted-to-dyn TypeVar receiver (`tick_generic<C:
+    ?Sized + Counter>(c: &mut C)` invoked with `&mut dyn Counter`) reads
+    the fat-pair load correctly;
+- **CFG divergence in if-merge** — `cur_diverged_` flag set by
+  `Return`/`Break`/`Continue`; the if/match join skips merging the moves
+  of a diverged arm so early-return inside one branch does NOT pollute the
+  other branch's post-state. Required once `&mut T` became move-type:
+  `return r;` was suddenly marking `r` moved even on the other CFG path.
+- **element-borrow walker preserves field-path under index** —
+  `&[mut] self.data[i]` borrows path `data` on root `self` (whole-element
+  granularity); `self.idx = …` remains a disjoint-sibling write that
+  borrow-check accepts. Closes the `Vec::next` false self-conflict that
+  surfaced when `&mut`-as-move-type started extending `r`'s live range.
 
 Raw-ptr roots bypass exclusivity (B93.2); `&mut`-roots also skip the
 binding-mut requirement.
 
-**NOT checked (gaps vs Rust)**: reborrows (not first-class — and entangled
-with the sema peephole `&mut *r ≡ r`, which makes reborrow and rebind
-LIR-indistinguishable; a sound fix needs preserving the `AddrOfTemp(Deref(…))`
-shape or emitting a reborrow marker); self-referential structs; move-out-of-
-deref. (Generic-fn-body borrow-check, closure-capture-mode exclusivity,
-index/slice element borrows, and cross-function ref-return provenance —
-formerly listed here — are now implemented per P2-10, P2-13/RFC-2229,
-`b1ba5dd3`, and `721a3780` respectively. Refinement follow-up on element
-borrows: compile-time-known disjoint indices like `split_at_mut`-style
-two-step access without the helper.)
+**NOT checked (gaps vs Rust)**: self-referential structs; move-out-of-
+deref. (Reborrows, generic-fn-body borrow-check, closure-capture-mode
+exclusivity, index/slice element borrows, and cross-function ref-return
+provenance — formerly listed here — are now implemented per the reborrow
+landing above, P2-10, P2-13/RFC-2229, `b1ba5dd3`, and `721a3780`
+respectively. Refinement follow-up on element borrows: compile-time-known
+disjoint indices like `split_at_mut`-style two-step access without the
+helper.)
 
 ---
 
@@ -445,7 +484,54 @@ The memory-management initiative ran 2026-05-26 → 05-28. Landmark work, in ord
   arr[1]`, `&mut arr[0]; &mut arr`, dup `&mut arr[0]; &mut arr[0]`,
   `&arr[0]; arr[1] = …`. NLL release on inner-block scope exit unchanged.
 
+- **`&mut T` non-Copy + first-class reborrow** (2026-05-29) — the big
+  borrow-checker correctness landing. **Four cooperating changes:**
+  1. **Peephole sema→mlir-gen** — `&[mut] *r ≡ r` used to fold at sema,
+     making reborrow and rebind LIR-indistinguishable. Moved to
+     `gen_expr_kind(EAddrOfTempView)`; LIR now preserves the explicit
+     `AddrOfTemp(Deref(r))` shape end-to-end, codegen still emits the
+     operand verbatim.
+  2. **Auto-reborrow at coercion sites** — sema
+     `try_implicit_reborrow_mut(arg, pt, allow_downgrade)` wraps a `&mut T`
+     PLACE (VarRef/FieldRead/IndexRead — NOT a fresh `&mut x` AddrOf, which
+     would hide the borrow) as `AddrOfTemp(Deref(arg))`. Wired into 8
+     call/method arg paths (exact-fi, vararg, generic, struct-method,
+     static-call, pack-expand fixed args, …), method *receivers*
+     (`allow_downgrade=false` so `&mut Self`→`&Self` doesn't dispatch
+     through the wrong impl key for `impl X for &mut M`), and `let _: T =
+     rhs` when ann is `&[mut]/*const/*mut` (Rust's type-ascription is a
+     coercion site; same-type `let m: &mut T = v` also reborrows). Mono
+     `__tuple_each_field_debug__` reborrows the `f: &mut Formatter` on
+     every chain step.
+  3. **Borrow-check reborrow handler** — `AddrOfTemp(Deref(VarRef r))`
+     where r is ref-typed routes through `take_borrow` (B82 two-phase
+     reservation applies; the `is_mut_binding` requirement is bypassed
+     via a temporary `param_names_` insertion since `&mut`-ness comes
+     from r's TYPE, not its binding mutability).
+  4. **`is_move_type` leaf — `MutRef → true`** — `&mut T` is consumed by
+     a flow into a consuming position; reuse requires either an explicit
+     reborrow or the implicit one inserted at coercion sites.
+  Three follow-on fixes the four steps surfaced:
+  * **Element-borrow walker** preserves field-path under index:
+    `&[mut] self.data[i]` borrows path `data` (not whole-root `self`),
+    so `self.idx = …` stays a disjoint sibling — fixes the `Vec::next`
+    false self-conflict that surfaced when `r`'s live range extended.
+  * **CFG divergence flag** (`cur_diverged_`) set on Return/Break/
+    Continue; If-merge skips a diverged arm's moves so early-return
+    inside one branch doesn't pollute the other branch's post-state
+    (`return r;` would otherwise mark `r` moved on the join path).
+  * **`gen_dyn_dispatch` unwraps the reborrow shape** so vtable dispatch
+    on a substituted-to-dyn TypeVar receiver
+    (`tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with
+    `&mut dyn Counter`) reads the fat-pair load correctly.
+  One stdlib site (`Hermes::import_from`) updated from `let p: *const _ =
+  self;` to `let p: *const _ = (&*self) as *const _;` — per-Rust the
+  former MOVES `self` via the implicit `&mut → *const` raw-pointer
+  coercion at let-binding (a single Rust-faithful site, not a workaround).
+  Suite 5287/5287; the four-step sequence reduced 26 → 18 → 13 → 10 → 5
+  → 0 failing tests across iterations as each follow-on fix landed.
+
 **Gating discipline (still in force):** every step gates on the FULL suite
-(`bash ../tests/logos/ctest-summary.sh`, currently **5283/5283**) and valgrind on
+(`bash ../tests/logos/ctest-summary.sh`, currently **5287/5287**) and valgrind on
 a representative droppable round-trip; rebuild clean (a stale `.o` once hid a
 regression). Memory work is verified by *exact drop counts*, not just pass/fail.
