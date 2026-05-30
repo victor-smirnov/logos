@@ -6629,6 +6629,16 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
     // K4: a desugared nested-enum match is exhaustive at the AST level but its
     // arms carry synth guards (skipped below), so suppress the variant check.
     if (ast_proven_exhaustive) return;
+    // logos-core 4.2: uninhabited scrutinee — `Never` or an empty enum — is
+    // trivially exhaustive (no value to match against). Rust accepts a bare
+    // `match x { }` here; we do too. Pairs with the Phase 1 Never tighten
+    // work so a diverging tail (`loop {}`, `return`, panic) reachable through
+    // an empty match arms's body is correctly typed.
+    if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Never) return;
+    if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Enum) {
+        auto [epkg_e, esi_e] = find_enum_by_name(TypeRef(scrut_type).enum_name());
+        if (esi_e && esi_e->variants.empty()) return;
+    }
     bool has_wild = false;
     for (auto& arm : smatch.arms) {
         if (!arm.guard && pat_ref_of(arm.pat).kind() == lir_schema::pat::Code::Wild) {

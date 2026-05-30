@@ -33,8 +33,33 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     live_out_.clear();
     use_.clear();
     def_.clear();
+    named_regions_.clear();
     next_region_id_ = 1;
     prog_for_liveness_ = &prog;
+
+    // logos-core 2.1: allocate a fresh RegionId per declared lifetime
+    // parameter (`'a`, `'b`, …) and seed Outlives constraints from
+    // `fn.lifetime_outlives`. These named regions become the canonical
+    // link between borrow_check's syntactic outlives graph (B66, string-
+    // keyed) and region_infer's semantic constraint graph. Downstream
+    // passes (HRTB instantiation, dropck, default trait-object lifetime)
+    // consume named_region(name) → RegionId.
+    for (auto& lp : fn.lifetime_params)
+        if (!lp.empty()) named_regions_[lp] = fresh_region();
+    for (auto& [longer, shorter] : fn.lifetime_outlives) {
+        // Skip outlives clauses that mention an unknown lifetime — that
+        // is a sema-level error already reported (region_infer is best-
+        // effort here, not the diagnostic site).
+        auto li = named_regions_.find(longer);
+        auto si = named_regions_.find(shorter);
+        if (li == named_regions_.end() || si == named_regions_.end()) continue;
+        RegionConstraint c;
+        c.kind    = RegionConstraint::Kind::Outlives;
+        c.longer  = li->second;
+        c.shorter = si->second;
+        c.point   = StmtPoint{0, 0};   // outlives is point-independent
+        constraints_.push_back(c);
+    }
 
     cfg_.blocks.emplace_back();
     walk_block(fn.body, /*blk_id=*/0, prog);

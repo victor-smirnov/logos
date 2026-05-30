@@ -2687,6 +2687,25 @@ void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
         for (auto e : TypeRef(t).tuple_elems()) if (mentions_self(e)) return true;
         return false;
     };
+    // logos-core 3.3: a trait with a Generic Associated Type item is
+    // NOT object-safe — GAT instantiation requires a concrete impl
+    // (the type is parameterised by something the vtable can't know).
+    // Rust E0038 lists this; pre-fix it was undocumented in
+    // check_trait_object_safe and slipped through to a runtime
+    // segfault on dispatch.
+    for (auto& at : ti->assoc_types) {
+        if (!at.type_params.empty()) {
+            dyn_safety_reported_.insert(trait_name);
+            error(std::format("the trait `{}` is not object-safe (cannot be a "
+                              "`dyn {}` trait object) because it has a generic "
+                              "associated type `{}<{}>` — GAT instantiation "
+                              "needs a concrete impl",
+                              trait_name, trait_name, at.name,
+                              at.type_params.empty() ? std::string()
+                                                      : at.type_params[0].name));
+            return;
+        }
+    }
     for (auto& m : ti->methods) {
         if (m.requires_sized_self) continue;   // excluded from the vtable
         std::string reason;
@@ -6909,6 +6928,21 @@ Variance variance_in_type(TypeRef t,
         case K::Struct:
         case K::ZonedStruct:
         case K::Enum: {
+            // logos-core 2.2: `UnsafeCell<T>` is the interior-mutability
+            // lang-item — Inv in T (Rust's invariance rule, since `&T`
+            // can mutate the interior; a covariant relationship between
+            // `UnsafeCell<&'long X>` and `UnsafeCell<&'short X>` would
+            // be unsound). Recognised by qualified name.
+            if (t.kind() == K::Struct &&
+                std::string(t.struct_name()) == "UnsafeCell" &&
+                std::string(t.pkg_name()) == "logos.lang.cell") {
+                Variance v = Variance::BiVar;
+                for (auto a : t.type_args())
+                    v = variance_meet(v, variance_in_type(a, target,
+                                                           target_is_lifetime, table,
+                                                           variance_compose(ambient, Variance::Inv)));
+                return v;
+            }
             std::string key = std::string(t.pkg_name()) +
                               (t.pkg_name().empty() ? "" : ".") +
                               std::string(t.kind() == K::Enum ? t.enum_name() : t.struct_name());

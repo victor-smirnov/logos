@@ -50,6 +50,18 @@ pub struct Weak<T> {
     inner: *mut ArcInner<T>,
 }
 
+// logos-core 2.4 (b): `Arc<T>` carries a raw `*mut ArcInner<T>` field that
+// would otherwise make the structural derivation reject it from `Send` /
+// `Sync` (raw pointers are conservatively `!Send`/`!Sync`). The atomic
+// refcount + immutable payload guarantee the strict aliasing rules Rust
+// requires, so the safety promise lives at the API surface (only `&T`
+// access through the handle, atomic clone/drop). Bound `T: Send + Sync`
+// — mirrors Rust's `impl<T: Sync + Send + ?Sized> {Send,Sync} for Arc<T>`.
+unsafe impl<T: Send + Sync> Send for Arc<T> {}
+unsafe impl<T: Send + Sync> Sync for Arc<T> {}
+unsafe impl<T: Send + Sync> Send for Weak<T> {}
+unsafe impl<T: Send + Sync> Sync for Weak<T> {}
+
 pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
     let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
     unsafe {

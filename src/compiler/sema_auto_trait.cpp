@@ -129,6 +129,22 @@ bool SemaChecker::is_auto_trait_satisfied(
     // ── Struct / ZonedStruct: explicit impl OR all fields satisfied ─────────
     case Kind::Struct:
     case Kind::ZonedStruct: {
+        // logos-core 2.2: `UnsafeCell<T>` is the foundational interior-
+        // mutability lang-item. A type reachable through `UnsafeCell` is
+        // auto-`!Sync` (Rust's rule: shared `&T` can mutate the interior,
+        // so two threads racing on it would race-write). `Send` follows
+        // T's Send (the cell can move across threads if T can).
+        // Recognised by qualified name `logos.lang.cell.UnsafeCell` to
+        // avoid colliding with a user-defined `UnsafeCell` in another
+        // package.
+        if (tv.struct_name() == "UnsafeCell" &&
+            tv.pkg_name() == "logos.lang.cell") {
+            if (trait_name == "Sync") return false;
+            // Send: defer to the wrapped T (the single field `value: T`).
+            if (!tv.type_args().empty())
+                return is_auto_trait_satisfied(tv.type_args()[0], "Send", visited);
+            return false;
+        }
         int verdict = check_impl_for_struct(tv);
         if (verdict == 1) return true;
         if (verdict == -1) return false;
@@ -194,6 +210,19 @@ bool SemaChecker::is_auto_trait_satisfied(
         for (auto e : tv.tuple_elems())
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
+
+    // ── Closure: walk capture types so a closure capturing only Send/Sync
+    //    values auto-derives Send/Sync. Pre-fix this was a blanket `false`
+    //    (`logos-core 2.4 (a)`), which made every closure conservatively
+    //    `!Send`/`!Sync` — useful for safety but broke threading-API ports
+    //    that legitimately pass copyable closures across threads. The
+    //    Closure type carries captured-field types in `closure_params`
+    //    (envelope), so structural walk is sufficient.
+    case Kind::Closure: {
+        for (auto e : tv.closure_params())
+            if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
+        return true;
+    }
 
     // ── Conservative false for everything else ──────────────────────────────
     default:

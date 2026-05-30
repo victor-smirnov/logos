@@ -157,6 +157,17 @@ public:
     };
     std::vector<Conflict> find_conflicts() const;
 
+    // logos-core 2.1: declared lifetime parameters of the current fn
+    // (e.g. `'a`, `'b`) each get a fresh RegionId during analyze().
+    // The map is the canonical name→region link other passes
+    // (HRTB instantiation, dropck) consult.
+    const std::unordered_map<std::string, RegionId>&
+        named_regions() const noexcept { return named_regions_; }
+    RegionId named_region(const std::string& name) const noexcept {
+        auto it = named_regions_.find(name);
+        return it == named_regions_.end() ? NO_REGION : it->second;
+    }
+
 private:
     RegionId fresh_region() noexcept {
         return RegionId{next_region_id_++};
@@ -188,6 +199,12 @@ private:
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> use_;
     std::unordered_map<StmtPoint, LiveSet, StmtPointHash> def_;
     std::unordered_map<uint32_t, PointSet> region_points_;
+    // logos-core 2.1: declared lifetime parameters of the current fn,
+    // mapped to fresh RegionIds. Populated at the top of analyze() so
+    // every borrow-site walk + outlives constraint generation can name
+    // them by string. Outlives clauses (`'a: 'b`) seed Outlives
+    // constraints between the corresponding RegionIds.
+    std::unordered_map<std::string, RegionId> named_regions_;
     // B73: source line per CFG point (StmtPoint → line number from
     // the originating LStmt). Used to produce human-readable
     // diagnostics that point back at the source.

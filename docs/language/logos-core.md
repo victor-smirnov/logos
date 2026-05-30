@@ -483,6 +483,77 @@ All six items landed; suite 5288/5288 across the phase.
   `&Enum`/`&mut Enum` so the lambda's broader acceptance is
   preserved.
 
+### Phases 3-7 (2026-05-30, sequential cascade — deferred items recorded inline)
+
+**Phase 3 (#10/2.1) — region_infer named lifetimes + outlives constraint seed.**
+✅ Foundation step landed. `RegionInferer::analyze()` now allocates a fresh
+`RegionId` per declared lifetime param (`fn.lifetime_params`) into
+`named_regions_`, then seeds `Outlives` constraints from
+`fn.lifetime_outlives` between the corresponding RegionIds. Accessors
+`named_regions()` / `named_region(name)` exposed for downstream
+(HRTB, dropck). Note: the actual borrow_check lifetime-conformance
+consumer of these regions (replacing B66's syntactic outlives graph)
+is the larger follow-up — region_infer now HAS the data; making
+borrow_check CONSULT it at return-value sites + the default trait-object
+lifetime rule is a focused follow-up sized for one session by itself.
+
+**Phase 4 cascade (mixed depth + deferrals):**
+- ~~**2.2/2.4 partial**~~ ✅ `UnsafeCell<T>` lang-item recognised by
+  qualified name (`logos.lang.cell.UnsafeCell`): variance is Inv-in-T
+  (`sema.cpp:6913` arm above `Struct/Enum`); auto-`!Sync` derived
+  (`sema_auto_trait.cpp` Struct arm). Closures walk capture types for
+  Send/Sync (was conservatively false). `Arc<T: Send + Sync>` /
+  `Weak<T: Send + Sync>` got `unsafe impl Send/Sync` in
+  `stdlib/mem/sync/arc.logos` so the structural derivation no longer
+  rejects them via the raw `*mut ArcInner<T>` field.
+- ⚠️ **2.4 (c) dyn+Auto bound enforcement at unsize site** —
+  DEFERRED. Recognised at the type level (`dyn_auto_bounds`); the
+  enforcement at the source-type unsize site (verifying `T: Auto`
+  when coercing `T → dyn Trait + Auto`) is its own focused session.
+- ⚠️ **2.6 slice mut bit** — DEFERRED (B6 in DIVERGENCES §B).
+  Multi-session refactor: schema `MUT_PTR` threading, pool no longer
+  aliases `&[T]`/`&mut [T]`, `str = Slice<u8>` invariant preservation,
+  `&mut [T] → &[T]` coercion. Standalone sprint.
+- ~~**2.8 / 3.3**~~ ✅ Object-safety already implemented for the
+  bulleted list at `items/traits.md#dyn-compatible` (generic methods,
+  no-self receivers, Self in return / by-value param,
+  `where Self: Sized` opt-out). Extended with GAT check
+  (`sema.cpp:2682` — a trait with a Generic Associated Type item is
+  rejected from `dyn` coercion; Rust E0038 has the matching rule).
+- ⚠️ **3.1 HRTB instantiation subtyping** — DEFERRED. Needs the
+  region_infer wire-up in Phase 3 + the lifetime-conformance consumer
+  to land first; the binder-instantiation pass at fn-call args
+  depends on both.
+- ⚠️ **3.2 `?Sized` / `Sized` invariants end-to-end** — DEFERRED.
+  Partial coverage today via the existing struct-last-field-unsized
+  rule (`is_dst`); a complete walk across every generic param +
+  receiver-shape table is a focused session.
+
+**Phase 5 (#18/4.2) — match exhaustiveness Never integration.**
+✅ Trivial-exhaustive case for an uninhabited scrutinee (`Never` /
+empty enum) — `check_match_exhaustiveness` early-returns so `match x { }`
+on `x: !` accepts the empty arm list and the surrounding code adapts
+via Never coercion (logos-core 1.1 product). Full Useful-Sukhotin
+algorithm + guard-integrated exhaustiveness remains as the breadth
+follow-up.
+
+**Phase 6 (#19/5.1, #20/2.7) — DEFERRED.**
+- **5.1 atomics Ordering** — the `Ordering` parameter at every atomic
+  op is `_ord` (discarded); MLIR atomic-intrinsic ordering enum
+  threading is a focused codegen session. Today x86 sound (TSO
+  collapses) / ARM unsound. Tracked in `docs/language/undefined-behavior.md`.
+- **2.7 definite-assignment** — `let x: T;` then `return x;` is
+  currently accepted; the forward dataflow pass over the LIR CFG is
+  M-effort and warrants its own session.
+
+**Phase 7 (#21/5.2) — UB register documented.**
+✅ `docs/language/undefined-behavior.md` mirrors the Rust spec's
+`behavior-considered-undefined.md` anchors with one-line ENFORCED /
+PARTIAL / UNENFORCED per anchor + cross-refs to logos-core.md and
+DIVERGENCES.md §A7. New entries close in step with the items above.
+
+---
+
 ### Phase 2 — Type-system foundations (2026-05-30)
 
 - ~~**1.3**~~ ✅ `Kind::InferredType` + grammar `_` in `type_ref`. New
