@@ -1,0 +1,17 @@
+// Core item 2.5 (logos-core.md Phase 1): a struct holding `&mut T` must
+// NOT auto-promote to Copy — `&mut T` is move-only in Rust, so the
+// containing struct is move-only too. Pre-fix `field_kind_is_trivially_copy`
+// admitted `K::MutRef`, silently making `S` Copy and accepting the
+// second `take(s)` below.
+package struct_with_mut_ref_not_auto_copy;
+
+struct S<'a> { r: &'a mut i32 }
+
+fn take(s: S) -> i32 { return *s.r; }
+
+fn main() -> i32 {
+    let mut x: i32 = 42i32;
+    let s: S = S { r: &mut x };
+    let n: i32 = take(s);
+    return take(s) - n;
+}

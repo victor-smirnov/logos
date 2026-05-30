@@ -3518,62 +3518,13 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
 
     mlir::Block* else_block = merge_block;
     bool exhaustive_discrete = false;
-    // Helper: is this pattern irrefutable (always matches)?
-    // PatAt is irrefutable only if its sub-pattern is (e.g. n @ _ is irrefutable,
-    // n @ 42 is refutable).
-    std::function<bool(lir_view::PatRef)> is_irrefutable;
-    is_irrefutable = [&](lir_view::PatRef p) -> bool {
-        if (!p) return false;
-        switch (p.kind()) {
-            case pc::Code::Wild:    return true;
-            case pc::Code::RefBind: return true;
-            case pc::Code::Tuple: {
-                lir_view::PatTupleView tv{p};
-                if (tv.sub_count() == 0) return true;  // legacy all-wild tuple
-                bool all = true;
-                tv.each_sub([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
-                return all;
-            }
-            case pc::Code::Struct: {
-                bool all = true;
-                lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView fb){
-                    auto sub = fb.sub();
-                    if (all && sub && !is_irrefutable(sub)) all = false;
-                });
-                return all;
-            }
-            case pc::Code::Slice: {
-                // A slice pattern with any fixed prefix/suffix element imposes
-                // a length constraint, so it is refutable (over a dynamic
-                // slice it may not match; over a fixed array the dispatch's
-                // element checks are harmless no-ops). Only a pure rest
-                // (`[..]` / `[xs @ ..]`) matches every length irrefutably.
-                lir_view::PatSliceView sv{p};
-                if (sv.prefix_count() != 0 || sv.suffix_count() != 0 || !sv.rest())
-                    return false;
-                bool all = true;
-                sv.each_rest([&](lir_view::PatRef sp){ if (all && !is_irrefutable(sp)) all = false; });
-                return all;
-            }
-            case pc::Code::At: {
-                auto sub = lir_view::PatAtView{p}.sub();
-                return !sub || is_irrefutable(sub);
-            }
-            case pc::Code::RefPat: {
-                auto inner = lir_view::PatRefPatView{p}.inner();
-                return !inner || is_irrefutable(inner);
-            }
-            // NC5: PatOr is irrefutable only if all alternatives are irrefutable.
-            case pc::Code::Or: {
-                bool any_alts = false, all = true;
-                lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef alt){
-                    any_alts = true;
-                    if (all && !is_irrefutable(alt)) all = false;
-                });
-                return !any_alts || all;
-            }
-            default: return false;
-        }
+    // Pattern irrefutability — single foundation in `lir_view`. See
+    // `is_irrefutable_pattern` for the full case list (Wild/RefBind/RefPat/
+    // At/Tuple/Struct/Slice/Or). Was a 50-line local lambda that drifted
+    // from a narrower copy in mlir_gen_expr.cpp; foundation closes the
+    // drift (logos-core 4.1).
+    auto is_irrefutable = [](lir_view::PatRef p) -> bool {
+        return lir_view::is_irrefutable_pattern(p);
     };
     bool scrut_is_tuple = scrut_le->type &&
         (TypeRef(scrut_le->type).kind() == LogosType::Kind::Tuple ||

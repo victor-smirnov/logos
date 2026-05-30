@@ -547,6 +547,14 @@ private:
     bool try_retype_bare_enum_arg(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
         TypeRef at(arg->type), pt(expected);
+        // Peel `&Enum<T>` / `&mut Enum<T>` on the target so a `&Option::None`
+        // arg vs `&Option<i32>` formal still triggers retype (the call-arg
+        // coercion site may have wrapped pt in a ref). Pre-fix this peel
+        // lived only in the local lambda at sema_expr.cpp:3417; folding it
+        // here lets the lambda dissolve into the member fn (logos-core 1.2).
+        if ((pt.kind() == LogosType::Kind::Ref ||
+             pt.kind() == LogosType::Kind::MutRef) && pt.pointee())
+            pt = pt.pointee();
         if (at.kind() != LogosType::Kind::Enum ||
             pt.kind() != LogosType::Kind::Enum) return false;
         if (pt.type_args().empty()) return false;
@@ -2925,6 +2933,12 @@ private:
     };
     std::vector<LoopBreakFrame> loop_break_frames_;
     std::string pending_loop_label_;  // set by LABELED_LOOP before lowering inner loop
+    // Set by `lower_loop` to communicate "no `break` reached this loop's
+    // frame" back to the LOOP-as-expression caller. `loop { /* no break */ }`
+    // is a diverging expression — its type is `!`, not `()`. Reset on every
+    // call to `lower_loop` so a sibling loop with no diverging shape doesn't
+    // poison the next one. (See logos-core item 1.1.)
+    bool last_loop_diverged_ = false;
     bool match_in_tail_position_ = false;
     // B-fn-06: when true, TAIL_EXPR statements act as implicit returns.
     // Set around fn-body lowering; cleared inside block-as-expression
@@ -3006,6 +3020,13 @@ private:
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+
+    // Direct call / macro-call to a `-> !` (Never-returning) function — used
+    // to decide whether a syntactic position diverges. Generalises the
+    // historical hand-coded `callee == "panic"` carve-outs once the Never
+    // type became real (logos-core 1.1). `panic`/`abort`/`exit`/user
+    // `fn foo() -> !` all qualify.
+    bool is_divergent_call_node(hermes::TinyMapView node);
     const SemaFuncInfo* resolve_function_call(std::string_view base_name,
                                               const std::vector<lir::LExprPtr>& arg_exprs,
                                               bool allow_generic = true,

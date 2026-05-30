@@ -1174,10 +1174,18 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             }
         }
         if (!result_type || break_slot.empty()) {
-            // loop never yields — treat as void (infinite loop used as stmt-expr)
+            // No `break v` was reached — distinguish two shapes:
+            //   - no `break` AT ALL (or only break-into-outer-label) → loop
+            //     diverges → type `!` (logos-core 1.1). This is what makes
+            //     `let x = loop { /* unconditional return */ };` type-check
+            //     against any binding-site annotation, and what enables a
+            //     diverging arm in `if` / `match` joins.
+            //   - `break` (no value) reached → loop yields `()`/void.
+            //   `last_loop_diverged_` is set by `lower_loop` just above.
             auto block = lir::alloc_block(*cur_prog_);
             block->stmts.push_back(std::move(loop_stmt));
-            return builder().block_expr(std::move(block), nullptr, void_t());
+            TypeRef tail_ty = last_loop_diverged_ ? never_t() : void_t();
+            return builder().block_expr(std::move(block), nullptr, tail_ty);
         }
         // Wrap: { loop { ... }; __loop_val }
         // gen_loop allocates the break slot alloca and registers it in scope_;
@@ -3407,28 +3415,14 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     TypeRef ret = subst_type_sema(fi.ret_type, subst);
 
     // A payload-less enum-literal arg (`Option::None`) lowered before type
-    // inference carries a bare enum type (no type-args). Once `subst` binds
-    // the generic param to a concrete enum (`T = Option<i32>`), retype the
-    // literal so its mirror TYPE carries the type-args — mlir-gen's
-    // `resolve_tagged_enum` then finds the `Option__i32` layout and emits the
-    // heap-ptr form rather than a C-style i32 discriminant. Covers both the
-    // turbofish path (param `T` substituted directly) and the inferred path
-    // (`T` inferred from a sibling `&mut T` arg).
+    // inference carries a bare enum type (no type-args). The member fn
+    // `try_retype_bare_enum_arg` handles this — it peels a `&Enum`/`&mut
+    // Enum` target wrapper, accepts EnumLit AND EnumLitData, and handles
+    // partial type-arg substitution. Pre-dedup this lived as a local
+    // narrower lambda here (logos-core 1.2). Bound to the same name so
+    // the call sites below stay tight.
     auto retype_bare_enum_arg = [&](lir::LExprPtr& a, TypeRef pt) {
-        if (!a || !pt) return;
-        TypeRef at = a->type;
-        if (TypeRef(at).kind() != LogosType::Kind::Enum ||
-            !TypeRef(at).type_args().empty()) return;
-        if (expr_ref_of(*a).kind() != lir_schema::expr::Code::EnumLit) return;
-        TypeRef target = pt;
-        if ((TypeRef(target).kind() == LogosType::Kind::Ref ||
-             TypeRef(target).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(target).pointee())
-            target = TypeRef(target).pointee();
-        if (TypeRef(target).kind() == LogosType::Kind::Enum &&
-            !TypeRef(target).type_args().empty() &&
-            TypeRef(target).enum_name() == TypeRef(at).enum_name())
-            builder().retype_expr(a, target);
+        try_retype_bare_enum_arg(a, pt);
     };
 
     // Validate value argument count and types
@@ -5832,9 +5826,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                     self_subst["Self"] = recv->type;
                     for (uint64_t i = 0; i < explicit_args; ++i) {
                         auto pt = subst_type_sema(m.param_types[i + 1], self_subst);
-                        try_implicit_reborrow_mut(arg_exprs[i], pt);
-                        widen_int_expr(arg_exprs[i], pt, builder());
-                        coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
+                        // Canonical-order coercion: arg_to_dyn → reborrow →
+                        // widen (logos-core 1.2). Was hand-rolled with the
+                        // arg_to_dyn moved AFTER widen — equivalent here
+                        // (no coercion depends on widen's int output), now
+                        // routed through the single foundation.
+                        coerce_arg_to_param(arg_exprs[i], pt,
+                            CFLAG_ARG_TO_DYN | CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
                         auto at = arg_exprs[i]->type;
                         if (TypeRef(at).kind() != LogosType::Kind::Error &&
                             TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -6384,9 +6382,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     auto pt = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                    try_implicit_reborrow_mut(arg_exprs[i], pt);
-                    widen_int_expr(arg_exprs[i], pt, builder());
-                    coerce_arg_to_dyn(arg_exprs[i], pt);  // &Concrete → &dyn
+                    // Canonical-order coercion (logos-core 1.2). Was
+                    // reborrow → widen → arg_to_dyn hand-rolled.
+                    coerce_arg_to_param(arg_exprs[i], pt,
+                        CFLAG_ARG_TO_DYN | CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
                     auto at = arg_exprs[i]->type;
                     if (TypeRef(at).kind() != LogosType::Kind::Error &&
                         TypeRef(pt).kind() != LogosType::Kind::Error &&
@@ -7675,13 +7674,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (pi < fi.param_types.size()) {
                 auto pt = fi.param_types[pi];
                 if (!struct_subst.empty()) pt = subst_type_sema(pt, struct_subst);
-                widen_int_expr(arg_exprs[i], pt, builder());
-                // CP-cm-14: closure→fn-ptr coercion at struct-method args.
-                try_coerce_closure_to_fnptr(arg_exprs[i], pt);
-                // B171: implicit `&Concrete → &dyn Trait` unsize at struct-method
-                // args (`v.push(&42i64)` into `Vec<&dyn Tr>`).
-                coerce_arg_to_dyn(arg_exprs[i], pt);
-                try_implicit_reborrow_mut(arg_exprs[i], pt);
+                // CP-cm-14 (closure→fn-ptr coercion at struct-method args) +
+                // B171 (`&Concrete → &dyn Trait` unsize at struct-method args
+                // e.g. `v.push(&42i64)` into `Vec<&dyn Tr>`) + reborrow + widen,
+                // through the canonical pipeline (logos-core 1.2). Was hand-
+                // rolled with widen FIRST; canonical runs widen LAST. No
+                // coercion here depends on widen's output, so equivalent.
+                coerce_arg_to_param(arg_exprs[i], pt,
+                    CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARG_TO_DYN |
+                    CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT);
             }
             auto at = arg_exprs[i]->type;
             if (pi < fi.param_types.size()) {
@@ -11889,16 +11890,17 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
             if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR)
                 && s.has_key(la::VALUE)) {
                 auto val_node = map_of(s.get(la::VALUE.code));
-                // K10-co-04 follow-up: a tail `panic(...)` makes the
-                // block adapt to any expected context. Adopt Error as
-                // the block-expression type — if-expr / match-arm
-                // unification will let the non-divergent arm win, and
-                // codegen emits the panic call so the unreachable
-                // dummy value never executes. Mirrors the tail-RETURN
-                // treatment below.
-                if ((code_of(val_node) == la::CALL.code ||
-                     code_of(val_node) == la::FN_MACRO_CALL.code) &&
-                    str_of(val_node.get(la::CALLEE.code)) == "panic") {
+                // A tail call to any `-> !` function (panic, abort, exit,
+                // user fn returning `!`) makes the block adapt to any
+                // expected context. Adopt Error as the block-expression
+                // type — if-expr / match-arm unification will let the
+                // non-divergent arm win, and codegen emits the diverging
+                // call so the unreachable dummy value never executes.
+                // Mirrors the tail-RETURN treatment below.
+                // (Generalises the historical `callee == "panic"` carve-out
+                // via the shared `is_divergent_call_node` predicate —
+                // logos-core 1.1.)
+                if (is_divergent_call_node(val_node)) {
                     block->stmts.push_back(lower_stmt(s));
                     divergent_ret_t = error_t();
                     continue;
@@ -12065,9 +12067,10 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 int32_t lc = code_of(s);
                 if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                     auto val_node = map_of(s.get(la::VALUE.code));
-                    if ((code_of(val_node) == la::CALL.code ||
-                         code_of(val_node) == la::FN_MACRO_CALL.code) &&
-                        str_of(val_node.get(la::CALLEE.code)) == "panic") {
+                    // Diverging tail call (any `-> !` callee): adopt Error
+                    // so the if-expr unifier picks the non-divergent arm's
+                    // type. Shared with the block-expr lowering above.
+                    if (is_divergent_call_node(val_node)) {
                         block->stmts.push_back(lower_stmt(s));
                         divergent_t = error_t();
                     } else {

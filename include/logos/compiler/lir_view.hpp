@@ -1717,6 +1717,80 @@ inline uint32_t stmt_line(const StmtRef& s) noexcept {
 //
 // Returns true iff `e` is the reborrow shape; if `out_varref` is non-null,
 // it receives the inner `VarRef` (so the caller can read .name() / .type()).
+// Pattern irrefutability — does this pattern ALWAYS match any value of its
+// scrutinee shape? Wildcards/bindings always do; structural patterns are
+// irrefutable iff every sub is. Refutable shapes (literal, range, variant,
+// length-constrained slice) always return false.
+//
+// Single foundation used by every site that needs to decide "does this
+// pattern require a runtime test?" — pre-foundation we had three drifting
+// lambdas: `mlir_gen_stmt.cpp::is_irrefutable` (had Slice + Or arms),
+// `mlir_gen_expr.cpp::pat_irref` (missing Slice + Or → false negative),
+// and an ad-hoc shape-allowlist at `sema_stmt.cpp:990-1003` for let-
+// destruct (separate concern: per-shape acceptance, not full predicate).
+// Logos-core item 4.1.
+inline bool is_irrefutable_pattern(PatRef p) noexcept {
+    using PC = lir_schema::pat::Code;
+    if (!p) return false;
+    switch (p.kind()) {
+        case PC::Wild:
+        case PC::RefBind:
+            return true;
+        case PC::RefPat: {
+            auto in = PatRefPatView{p}.inner();
+            return !in || is_irrefutable_pattern(in);
+        }
+        case PC::At: {
+            auto sub = PatAtView{p}.sub();
+            return !sub || is_irrefutable_pattern(sub);
+        }
+        case PC::Tuple: {
+            PatTupleView tv{p};
+            if (tv.sub_count() == 0) return true;
+            bool all = true;
+            tv.each_sub([&](PatRef sp) {
+                if (all && !is_irrefutable_pattern(sp)) all = false;
+            });
+            return all;
+        }
+        case PC::Struct: {
+            bool all = true;
+            PatStructView{p}.each_field([&](PatFieldBindingView fb) {
+                auto sub = fb.sub();
+                if (all && sub && !is_irrefutable_pattern(sub)) all = false;
+            });
+            return all;
+        }
+        case PC::Slice: {
+            // A slice pat with any fixed prefix/suffix or rest-only-form is
+            // refutable: fixed elements impose a length constraint; the
+            // pure `[..]` / `[xs @ ..]` form matches every length, so it
+            // is irrefutable iff every rest sub is.
+            PatSliceView sv{p};
+            if (sv.prefix_count() != 0 || sv.suffix_count() != 0 || !sv.rest())
+                return false;
+            bool all = true;
+            sv.each_rest([&](PatRef sp) {
+                if (all && !is_irrefutable_pattern(sp)) all = false;
+            });
+            return all;
+        }
+        case PC::Or: {
+            // Or-pattern is irrefutable iff EVERY alternative is. Empty
+            // (defensive) or-pat counts as irrefutable (the wild fallback
+            // never fires; same convention as the stmt-side handler).
+            bool any_alts = false, all = true;
+            PatOrView{p}.each_alt([&](PatRef alt) {
+                any_alts = true;
+                if (all && !is_irrefutable_pattern(alt)) all = false;
+            });
+            return !any_alts || all;
+        }
+        default:
+            return false;
+    }
+}
+
 inline bool is_reborrow_shape(ExprRef e, ExprRef* out_varref = nullptr) noexcept {
     if (!e || e.kind() != lir_schema::expr::Code::AddrOfTemp) return false;
     auto inner = EAddrOfTempView{e}.inner();

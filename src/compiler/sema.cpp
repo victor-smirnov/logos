@@ -1535,6 +1535,25 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     return out;
 }
 
+bool SemaChecker::is_divergent_call_node(hermes::TinyMapView node) {
+    int32_t cc = code_of(node);
+    if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
+    auto callee = str_of(node.get(la::CALLEE.code));
+    // `panic` is a stdlib macro that wraps `__fmt_panic` — its registered
+    // signature returns `!` once resolved. But the macro form parses to
+    // FN_MACRO_CALL "panic" before expansion (reachability sees the
+    // un-expanded AST), and depending on import order the user-facing
+    // `panic` symbol may not be visible yet at the call site. Keep the
+    // name fast-path as an anchor for the macro shape; the generic
+    // Never-return check below handles every other diverging callee.
+    if (callee == "panic") return true;
+    for (auto* fi : find_func_candidates(std::string(callee)))
+        if (fi && fi->ret_type &&
+            TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
+            return true;
+    return false;
+}
+
 const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
         std::string_view base_name,
         const std::vector<lir::LExprPtr>& arg_exprs,
@@ -1613,10 +1632,13 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (types_equal(from, to)) return true;
     // The never type `!` is a subtype of every type: a diverging expression
     // (return / break / continue / panic / `-> !` call) coerces to whatever
-    // the context expects. Permissive in both directions — Never never yields
-    // a real value, so accepting it where Never is "expected" is harmless.
-    if (from.kind() == LogosType::Kind::Never ||
-        to.kind()   == LogosType::Kind::Never) return true;
+    // the context expects. Only ONE direction is valid — `Never → T` — since
+    // `!` is empty. The reverse (`T → Never`) used to be accepted here as
+    // "harmless because Never never yields a real value", but that admitted
+    // unsound shapes (e.g. a value-returning expr quietly typed `!`,
+    // suppressing exhaustiveness or divergence checks downstream). Rust
+    // rejects `T → !`; we do too now (logos-core item 1.1).
+    if (from.kind() == LogosType::Kind::Never) return true;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
@@ -2517,7 +2539,13 @@ void SemaChecker::compute_auto_copy_types() {
             case K::F32: case K::F64:
             case K::Bool: case K::Char:
             case K::Usize: case K::Isize:
-            case K::Ptr: case K::Ref: case K::MutRef:
+            // `&mut T` is NOT Copy in Rust — exclusive references are move-only.
+            // Listing it here used to auto-promote `struct S { r: &mut T }` to
+            // Copy, which is unsound (a binding holding `r.clone()` could then
+            // alias the same target as the original). M2's `is_move_type`
+            // already treats MutRef as move-type at borrow_check; this brings
+            // the struct-auto-Copy classifier into line.
+            case K::Ptr: case K::Ref:
             case K::FnPtr: case K::TaggedPtr:
             case K::Enum:               // payload-less enums; payload enums rejected below
                 return true;
@@ -6904,6 +6932,26 @@ Variance variance_in_type(TypeRef t,
                                                        variance_compose(ambient, Variance::Contra)));
             v = variance_meet(v, variance_in_type(t.closure_ret(), target,
                                                    target_is_lifetime, table, ambient));
+            return v;
+        }
+        case K::TraitObject: {
+            // `dyn Trait<T...> + 'a`: lifetime bound Co (ref-like — the
+            // erased object's storage must outlive `'a`), each type
+            // argument Invariant (Rust spec — without per-trait declared
+            // variance, a dyn-trait param is invariant). Auto-trait
+            // bounds (`+ Send` / `+ Sync`) are set-membership and
+            // contribute nothing to variance over the lifetime/type
+            // axes — they're checked separately at the unsize site.
+            // Pre-fix this fell through to `default → BiVar`, which
+            // accepts wrong directions silently (logos-core 2.3).
+            Variance v = Variance::BiVar;
+            if (target_is_lifetime && !std::string(t.lifetime()).empty() &&
+                std::string(t.lifetime()) == target)
+                v = variance_meet(v, ambient);
+            for (auto a : t.type_args())
+                v = variance_meet(v, variance_in_type(a, target,
+                                                       target_is_lifetime, table,
+                                                       variance_compose(ambient, Variance::Inv)));
             return v;
         }
         default:

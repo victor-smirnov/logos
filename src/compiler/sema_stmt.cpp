@@ -2838,12 +2838,17 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // per-position payload types are concrete even for a by-ref scrutinee
         // (needed by nested-pattern synth bindings — otherwise pat_field_type
         // returns the bare TypeVar and the guard/extraction miscompile).
+        // Peel ALL `&`/`&mut`/`*` layers — Rust's default-binding-modes peel
+        // through arbitrary depth so a pattern over `&&Option<T>` (or deeper)
+        // unifies against the inner `Option<T>` shape. Pre-fix this peeled
+        // exactly one layer, so `match &&Some(x) { Some(x) => x }` reported
+        // a TypeVar mismatch (logos-core 4.3).
         TypeRef pat_scrut = scrut_type;
-        if (pat_scrut &&
-            (TypeRef(pat_scrut).kind() == LogosType::Kind::Ref ||
-             TypeRef(pat_scrut).kind() == LogosType::Kind::MutRef ||
-             TypeRef(pat_scrut).kind() == LogosType::Kind::Ptr) &&
-            TypeRef(pat_scrut).pointee())
+        while (pat_scrut &&
+               (TypeRef(pat_scrut).kind() == LogosType::Kind::Ref ||
+                TypeRef(pat_scrut).kind() == LogosType::Kind::MutRef ||
+                TypeRef(pat_scrut).kind() == LogosType::Kind::Ptr) &&
+               TypeRef(pat_scrut).pointee())
             pat_scrut = TypeRef(pat_scrut).pointee();
         if (vinfo && pat_scrut && TypeRef(pat_scrut).kind() == LogosType::Kind::Enum &&
             !TypeRef(pat_scrut).type_args().empty() && eit != enums_.end()) {
@@ -6101,17 +6106,23 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
 
     auto body = lir::alloc_block(*cur_prog_);
     TypeRef frame_value_type = nullptr;
+    bool frame_break_reached = false;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         *body = lower_block(map_of(node.get(la::BODY.code)));
-        frame_value_type = loop_break_frames_.back().value_type;
+        frame_value_type    = loop_break_frames_.back().value_type;
+        frame_break_reached = (frame_value_type != nullptr) ||
+                               loop_break_frames_.back().without_value;
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
+    // `loop { /* no break */ }` diverges: its expression form types as `!`
+    // (logos-core 1.1). Communicated to the caller via last_loop_diverged_.
+    last_loop_diverged_ = !frame_break_reached;
     lir::SLoop sl;
     sl.body  = std::move(body);
     sl.label = std::move(my_label);

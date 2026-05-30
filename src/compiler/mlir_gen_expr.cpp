@@ -3869,42 +3869,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             }
         }
 
-        // `ref r` / `ref mut r` is an irrefutable binding pattern — like a
-        // named wildcard, it matches every value and lets the (optional)
-        // guard decide. Without this it fell into the catch-all `else`
-        // branch below and was dispatched as `scrut == 0` (get_disc default),
-        // so `ref r if <guard>` only entered its guard when scrut == 0.
-        // A struct pattern (`A { .. }` / `A { f: x }`) is irrefutable only when
-        // every field sub-pattern is itself irrefutable — then it always matches
-        // and binds. With a refutable field sub (`A { f: Inner::B(v) }`, G148-1)
-        // it needs a real dispatch test (handled below).
-        std::function<bool(lir_view::PatRef)> pat_irref =
-            [&](lir_view::PatRef p) -> bool {
-            switch (p.kind()) {
-            case pc::Code::Wild: case pc::Code::RefBind: return true;
-            case pc::Code::RefPat: {
-                auto in = lir_view::PatRefPatView{p}.inner();
-                return !in || pat_irref(in);
-            }
-            case pc::Code::At: {
-                auto sub = lir_view::PatAtView{p}.sub();
-                return !sub || pat_irref(sub);
-            }
-            case pc::Code::Tuple: {
-                bool all = true;
-                lir_view::PatTupleView{p}.each_sub([&](lir_view::PatRef sp){
-                    if (all && sp && !pat_irref(sp)) all = false; });
-                return all;
-            }
-            case pc::Code::Struct: {
-                bool all = true;
-                lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView fb){
-                    auto sub = fb.sub();
-                    if (all && sub && !pat_irref(sub)) all = false; });
-                return all;
-            }
-            default: return false;
-            }
+        // Pattern irrefutability — single foundation `is_irrefutable_pattern`
+        // in `lir_view`. The pre-foundation lambda here was a narrower copy
+        // (missing Slice + Or arms) of the equivalent in mlir_gen_stmt.cpp;
+        // hoisting closes the drift (logos-core 4.1). `ref r` / `ref mut r`
+        // is irrefutable; a struct pat is irrefutable only when every field
+        // sub is (`A { f: Inner::B(v) }` requires a real dispatch test).
+        auto pat_irref = [](lir_view::PatRef p) -> bool {
+            return lir_view::is_irrefutable_pattern(p);
         };
         bool is_wild = arm_pat_ref.kind() == pc::Code::Wild ||
                        arm_pat_ref.kind() == pc::Code::RefBind ||
