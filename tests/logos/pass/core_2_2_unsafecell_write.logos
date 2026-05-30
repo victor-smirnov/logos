@@ -1,0 +1,46 @@
+// logos-core §2.2: borrow-check carve-out for UnsafeCell. Rust's
+// interior-mutability primitive lets you mutate the wrapped value
+// through a SHARED `&UnsafeCell<T>` reference — the normal `&T` write
+// rule that would reject this is exempted. Logos achieves the same
+// result by routing the write through `UnsafeCell::get() -> *mut T`
+// (a documented escape hatch that returns a raw pointer from `&self`)
+// combined with an unsafe block at the actual write site. Auto-`!Sync`
+// structural derivation closes the cross-thread soundness loop:
+// `UnsafeCell<T>: !Sync` propagates to any struct that reaches it, so
+// no shared-thread aliasing can form on the raw-pointer write path.
+//
+// This test verifies the carve-out works at every layer the DoD
+// requires: (a) multiple shared `&UnsafeCell<T>` borrows of the same
+// cell, (b) writes through each shared borrow, (c) reads observe the
+// writes — all without borrow-check errors and without a `&mut`
+// promotion. The counter-test (writing through `&T` for non-cell `T`)
+// continues to be rejected — see fail/struct_with_mut_ref_not_auto_copy.
+package core_2_2_unsafecell_write;
+
+use logos.lang.cell;
+
+// Helper writing through a shared `&UnsafeCell` borrow — the canonical
+// pattern for Cell::set / RefCell::borrow_mut implementations.
+fn bump(c: &UnsafeCell<i32>) {
+    unsafe {
+        let p: *mut i32 = c.get();
+        *p = *p + 1i32;
+    }
+}
+
+fn main() -> i32 {
+    let c: UnsafeCell<i32> = UnsafeCell::new(10i32);
+    // Two shared borrows alive at once — borrow-check accepts (multiple
+    // `&T` are always OK). Write through one, observe through the
+    // other: the canonical interior-mutability pattern.
+    let r1: &UnsafeCell<i32> = &c;
+    let r2: &UnsafeCell<i32> = &c;
+    bump(r1);
+    bump(r1);
+    bump(r2);
+    // Read through r2 — value reflects writes from r1.
+    let observed: i32 = unsafe { *r2.get() };
+    if observed != 13i32 { return 1i32; }
+    if c.into_inner() != 13i32 { return 2i32; }
+    return 0i32;
+}

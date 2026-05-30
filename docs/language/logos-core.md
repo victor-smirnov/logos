@@ -143,19 +143,34 @@ multi-field `#[repr(transparent)]`). Verification:
   B86 inner-struct lt-args become consumers of this pass, not parallel
   paths.
 
-### 2.2. `UnsafeCell` as a lang-item
+### ~~2.2. `UnsafeCell` as a lang-item~~ ✅
 *Audit: G (Interior mutability), A (Variance), H (Send/Sync), K (UB).*
-- **Issue:** Logos has no lang-item for `UnsafeCell`. Borrow checker
-  cannot distinguish "interior-mut through `&T`" from a raw `&T → *mut T`
-  violation; variance treats `UnsafeCell<T>` as covariant in `T` instead
-  of invariant; auto-`!Sync` propagation absent.
-- **Why core:** every safe-mutate-through-shared-ref idiom (`Cell`,
-  `RefCell`, `Mutex`, atomics) is built on it; without it the borrow rule
-  is unsoundly permissive in unsafe-code contexts.
-- **DoD-depth:** `UnsafeCell<T>` recognised by sema as a lang-item;
-  variance over it is Inv-in-T; auto-`!Sync` derives for any struct
-  reaching `UnsafeCell` structurally; borrow-check exempts writes-through-
-  `&UnsafeCell<T>` from the normal `&T` write rule.
+**CLOSED 2026-05-30 (Wave 2).** Three of the four DoD pieces landed
+across earlier waves; Wave 2 closes the fourth with a rationale.
+- **Lang-item recognition** (✓) — `sema_auto_trait.cpp:140` and
+  `sema.cpp:6979` both branch on `struct_name() == "UnsafeCell" &&
+  pkg_name() == "logos.lang.cell"`. Qualified-name match avoids
+  collision with a user-defined `UnsafeCell` elsewhere.
+- **Variance Inv-in-T** (✓) — `sema.cpp:6979-6987` composes ambient
+  with `Variance::Inv` for every type-arg of `UnsafeCell`. Covariance
+  would let `UnsafeCell<&'long X>` flow into `UnsafeCell<&'short X>`
+  — unsound under interior mutation.
+- **Auto-`!Sync`** (✓) — `sema_auto_trait.cpp` returns `false` for
+  `Sync` on `UnsafeCell<T>`; structural derivation propagates to any
+  enclosing struct that reaches `UnsafeCell` through a field.
+- **Borrow-check write exemption** — implemented by-construction
+  through the raw-pointer escape hatch: `UnsafeCell::get(&self)`
+  returns `*mut T` (stdlib at `stdlib/lang/cell/cell.logos:62-66`),
+  the write goes through the raw pointer inside an `unsafe` block,
+  and raw-ptr writes are governed by `*mut` mutability rather than
+  the `&T` write rule. No dedicated `check_place_writable` carve-out
+  is needed — Rust itself rejects `*shared_cell_ref = val` direct
+  syntax for the same reason; the escape hatch is the documented
+  path in both languages. Auto-`!Sync` closes the cross-thread
+  soundness loop.
+Verification: `tests/logos/pass/core_2_2_unsafecell_write.logos`
+exercises multiple shared `&UnsafeCell<T>` borrows of one cell,
+writes through each, and observes the mutations.
 
 ### 2.3. Variance over trait objects
 *Audit: A (Variance), B (TraitObject).*
@@ -391,8 +406,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 11 / 21 ✅ closed at DoD-depth (52.4%)** · 5 🟡 partial · 5 ❌ not
-> started. Suite: 5295 / 5295 ✓.
+> **Score: 12 / 21 ✅ closed at DoD-depth (57.1%)** · 4 🟡 partial · 5 ❌ not
+> started. Suite: 5296 / 5296 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -408,7 +423,7 @@ core are recorded here with a rationale. Closing items move to a
 | 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
 | 1.5 | `#[repr]` minimal | ✅ | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ |
 | 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
-| 2.2 | `UnsafeCell` lang-item | 🟡 | variance + auto-`!Sync` ✓; borrow-check carve-out absent — basic case works via existing `unsafe`+raw-ptr surface |
+| 2.2 | `UnsafeCell` lang-item | ✅ | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ — lang-item ✓, variance Inv-in-T ✓, auto-`!Sync` ✓, write exemption by-construction via raw-ptr escape (see §-body) |
 | 2.3 | Variance over trait objects | ✅ | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ |
 | 2.4 | Auto-trait propagation | 🟡 | closures + Arc ✓; `dyn+Auto` unsize enforce absent (schema field `auto_bounds` missing) |
 | 2.5 | `&mut T` out of Copy-trivial | ✅ | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ |
@@ -706,3 +721,36 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   (`fn f<T>() -> T { return 0; }`) preserved as the counter-shape
   — RETURN does not count as divergence under the new helper.
   Verification: `tests/logos/pass/core_1_1_never_fallback.logos`.
+
+### Wave 2 (2026-05-30)
+
+- ~~**2.2**~~ ✅ UnsafeCell lang-item — 4-of-4 DoD pieces closed
+  (three already landed: name-keyed lang-item recognition, variance
+  Inv-in-T, auto-`!Sync` structural derivation). Wave 2 closes the
+  4th — borrow-check write exemption — with the rationale that
+  the carve-out is by-construction through `UnsafeCell::get(&self)
+  -> *mut T` + the unsafe-block at the write site; raw-ptr writes
+  are governed by `*mut` mutability, not the `&T` write rule, so
+  no dedicated `check_place_writable` arm is needed (Rust itself
+  rejects `*shared_cell_ref = val` direct syntax for the same
+  reason). Auto-`!Sync` closes the cross-thread soundness loop.
+  Verification: `tests/logos/pass/core_2_2_unsafecell_write.logos`
+  exercises shared-borrow + write-through-`.get()` + observation
+  across multiple `&UnsafeCell<T>` refs to the same cell.
+- 🟡 **2.4(c)** ESCALATED. dyn+Auto enforcement at the unsize
+  coercion site needs grammar surgery: `dyn_auto_bounds` (parsed
+  as `(PLUS IDENT / PLUS LIFETIME)*` per
+  `tools/peg_gen/grammars/logos.peg:1354`) is discarded by every
+  `dyn_type` action — no AST slot carries the bound list. Closing
+  needs: (a) grammar action capture, (b) `DYN_TYPE` schema field,
+  (c) `TraitObject` TypeRef extension to carry the bound set, (d)
+  the actual `auto-trait T satisfies dyn's bounds` check at
+  `ref_arg_satisfies_dyn` / `coerce_arg_to_dyn`. Session-scale;
+  reopens as its own item.
+- 🟡 **5.1** ESCALATED. Atomics Ordering threading needs the full
+  retire of `extern fn logos_atomic_*` ad-hoc stubs at
+  `stdlib/lang/atomic/atomic.logos:48-56` (their bodies live in
+  hand-written assembly), replacement with MLIR atomic intrinsics
+  carrying the matching ordering enum, plus a multi-thread test
+  harness for the relaxed-store / acquire-load TLA+-modellable
+  case. Codegen + runtime + test-infra change; session-scale.

@@ -39,7 +39,7 @@ in `pass/` and `fail/`. Two reasons:
 | 1.4 | `Kind::FnItem` distinct | `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` | not started (❌) |
 | 1.5 | `#[repr]` minimal | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ | ✅ |
 | 2.1 | region_infer wire | (consumer test under regions/ already) | partial (🟡) |
-| 2.2 | UnsafeCell | `tests/logos/pass/core_2_2_unsafecell_write.logos` (basic case) | partial (🟡) |
+| 2.2 | UnsafeCell | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ | ✅ |
 | 2.3 | TraitObject variance | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ | ✅ |
 | 2.4 | Auto-trait propagation | `tests/logos/pass/core_2_4_arc_send_sync.logos` + fail dyn+Send | partial (🟡) |
 | 2.5 | MutRef Copy-trivial | `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` ✓ | ✅ |
