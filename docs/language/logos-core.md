@@ -623,18 +623,44 @@ patterns / memory model). Each item below has a per-audit Tier ref
 (2026-05-30) to reflect what `feature-audit/README.md` ranked as
 Tier-1/2/3/4 NOT-yet-in-core.
 
-### 6.1. `union` item — parse + layout
+### ~~6.1. `union` item~~ ✅
 *Audit: C (Items), B (Type system), K (Unsafe), Tier-3 #28.*
-- **Issue:** `union { f1: T1, f2: T2 }` doesn't parse at all today.
-  Ported Rust code that mentions `union` (even just under
-  `#[cfg(...)]`-guarded blocks) fails at the grammar.
-- **Why core:** Rust's items grammar core surface. Union layout
-  + access rules are also a soundness gate (every field-read of a
-  union is unsafe).
-- **DoD-depth:** `KW_UNION` + `union_def` grammar; `LUnionDef` LIR
-  node; layout = max-of-fields aligned to max-alignment; field
-  access requires `unsafe` block; targeted pass test (parse +
-  unsafe-field-read works) + fail test (safe-field-read rejects).
+**CLOSED 2026-05-31 (Wave 7).** Six pieces:
+1. **Lexer**: new `KW_UNION = "union"` keyword.
+2. **Grammar**: new `UNION_DEF = 253` schema code;
+   `union_def <- KW_UNION IDENT type_param_list? LBRACE
+   field_def_or_doc* RBRACE` (named-fields shape, no methods /
+   tuple form / metaprog). `pub_union_def` sibling. Wired into
+   top-level `item` dispatch.
+3. **Sema flag propagation**: `SemaStructInfo::is_union` and
+   `LStructDef::is_union` flags. `sema_collect.cpp` flags the
+   collected struct after `collect_struct` when the source AST
+   code is `UNION_DEF`; `sema_decl.cpp::lower_struct_def`
+   forwards into the LIR; `mono_clone.cpp::clone_struct_def`
+   preserves the flag through generic instantiation.
+4. **Unsafe gate** (`sema_expr.cpp::lower_field_read`): a field
+   read of `u.f` where the receiver's struct is flagged as a
+   union rejects with a specific diagnostic outside an
+   `unsafe` block — Rust soundness contract (only one field is
+   "active" at a time).
+5. **Single-field-init enforcement** (`sema_expr.cpp::lower_struct_lit`):
+   a union literal must initialize exactly one field. `U { a: 1,
+   b: 2 }` rejects; `U { a: 1 }` accepts. Skips the missing-field
+   completeness check (union construction is partial by design).
+6. **Max-of-fields layout** (`mlir_gen_types.cpp::register_struct`):
+   when `is_union` is set, the LLVM struct body is the largest
+   field's type (by `logos_abi_byte_size`) and all `FieldInfo`
+   entries share GEP index 0 — fields overlap at offset 0,
+   matching Rust ABI. Field-typed loads/stores bitcast through
+   the load's declared type.
+
+Verification:
+- `tests/logos/pass/core_6_1_union_parse.logos` — single-field
+  union construction + unsafe field read.
+- `tests/logos/fail/core_6_1_union_safe_read.logos` — safe field
+  read rejected.
+- `tests/logos/fail/core_6_1_union_multi_init.logos` — multi-init
+  rejected.
 - **Status (2026-05-30 Wave 4): ESCALATED for dedicated session.**
   The pipeline is genuinely 6 files (lexer KW_UNION + grammar
   `union_def` + schema `UNION_DEF` + sema `LUnionDef` collection +
@@ -1140,10 +1166,9 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 33 / 37 ✅ closed at DoD-depth (89.2%)** · 0 🟡 partial · 4 ❌ not
-> started (3 of those — §6.1, §6.5, §6.12 — escalated with per-item
-> hand-offs; §6.10 partial 6/8, Default + Debug remain).
-> Suite: 5327+ / 5327+ ✓.
+> **Score: 34 / 37 ✅ closed at DoD-depth (91.9%)** · 0 🟡 partial · 3 ❌ not
+> started (§6.5 ?-on-Try, §6.10 derive(Default)+derive(Debug) partial 6/8,
+> §6.12 Range generics). Suite: 5328+ / 5328+ ✓.
 >
 > Wave 5 closures (6 of the originally-listed 10 + 1 escalation): 6.11,
 > 6.13, 6.8, 6.14, 6.7 (parse half), 6.9. Closing the remaining items
@@ -1187,7 +1212,7 @@ core are recorded here with a rationale. Closing items move to a
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
 | 4.4 | `PAT_PATH` constants-as-patterns | ✅ | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ — already wired at `sema_stmt.cpp:4582-4607` (P4-pm-06) |
 | 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
-| 6.1 | `union` item — parse + layout | ❌ | escalated 2026-05-30 (Wave 4) — pipeline hand-off recorded in §6.1 body |
+| 6.1 | `union` item | ✅ | `tests/logos/pass/core_6_1_union_parse.logos` ✓ + 2 fail tests — full soundness (parse + unsafe gate + single-field init + max-of-fields layout) |
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if (if-form) | ✅ | `tests/logos/pass/core_6_4_let_chain.logos` ✓ — grammar + desugar via `lower_reparsed_tail_expr` with `0i32` synth-tail trick; while-let and match-guard chain forms are a follow-up slice |

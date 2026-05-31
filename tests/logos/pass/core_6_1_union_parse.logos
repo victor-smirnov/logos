@@ -1,0 +1,36 @@
+// logos-core §6.1: `union NAME { … }` item — parse, sema, and
+// unsafe-gated field access.
+//
+// Pre-Wave-7 `union` didn't parse at all; ports that mention union
+// (even under `#[cfg(...)]` guard) failed at the grammar. Wave 7
+// closes:
+// - KW_UNION token + union_def grammar (mirrors struct named-fields).
+// - UNION_DEF schema code (253).
+// - sema_collect routes UNION_DEF through `collect_struct` and
+//   flags the resulting SemaStructInfo with `is_union = true`.
+// - sema_expr's field-read site requires enclosing `unsafe` block
+//   when the receiver's struct is flagged as a union (Rust
+//   soundness — only one field is "active" at a time).
+//
+// Layout is currently sum-of-fields (struct layout) rather than
+// max-of-fields; the layout-correctness slice is a follow-up.
+package core_6_1_union_parse;
+
+union Pair {
+    a: i32,
+    b: i32,
+}
+
+fn main() -> i32 {
+    // Union construction: exactly ONE field active. `Pair { a: 42 }`
+    // makes `a` the active field; `b` is reinterpreted-only via the
+    // same memory.
+    let u: Pair = Pair { a: 42i32 };
+    let v: i32 = unsafe { u.a };
+    if v != 42i32 { return 1i32; }
+    // Different field-init = different active field.
+    let u2: Pair = Pair { b: 99i32 };
+    let w: i32 = unsafe { u2.b };
+    if w != 99i32 { return 2i32; }
+    return 0i32;
+}

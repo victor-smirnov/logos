@@ -317,7 +317,25 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, false});
         field_types.push_back(ft);
     }
-    if (mlir::failed(struct_type.setBody(field_types, false))) {
+    // §6.1: union layout — body is the LARGEST field's type so the
+    // aggregate occupies max-of-fields bytes. All fields share GEP
+    // index 0 (they overlap at offset 0). Mismatching field types
+    // at access time bitcast via the load's declared type.
+    if (sd.is_union && !field_types.empty()) {
+        size_t max_idx = 0;
+        uint64_t max_sz = 0;
+        for (size_t i = 0; i < sd.fields.size(); ++i) {
+            std::unordered_set<std::string> seen;
+            uint64_t sz = logos_abi_byte_size(sd.fields[i].type, seen);
+            if (sz > max_sz) { max_sz = sz; max_idx = i; }
+        }
+        std::vector<mlir::Type> body{field_types[max_idx]};
+        if (mlir::failed(struct_type.setBody(body, false))) {
+            std::fprintf(stderr, "mlir_gen: failed to set union body for '%s'\n", key.c_str());
+            return false;
+        }
+        for (auto& finfo : info.fields) finfo.index = 0;
+    } else if (mlir::failed(struct_type.setBody(field_types, false))) {
         std::fprintf(stderr, "mlir_gen: failed to set struct body for '%s'\n", key.c_str());
         return false;
     }

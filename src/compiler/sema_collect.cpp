@@ -1260,6 +1260,27 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             continue;
         }
         if (phase == 1) {
+            // §6.1: `union NAME { … }` shares STRUCT's collection
+            // shape (named fields, optional type-params). Slice 1
+            // routes the union through `collect_struct` so the rest
+            // of sema sees it as a known type; layout falls back to
+            // struct sum-of-fields (TODO for max-of-fields slice
+            // when the SemaStructInfo grows an `is_union` flag) and
+            // field-access doesn't yet require `unsafe`. The parse
+            // surface is what unblocks ports today; the soundness
+            // pieces follow in a dedicated slice.
+            if (c == la::UNION_DEF) {
+                if (item.has_key(la::NAME.code)) {
+                    auto uname = std::string(str_of(item.get(la::NAME.code)));
+                    bool htp = item_has_type_params(item);
+                    check_annotations(AttrTarget::Struct, uname, htp, pending_annots);
+                    collect_struct(item);
+                    auto [upkg, usi] = find_struct_by_name(uname);
+                    if (usi) usi->is_union = true;
+                }
+                pending_annots.clear();
+                continue;
+            }
             if      (c == la::STRUCT) {
                 bool is_zoned = false;
                 for (auto& ann : pending_annots)

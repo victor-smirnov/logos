@@ -1,0 +1,10 @@
+// §6.1 negative: field read on a union outside `unsafe` is
+// rejected with a specific diagnostic — Rust soundness contract.
+package core_6_1_union_safe_read;
+
+union Pair { a: i32, b: i32 }
+
+fn main() -> i32 {
+    let u: Pair = Pair { a: 1i32, b: 2i32 };
+    return u.a;   // not in unsafe — must reject
+}

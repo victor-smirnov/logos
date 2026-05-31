@@ -1,0 +1,12 @@
+// §6.1 negative: a union literal must initialize EXACTLY ONE field
+// — `U { a: 1, b: 2 }` is meaningless because only one field is
+// "active". Rust rejects this at parse time; Logos rejects at sema.
+package core_6_1_union_multi_init;
+
+union Pair { a: i32, b: i32 }
+
+fn main() -> i32 {
+    let u: Pair = Pair { a: 1i32, b: 2i32 };  // two fields — reject
+    let _: i32 = unsafe { u.a };
+    return 0i32;
+}

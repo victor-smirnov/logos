@@ -4494,6 +4494,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.pkg  = tmpl.pkg;
     nd.is_zoned = tmpl.is_zoned;
     nd.is_dst   = tmpl.is_dst;  // Phase 1B-15: preserved; possibly upgraded below.
+    nd.is_union = tmpl.is_union;  // §6.1: preserved through mono clone.
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono
     // dropck can identify "this struct had a lifetime parameter in its

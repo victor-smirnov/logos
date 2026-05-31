@@ -8200,6 +8200,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         return builder().field_read(std::move(recv), std::string(field_name), error_t());
     }
     // Pub check: private fields are accessible only within the defining package.
+    // §6.1: union field-access also requires `unsafe` context.
     {
         SemaStructInfo* sinfo_ptr = nullptr;
         {
@@ -8208,6 +8209,16 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             else { auto [dpkg, dsi] = find_datatype_by_name(sname); sinfo_ptr = dsi; }
         }
         if (sinfo_ptr) {
+            // §6.1: union field reads require enclosing `unsafe`
+            // (Rust soundness — only one field's value is valid at
+            // a time; the active one is the implementation's
+            // problem).
+            if (sinfo_ptr->is_union && !inside_unsafe_) {
+                error(std::format("field read of `{}.{}` requires `unsafe` block "
+                                  "(`{}` is a union — only one field is "
+                                  "active at a time)",
+                                  sname, field_name, sname));
+            }
             for (auto& f : sinfo_ptr->fields) {
                 if (f.name == field_name || (f.is_variadic && field_name.starts_with(f.name) && field_name.size() > f.name.size() + 1 && field_name[f.name.size()] == '_')) {
                     check_pub_access(f.is_pub, sinfo_ptr->package, field_name);
@@ -8277,6 +8288,26 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         return error_expr();
     }
     auto& sinfo = *sinfo_ptr;
+
+    // §6.1: union construction takes EXACTLY ONE field-init (which
+    // one is "active"). Multi-init `U { a: 1, b: 2 }` is meaningless
+    // — Rust rejects it at parse time. Reject here with a clear
+    // diagnostic before the regular struct-lit field-walk fires.
+    if (sinfo.is_union && node.has_key(la::ITEMS)) {
+        auto inits_chk = arr_of(node.get(la::ITEMS.code));
+        size_t n_inits = 0;
+        for (uint64_t i = 0; i < inits_chk.size(); ++i) {
+            auto init = map_of(inits_chk.get(i));
+            int32_t ic = code_of(init);
+            if (ic == la::FIELD_INIT || ic == la::FIELD_SHORTHAND) ++n_inits;
+        }
+        if (n_inits != 1) {
+            error(std::format("union `{}` literal must initialize exactly "
+                              "one field (got {})",
+                              sname, n_inits));
+            return error_expr();
+        }
+    }
 
     // Pub check: struct with private fields can only be constructed within its package.
     if (sinfo.package != cur_package_ && !sinfo.package.empty() && !cur_package_.empty()) {
@@ -8679,9 +8710,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             }
         }
 
-        for (auto& [fname, init] : initialized)
-            if (!init)
-                error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+        // §6.1: union literals only initialize ONE field — skip
+        // the missing-field check (sinfo.is_union short-circuits).
+        if (!sinfo.is_union) {
+            for (auto& [fname, init] : initialized)
+                if (!init)
+                    error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+        }
 
         // Move semantics: mark Move-typed field values as consumed.
         // Without this, `Foo<T> { f: v }` where v has a move-type would
@@ -8871,9 +8906,13 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         }
     }
 
-    for (auto& [fname, init] : initialized)
-        if (!init)
-            error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+    // §6.1: union literals are partial-by-design — skip the
+    // missing-field check (only one field is "active").
+    if (!sinfo.is_union) {
+        for (auto& [fname, init] : initialized)
+            if (!init)
+                error(std::format("struct literal '{}': field '{}' not initialized", sname, fname));
+    }
 
     // Move semantics: mark Move-typed field values as consumed.
     for (auto& [fname, fval] : fields) {

@@ -1950,6 +1950,14 @@ private:
                             // `Box`. Construction goes through unsafe raw-
                             // parts assembly (no by-value).
                             bool is_dst = false;
+                            // logos-core §6.1: this type was declared as `union NAME { … }`
+                            // rather than `struct`. Layout is max-of-fields aligned to
+                            // max-alignment (vs struct's sum-of-fields); every field READ
+                            // requires enclosing `unsafe` (Rust soundness contract — only
+                            // one field is "active" at a time and the active one is
+                            // implementation-defined). Set in `collect_struct` when the
+                            // dispatching item code is `UNION_DEF`.
+                            bool is_union = false;
                             // logos-core 1.5: `#[repr(transparent)]` — single-field
                             // wrapper inherits its field's layout exactly
                             // (size + align + niche). Set by sema_collect when

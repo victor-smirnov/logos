@@ -309,6 +309,7 @@
     IF_LET_CHAIN                = 250   // logos-core §6.4: `if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }`. ITEMS = list of LET_CHAIN_LET / LET_CHAIN_COND segs joined by `&&`. THEN/ELSE branches as in IF. Sema desugars to a flat sequence of refutable binds + cond checks; chain falls to ELSE on any failure.
     LET_CHAIN_LET               = 251   // §6.4: let-bind seg of IF_LET_CHAIN. PAT = pattern, VALUE = scrutinee. Refutable.
     LET_CHAIN_COND              = 252   // §6.4: bool-cond seg of IF_LET_CHAIN. VALUE = bool expression. Falls to ELSE on false.
+    UNION_DEF                   = 253   // logos-core §6.1: `union NAME { f1: T1, f2: T2, … }` item. NAME = union type name; FIELDS = field array (same shape as STRUCT). Sema treats unions as Struct-shaped types with `is_union=true`; layout = max-of-fields aligned to max-alignment; field access requires `unsafe` block.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -329,6 +330,7 @@
     KW_RETURN   = "return"
     KW_EXTERN   = "extern"
     KW_STRUCT   = "struct"
+    KW_UNION    = "union"
     KW_MATCH    = "match"
     KW_WHILE    = "while"
     KW_BREAK    = "break"
@@ -499,7 +501,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_union_def / union_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1091,6 +1093,17 @@
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, FIELDS: $... }
                 / KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6, ITEMS: $7 }
+
+    // §6.1: `union NAME { f1: T1, f2: T2, … }`. The parsed shape
+    // mirrors a plain struct (named-fields, optional generics) —
+    // sema collects the item as a Struct internally and flags it
+    // with `is_union=true` so layout / field-access checks branch
+    // accordingly. No tuple-shape, no methods, no `#[…]` form
+    // pre-positions in slice 1.
+    pub_union_def <- KW_PUB KW_UNION IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
+                  => { CODE: UNION_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
+    union_def    <- KW_UNION IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
+                 => { CODE: UNION_DEF, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern

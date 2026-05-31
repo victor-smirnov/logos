@@ -841,6 +841,12 @@ struct LStructDef {
     // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
     // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
     bool                     is_dst        = false;
+    // logos-core §6.1: this type was declared as `union NAME { … }`.
+    // Layout is max-of-fields aligned to max-alignment (vs struct's
+    // sum-of-fields); only one field is "active" at a time. Field-
+    // reads require enclosing `unsafe` (Rust soundness contract);
+    // struct-lit construction initializes exactly one field.
+    bool                     is_union      = false;
     // logos-core 1.5: `#[repr(transparent)]` — single-field wrapper inherits
     // its field's layout EXACTLY (size + align). Recognised by sema_collect
     // (`SemaStructInfo::repr_transparent`); consumed by mlir-gen's `layout_of`

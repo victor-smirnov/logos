@@ -6672,6 +6672,20 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             pending_annots.clear();
             continue;
         }
+        // §6.1: route UNION_DEF through STRUCT-shaped lowering for
+        // slice 1. The downstream type-checking sees the union as a
+        // struct (same field shape); layout / unsafe-gating is the
+        // follow-up soundness slice (see §6.1 catalog body).
+        if (c == la::UNION_DEF) {
+            // Synth the path by re-using STRUCT lower with the
+            // union's NAME / FIELDS / TYPE_PARAMS slots — the
+            // FIELD_DEF nodes have the same shape so lower_struct
+            // accepts them verbatim.
+            // For now just fall through: lower_module_items checks
+            // STRUCT below; we need a STRUCT-equivalent code so the
+            // existing handler fires. Treat UNION_DEF as STRUCT.
+            c = la::STRUCT.code;
+        }
         if      (c == la::STRUCT) {
             // Explicit struct instantiation: `#[type_code=N] struct Pair<i32>;`
             // Has TYPE key, no NAME key — delegate to same logic as DATATYPE inst.

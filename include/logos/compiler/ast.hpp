@@ -316,6 +316,7 @@ inline constexpr Code EXTERN_BLOCK         {"EXTERN_BLOCK",       249}; // logos
 inline constexpr Code IF_LET_CHAIN         {"IF_LET_CHAIN",       250}; // logos-core §6.4: `if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }`. ITEMS = list of LET_CHAIN_LET / LET_CHAIN_COND segments. THEN/ELSE branches like IF. Sema desugars to a flat sequence of refutable binds + cond checks; chain falls to ELSE on any failure.
 inline constexpr Code LET_CHAIN_LET        {"LET_CHAIN_LET",      251}; // §6.4: let-bind seg of IF_LET_CHAIN. PAT = pattern, VALUE = scrutinee.
 inline constexpr Code LET_CHAIN_COND       {"LET_CHAIN_COND",     252}; // §6.4: bool-cond seg of IF_LET_CHAIN. VALUE = bool expression.
+inline constexpr Code UNION_DEF            {"UNION_DEF",          253}; // logos-core §6.1: `union NAME { f1: T1, f2: T2, … }`. NAME = union type name; FIELDS = field array (same shape as STRUCT); TYPE_PARAMS optional. Sema treats unions as Struct-shaped types with `is_union=true`; layout = max-of-fields aligned to max-alignment; field access requires `unsafe` block.
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

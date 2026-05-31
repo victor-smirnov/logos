@@ -56,7 +56,7 @@ in `pass/` and `fail/`. Two reasons:
 | 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | ✅ |
 | 4.4 | `PAT_PATH` constants-as-patterns | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ | ✅ |
 | 4.5 | fn-params irrefutable patterns | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ | ✅ |
-| 6.1 | `union` item — parse + layout | TBD — Tier-3 #28 | ❌ |
+| 6.1 | `union` item | `tests/logos/pass/core_6_1_union_parse.logos` ✓ + `tests/logos/fail/core_6_1_union_{safe_read,multi_init}.logos` ✓ | ✅ |
 | 6.2 | `static` vs `const` split (immutable half) | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ | ✅ |
 | 6.3 | `let-else` divergence assertion | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ | ✅ |
 | 6.4 | let-chain in if (if-form) | `tests/logos/pass/core_6_4_let_chain.logos` ✓ | ✅ |

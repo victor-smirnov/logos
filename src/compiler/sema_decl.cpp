@@ -977,6 +977,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
     sd.is_dst = sinfo->is_dst;
+    // §6.1: propagate union flag so mlir-gen's layout path can branch
+    // to max-of-fields aligned to max-alignment.
+    sd.is_union = sinfo->is_union;
     // logos-core 1.5: propagate `#[repr(transparent)]` so mlir-gen's
     // `layout_of` Struct case can collapse to the field's layout.
     sd.repr_transparent = sinfo->repr_transparent;
