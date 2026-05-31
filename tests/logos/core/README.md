@@ -50,7 +50,7 @@ in `pass/` and `fail/`. Two reasons:
 | 3.2 | `?Sized` invariants | `tests/logos/pass/core_3_2_qsized_box_dyn.logos` ✓ + `tests/logos/fail/core_3_2_qsized_required.logos` ✓ | ✅ |
 | 3.3 | GAT + object-safety | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ | ✅ |
 | 4.1 | `is_refutable` foundation | verified-by-suite (predicate consumed by 3 sites) | ✅ |
-| 4.2 | Match exhaustiveness | `tests/logos/fail/core_4_2_match_missing_variant.logos` + uninhabited | partial (🟡) |
+| 4.2 | Match exhaustiveness | `tests/logos/pass/core_4_2_match_exhaustiveness.logos` ✓ + `tests/logos/fail/core_4_2_missing_variant.logos` ✓ | ✅ |
 | 4.3 | Chained autoderef in pat | `tests/logos/pass/core_4_3_pattern_double_ref.logos` | partial (🟡) |
 | 5.1 | Atomics Ordering | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ | ✅ |
 | 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | partial (🟡) |

@@ -1,0 +1,24 @@
+// logos-core §4.2 (negative): match exhaustiveness rejects missing
+// variant. `check_match_exhaustiveness` at sema_stmt.cpp:6724 computes
+// the covered-variants set (skipping guarded arms) and emits
+// "match is not exhaustive — missing variant(s): X" when any variant
+// is uncovered AND no `_` arm is present.
+//
+// Companion pass-test: `tests/logos/pass/core_4_2_match_exhaustiveness.logos`
+// pins the positive arms (variant coverage, guard integration,
+// uninhabited, nested-variant).
+package core_4_2_missing_variant;
+
+enum Color { Red, Green, Blue }
+
+fn classify(c: Color) -> i32 {
+    match c {
+        Color::Red   => { return 1i32; }
+        Color::Green => { return 2i32; }
+        // ERROR: missing Blue, no wildcard.
+    }
+}
+
+fn main() -> i32 {
+    return classify(Color::Red);
+}
