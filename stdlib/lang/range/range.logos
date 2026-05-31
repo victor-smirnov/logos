@@ -3,12 +3,154 @@
 // RangeI32 / RangeI64 — explicit range iterator types.
 // `for i in 0..10` uses the compiler's built-in FOR node (no struct needed).
 // These types are for when you need a *value* range to pass to adapters.
+//
+// §6.12 (Wave 8): adds the `Step` trait + generic `Range<T>` over
+// any T: Step + Copy. Pre-existing concrete `RangeI32` / `RangeI64`
+// stay wired (the for-loop desugar still constructs them); user
+// code can opt into `Range<T>` directly when it needs a generic.
 
 package logos.lang.range;
 
 use logos.lang.option;
 use logos.lang.iter;
 use logos.lang.ops;
+
+// §6.12: `Step` trait — Rust's iterator-element shape for ranges.
+// Three primitives: forward step, backward step, and ordered-lt
+// (so next() stops when current >= end).
+pub trait Step {
+    fn step_forward(self: Self) -> Self;
+    fn step_backward(self: Self) -> Self;
+    fn step_lt(self: Self, other: Self) -> bool;
+}
+
+impl Step for i32 {
+    fn step_forward(self: i32)  -> i32  { return self + 1i32; }
+    fn step_backward(self: i32) -> i32  { return self - 1i32; }
+    fn step_lt(self: i32, other: i32) -> bool { return self < other; }
+}
+impl Step for i64 {
+    fn step_forward(self: i64)  -> i64  { return self + (1 as i64); }
+    fn step_backward(self: i64) -> i64  { return self - (1 as i64); }
+    fn step_lt(self: i64, other: i64) -> bool { return self < other; }
+}
+impl Step for u32 {
+    fn step_forward(self: u32)  -> u32  { return self + (1 as u32); }
+    fn step_backward(self: u32) -> u32  { return self - (1 as u32); }
+    fn step_lt(self: u32, other: u32) -> bool { return self < other; }
+}
+impl Step for u64 {
+    fn step_forward(self: u64)  -> u64  { return self + (1 as u64); }
+    fn step_backward(self: u64) -> u64  { return self - (1 as u64); }
+    fn step_lt(self: u64, other: u64) -> bool { return self < other; }
+}
+
+// §6.12: generic range types — `RangeOf<T>` / `RangeOfIncl<T>` /
+// `RangeOfFrom<T>`. Named with the `Of` suffix to AVOID collision
+// with user code that defines its own non-generic `struct Range`
+// in another package (Logos's monomorphizer keys structs by base
+// name across packages; same name confuses the dispatch). User
+// code can also use the concrete `RangeI32`/`RangeI64` (below) for
+// for-loop interop; the generic shape covers iterators over u32 /
+// u64 / char / user types that impl Step.
+pub struct RangeOf<T: Step + Copy> {
+    pub current: T,
+    pub end:     T,
+}
+
+pub fn range_of<T: Step + Copy>(start: T, end: T) -> RangeOf<T> {
+    return RangeOf { current: start, end: end };
+}
+
+impl<T: Step + Copy> Iterator<T> for RangeOf<T> {
+    fn next(self: &mut RangeOf<T>) -> Option<T> {
+        if self.current.step_lt(self.end) {
+            let v: T = self.current;
+            self.current = self.current.step_forward();
+            return Option::Some(v);
+        }
+        return Option::None;
+    }
+}
+
+// §6.12: generic inclusive range `[start, end]` — yields `end`
+// as the last value, then stops.
+pub struct RangeOfIncl<T: Step + Copy> {
+    pub current: T,
+    pub end:     T,
+    pub done:    bool,
+}
+
+pub fn range_incl_of<T: Step + Copy>(start: T, end: T) -> RangeOfIncl<T> {
+    return RangeOfIncl { current: start, end: end, done: false };
+}
+
+impl<T: Step + Copy> Iterator<T> for RangeOfIncl<T> {
+    fn next(self: &mut RangeOfIncl<T>) -> Option<T> {
+        if self.done { return Option::None; }
+        let v: T = self.current;
+        if self.current.step_lt(self.end) {
+            self.current = self.current.step_forward();
+        } else {
+            if self.end.step_lt(self.current) { return Option::None; }
+            self.done = true;
+        }
+        return Option::Some(v);
+    }
+}
+
+// §6.12: generic `RangeOfFrom<T>` — unbounded `[start, …)`. Never
+// returns None — callers must impose their own termination
+// (`.take(n)` etc.).
+pub struct RangeOfFrom<T: Step + Copy> {
+    pub current: T,
+}
+
+pub fn range_from_of<T: Step + Copy>(start: T) -> RangeOfFrom<T> {
+    return RangeOfFrom { current: start };
+}
+
+impl<T: Step + Copy> Iterator<T> for RangeOfFrom<T> {
+    fn next(self: &mut RangeOfFrom<T>) -> Option<T> {
+        let v: T = self.current;
+        self.current = self.current.step_forward();
+        return Option::Some(v);
+    }
+}
+
+// §6.12: generic `RangeOfTo<T>` — half-open `[<unspecified>, end)`.
+// Carries no start; iteration semantics are caller-supplied (e.g.
+// for slicing `s[..hi]`). The Iterator impl is a marker — calling
+// `.next()` on a bare RangeOfTo without an explicit start is a
+// caller error (Rust's `RangeTo` doesn't implement Iterator directly
+// either; it's mainly used as a slicing-index shape).
+pub struct RangeOfTo<T: Step + Copy> {
+    pub end: T,
+}
+
+pub fn range_to_of<T: Step + Copy>(end: T) -> RangeOfTo<T> {
+    return RangeOfTo { end: end };
+}
+
+// §6.12: generic `RangeOfToIncl<T>` — half-open `[<unspecified>, end]`.
+// Same caller-supplied-start model as RangeOfTo.
+pub struct RangeOfToIncl<T: Step + Copy> {
+    pub end: T,
+}
+
+pub fn range_to_incl_of<T: Step + Copy>(end: T) -> RangeOfToIncl<T> {
+    return RangeOfToIncl { end: end };
+}
+
+// §6.12: `RangeOfFull` — unbounded `[…, …)`. Stateless; carries
+// no values. Used as a slicing-index shape (`s[..]`). The legacy
+// `RangeFull` + `range_full()` further down stay for backward
+// compat (slicing receivers that already use them).
+pub struct RangeOfFull {}
+
+pub fn range_full_of() -> RangeOfFull {
+    return RangeOfFull {};
+}
 
 // ── RangeI32 — exclusive range [start, end) over i32 ─────────────────────────
 

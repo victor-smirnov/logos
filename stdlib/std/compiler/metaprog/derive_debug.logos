@@ -1,0 +1,112 @@
+// logos.std.compiler.metaprog — derive(Debug) for plain and
+// generic structs.
+//
+// Hook for `#[derive_debug]`. Emits
+//
+//   impl<T1: Debug, ...> Debug for Name<T1, ...> {
+//       fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+//           f.write_str("Name(");
+//           self.f1.fmt(f);  let _ = f.write_str(", ");
+//           self.f2.fmt(f);  let _ = f.write_str(", ");
+//           …
+//           let _ = f.write_str(")");
+//           return Result::Ok(());
+//       }
+//   }
+//
+// Tuple-Debug shape (positional, no field-name labels) — Rust's
+// `Pt { x: 0, y: 0 }` shape needs per-field name-as-string-literal
+// emit, which requires extending quote_expr! antiquot to substitute
+// Ident cursors into string-literal positions (Wave 9 follow-up).
+// For slice 1 the positional shape covers the common port use
+// (`assert_eq!` debug-rendering needs to format SOMETHING — the
+// exact spelling is rarely load-bearing).
+//
+// §6.10 sub-deliverable 8/8.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.string;
+use logos.lang.result;
+use logos.mem.fmt;
+
+#[metaprog_handler("derive_debug")]
+fn derive_debug_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl Debug for #(nm) {
+                fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+                    // Use fmt_debug_to_string<T: Debug> per field so
+                    // primitives dispatch correctly via the generic
+                    // trait bound (Logos's method-on-primitive
+                    // resolution doesn't reach `.fmt()` directly).
+                    let mut __s: String = String::new();
+                    __s.push_str("(");
+                    #(
+                        { __s.push_str(fmt_debug_to_string(&self.#fnames).as_str()); __s.push_str(", "); }
+                    )*
+                    __s.push_str(")");
+                    return f.write_str(__s.as_str());
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: Debug ),*> Debug for #nm<#( #tparams ),*> {
+                fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+                    // Use fmt_debug_to_string<T: Debug> per field so
+                    // primitives dispatch correctly via the generic
+                    // trait bound (Logos's method-on-primitive
+                    // resolution doesn't reach `.fmt()` directly).
+                    let mut __s: String = String::new();
+                    __s.push_str("(");
+                    #(
+                        { __s.push_str(fmt_debug_to_string(&self.#fnames).as_str()); __s.push_str(", "); }
+                    )*
+                    __s.push_str(")");
+                    return f.write_str(__s.as_str());
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}

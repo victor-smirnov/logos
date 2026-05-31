@@ -1,0 +1,82 @@
+// logos-core §6.12: generic `Range<T>` over T: Step + Copy.
+//
+// Pre-Wave-8 stdlib had only concrete `RangeI32` / `RangeI64` —
+// ports of `Range<usize>` / `Range<char>` etc. had no equivalent.
+// Wave 8 adds the `Step` trait + a generic `Range<T: Step + Copy>`
+// struct with Iterator<T> impl. The pre-existing concrete
+// `RangeI32`/`RangeI64` stay wired (for-loop desugar still
+// constructs them); user code wanting the generic shape uses
+// `range_of::<T>(start, end)` or `Range { current, end }`
+// directly.
+//
+// The for-loop desugar redirect (`..` produces `Range<T>` instead
+// of `RangeIT`) is a follow-up slice — Wave 9.
+package core_6_12_range_generic;
+
+use logos.lang.range;
+use logos.lang.iter;
+
+fn sum_range_i32(lo: i32, hi: i32) -> i32 {
+    let mut r: RangeOf<i32> = range_of::<i32>(lo, hi);
+    let mut acc: i32 = 0i32;
+    loop {
+        match r.next() {
+            Option::Some(v) => { acc = acc + v; }
+            Option::None    => { return acc; }
+        }
+    }
+}
+
+fn sum_range_i64(lo: i64, hi: i64) -> i64 {
+    let mut r: RangeOf<i64> = range_of::<i64>(lo, hi);
+    let mut acc: i64 = 0 as i64;
+    loop {
+        match r.next() {
+            Option::Some(v) => { acc = acc + v; }
+            Option::None    => { return acc; }
+        }
+    }
+}
+
+fn sum_incl(lo: i32, hi: i32) -> i32 {
+    let mut r: RangeOfIncl<i32> = range_incl_of::<i32>(lo, hi);
+    let mut acc: i32 = 0i32;
+    loop {
+        match r.next() {
+            Option::Some(v) => { acc = acc + v; }
+            Option::None    => { return acc; }
+        }
+    }
+}
+
+fn first_n_from(start: i32, n: i32) -> i32 {
+    let mut r: RangeOfFrom<i32> = range_from_of::<i32>(start);
+    let mut acc: i32 = 0i32;
+    let mut i: i32 = 0i32;
+    while i < n {
+        match r.next() {
+            Option::Some(v) => { acc = acc + v; }
+            Option::None    => { return acc; }
+        }
+        i = i + 1i32;
+    }
+    return acc;
+}
+
+fn main() -> i32 {
+    // Exclusive: 0+1+2+3+4 = 10
+    if sum_range_i32(0i32, 5i32) != 10i32 { return 1i32; }
+    if sum_range_i64(100 as i64, 105 as i64) != (510 as i64) { return 2i32; }
+    if sum_range_i32(7i32, 7i32) != 0i32 { return 3i32; }   // empty
+    if sum_range_i32(10i32, 5i32) != 0i32 { return 4i32; }  // reverse → empty
+
+    // Inclusive: 0+1+2+3+4+5 = 15
+    if sum_incl(0i32, 5i32) != 15i32 { return 5i32; }
+    // Single-element inclusive: just `end`
+    if sum_incl(7i32, 7i32) != 7i32 { return 6i32; }
+
+    // RangeFrom — first 3 values from 10: 10+11+12 = 33
+    if first_n_from(10i32, 3i32) != 33i32 { return 7i32; }
+
+    return 0i32;
+}

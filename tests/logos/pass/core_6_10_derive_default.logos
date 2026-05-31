@@ -1,0 +1,36 @@
+// logos-core §6.10 sub-deliverable 7/8: derive(Default).
+//
+// Slice 1 emits `MaybeUninit::<Name>::zeroed().assume_init()` —
+// zero-initializes the entire struct. For POD struct types
+// (primitives + nested POD), this matches Rust's per-field
+// `Default::default()` chain: i32::default() = 0, bool::default()
+// = false, etc. all yield bitwise-zero.
+//
+// Non-POD field types (Vec / Box / etc. with non-zero defaults)
+// would get a zero bitmask which differs from Rust's per-field
+// init — the proper per-field dispatch requires extending
+// `quote_expr!`'s antiquot expander to substitute Ident cursors
+// at TYPE position (Wave 9 follow-up).
+package core_6_10_derive_default;
+
+use logos.std.compiler.metaprog;
+use logos.lang.default;
+
+#[derive_default]
+struct Pt { x: i32, y: i32 }
+
+#[derive_default]
+struct Triple { a: i32, b: i32, c: i32 }
+
+fn main() -> i32 {
+    let p: Pt = Pt::default();
+    if p.x != 0i32 { return 1i32; }
+    if p.y != 0i32 { return 2i32; }
+
+    let t: Triple = Triple::default();
+    if t.a != 0i32 { return 3i32; }
+    if t.b != 0i32 { return 4i32; }
+    if t.c != 0i32 { return 5i32; }
+
+    return 0i32;
+}
