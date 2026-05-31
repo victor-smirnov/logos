@@ -1,0 +1,9 @@
+// logos-core §1.3 — `let` without explicit type infers from RHS;
+// dependent `let w = v + 1i32` propagates the inferred i32 type.
+package core_1_3_inferred_let;
+fn main() -> i32 {
+    let v = 42i32;
+    let w = v + 1i32;
+    if w != 43i32 { return 1i32; }
+    return 0i32;
+}

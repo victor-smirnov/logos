@@ -1,0 +1,9 @@
+// logos-core §1.2 — signed→unsigned reinterpret cast preserves bit
+// pattern: `-1i32 as u32` == 0xFFFFFFFF.
+package core_1_2_cast_signed_unsigned;
+fn main() -> i32 {
+    let a: i32 = -1i32;
+    let b: u32 = a as u32;
+    if b != 0xFFFFFFFFu32 { return 1i32; }
+    return 0i32;
+}

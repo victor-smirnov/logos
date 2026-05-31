@@ -1,0 +1,9 @@
+// logos-core §1.2 — explicit widening cast i32 → i64. Sign-extension
+// preserves value.
+package core_1_2_cast_widen;
+fn main() -> i32 {
+    let a: i32 = 5i32;
+    let b: i64 = a as i64;
+    if b != 5i64 { return 1i32; }
+    return 0i32;
+}

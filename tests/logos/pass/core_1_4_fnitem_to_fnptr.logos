@@ -1,0 +1,10 @@
+// logos-core §1.4 — `Kind::FnItem` separate from `Kind::FnPtr`.
+// A bare fn name has FnItem type (per-instantiation ZST); assigning
+// it to a `fn() -> R` variable coerces to FnPtr.
+package core_1_4_fnitem_to_fnptr;
+fn f() -> i32 { return 11i32; }
+fn main() -> i32 {
+    let p: fn() -> i32 = f;
+    if p() != 11i32 { return 1i32; }
+    return 0i32;
+}

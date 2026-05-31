@@ -1,0 +1,8 @@
+// logos-core §1.3 — `Kind::InferredType` (the `_` placeholder).
+// `let v: _ = …` must defer type to RHS inference.
+package core_1_3_underscore_type;
+fn main() -> i32 {
+    let v: _ = 42i32;
+    if v != 42i32 { return 1i32; }
+    return 0i32;
+}

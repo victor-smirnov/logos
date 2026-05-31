@@ -1,0 +1,8 @@
+// logos-core §1.2 — float→int cast truncates toward zero.
+package core_1_2_cast_float_int;
+fn main() -> i32 {
+    let a: f32 = 3.7f32;
+    let b: i32 = a as i32;
+    if b != 3i32 { return 1i32; }
+    return 0i32;
+}

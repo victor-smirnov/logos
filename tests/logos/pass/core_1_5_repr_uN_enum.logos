@@ -1,0 +1,11 @@
+// logos-core §1.5 — `#[repr(u8)]` enum with explicit variant
+// discriminants; cast to u8 preserves the value.
+package core_1_5_repr_uN_enum;
+#[repr(u8)]
+enum Tag { A = 1u8, B = 2u8 }
+fn main() -> i32 {
+    let t: Tag = Tag::B;
+    let v: u8 = t as u8;
+    if v != 2u8 { return 1i32; }
+    return 0i32;
+}

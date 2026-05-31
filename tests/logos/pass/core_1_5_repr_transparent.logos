@@ -1,0 +1,10 @@
+// logos-core §1.5 — `#[repr(transparent)]` on a single-field struct:
+// the wrapper has the same ABI as the inner field.
+package core_1_5_repr_transparent;
+#[repr(transparent)]
+struct Wrap { v: i32 }
+fn main() -> i32 {
+    let w: Wrap = Wrap { v: 7i32 };
+    if w.v != 7i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// logos-core §1.1 — `Never` / `!`: a divergent fn (return type `!`)
+// makes its call site type-check as anything (coerces to any type),
+// so `if … { diverge(); } return x;` still type-checks the `else`
+// path's `i32` result.
+package core_1_1_never_diverge;
+fn diverge() -> ! { loop { } }
+fn maybe(x: i32) -> i32 {
+    if x < 0i32 { diverge(); }
+    return x;
+}
+fn main() -> i32 {
+    if maybe(5i32) != 5i32 { return 1i32; }
+    return 0i32;
+}

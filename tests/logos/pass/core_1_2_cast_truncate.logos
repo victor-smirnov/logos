@@ -1,0 +1,9 @@
+// logos-core §1.2 — narrowing cast i64 → i32 truncates the high
+// bits. Must not error at type-check, must run at runtime.
+package core_1_2_cast_truncate;
+fn main() -> i32 {
+    let a: i64 = 0x123456789ABCDEFi64;
+    let b: i32 = a as i32;
+    let _ = b;
+    return 0i32;
+}
