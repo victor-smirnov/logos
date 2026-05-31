@@ -1,0 +1,14 @@
+// logos-core §6.1 P47 — `static S: U = U { a: ... };`.
+//
+// Same const-init validator path as P34 — `static` goes through the
+// same is_const_evaluable check. STRUCT_LIT acceptance lets unions
+// (and structs) initialize statics directly.
+package core_6_1_union_static_init;
+
+union U { a: i32, b: i32 }
+static S: U = U { a: 11i32 };
+
+fn main() -> i32 {
+    if unsafe { S.a } != 11i32 { return 1i32; }
+    return 0i32;
+}

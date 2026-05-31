@@ -1,0 +1,16 @@
+// logos-core §6.1 P66 — let-pattern on union requires unsafe
+// (items.union.pattern.safety).
+//
+// `match u { U { a } => ... }` outside unsafe was already rejected,
+// but the irrefutable `let U { a } = u;` form bypassed build_pattern
+// entirely and went through emit_destruct (sema_stmt.cpp) — no gate.
+// Rust requires unsafe for ANY pattern that reads a union field's
+// bits, refutable or not. Added the gate + the one-field constraint
+// (items.union.pattern.one-field) to the let-pattern path.
+package core_6_1_union_let_pattern_unsafe;
+union U { a: i32, b: i32 }
+fn main() -> i32 {
+    let u: U = U { a: 5i32 };
+    let U { a } = u;
+    return a;
+}

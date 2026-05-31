@@ -1,0 +1,17 @@
+// logos-core §6.1 P34 — `const X: U = U { a: ... };`.
+//
+// const-init's is_const_evaluable validator accepted LIT_*, BINOP,
+// METACALL, ARR/TUPLE_LIT but NOT STRUCT_LIT — a `const X: U = U {a:1}`
+// (or struct equivalent) was rejected. Rust accepts struct/union
+// literals in const-init when all field-init values are themselves
+// const-evaluable. Extended the validator to recurse into STRUCT_LIT
+// fields.
+package core_6_1_union_const_init;
+
+union U { a: i32, b: i32 }
+const X: U = U { a: 7i32 };
+
+fn main() -> i32 {
+    if unsafe { X.a } != 7i32 { return 1i32; }
+    return 0i32;
+}

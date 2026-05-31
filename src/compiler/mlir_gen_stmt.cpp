@@ -3135,7 +3135,13 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         auto sit = struct_types_.find(sname);
         if (sit == struct_types_.end()) return true_c();
         const StructInfo& sinfo = sit->second;
-        auto sptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        // Unified convention with Tuple: `slot_ptr` IS the struct data address
+        // (no extra alloca-of-pointer indirection). Nested sub-pattern callers
+        // pass `gep_field(parent, fname)` — that's already the inline child's
+        // address. Loading-as-pointer there was reading the first 8 bytes of
+        // the child as if they were a heap pointer (silent miscompile that
+        // segfaults on dereference).
+        auto sptr = slot_ptr;
         const LStructDef* sd = nullptr;
         if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
             sd = di->second;
@@ -3406,7 +3412,10 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         auto sit = struct_types_.find(sname);
         if (sit == struct_types_.end()) return;
         const StructInfo& sinfo = sit->second;
-        auto sptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        // Unified convention: `slot_ptr` is the struct data address — see
+        // pat_test's Struct case for the rationale (nested sub-pattern
+        // miscompile / segfault if we Load through inline-child storage).
+        auto sptr = slot_ptr;
         const LStructDef* sd = nullptr;
         if (auto di = all_struct_defs_.find(sname); di != all_struct_defs_.end())
             sd = di->second;
@@ -4608,9 +4617,10 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             // G148-1: struct arm with refutable field sub-patterns
             // (`Wrap { x: Inner::A(v), y } => …`). is_irrefutable already
             // routed fully-irrefutable struct patterns to is_wild; reaching
-            // here means at least one field sub is refutable. Spill the struct
-            // pointer into an alloca-of-ptr so pat_test's Struct case (which
-            // loads the struct ptr from its slot) applies uniformly.
+            // here means at least one field sub is refutable. Hand pat_test
+            // the struct data ptr directly (same convention as Tuple); the
+            // old alloca-of-ptr wrapper was the asymmetry that miscompiled
+            // nested struct sub-patterns.
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
@@ -4622,9 +4632,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                     sptr = a;
                 }
-                auto slot = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, slot);
-                auto cond = pat_test(arm_pat, slot, scrut_le->type);
+                auto cond = pat_test(arm_pat, sptr, scrut_le->type);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;

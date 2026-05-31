@@ -1,0 +1,17 @@
+// logos-core §6.1 P8 — generic union with `T: Copy` bound.
+//
+// `union U<T> { a: T, b: i32 }` was rejected because the field-type
+// check used `is_move_type` which conservatively classified a bare
+// TypeVar as move-type. Rust defers the field-Copy check to
+// instantiation (or requires `T: Copy` bound at the def). Logos now
+// skips the check for TypeVar fields — the spec instance gets the
+// concrete-type check at monomorphization.
+package core_6_1_union_generic;
+
+union U<T> where T: Copy { a: T, b: i32 }
+
+fn main() -> i32 {
+    let u: U<i32> = U::<i32> { a: 99i32 };
+    if unsafe { u.a } != 99i32 { return 1i32; }
+    return 0i32;
+}

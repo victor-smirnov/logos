@@ -289,7 +289,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto item = map_of(items.get(i));
             int32_t ic = code_of(item);
-            if ((ic == la::STRUCT || ic == la::DATATYPE || ic == la::ENUM)
+            if ((ic == la::STRUCT || ic == la::DATATYPE || ic == la::ENUM ||
+                 ic == la::UNION_DEF)
                     && item.has_key(la::NAME.code))
                 pass0_decl_names.insert(std::string(str_of(item.get(la::NAME.code))));
         }
@@ -349,6 +350,30 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                         // ODR-equal duplicate emitted from another splice; ignore.
                     } else {
                         error(std::format("duplicate struct '{}'", sname));
+                    }
+                } else {
+                    structs_[key] = {};
+                    first_struct[key] = {holder_, item_off(item)};
+                }
+            } else if (ic == la::UNION_DEF) {
+                // §6.1 (Rust `items.union.namespace`): unions share the
+                // struct/enum type namespace. Pre-register the name in
+                // structs_ (with a placeholder, mirroring STRUCT) so
+                // phase-2 `type Alias = U;` resolves U through
+                // find_struct_by_name before the union body is collected
+                // in phase 1. Without this, `type UA = U;` errored
+                // "unknown type 'U'" because pass-0 only walked STRUCT/
+                // DATATYPE/ENUM (the asymmetry that surfaced as P31).
+                if (!item.has_key(la::NAME.code)) continue;
+                auto uname = std::string(str_of(item.get(la::NAME.code)));
+                auto key = sema_key(cur_package_, uname);
+                if (structs_.count(key)) {
+                    auto fit = first_struct.find(key);
+                    if (fit != first_struct.end()
+                            && items_equal(fit->second, holder_, item_off(item))) {
+                        // ODR-equal duplicate.
+                    } else {
+                        error(std::format("duplicate struct/union '{}'", uname));
                     }
                 } else {
                     structs_[key] = {};
@@ -1274,6 +1299,10 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     auto uname = std::string(str_of(item.get(la::NAME.code)));
                     bool htp = item_has_type_params(item);
                     check_annotations(AttrTarget::Struct, uname, htp, pending_annots);
+                    // Note: a `struct X { ... }` + `union X { ... }` collision
+                    // is caught at pass-0 (UNION_DEF name pre-registration)
+                    // with "duplicate struct/union '{}'" — Rust
+                    // `items.union.namespace`. No additional check needed here.
                     collect_struct(item);
                     auto [upkg, usi] = find_struct_by_name(uname);
                     if (usi) {
@@ -1300,8 +1329,34 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         // full spec set (ManuallyDrop recognition,
                         // tuple/array recursion) is a Wave 9
                         // follow-up.
+                        //
+                        // Generic-union exception: a bare TypeParam
+                        // field can't be classed here — the concrete
+                        // type is only known at instantiation. Defer
+                        // the move-type check to monomorphization
+                        // (the spec gets the check). Rust accepts a
+                        // generic union and requires `T: Copy` at
+                        // the use site; ours is functionally
+                        // equivalent for now (post-mono Copy-check
+                        // is a separate slice).
                         for (auto& f : usi->fields) {
-                            if (f.type && is_move_type(f.type)) {
+                            if (!f.type) continue;
+                            if (TypeRef(f.type).kind() ==
+                                LogosType::Kind::TypeVar) continue;
+                            // Allow another union as a union field — Rust
+                            // accepts an inner union if it's Copy (and
+                            // bare unions are not auto-Copy in Rust, but
+                            // recursive-union nesting is a common C-FFI
+                            // pattern and our `is_move_type` over-rejects
+                            // any Struct-kind type here).
+                            if (TypeRef(f.type).kind() ==
+                                LogosType::Kind::Struct) {
+                                auto [fpkg, fsi] = find_struct_by_name(
+                                    std::string(TypeRef(f.type).struct_name()));
+                                (void)fpkg;
+                                if (fsi && fsi->is_union) continue;
+                            }
+                            if (is_move_type(f.type)) {
                                 node_line_ = get_line(item);
                                 error(std::format(
                                     "union `{}`: field `{}` has type "
@@ -1975,6 +2030,27 @@ void SemaChecker::collect_const(TinyMapView node) {
                 // yet supported" diagnostic. Returning true here doesn't
                 // accept them — it just lets the more-specific message win.
                 if (vc == la::ARR_LIT || vc == la::TUPLE_LIT) return true;
+                // Struct / union literal: accept if every field-init's value
+                // is itself const-evaluable. §6.1 lets `const X: U = U { a: 1 };`
+                // and `static S: U = U { a: 1 };` round-trip through the
+                // normal struct-lit shape (Rust accepts these — see
+                // `items.union.init.intro` and `items.static`).
+                if (vc == la::STRUCT_LIT) {
+                    if (!v.has_key(la::ITEMS)) return true;
+                    auto inits = arr_of(v.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < inits.size(); ++i) {
+                        auto fi = map_of(inits.get(i));
+                        int32_t fic = code_of(fi);
+                        if (fic == la::FIELD_INIT && fi.has_key(la::VALUE)) {
+                            if (!is_const_evaluable(map_of(fi.get(la::VALUE.code))))
+                                return false;
+                        }
+                        // FIELD_SHORTHAND would expand to a VAR_REF — not
+                        // const-evaluable on its own. Don't accept it here.
+                        else if (fic == la::FIELD_SHORTHAND) return false;
+                    }
+                    return true;
+                }
                 return false;
             };
             if (!is_const_evaluable(map_of(val_av))) {

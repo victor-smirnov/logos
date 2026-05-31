@@ -1331,6 +1331,55 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
               sname, type_str(rhs_type)));
         return builder().stmt_expr(std::move(rhs), node_line_);
     }
+    // §6.1 union let-pattern (Rust `items.union.pattern.safety`): an
+    // irrefutable `let U { f } = u;` destructure reads `u.f`'s bits through
+    // the named field — same hazard as a `match` arm. The match path gates
+    // this in build_pattern (PAT_STRUCT case); the let path bypasses that
+    // build_pattern and runs through `emit_destruct` directly, so it needs
+    // its own gate here. Also require exactly one named field (no `..`),
+    // mirroring `items.union.pattern.one-field` already enforced for match.
+    {
+        auto [up_pkg, up_si] = find_struct_by_name(sname);
+        (void)up_pkg;
+        if (up_si && up_si->is_union) {
+            if (!inside_unsafe_)
+                error(std::format(
+                    "`let` pattern on union `{}` requires `unsafe` block "
+                    "(Rust `items.union.pattern.safety` — destructure reads "
+                    "the named field's memory)",
+                    sname));
+            // count fields + check for rest in the pattern
+            size_t nf = 0;
+            bool has_rest = false;
+            if (pat_node.has_key(la::ITEMS)) {
+                auto items_av = pat_node.get(la::ITEMS.code);
+                if (items_av.is_pointer()) {
+                    auto fitems = map_of(items_av);
+                    if (fitems.has_key(la::ITEMS)) {
+                        auto fields = arr_of(fitems.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < fields.size(); ++i) {
+                            auto fav = fields.get(i);
+                            if (!fav.is_pointer()) continue;
+                            auto fn = map_of(fav);
+                            int32_t fc = code_of(fn);
+                            if (fc == la::PAT_REST) has_rest = true;
+                            else if (fc == la::PAT_FIELD) ++nf;
+                        }
+                    }
+                }
+            }
+            if (has_rest)
+                error(std::format(
+                    "`let` pattern on union `{}`: `..` is not allowed "
+                    "(Rust `items.union.pattern.one-field`)",
+                    sname));
+            if (nf != 1)
+                error(std::format(
+                    "`let` pattern on union `{}` must specify exactly one "
+                    "field, got {} (Rust `items.union.pattern.one-field`)",
+                    sname, nf));
+        }
+    }
     auto blk = lir::alloc_block(*cur_prog_);
     std::string tmp = std::format("__dst_{}", destruct_counter_++);
     define(tmp, rhs_type);

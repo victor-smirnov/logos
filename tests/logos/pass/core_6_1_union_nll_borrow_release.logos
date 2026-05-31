@@ -1,0 +1,26 @@
+// logos-core §6.1 P40 — NLL release of union-root borrow.
+//
+// `&mut u.a` (u: union) redirects via is_union_root to a WHOLE-VALUE
+// take_borrow (items.union.ref.borrow — sibling-field aliasing). The
+// take ran BEFORE visiting `inner` (the VarRef chain), so the inner
+// visit's check_live saw the freshly-set mut_borrowed on u and
+// reported "cannot use 'u' while it is mutably borrowed" — a
+// spurious self-conflict that prevented even simple
+// "take mut-ref, write, scope ends" patterns. Fix: visit inner FIRST
+// (mirrors the index_in_chain branch), then take the borrow.
+package core_6_1_union_nll_borrow_release;
+
+union U { a: i32, b: i32 }
+
+fn main() -> i32 {
+    let mut u: U = U { a: 0i32 };
+    unsafe {
+        let r1: &mut i32 = &mut u.a;
+        *r1 = 5i32;
+    }
+    // After the inner scope, r1's mut borrow on u released → reading
+    // u.b in a fresh unsafe block sees the bits written via r1.
+    let r: i32 = unsafe { u.b };
+    if r != 5i32 { return 1i32; }
+    return 0i32;
+}

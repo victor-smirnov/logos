@@ -1,0 +1,37 @@
+// logos-core §6.1 P6 — nested struct pattern.
+//
+// `match` arms with a sub-pattern that is itself a struct destructure
+// (e.g. `Outer { inner: Inner { x } }`) used to segfault at runtime —
+// pat_test / pat_bind's Struct case loaded `slot_ptr` as a pointer
+// (the convention top-level scrutinees use), but a nested sub-field
+// slot is already the inline child's data address (gep_field result),
+// so the load returned the child's first 8 bytes as a "pointer" and
+// the next GEP/Load dereferenced an unmapped address.
+//
+// Fix: unify pat_test/pat_bind's Struct case with the Tuple case —
+// `slot_ptr` IS the struct data address; gen_match drops the
+// alloca-of-pointer wrapper in the top-level Struct arm prep.
+//
+// The bug surfaced via §6.1 union nested pattern (union inside struct)
+// but the fix is general — applies to any nested struct destructure.
+package core_6_1_union_nested_struct_pattern;
+
+union U { i: i32, f: f32 }
+struct V { tag: i32, u: U }
+
+fn is_zero(v: V) -> bool {
+    unsafe {
+        match v {
+            V { tag: 0i32, u: U { i: 0i32 } } => return true,
+            _ => return false,
+        }
+    }
+}
+
+fn main() -> i32 {
+    let v0: V = V { tag: 0i32, u: U { i: 0i32 } };
+    if !is_zero(v0) { return 1i32; }
+    let v1: V = V { tag: 1i32, u: U { i: 0i32 } };
+    if is_zero(v1) { return 2i32; }
+    return 0i32;
+}

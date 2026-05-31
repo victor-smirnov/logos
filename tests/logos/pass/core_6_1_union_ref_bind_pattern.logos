@@ -1,0 +1,23 @@
+// logos-core §6.1 P53 — `ref name` sub-pattern in a struct/union arm.
+//
+// `match u { U { a: ref x } => *x }` compiled but `*x` returned
+// uninitialized stack (0 instead of the field's value). The
+// match-expression extract_payload path for PatStruct EXCLUDED
+// RefBind from its dispatch (`else if (sub.kind() != RefBind)`),
+// so the binding was silently dropped. Fix: explicit RefBind branch
+// that GEPs the field and binds `name` as a `&FieldType` (alloca
+// holding the field address, var_elem_types_ = ptr).
+package core_6_1_union_ref_bind_pattern;
+
+union U { a: i32, b: i32 }
+
+fn main() -> i32 {
+    let u: U = U { a: 9i32 };
+    let r: i32 = unsafe {
+        match u {
+            U { a: ref x } => *x,
+        }
+    };
+    if r != 9i32 { return 1i32; }
+    return 0i32;
+}

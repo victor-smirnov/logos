@@ -1,0 +1,15 @@
+// logos-core §6.1 P41 — where-clause on union.
+//
+// `union U<T> where T: Bound { ... }` failed to parse (no production
+// for the where-clause slot). Grammar parallel to struct_def — added
+// `where_clause?` between type_param_list and LBRACE for both
+// `union_def` and `pub_union_def`.
+package core_6_1_union_where_clause;
+
+union U<T> where T: Sized { a: T, b: i64 }
+
+fn main() -> i32 {
+    let u: U<i32> = U::<i32> { a: 42i32 };
+    if unsafe { u.a } != 42i32 { return 1i32; }
+    return 0i32;
+}

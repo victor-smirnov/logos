@@ -1,0 +1,18 @@
+// logos-core §6.1 P31 — type alias for union.
+//
+// `type UA = U;` (where U is a union) errored "unknown type 'U'" at
+// alias resolution. Root: sema's pass-0 name pre-registration walked
+// STRUCT/DATATYPE/ENUM but not UNION_DEF, so when phase-2 collected
+// the alias and called resolve_type on the RHS "U", U was not yet
+// known. Fix: extend pass-0 to register UNION_DEF names too (also
+// catches the items.union.namespace duplicate case for free).
+package core_6_1_union_type_alias;
+
+union U { a: i32, b: f32 }
+type UA = U;
+
+fn main() -> i32 {
+    let u: UA = UA { a: 42i32 };
+    if unsafe { u.a } != 42i32 { return 1i32; }
+    return 0i32;
+}

@@ -3783,7 +3783,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     if (!sub) bind_field(field_name);
                     else if (sub.kind() == pc::Code::Wild)
                         bind_field(std::string(lir_view::PatWildView{sub}.name()));
-                    else if (sub.kind() != pc::Code::RefBind) {
+                    else if (sub.kind() == pc::Code::RefBind) {
+                        // `S { f: ref name }` — bind `name : &FieldType` to the
+                        // field's address (a borrow, no load/copy). Previously
+                        // omitted from this dispatch ⇒ name was never bound and
+                        // `*name` in the arm body read uninitialized stack
+                        // (the §6.1 P53 union-pattern miscompile).
+                        auto rbn = lir_view::PatRefBindView{sub}.name();
+                        if (!rbn.empty() && rbn != "_") {
+                            std::string bn(rbn);
+                            auto fp = gep_field(sptr, sinfo, field_name);
+                            if (fp) {
+                                TypeRef fty;
+                                if (sd) for (auto& lf : sd->fields)
+                                    if (lf.name == field_name) { fty = lf.type; break; }
+                                bool ref_to_struct = fty &&
+                                    (TypeRef(fty).kind() == LogosType::Kind::Struct ||
+                                     TypeRef(fty).kind() == LogosType::Kind::ZonedStruct);
+                                if (ref_to_struct) {
+                                    scope_[bn] = fp;
+                                    let_vars_.insert(bn);
+                                    var_struct_[bn] = mlir_struct_key(fty);
+                                } else {
+                                    auto alloca = create_entry_alloca(ptr_type());
+                                    builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
+                                    scope_[bn] = alloca;
+                                    let_vars_.insert(bn);
+                                    var_elem_types_[bn] = ptr_type();
+                                }
+                                added.push_back(bn);
+                            }
+                        }
+                    }
+                    else {
                         // G148-1: refutable field sub (variant / tuple / or /
                         // nested struct) — bind its inner names via the
                         // recursive matcher. Record them so the join sweep
@@ -4079,9 +4111,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             // G148-1: struct arm with refutable field sub-patterns in
             // match-expression position (`Wrap { x: Inner::A(v), y } => …`).
             // pat_irref already routed fully-irrefutable structs to is_wild;
-            // reaching here means a refutable field sub. Spill the struct ptr
-            // into an alloca-of-ptr so pat_test's Struct case (which loads the
-            // struct ptr from its slot) applies uniformly.
+            // reaching here means a refutable field sub. Hand pat_test the
+            // struct data ptr directly (same convention as Tuple) — no
+            // alloca-of-pointer wrapper. pat_test's Struct case GEPs into
+            // sptr to address fields; nested sub-Struct callers pass
+            // `gep_field(parent, fname)` (inline child storage) the same way.
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
@@ -4093,9 +4127,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                     sptr = a;
                 }
-                auto slot = create_entry_alloca(ptr_type());
-                builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, slot);
-                auto cond = pat_test(arm_pat_ref, slot, scrut_le->type);
+                auto cond = pat_test(arm_pat_ref, sptr, scrut_le->type);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;

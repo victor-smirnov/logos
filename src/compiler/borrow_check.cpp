@@ -1101,12 +1101,21 @@ class BorrowChecker {
                     }
                     if (!path.empty()) {
                         bool is_mut = v.is_mut();
+                        // §6.1 P40: when union-root redirects a field path
+                        // borrow into a WHOLE-VALUE take_borrow, visiting
+                        // `inner` AFTER the take would trigger check_live
+                        // on the root VarRef and see the freshly-set
+                        // mut_borrowed=true as a spurious self-conflict
+                        // ("cannot use 'u' while it is mutably borrowed").
+                        // The non-union path takes a field-path borrow
+                        // (which doesn't set the root's mut_borrowed) so
+                        // it's order-insensitive. Mirror the index_in_chain
+                        // shape: visit inner FIRST for both branches.
+                        if (inner) visit(inner, /*consuming=*/false, line);
                         if (root_is_union)
                             take_borrow(root, is_mut, line, holder);
                         else
                             take_field_borrow(root, std::move(path), is_mut, line);
-                        // Still visit inner non-consuming for sub-checks.
-                        if (inner) visit(inner, /*consuming=*/false, line);
                         break;
                     }
                 }

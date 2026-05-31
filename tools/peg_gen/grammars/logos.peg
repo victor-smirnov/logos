@@ -1110,10 +1110,10 @@
     // with `is_union=true` so layout / field-access checks branch
     // accordingly. No tuple-shape, no methods, no `#[…]` form
     // pre-positions in slice 1.
-    pub_union_def <- KW_PUB KW_UNION IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
-                  => { CODE: UNION_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
-    union_def    <- KW_UNION IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
-                 => { CODE: UNION_DEF, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
+    pub_union_def <- KW_PUB KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
+                  => { CODE: UNION_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7 }
+    union_def    <- KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
+                 => { CODE: UNION_DEF, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6 }
 
     // B-ts-01: tuple-struct fields — types only, no field names.
     // Sema synthesises field names "0", "1", … so `foo.0` / pattern

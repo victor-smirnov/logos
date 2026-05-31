@@ -625,7 +625,62 @@ Tier-1/2/3/4 NOT-yet-in-core.
 
 ### ~~6.1. `union` item~~ ✅
 *Audit: C (Items), B (Type system), K (Unsafe), Tier-3 #28.*
-**CLOSED 2026-05-31 (Wave 7).** Six pieces:
+**CLOSED 2026-05-31 (Wave 7); Wave 9 (2026-05-31) closed 10
+additional spec-conformance bugs found by a probe sweep against
+the Rust reference (`items.union.*` subsections):**
+
+Wave-9 fixes (each backed by a dedicated test in
+`tests/logos/{pass,fail}/core_6_1_union_*`):
+1. **Nested struct/union pattern** (P6) — `match v { Outer { u:
+   Inner { x } } => …}` segfaulted at runtime. Root: pat_test/
+   pat_bind's Struct case unconditionally loaded `slot_ptr` as if
+   it were an alloca-of-pointer (top-level scrut convention), but
+   a nested sub-field slot is the inline child's data address
+   directly. Fix unifies on the Tuple convention — `slot_ptr` IS
+   the struct data; gen_match drops the alloca-of-pointer wrapper
+   in Struct arm prep.
+2. **Name collision** (P7) — `struct X` + `union X` silently
+   overwrote. Pass-0 name pre-registration now walks `UNION_DEF`
+   too (Rust `items.union.namespace`).
+3. **Generic union** (P8) — `union U<T> { … }` rejected because
+   the field-type check classed bare `TypeVar` as move-type. Skip
+   the check for TypeVar fields — concrete check fires at mono.
+4. **Type alias for union** (P31) — `type UA = U;` errored
+   "unknown type 'U'" because pass-0 didn't register the union's
+   name before phase-2 alias resolution.
+5. **const-init union literal** (P34) — `const X: U = U { a: … };`
+   rejected by is_const_evaluable; added `STRUCT_LIT` (recursive)
+   acceptance.
+6. **static-init union literal** (P47) — same code path as P34;
+   `static S: U = …` now works.
+7. **NLL borrow release for union root** (P40) — `&mut u.a`
+   redirected to whole-value `take_borrow` BEFORE visiting the
+   inner VarRef chain; the inner visit's check_live then saw the
+   freshly-set `mut_borrowed` and reported a spurious
+   "cannot use 'u' while it is mutably borrowed". Visit inner
+   FIRST (mirrors the `index_in_chain` branch).
+8. **where-clause on union** (P41) — grammar mirrored `struct_def`:
+   `union_def`/`pub_union_def` now accept `where_clause?` between
+   the type-param list and the brace block.
+9. **ref-binding in union pattern** (P53) — `match u { U { a: ref
+   x } => *x }` returned uninitialized stack (0 instead of the
+   field value). The extract_payload Struct path's
+   `else if (sub.kind() != RefBind)` branch silently dropped the
+   binding; added an explicit RefBind branch that GEPs the field
+   and binds `name : &FieldType`.
+10. **union-as-union-field** (P62) — `union Outer { u: Inner, …}`
+    where `Inner` is itself a union rejected. Allowed when the
+    inner Struct is `is_union` (Rust accepts a Copy union field).
+11. **let-pattern unsafe gate** (P66) — irrefutable `let U { a }
+    = u;` bypassed build_pattern entirely (sema lowers via
+    `emit_destruct`), so the unsafe gate was missing. Rust
+    `items.union.pattern.safety` requires unsafe for ANY pattern
+    that reads union field memory. Added gate + the
+    `items.union.pattern.one-field` constraint in the let-pattern
+    path too.
+
+Original Wave-7 closure pieces (kept verbatim below):
+
 1. **Lexer**: new `KW_UNION = "union"` keyword.
 2. **Grammar**: new `UNION_DEF = 253` schema code;
    `union_def <- KW_UNION IDENT type_param_list? LBRACE

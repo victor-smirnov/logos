@@ -1,0 +1,19 @@
+// logos-core §6.1 P62 — union-typed field in a union.
+//
+// `union Outer { u: Inner, x: i64 }` (Inner is itself a union) was
+// rejected by the field-type check — `is_move_type` over-rejected
+// any Struct-kind field. Rust accepts a union field whose type is
+// another (Copy) union; the recursive-union shape is common in
+// C-FFI. Allowed: when the inner Struct is flagged is_union, skip
+// the move-type check.
+package core_6_1_union_in_union_field;
+
+union Inner { a: i32, b: f32 }
+union Outer { u: Inner, x: i64 }
+
+fn main() -> i32 {
+    let o: Outer = Outer { u: Inner { a: 7i32 } };
+    let r: i32 = unsafe { o.u.a };
+    if r != 7i32 { return 1i32; }
+    return 0i32;
+}

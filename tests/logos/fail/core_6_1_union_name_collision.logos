@@ -1,0 +1,11 @@
+// logos-core §6.1 P7 — struct+union name collision (items.union.namespace).
+//
+// Before: pass-0 name pre-registration only walked STRUCT/DATATYPE/ENUM,
+// so a `struct X { ... } union X { ... }` pair silently overwrote in
+// structs_ (and the union won) without a duplicate-definition error.
+// Fix: pass-0 also registers UNION_DEF names, so the second item
+// (whichever kind) hits the duplicate slot and emits a diagnostic.
+package core_6_1_union_name_collision;
+struct X { a: i32 }
+union X { b: i32 }
+fn main() -> i32 { return 0i32; }
