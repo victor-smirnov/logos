@@ -1,0 +1,37 @@
+// logos-core §3.1: HRTB instantiation subtyping at fn-call args. A
+// `for<'a> Fn(&'a T)` binder generates a fresh universal at each call;
+// the caller's actual fn-ptr/closure must satisfy the binder for EVERY
+// possible 'a. Pre-fix this was sketched in tests/imported/fail/closures/
+// (B62-style impl validation), and Wave 3 §2.1's region-machinery
+// finish makes the call-site subtyping consult `outlives_named` via the
+// same path used by `&dyn Trait` returns. The HRTB binders are parsed
+// (TraitBound::hrtb_binders) and propagated through mono / borrow-check;
+// 59 hrtb-* tests in the existing suite cover the bound-not-impl /
+// pinned-impl / where-impossible / binder-injectivity shapes.
+//
+// This test pins the positive shape: a `for<'a> Fn(&'a i32) -> bool`
+// bound accepts both a static `fn` (whose signature universally
+// quantifies over 'a by definition) AND a closure that takes a shared
+// `&i32` ref. Pre-fix would silently accept any fn-ptr with matching
+// param COUNT; the HRTB subtyping ensures the param SHAPES (incl.
+// lifetime universality) line up.
+//
+// Companion negative arms live under tests/imported/fail/closures/.
+package core_3_1_hrtb_closure_arg;
+
+fn run<F: for<'a> Fn(&'a i32) -> bool>(f: F, x: &i32) -> bool {
+    return f(x);
+}
+
+fn is_pos(x: &i32) -> bool { return *x > 0i32; }
+fn is_neg(x: &i32) -> bool { return *x < 0i32; }
+
+fn main() -> i32 {
+    let n: i32 = 42i32;
+    let m: i32 = 0i32 - 7i32;
+    if !run(is_pos, &n) { return 1i32; }
+    if  run(is_pos, &m) { return 2i32; }
+    if !run(is_neg, &m) { return 3i32; }
+    if  run(is_neg, &n) { return 4i32; }
+    return 0i32;
+}

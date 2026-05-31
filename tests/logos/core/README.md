@@ -46,7 +46,7 @@ in `pass/` and `fail/`. Two reasons:
 | 2.6 | Slice mut | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ | ✅ |
 | 2.7 | Definite-assignment | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ | ✅ |
 | 2.8 | Object-safety | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ | ✅ |
-| 3.1 | HRTB instantiation | `tests/logos/pass/core_3_1_hrtb_closure_arg.logos` | not started (❌) |
+| 3.1 | HRTB instantiation | `tests/logos/pass/core_3_1_hrtb_closure_arg.logos` ✓ + 59 hrtb-* tests | ✅ |
 | 3.2 | `?Sized` invariants | `tests/logos/pass/core_3_2_qsized_box_dyn.logos` ✓ + `tests/logos/fail/core_3_2_qsized_required.logos` ✓ | ✅ |
 | 3.3 | GAT + object-safety | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ | ✅ |
 | 4.1 | `is_refutable` foundation | verified-by-suite (predicate consumed by 3 sites) | ✅ |

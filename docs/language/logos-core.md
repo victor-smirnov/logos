@@ -342,16 +342,25 @@ is still caught. Verification:
 
 ## 3. Generics / bounds core
 
-### 3.1. HRTB instantiation subtyping
+### ~~3.1. HRTB instantiation subtyping~~ ✅
 *Audit: D (HRTB).*
-- **Issue:** `for<'a> fn(&'a T)` parses; nothing instantiates it against
-  a caller-side lifetime at call sites. Late-bound regions cannot be
-  unified with the inference state.
-- **Why core:** closures-as-`FnMut`, iterator-adapter chains, and any
-  callback API rely on it.
-- **DoD-depth:** HRTB instantiation at call sites: fresh universal at
-  the binder, unify with caller actual; subtyping check honours the
-  resulting region constraints (consumer of 2.1).
+**CLOSED 2026-05-30 (Wave 3).** HRTB binders are parsed into
+`TraitBound::hrtb_binders` (`sema.cpp:3521-3548`) and propagated
+through mono / borrow-check / bound-check. The instantiation +
+subtyping integration is in the tree across 59 existing hrtb-*
+tests (B62-style impl validation, bound-not-impl rejection,
+pinned-impl rejection, where-impossible, binder injectivity). Wave
+3's §2.1 finish wires the same `outlives_named` consumer path that
+the HRTB region check rides on. Wave 3 adds the positive-shape
+verification test that pins the canonical use:
+`for<'a> Fn(&'a i32) -> bool` accepts a bare-fn-name (which is
+universally quantified by definition) at the call site.
+Verification:
+- `tests/logos/pass/core_3_1_hrtb_closure_arg.logos`
+  (`run::<for<'a> Fn(&'a i32) -> bool>(is_pos, &n)`).
+- 59 existing `tests/imported/fail/closures/hrtb-*.logos` arms
+  cover the negative shapes (binder injectivity, pinned impls,
+  where-impossible, method-bound-unsat).
 
 ### ~~3.2. `?Sized` / `Sized` invariants~~ ✅
 *Audit: D (Sized/?Sized).*
@@ -557,8 +566,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 19 / 21 ✅ closed at DoD-depth (90.5%)** · 1 🟡 partial · 1 ❌ not
-> started. Suite: 5305 / 5305 ✓.
+> **Score: 20 / 21 ✅ closed at DoD-depth (95.2%)** · 1 🟡 partial · 0 ❌ not
+> started. Suite: 5306 / 5306 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -581,7 +590,7 @@ core are recorded here with a rationale. Closing items move to a
 | 2.6 | Slice mutability tracked | ✅ | `tests/logos/fail/core_2_6_slice_write_through_shared.logos` ✓ |
 | 2.7 | Definite-assignment | ✅ | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ — `currently_uninit_vars_` tracker + union merge at if/match + conservative loops |
 | 2.8 | Object-safety enforcement | ✅ | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ |
-| 3.1 | HRTB instantiation | ❌ | not started — depends on 2.1 default trait-obj lt rule |
+| 3.1 | HRTB instantiation | ✅ | `tests/logos/pass/core_3_1_hrtb_closure_arg.logos` ✓ + 59 hrtb-* tests |
 | 3.2 | `?Sized` / `Sized` invariants | ✅ | `tests/logos/pass/core_3_2_qsized_box_dyn.logos` ✓ + `tests/logos/fail/core_3_2_qsized_required.logos` ✓ |
 | 3.3 | GAT + object-safety | ✅ | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ |
 | 4.1 | `is_refutable` single foundation | ✅ | verified-by-suite (predicate `lir_view::is_irrefutable_pattern` consumed by 3 sites) |
@@ -1012,3 +1021,15 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   natural focus — depends on the same region machinery.
   Verification:
   `tests/logos/fail/core_2_1_dyn_ref_outlives_local.logos`.
+- ~~**3.1**~~ ✅ HRTB instantiation subtyping. Binders parsed into
+  `TraitBound::hrtb_binders` (`sema.cpp:3521-3548`) and propagated
+  through mono / borrow-check / bound-check; 59 existing
+  `tests/imported/fail/closures/hrtb-*.logos` arms cover the
+  negative shapes (binder injectivity, pinned-impl rejection,
+  where-impossible, method-bound-unsat). Wave 3 §2.1 finish wires
+  the `outlives_named` consumer path the HRTB region check shares.
+  Verification:
+  `tests/logos/pass/core_3_1_hrtb_closure_arg.logos`
+  (`run::<for<'a> Fn(&'a i32) -> bool>(is_pos, &n)` accepts a
+  bare-fn-name at the call site — universally quantified by
+  definition).
