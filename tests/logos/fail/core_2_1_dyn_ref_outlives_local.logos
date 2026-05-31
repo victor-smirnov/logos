@@ -1,0 +1,27 @@
+// logos-core §2.1 (default trait-object lifetime rule): a fn returning
+// `&dyn Trait` with elided lifetime has its lifetime tied to the
+// caller's scope. Returning a `&local_var as &dyn Trait` is the same
+// dangling-ref pattern as returning a `&T` to a local — pre-fix the
+// borrow-check's return-value walker only flagged `Kind::Ref` /
+// `Kind::MutRef` shapes and skipped `Kind::TraitObject` (the fat-pair
+// representation of `&dyn Trait`), so this elided-lifetime case was
+// silently accepted. Wave 3 extends `is_ref_kind` to include the
+// borrowing form of `TraitObject` so the existing dangling-ref check
+// fires uniformly on `&Concrete` and `&dyn Trait` returns.
+//
+// (The OWNING `Box<dyn Trait>` form is NOT a borrow and is correctly
+// excluded — its lifetime is 'static via the heap allocation.)
+package core_2_1_dyn_ref_outlives_local;
+
+trait Speak { fn speak(self: &Self) -> i32; }
+struct S { v: i32 }
+impl Speak for S { fn speak(self: &S) -> i32 { return self.v; } }
+
+fn bad() -> &dyn Speak {
+    let s: S = S { v: 42i32 };
+    return &s;  // ERROR: cannot return reference to local variable 's': dangling reference
+}
+
+fn main() -> i32 {
+    return bad().speak();
+}

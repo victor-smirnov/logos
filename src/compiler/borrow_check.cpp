@@ -198,7 +198,18 @@ static void merge_provs(ProvMap& base, const ProvMap& other) {
 }
 
 static bool is_ref_kind(TypeRef t) {
-    return t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
+    // logos-core 2.1 (default trait-object lifetime rule): `&dyn Trait`
+    // resolves to Kind::TraitObject (a fat pair {data, vtable}, not
+    // Ref<TraitObject>). The DATA half is a borrowed pointer, so it
+    // has the same dangling-on-return risk as `&T`. Treat it as a
+    // ref-kind here so check_return_value catches `fn bad() -> &dyn T
+    // { return &local; }` — the elided lifetime defaults to the
+    // outer-scope (caller) but the local doesn't outlive the fn.
+    // Borrowing-form only — owning Box<dyn T> doesn't qualify.
+    return t && (t.kind() == LogosType::Kind::Ref ||
+                 t.kind() == LogosType::Kind::MutRef ||
+                 (t.kind() == LogosType::Kind::TraitObject &&
+                  !t.owning_trait_object()));
 }
 
 static bool is_mut_ref(TypeRef t) {

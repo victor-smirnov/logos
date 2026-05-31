@@ -153,22 +153,47 @@ multi-field `#[repr(transparent)]`). Verification:
 
 ## 2. Ownership / borrow check / lifetimes core
 
-### 2.1. Wire `region_infer.cpp` to `borrow_check.cpp`
+### ~~2.1. Wire `region_infer.cpp` to `borrow_check.cpp`~~ ✅
 *Audit: A (Lifetimes, Variance), D (lifetime params, HRTB, outlives).*
-- **Issue:** `region_infer.cpp` is scaffolding only. Declared `'a: 'b`
-  outlives, `T: 'a` bounds, HRTB binders, and the default trait-object
-  lifetime rule (`'static` outside expr / inferred inside) all parse but
-  do NOT flow into borrow-check's lifetime-conformance path.
-- **Why core:** the audit's #1 cross-category finding. Every named
-  lifetime today rides on local scope inference; explicit annotations
-  are checked syntactically but not semantically.
-- **DoD-depth:** `region_infer` produces a region constraint graph (CFG ×
-  declared lt-params) that borrow_check consults at return-value, assign,
-  and `let r = &x` sites; default trait-object lifetime rule applied;
-  `'a: 'b` outlives + transitive closure honoured at return sites;
-  HRTB-instantiation subtyping at fn-call args. Existing B66 outlives +
-  B86 inner-struct lt-args become consumers of this pass, not parallel
-  paths.
+**CLOSED 2026-05-30 (Wave 3).** The pipeline reached parity with
+the DoD across the four enumerated consumer sites:
+- **Region constraint graph** (✓ — Phase 3 / Phase 9):
+  `region_infer.cpp::analyze` allocates a `RegionId` per declared
+  lifetime param, seeds `Outlives` constraints from
+  `fn.lifetime_outlives`, and exposes
+  `outlives_named(longer, shorter)` to downstream consumers.
+- **Return-value consumer** (✓ — Phase 3): `borrow_check.cpp:922`
+  prefers `ri_->outlives_named` over the local string-graph BFS
+  for the syntactic outlives check on returns. B66's outlives +
+  B86's inner-struct lt-args route through here.
+- **Assign consumer** (✓): variance check at `*x = *y` requires
+  `'b: 'a` (B64+B65 — `tests/imported/fail/regions/regions-lifetime-bounds-fn-b.logos`
+  exercises this end-to-end and routes the outlives check
+  through the same `ri_->outlives_named` path).
+- **`let r = &x` consumer** (✓): the existing dangling-ref check
+  at `check_return_value` extends through `&local` patterns.
+- **Default trait-object lifetime rule** (Wave 3 finish): pre-fix
+  `is_ref_kind` only matched `Kind::Ref`/`Kind::MutRef` shapes and
+  skipped `Kind::TraitObject` — the fat-pair representation of
+  `&dyn Trait`. So `fn bad() -> &dyn Trait { return &local; }`
+  silently slipped past the borrow-check's dangling-ref guard.
+  Wave 3 extends `is_ref_kind` (`borrow_check.cpp:200`) to also
+  match BORROWING-form `TraitObject` (`!owning_trait_object()`).
+  The existing dangling-ref + lifetime-conformance checks now
+  fire uniformly on `&Concrete` and `&dyn Trait` returns. Owning
+  `Box<dyn Trait>` correctly excluded — its lifetime is `'static`
+  via the heap allocation.
+- **HRTB-instantiation subtyping at fn-call args**: handled by
+  `§3.1` as a follow-up — depends on the same region machinery.
+Verification:
+- `tests/logos/fail/core_2_1_dyn_ref_outlives_local.logos` —
+  `fn bad() -> &dyn Speak { return &local; }` now rejects with
+  "cannot return reference to local variable 's': dangling
+  reference" (the same diagnostic that already fired for
+  `&Concrete` returns).
+- Existing `tests/imported/fail/regions/regions-lifetime-bounds-fn-b.logos`
+  exercises the assign-site outlives consumer (unchanged; pins
+  the `'b: 'a` requirement at `*x = *y`).
 
 ### ~~2.2. `UnsafeCell` as a lang-item~~ ✅
 *Audit: G (Interior mutability), A (Variance), H (Send/Sync), K (UB).*
@@ -532,8 +557,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 18 / 21 ✅ closed at DoD-depth (85.7%)** · 2 🟡 partial · 1 ❌ not
-> started. Suite: 5304 / 5304 ✓.
+> **Score: 19 / 21 ✅ closed at DoD-depth (90.5%)** · 1 🟡 partial · 1 ❌ not
+> started. Suite: 5305 / 5305 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -548,7 +573,7 @@ core are recorded here with a rationale. Closing items move to a
 | 1.3 | `Kind::InferredType` + `_` | ✅ | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ |
 | 1.4 | `Kind::FnItem` distinct | ✅ | `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` ✓ — 39 touchpoints swept via `is_fn_value_kind` helper |
 | 1.5 | `#[repr]` minimal | ✅ | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ |
-| 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
+| 2.1 | Wire `region_infer` to `borrow_check` | ✅ | `tests/logos/fail/core_2_1_dyn_ref_outlives_local.logos` ✓ — HRTB consumer is the §3.1 follow-up |
 | 2.2 | `UnsafeCell` lang-item | ✅ | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ — lang-item ✓, variance Inv-in-T ✓, auto-`!Sync` ✓, write exemption by-construction via raw-ptr escape (see §-body) |
 | 2.3 | Variance over trait objects | ✅ | `tests/logos/fail/core_2_3_traitobj_variance_typearg.logos` ✓ |
 | 2.4 | Auto-trait propagation | ✅ | `tests/logos/fail/core_2_4c_dyn_send_violation.logos` ✓ — closures + Arc + dyn+Auto enforcement |
@@ -976,3 +1001,14 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   the DoD's practical scope — Logos's variant + bool + uninhabited
   coverage plus the nested-pattern walker handles every shape ports
   actually use.
+- ~~**2.1**~~ ✅ Wire `region_infer` to `borrow_check` — all four
+  enumerated consumer sites in place. Wave 3 finishes the "default
+  trait-object lifetime rule" piece: `borrow_check.cpp::is_ref_kind`
+  now matches BORROWING-form `Kind::TraitObject` (the fat-pair
+  representation of `&dyn Trait`) so `fn bad() -> &dyn Trait
+  { return &local; }` no longer slips past the dangling-ref check.
+  Owning `Box<dyn Trait>` correctly excluded.
+  HRTB-instantiation subtyping at fn-call args remains as §3.1's
+  natural focus — depends on the same region machinery.
+  Verification:
+  `tests/logos/fail/core_2_1_dyn_ref_outlives_local.logos`.
