@@ -1162,6 +1162,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
     case la::IF:          return lower_if_expr(expr);
+    case la::IF_LET_CHAIN:return lower_if_let_chain(expr);
     case la::BLOCK:       return lower_block_expr(expr);
     case la::MATCH:       return lower_match_expr(expr);
     case la::CLOSURE_EXPR: return lower_closure_expr(expr);
@@ -12121,6 +12122,90 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
         return builder().block_expr(std::move(block), nullptr, void_t());
     TypeRef rt = result->type;
     return builder().block_expr(std::move(block), std::move(result), rt);
+}
+
+lir::LExprPtr SemaChecker::lower_if_let_chain(TinyMapView node) {
+    // §6.4: desugar `if let P1 = e1 && let P2 = e2 && cond { THEN }
+    // else { ELSE }` into nested `if let` / `if cond` source +
+    // reparse via lower_reparsed_tail_expr. ELSE is duplicated at
+    // each fall-through (accepted limitation for slice 1; canonical
+    // port shapes use ELSE = return / panic which are idempotent).
+    //
+    // Grammar wraps the seg array in a fresh tiny-map under ITEMS:
+    // node.ITEMS = { ITEMS: [seg1, seg2, ...] }. Navigate one level.
+    if (!node.has_key(la::ITEMS) || !node.has_key(la::THEN)) {
+        error("if-let-chain: missing ITEMS or THEN");
+        return error_expr();
+    }
+    auto wrapper = map_of(node.get(la::ITEMS.code));
+    if (wrapper.is_null() || !wrapper.has_key(la::ITEMS)) {
+        error("if-let-chain: wrapper has no ITEMS array");
+        return error_expr();
+    }
+    auto segs = arr_of(wrapper.get(la::ITEMS.code));
+    if (segs.size() < 2) {
+        error(std::format("if-let-chain: requires at least 2 segments, got {}",
+                          segs.size()));
+        return error_expr();
+    }
+
+    // Render THEN block + optional ELSE block.
+    std::string then_src = render_block_src(map_of(node.get(la::THEN.code)));
+    std::string else_src = std::string{"{}"};
+    if (node.has_key(la::ELSE)) {
+        auto else_node = map_of(node.get(la::ELSE.code));
+        if (code_of(else_node) == la::BLOCK)
+            else_src = render_block_src(else_node);
+        else
+            else_src = std::string("{ ") + render_expr_src(else_node) + " }";
+    }
+
+    // Wrap inside-out: each seg wraps the running body in if-let
+    // (LET_CHAIN_LET) or if-cond (LET_CHAIN_COND), with ELSE
+    // duplicated at every fall-through.
+    // Wrap THEN/ELSE blocks so each is a unit-typed block stmt
+    // (their inner returns escape via the outer fn). Place the
+    // resulting if-stmt inside an outer block stmt + tail `0i32`
+    // dummy so lower_reparsed_tail_expr's synthetic `fn -> i32`
+    // wrapper has a valid value to bind. The outer code only uses
+    // this as a stmt-expr discard; the dummy never escapes.
+    std::string body = then_src;
+    for (uint64_t i = segs.size(); i-- > 0; ) {
+        auto seg = map_of(segs.get(i));
+        int32_t sc = code_of(seg);
+        if (sc == la::LET_CHAIN_LET) {
+            if (!seg.has_key(la::PAT) || !seg.has_key(la::VALUE)) {
+                error("if-let-chain: LET_CHAIN_LET seg missing PAT or VALUE");
+                return error_expr();
+            }
+            std::string pat_src = render_pat_src(map_of(seg.get(la::PAT.code)));
+            std::string val_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
+            body = std::format("{{ if let {} = {} {} else {} }}",
+                               pat_src, val_src, body, else_src);
+        } else if (sc == la::LET_CHAIN_COND) {
+            if (!seg.has_key(la::VALUE)) {
+                error("if-let-chain: LET_CHAIN_COND seg missing VALUE");
+                return error_expr();
+            }
+            std::string cond_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
+            body = std::format("{{ if {} {} else {} }}",
+                               cond_src, body, else_src);
+        } else {
+            error(std::format("if-let-chain: unexpected seg CODE {}", sc));
+            return error_expr();
+        }
+    }
+    // §6.4 desugar — important: `lower_reparsed_tail_expr` wraps
+    // the body in a synth `fn __f() -> i32 { <body> }`. Without a
+    // tail value of type i32, the if-let chain (a statement, not
+    // an expression here) gets silently dropped — sema's unit-
+    // returning-fn fast-path emits zero LIR. Append `0i32` so the
+    // synth fn has a valid tail, and the chain ahead lowers as a
+    // statement with its embedded `return`s intact. The trailing
+    // `0i32` is the block-expr's value; the caller wraps the whole
+    // chain in a stmt-expr that discards it.
+    std::string wrapped = body + " 0i32";
+    return lower_reparsed_tail_expr(wrapped, "if-let-chain");
 }
 
 lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {

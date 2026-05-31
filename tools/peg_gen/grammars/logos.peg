@@ -306,6 +306,9 @@
     AUTO_LIFE_BOUND             = 247   // logos-core 2.4(c): `+ 'a` lifetime bound on a trait object (`&dyn Trait + 'a`). NAME = lifetime label. Same collection path as AUTO_TRAIT_BOUND; sema currently logs but does not enforce lifetime-bounds at unsize sites (depends on §2.1 region_infer wiring).
     ANNOT_CALL                  = 248   // logos-core §6.8: nested combinator inside an annotation arg list, e.g. `#[cfg(all(unix, target_arch = "x86_64"))]`. NAME = head ident (`all` / `any` / `not` / generic future combinator); ARGS = nested annot_args list (each entry is another ANNOT_CALL / ANNOT_KV / bare-NAME).
     EXTERN_BLOCK                = 249   // logos-core §6.7: `extern "ABI" { extern_fn_def* }` block form. VALUE = ABI string literal (omitted ≡ default Logos-internal); ITEMS = array of EXTERN_FN nodes — each individually carries VALUE=block-ABI or its own per-fn override. sema_collect splices the block's items into the module-level item stream with the block's ABI applied as a default to children that don't have their own.
+    IF_LET_CHAIN                = 250   // logos-core §6.4: `if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }`. ITEMS = list of LET_CHAIN_LET / LET_CHAIN_COND segs joined by `&&`. THEN/ELSE branches as in IF. Sema desugars to a flat sequence of refutable binds + cond checks; chain falls to ELSE on any failure.
+    LET_CHAIN_LET               = 251   // §6.4: let-bind seg of IF_LET_CHAIN. PAT = pattern, VALUE = scrutinee. Refutable.
+    LET_CHAIN_COND              = 252   // §6.4: bool-cond seg of IF_LET_CHAIN. VALUE = bool expression. Falls to ELSE on false.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -2169,7 +2172,16 @@
     // be a `&&` chain). Desugars to `match e { P if <cond> => THEN, _ => ELSE }`
     // (GUARD = the trailing cond). Ordered before the plain if-let forms; pure
     // bool `if a && b` is unaffected (these REQUIRE `let`).
-    if_expr <- KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block KW_ELSE (if_expr / block)
+    // §6.4: let-chain. Multi-seg form (≥ 2 segs joined by `&&`,
+    // first MUST be a let) ordered before the legacy single-let
+    // and bare-cond if alts. The inner `if_let_chain` returns a
+    // wrapper map { ITEMS: [seg1, seg2, ...] }; sema reads
+    // `node.ITEMS.ITEMS` to get the seg array.
+    if_expr <- KW_IF if_let_chain block KW_ELSE (if_expr / block)
+            => { CODE: IF_LET_CHAIN, ITEMS: $2, THEN: $3, ELSE: $5 }
+             / KW_IF if_let_chain block
+            => { CODE: IF_LET_CHAIN, ITEMS: $2, THEN: $3 }
+             / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block KW_ELSE (if_expr / block)
             => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8, ELSE: $10 }
              / KW_IF KW_LET pattern ASSIGN cmp_expr_ns AND expr_ns block
             => { CODE: IF, PAT: $3, VALUE: $5, GUARD: $7, THEN: $8 }
@@ -2181,6 +2193,19 @@
             => { CODE: IF, COND: $2, THEN: $3, ELSE: $5 }
              / KW_IF expr_ns block
             => { CODE: IF, COND: $2, THEN: $3 }
+
+    // §6.4: chain MUST start with a let-seg (so legacy single-let
+    // and bare-cond if forms aren't shadowed) and MUST have ≥ 2
+    // segs joined by `&&`. Lookahead on LBRACE keeps the chain
+    // from swallowing tokens past the if-block opening.
+    if_let_chain <- let_chain_let AND let_chain_seg (AND let_chain_seg)* &(LBRACE)
+                 => { ITEMS: $... }
+    let_chain_let <- KW_LET pattern ASSIGN cmp_expr_ns
+                  => { CODE: LET_CHAIN_LET, PAT: $2, VALUE: $4 }
+    let_chain_seg <- KW_LET pattern ASSIGN cmp_expr_ns
+                  => { CODE: LET_CHAIN_LET, PAT: $2, VALUE: $4 }
+                   / cmp_expr_ns
+                  => { CODE: LET_CHAIN_COND, VALUE: $1 }
 
     // ── Expressions (precedence via rule nesting) ─────────────────
     // Binary levels use left-associative fold chains so that a + b + c

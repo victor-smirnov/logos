@@ -288,6 +288,13 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::COMPOUND_ASSIGN) return lower_compound_assign(stmt);
     if (c == la::RETURN)       return lower_return(stmt);
     if (c == la::IF)           return lower_if(stmt);
+    if (c == la::IF_LET_CHAIN) {
+        // §6.4: route to the expression-form desugar; wrap result
+        // as a stmt-expr so the chain works in statement position
+        // (the canonical port shape).
+        auto e = lower_if_let_chain(stmt);
+        return builder().stmt_expr(std::move(e), node_line_);
+    }
     if (c == la::LABELED_LOOP) {
         // 'label: for/while/loop { }
         // Extract label, set pending_loop_label_, lower the inner loop.

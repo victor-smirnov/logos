@@ -1,0 +1,37 @@
+// logos-core §6.4: let-chain in if. Rust 2024 stable feature.
+// `if let P1 = e1 && let P2 = e2 && cond { THEN } else { ELSE }`
+// desugars to nested if-let with ELSE duplicated at each fall-
+// through site.
+package core_6_4_let_chain;
+
+fn parse_pair(a: i32, b: i32) -> Option<i32> {
+    if let Some(x) = check_pos(a) && let Some(y) = check_pos(b) {
+        return Option::Some(x + y);
+    }
+    return Option::None;
+}
+
+fn check_pos(n: i32) -> Option<i32> {
+    if n > 0i32 { return Option::Some(n); }
+    return Option::None;
+}
+
+fn main() -> i32 {
+    // Two positive: both bind, condition true → Some(15)
+    match parse_pair(5i32, 10i32) {
+        Option::Some(v) => { if v != 15i32 { return 1i32; } }
+        Option::None    => { return 2i32; }
+    }
+    // First non-positive: fall-through ELSE → None
+    match parse_pair(0i32 - 1i32, 10i32) {
+        Option::Some(_) => { return 3i32; }
+        Option::None    => {}
+    }
+    // Second zero: first cond passes, then check_pos(0) → None
+    // (Option::Some(0) wouldn't happen since check_pos(0) returns None)
+    match parse_pair(5i32, 0i32) {
+        Option::Some(_) => { return 4i32; }
+        Option::None    => {}
+    }
+    return 0i32;
+}

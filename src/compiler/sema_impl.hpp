@@ -3374,6 +3374,12 @@ private:
     // mlir-gen case).
     lir::LExprPtr make_metacall_placeholder_expr(TypeRef ty);
     lir::LExprPtr lower_if_expr(hermes::TinyMapView node);
+    // §6.4: let-chain desugar. Recursively builds nested `if let`/
+    // `if` LIR over the seg list, with the ELSE branch duplicated at
+    // each fall-through site (matches Rust's classic desugar; user-
+    // visible side effects in ELSE are dup'd, which is an accepted
+    // limitation of the simple expansion).
+    lir::LExprPtr lower_if_let_chain(hermes::TinyMapView node);
     lir::LExprPtr lower_closure_expr(hermes::TinyMapView node);
 
     // ── lower_stmt and friends ───────────────────────────────────

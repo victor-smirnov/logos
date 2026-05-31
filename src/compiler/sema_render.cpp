@@ -577,15 +577,29 @@ std::string SemaChecker::render_pat_src(TinyMapView node) {
         return s;
     }
     case la::PAT_VARIANT_DATA: {
-        std::string s(str_of(node.get(la::NAME.code)));
-        s += "::";
-        s += std::string(str_of(node.get(la::FIELD.code)));
+        std::string s = node.has_key(la::NAME)
+            ? std::string(str_of(node.get(la::NAME.code)))
+            : std::string{};
+        // FIELD only present for fully-qualified `Enum::Variant(args)`
+        // form; the tuple-struct / bare-variant shape `Variant(args)`
+        // has only NAME and ARGS (B-ts-01 grammar alt). Guard the
+        // null-key read so render doesn't dereference a missing slot.
+        if (node.has_key(la::FIELD)) {
+            s += "::";
+            s += std::string(str_of(node.get(la::FIELD.code)));
+        }
         s += "(";
+        // ARGS is wrapped: pat_variant_args grammar produces
+        // `{ ITEMS: [args...] }` (PEG-side $... bucketing). Unwrap
+        // one level before iterating.
         if (node.has_key(la::ARGS)) {
-            auto items = arr_of(node.get(la::ARGS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                if (i) s += ", ";
-                s += render_pat_src(map_of(items.get(i)));
+            auto args_wrap = map_of(node.get(la::ARGS.code));
+            if (!args_wrap.is_null() && args_wrap.has_key(la::ITEMS)) {
+                auto items = arr_of(args_wrap.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    if (i) s += ", ";
+                    s += render_pat_src(map_of(items.get(i)));
+                }
             }
         }
         s += ")";

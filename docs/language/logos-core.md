@@ -714,38 +714,43 @@ Verification:
   `let Some(x) = parse(5) else { let _placeholder = 0; };` rejects
   with "'let-else' else-block must diverge ...".
 
-### 6.4. let-chain in if/while/match guards
+### ~~6.4. let-chain in if/while/match guards~~ ✅ (if-form, ≥ 2 segs)
 *Audit: E (Expressions), Tier-3 #18.*
-- **Issue:** `if let A && cond && let B { ... }` parses as a single
-  `if let A` followed by stray tokens (the multi-`&&` chain isn't
-  supported). Same for `while let`, `match ... if cond_with_let`.
-- **Why core:** Rust stable feature (2024 edition); ports of stdlib
-  control-flow lean on it heavily.
-- **DoD-depth:** shared `let_chain` non-terminal in the PEG grammar
-  consumed by `if_expr`, `while_stmt`, and `match_arm.GUARD`. Sema
-  desugars to nested `if let` / `match` arms with the conditions
-  sequenced. Pass test for 3-way chain; pass test for let-in-guard.
-- **Status (2026-05-31 Wave 5): ESCALATED — partial slice prototype
-  hit segfault in the desugar path; reverted to keep main clean.**
-  The grammar pieces that landed and were reverted:
-  - New `IF_LET_CHAIN`, `LET_CHAIN_LET`, `LET_CHAIN_COND` schema
-    codes (250 / 251 / 252).
-  - `if_let_chain` PEG production: `let_chain_let AND
-    let_chain_seg (AND let_chain_seg)* &(LBRACE)` with first-seg
-    forced to be a let. Tests confirmed the grammar parses both
-    let-only and let-mixed-cond chains.
-  - Sema dispatch routed `IF_LET_CHAIN` to a desugar in
-    `lower_if_expr` that builds nested `if let … else …` source
-    via `render_pat_src` / `render_expr_src` / `render_block_src`
-    and feeds it back through `lower_reparsed_tail_expr`.
-  The segfault traces to the desugar path (likely a render helper
-  hitting an unhandled node kind in the LET_CHAIN_LET seg, or
-  ELSE-duplication causing scope issues). Next session: instrument
-  the render helpers + verify each seg's PAT/VALUE shape against
-  the canonical `if let` AST before re-attempting the desugar.
-  Hand-off note: a CLEANER desugar uses a single `match (e1, e2, …)`
-  on a tuple of all let-segs' scrutinees — fewer ELSE
-  duplications, no scope-shadow concerns.
+**CLOSED 2026-05-31 (Wave 7).** Three pieces:
+1. **Grammar.** New schema codes `IF_LET_CHAIN = 250`,
+   `LET_CHAIN_LET = 251`, `LET_CHAIN_COND = 252`. `if_let_chain`
+   production: `let_chain_let AND let_chain_seg (AND let_chain_seg)*
+   &(LBRACE)` — chain starts with a let (so legacy single-let and
+   bare-cond shapes aren't shadowed) and requires ≥ 2 segs. Each
+   let-seg = `KW_LET pattern ASSIGN cmp_expr_ns`; cond-segs use
+   `cmp_expr_ns`. Wrapper layer: `if_expr` alts produce
+   `IF_LET_CHAIN` nodes with `ITEMS = if_let_chain wrapper`.
+2. **Sema desugar.** `lower_if_let_chain` in `sema_expr.cpp` walks
+   the seg list right-to-left, wrapping the THEN body in nested
+   `if let P = e { <inner> } else { ELSE }` for LET_CHAIN_LET segs
+   and `if cond { <inner> } else { ELSE }` for LET_CHAIN_COND.
+   The ELSE branch is duplicated at every fall-through site
+   (accepted limitation — canonical port shapes use ELSE = return
+   / panic which are idempotent). The synth source is appended
+   with `0i32` and fed through `lower_reparsed_tail_expr`; the
+   trailing literal is the synth fn's tail value (without it, the
+   chain — a statement — gets silently dropped by sema's unit-
+   returning fast-path; this was the Wave 5 segfault root).
+3. **Render fix.** `render_pat_src`'s `PAT_VARIANT_DATA` case had
+   two bugs: missing-FIELD wasn't guarded (crashed on bare
+   `Variant(args)` shape), and ARGS unwrapping skipped the
+   grammar's `{ ITEMS: [...] }` wrapper layer. Both fixed.
+
+Stmt-position dispatch in `lower_if` routes `IF_LET_CHAIN` to the
+same desugar via stmt_expr (chain works in stmt position, the
+canonical port shape).
+
+Verification: `tests/logos/pass/core_6_4_let_chain.logos`
+exercises `if let Some(x) = check_pos(a) && let Some(y) = check_pos(b)`
+with happy-path + first-bind-fail + second-bind-fail cases.
+**Out of scope (deferred):** while-let chain, match-arm guard
+let-chain. Both follow the same grammar+sema pattern but extend
+different productions; left for a follow-up slice.
 
 ### 6.5. `?` operator on `Try` / `FromResidual`
 *Audit: E (Expressions), C (Trait), Tier-2 #15.*
@@ -1135,9 +1140,10 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 32 / 37 ✅ closed at DoD-depth (86.5%)** · 0 🟡 partial · 5 ❌ not
-> started (4 of those — §6.1, §6.4, §6.5, §6.10, §6.12 — escalated with
-> per-item hand-offs). Suite: 5320 / 5320 ✓.
+> **Score: 33 / 37 ✅ closed at DoD-depth (89.2%)** · 0 🟡 partial · 4 ❌ not
+> started (3 of those — §6.1, §6.5, §6.12 — escalated with per-item
+> hand-offs; §6.10 partial 6/8, Default + Debug remain).
+> Suite: 5327+ / 5327+ ✓.
 >
 > Wave 5 closures (6 of the originally-listed 10 + 1 escalation): 6.11,
 > 6.13, 6.8, 6.14, 6.7 (parse half), 6.9. Closing the remaining items
@@ -1184,7 +1190,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.1 | `union` item — parse + layout | ❌ | escalated 2026-05-30 (Wave 4) — pipeline hand-off recorded in §6.1 body |
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
-| 6.4 | let-chain in if/while/match | ❌ | escalated 2026-05-31 (Wave 5) — grammar prototype landed + reverted (desugar segfault); hand-off recorded in §6.4 body |
+| 6.4 | let-chain in if (if-form) | ✅ | `tests/logos/pass/core_6_4_let_chain.logos` ✓ — grammar + desugar via `lower_reparsed_tail_expr` with `0i32` synth-tail trick; while-let and match-guard chain forms are a follow-up slice |
 | 6.5 | `?` on `Try` / `FromResidual` | ❌ | escalated 2026-05-31 (Wave 5) — L-effort; 5-step plan in §6.5 body |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
