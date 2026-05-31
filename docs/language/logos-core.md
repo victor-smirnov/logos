@@ -758,6 +758,31 @@ Verification:
   sema lowers `?` to a call through the resolved `Try::branch` +
   early-return through `FromResidual::from_residual`; ported
   Result/Option still pass; `impl Try for MyType` pass test.
+- **Status (2026-05-31 Wave 5): ESCALATED.** L-effort: two new
+  stdlib lang-item traits (`Try`, `FromResidual`) with their
+  `branch` / `from_residual` methods, an associated `Residual`
+  type, a `ControlFlow<B, C>` enum, plus a sema refactor at the
+  `?` lowering site to dispatch through the trait machinery
+  instead of the current name-based switch. The blanket impls
+  for stdlib `Result<T, E>` and `Option<T>` need to keep the
+  existing behavior bit-exact so no port regresses. Plan
+  outline for Wave 6:
+  1. Add `pub trait Try { type Output; type Residual;
+     fn branch(self) -> ControlFlow<Self::Residual, Self::Output>; }`
+     and `pub trait FromResidual<R = <Self as Try>::Residual> {
+     fn from_residual(r: R) -> Self; }` in `stdlib/lang/control_flow/`.
+  2. Add `pub enum ControlFlow<B, C> { Continue(C), Break(B) }`.
+  3. Wire `impl Try for Result<T, E>` and `impl Try for
+     Option<T>` (with `Residual = Result<core::convert::Infallible, E>`
+     mirror for Result, `Residual = Option<core::convert::Infallible>`
+     for Option), and `impl<T, E> FromResidual for Result<T, E>`
+     etc.
+  4. Refactor `lower_postfix_qmark` (or whichever sema site
+     handles `?`) to lower as:
+     `match Try::branch(e) { Continue(c) => c,
+                              Break(r)    => return FromResidual::from_residual(r) }`.
+  5. Pass test: a user `impl Try for MyType { … }` that round-
+     trips through `?` in a fn that returns `Result<U, MyType::Residual>`.
 
 ### ~~6.6. `lookup_qualified_` bare-key fallback tightening~~ ✅
 *Audit: I (Modules/visibility), Tier-1 #7.*
@@ -885,6 +910,27 @@ Verification:
   field-by-field hasher, PartialOrd/Ord via lexicographic field
   cmp, Copy via field-all-Copy check); each ships with its
   per-derive pass test.
+- **Status (2026-05-31 Wave 5): ESCALATED — 8 sub-deliverables.**
+  Each derive is one-session sub-work; the parallel
+  `derive_clone_hook` (`stdlib/std/compiler/metaprog/derive_clone.logos`)
+  and `derive_branch_node` (`derive_branch_node.logos`) are the
+  template — read both before starting any new derive. Suggested
+  Wave 6 ordering, easiest first:
+  1. **Default** (trivial — field-by-field `T::default()` chain,
+     primitives default to zero, no comparisons).
+  2. **Copy** (a marker — just check every field is Copy via the
+     existing `is_trivially_copy` predicate; emit `impl Copy for
+     S {}` only if all fields qualify; reject with diagnostic
+     otherwise).
+  3. **PartialEq / Eq** (field-by-field `==`; Eq just adds the
+     marker trait once PartialEq is in place).
+  4. **Hash** (field-by-field `state.write_u64(self.fi.hash())`).
+  5. **PartialOrd / Ord** (lexicographic field cmp).
+  6. **Debug** (formatter chain — most involved; needs
+     `Formatter::debug_struct` builder API).
+  Each derive lands as its own commit with a pass test under
+  `tests/logos/pass/core_6_10_derive_<name>.logos`. Closing 6.10
+  in the scoreboard requires all 8 (per the audit's spec).
 
 ### ~~6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros~~ ✅
 *Audit: O (Other / Panic), J (Macros), Tier-2 #12.*
@@ -921,6 +967,33 @@ if-arm position with mixed integer arms.
   the `..` / `..=` operators desugar to the appropriate generic;
   `RangeI32`/`RangeI64` become aliases or `Range<i32>`/`Range<i64>`
   instantiations. Pass tests across the 6 forms.
+- **Status (2026-05-31 Wave 5): ESCALATED.** Genuinely L-effort
+  (mis-labeled M in the original catalog): requires a `Step`
+  trait (`step_next` / `step_prev` for the increment shape Rust
+  uses), 6 generic struct rewrites, generic `Iterator<T>` impls
+  per shape, and operator desugar redirection from
+  `RangeI32`/`RangeI64` to `Range<i32>`/`Range<i64>` instances
+  (with the existing concrete types staying as type aliases for
+  backward-compat). The current concrete `RangeI{32,64}` /
+  `RangeInclI{32,64}` / `RangeFromI{32,64}` / etc. types each
+  duplicate ~30 LoC of iterator impls; unifying them is a 200+
+  LoC stdlib refactor. Wave 6 plan:
+  1. Add `pub trait Step { fn step_next(self) -> Self;
+     fn step_back(self) -> Self; fn cmp_lt(self, other: Self) -> bool; }`
+     in `stdlib/lang/iter/step.logos` (or wherever feels canonical).
+  2. Impl `Step` for `i32`, `i64`, `u32`, `u64`, `usize`, `isize`,
+     `char`.
+  3. Define generic `Range<T: Step + Copy>`, `RangeFrom<T>`,
+     `RangeTo<T>`, `RangeInclusive<T>`, `RangeToInclusive<T>`,
+     and `RangeFull` (unit type) in `stdlib/lang/range/`.
+  4. Generic `impl Iterator<T> for Range<T>` (and 4 others) using
+     `Step` to advance.
+  5. `pub type RangeI32 = Range<i32>;` etc. as aliases so old
+     code still compiles, AND update the `..` / `..=` operator
+     desugar (currently in `sema_expr.cpp`'s range-expr lowering)
+     to emit `Range::<T> { start, end }` where T is the type of
+     the operand.
+  6. Pass tests across all 6 forms with both i32 and i64.
 
 ### ~~6.13. `DerefMut`-driven autoderef for `&mut self` methods~~ ✅
 *Audit: E (Expressions / method dispatch), B (Type system), Tier-2 #16.*
@@ -1027,7 +1100,14 @@ core are recorded here with a rationale. Closing items move to a
 ## 8a. Score (canonical — `/goal` reads this)
 
 > **Score: 32 / 37 ✅ closed at DoD-depth (86.5%)** · 0 🟡 partial · 5 ❌ not
-> started (1 of those — §6.4 — escalated 2026-05-31). Suite: 5320 / 5320 ✓.
+> started (4 of those — §6.1, §6.4, §6.5, §6.10, §6.12 — escalated with
+> per-item hand-offs). Suite: 5320 / 5320 ✓.
+>
+> Wave 5 closures (6 of the originally-listed 10 + 1 escalation): 6.11,
+> 6.13, 6.8, 6.14, 6.7 (parse half), 6.9. Closing the remaining items
+> in Wave 6 means landing each per the hand-offs recorded in their
+> respective §-bodies — they're scoped pieces with clear plans, not
+> open research questions.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -1069,14 +1149,14 @@ core are recorded here with a rationale. Closing items move to a
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if/while/match | ❌ | escalated 2026-05-31 (Wave 5) — grammar prototype landed + reverted (desugar segfault); hand-off recorded in §6.4 body |
-| 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
+| 6.5 | `?` on `Try` / `FromResidual` | ❌ | escalated 2026-05-31 (Wave 5) — L-effort; 5-step plan in §6.5 body |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
 | 6.9 | `ConstResolver` seam through `metacall` | ✅ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ — interface in ctfe.hpp + threading through do_eval + sema wiring at both metacall sites |
-| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
+| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | escalated 2026-05-31 (Wave 5) — 8 per-derive sub-deliverables; ordering + hand-off in §6.10 body (start with Default/Copy) |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
-| 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
+| 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | escalated 2026-05-31 (Wave 5) — L-effort (mis-labeled M); 6-step plan in §6.12 body |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |
 | 6.14 | Atomics per-variant Ordering threaded to MLIR | ✅ | `tests/logos/pass/core_6_14_atomics_per_variant_ordering.logos` ✓ — `_ord` intrinsics + const-eval'd Ordering disc → AtomicOrdering |
 
