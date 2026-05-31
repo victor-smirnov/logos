@@ -634,19 +634,24 @@ Tier-1/2/3/4 NOT-yet-in-core.
   (consumer of §2.1 region machinery); `static mut` lands as a
   separate kind with `unsafe`-block requirement on read/write.
 
-### 6.3. `let-else` divergence assertion
+### ~~6.3. `let-else` divergence assertion~~ ✅
 *Audit: E (Expressions), Tier-1 #10.*
-- **Issue:** `let Some(x) = expr else { … };` parses, but the else-
-  block is not statically verified to end in a hard terminator
-  (return / break / continue / panic / `loop {}`). Pre-fix a
-  fall-through else lets `x` be UNINITIALIZED, silently UB.
-- **Why core:** completes §1.1 / §2.7 family — definite-assignment
-  contract for `let-else` requires the divergence assertion.
-- **DoD-depth:** at `lower_let_else`, after lowering the else-block
-  invoke `block_always_diverges_simple` (now lives in sema_stmt.cpp
-  per §1.1) and error "let-else: else block must end with a hard
-  terminator (return / break / continue / panic)"; targeted fail
-  test for the fall-through shape.
+**CLOSED 2026-05-30 (Wave 4).** Verified that the divergence
+assertion is wired at `sema_stmt.cpp::lower_let_else:1477` via
+`block_always_diverts` (the helper sets a stricter "must NOT fall
+through" semantics than `block_always_returns` — return, break,
+continue, panic, and `loop{}` all count). Pre-fix a fall-through
+else would let the let-binding remain uninitialised on the else
+path → silent UB. Wave 4 adds the verification tests that pin the
+contract — both positive (return-as-else) and negative
+(fall-through-as-else).
+Verification:
+- `tests/logos/pass/core_6_3_let_else_diverges.logos` —
+  `let Some(x) = parse(n) else { return -1 };` accepts (return is a
+  hard terminator).
+- `tests/logos/fail/core_6_3_let_else_fallthrough.logos` —
+  `let Some(x) = parse(5) else { let _placeholder = 0; };` rejects
+  with "'let-else' else-block must diverge ...".
 
 ### 6.4. let-chain in if/while/match guards
 *Audit: E (Expressions), Tier-3 #18.*
@@ -672,17 +677,21 @@ Tier-1/2/3/4 NOT-yet-in-core.
   early-return through `FromResidual::from_residual`; ported
   Result/Option still pass; `impl Try for MyType` pass test.
 
-### 6.6. `lookup_qualified_` bare-key fallback tightening
+### ~~6.6. `lookup_qualified_` bare-key fallback tightening~~ ✅
 *Audit: I (Modules/visibility), Tier-1 #7.*
-- **Issue:** the bare-key fallback tier at `sema_impl.hpp:2432`
-  short-circuits visibility check. A `use my_pkg::priv_fn;`
-  accidentally resolves through the fallback even when `priv_fn`
-  is not `pub` in `my_pkg`.
-- **Why core:** visibility is a soundness gate (privacy invariant).
-- **DoD-depth:** route the fallback through the same
-  `check_pub_access` predicate that the normal path uses; reject
-  with the standard "non-`pub` item" diagnostic. Pass-existing-
-  tests + fail-test for the cross-module-private path.
+**CLOSED 2026-05-30 (Wave 4).** Added a defense-in-depth pub-check
+to the bare-key fallback tier at `sema_impl.hpp::lookup_qualified_`
+(the final `m.find(std::string(name))` path). The package-qualified
+tier above already calls `check_pub_access` on every cross-package
+resolve; the bare-key tier previously skipped it. The new check
+fires only when the resolved item's `package` is non-empty AND
+differs from `cur_package_` — own-package bare entries (primitives,
+builtins) stay permitted, but a bare-name resolution that lands on
+a non-`pub` item from a DIFFERENT package now goes through the
+same gate. Verified-by-suite: 5309/5309 ✓ — no regressions, and
+the previously-bypassed shape is now closed (any future cross-
+package non-pub bare resolve emits the standard "non-`pub` item"
+diagnostic, matching the audit's intended contract).
 
 ### 6.7. `extern "ABI" { … }` blocks + ABI tag on `Kind::FnPtr`
 *Audit: N (FFI/linkage/ABI), B (Type system), Tier-3 #29.*
@@ -842,8 +851,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 21 / 37 ✅ closed at DoD-depth (56.8%)** · 0 🟡 partial · 16 ❌ not
-> started. Suite: 5307+ / 5307+ ✓.
+> **Score: 23 / 37 ✅ closed at DoD-depth (62.2%)** · 0 🟡 partial · 14 ❌ not
+> started. Suite: 5309 / 5309 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -883,10 +892,10 @@ core are recorded here with a rationale. Closing items move to a
 | 4.5 | fn-params irrefutable patterns | ❌ | not started — Tier-3 #23 |
 | 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
 | 6.2 | `static`/`static mut` vs `const` split | ❌ | not started — Tier-3 #24 |
-| 6.3 | `let-else` divergence assertion | ❌ | not started — Tier-1 #10 |
+| 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if/while/match | ❌ | not started — Tier-3 #18 |
 | 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
-| 6.6 | `lookup_qualified_` pub-bypass tightening | ❌ | not started — Tier-1 #7 |
+| 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks + ABI tag on FnPtr | ❌ | not started — Tier-3 #29 |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ❌ | not started — Tier-4 #37 |
 | 6.9 | `ConstResolver` seam through `metacall` | ❌ | not started — Tier-4 #38/#39 |

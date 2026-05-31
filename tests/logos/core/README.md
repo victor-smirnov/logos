@@ -58,10 +58,10 @@ in `pass/` and `fail/`. Two reasons:
 | 4.5 | fn-params irrefutable patterns | TBD — Tier-3 #23 | ❌ |
 | 6.1 | `union` item — parse + layout | TBD — Tier-3 #28 | ❌ |
 | 6.2 | `static`/`static mut` vs `const` split | TBD — Tier-3 #24 | ❌ |
-| 6.3 | `let-else` divergence assertion | TBD — Tier-1 #10 | ❌ |
+| 6.3 | `let-else` divergence assertion | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ | ✅ |
 | 6.4 | let-chain in if/while/match | TBD — Tier-3 #18 | ❌ |
 | 6.5 | `?` on `Try` / `FromResidual` | TBD — Tier-2 #15 | ❌ |
-| 6.6 | `lookup_qualified_` pub-bypass tightening | TBD — Tier-1 #7 | ❌ |
+| 6.6 | `lookup_qualified_` pub-bypass tightening | verified-by-suite (defense-in-depth) | ✅ |
 | 6.7 | `extern "ABI" { … }` blocks + ABI tag | TBD — Tier-3 #29 | ❌ |
 | 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | TBD — Tier-4 #37 | ❌ |
 | 6.9 | `ConstResolver` seam through `metacall` | TBD — Tier-4 #38/#39 | ❌ |

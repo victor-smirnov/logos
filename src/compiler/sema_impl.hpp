@@ -2490,8 +2490,24 @@ private:
                 return {pkg, &it->second};
             }
         }
+        // logos-core 6.6: the bare-key fallback tier was a visibility-
+        // check bypass — a non-`pub` item from another package could be
+        // resolved through it without going through `check_pub_access`.
+        // Apply the same pub-check the package-qualified tier above
+        // uses, scoped to the case where the resolved item belongs to
+        // a DIFFERENT package than `cur_package_` (own-package bare
+        // entries — e.g. primitives, builtins — are always permitted).
         auto it = m.find(std::string(name));
-        if (it != m.end()) return {"", &it->second};
+        if (it != m.end()) {
+            if constexpr (PubCheck) {
+                if (!it->second.package.empty() &&
+                    it->second.package != cur_package_) {
+                    check_pub_access(it->second.is_pub,
+                                     it->second.package, name);
+                }
+            }
+            return {"", &it->second};
+        }
         return {"", nullptr};
     }
     std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {

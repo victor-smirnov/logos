@@ -1,0 +1,22 @@
+// logos-core §6.3 (negative): a `let-else` whose else-block does NOT
+// end in a hard terminator (return / break / continue / panic / `loop
+// {}`) is rejected. Without the divergence assertion the binding `x`
+// would remain UNINITIALISED on the else-fall-through path → silent UB.
+// The check at `sema_stmt.cpp::lower_let_else` invokes
+// `block_always_diverts` on the else-block and emits
+// "'let-else' else-block must diverge ..." if it returns false.
+package core_6_3_let_else_fallthrough;
+
+fn parse(s: i32) -> Option<i32> {
+    if s > 0i32 { return Some(s); }
+    return None;
+}
+
+fn main() -> i32 {
+    // The else-block here just `let _x = 0i32;` which falls through —
+    // NOT a hard terminator. Must be rejected.
+    let Some(x) = parse(5i32) else {
+        let _placeholder: i32 = 0i32;
+    };
+    return x;
+}

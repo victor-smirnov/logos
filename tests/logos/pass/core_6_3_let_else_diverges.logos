@@ -1,0 +1,25 @@
+// logos-core §6.3 (positive): a `let-else` whose else-block ends in
+// a hard terminator (return / panic / loop {} / break / continue)
+// is accepted. Pairs with the negative test
+// `core_6_3_let_else_fallthrough.logos`.
+package core_6_3_let_else_diverges;
+
+fn parse(s: i32) -> Option<i32> {
+    if s > 0i32 { return Some(s); }
+    return None;
+}
+
+fn pos(input: i32) -> i32 {
+    // Else returns → hard terminator → accepted.
+    let Some(x) = parse(input) else {
+        return 0 - 1i32;
+    };
+    return x;
+}
+
+fn main() -> i32 {
+    if pos(7i32) != 7i32 { return 1i32; }
+    if pos(0i32) != 0i32 - 1i32 { return 2i32; }
+    if pos(0i32 - 5i32) != 0i32 - 1i32 { return 3i32; }
+    return 0i32;
+}
