@@ -1,0 +1,21 @@
+// logos-core §6.1: union pattern matching. Per Rust spec
+// `items.union.pattern.*`: a union pattern must specify EXACTLY ONE
+// field (no `..`), and the match itself reads memory through that
+// field — so it must be in an `unsafe` block.
+package core_6_1_union_pattern;
+
+union Pair {
+    a: i32,
+    b: i32,
+}
+
+fn main() -> i32 {
+    let u: Pair = Pair { a: 42i32 };
+    let r: i32 = unsafe {
+        match u {
+            Pair { a } => a,
+        }
+    };
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}

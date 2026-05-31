@@ -2317,6 +2317,20 @@ private:
     // pattern (PAT_INT/PAT_BOOL/PAT_CHAR) instead of silently binding
     // the scrutinee to a fresh local named CONST.
     logos::compiler::StrMap<hermes::TinyMapView> module_const_values_;
+    // §6.2: names of `static mut` items declared in this module —
+    // var-reads and place-assigns require an enclosing `unsafe` block
+    // per Rust spec `items.static.mut.safety`. Populated by
+    // `collect_const` when the routing layer sees a STATIC_DEF code.
+    std::unordered_set<std::string> module_static_muts_;
+
+    // §6.1: transient flag set by `lower_place_assign` (and similar
+    // write-path lowerings) before calling `lower_expr` on the LHS
+    // place. `lower_field_read` consults it to skip the union-field
+    // unsafe gate for WRITES — Rust spec writes to union fields are
+    // safe (`items.union.fields.write-safety`), only READS need
+    // `unsafe` (`items.union.fields.read-safety`). The flag is
+    // RAII-restored at the end of each write-path lowering.
+    bool in_place_write_lhs_ = false;
 
     // B-ts-01: synth tuple-struct field names "0", "1", … interned in
     // a long-lived list of unique_ptrs so SemaFieldInfo::name (a

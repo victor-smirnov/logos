@@ -2287,8 +2287,19 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
             : error_expr();
         return builder().stmt_assign(std::string(name), std::move(dummy), node_line_);
     }
-    if (!lookup_is_mut(name))
+    // §6.2: `static mut X = …` write requires `unsafe` (Rust spec
+    // `items.static.mut.safety`). Static muts are not in any local
+    // scope, so `lookup_is_mut` returns false — gate FIRST so the
+    // unsafe diagnostic isn't shadowed by "assignment to immutable".
+    bool is_static_mut = module_static_muts_.count(std::string(name)) != 0;
+    if (is_static_mut) {
+        if (!inside_unsafe_)
+            error(std::format(
+                "write to mutable static `{}` requires `unsafe` block "
+                "(Rust `items.static.mut.safety`)", name));
+    } else if (!lookup_is_mut(name)) {
         error(std::format("assignment to immutable variable '{}'", name));
+    }
 
     // Pin the LHS type as the enum hint while lowering the RHS, exactly as the
     // `let x: T = …` path does (lower_let). Without this, `status = None` lowers
@@ -4459,8 +4470,33 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 }
             }
         }
+        // §6.1 union pattern (Rust `items.union.pattern.*`): a union
+        // pattern must specify EXACTLY ONE field (no `..`), and the
+        // match itself reads memory through that field — so it must
+        // be in an `unsafe` block. Skip the struct "all fields
+        // covered" check entirely for unions.
+        if (sinfo && sinfo->is_union) {
+            if (ps.has_rest)
+                error(std::format(
+                    "union pattern '{}': `..` is not allowed "
+                    "(union patterns must name exactly one field "
+                    "— Rust `items.union.pattern.one-field`)",
+                    sname));
+            if (ps.fields.size() != 1)
+                error(std::format(
+                    "union pattern '{}' must specify exactly one "
+                    "field, got {} (Rust "
+                    "`items.union.pattern.one-field`)",
+                    sname, ps.fields.size()));
+            if (!inside_unsafe_)
+                error(std::format(
+                    "match on union `{}` requires `unsafe` block "
+                    "(Rust `items.union.pattern.safety` — pattern "
+                    "matching reads the named field's memory)",
+                    sname));
+        }
         // NG5: validate that all struct fields are covered (listed by name or '..' present).
-        if (sinfo && !ps.has_rest) {
+        else if (sinfo && !ps.has_rest) {
             for (auto& f : sinfo->fields) {
                 bool covered = false;
                 for (auto& pfb : ps.fields)
@@ -5512,6 +5548,49 @@ lir::LStmt SemaChecker::lower_while(TinyMapView node) {
         WhileUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
         ~WhileUninitGuard() { slot = std::move(saved); }
     } _uninit_guard(currently_uninit_vars_);
+    // §6.4: while-let CHAIN (multi-seg). Desugar source-text to
+    // `loop { if-let-chain { BODY; } else { break; } }` and reparse
+    // — same channel as `lower_if_let_chain`. ITEMS is present only
+    // for the chain form (grammar alt #1); single-let / cond forms
+    // use PAT/COND and fall through to the existing handlers below.
+    if (node.has_key(la::ITEMS) && node.has_key(la::BODY)) {
+        auto wrapper = map_of(node.get(la::ITEMS.code));
+        if (wrapper.is_null() || !wrapper.has_key(la::ITEMS)) {
+            error("while-let-chain: wrapper has no ITEMS array");
+            return builder().stmt_expr(error_expr(), node_line_);
+        }
+        auto segs = arr_of(wrapper.get(la::ITEMS.code));
+        if (segs.size() < 2) {
+            error(std::format(
+                "while-let-chain: requires at least 2 segments, got {}",
+                segs.size()));
+            return builder().stmt_expr(error_expr(), node_line_);
+        }
+        std::string body_src = render_block_src(map_of(node.get(la::BODY.code)));
+        // Build the chain body inside-out: each seg wraps the running
+        // body in `if let P = e { body } else { break; }`.
+        std::string cur = body_src;
+        for (uint64_t i = segs.size(); i-- > 0; ) {
+            auto seg = map_of(segs.get(i));
+            int32_t sc = code_of(seg);
+            if (sc == la::LET_CHAIN_LET) {
+                std::string pat_src = render_pat_src(map_of(seg.get(la::PAT.code)));
+                std::string val_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
+                cur = std::format("{{ if let {} = {} {} else {{ break; }} }}",
+                                  pat_src, val_src, cur);
+            } else if (sc == la::LET_CHAIN_COND) {
+                std::string cond_src = render_expr_src(map_of(seg.get(la::VALUE.code)));
+                cur = std::format("{{ if {} {} else {{ break; }} }}",
+                                  cond_src, cur);
+            } else {
+                error(std::format("while-let-chain: unexpected seg CODE {}", sc));
+                return builder().stmt_expr(error_expr(), node_line_);
+            }
+        }
+        std::string wrapped = std::format("loop {} 0i32", cur);
+        auto e = lower_reparsed_tail_expr(wrapped, "while-let-chain");
+        return builder().stmt_expr(std::move(e), node_line_);
+    }
     // ── while let pattern = expr { ... } ──────────────────────────
     // Desugars to: loop { match expr { PAT => body, _ => break } }
     if (node.has_key(la::PAT)) {
@@ -6633,7 +6712,13 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     // Uniform place-subsystem writability check (closes the soundness gap where
     // a deep-nested write through an immutable place / `*const` was accepted).
     check_place_writable(place_node);
+    // §6.1: writes to union fields are safe (Rust spec
+    // `items.union.fields.write-safety`); set the flag so
+    // lower_field_read skips the union unsafe gate for this LHS.
+    bool saved_place_write = in_place_write_lhs_;
+    in_place_write_lhs_ = true;
     auto place = lower_expr(place_node);
+    in_place_write_lhs_ = saved_place_write;
     TypeRef pt = place->type;
     // Indexing through a raw-pointer place (e.g. a `*mut T` field `s.buf[i]`)
     // is an implicit deref: `*const` cannot be written and a `*mut` write

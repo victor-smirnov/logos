@@ -1,0 +1,16 @@
+// logos-core §6.2: `static mut` — mutable global storage per Rust
+// `items.static.mut`. Reads and writes both require `unsafe` block
+// (Rust `items.static.mut.safety`).
+package core_6_2_static_mut;
+
+static mut COUNTER: i32 = 0i32;
+
+fn main() -> i32 {
+    unsafe {
+        COUNTER = COUNTER + 1i32;
+        COUNTER = COUNTER + 1i32;
+    }
+    let v: i32 = unsafe { COUNTER };
+    if v != 2i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,16 @@
+// logos-core §6.4: while-let CHAIN (multi-seg, mirrors if-let chain).
+// Body runs only while every let-pat matches AND every cond holds.
+package core_6_4_while_let_chain;
+
+fn main() -> i32 {
+    let mut v: i32 = 0i32;
+    let a: Option<i32> = Some(3i32);
+    let b: Option<i32> = Some(4i32);
+    let mut i: i32 = 0i32;
+    while let Some(x) = a && let Some(y) = b && i < 2i32 {
+        v = v + x + y;
+        i = i + 1i32;
+    }
+    if v != 14i32 { return 1i32; }
+    return 0i32;
+}

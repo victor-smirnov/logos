@@ -1,0 +1,10 @@
+// logos-core §6.2: writing a `static mut` outside `unsafe` is
+// rejected — Rust spec `items.static.mut.safety`.
+package core_6_2_static_mut_write;
+
+static mut COUNTER: i32 = 0i32;
+
+fn main() -> i32 {
+    COUNTER = 7i32;
+    return 0i32;
+}

@@ -317,6 +317,7 @@ inline constexpr Code IF_LET_CHAIN         {"IF_LET_CHAIN",       250}; // logos
 inline constexpr Code LET_CHAIN_LET        {"LET_CHAIN_LET",      251}; // §6.4: let-bind seg of IF_LET_CHAIN. PAT = pattern, VALUE = scrutinee.
 inline constexpr Code LET_CHAIN_COND       {"LET_CHAIN_COND",     252}; // §6.4: bool-cond seg of IF_LET_CHAIN. VALUE = bool expression.
 inline constexpr Code UNION_DEF            {"UNION_DEF",          253}; // logos-core §6.1: `union NAME { f1: T1, f2: T2, … }`. NAME = union type name; FIELDS = field array (same shape as STRUCT); TYPE_PARAMS optional. Sema treats unions as Struct-shaped types with `is_union=true`; layout = max-of-fields aligned to max-alignment; field access requires `unsafe` block.
+inline constexpr Code STATIC_DEF           {"STATIC_DEF",         254}; // logos-core §6.2: `static mut NAME: T = expr;` — true mutable global. NAME/TYPE/VALUE same shape as CONST_DEF; IS_MUT=1 always (this code is only emitted for the `mut` form); IS_PUB optional. Sema collects into module_static_muts_; var-reads and place-assigns both require `unsafe` block (Rust spec `items.static.mut.safety`).
 
 // Index field key for tuple_field_write_stmt (integer field index)
 inline constexpr Key  META            {"META",               16};   // meta @{...} block node on struct/trait/datatype declarations (reuses PATH_PARTS slot; these node types never co-exist)

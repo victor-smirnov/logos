@@ -478,6 +478,16 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     // across branches (uninit if uninit on ANY incoming path).
     if (currently_uninit_vars_.count(std::string(name)))
         error(std::format("use of possibly uninitialised binding '{}'", name));
+    // §6.2: reading a `static mut` requires `unsafe` (Rust spec
+    // `items.static.mut.safety`). Skip when this var-ref is the LHS
+    // of a place-assign (the write site emits its own gate, and we
+    // don't want double-diagnosis on `MUT_GLOBAL = expr`).
+    if (!in_place_write_lhs_ &&
+        module_static_muts_.count(std::string(name)) && !inside_unsafe_) {
+        error(std::format(
+            "read of mutable static `{}` requires `unsafe` block "
+            "(Rust `items.static.mut.safety`)", name));
+    }
     return builder().var_ref(std::string(name), t);
 }
 
@@ -8235,10 +8245,14 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         }
         if (sinfo_ptr) {
             // §6.1: union field reads require enclosing `unsafe`
-            // (Rust soundness — only one field's value is valid at
-            // a time; the active one is the implementation's
-            // problem).
-            if (sinfo_ptr->is_union && !inside_unsafe_) {
+            // (Rust spec `items.union.fields.read-safety`). Writes
+            // to union fields are SAFE (`items.union.fields.write-
+            // safety`) — they overwrite arbitrary bits and can't
+            // cause UB on their own. The `in_place_write_lhs_` flag
+            // is set by lower_place_assign before lowering the LHS,
+            // distinguishing the two cases.
+            if (sinfo_ptr->is_union && !inside_unsafe_
+                && !in_place_write_lhs_) {
                 error(std::format("field read of `{}.{}` requires `unsafe` block "
                                   "(`{}` is a union — only one field is "
                                   "active at a time)",

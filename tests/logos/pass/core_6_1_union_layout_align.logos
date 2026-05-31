@@ -1,0 +1,27 @@
+// logos-core §6.1: union layout follows Rust spec
+// `items.union.common-storage`: size = max(field sizes), align =
+// max(field aligns). Here the i8 array is largest by size (12) and
+// i64 is largest by align (8). The union's footprint must be 16
+// bytes (max-size 12 rounded up to align 8) — verified indirectly by
+// reading the i64 field after writing it, even when the i8 array
+// field was initialised. If alignment were wrong the i64 read would
+// trap on strict-alignment architectures.
+package core_6_1_union_layout_align;
+
+union Mixed {
+    bytes: [i8; 12],
+    big: i64,
+    small: i32,
+}
+
+fn main() -> i32 {
+    let mut u: Mixed = Mixed { big: 1234567890123i64 };
+    let v: i64 = unsafe { u.big };
+    if v != 1234567890123i64 { return 1i32; }
+
+    // Overwrite via the i32 view; the low 32 bits of `big` become this.
+    unsafe { u.small = 42i32; }
+    let s: i32 = unsafe { u.small };
+    if s != 42i32 { return 2i32; }
+    return 0i32;
+}

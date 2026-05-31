@@ -1,0 +1,19 @@
+// logos-core §6.1: union pattern with `..` is rejected — Rust spec
+// `items.union.pattern.one-field` requires EXACTLY one field.
+package core_6_1_union_pattern_rest;
+
+union Pair {
+    a: i32,
+    b: i32,
+}
+
+fn main() -> i32 {
+    let u: Pair = Pair { a: 42i32 };
+    let r: i32 = unsafe {
+        match u {
+            Pair { a, .. } => a,
+        }
+    };
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}

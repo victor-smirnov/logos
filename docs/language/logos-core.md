@@ -699,27 +699,40 @@ Verification:
     union_field_read_safe.logos` — read outside `unsafe` rejects
     with "field access on `union` requires `unsafe` block".
 
-### ~~6.2. `static` / `static mut` distinct from `const`~~ ✅ (partial — `static`)
+### ~~6.2. `static` / `static mut` distinct from `const`~~ ✅
 *Audit: C (Items), G (Memory and safety), M (Const-eval), Tier-3 #24.*
-**CLOSED 2026-05-30 (Wave 4) for the immutable-`static` half.** Verified
-that `static NAME: T = expr;` lowers to stable-address storage and that
-`&STATIC` types as `&'static T`: a fn returning `&'static i32` borrowing
-the address of a `static` item type-checks AND runs correctly across fn
-boundaries. The codegen path emits a read-only global; `&STATIC` produces
-the address of that global so the borrow outlives any caller frame. The
-`static`/`const` split — although still backed by `CONST_DEF` in the AST —
-behaves correctly at the semantic layer because `region_infer` already
-treats global-scoped items as `'static` (§2.1 region machinery).
-Verification: `tests/logos/pass/core_6_2_static_lifetime.logos`
-exercises `&STATIC` in return position, cross-fn `&'static i32`
-plumbing, and direct value use.
-**Follow-up:** `static mut NAME: T = expr;` (true mutable global with
-`unsafe`-block-required read/write) is the distinct soundness story
-that remains open — the storage is mutable, so the gate that today
-rejects `static mut` at the grammar must instead route through the
-unsafe machinery (and the lifetime accounting needs the variance arm
-that `static` itself doesn't trigger). Scoped as a separate breadth-
-item in Wave 5.
+**CLOSED 2026-05-30 (Wave 4) for the immutable half; 2026-05-31 (Wave 8)
+for `static mut`.** Two halves:
+
+1. **Immutable `static`** (Wave 4). `static NAME: T = expr;` lowers to
+   stable-address storage; `&STATIC: &'static T` types correctly across
+   fn boundaries (verified by `core_6_2_static_lifetime.logos`).
+   Backed by `CONST_DEF` in the AST; semantic distinction from `const`
+   covered by `region_infer` (treats global items as `'static` per
+   §2.1).
+
+2. **`static mut`** (Wave 8). New `STATIC_DEF` schema code (254); the
+   `mut` form gets its own grammar production matched ahead of the
+   immutable one so the `mut` token isn't swallowed by the IDENT
+   alternative. `sema_collect` routes `STATIC_DEF` through
+   `collect_const` for storage / lookup and records the name in
+   `module_static_muts_`. Reads in `lower_var_ref` and writes in
+   `lower_assign` both consult this set and error with "requires
+   `unsafe` block (Rust `items.static.mut.safety`)" when outside an
+   `unsafe { … }` (the existing `inside_unsafe_` tracker). The reuse
+   of CONST_DEF storage means the global IS mutable at codegen —
+   verified end-to-end by the positive test, which increments the
+   COUNTER twice through `unsafe { COUNTER = COUNTER + 1 }` and reads
+   back the cumulative value.
+
+Verification:
+- `tests/logos/pass/core_6_2_static_lifetime.logos` — immutable half.
+- `tests/logos/pass/core_6_2_static_mut.logos` — runtime mutation
+  through unsafe.
+- `tests/logos/fail/core_6_2_static_mut_read.logos` — read outside
+  unsafe rejected.
+- `tests/logos/fail/core_6_2_static_mut_write.logos` — write outside
+  unsafe rejected.
 
 ### ~~6.3. `let-else` divergence assertion~~ ✅
 *Audit: E (Expressions), Tier-1 #10.*
@@ -740,7 +753,7 @@ Verification:
   `let Some(x) = parse(5) else { let _placeholder = 0; };` rejects
   with "'let-else' else-block must diverge ...".
 
-### ~~6.4. let-chain in if/while/match guards~~ ✅ (if-form, ≥ 2 segs)
+### ~~6.4. let-chain in if/while/match guards~~ ✅ (if + while; match-arm let-guard deferred)
 *Audit: E (Expressions), Tier-3 #18.*
 **CLOSED 2026-05-31 (Wave 7).** Three pieces:
 1. **Grammar.** New schema codes `IF_LET_CHAIN = 250`,
@@ -771,12 +784,30 @@ Stmt-position dispatch in `lower_if` routes `IF_LET_CHAIN` to the
 same desugar via stmt_expr (chain works in stmt position, the
 canonical port shape).
 
-Verification: `tests/logos/pass/core_6_4_let_chain.logos`
-exercises `if let Some(x) = check_pos(a) && let Some(y) = check_pos(b)`
-with happy-path + first-bind-fail + second-bind-fail cases.
-**Out of scope (deferred):** while-let chain, match-arm guard
-let-chain. Both follow the same grammar+sema pattern but extend
-different productions; left for a follow-up slice.
+**Wave 8 extension — while-let chain.** `while_stmt` gained a new alt
+ordered first: `KW_WHILE if_let_chain block` (reusing the same
+`if_let_chain` parser as the if-form). `lower_while` detects the
+ITEMS-bearing chain shape and desugars to a `loop { if-let-chain {
+body } else { break; } }` block via the same `lower_reparsed_tail_expr`
+channel as the if-form. The chain body wraps inside-out: each
+LET_CHAIN_LET seg → `{ if let P = e <body> else { break; } }`; each
+LET_CHAIN_COND seg → `{ if cond <body> else { break; } }`. The
+`break` exits the synth `loop`, ending the while iteration when any
+chain seg fails — matching Rust `expressions/loop-expr.md` semantics.
+
+Verification:
+- `tests/logos/pass/core_6_4_let_chain.logos` — if-form
+  (`if let Some(x) = check_pos(a) && let Some(y) = check_pos(b)`),
+  happy-path + first-bind-fail + second-bind-fail.
+- `tests/logos/pass/core_6_4_while_let_chain.logos` — while-form
+  (`while let Some(x) = a && let Some(y) = b && i < 2`), runtime
+  iteration accumulator pinned against expected sum.
+
+**Out of scope (deferred):** match-arm guard let-chain
+(`pattern if let Q = e' && cond => body`). Rust's `if_let_guard`
+feature requires the let-pat's bindings to be visible in the arm
+body — a binding-propagation seam orthogonal to the chain itself,
+not just a guard-expression rewrite. Tracked as a follow-up slice.
 
 ### ~~6.5. `?` operator on `Try` / `FromResidual`~~ ✅
 *Audit: E (Expressions), C (Trait), Tier-2 #15.*

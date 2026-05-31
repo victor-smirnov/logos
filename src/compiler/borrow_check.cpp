@@ -475,6 +475,23 @@ class BorrowChecker {
         // Also honor explicit lifetime_args on the TypeRef (paranoia).
         return !t.lifetime_args().empty();
     }
+    // §6.1: `items.union.ref.borrow` — a borrow of one union field
+    // implicitly borrows ALL fields (they share common storage). At
+    // borrow-recording time we coerce union field-path borrows into
+    // whole-root borrows so any other field-path of the same union
+    // overlaps. Nested-union (`s.u.a` where `s.u` is a union) is a
+    // narrower follow-up.
+    bool is_union_root(TypeRef t) const {
+        if (!t || t.kind() != LogosType::Kind::Struct) return false;
+        std::string sname(t.struct_name());
+        auto check = [&](const std::vector<lir::LStructDef>& defs) {
+            for (auto& sd : defs)
+                if (sd.name == sname && sd.is_union) return true;
+            return false;
+        };
+        return check(prog_.structs) || check(prog_.struct_specializations);
+    }
+
     // Walk a struct-lit (or nested aggregate) expression, collecting names
     // of LOCAL variables that are borrowed via AddrOf. Filters out params.
     void collect_borrow_locals(lir_view::ExprRef e,
@@ -1066,13 +1083,17 @@ class BorrowChecker {
                             break;
                         }
                     }
+                    // §6.1 `items.union.ref.borrow`: a field-borrow on
+                    // a union root is morally a whole-value borrow —
+                    // all sibling fields alias.
+                    bool root_is_union = is_union_root(bp.root_type);
                     if (index_in_chain) {
                         // Visit inner FIRST (sub-checks on the index expr etc.)
                         // BEFORE registering the borrow, else the recursive
                         // VarRef visit hits check_live on the root we just
                         // borrowed → spurious self-conflict.
                         if (inner) visit(inner, /*consuming=*/false, line);
-                        if (!path.empty())
+                        if (!path.empty() && !root_is_union)
                             take_field_borrow(root, std::move(path), v.is_mut(), line);
                         else
                             take_borrow(root, v.is_mut(), line, holder);
@@ -1080,7 +1101,10 @@ class BorrowChecker {
                     }
                     if (!path.empty()) {
                         bool is_mut = v.is_mut();
-                        take_field_borrow(root, std::move(path), is_mut, line);
+                        if (root_is_union)
+                            take_borrow(root, is_mut, line, holder);
+                        else
+                            take_field_borrow(root, std::move(path), is_mut, line);
                         // Still visit inner non-consuming for sub-checks.
                         if (inner) visit(inner, /*consuming=*/false, line);
                         break;

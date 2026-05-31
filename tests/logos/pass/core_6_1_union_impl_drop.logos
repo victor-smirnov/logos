@@ -1,0 +1,22 @@
+// logos-core §6.1: `impl Drop for Union` is ALLOWED per Rust spec
+// `items.union.drop` — fields never auto-drop (their types are
+// already restricted to Copy/refs/ManuallyDrop by
+// `items.union.field-restrictions`), but the union as a whole may
+// carry a user-defined Drop impl that fires on scope exit.
+package core_6_1_union_impl_drop;
+
+union Pair {
+    a: i32,
+    b: i32,
+}
+
+impl Drop for Pair {
+    fn drop(&mut self) {
+        // No-op — just proves the impl is accepted and codegened.
+    }
+}
+
+fn main() -> i32 {
+    let _u: Pair = Pair { a: 42i32 };
+    return 0i32;
+}

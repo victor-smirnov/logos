@@ -317,19 +317,32 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
         info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), fsname, {}, false});
         field_types.push_back(ft);
     }
-    // §6.1: union layout — body is the LARGEST field's type so the
-    // aggregate occupies max-of-fields bytes. All fields share GEP
-    // index 0 (they overlap at offset 0). Mismatching field types
-    // at access time bitcast via the load's declared type.
+    // §6.1: union layout per Rust `items.union.common-storage` —
+    // size = max(field sizes), align = max(field aligns). LLVM body
+    // = `{ <max-aligned field type>, [pad x i8] }` so the struct's
+    // own alignment = max-align and total raw size = max-size. All
+    // fields share GEP index 0 (they overlap at offset 0).
+    // Mismatching field types at access time bitcast via the load's
+    // declared type.
     if (sd.is_union && !field_types.empty()) {
-        size_t max_idx = 0;
-        uint64_t max_sz = 0;
+        size_t max_al_idx = 0;
+        uint64_t max_sz = 0, max_al = 1;
+        std::vector<uint64_t> sizes(sd.fields.size(), 0);
+        std::vector<uint64_t> aligns(sd.fields.size(), 1);
         for (size_t i = 0; i < sd.fields.size(); ++i) {
             std::unordered_set<std::string> seen;
-            uint64_t sz = logos_abi_byte_size(sd.fields[i].type, seen);
-            if (sz > max_sz) { max_sz = sz; max_idx = i; }
+            auto fl = layout_of(sd.fields[i].type, seen);
+            sizes[i] = fl.size; aligns[i] = fl.align;
+            if (fl.size > max_sz) max_sz = fl.size;
+            if (fl.align > max_al) { max_al = fl.align; max_al_idx = i; }
         }
-        std::vector<mlir::Type> body{field_types[max_idx]};
+        std::vector<mlir::Type> body{field_types[max_al_idx]};
+        uint64_t pad = (max_sz > sizes[max_al_idx])
+                           ? (max_sz - sizes[max_al_idx]) : 0;
+        if (pad > 0) {
+            body.push_back(mlir::LLVM::LLVMArrayType::get(
+                builder_.getI8Type(), pad));
+        }
         if (mlir::failed(struct_type.setBody(body, false))) {
             std::fprintf(stderr, "mlir_gen: failed to set union body for '%s'\n", key.c_str());
             return false;
@@ -428,6 +441,17 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
             // so we can trust fields.size() == 1 here.
             if (it->second->repr_transparent && it->second->fields.size() == 1) {
                 r = aggregate_member_layout(it->second->fields[0].type, seen);
+            } else if (it->second->is_union) {
+                // §6.1: union layout per Rust spec
+                // `items.union.common-storage` — size = max(field
+                // sizes), align = max(field aligns), rounded up.
+                uint64_t max_sz = 0, max_al = 1;
+                for (auto& f : it->second->fields) {
+                    auto fl = aggregate_member_layout(f.type, seen);
+                    if (fl.size > max_sz) max_sz = fl.size;
+                    if (fl.align > max_al) max_al = fl.align;
+                }
+                r = { (max_sz + max_al - 1) & ~(max_al - 1), max_al };
             } else {
                 LayoutAgg agg;
                 for (auto& f : it->second->fields) agg.push(aggregate_member_layout(f.type, seen));

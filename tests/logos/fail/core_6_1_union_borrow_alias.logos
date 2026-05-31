@@ -1,0 +1,20 @@
+// logos-core §6.1: per Rust spec `items.union.ref.borrow`, a borrow
+// of one union field implicitly borrows ALL its remaining fields
+// (they share common storage). `&mut u.a` plus `&mut u.b` is rejected.
+package core_6_1_union_borrow_alias;
+
+union Pair {
+    a: i32,
+    b: i32,
+}
+
+fn main() -> i32 {
+    let mut u: Pair = Pair { a: 1i32 };
+    unsafe {
+        let b1: &mut i32 = &mut u.a;
+        let b2: &mut i32 = &mut u.b;
+        *b1 = 5i32;
+        *b2 = 7i32;
+    }
+    return 0i32;
+}

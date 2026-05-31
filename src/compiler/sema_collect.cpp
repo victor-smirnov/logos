@@ -1276,7 +1276,44 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                     check_annotations(AttrTarget::Struct, uname, htp, pending_annots);
                     collect_struct(item);
                     auto [upkg, usi] = find_struct_by_name(uname);
-                    if (usi) usi->is_union = true;
+                    if (usi) {
+                        usi->is_union = true;
+                        // §6.1 (Rust spec `items.union.fieldless`):
+                        // zero-field union is rejected by the
+                        // compiler. Macros can produce them but the
+                        // item-collection stage errors.
+                        if (usi->fields.empty()) {
+                            node_line_ = get_line(item);
+                            error(std::format(
+                                "union `{}` has no fields — Rust requires "
+                                "at least one (use a zero-sized struct if "
+                                "you need an empty type)", uname));
+                        }
+                        // §6.1 (Rust spec `items.union.field-restrictions`):
+                        // union field types are restricted to Copy
+                        // types, references (`&T`/`&mut T`),
+                        // ManuallyDrop<T>, or aggregates of these.
+                        // Slice-1 uses `is_move_type` as the
+                        // rejection oracle — anything classed
+                        // move-type (Vec / Box / String / owning
+                        // trait object) rejects. Refinement to the
+                        // full spec set (ManuallyDrop recognition,
+                        // tuple/array recursion) is a Wave 9
+                        // follow-up.
+                        for (auto& f : usi->fields) {
+                            if (f.type && is_move_type(f.type)) {
+                                node_line_ = get_line(item);
+                                error(std::format(
+                                    "union `{}`: field `{}` has type "
+                                    "`{}` which is not allowed in a "
+                                    "union (union fields must be "
+                                    "`Copy` types, references, "
+                                    "`ManuallyDrop<T>`, or aggregates "
+                                    "thereof)",
+                                    uname, f.name, type_str(f.type)));
+                            }
+                        }
+                    }
                 }
                 pending_annots.clear();
                 continue;
@@ -1583,6 +1620,14 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
         } else {
             if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
+            else if (c == la::STATIC_DEF) {
+                // §6.2: `static mut` — collected like a const for storage /
+                // lookup, plus flagged in module_static_muts_ so var-reads
+                // and place-assigns require an `unsafe` block.
+                collect_const(item);
+                auto sm_name = std::string(str_of(item.get(la::NAME.code)));
+                module_static_muts_.insert(sm_name);
+            }
         }
         pending_annots.clear();
         // Defensive: items that didn't consume the doc buffer shouldn't
