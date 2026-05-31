@@ -1,0 +1,14 @@
+// logos-core §6.8 negative: combinator-gated fn that evaluates to
+// FALSE must be dropped from the item set entirely — calling it
+// elsewhere emits an "undefined function" diagnostic.
+//
+// `unix=true, windows=false`, so `all(unix, windows)` is false and
+// `impossible` is not collected.
+package core_6_8_cfg_combinator_drops;
+
+#[cfg(all(unix, windows))]
+fn impossible() -> i32 { return 1i32; }
+
+fn main() -> i32 {
+    return impossible();
+}

@@ -768,20 +768,40 @@ diagnostic, matching the audit's intended contract).
   `const_val` / new slot); calls through a non-default-ABI fn-ptr
   emit the matching `llvm.func` calling convention.
 
-### 6.8. `#[cfg(all/any/not)]` combinators + `cfg_attr` activation
+### ~~6.8. `#[cfg(all/any/not)]` combinators + `cfg_attr` activation~~ ✅
 *Audit: L (Attributes), Tier-4 #37.*
-- **Issue:** the structured `#[cfg(...)]` attribute path accepts only
-  single-arg predicates (`#[cfg(unix)]`); the `all/any/not`
-  combinators work in `cfg!()` macro context but not in attribute
-  position. `#[cfg_attr(pred, attr)]` wrapped-attribute activation
-  is a stub.
-- **Why core:** conditional-compilation parity; ported Rust code
-  uses `#[cfg(all(unix, target_arch = "x86_64"))]` extensively.
-- **DoD-depth:** unify the cfg predicate evaluator across attribute
-  and macro contexts (single `evaluate_cfg_predicate` shared);
-  add `all/any/not` parsing in the attribute path; activate
-  `cfg_attr` by recursively re-applying the wrapped attribute.
-  Pass tests for the 3 combinators + a `cfg_attr` wrap-and-activate.
+**CLOSED 2026-05-31 (Wave 5).** Three pieces landed:
+1. **Grammar — nested combinator nodes.** New
+   `ANNOT_CALL = 248` schema code; `annot_arg <- IDENT LPAREN
+   annot_args RPAREN => { CODE: ANNOT_CALL, NAME: $1, ARGS: $3 }`
+   alt added to the existing rule. Carries the head ident
+   (`all`/`any`/`not`/`cfg`/...) plus nested arg list through the
+   AST identically to top-level annotations.
+2. **Sema — unified per-arg evaluator.** Replaced the duplicated
+   predicate-evaluation logic across `evaluate_cfg_annotation` and
+   the cfg_attr handler in `sema_collect.cpp:1170` with a single
+   recursive `evaluate_cfg_arg` (`sema.cpp`): handles ANNOT_CALL
+   (`all`/`any`/`not` combinators — recursive over child args),
+   ANNOT_KV (`key=lit`), and bare-NAME (flag). Both call sites now
+   share the same evaluator — combinators are uniform across the
+   attribute and macro contexts (`cfg!()` was already
+   combinator-aware via parse_and_eval_cfg; the attribute path now
+   matches).
+3. **cfg_attr activation.** When the predicate fires, the wrapped
+   attribute(s) (ARGS[1..]) are pushed into the pending-annotation
+   list of the current item; downstream consumers read NAME / ARGS
+   uniformly from ANNOTATION and ANNOT_CALL — same field shape —
+   so no Hermes-node synthesis is needed. The cfg-drop pass was
+   reordered to run AFTER cfg_attr activation so an activated
+   `cfg(...)` predicate joins the drop set this iteration
+   (canonical port shape: `#[cfg_attr(unix, cfg(windows))]` drops
+   the item when both predicates fire).
+Verification:
+- `tests/logos/pass/core_6_8_cfg_combinators.logos` — all 3
+  combinators (`all`, `any`, `not`) + nested `all(unix, not(windows))`.
+- `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` — combinator
+  evaluating to false drops the fn (calling it diagnoses
+  "undefined function").
 
 ### 6.9. `ConstResolver` seam through `metacall { N }`
 *Audit: M (Const-eval), Tier-4 #38 + #39.*
@@ -932,8 +952,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 28 / 37 ✅ closed at DoD-depth (75.7%)** · 0 🟡 partial · 9 ❌ not
-> started. Suite: 5314 / 5314 ✓.
+> **Score: 29 / 37 ✅ closed at DoD-depth (78.4%)** · 0 🟡 partial · 8 ❌ not
+> started. Suite: 5316 / 5316 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -978,7 +998,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks + ABI tag on FnPtr | ❌ | not started — Tier-3 #29 |
-| 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ❌ | not started — Tier-4 #37 |
+| 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
 | 6.9 | `ConstResolver` seam through `metacall` | ❌ | not started — Tier-4 #38/#39 |
 | 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |

@@ -3329,11 +3329,13 @@ bool SemaChecker::match_cfg_predicate_flag(std::string_view name) {
 }
 
 bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
-    // ARGS is an array of ANNOT_KV / ANNOT_POS / bare-NAME nodes. The
-    // attribute form lacks combinator support (the annotation grammar
-    // doesn't model `all(...)`); multi-arg list is treated as an
-    // implicit conjunction. Single-arg form is the common case
-    // (`#[cfg(target_os = "linux")]` / `#[cfg(unix)]`).
+    // §6.8: cfg combinators in attribute position via ANNOT_CALL.
+    // `#[cfg(all(unix, target_arch = "x86_64"))]` parses with the
+    // first arg as ANNOT_CALL{NAME:"all", ARGS:[bare-NAME unix,
+    // ANNOT_KV target_arch="x86_64"]}; evaluate_cfg_arg recurses
+    // into each entry. Top-level: multi-arg list is implicit AND
+    // (matches Rust). Single-arg form (most common case:
+    // `#[cfg(target_os = "linux")]`) is just a 1-entry list.
     if (!ann.has_key(la::ARGS)) return true;  // `#[cfg]` with no args — match
     auto args_av = ann.get(la::ARGS.code);
     if (args_av.is_null()) return true;
@@ -3342,27 +3344,62 @@ bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
     auto items = arr_of(args_list.get(la::ITEMS.code));
     for (uint64_t i = 0; i < items.size(); ++i) {
         auto arg = map_of(items.get(i));
-        int32_t code = code_of(arg);
-        bool match = false;
-        if (code == la::ANNOT_KV && arg.has_key(la::NAME) && arg.has_key(la::VALUE)) {
-            std::string key(str_of(arg.get(la::NAME.code)));
-            auto val_node = map_of(arg.get(la::VALUE.code));
-            std::string val;
-            if (code_of(val_node) == la::LIT_STR && val_node.has_key(la::VALUE)) {
-                val = std::string(str_of(val_node.get(la::VALUE.code)));
-                // Strip enclosing quotes if present (LIT_STR retains them).
-                if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
-                    val = val.substr(1, val.size() - 2);
-            }
-            match = match_cfg_key_value(key, val, cfg_features_);
-        } else if (arg.has_key(la::NAME)) {
-            // Bare ident form: `#[cfg(unix)]` etc.
-            std::string name(str_of(arg.get(la::NAME.code)));
-            match = match_cfg_flag(name, cfg_features_);
-        }
-        if (!match) return false;
+        if (!evaluate_cfg_arg(arg)) return false;
     }
     return true;
+}
+
+// §6.8: shared evaluator for one annot_args entry — handles
+// `ANNOT_KV` (key=lit), `ANNOT_CALL` (combinator), and the legacy
+// bare-NAME flag form. Recurses through nested combinators.
+bool SemaChecker::evaluate_cfg_arg(hermes::TinyMapView arg) {
+    int32_t code = code_of(arg);
+    if (code == la::ANNOT_CALL && arg.has_key(la::NAME) && arg.has_key(la::ARGS)) {
+        std::string head(str_of(arg.get(la::NAME.code)));
+        auto inner_list = map_of(arg.get(la::ARGS.code));
+        std::vector<bool> child_results;
+        if (inner_list.has_key(la::ITEMS)) {
+            auto items = arr_of(inner_list.get(la::ITEMS.code));
+            child_results.reserve(items.size());
+            for (uint64_t i = 0; i < items.size(); ++i) {
+                auto sub = map_of(items.get(i));
+                child_results.push_back(evaluate_cfg_arg(sub));
+            }
+        }
+        if (head == "all") {
+            for (bool b : child_results) if (!b) return false;
+            return true;
+        }
+        if (head == "any") {
+            for (bool b : child_results) if (b) return true;
+            return false;
+        }
+        if (head == "not") {
+            if (child_results.size() != 1) {
+                error("cfg `not` takes exactly one predicate");
+                return false;
+            }
+            return !child_results[0];
+        }
+        error(std::format("unknown cfg combinator `{}` (expected all/any/not)", head));
+        return false;
+    }
+    if (code == la::ANNOT_KV && arg.has_key(la::NAME) && arg.has_key(la::VALUE)) {
+        std::string key(str_of(arg.get(la::NAME.code)));
+        auto val_node = map_of(arg.get(la::VALUE.code));
+        std::string val;
+        if (code_of(val_node) == la::LIT_STR && val_node.has_key(la::VALUE)) {
+            val = std::string(str_of(val_node.get(la::VALUE.code)));
+            if (val.size() >= 2 && val.front() == '"' && val.back() == '"')
+                val = val.substr(1, val.size() - 2);
+        }
+        return match_cfg_key_value(key, val, cfg_features_);
+    }
+    if (arg.has_key(la::NAME)) {
+        std::string name(str_of(arg.get(la::NAME.code)));
+        return match_cfg_flag(name, cfg_features_);
+    }
+    return false;
 }
 
 bool SemaChecker::is_effective_dst(TypeRef t) {

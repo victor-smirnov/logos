@@ -63,7 +63,7 @@ in `pass/` and `fail/`. Two reasons:
 | 6.5 | `?` on `Try` / `FromResidual` | TBD — Tier-2 #15 | ❌ |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | verified-by-suite (defense-in-depth) | ✅ |
 | 6.7 | `extern "ABI" { … }` blocks + ABI tag | TBD — Tier-3 #29 | ❌ |
-| 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | TBD — Tier-4 #37 | ❌ |
+| 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ | ✅ |
 | 6.9 | `ConstResolver` seam through `metacall` | TBD — Tier-4 #38/#39 | ❌ |
 | 6.10 | Derive handlers (8 sub-deliverables) | TBD — Tier-2 #11 | ❌ |
 | 6.11 | `unreachable!/todo!/unimplemented!` macros | `tests/logos/pass/core_6_11_never_macros.logos` ✓ | ✅ |

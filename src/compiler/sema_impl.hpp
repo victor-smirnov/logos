@@ -685,6 +685,12 @@ private:
     // for MVP — combinators like `all(...)` not supported in attribute
     // form yet). Multi-arg list treats as conjunction.
     bool evaluate_cfg_annotation(hermes::TinyMapView annotation_node);
+    // §6.8: shared per-arg evaluator. Handles ANNOT_CALL (all/any/not
+    // combinators — recursive), ANNOT_KV (key=lit), and bare-NAME
+    // (flag). Called by evaluate_cfg_annotation for each entry of the
+    // top-level annot_args list, and by itself for the children of an
+    // ANNOT_CALL.
+    bool evaluate_cfg_arg(hermes::TinyMapView arg_node);
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them

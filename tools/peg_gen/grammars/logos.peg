@@ -304,6 +304,7 @@
     PLACE_ASSIGN                = 244   // G163-2: general place write — a postfix-chain lvalue (`a[i][j]`, `(*p).0`, `m.f[i].g`, deep mixes) on the assignment LHS that the specialized write productions don't cover. RECEIVER = the place (a postfix read-expr: IndexRead/FieldRead/TupleIndex/Deref chain), VALUE = rhs. Sema lowers to `deref_write(&mut <place>, rhs)`.
     AUTO_TRAIT_BOUND            = 246   // logos-core 2.4(c): `+ Send` / `+ Sync` etc. on a trait object (`&dyn Trait + Send`). NAME = bound's identifier. Collected into the dyn_type's ITEMS array alongside type-args; resolve_type filters by CODE to bucket bounds vs args. Folded into TraitObject TypeRef via const_val bits for the dyn+Auto enforce at unsize coercion.
     AUTO_LIFE_BOUND             = 247   // logos-core 2.4(c): `+ 'a` lifetime bound on a trait object (`&dyn Trait + 'a`). NAME = lifetime label. Same collection path as AUTO_TRAIT_BOUND; sema currently logs but does not enforce lifetime-bounds at unsize sites (depends on §2.1 region_infer wiring).
+    ANNOT_CALL                  = 248   // logos-core §6.8: nested combinator inside an annotation arg list, e.g. `#[cfg(all(unix, target_arch = "x86_64"))]`. NAME = head ident (`all` / `any` / `not` / generic future combinator); ARGS = nested annot_args list (each entry is another ANNOT_CALL / ANNOT_KV / bare-NAME).
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -613,7 +614,9 @@
     //   lit                → { CODE: ANNOT_POS, VALUE: lit }
     //   IDENT              → { NAME: ident }   (legacy bare-identifier form; kept for
     //                        #[tag_dispatch(sys_name)]; new code should use literals)
-    annot_arg  <- IDENT ASSIGN annot_lit
+    annot_arg  <- IDENT LPAREN annot_args RPAREN
+               => { CODE: ANNOT_CALL, NAME: $1, ARGS: $3 }
+                / IDENT ASSIGN annot_lit
                => { CODE: ANNOT_KV, NAME: $1, VALUE: $3 }
                 / annot_lit
                => { CODE: ANNOT_POS, VALUE: $1 }

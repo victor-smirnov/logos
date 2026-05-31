@@ -1,0 +1,39 @@
+// logos-core §6.8: `#[cfg(all/any/not)]` combinators + `cfg_attr`
+// activation. Pre-Wave-5 the structured `#[cfg(...)]` attribute path
+// only accepted single-arg predicates (`#[cfg(unix)]`); the
+// `all/any/not` combinators worked in `cfg!()` macro context but not
+// in attribute position. `#[cfg_attr(pred, attr)]` was a stub —
+// wrapped-attribute activation just emitted a warning.
+//
+// Wave 5 closes both: a new `ANNOT_CALL` schema code carries nested
+// combinator nodes through the grammar's annot_arg production; a
+// shared `evaluate_cfg_arg` predicate evaluator handles
+// ANNOT_CALL recursively (all/any/not over arbitrary nested
+// predicates). cfg_attr now ACTIVATES wrapped attrs when the
+// predicate matches by pushing them into the pending-annotation
+// list before the cfg-drop loop fires.
+//
+// This test exercises the positive surface: combinator-gated fns
+// are visible and callable. The negative side (combinator drops fn)
+// is covered by core_6_8_cfg_combinators_neg.fail.logos.
+package core_6_8_cfg_combinators;
+
+#[cfg(all(unix))]
+fn unix_only() -> i32 { return 100i32; }
+
+#[cfg(any(unix, windows))]
+fn either() -> i32 { return 200i32; }
+
+#[cfg(not(windows))]
+fn not_windows() -> i32 { return 300i32; }
+
+#[cfg(all(unix, not(windows)))]
+fn nested() -> i32 { return 400i32; }
+
+fn main() -> i32 {
+    if unix_only()  != 100i32 { return 1i32; }
+    if either()     != 200i32 { return 2i32; }
+    if not_windows()!= 300i32 { return 3i32; }
+    if nested()     != 400i32 { return 4i32; }
+    return 0i32;
+}
