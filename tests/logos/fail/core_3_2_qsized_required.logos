@@ -1,0 +1,18 @@
+// logos-core §3.2 (negative arm): a generic fn WITHOUT `?Sized` has an
+// implicit `Sized` bound on its type-params; passing an unsized type-arg
+// (`[u8]` — Kind::UnsizedSlice) is rejected with a specific
+// "requires `Sized` (add `T: ?Sized` to relax the bound)" diagnostic
+// at the type-arg position (sema_expr.cpp:3415). The diagnostic is
+// distinct from a downstream type-shape mismatch — it pinpoints the
+// missing `?Sized` opt-out.
+//
+// Pair with `tests/logos/pass/core_3_2_qsized_box_dyn.logos` for the
+// positive arm.
+package core_3_2_qsized_required;
+
+fn null_ptr<T>() -> *const T { return 0 as *const T; }
+
+fn main() -> i32 {
+    let _: *const [u8] = null_ptr::<[u8]>();  // ERROR: [u8] unsized, T: Sized.
+    return 0i32;
+}

@@ -328,17 +328,45 @@ is still caught. Verification:
   the binder, unify with caller actual; subtyping check honours the
   resulting region constraints (consumer of 2.1).
 
-### 3.2. `?Sized` / `Sized` invariants
+### ~~3.2. `?Sized` / `Sized` invariants~~ ✅
 *Audit: D (Sized/?Sized).*
-- **Issue:** generic params have implicit `Sized` bound today; `?Sized`
-  opt-in parses but is only partly threaded into method receivers and
-  field positions.
-- **Why core:** required for `Box<[T]>`, `&dyn Trait` and any custom-DST
-  contact with generic code.
-- **DoD-depth:** every generic param has an explicit Sized/`?Sized`
-  classification; struct-last-field-unsized rule consumes it; method
-  receivers (`&self`, `Box<Self>`, …) accept `?Sized` per the
-  receiver-shape table.
+**CLOSED 2026-05-30 (Wave 3).** The pipeline turned out to be more
+complete than the scoreboard indicated — all three DoD pieces are
+in the tree; this commit adds the verification tests that pin them.
+- **Classification** (✓ — `sema.cpp::finalize_relaxed_bounds`):
+  every generic param has `tp.implicit_sized = true` by default;
+  the `?Sized` bound clears the flag (and only `?Sized` is allowed
+  in the relaxed position — any other `?Trait` errors). Stored on
+  `TypeParam` so mono / sema all read the same flag.
+- **Enforcement at substitution** (✓ — `sema_expr.cpp:3415` +
+  `:5029` + `sema.cpp:4872` / `:4902`): every type-arg position is
+  checked. When a callee's type-param has `implicit_sized=true` and
+  the substituted arg is `UnsizedSlice` / `UnsizedDyn`, emit
+  "requires `Sized` (add `T: ?Sized` to relax)". Propagation
+  through `current_type_relaxed_sized_` ensures a `?Sized` OUTER
+  type-param can't silently flow into an inner `Sized`-required
+  slot.
+- **Resolve-time `unsized_ok_` gate** (✓ — `sema.cpp:4851`): at the
+  turbofish position, if the target type-param has
+  `implicit_sized=false`, sema flips `unsized_ok_` on so `dyn
+  Trait` / `[T]` resolve to their unsized forms (`UnsizedDyn` /
+  `UnsizedSlice`) rather than being rejected by the value-use gate.
+- **Struct-last-field-unsized rule** (✓ — `sema.cpp::is_effective_dst`):
+  a generic struct whose LAST field is a `?Sized` type-param,
+  substituted with `[T]` / `dyn Trait`, becomes an effective custom-
+  DST. Detected by walking the post-substitution last-field kind.
+- **Receiver-shape acceptance** (✓): `impl Speak for [u8]` with a
+  `self: &[u8]` receiver dispatches correctly. The fat-slice
+  pointer flows through the method-call path; the receiver-shape
+  check accepts any reference / raw-ptr form over an unsized Self.
+Verification:
+- `tests/logos/pass/core_3_2_qsized_box_dyn.logos` — `impl Speak for
+  [u8]` + `s.speak()` on a `&[u8]` slice dispatches through the
+  `?Sized` impl.
+- `tests/logos/fail/core_3_2_qsized_required.logos` — `null_ptr::<[u8]>()`
+  on a `fn null_ptr<T>() -> *const T` (no `?Sized`) is rejected
+  with the specific "requires `Sized` (add `T: ?Sized` to relax
+  the bound)" diagnostic.
 
 ### 3.3. GAT compatibility with object-safety
 *Audit: D (GATs).*
@@ -486,8 +514,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 16 / 21 ✅ closed at DoD-depth (76.2%)** · 2 🟡 partial · 3 ❌ not
-> started. Suite: 5300 / 5300 ✓.
+> **Score: 17 / 21 ✅ closed at DoD-depth (81.0%)** · 2 🟡 partial · 2 ❌ not
+> started. Suite: 5302 / 5302 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -511,7 +539,7 @@ core are recorded here with a rationale. Closing items move to a
 | 2.7 | Definite-assignment | ✅ | `tests/logos/fail/core_2_7_use_before_init.logos` ✓ — `currently_uninit_vars_` tracker + union merge at if/match + conservative loops |
 | 2.8 | Object-safety enforcement | ✅ | `tests/logos/fail/core_2_8_obj_safety_opaque_return.logos` ✓ |
 | 3.1 | HRTB instantiation | ❌ | not started — depends on 2.1 default trait-obj lt rule |
-| 3.2 | `?Sized` / `Sized` invariants | ❌ | not started — receiver-shape walker absent |
+| 3.2 | `?Sized` / `Sized` invariants | ✅ | `tests/logos/pass/core_3_2_qsized_box_dyn.logos` ✓ + `tests/logos/fail/core_3_2_qsized_required.logos` ✓ |
 | 3.3 | GAT + object-safety | ✅ | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ |
 | 4.1 | `is_refutable` single foundation | ✅ | verified-by-suite (predicate `lir_view::is_irrefutable_pattern` consumed by 3 sites) |
 | 4.2 | Match exhaustiveness | 🟡 | variant coverage + bool + uninhabited ✓; Useful-Sukhotin alg + guard integration absent |
@@ -904,3 +932,16 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   AND `&&Enum` shape triggers a pre-existing null-check on
   `!llvm.ptr` outside the via_ref code path. Multi-level codegen
   + binding extraction machinery is its own focused session.
+- ~~**3.2**~~ ✅ `?Sized` / `Sized` invariants. Verified the
+  pipeline is already in place — classification on TypeParam, Sized
+  enforcement at substitution sites (`sema_expr.cpp:3415` /
+  `:5029`), resolve-time `unsized_ok_` gate at `?Sized` positions
+  (`sema.cpp:4851`), struct-last-field-unsized rule via
+  `is_effective_dst` (`sema.cpp:3365`), and receiver-shape
+  acceptance for `&Self` over an unsized Self. Wave 3 adds the
+  two verification tests that pin the contract:
+  `tests/logos/pass/core_3_2_qsized_box_dyn.logos` (`impl Speak for
+  [u8]` dispatches through the `?Sized` impl) and
+  `tests/logos/fail/core_3_2_qsized_required.logos`
+  (`null_ptr::<[u8]>()` on a `<T>` (no `?Sized`) rejects with
+  "requires `Sized` (add `T: ?Sized` to relax)").

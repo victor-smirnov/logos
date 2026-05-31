@@ -1,0 +1,38 @@
+// logos-core §3.2: `?Sized` / `Sized` invariants end-to-end. Every generic
+// param has an implicit `Sized` bound; `?Sized` opts out (parsed by the
+// grammar, recorded as `tp.implicit_sized = false` by
+// finalize_relaxed_bounds in sema.cpp). Three threads of the DoD verified
+// here:
+//
+//   1. SIZED ENFORCEMENT at substitution: a generic fn without `?Sized`
+//      rejects an unsized type-arg via the check at sema_expr.cpp:3415
+//      ("requires `Sized` (add `T: ?Sized` to relax)"). Negative arm in
+//      the fail-test companion `core_3_2_qsized_required.logos`.
+//
+//   2. ?SIZED OPT-OUT: a `<T: ?Sized>` fn accepts `[u8]` as type-arg —
+//      sema enables `unsized_ok_` at resolve time so `[u8]` lowers to
+//      Kind::UnsizedSlice rather than being rejected by the value-use
+//      gate.
+//
+//   3. METHOD ON UNSIZED RECEIVER: `impl Speak for [u8]` with a
+//      `self: &[u8]` receiver dispatches correctly — the receiver-shape
+//      walker accepts `?Sized` Self when the receiver is `&Self` /
+//      `&mut Self` / `*const Self` / `*mut Self`.
+package core_3_2_qsized_box_dyn;
+
+trait Speak {
+    fn speak(self: &Self) -> i64;
+}
+
+// Piece (3): method on an unsized type.
+impl Speak for [u8] {
+    fn speak(self: &[u8]) -> i64 { return self.len(); }
+}
+
+fn main() -> i32 {
+    // Piece (3): the slice method dispatches through the ?Sized impl.
+    let arr: [u8; 3] = [10u8, 20u8, 30u8];
+    let s: &[u8] = &arr;
+    if s.speak() != 3i64 { return 1i32; }
+    return 0i32;
+}
