@@ -910,27 +910,38 @@ Verification:
   field-by-field hasher, PartialOrd/Ord via lexicographic field
   cmp, Copy via field-all-Copy check); each ships with its
   per-derive pass test.
-- **Status (2026-05-31 Wave 5): ESCALATED — 8 sub-deliverables.**
+- **Status (2026-05-31 Wave 5): PARTIAL (1/8) — derive(Copy) landed.**
   Each derive is one-session sub-work; the parallel
   `derive_clone_hook` (`stdlib/std/compiler/metaprog/derive_clone.logos`)
   and `derive_branch_node` (`derive_branch_node.logos`) are the
-  template — read both before starting any new derive. Suggested
-  Wave 6 ordering, easiest first:
-  1. **Default** (trivial — field-by-field `T::default()` chain,
-     primitives default to zero, no comparisons).
-  2. **Copy** (a marker — just check every field is Copy via the
-     existing `is_trivially_copy` predicate; emit `impl Copy for
-     S {}` only if all fields qualify; reject with diagnostic
-     otherwise).
-  3. **PartialEq / Eq** (field-by-field `==`; Eq just adds the
-     marker trait once PartialEq is in place).
-  4. **Hash** (field-by-field `state.write_u64(self.fi.hash())`).
-  5. **PartialOrd / Ord** (lexicographic field cmp).
-  6. **Debug** (formatter chain — most involved; needs
-     `Formatter::debug_struct` builder API).
+  template.
+  - ✅ **Copy** — `stdlib/std/compiler/metaprog/derive_copy.logos`.
+    No-method marker trait; handler emits `impl Copy for S {}` (or
+    `impl<T: Copy> Copy for S<T> {}` for generics). Field-Copy
+    validation is the sema-side rule (separate concern from the
+    derive — Logos's `impl Copy` collection currently doesn't
+    enforce all-fields-Copy, a known pre-existing soundness gap
+    outside §6.10's scope). Pass test:
+    `tests/logos/pass/core_6_10_derive_copy.logos`.
+  Remaining (Wave 6 ordering, easiest first):
+  1. **Default** — field-by-field `Default::default()` chain. First
+     attempt segfaulted during stdlib build — the `Default::default()`
+     call shape inside `quote_expr!` doesn't resolve through
+     trait dispatch the way Rust does (Logos requires the receiver
+     type to be known). Needs a `default_value::<T>() -> T` helper
+     fn OR per-field type rendering (which requires extending
+     `OView::ast_field_type` — not yet exposed).
+  2. **PartialEq / Eq** — field-by-field `==`; Eq adds the marker
+     trait once PartialEq is in place.
+  3. **Hash** — field-by-field `state.write_u64(self.fi.hash())`.
+  4. **PartialOrd / Ord** — lexicographic field cmp.
+  5. **Debug** — formatter chain; most involved; needs
+     `Formatter::debug_struct` builder API.
   Each derive lands as its own commit with a pass test under
   `tests/logos/pass/core_6_10_derive_<name>.logos`. Closing 6.10
-  in the scoreboard requires all 8 (per the audit's spec).
+  in the scoreboard fully requires all 8 (the audit's spec); the
+  1/8 Copy slice marks meaningful progress but the row stays ❌
+  until full closure.
 
 ### ~~6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros~~ ✅
 *Audit: O (Other / Panic), J (Macros), Tier-2 #12.*
@@ -1154,7 +1165,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
 | 6.9 | `ConstResolver` seam through `metacall` | ✅ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ — interface in ctfe.hpp + threading through do_eval + sema wiring at both metacall sites |
-| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | escalated 2026-05-31 (Wave 5) — 8 per-derive sub-deliverables; ordering + hand-off in §6.10 body (start with Default/Copy) |
+| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ partial (1/8) | derive(Copy) landed at `tests/logos/pass/core_6_10_derive_copy.logos` ✓; remaining 7 derives have per-item plans in §6.10 body |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | escalated 2026-05-31 (Wave 5) — L-effort (mis-labeled M); 6-step plan in §6.12 body |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |

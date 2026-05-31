@@ -1,0 +1,36 @@
+// logos-core §6.10 sub-deliverable: derive(Copy) — the simplest of
+// the eight standard derives. `Copy` is a no-method marker trait;
+// the handler emits just `impl Copy for S {}` (with `T: Copy` bounds
+// per type-param for generic structs). The sema-side auto-Copy rule
+// already enforces "every field must be Copy" when an `impl Copy`
+// lands, so the handler doesn't need explicit field-Copy validation.
+//
+// This is one of §6.10's 8 sub-deliverables — the others (Default,
+// PartialEq/Eq, Hash, PartialOrd/Ord, Debug) follow the same handler
+// pattern with progressively more body content. Closing §6.10 in
+// the scoreboard requires all 8; this one lands the Copy slice.
+package core_6_10_derive_copy;
+
+use logos.std.compiler.metaprog;
+
+#[derive_copy]
+struct Pt { x: i32, y: i32 }
+
+#[derive_copy]
+struct GenPair<T> { a: T, b: T }
+
+fn main() -> i32 {
+    let p: Pt = Pt { x: 5i32, y: 7i32 };
+    // Copy semantics: both q and r each take a fresh value from p.
+    let q: Pt = p;
+    let r: Pt = p;
+    if q.x + r.y != 12i32 { return 1i32; }
+
+    // Generic-struct derive — T: Copy bound on the emitted impl.
+    let g: GenPair<i32> = GenPair { a: 1i32, b: 2i32 };
+    let g2: GenPair<i32> = g;
+    let g3: GenPair<i32> = g;
+    if g2.a + g3.b != 3i32 { return 2i32; }
+
+    return 0i32;
+}
