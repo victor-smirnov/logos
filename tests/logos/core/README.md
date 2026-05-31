@@ -69,7 +69,7 @@ in `pass/` and `fail/`. Two reasons:
 | 6.11 | `unreachable!/todo!/unimplemented!` macros | `tests/logos/pass/core_6_11_never_macros.logos` ✓ | ✅ |
 | 6.12 | `Range` family generics | TBD — Tier-2 #14 | ❌ |
 | 6.13 | `DerefMut` autoderef | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ | ✅ |
-| 6.14 | Atomics per-variant Ordering MLIR | TBD — Tier-2 #17 + §5.1 follow-up | ❌ |
+| 6.14 | Atomics per-variant Ordering MLIR | `tests/logos/pass/core_6_14_atomics_per_variant_ordering.logos` ✓ | ✅ |
 
 ## Goal contract
 

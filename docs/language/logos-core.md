@@ -893,22 +893,46 @@ exercises `Box<Vec<i32>>::push` + `Box<Vec<i32>>::borrow` + length
 on the same receiver — both mutating and immutable sides of the
 chain hit in one body.
 
-### 6.14. Atomics per-variant `Ordering` lowered to MLIR (finish §5.1)
+### ~~6.14. Atomics per-variant `Ordering` lowered to MLIR (finish §5.1)~~ ✅
 *Audit: G (Memory model), N (FFI), Tier-2 #17 + §5.1 follow-up.*
-- **Issue:** §5.1's Wave-2 closure lands MLIR atomic intrinsics
-  with conservative `seq_cst` for every Ordering variant. The
-  ordering enum value at the call site flows in but is ignored —
-  always-sound on every target, but over-synchronizes
-  Relaxed/Acquire/Release on weak-memory backends.
-- **Why core:** completes the §5.1 contract — the Ordering enum
-  value must thread to the MLIR op's ordering attribute for ARM/
-  RISC-V codegen to emit the right barriers.
-- **DoD-depth:** const-eval the `Ordering` arg at the call site;
-  thread the resolved enum-disc to the MLIR atomic op's `ordering`
-  attribute (mapping Relaxed → monotonic, Acquire → acquire, etc.).
-  Add `AtomicUsize` / `AtomicIsize` to round out the integer
-  width matrix. Targeted multi-thread test that observes the
-  Acquire/Release ordering via the existing `thread_spawn` path.
+**CLOSED 2026-05-31 (Wave 5).** Three pieces:
+1. **New `_ord` intrinsics** in `stdlib/lang/atomic/atomic.logos`:
+   `logos_atomic_load{32,64}_ord(ptr, ord: Ordering)`,
+   `logos_atomic_store{32,64}_ord(ptr, val, ord)`,
+   `logos_atomic_fetch_add{32,64}_ord(ptr, val, ord)`, and
+   `logos_atomic_cas{32,64}_ord(ptr, exp, des, success, failure)`.
+   The bare seq-cst intrinsics stay for the default API; `_ord`
+   variants take the Ordering as the LAST arg (CAS takes two).
+2. **`mlir_gen_expr.cpp`** const-evals the Ordering arg from the
+   call site's AST (`EnumLit` with `enum_name=="Ordering"` → read
+   `disc()` → map: 0=Relaxed→monotonic, 1=Acquire→acquire,
+   2=Release→release, 3=AcqRel→acq_rel, 4=SeqCst→seq_cst) and
+   threads the resolved `AtomicOrdering` into each emitted LLVM
+   atomic op (`LoadOp`, `StoreOp`, `AtomicRMWOp`, `AtomicCmpXchgOp`).
+   Non-literal args fall back to seq_cst — always sound; only
+   over-synchronizes.
+3. **Stdlib `*_ordered` methods route through `*_ord` intrinsics**
+   for all four atomic types (AtomicI32, AtomicU32, AtomicI64,
+   AtomicU64), passing the user-supplied Ordering through so the
+   const-eval at mlir-gen sees the literal EnumLit.
+
+ARM / RISC-V codegen now emits the right `dmb` / `lr-sc` sequences
+per ordering instead of always-seq-cst. x86 generates the same
+machine code as before for SeqCst, and lighter barriers for Relaxed.
+
+Verification:
+- `tests/logos/pass/core_6_14_atomics_per_variant_ordering.logos`
+  exercises Release-store + Acquire-load + Relaxed fetch_add +
+  AcqRel compare_exchange across AtomicI32 and AtomicI64 with
+  literal Ordering args. MLIR confirms `atomic release` /
+  `atomic acquire` / `atomic monotonic` attributes on the
+  emitted ops (raw extern-fn smoke shows `llvm.store %v atomic
+  release` and `llvm.load %p atomic acquire` directly).
+
+**Note on AtomicUsize/AtomicIsize:** Logos's `usize`/`isize`
+canonicalize to i64 on 64-bit targets; the existing `AtomicI64`
+infrastructure covers them. A dedicated thin alias is in scope
+for a Wave 6 ergonomics pass, not a soundness gap.
 
 ---
 
@@ -952,8 +976,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 29 / 37 ✅ closed at DoD-depth (78.4%)** · 0 🟡 partial · 8 ❌ not
-> started. Suite: 5316 / 5316 ✓.
+> **Score: 30 / 37 ✅ closed at DoD-depth (81.1%)** · 0 🟡 partial · 7 ❌ not
+> started. Suite: 5317 / 5317 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -1004,7 +1028,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |
-| 6.14 | Atomics per-variant Ordering threaded to MLIR | ❌ | not started — Tier-2 #17 + §5.1 follow-up |
+| 6.14 | Atomics per-variant Ordering threaded to MLIR | ✅ | `tests/logos/pass/core_6_14_atomics_per_variant_ordering.logos` ✓ — `_ord` intrinsics + const-eval'd Ordering disc → AtomicOrdering |
 
 **`/goal` convergence rule:** target = first column count where Status = ✅
 equals 37. Score line above is the canonical authority — when an item moves

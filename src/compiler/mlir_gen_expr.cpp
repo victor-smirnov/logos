@@ -1740,48 +1740,76 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // Relaxed/Acquire/Release variants on weak-memory targets. Threading the
     // const Ordering value into a per-variant atomic-op attribute is a
     // separate follow-up (depends on Ordering enum const-evaluation).
-    auto emit_atomic_load = [&](mlir::Type res_type, unsigned align) -> mlir::Value {
-        if (arg_les.size() != 1) return nullptr;
+    // §6.14: const-eval the Ordering arg when literal, else fall back
+    // to seq_cst (conservative — always sound). The arg is an
+    // ExprRef; if it's an EnumLit with enum_name="Ordering", read
+    // its disc directly. The disc→AtomicOrdering map matches Rust's
+    // std::sync::atomic::Ordering layout (Relaxed=0, Acquire=1,
+    // Release=2, AcqRel=3, SeqCst=4).
+    auto read_ordering_at = [&](size_t idx) -> mlir::LLVM::AtomicOrdering {
+        if (idx >= arg_refs.size()) return mlir::LLVM::AtomicOrdering::seq_cst;
+        auto er = arg_refs[idx];
+        if (er.kind() == lir_schema::expr::Code::EnumLit) {
+            auto ev = lir_view::EEnumLitView{er};
+            if (ev.enum_name() == "Ordering") {
+                switch (ev.disc()) {
+                    case 0: return mlir::LLVM::AtomicOrdering::monotonic;
+                    case 1: return mlir::LLVM::AtomicOrdering::acquire;
+                    case 2: return mlir::LLVM::AtomicOrdering::release;
+                    case 3: return mlir::LLVM::AtomicOrdering::acq_rel;
+                    case 4: return mlir::LLVM::AtomicOrdering::seq_cst;
+                    default: break;
+                }
+            }
+        }
+        return mlir::LLVM::AtomicOrdering::seq_cst;
+    };
+    auto emit_atomic_load = [&](mlir::Type res_type, unsigned align,
+                                mlir::LLVM::AtomicOrdering ord =
+                                    mlir::LLVM::AtomicOrdering::seq_cst,
+                                size_t expected_args = 1) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
         auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
         return builder_.create<mlir::LLVM::LoadOp>(
             loc_, res_type, ptr_v, align, /*isVolatile=*/false,
             /*isNonTemporal=*/false, /*isInvariant=*/false,
-            /*isInvariantGroup=*/false,
-            mlir::LLVM::AtomicOrdering::seq_cst);
+            /*isInvariantGroup=*/false, ord);
     };
-    auto emit_atomic_store = [&](unsigned align) -> mlir::Value {
-        if (arg_les.size() != 2) return nullptr;
+    auto emit_atomic_store = [&](unsigned align,
+                                 mlir::LLVM::AtomicOrdering ord =
+                                     mlir::LLVM::AtomicOrdering::seq_cst,
+                                 size_t expected_args = 2) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
         auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
         auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
         builder_.create<mlir::LLVM::StoreOp>(
             loc_, val_v, ptr_v, align, /*isVolatile=*/false,
-            /*isNonTemporal=*/false, /*isInvariantGroup=*/false,
-            mlir::LLVM::AtomicOrdering::seq_cst);
-        // Store returns nothing; emit a dummy 0 so call sites that expect a
-        // value (rare for store, but the call expression has a type slot)
-        // have something to consume. Logos's atomic store fns are typed
-        // `()` — the dummy is discarded by the caller.
+            /*isNonTemporal=*/false, /*isInvariantGroup=*/false, ord);
         return builder_.create<mlir::arith::ConstantIntOp>(
             loc_, /*value=*/0, /*width=*/32);
     };
-    auto emit_atomic_fetch_add = [&](mlir::Type res_type) -> mlir::Value {
-        if (arg_les.size() != 2) return nullptr;
+    auto emit_atomic_fetch_add = [&](mlir::Type res_type,
+                                     mlir::LLVM::AtomicOrdering ord =
+                                         mlir::LLVM::AtomicOrdering::seq_cst,
+                                     size_t expected_args = 2) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
         auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
         auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
         return builder_.create<mlir::LLVM::AtomicRMWOp>(
-            loc_, mlir::LLVM::AtomicBinOp::add, ptr_v, val_v,
-            mlir::LLVM::AtomicOrdering::seq_cst);
+            loc_, mlir::LLVM::AtomicBinOp::add, ptr_v, val_v, ord);
     };
-    auto emit_atomic_cas = [&](mlir::Type val_type) -> mlir::Value {
-        if (arg_les.size() != 3) return nullptr;
+    auto emit_atomic_cas = [&](mlir::Type val_type,
+                               mlir::LLVM::AtomicOrdering succ =
+                                   mlir::LLVM::AtomicOrdering::seq_cst,
+                               mlir::LLVM::AtomicOrdering fail =
+                                   mlir::LLVM::AtomicOrdering::seq_cst,
+                               size_t expected_args = 3) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
         auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
         auto exp_v = gen_expr(*arg_les[1]); if (!exp_v) return nullptr;
         auto des_v = gen_expr(*arg_les[2]); if (!des_v) return nullptr;
         auto cmpxchg = builder_.create<mlir::LLVM::AtomicCmpXchgOp>(
-            loc_, ptr_v, exp_v, des_v,
-            mlir::LLVM::AtomicOrdering::seq_cst,
-            mlir::LLVM::AtomicOrdering::seq_cst);
-        // cmpxchg returns the struct {val_type, i1}; extract field 1 = did_exchange.
+            loc_, ptr_v, exp_v, des_v, succ, fail);
         return builder_.create<mlir::LLVM::ExtractValueOp>(
             loc_, cmpxchg, mlir::ArrayRef<int64_t>{1});
     };
@@ -1801,6 +1829,25 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         if (auto v = emit_atomic_cas(builder_.getI32Type())) return v;
     if (bare_intrinsic == "logos_atomic_cas64")
         if (auto v = emit_atomic_cas(builder_.getI64Type())) return v;
+    // §6.14 _ord variants — last arg is the Ordering enum value.
+    if (bare_intrinsic == "logos_atomic_load32_ord")
+        if (auto v = emit_atomic_load(builder_.getI32Type(), 4, read_ordering_at(1), 2)) return v;
+    if (bare_intrinsic == "logos_atomic_load64_ord")
+        if (auto v = emit_atomic_load(builder_.getI64Type(), 8, read_ordering_at(1), 2)) return v;
+    if (bare_intrinsic == "logos_atomic_store32_ord")
+        if (auto v = emit_atomic_store(4, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_store64_ord")
+        if (auto v = emit_atomic_store(8, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_add32_ord")
+        if (auto v = emit_atomic_fetch_add(builder_.getI32Type(), read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_add64_ord")
+        if (auto v = emit_atomic_fetch_add(builder_.getI64Type(), read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_cas32_ord")
+        if (auto v = emit_atomic_cas(builder_.getI32Type(),
+                                     read_ordering_at(3), read_ordering_at(4), 5)) return v;
+    if (bare_intrinsic == "logos_atomic_cas64_ord")
+        if (auto v = emit_atomic_cas(builder_.getI64Type(),
+                                     read_ordering_at(3), read_ordering_at(4), 5)) return v;
 
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.

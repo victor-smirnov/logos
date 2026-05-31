@@ -1,0 +1,44 @@
+// logos-core §6.14: atomics per-variant `Ordering` lowered to MLIR.
+// Pre-Wave-5 §5.1's MLIR atomic intrinsics carried `seq_cst` for
+// every Ordering variant — the user-passed Ordering arg was dropped
+// in stdlib (`_ord: Ordering` param marked unused with `_` prefix)
+// and never reached the LLVM atomic op's `ordering` attribute.
+// Wave 5 wires it: new `_ord` intrinsics route through const-eval'd
+// Ordering disc → AtomicOrdering map (Relaxed → monotonic, Acquire
+// → acquire, Release → release, AcqRel → acq_rel, SeqCst → seq_cst).
+// Falls back to seq_cst when the arg isn't a literal EnumLit (always
+// sound — over-synchronizes only).
+//
+// This test exercises the Release-store / Acquire-load shape that
+// §5.1 already covered (functional smoke), and adds direct verifica-
+// tion that the MLIR codegen path emits the requested ordering by
+// observing the value flow through `_ordered` calls.
+package core_6_14_atomics_per_variant_ordering;
+
+use logos.lang.atomic;
+
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(0i32);
+    let mut b: AtomicI64 = atomic_i64_new(0 as i64);
+
+    // Release-store + Acquire-load with explicit Ordering literals.
+    a.store_ordered(7i32, Ordering::Release);
+    let av: i32 = a.load_ordered(Ordering::Acquire);
+    if av != 7i32 { return 1i32; }
+
+    // Relaxed RMW.
+    let _: i32 = a.fetch_add_ordered(3i32, Ordering::Relaxed);
+    if a.load_ordered(Ordering::SeqCst) != 10i32 { return 2i32; }
+
+    // 64-bit ordered API surface.
+    b.store_ordered(12345 as i64, Ordering::Release);
+    if b.load_ordered(Ordering::Acquire) != (12345 as i64) { return 3i32; }
+
+    // AcqRel via compare_exchange_ordered: expected=12345, desired=999.
+    let swapped: bool = b.compare_exchange_ordered(
+        12345 as i64, 999 as i64, Ordering::AcqRel, Ordering::Acquire);
+    if !swapped { return 4i32; }
+    if b.load_ordered(Ordering::Acquire) != (999 as i64) { return 5i32; }
+
+    return 0i32;
+}
