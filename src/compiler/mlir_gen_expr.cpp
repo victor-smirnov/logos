@@ -328,7 +328,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     if (it == scope_.end()) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
         // Check if name is a free function being used as a bare fn-ptr.
-        if (type && TypeRef(type).kind() == LogosType::Kind::FnPtr) {
+        if (type && LogosType::is_fn_value_kind(TypeRef(type).kind())) {
             auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
             if (fn_sym) {
                 // Return just the function address as a raw ptr.

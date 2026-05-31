@@ -6,7 +6,9 @@ package t11;
 fn inc(x: i64) -> i64 { return x + 1i64; }
 fn dec(x: i64) -> i64 { return x - 1i64; }
 fn main() -> i32 {
-    let ops = [inc, dec];
+    // logos-core 1.4: explicit FnPtr element type required for mixed
+    // bare fn-name refs to LUB through a shared FnPtr (Rust-faithful).
+    let ops: [fn(i64) -> i64; 2] = [inc, dec];
     let f = ops[0i64];
     let g = ops[1i64];
     if f(5i64) != 6i64 { return 1i32; }

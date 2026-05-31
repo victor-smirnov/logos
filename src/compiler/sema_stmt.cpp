@@ -1599,7 +1599,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
     // param types (was `|<error>|`). Mirrors the call-arg + return paths.
     auto saved_closure_hint = hint_closure_formal_;
-    if (ann && (TypeRef(ann).kind() == LogosType::Kind::FnPtr ||
+    if (ann && (LogosType::is_fn_value_kind(TypeRef(ann).kind()) ||
                 TypeRef(ann).kind() == LogosType::Kind::Closure))
         hint_closure_formal_ = ann;
     // g6b: `[T; N]` / `[T]` annotation hints the array literal's element type
@@ -2523,7 +2523,7 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             // let-annotation and call-arg paths apply. Without this, `fn f() ->
             // fn()->T { return || ... }` errored "expected fn()->T, got ||->T".
             if (ret_type_ &&
-                TypeRef(ret_type_).kind() == LogosType::Kind::FnPtr)
+                LogosType::is_fn_value_kind(TypeRef(ret_type_).kind()))
                 try_coerce_closure_to_fnptr(val, ret_type_);
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
@@ -8635,13 +8635,36 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             } else if (TypeRef(val->type).kind() == LogosType::Kind::Never) {
                 // keep result_type — this arm yields no value.
             } else if (TypeRef(val->type).kind() != LogosType::Kind::Error) {
-                if (!types_compatible(val->type, result_type) &&
-                    !types_compatible(result_type, val->type)) {
-                    error(std::format(
-                        "match expression: arm type '{}' is incompatible with '{}'",
-                        type_str(val->type), type_str(result_type)));
-                } else {
-                    result_type = unify_numeric(result_type, val->type);
+                // logos-core 1.4: when arms produce distinct FnItems (e.g.
+                // one arm `a_f` and another `b_f` with the same `fn(i64)`
+                // signature), neither types_compatible direction is true
+                // (FnItem→FnItem is intentionally rejected). LUB to the
+                // matching FnPtr so all arms unify under the common ptr —
+                // exactly what Rust's LUB does for fn-item arms.
+                bool lubbed_to_fnptr = false;
+                if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
+                    TypeRef(val->type).kind() == LogosType::Kind::FnItem) {
+                    LogosTypeBuilder fpt;
+                    fpt.kind = LogosType::Kind::FnPtr;
+                    for (auto p : TypeRef(val->type).closure_params())
+                        fpt.closure_params.push_back(p);
+                    fpt.closure_ret = TypeRef(val->type).closure_ret();
+                    TypeRef fp = pool_->alloc(std::move(fpt));
+                    if (types_compatible(result_type, fp) &&
+                        types_compatible(val->type, fp)) {
+                        result_type = fp;
+                        lubbed_to_fnptr = true;
+                    }
+                }
+                if (!lubbed_to_fnptr) {
+                    if (!types_compatible(val->type, result_type) &&
+                        !types_compatible(result_type, val->type)) {
+                        error(std::format(
+                            "match expression: arm type '{}' is incompatible with '{}'",
+                            type_str(val->type), type_str(result_type)));
+                    } else {
+                        result_type = unify_numeric(result_type, val->type);
+                    }
                 }
             }
             // Upgrade IntLit result to i64 if any arm literal overflows i32.

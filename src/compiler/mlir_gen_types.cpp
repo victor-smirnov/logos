@@ -120,6 +120,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         return cache_ret(ptr_type());
     }
     case LogosType::Kind::Closure:      return cache_ret(ptr_type());
+    case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr:        return cache_ret(ptr_type());
     case LogosType::Kind::Slice:        return cache_ret(ptr_type());
     case LogosType::Kind::UnsizedSlice: return cache_ret(ptr_type());

@@ -274,6 +274,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         nt.tuple_elems = std::move(new_elems);
         return out_.type_pool.alloc(std::move(nt));
     }
+    case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr:
     case LogosType::Kind::Closure: {
         // Substitute fn-ptr / closure signatures: `fn(T, U) -> V` carries

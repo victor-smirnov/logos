@@ -1603,7 +1603,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     TypeRef seed_self = nullptr;
     if (target_resolved) {
         auto tk = TypeRef(target_resolved).kind();
-        if (tk == LogosType::Kind::Tuple || tk == LogosType::Kind::FnPtr ||
+        if (tk == LogosType::Kind::Tuple || LogosType::is_fn_value_kind(tk) ||
             tk == LogosType::Kind::Ref   || tk == LogosType::Kind::MutRef)
             seed_self = target_resolved;
         else if ((tk == LogosType::Kind::Struct ||

@@ -756,7 +756,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (ck == LogosType::Kind::Ref ||
                     ck == LogosType::Kind::Ptr ||
                     ck == LogosType::Kind::Slice ||
-                    ck == LogosType::Kind::FnPtr ||
+                    LogosType::is_fn_value_kind(ck) ||
                     ck == LogosType::Kind::TraitObject)
                     continue;
             }
@@ -1041,7 +1041,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // the bound). When F resolves to FnPtr at mono time, the
             // ClosureCall LIR op rewrites to FnPtrCall in mono_clone.
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
-                                       cv.kind() == LogosType::Kind::FnPtr))
+                                       LogosType::is_fn_value_kind(cv.kind())))
                 continue;
             // G158-1: `&F` / `&mut F` satisfies an Fn-family bound when the
             // pointee is itself callable (a closure / fn-ptr, or a TypeVar
@@ -1053,12 +1053,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                  cv.kind() == LogosType::Kind::MutRef) &&
                 cv.pointee() &&
                 (TypeRef(cv.pointee()).kind() == LogosType::Kind::Closure ||
-                 TypeRef(cv.pointee()).kind() == LogosType::Kind::FnPtr ||
+                 LogosType::is_fn_value_kind(TypeRef(cv.pointee()).kind()) ||
                  TypeRef(cv.pointee()).kind() == LogosType::Kind::TypeVar))
                 continue;
             // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
             // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
-            if (cv.kind() == LogosType::Kind::FnPtr &&
+            if (LogosType::is_fn_value_kind(cv.kind()) &&
                 impls_.count(bound.trait_name + "::$fnptr$" +
                              std::to_string(cv.closure_params().size())))
                 continue;

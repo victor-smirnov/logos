@@ -1251,7 +1251,9 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     }
 
     // ── FnPtr value (fn(T) -> R) ──────────────────────────────
-    if (s.type && TypeRef(s.type).kind() == LogosType::Kind::FnPtr) {
+    // logos-core 1.4: FnItem (the per-instantiation ZST produced at bare-fn
+    // refs) lowers identically to FnPtr at codegen — same ptr representation.
+    if (s.type && LogosType::is_fn_value_kind(TypeRef(s.type).kind())) {
         auto val = gen_expr(*s.value);
         if (!val) return;
         // Store as a let-bound scalar (alloca holding a ptr).

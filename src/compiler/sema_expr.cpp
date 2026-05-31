@@ -375,11 +375,19 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                 std::string("__const_param:") + std::string(name), under);
         }
         // Check if it's a function name — allow coercion to fn(T)->R type.
+        // logos-core 1.4: produce Kind::FnItem (per-instantiation ZST) so
+        // `marker<T>() -> i32`-shape fns get DISTINCT types per
+        // instantiation. `struct_name` carries the symbol name for
+        // identity. Auto-coerces to FnPtr at value-use sites via the
+        // types_compatible(FnItem, FnPtr) rule + the downstream
+        // is_fn_value_kind acceptance helper.
         auto cands = find_func_candidates(name);
         if (cands.size() == 1) {
             const SemaFuncInfo& fi = *cands[0];
             LogosTypeBuilder ft;
-            ft.kind = LogosType::Kind::FnPtr;
+            ft.kind = LogosType::Kind::FnItem;
+            ft.struct_name = fi.symbol_name.empty() ? std::string(name)
+                                                    : fi.symbol_name;
             for (auto pt : fi.param_types)
                 ft.closure_params.push_back(pt);
             ft.closure_ret = fi.ret_type ? fi.ret_type : void_t();
@@ -2259,7 +2267,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Check if callee is a closure or fn-ptr variable
     auto callee_type = lookup(callee);
     bool is_closure = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::Closure;
-    bool is_fn_ptr  = callee_type && TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
+    bool is_fn_ptr  = callee_type && LogosType::is_fn_value_kind(TypeRef(callee_type).kind());
     // C5-cl-04 slice: `b()` where `b: Box<dyn FnMut(…)>` (i.e. Box<Closure>).
     // Logos's Box layout is `{ *mut T }`, so the box's value is the heap
     // pointer to the inner Closure {fn_ptr, env_ptr}. ClosureCall expects
@@ -2285,10 +2293,10 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         (TypeRef(callee_type).kind() == LogosType::Kind::Ref ||
          TypeRef(callee_type).kind() == LogosType::Kind::MutRef) &&
         TypeRef(callee_type).pointee() &&
-        (TypeRef(TypeRef(callee_type).pointee()).kind() == LogosType::Kind::FnPtr ||
+        (LogosType::is_fn_value_kind(TypeRef(TypeRef(callee_type).pointee()).kind()) ||
          TypeRef(TypeRef(callee_type).pointee()).kind() == LogosType::Kind::Closure)) {
         callee_type = TypeRef(callee_type).pointee();
-        is_fn_ptr  = TypeRef(callee_type).kind() == LogosType::Kind::FnPtr;
+        is_fn_ptr  = LogosType::is_fn_value_kind(TypeRef(callee_type).kind());
         is_closure = TypeRef(callee_type).kind() == LogosType::Kind::Closure;
         callee_is_ref_fn = true;
     }
@@ -2449,7 +2457,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             TypeRef pt = hint_fi->param_types[formal_idx];
             if (!pt) return nullptr;
             auto k = TypeRef(pt).kind();
-            if (k == LogosType::Kind::FnPtr || k == LogosType::Kind::Closure)
+            if (LogosType::is_fn_value_kind(k) || k == LogosType::Kind::Closure)
                 return pt;
             if (k == LogosType::Kind::TypeVar) {
                 auto tvn = TypeRef(pt).type_var_name();
@@ -3102,13 +3110,14 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 unify_types(fe[i], ae[i], bindings);
         }
         break;
+    case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr:
     case LogosType::Kind::Closure:
         // CP-cm-10: unify `fn(A,B,...) -> R` against actual fn-ptr/closure
         // so method-generic type-params appearing only inside the fn-ptr
         // signature (e.g. `bool::then<T>(self, f: fn() -> T)`) can be
         // inferred from the actual callee's return / param types.
-        if (actual_norm.kind() == LogosType::Kind::FnPtr ||
+        if (LogosType::is_fn_value_kind(actual_norm.kind()) ||
             actual_norm.kind() == LogosType::Kind::Closure) {
             auto fp = formal.closure_params();
             auto ap = actual_norm.closure_params();
@@ -3167,7 +3176,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
         TypeRef actual = bit->second;
         if (!actual ||
             (TypeRef(actual).kind() != LogosType::Kind::Closure &&
-             TypeRef(actual).kind() != LogosType::Kind::FnPtr))
+             !LogosType::is_fn_value_kind(TypeRef(actual).kind())))
             continue;
         for (auto& b : tp_ptr->bounds) {
             if (!b.is_fn_family) continue;
@@ -5308,7 +5317,7 @@ lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
         return builder().closure_call(std::move(recv),
                                       std::move(arg_exprs), ret);
     }
-    if (rt && TypeRef(rt).kind() == LogosType::Kind::FnPtr) {
+    if (rt && LogosType::is_fn_value_kind(TypeRef(rt).kind())) {
         auto ret = TypeRef(rt).closure_ret()
             ? TypeRef(rt).closure_ret() : void_t();
         auto cps = TypeRef(rt).closure_params();
@@ -6818,7 +6827,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 TypeRef(f).pointee())
                 f = TypeRef(f).pointee();
             auto k = TypeRef(f).kind();
-            if (k == LogosType::Kind::FnPtr || k == LogosType::Kind::Closure)
+            if (LogosType::is_fn_value_kind(k) || k == LogosType::Kind::Closure)
                 hint_closure_formal_ = formals_hint[arg_idx];
             else if (k == LogosType::Kind::Enum &&
                      !TypeRef(f).type_args().empty())
@@ -7554,12 +7563,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (!recv_struct_subst.empty())
                         ft = subst_type_sema(ft, recv_struct_subst);
                     auto ftk = TypeRef(ft).kind();
-                    if (ftk == LogosType::Kind::FnPtr ||
+                    if (LogosType::is_fn_value_kind(ftk) ||
                         ftk == LogosType::Kind::Closure) {
                         TypeRef ret = TypeRef(ft).closure_ret();
                         auto fr = builder().field_read(
                             std::move(recv), std::string(method_name), ft);
-                        if (ftk == LogosType::Kind::FnPtr)
+                        if (LogosType::is_fn_value_kind(ftk))
                             return builder().fn_ptr_call(
                                 std::move(fr), std::move(arg_exprs), ret);
                         return builder().closure_call(
@@ -9100,6 +9109,32 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         elems.push_back(lower_expr(map_of(items.get(i))));
 
     TypeRef elem_type = elems[0]->type;
+    // logos-core 1.4: a `[fn(...) -> R; N]` annotation lets a heterogeneous
+    // array of distinct FnItems (each `fn-name` bare-ref) unify to a common
+    // FnPtr. Each FnItem → FnPtr coerces via types_compatible; adopt the
+    // hint as the element type so the homogeneity check below sees FnPtr,
+    // not the per-element FnItem.
+    bool fnptr_elem_hint = false;
+    if (hint_arr_elem_type_ &&
+        TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::FnPtr) {
+        bool all_coerce = true;
+        for (auto& e : elems) {
+            TypeRef et = e->type;
+            if (TypeRef(et).kind() == LogosType::Kind::Error) continue;
+            if (types_compatible(et, hint_arr_elem_type_)) continue;
+            all_coerce = false; break;
+        }
+        if (all_coerce) {
+            elem_type = hint_arr_elem_type_;
+            fnptr_elem_hint = true;
+            for (auto& e : elems) {
+                if (!e || TypeRef(e->type).kind() == LogosType::Kind::Error)
+                    continue;
+                if (types_equal(e->type, hint_arr_elem_type_)) continue;
+                e = builder().cast(std::move(e), hint_arr_elem_type_);
+            }
+        }
+    }
     // g6b: a `[&dyn Trait; N]` annotation lets a HETEROGENEOUS array of distinct
     // `&Concrete` refs unify to `&dyn Trait`. When the expected element type is
     // known and every element coerces to it (with at least one needing the
@@ -9149,7 +9184,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
             }
         }
     }
-    for (uint64_t i = 1; !dyn_elem_hint && i < elems.size(); ++i) {
+    for (uint64_t i = 1; !dyn_elem_hint && !fnptr_elem_hint && i < elems.size(); ++i) {
         auto t = elems[i]->type;
         if (TypeRef(t).kind() != LogosType::Kind::Error && TypeRef(elem_type).kind() != LogosType::Kind::Error) {
             if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
@@ -12229,12 +12264,35 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     else if (TypeRef(else_val->type).kind() == LogosType::Kind::Never)
         result_type = then_val->type;
     else if (TypeRef(else_val->type).kind() != LogosType::Kind::Error) {
-        if (!types_compatible(then_val->type, else_val->type) &&
-            !types_compatible(else_val->type, then_val->type)) {
-            error(std::format("if-expression branches have incompatible types: {} vs {}",
-                  type_str(then_val->type), type_str(else_val->type)));
-        } else {
-            result_type = unify_numeric(then_val->type, else_val->type);
+        // logos-core 1.4: when both arms produce distinct FnItems (e.g.
+        // `if cond { foo } else { bar }` where foo / bar are bare fn
+        // names with the same FnPtr signature), LUB to the common FnPtr
+        // — Rust's classic fn-item-to-fn-pointer coercion at if-else
+        // joins. types_compatible(FnItem, FnItem) is intentionally
+        // false; lift both sides to FnPtr explicitly.
+        bool lubbed_to_fnptr = false;
+        if (TypeRef(then_val->type).kind() == LogosType::Kind::FnItem &&
+            TypeRef(else_val->type).kind() == LogosType::Kind::FnItem) {
+            LogosTypeBuilder fpt;
+            fpt.kind = LogosType::Kind::FnPtr;
+            for (auto p : TypeRef(else_val->type).closure_params())
+                fpt.closure_params.push_back(p);
+            fpt.closure_ret = TypeRef(else_val->type).closure_ret();
+            TypeRef fp = pool_->alloc(std::move(fpt));
+            if (types_compatible(then_val->type, fp) &&
+                types_compatible(else_val->type, fp)) {
+                result_type = fp;
+                lubbed_to_fnptr = true;
+            }
+        }
+        if (!lubbed_to_fnptr) {
+            if (!types_compatible(then_val->type, else_val->type) &&
+                !types_compatible(else_val->type, then_val->type)) {
+                error(std::format("if-expression branches have incompatible types: {} vs {}",
+                      type_str(then_val->type), type_str(else_val->type)));
+            } else {
+                result_type = unify_numeric(then_val->type, else_val->type);
+            }
         }
     }
     // If still IntLit, upgrade to i64 if any branch literal overflows i32.
@@ -12342,7 +12400,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     // `box_new(|x| ..)` returned as `Box<dyn Fn(..)>`) still
                     // infers its param types from the inner Fn signature.
                     TypeRef h = peel_to_callable(hint_closure_formal_);
-                    if (h && (TypeRef(h).kind() == LogosType::Kind::FnPtr ||
+                    if (h && (LogosType::is_fn_value_kind(TypeRef(h).kind()) ||
                               TypeRef(h).kind() == LogosType::Kind::Closure)) {
                         for (auto pt : TypeRef(h).closure_params())
                             hint_param_types.push_back(pt);

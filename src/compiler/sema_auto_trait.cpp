@@ -94,6 +94,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     case Kind::I128: case Kind::U128:
     case Kind::F32: case Kind::F64:
     case Kind::IntLit: case Kind::FloatLit:
+    case Kind::FnItem:
     case Kind::FnPtr:
         return true;
 

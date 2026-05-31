@@ -7,7 +7,10 @@ package fnptr_index_call_b166;
 fn inc(x: i64) -> i64 { return x + 1i64; }
 fn dbl(x: i64) -> i64 { return x * 2i64; }
 fn main() -> i32 {
-    let ops = [inc, dbl];
+    // logos-core 1.4: explicit FnPtr element type required when array
+    // mixes bare fn-name refs of distinct fn-items (each is FnItem<sym>;
+    // they LUB only through a shared FnPtr target, matching Rust).
+    let ops: [fn(i64) -> i64; 2] = [inc, dbl];
     if ops[0i64](5i64) != 6i64 { return 1i32; }
     if ops[1i64](5i64) != 10i64 { return 2i32; }
     let r = ops[0i64](20i64) + ops[1i64](3i64);

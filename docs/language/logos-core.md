@@ -95,16 +95,43 @@ case) AND extended `types_equal_with_lifetimes` in
 variance-walk wildcard. Verification:
 `tests/logos/pass/core_1_3_inferred_nested.logos`.
 
-### 1.4. `Kind::FnItem` separate from `Kind::FnPtr`
+### ~~1.4. `Kind::FnItem` separate from `Kind::FnPtr`~~ ✅
 *Audit: B (Function-item types).*
-- **Issue:** Logos collapses fn-item types into `FnPtr`. `foo::<i32>`
-  and `foo::<u32>` thereby look the same type, breaking
-  `if cond { foo::<i32> } else { foo::<u32> }` shape and unsize-coercion
-  rules.
-- **Why core:** Rust's "every fn instantiation is a distinct ZST" is
-  load-bearing for inference + closures-as-FnPtr coercion.
-- **DoD-depth:** new `Kind::FnItem` (ZST per instantiation); auto-coerce
-  to `FnPtr` at coercion sites; closure-non-capturing → FnPtr path unchanged.
+**CLOSED 2026-05-30 (Wave 3).** Pre-fix Logos collapsed bare fn-name
+references into `Kind::FnPtr` — `add1` and `sub1` (two fns with the
+same `fn(i32) -> i32` signature) interned to the same TypeRef, so an
+array literal `[add1, sub1]` silently type-checked. Rust treats every
+fn-item as a distinct ZST. Wave 3 implements that distinction across
+the full 39-touchpoint pipeline:
+- **New `Kind::FnItem`** (`sema.hpp`): per-instantiation ZST. Carries
+  the FnPtr-style `closure_params` / `closure_ret` (signature) PLUS
+  the symbol name (`struct_name` slot) + `type_args` for identity.
+  TypeUID hashes name + type-args + signature; types_equal compares
+  all three.
+- **Source-site swap** (`sema_expr.cpp::lower_var_ref`): a bare fn
+  name resolves to a `FnItem` with the symbol-name stamped into
+  `struct_name` — `add1` becomes `fn ITEM<test$add1...>(i32) -> i32`,
+  distinct from `sub1`'s `fn ITEM<test$sub1...>(i32) -> i32`.
+- **Auto-coerce** (`sema.cpp::types_compatible`): a `FnItem` source
+  with a `FnPtr` target coerces (the standard let-binding /
+  fn-arg / return path). FnItem → FnItem is NOT compatible — the
+  whole point of the distinction is that two FnItems must collapse
+  through an explicit FnPtr target.
+- **39 downstream acceptance points**: new helper
+  `LogosType::is_fn_value_kind(k)` returns true for both FnPtr and
+  FnItem. Every site that previously checked `k == FnPtr` now uses
+  the helper — covers sema (`sema.cpp`, `sema_collect.cpp`,
+  `sema_expr.cpp`, `sema_decl.cpp`, `sema_stmt.cpp`,
+  `sema_auto_trait.cpp`), mono (`mono_clone.cpp`, `mono_subst.cpp`),
+  and mlir-gen (`mlir_gen_types.cpp`, `mlir_gen_expr.cpp`,
+  `mlir_gen_stmt.cpp`). Switch-cases gain a `case Kind::FnItem:`
+  fall-through above their `case Kind::FnPtr:`. subst_type_sema
+  preserves `struct_name` + substituted `type_args` across mono.
+- Closure / non-capturing → FnPtr path unchanged; `try_coerce_closure_to_fnptr`
+  intentionally targets only FnPtr (not FnItem).
+Verification: `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` —
+`let _arr = [add1, sub1];` rejected with "type mismatch — expected
+`fn ITEM<add1>(i32) -> i32`, got `fn ITEM<sub1>(i32) -> i32`".
 
 ### ~~1.5. `#[repr]` minimal — `transparent` and `uN` enum repr~~ ✅
 *Audit: B (Type layout), L (Attributes).*
@@ -459,8 +486,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 15 / 21 ✅ closed at DoD-depth (71.4%)** · 2 🟡 partial · 4 ❌ not
-> started. Suite: 5299 / 5299 ✓.
+> **Score: 16 / 21 ✅ closed at DoD-depth (76.2%)** · 2 🟡 partial · 3 ❌ not
+> started. Suite: 5300 / 5300 ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -473,7 +500,7 @@ core are recorded here with a rationale. Closing items move to a
 | 1.1 | `Never` / `!` + divergence end-to-end | ✅ | `tests/logos/pass/core_1_1_never_fallback.logos` ✓ |
 | 1.2 | Coercion canonical order | ✅ | verified-by-suite (pure internal refactor through `coerce_arg_to_param`) |
 | 1.3 | `Kind::InferredType` + `_` | ✅ | `tests/logos/pass/core_1_3_inferred_nested.logos` ✓ |
-| 1.4 | `Kind::FnItem` distinct | ❌ | deferred — 39 touchpoints |
+| 1.4 | `Kind::FnItem` distinct | ✅ | `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` ✓ — 39 touchpoints swept via `is_fn_value_kind` helper |
 | 1.5 | `#[repr]` minimal | ✅ | `tests/logos/pass/core_1_5_repr_transparent_layout.logos` ✓ |
 | 2.1 | Wire `region_infer` to `borrow_check` | 🟡 | outlives consumer ✓; default trait-object lt rule + HRTB consumer absent |
 | 2.2 | `UnsafeCell` lang-item | ✅ | `tests/logos/pass/core_2_2_unsafecell_write.logos` ✓ — lang-item ✓, variance Inv-in-T ✓, auto-`!Sync` ✓, write exemption by-construction via raw-ptr escape (see §-body) |
@@ -850,3 +877,30 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   may run zero times). Verification:
   `tests/logos/fail/core_2_7_use_before_init.logos` (`let x: i32;
   return x;` errors as "use of possibly uninitialised binding").
+
+### Wave 3 (2026-05-30)
+
+- ~~**1.4**~~ ✅ `Kind::FnItem` distinct from `Kind::FnPtr`. New ZST
+  Kind per fn instantiation; carries the symbol name in `struct_name`
+  + `type_args` for identity; signature still in `closure_params` /
+  `closure_ret`. Source-site swap at `sema_expr.cpp::lower_var_ref`:
+  bare fn names now produce `FnItem` instead of `FnPtr`. types_equal
+  / TypeUID compare name + type-args + signature so distinct fns
+  (or distinct instantiations of one generic fn) intern distinctly.
+  types_compatible coerces `FnItem → FnPtr` (one-way; FnItem→FnItem
+  is rejected — the distinction's whole point). The 39 downstream
+  sites that previously checked `kind() == FnPtr` route through the
+  new `LogosType::is_fn_value_kind(k)` helper (sema, mono, mlir-gen
+  files); switch-cases gain a `case Kind::FnItem:` fall-through
+  above their `case Kind::FnPtr:`. subst_type_sema preserves
+  struct_name + substituted type_args across mono. Closure /
+  non-capturing → FnPtr coerce unchanged. Verification:
+  `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` —
+  `let _arr = [add1, sub1];` rejects with
+  `expected fn ITEM<add1>(i32) -> i32, got fn ITEM<sub1>(i32) -> i32`.
+- 🟡 **4.3** ESCALATED. Chained autoderef in pattern position: sema
+  multi-level peel + binding_types peel works in isolation, but
+  codegen has 6 `via_ref_enum` sites all hardcoded to one level,
+  AND `&&Enum` shape triggers a pre-existing null-check on
+  `!llvm.ptr` outside the via_ref code path. Multi-level codegen
+  + binding extraction machinery is its own focused session.

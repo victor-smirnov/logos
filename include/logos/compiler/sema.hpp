@@ -104,14 +104,39 @@ struct LogosType {
                                   // materialises a value at codegen (the
                                   // diverging expr emits its own terminator).
                                   // Appended after Error to keep kind IDs stable.
-        InferredType              // the `_` placeholder in type position
+        InferredType,             // the `_` placeholder in type position
                                   // (logos-core 1.3). `let x: Vec<_> = …` /
                                   // `&_ as *const i32`. Compatibility-permissive
                                   // on both sides (unifies with any concrete);
                                   // resolved by surrounding context at use
                                   // sites. Appended last to keep kind IDs
                                   // stable across the schema.
+        FnItem                    // logos-core 1.4: a fn-item type per
+                                  // instantiation. Distinct from FnPtr —
+                                  // `foo::<i32>` and `foo::<u32>` get
+                                  // DIFFERENT FnItem TypeUIDs even when the
+                                  // FnPtr signature is identical (e.g.
+                                  // `fn marker<T>() -> i32`). Carries the
+                                  // FnPtr-style closure_params / closure_ret
+                                  // (the lowered signature) PLUS the callee
+                                  // name (`struct_name` slot) and type_args
+                                  // for identity. ZST at runtime; auto-
+                                  // coerces to FnPtr at every value-use site
+                                  // (call, let-binding, arg, return). Bare
+                                  // `foo` in expression position produces
+                                  // FnItem; auto-coerce restores the prior
+                                  // FnPtr behaviour everywhere downstream.
+                                  // Every Kind::FnPtr check in sema/mono/
+                                  // mlir-gen also accepts Kind::FnItem so
+                                  // the source-site swap stays transparent.
     };
+    // logos-core 1.4: every site that asks "is this a fn-pointer-like value?"
+    // accepts BOTH the bare-FnPtr and the FnItem-distinct shapes — sema/mono/
+    // mlir-gen would otherwise crash when an upstream lower_var_ref produced
+    // FnItem but a downstream check expected FnPtr exclusively.
+    static constexpr bool is_fn_value_kind(Kind k) noexcept {
+        return k == Kind::FnPtr || k == Kind::FnItem;
+    }
 
     // 2c.6.5: slim .kind field removed — readers go through TypeRef(t).kind()
     // which reads the mirror's schema_type_code. The mirror is the single

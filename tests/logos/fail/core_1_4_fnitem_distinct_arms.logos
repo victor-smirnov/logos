@@ -1,0 +1,25 @@
+// logos-core §1.4: Kind::FnItem distinct from Kind::FnPtr. Two different
+// fns with IDENTICAL FnPtr signatures get DISTINCT FnItem TypeUIDs at
+// the bare-name reference site (`add1` vs `sub1` both type as
+// `FnItem<...>` with the symbol-name carried in struct_name for
+// identity). Without an explicit `fn(i32) -> i32` target type, an
+// array literal of mixed FnItems can't unify — Rust E0308: "expected
+// fn item, found different fn item". Pre-fix Logos collapsed bare
+// `add1` and bare `sub1` into the same `fn(i32) -> i32` FnPtr, so
+// this array silently type-checked.
+//
+// Adding `let _arr: [fn(i32) -> i32; 2] = [add1, sub1];` makes both
+// elements coerce to a common FnPtr (the types_compatible
+// FnItem→FnPtr rule) — that form compiles. This test exercises the
+// no-annotation shape that pre-fix was unsoundly permissive about.
+package core_1_4_fnitem_distinct_arms;
+
+fn add1(x: i32) -> i32 { return x + 1i32; }
+fn sub1(x: i32) -> i32 { return x - 1i32; }
+
+fn main() -> i32 {
+    // No annotation → first element pins the array's element type to
+    // `FnItem<add1>`; `sub1`'s `FnItem<sub1>` doesn't unify.
+    let _arr = [add1, sub1];
+    return 0i32;
+}

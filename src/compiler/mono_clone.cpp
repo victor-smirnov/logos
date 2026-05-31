@@ -205,6 +205,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
     case Kind::I128: case Kind::U128:
     case Kind::F32: case Kind::F64:
     case Kind::IntLit: case Kind::FloatLit:
+    case Kind::FnItem:
     case Kind::FnPtr:
         return true;
 
@@ -617,7 +618,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // to the concrete instantiation).
             TypeRef ct = callee ? TypeRef(callee->type) : TypeRef{};
             auto k = ct ? ct.kind() : LogosType::Kind::Error;
-            if (k == LogosType::Kind::FnPtr) {
+            if (LogosType::is_fn_value_kind(k)) {
                 result->mirror_offset_ = lir_mirror_emit_fn_ptr_call(
                     out_, result->type, callee, args);
             } else if (k == LogosType::Kind::Struct ||
@@ -3024,7 +3025,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                      TypeRef(fnptr_rt).kind() == LogosType::Kind::MutRef) &&
                         TypeRef(fnptr_rt).pointee())
                         fnptr_rt = TypeRef(fnptr_rt).pointee();
-                    if (TypeRef(fnptr_rt).kind() == LogosType::Kind::FnPtr &&
+                    if (LogosType::is_fn_value_kind(TypeRef(fnptr_rt).kind()) &&
                         (cname.empty() || cname == type_str(rt) ||
                          (TypeRef(rt).pointee() && cname == type_str(TypeRef(rt).pointee())))) {
                         std::string k = "$fnptr$" +
@@ -4302,7 +4303,7 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
                 // (mirrors method_bound_ok's intrinsic branch).
                 if (tb.is_fn_family) {
                     auto k = TypeRef(inner).kind();
-                    if (k == LogosType::Kind::FnPtr ||
+                    if (LogosType::is_fn_value_kind(k) ||
                         k == LogosType::Kind::Closure ||
                         k == LogosType::Kind::TypeVar ||
                         k == LogosType::Kind::Struct ||
@@ -4371,7 +4372,7 @@ bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
             // bridge in the ClosureCall handler).
             if (tb.is_fn_family) {
                 auto k = TypeRef(concrete).kind();
-                if (k == LogosType::Kind::FnPtr ||
+                if (LogosType::is_fn_value_kind(k) ||
                     k == LogosType::Kind::Closure ||
                     k == LogosType::Kind::TypeVar ||
                     k == LogosType::Kind::Struct ||

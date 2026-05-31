@@ -835,6 +835,16 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         for (auto p : t.closure_params) put_sub(buf, impl, p);
         put_sub(buf, impl, t.closure_ret);
         break;
+    case K::FnItem:
+        // logos-core 1.4: distinct instantiations of the same fn must intern
+        // to distinct TypeUIDs even when the FnPtr signature collapses (e.g.
+        // `marker<T>() -> i32` with unused T). `struct_name` carries the
+        // fn's symbol name; type_args (turbofish) further refines identity.
+        put_str(buf, t.struct_name);
+        for (auto a : t.type_args) put_sub(buf, impl, a);
+        for (auto p : t.closure_params) put_sub(buf, impl, p);
+        put_sub(buf, impl, t.closure_ret);
+        break;
     case K::TraitObject:
         // const_val carries the owning kind (Borrow/Box/Rc/Arc) in the LOW
         // byte; logos-core 2.4(c) adds bit 8 = `+ Send` and bit 9 = `+ Sync`
@@ -969,6 +979,15 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::Closure:
     case K::FnPtr:
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
+               t.closure_ret == r.closure_ret();
+    case K::FnItem:
+        // logos-core 1.4: FnItem equality = same fn (struct_name) + same
+        // type-args + same signature. Two distinct fns with the same FnPtr
+        // sig get DIFFERENT FnItems; distinct instantiations of one generic
+        // fn similarly differ.
+        return t.struct_name == r.struct_name() &&
+               vec_ptr_eq(t.type_args, r.type_args()) &&
+               vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::TraitObject:
         return t.const_val == r.const_val() &&  // owning kind (Borrow/Box/Rc/Arc)
@@ -1362,11 +1381,14 @@ static std::string mangle_type_for_name(TypeRef t) {
                       (unsigned long long)(uint64_t)(TypeRef(t).const_val().value_or(0)));
         return std::string(buf);
     }
+    case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr:
         // G149-6: erase fn-ptr Self in a fn-ptr-impl method signature to its
         // arity-only form so the symbol is stable across the impl's A,B,C.
         // Outside that context, keep the full type_str (distinct fn-ptr-value
-        // params must stay distinguishable).
+        // params must stay distinguishable). FnItem (logos-core 1.4) mangles
+        // identically — it's a ZST that auto-coerces to FnPtr at value
+        // positions, so symbol-level identity follows the FnPtr signature.
         if (g_mangle_erase_fnptr)
             return "$fnptr$" + std::to_string(TypeRef(t).closure_params().size());
         return type_str(t);
@@ -1488,10 +1510,19 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         if (fi->param_types.size() != param_types.size()) continue;
         bool same = true;
         for (size_t i = 0; i < param_types.size(); ++i) {
-            if (!fi->param_types[i] || !param_types[i] ||
-                !types_equal(fi->param_types[i], param_types[i])) {
-                same = false; break;
-            }
+            if (!fi->param_types[i] || !param_types[i]) { same = false; break; }
+            if (types_equal(fi->param_types[i], param_types[i])) continue;
+            // logos-core 1.4: arg-side FnItem auto-coerces to FnPtr at the
+            // method-call signature lookup, just like types_compatible's
+            // FnItem→FnPtr rule. Without this, every method that takes
+            // `f: fn() -> R` parameter type rejects bare fn-name args
+            // (which now type as FnItem) — the exact-signature lookup
+            // path bypasses the regular coerce.
+            if (param_types[i].kind() == LogosType::Kind::FnItem &&
+                fi->param_types[i].kind() == LogosType::Kind::FnPtr &&
+                types_compatible(param_types[i], fi->param_types[i]))
+                continue;
+            same = false; break;
         }
         if (same) return fi;
     }
@@ -1633,6 +1664,33 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(from, to)) return true;
+    // logos-core 1.4: FnItem auto-coerces to FnPtr at every value-use site
+    // (call arg, let-binding, return, etc.). Two FnItems with identical
+    // FnPtr signatures intern distinctly (different fn identity), so a
+    // single `let x: fn(i32) -> i32 = some_fn;` would otherwise reject —
+    // accept the coerce when source is FnItem and target is FnPtr of the
+    // matching signature. The reverse direction (FnPtr → FnItem) is NOT
+    // accepted: a bare fn-ptr value can't be retroactively assigned an
+    // identity. Same-FnItem types are caught by the types_equal fast path
+    // above; same-sig DIFFERENT FnItems are NOT compatible here (the
+    // `if c { foo::<i32> } else { foo::<u32> }` merge needs both to
+    // coerce to a common FnPtr — handled at the if/match merge site
+    // outside types_compatible).
+    // FnItem → FnPtr ONLY (not FnItem → FnItem). Same-FnItem types are
+    // caught by types_equal above; two DIFFERENT FnItems with the same
+    // signature must NOT collapse — that's the distinction logos-core
+    // 1.4 brings.
+    if (from.kind() == LogosType::Kind::FnItem &&
+        to.kind() == LogosType::Kind::FnPtr) {
+        auto fp = from.closure_params();
+        auto tp = to.closure_params();
+        if (fp.size() != tp.size()) return false;
+        for (size_t i = 0; i < fp.size(); ++i)
+            if (!types_compatible(fp[i], tp[i])) return false;
+        if (from.closure_ret() && to.closure_ret() &&
+            !types_compatible(from.closure_ret(), to.closure_ret())) return false;
+        return true;
+    }
     // The never type `!` is a subtype of every type: a diverging expression
     // (return / break / continue / panic / `-> !` call) coerces to whatever
     // the context expects. Only ONE direction is valid — `Never → T` — since
@@ -1906,6 +1964,31 @@ std::string type_str(TypeRef t) {
         return r; }
     case LogosType::Kind::FnPtr: {
         std::string r = "fn(";
+        for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
+            if (i) r += ", ";
+            r += type_str(TypeRef(t).closure_params()[i]);
+        }
+        r += ") -> ";
+        r += type_str(TypeRef(t).closure_ret());
+        return r; }
+    case LogosType::Kind::FnItem: {
+        // logos-core 1.4: render as `fn ITEM<name>(args) -> ret` — the
+        // leading "fn ITEM<name>" makes it visually distinct from a bare
+        // FnPtr in diagnostics. Auto-coerces to FnPtr at every use site,
+        // so the user-facing surface still reads as FnPtr most of the
+        // time; this form only surfaces when the FnItem identity itself
+        // is a type error.
+        std::string r = "fn ITEM<";
+        r += std::string(TypeRef(t).struct_name());
+        if (!TypeRef(t).type_args().empty()) {
+            r += "::<";
+            for (size_t i = 0; i < TypeRef(t).type_args().size(); ++i) {
+                if (i) r += ", ";
+                r += type_str(TypeRef(t).type_args()[i]);
+            }
+            r += ">";
+        }
+        r += ">(";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
             r += type_str(TypeRef(t).closure_params()[i]);
@@ -2574,7 +2657,7 @@ void SemaChecker::compute_auto_copy_types() {
             // already treats MutRef as move-type at borrow_check; this brings
             // the struct-auto-Copy classifier into line.
             case K::Ptr: case K::Ref:
-            case K::FnPtr: case K::TaggedPtr:
+            case K::FnPtr: case K::FnItem: case K::TaggedPtr:
             case K::Enum:               // payload-less enums; payload enums rejected below
                 return true;
             default: return false;
@@ -3318,7 +3401,7 @@ uint64_t SemaChecker::sema_abi_byte_size(TypeRef t, logos::compiler::StrSet& see
     case K::I56: case K::U56:    return 7;
     case K::I64: case K::U64: case K::F64: case K::FloatLit:
     case K::Ptr:  case K::Ref:  case K::MutRef:
-    case K::FnPtr: case K::TaggedPtr:
+    case K::FnPtr: case K::FnItem: case K::TaggedPtr:
     case K::Usize: case K::Isize: return 8;
     case K::I128: case K::U128:  return 16;
     case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef:
@@ -3954,6 +4037,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                  /*req_sync=*/t.trait_requires_sync());
     }
     case LogosType::Kind::Closure:
+    case LogosType::Kind::FnItem:
     case LogosType::Kind::FnPtr: {
         std::vector<TypeRef> new_params;
         bool changed = false;
@@ -3967,9 +4051,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         if (!changed) return t;
 
         LogosTypeBuilder nt;
-        nt.kind = t.kind();  // preserve Closure vs FnPtr
+        nt.kind = t.kind();  // preserve Closure vs FnPtr vs FnItem
         nt.closure_params = std::move(new_params);
         nt.closure_ret = new_ret;
+        // logos-core 1.4: FnItem identity rides in struct_name + type_args;
+        // preserve both across substitution.
+        if (t.kind() == LogosType::Kind::FnItem) {
+            nt.struct_name = std::string(t.struct_name());
+            for (auto a : t.type_args()) {
+                auto na = subst_type_sema(a, s, ls);
+                nt.type_args.push_back(na);
+            }
+        }
         return pool_->alloc(std::move(nt));
     }
     case LogosType::Kind::CfgSlotType: {
@@ -7044,6 +7137,7 @@ Variance variance_in_type(TypeRef t,
             }
             return v;
         }
+        case K::FnItem:
         case K::FnPtr: {
             Variance v = Variance::BiVar;
             for (auto p : t.closure_params())
