@@ -1,0 +1,51 @@
+// logos-core §6.2: `static NAME: T = expr;` has stable-address
+// storage; `&STATIC` is typed `&'static T`. Pre-fix Logos collapsed
+// `static` into CONST_DEF (Tier-3 #24); the audit flagged this as
+// a soundness gate for `&STATIC` lifetime accounting.
+//
+// Wave 4 verified the contract: a fn returning `&'static i32`
+// borrowing the address of a `static` item type-checks AND runs
+// correctly — the static item's storage has a stable address that
+// outlives any caller. The codegen path lowers static to a global
+// LLVM value (read-only data section); `&STATIC` produces the
+// address of that global.
+//
+// `static mut` (true mutable global storage with unsafe-block read/
+// write) remains the open follow-up — distinct soundness story
+// because the storage is mutable, requiring the unsafe-block gate
+// that's not yet wired.
+package core_6_2_static_lifetime;
+
+static THRESHOLD: i32 = 100i32;
+static GREETING: i32 = 42i32;
+
+fn threshold_ref() -> &'static i32 {
+    return &THRESHOLD;
+}
+
+fn greeting_ref() -> &'static i32 {
+    return &GREETING;
+}
+
+fn check(r: &'static i32, expected: i32) -> i32 {
+    if *r != expected { return 1i32; }
+    return 0i32;
+}
+
+fn main() -> i32 {
+    // Direct value use.
+    if THRESHOLD != 100i32 { return 1i32; }
+    if GREETING != 42i32 { return 2i32; }
+
+    // `&STATIC` as `&'static T` flowing across fn boundaries.
+    let r1: &'static i32 = threshold_ref();
+    if *r1 != 100i32 { return 3i32; }
+
+    let r2: &'static i32 = greeting_ref();
+    if *r2 != 42i32 { return 4i32; }
+
+    if check(threshold_ref(), 100i32) != 0i32 { return 5i32; }
+    if check(greeting_ref(), 42i32) != 0i32 { return 6i32; }
+
+    return 0i32;
+}

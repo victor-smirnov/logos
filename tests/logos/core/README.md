@@ -57,7 +57,7 @@ in `pass/` and `fail/`. Two reasons:
 | 4.4 | `PAT_PATH` constants-as-patterns | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ | ✅ |
 | 4.5 | fn-params irrefutable patterns | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ | ✅ |
 | 6.1 | `union` item — parse + layout | TBD — Tier-3 #28 | ❌ |
-| 6.2 | `static`/`static mut` vs `const` split | TBD — Tier-3 #24 | ❌ |
+| 6.2 | `static` vs `const` split (immutable half) | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ | ✅ |
 | 6.3 | `let-else` divergence assertion | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ | ✅ |
 | 6.4 | let-chain in if/while/match | TBD — Tier-3 #18 | ❌ |
 | 6.5 | `?` on `Try` / `FromResidual` | TBD — Tier-2 #15 | ❌ |

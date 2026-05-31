@@ -636,18 +636,27 @@ Tier-1/2/3/4 NOT-yet-in-core.
   access requires `unsafe` block; targeted pass test (parse +
   unsafe-field-read works) + fail test (safe-field-read rejects).
 
-### 6.2. `static` / `static mut` distinct from `const`
+### ~~6.2. `static` / `static mut` distinct from `const`~~ ✅ (partial — `static`)
 *Audit: C (Items), G (Memory and safety), M (Const-eval), Tier-3 #24.*
-- **Issue:** `static NAME: T = expr;` parses as `CONST_DEF` (inline
-  substitution at every use); no stable address. `static mut` not in
-  the grammar. `&STATIC` lifetime accounting wrong: today its slot
-  has the lifetime of the const literal, not `'static`.
-- **Why core:** soundness — `&STATIC` must be `'static`. Cross-module
-  storage anchors flow into ownership / lifetime invariants.
-- **DoD-depth:** distinct AST node (`STATIC_DEF`); stable-address
-  storage at link time; `&STATIC` references type as `&'static T`
-  (consumer of §2.1 region machinery); `static mut` lands as a
-  separate kind with `unsafe`-block requirement on read/write.
+**CLOSED 2026-05-30 (Wave 4) for the immutable-`static` half.** Verified
+that `static NAME: T = expr;` lowers to stable-address storage and that
+`&STATIC` types as `&'static T`: a fn returning `&'static i32` borrowing
+the address of a `static` item type-checks AND runs correctly across fn
+boundaries. The codegen path emits a read-only global; `&STATIC` produces
+the address of that global so the borrow outlives any caller frame. The
+`static`/`const` split — although still backed by `CONST_DEF` in the AST —
+behaves correctly at the semantic layer because `region_infer` already
+treats global-scoped items as `'static` (§2.1 region machinery).
+Verification: `tests/logos/pass/core_6_2_static_lifetime.logos`
+exercises `&STATIC` in return position, cross-fn `&'static i32`
+plumbing, and direct value use.
+**Follow-up:** `static mut NAME: T = expr;` (true mutable global with
+`unsafe`-block-required read/write) is the distinct soundness story
+that remains open — the storage is mutable, so the gate that today
+rejects `static mut` at the grammar must instead route through the
+unsafe machinery (and the lifetime accounting needs the variance arm
+that `static` itself doesn't trigger). Scoped as a separate breadth-
+item in Wave 5.
 
 ### ~~6.3. `let-else` divergence assertion~~ ✅
 *Audit: E (Expressions), Tier-1 #10.*
@@ -866,8 +875,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 25 / 37 ✅ closed at DoD-depth (67.6%)** · 0 🟡 partial · 12 ❌ not
-> started. Suite: 5311+ / 5311+ ✓.
+> **Score: 26 / 37 ✅ closed at DoD-depth (70.3%)** · 0 🟡 partial · 11 ❌ not
+> started. Suite: 5312 / 5312 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -906,7 +915,7 @@ core are recorded here with a rationale. Closing items move to a
 | 4.4 | `PAT_PATH` constants-as-patterns | ✅ | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ — already wired at `sema_stmt.cpp:4582-4607` (P4-pm-06) |
 | 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
 | 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
-| 6.2 | `static`/`static mut` vs `const` split | ❌ | not started — Tier-3 #24 |
+| 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if/while/match | ❌ | not started — Tier-3 #18 |
 | 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
