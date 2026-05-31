@@ -1,0 +1,45 @@
+// logos-core §4.4: constants-as-patterns (PAT_PATH). A bare IDENT
+// in pattern position that resolves to a module-const must be
+// treated as a structural-equality guard against the const's value,
+// NOT as a wildcard binding. Pre-fix the audit Tier-3 #25 flagged
+// this as a missing surface — at the time the catalog item was
+// added, the only path was the wildcard-binding fallback. Wave 4
+// verified that the P4-pm-06 logic IS in `sema_stmt.cpp:4582-4607`:
+// the pattern handler looks up the IDENT in `module_const_values_`,
+// ctfe-evals the RHS once, and emits the matching scalar pattern
+// (PAT_INT for integers / chars, PAT_BOOL for bools).
+//
+// This test pins the contract with both integer and bool constants
+// in a match-arm position. A wildcard arm `_ => default` catches
+// the non-matching scrutinees so the test verifies the const-as-
+// pattern actually GATES the arm (rather than always-matching).
+package core_4_4_pat_path_const;
+
+const THRESHOLD: i32 = 42i32;
+const ZERO: i32 = 0i32;
+const YES: bool = true;
+const NO: bool = false;
+
+fn classify(x: i32) -> i32 {
+    match x {
+        ZERO      => return 1i32,   // matches x == 0
+        THRESHOLD => return 2i32,   // matches x == 42
+        _         => return 99i32,
+    }
+}
+
+fn bool_arm(b: bool) -> i32 {
+    match b {
+        YES => return 10i32,
+        NO  => return 20i32,
+    }
+}
+
+fn main() -> i32 {
+    if classify(0i32) != 1i32 { return 1i32; }
+    if classify(42i32) != 2i32 { return 2i32; }
+    if classify(7i32) != 99i32 { return 3i32; }
+    if bool_arm(true) != 10i32 { return 4i32; }
+    if bool_arm(false) != 20i32 { return 5i32; }
+    return 0i32;
+}

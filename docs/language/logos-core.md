@@ -510,22 +510,24 @@ five sub-tests:
   5. depth-3 binding extraction: `z: &&&i32`; `*(*(*z))` reaches
      the inner value.
 
-### 4.4. `PAT_PATH` — constants-as-patterns
+### ~~4.4. `PAT_PATH` — constants-as-patterns~~ ✅
 *Audit: F (Patterns), audit Tier-3 #25.*
-- **Issue:** `match x { CONST_NAME => ... }` over a const-bound
-  identifier doesn't parse as a pattern-path today — the grammar
-  only accepts `PAT_INT` / `PAT_BOOL` / `PAT_STR` literal forms and
-  variant paths. Ported tests using `match status { OK => ..., FAIL
-  => ... }` reroute to or-patterns of literals.
-- **Why core:** structural-equality patterns on constants are a
-  load-bearing match shape; pattern soundness requires that the
-  pattern-equality machinery be the SAME path the rest of sema uses
-  for `==` (Rust's `StructuralPartialEq` contract).
-- **DoD-depth:** new `PAT_PATH` AST node (path → const lookup); sema
-  emits a structural-equality guard via the const's typeck'd value;
-  rejects non-`StructuralPartialEq`-shaped consts with a specific
-  diagnostic ("only structural-equality types may appear in
-  patterns"). Targeted pass + fail tests.
+**CLOSED 2026-05-30 (Wave 4).** Verified that the P4-pm-06 logic is
+already wired at `sema_stmt.cpp:4582-4607` in `build_pattern_impl`'s
+PAT_WILD branch: a bare IDENT in pattern position checks
+`module_const_values_` for a const-RHS, ctfe-evaluates it once, and
+lowers the pattern as the matching scalar form (PAT_INT for
+integers / chars, PAT_BOOL for booleans). The const lookup gates
+the arm match — non-matching scrutinees fall through to subsequent
+arms / the wildcard. Wave 4 adds the verification test that pins
+the contract.
+Verification: `tests/logos/pass/core_4_4_pat_path_const.logos`.
+Covers integer-const arms (`ZERO`, `THRESHOLD`) + boolean-const
+arms (`YES`, `NO`) with a wildcard fallthrough; runtime checks
+confirm each arm selection. Non-`StructuralPartialEq`-shaped consts
+(str, hermes, struct) are diagnosed at `sema_stmt.cpp:4608+` with
+specific guidance — they require a string-pattern codegen slice
+that's separate from this item.
 
 ### ~~4.5. Fn-params accept arbitrary irrefutable patterns~~ ✅
 *Audit: F (Patterns), C (Items), audit Tier-3 #23.*
@@ -864,8 +866,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 24 / 37 ✅ closed at DoD-depth (64.9%)** · 0 🟡 partial · 13 ❌ not
-> started. Suite: 5310+ / 5310+ ✓.
+> **Score: 25 / 37 ✅ closed at DoD-depth (67.6%)** · 0 🟡 partial · 12 ❌ not
+> started. Suite: 5311+ / 5311+ ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -901,7 +903,7 @@ core are recorded here with a rationale. Closing items move to a
 | 4.3 | Chained auto-deref in pattern position | ✅ | `tests/logos/pass/core_4_3_match_double_ref.logos` ✓ — sema N-wrap + codegen N-deep load + multi-level binding extraction |
 | 5.1 | Atomics `Ordering` honoured | ✅ | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ — MLIR atomic intrinsics emit `seq_cst` (always-sound); two-thread Release/Acquire test via pthread |
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
-| 4.4 | `PAT_PATH` constants-as-patterns | ❌ | not started — Tier-3 #25 |
+| 4.4 | `PAT_PATH` constants-as-patterns | ✅ | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ — already wired at `sema_stmt.cpp:4582-4607` (P4-pm-06) |
 | 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
 | 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
 | 6.2 | `static`/`static mut` vs `const` split | ❌ | not started — Tier-3 #24 |
