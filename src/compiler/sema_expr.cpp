@@ -481,12 +481,27 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     // §6.2: reading a `static mut` requires `unsafe` (Rust spec
     // `items.static.mut.safety`). Skip when this var-ref is the LHS
     // of a place-assign (the write site emits its own gate, and we
-    // don't want double-diagnosis on `MUT_GLOBAL = expr`).
+    // don't want double-diagnosis on `MUT_GLOBAL = expr`). Also skip
+    // when the name is shadowed by a LOCAL (any scope frame) — the
+    // module_static_muts_ set is globally keyed by name and would
+    // otherwise spuriously fire for stdlib fns whose param happens
+    // to share the static's name (the §6.2 S18 namespace pollution).
     if (!in_place_write_lhs_ &&
         module_static_muts_.count(std::string(name)) && !inside_unsafe_) {
-        error(std::format(
-            "read of mutable static `{}` requires `unsafe` block "
-            "(Rust `items.static.mut.safety`)", name));
+        bool shadowed = false;
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(std::string(name))) { shadowed = true; break; }
+        // Const-generic parameters (`fn f<const N: usize>(…)`) live in
+        // current_type_params_ as ConstVar TypeRefs — they share the
+        // name namespace with module-level statics. The user's
+        // `static mut N: …` must NOT misfire on stdlib fns whose
+        // const-generic parameter happens to be `N` (S18 pollution).
+        if (!shadowed && current_type_params_.count(std::string(name)))
+            shadowed = true;
+        if (!shadowed)
+            error(std::format(
+                "read of mutable static `{}` requires `unsafe` block "
+                "(Rust `items.static.mut.safety`)", name));
     }
     return builder().var_ref(std::string(name), t);
 }

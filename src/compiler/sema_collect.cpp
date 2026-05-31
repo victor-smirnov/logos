@@ -2051,6 +2051,39 @@ void SemaChecker::collect_const(TinyMapView node) {
                     }
                     return true;
                 }
+                // §6.2 (items.static.init): "Static initializers may
+                // refer to and read from other statics." A VAR_REF
+                // resolving to an already-collected module const/static
+                // is const-evaluable; same for &VAR_REF (AddrOf of a
+                // module item — `static R: &i32 = &X;`).
+                if (vc == la::VAR_REF && v.has_key(la::NAME)) {
+                    auto vn = std::string(str_of(v.get(la::NAME.code)));
+                    if (module_consts_.count(vn)) return true;
+                    // A bare fn-name in static-init position is a fn
+                    // pointer constant (Rust: `static F: fn() -> i32 =
+                    // answer;` is well-formed). Accept it when the
+                    // name resolves to at least one known free fn.
+                    if (!find_func_candidates(vn).empty()) return true;
+                }
+                // `&X` parses as UNARY{op:"&", value:X}; `&mut X` is
+                // ADDR_OF_MUT (static-init can't be `&mut` — rejected
+                // by type-check anyway). Accept the shared form when
+                // the inner is itself a VAR_REF to a known module item
+                // or otherwise const-evaluable.
+                auto is_addr_of_unary = [&](TinyMapView u) {
+                    if (code_of(u) != la::UNARY) return false;
+                    if (!u.has_key(la::OP)) return false;
+                    auto op = str_of(u.get(la::OP.code));
+                    return op == "&";
+                };
+                if (is_addr_of_unary(v) && v.has_key(la::VALUE)) {
+                    auto inner = map_of(v.get(la::VALUE.code));
+                    if (code_of(inner) == la::VAR_REF && inner.has_key(la::NAME)) {
+                        auto vn = std::string(str_of(inner.get(la::NAME.code)));
+                        if (module_consts_.count(vn)) return true;
+                    }
+                    return is_const_evaluable(inner);
+                }
                 return false;
             };
             if (!is_const_evaluable(map_of(val_av))) {

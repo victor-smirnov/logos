@@ -789,6 +789,57 @@ Verification:
 - `tests/logos/fail/core_6_2_static_mut_write.logos` — write outside
   unsafe rejected.
 
+**Wave 9 (2026-05-31) follow-ups** — probe sweep against
+`items.static.*` surfaced 10 conformance gaps; 4 closed, 6
+documented for follow-up:
+- **CLOSED — S18 `module_static_muts_` namespace pollution.** The
+  set was globally name-keyed: a user `static mut N: i32 = …`
+  poisoned every other site naming `N` (stdlib fns with
+  `<const N: …>` params, plain fn params, locals). Reads /
+  assigns of `N` errored "requires `unsafe`". Fix: in both the
+  read-gate (`sema_expr::lower_var_ref`) and the write-gate
+  (`sema_stmt::lower_assign`), treat `N` as NOT a static-mut
+  when shadowed by any scope frame or by `current_type_params_`.
+  Test: `pass/core_6_2_static_mut_name_no_pollution.logos`.
+- **CLOSED — S3/S11 / S6 static-init refers to other statics.**
+  `items.static.init` ("initializers may refer to and read from
+  other statics") was rejected — is_const_evaluable accepted
+  LIT_*, BINOP, CAST, but not bare VAR_REF (S3:
+  `static B = A;`), not BINOP with VAR_REF children (S11:
+  `static C = A + 2;`), not `&VAR_REF` (S6:
+  `static R: &T = &X;`). Extended is_const_evaluable to accept
+  VAR_REF when the name is in `module_consts_` (the static map
+  routes here), and UNARY{op:"&", VAR_REF{name in module_consts_}}.
+  Tests: `pass/core_6_2_static_refs_static.logos` and
+  `pass/core_6_2_static_ref_init.logos`.
+
+Deferred (probed, root identified, fix slated for a follow-up):
+- **S2** — `static X` + `fn X` accepted; Rust rejects (both
+  occupy the value namespace, `items.static.namespace`).
+- **S12** — `static F: fn() -> i32 = answer;` rejected at
+  is_const_evaluable: VAR_REF to a free fn isn't seen yet at
+  phase-2 const-init (fns are phase 1). Needs pass-0 fn-name
+  pre-registration (mirrors the union pass-0 fix).
+- **S15** — `static mut ARR[i] = …` errors "immutable variable";
+  the indexed-place write doesn't consult `module_static_muts_`.
+- **S17** — `fn body { static LOCAL: T = …; }` (local statics
+  per `items.static.generics`) — grammar lacks the inner
+  position.
+- **S20** — `static MSG: &str = "literal";` type-checks as
+  "expected &&[u8], got &[u8]" — a double-`&` on the expected
+  side. Likely the const-init type-hint adds an extra `&` when
+  the declared type already is a `&str` reference.
+- **S25 (critical)** — cross-fn `static mut` read **segfaults**
+  at runtime. `STATIC_DEF` reuses `collect_const` storage; at
+  mlir-gen each var-ref / addr-of materialises a FRESH stack
+  alloca (the const-inlining convention). For static-mut this
+  must instead emit a real `llvm.mlir.global` once and route
+  every read/write through `llvm.mlir.addressof`. Current main()
+  test passes only because the writer and reader happen to share
+  main's local alloca; cross-fn diverges. Pin: tests pass when
+  both write and read live in `main`, segfault when read moves
+  to another fn (`s25c_via_fn`, `s25d_main_write_fn_read`).
+
 ### ~~6.3. `let-else` divergence assertion~~ ✅
 *Audit: E (Expressions), Tier-1 #10.*
 **CLOSED 2026-05-30 (Wave 4).** Verified that the divergence

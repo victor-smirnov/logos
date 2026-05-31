@@ -1,0 +1,27 @@
+// logos-core §6.2 S18 — `module_static_muts_` was a global,
+// name-keyed set. A user declaring `static mut N: i32 = …`
+// poisoned EVERY other site in the codebase that used a name
+// `N` (including stdlib fns with `const N: …` parameters that
+// happened to be named `N`) — those VAR_REF / assign sites
+// then errored "read of mutable static `N` requires `unsafe`".
+//
+// Fix: treat a name shadowed by a local scope frame OR a
+// current_type_params_ entry (const-generic) as NOT a static-mut.
+package core_6_2_static_mut_name_no_pollution;
+
+static mut N: i32 = 0i32;
+
+// `N` here is a regular fn parameter — shares the value
+// namespace with the static, but is a per-call local binding.
+// Reading `N` in the body must NOT require an unsafe block,
+// and assigning to it must NOT route through the static-mut
+// write path (which previously errored "immutable variable"
+// because the static-mut classification stole the resolution).
+fn double_local(N: i32) -> i32 {
+    return N * 2i32;
+}
+
+fn main() -> i32 {
+    if double_local(21i32) != 42i32 { return 1i32; }
+    return 0i32;
+}

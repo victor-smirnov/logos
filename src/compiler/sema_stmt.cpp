@@ -2340,7 +2340,17 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     // `items.static.mut.safety`). Static muts are not in any local
     // scope, so `lookup_is_mut` returns false — gate FIRST so the
     // unsafe diagnostic isn't shadowed by "assignment to immutable".
+    // Skip the static-mut classification if a local of the same name
+    // shadows (else the global-by-name `module_static_muts_` set
+    // misfires inside stdlib fns whose params share the user's
+    // static name — the §6.2 S18 namespace pollution).
     bool is_static_mut = module_static_muts_.count(std::string(name)) != 0;
+    if (is_static_mut) {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(std::string(name))) { is_static_mut = false; break; }
+        if (is_static_mut && current_type_params_.count(std::string(name)))
+            is_static_mut = false;
+    }
     if (is_static_mut) {
         if (!inside_unsafe_)
             error(std::format(

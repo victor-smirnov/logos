@@ -1,0 +1,13 @@
+// logos-core §6.2 S6 — `static R: &T = &OTHER_STATIC;`. The
+// shared `&` desugars to `UNARY{op:"&", value:…}` (not ADDR_OF).
+// is_const_evaluable now recognises that shape when the inner is
+// a VAR_REF to a module-level item.
+package core_6_2_static_ref_init;
+
+static X: i32 = 11i32;
+static R: &i32 = &X;
+
+fn main() -> i32 {
+    if *R != 11i32 { return 1i32; }
+    return 0i32;
+}

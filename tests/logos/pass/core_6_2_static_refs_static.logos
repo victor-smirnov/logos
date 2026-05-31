@@ -1,0 +1,17 @@
+// logos-core §6.2 S3/S11 — `items.static.init`: "Static
+// initializers may refer to and read from other statics."
+//
+// const-init's is_const_evaluable validator now accepts a bare
+// VAR_REF that resolves to a previously-collected module const/
+// static, and a BINOP whose operand is such a VAR_REF.
+package core_6_2_static_refs_static;
+
+static A: i32 = 5i32;
+static B: i32 = A;
+static C: i32 = A + 2i32;
+
+fn main() -> i32 {
+    if B != 5i32 { return 1i32; }
+    if C != 7i32 { return 2i32; }
+    return 0i32;
+}
