@@ -1,0 +1,53 @@
+// logos-core §4.3 (preliminary): match-as-expression auto-deref through
+// arbitrary-depth `&` chains for the disc-only test path (no payload
+// binding extraction). Pre-fix `mlir_gen_expr.cpp` peeled exactly ONE
+// Ref/MutRef/Ptr layer before checking `enum_t.kind() == Enum`, so a
+// `match rr { Some(_) => ..., None => ... }` with `rr: &&Option<T>`
+// fell through to scrut being the OUTER `!llvm.ptr` and the downstream
+// disc compare emitted `arith.cmpi(!llvm.ptr, i64)` — module
+// verification failed with "operand #0 must be signless-integer-like".
+//
+// Wave 3 finish: extended the auto-deref loop to peel ALL Ref/MutRef/
+// Ptr layers and emit `via_ref_depth - 1` extra LoadOps before treating
+// the result as the enum-storage pointer. Tested at depths 2 AND 3,
+// plus the `None` arm.
+//
+// NOTE: payload BINDING through deep `&`-chains (`Some(z) => *z` where
+// rr: &&Option<i32>; z would need to bind as `&&i32`) is a SEPARATE
+// piece — requires sema's binding_types path to peel + codegen's
+// multi-level binding extraction machinery. That's the §4.3 follow-up
+// session. This test pins the disc-only path which fixes the
+// pre-existing `arith.cmpi(ptr, i64)` codegen bug.
+package core_4_3_match_double_ref;
+
+fn main() -> i32 {
+    // Depth-2: `&&Option<i32>` matching `Some(_)`.
+    let opt: Option<i32> = Some(7i32);
+    let r: &Option<i32> = &opt;
+    let rr: &&Option<i32> = &r;
+    let y: i32 = match rr {
+        Some(_) => 7i32,
+        None => 0i32,
+    };
+    if y != 7i32 { return 1i32; }
+
+    // Depth-3: `&&&Option<i32>` matching `Some(_)`.
+    let r3: &&&Option<i32> = &rr;
+    let z: i32 = match r3 {
+        Some(_) => 33i32,
+        None => 0i32,
+    };
+    if z != 33i32 { return 2i32; }
+
+    // Depth-2 with `None` arm.
+    let none: Option<i32> = None;
+    let r_none: &Option<i32> = &none;
+    let rr_none: &&Option<i32> = &r_none;
+    let n: i32 = match rr_none {
+        Some(_) => 99i32,
+        None => 42i32,
+    };
+    if n != 42i32 { return 3i32; }
+
+    return 0i32;
+}

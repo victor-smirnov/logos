@@ -3319,27 +3319,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     const TaggedEnumInfo* te_info = nullptr;
     if (TypeRef st(scrut_le->type); st) {
         // Auto-deref `&Enum` / `&mut Enum` / `*Enum` so `match &enum_val { ... }`
-        // works the same as `match enum_val { ... }`.
+        // works the same as `match enum_val { ... }`. logos-core 4.3: peel
+        // arbitrary-depth `&`/`&mut`/`*` chains (e.g. `&&Option<T>`) — pre-fix
+        // only one layer was peeled, so deeper chains slipped past with scrut
+        // typed `!llvm.ptr` and the downstream `arith.cmpi(scrut, disc:i64)`
+        // failed verification (operand 0 must be integer-like).
         TypeRef enum_t = st;
-        bool via_ref = false;
-        if ((st.kind() == LogosType::Kind::Ref ||
-             st.kind() == LogosType::Kind::MutRef ||
-             st.kind() == LogosType::Kind::Ptr) && st.pointee()) {
-            TypeRef inner(st.pointee());
-            if (inner.kind() == LogosType::Kind::Enum) {
-                enum_t = inner;
-                via_ref = true;
-            }
+        int via_ref_depth = 0;
+        while (enum_t &&
+               (enum_t.kind() == LogosType::Kind::Ref ||
+                enum_t.kind() == LogosType::Kind::MutRef ||
+                enum_t.kind() == LogosType::Kind::Ptr) &&
+               enum_t.pointee()) {
+            ++via_ref_depth;
+            enum_t = enum_t.pointee();
         }
+        bool via_ref = via_ref_depth > 0;
         if (enum_t.kind() == LogosType::Kind::Enum) {
             te_info = resolve_tagged_enum(std::string(enum_t.enum_name()), enum_t);
             if (te_info) {
                 // Enum value-repr: an enum value IS a pointer to its inline
                 // {disc,payload} storage (one level, like a Struct). `&Enum` is
                 // the SAME one-level pointer — no extra deref. A by-value
-                // aggregate (returned by value from a fn) is spilled.
+                // aggregate (returned by value from a fn) is spilled. For
+                // `&&Enum`/deeper, peel the EXTRA layers via additional Loads
+                // before treating the result as the enum-storage pointer.
                 if (via_ref) {
-                    // scrut already IS the enum-storage pointer.
+                    // scrut already IS A pointer; peel `via_ref_depth - 1`
+                    // EXTRA layers so we arrive at the enum-storage pointer.
+                    for (int li = 1; li < via_ref_depth; ++li)
+                        scrut = builder_.create<mlir::LLVM::LoadOp>(
+                            loc_, ptr_type(), scrut);
                 } else if (scrut.getType() != ptr_type()) {
                     auto tmp = create_entry_alloca(te_info->llvm_type);
                     builder_.create<mlir::LLVM::StoreOp>(loc_, scrut, tmp);
@@ -3353,9 +3363,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
             } else if (via_ref) {
                 // G165-1: a FIELDLESS / C-like enum has no TaggedEnumInfo — its
                 // by-value form is a plain i32 discriminant (not a heap ptr), so
-                // `&Enum` is a one-level ptr-to-i32. Load the disc through the ref
-                // so the scalar arm tests compare i32==disc rather than the raw
-                // `&Enum` pointer (crashed: `arith.cmpi` operand must be integer).
+                // `&Enum` is a one-level ptr-to-i32. Load the disc through the
+                // ref(s) so the scalar arm tests compare i32==disc rather than
+                // the raw `&Enum` pointer (crashed: `arith.cmpi` operand must
+                // be integer). Peel extra ref layers first for deeper chains.
+                for (int li = 1; li < via_ref_depth; ++li)
+                    scrut = builder_.create<mlir::LLVM::LoadOp>(
+                        loc_, ptr_type(), scrut);
                 scrut = builder_.create<mlir::LLVM::LoadOp>(
                     loc_, builder_.getI32Type(), scrut);
             }

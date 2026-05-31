@@ -468,6 +468,20 @@ need today. Verification:
   use of `match` over a doubly-borrowed value falls back to ad-hoc.
 - **DoD-depth:** scrutinee + pattern paired walk that peels `&` layers
   in lockstep until shapes align; tested for arbitrary depth.
+- **Wave 3 partial close (disc-only path fixed).** The pre-existing
+  `arith.cmpi(!llvm.ptr, i64)` codegen bug for `match rr { Some(_) => …,
+  None => … }` on `rr: &&Option<T>` is fixed in
+  `mlir_gen_expr.cpp::gen_expr_kind(EMatchView)`: the auto-deref loop
+  now peels ALL Ref/MutRef/Ptr layers (`while`-loop, recording
+  `via_ref_depth`) and emits `via_ref_depth - 1` extra LoadOps before
+  treating the result as the enum-storage pointer. Disc tests work
+  at depth 2 AND 3. Verification:
+  `tests/logos/pass/core_4_3_match_double_ref.logos`. The PAYLOAD
+  BINDING piece (`Some(z) => *z` where rr: `&&Option<i32>`; z would
+  need to bind as `&&i32`) remains the open follow-up — requires
+  sema's `binding_types` peel through arbitrary depth + codegen's
+  multi-level binding extraction (materializing intermediate `&T`
+  temps on the stack) + per-layer mutability tracking.
 
 ---
 
