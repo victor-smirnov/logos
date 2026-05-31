@@ -1,0 +1,12 @@
+// logos-core §5.1 — AtomicU64 round-trip with a high-bit-set value
+// (0xDEADBEEF / 0xCAFEBABE) — catches any spurious sign-extension
+// on the unsigned 64-bit path.
+package core_5_1_atomic_u64_basic;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicU64 = atomic_u64_new(0xDEADBEEFu64);
+    let p: *mut AtomicU64 = &mut a as *mut AtomicU64;
+    unsafe { p.store(0xCAFEBABEu64); }
+    if a.load() != 0xCAFEBABEu64 { return 1i32; }
+    return 0i32;
+}

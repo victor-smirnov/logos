@@ -1,0 +1,11 @@
+// logos-core §5.1 — AtomicBool round-trip. Stored as i32 (0/1) under
+// the hood; pinning the bool↔i32 conversion path.
+package core_5_1_atomic_bool;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut b: AtomicBool = atomic_bool_new(false);
+    let p: *mut AtomicBool = &mut b as *mut AtomicBool;
+    unsafe { p.store(true); }
+    if !b.load() { return 1i32; }
+    return 0i32;
+}

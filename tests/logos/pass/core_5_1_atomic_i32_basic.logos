@@ -1,0 +1,10 @@
+// logos-core §5.1 — AtomicI32 default (seq_cst) load/store round-trip.
+package core_5_1_atomic_i32_basic;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(7i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    unsafe { p.store(13i32); }
+    if a.load() != 13i32 { return 1i32; }
+    return 0i32;
+}

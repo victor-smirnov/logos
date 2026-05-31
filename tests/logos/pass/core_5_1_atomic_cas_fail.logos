@@ -1,0 +1,12 @@
+// logos-core §5.1 — compare_exchange fail: expected mismatches, no
+// write, return false. The atomic must retain its prior value.
+package core_5_1_atomic_cas_fail;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(7i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    let ok: bool = unsafe { p.compare_exchange(5i32, 99i32) };
+    if ok { return 1i32; }
+    if a.load() != 7i32 { return 2i32; }
+    return 0i32;
+}

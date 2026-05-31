@@ -1,0 +1,13 @@
+// logos-core §5.1 — AtomicU32 round-trip (the unsigned wrapper still
+// reads/writes through the i32 LLVM atomic intrinsic on its bit-cast
+// `val`; pinning the unsigned API path here catches sign-extension
+// or cast regressions).
+package core_5_1_atomic_u32_basic;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicU32 = atomic_u32_new(7u32);
+    let p: *mut AtomicU32 = &mut a as *mut AtomicU32;
+    unsafe { p.store(13u32); }
+    if a.load() != 13u32 { return 1i32; }
+    return 0i32;
+}

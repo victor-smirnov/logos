@@ -1,0 +1,12 @@
+// logos-core §5.1 — explicit `Ordering::Relaxed` load/store. Single-
+// thread observation must match (the ordering attribute changes which
+// memory-model fences fire, not the single-thread program order).
+package core_5_1_atomic_relaxed;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI64 = atomic_i64_new(42i64);
+    let p: *mut AtomicI64 = &mut a as *mut AtomicI64;
+    unsafe { p.store_ordered(101i64, Ordering::Relaxed); }
+    if a.load_ordered(Ordering::Relaxed) != 101i64 { return 1i32; }
+    return 0i32;
+}

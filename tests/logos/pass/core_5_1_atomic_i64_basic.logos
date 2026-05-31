@@ -1,0 +1,12 @@
+// logos-core §5.1 — AtomicI64 (64-bit atomic load/store). Distinct
+// LLVM intrinsic from i32 (logos_atomic_load64 / store64), pin the
+// 64-bit path here.
+package core_5_1_atomic_i64_basic;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI64 = atomic_i64_new(123456789i64);
+    let p: *mut AtomicI64 = &mut a as *mut AtomicI64;
+    unsafe { p.store(987654321i64); }
+    if a.load() != 987654321i64 { return 1i32; }
+    return 0i32;
+}
