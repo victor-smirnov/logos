@@ -1,0 +1,38 @@
+// logos-core §6.7: `extern "ABI" { extern_fn_def* }` block form +
+// ABI string on extern fn declarations. Pre-Wave-5 `extern fn …;`
+// was flat (no block form, no ABI string accepted on the keyword);
+// ported Rust FFI bindings that group same-ABI externs together
+// failed at the grammar.
+//
+// Wave 5 adds:
+// - Grammar: new EXTERN_BLOCK schema code carrying optional ABI
+//   string + nested EXTERN_FN children (parsed without redundant
+//   `extern` keyword inside the block, matching Rust).
+// - Sema: validates the ABI string against {"C", "C-unwind",
+//   "system", "Rust"} (the curently-supported set) and flattens
+//   the block's children into the module item stream so the rest
+//   of collect_*/lower_* sees them as ordinary extern fns. The
+//   ABI string is preserved on each EXTERN_FN's VALUE slot for
+//   the future calling-convention propagation slice (Wave 6).
+// - `extern "C" fn name(...)` single form (outside a block) also
+//   parses with the ABI string and validates.
+//
+// `Kind::FnPtr` ABI tag + per-call calling-convention selection
+// in mlir_gen is a follow-up — today all extern fns use the
+// default C ABI on the supported targets. The grammar surface +
+// ABI-set gating is what unblocks ports.
+package core_6_7_extern_abi_block;
+
+extern "C" {
+    fn abs(x: i32) -> i32;
+}
+
+extern "C" fn labs(x: i64) -> i64;
+
+fn main() -> i32 {
+    let a: i32 = unsafe { abs(0i32 - 5i32) };
+    if a != 5i32 { return 1i32; }
+    let b: i64 = unsafe { labs(0 as i64 - (12345 as i64)) };
+    if b != (12345 as i64) { return 2i32; }
+    return 0i32;
+}

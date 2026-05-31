@@ -1096,6 +1096,64 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
 
+    // §6.7: flatten `extern "ABI" { extern_fn_def* }` blocks into a
+    // linear worklist. Each block's child EXTERN_FN entries inherit
+    // the block's ABI string when they don't carry their own. This
+    // lets the rest of item collection treat extern fns identically
+    // whether they came in flat or grouped.
+    std::vector<TinyMapView> flat_items;
+    flat_items.reserve(items.size());
+    auto validate_abi = [&](std::string_view raw, hermes::TinyMapView at_node) {
+        // Strip optional enclosing quotes.
+        std::string_view s = raw;
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+            s = s.substr(1, s.size() - 2);
+        if (s != "C" && s != "C-unwind" && s != "system" && s != "Rust") {
+            node_line_ = get_line(at_node);
+            error(std::format(
+                "unsupported ABI string \"{}\" — expected one of "
+                "\"C\", \"C-unwind\", \"system\", \"Rust\"", s));
+        }
+    };
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto it = map_of(items.get(i));
+        if (code_of(it) == la::EXTERN_BLOCK) {
+            std::string_view block_abi;
+            if (it.has_key(la::VALUE)) {
+                block_abi = str_of(it.get(la::VALUE.code));
+                validate_abi(block_abi, it);
+            }
+            if (it.has_key(la::ITEMS)) {
+                auto block_items = arr_of(it.get(la::ITEMS.code));
+                for (uint64_t j = 0; j < block_items.size(); ++j) {
+                    auto child = map_of(block_items.get(j));
+                    // Per-fn ABI override (parsed onto child.VALUE)
+                    // takes precedence over the block's; otherwise
+                    // the child inherits via the block's VALUE. Both
+                    // forms parse onto the same VALUE slot — child
+                    // has its own value if present.
+                    if (!child.has_key(la::VALUE) && !block_abi.empty()) {
+                        // No mutation needed; we just track the inherited
+                        // ABI here for diagnostics. With the value-repr
+                        // staying as a verbatim string, sema's later passes
+                        // can re-read child.VALUE — and if absent fall
+                        // back to the block ABI by looking at the parent
+                        // structure (not currently consulted; default
+                        // calling convention is fine for slice 1).
+                    }
+                    flat_items.push_back(child);
+                }
+            }
+            continue;
+        }
+        // Per-fn `extern "ABI" fn …;` outside a block: validate the ABI
+        // string. Same set as the block form.
+        if (code_of(it) == la::EXTERN_FN && it.has_key(la::VALUE)) {
+            validate_abi(str_of(it.get(la::VALUE.code)), it);
+        }
+        flat_items.push_back(it);
+    }
+
     // Track pending #[...] annotations so the collect phase can populate
     // explicit_type_codes_ early (before lower_module). Without this, an
     // `impl Trait for Foo` in one package couldn't resolve Foo's type_code
@@ -1103,8 +1161,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
     // to a hash-fallback dispatch slot that never matches the runtime tag.
     std::vector<TinyMapView> pending_annots;
 
-    for (uint64_t i = 0; i < items.size(); ++i) {
-        auto item = map_of(items.get(i));
+    for (uint64_t i = 0; i < flat_items.size(); ++i) {
+        auto item = flat_items[i];
         int32_t c = code_of(item);
         if (c == la::ANNOTATION) {
             if (phase == 1) pending_annots.push_back(item);

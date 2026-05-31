@@ -1,0 +1,8 @@
+// §6.7 negative: unknown ABI string rejected with helpful diag.
+package core_6_7_extern_unknown_abi;
+
+extern "Stdcall" {
+    fn foo() -> i32;
+}
+
+fn main() -> i32 { return 0; }

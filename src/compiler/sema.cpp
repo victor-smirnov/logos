@@ -6534,8 +6534,27 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
     };
 
+    // §6.7: same flatten-EXTERN_BLOCK pass as sema_collect. lower_module_items
+    // iterates the original module ITEMS to emit per-item LIR; an extern block
+    // would otherwise be unhandled and its children skipped. Splice each
+    // block's child EXTERN_FN entries into a flat worklist that lower_*
+    // dispatch reads in order.
+    std::vector<TinyMapView> flat_items;
+    flat_items.reserve(items.size());
     for (uint64_t i = 0; i < items.size(); ++i) {
-        auto item = map_of(items.get(i));
+        auto it = map_of(items.get(i));
+        if (code_of(it) == la::EXTERN_BLOCK) {
+            if (it.has_key(la::ITEMS)) {
+                auto block_items = arr_of(it.get(la::ITEMS.code));
+                for (uint64_t j = 0; j < block_items.size(); ++j)
+                    flat_items.push_back(map_of(block_items.get(j)));
+            }
+            continue;
+        }
+        flat_items.push_back(it);
+    }
+    for (uint64_t i = 0; i < flat_items.size(); ++i) {
+        auto item = flat_items[i];
         int32_t c = code_of(item);
         if (c == la::ANNOTATION) {
             pending_annots.push_back(item);

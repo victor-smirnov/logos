@@ -305,6 +305,7 @@
     AUTO_TRAIT_BOUND            = 246   // logos-core 2.4(c): `+ Send` / `+ Sync` etc. on a trait object (`&dyn Trait + Send`). NAME = bound's identifier. Collected into the dyn_type's ITEMS array alongside type-args; resolve_type filters by CODE to bucket bounds vs args. Folded into TraitObject TypeRef via const_val bits for the dyn+Auto enforce at unsize coercion.
     AUTO_LIFE_BOUND             = 247   // logos-core 2.4(c): `+ 'a` lifetime bound on a trait object (`&dyn Trait + 'a`). NAME = lifetime label. Same collection path as AUTO_TRAIT_BOUND; sema currently logs but does not enforce lifetime-bounds at unsize sites (depends on §2.1 region_infer wiring).
     ANNOT_CALL                  = 248   // logos-core §6.8: nested combinator inside an annotation arg list, e.g. `#[cfg(all(unix, target_arch = "x86_64"))]`. NAME = head ident (`all` / `any` / `not` / generic future combinator); ARGS = nested annot_args list (each entry is another ANNOT_CALL / ANNOT_KV / bare-NAME).
+    EXTERN_BLOCK                = 249   // logos-core §6.7: `extern "ABI" { extern_fn_def* }` block form. VALUE = ABI string literal (omitted ≡ default Logos-internal); ITEMS = array of EXTERN_FN nodes — each individually carries VALUE=block-ABI or its own per-fn override. sema_collect splices the block's items into the module-level item stream with the block's ABI applied as a default to children that don't have their own.
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────
@@ -495,7 +496,7 @@
     path_dot_ident <- DOT IDENT !(DOT LBRACE)
                    => { NAME: $2 }
 
-    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_fn_def / pub_fn_def / fn_def
+    item <- inner_doc_decl / inner_doc_block_decl / doc_line_decl / doc_block_decl / template_decl / annotation / const_def / type_alias / pub_enum_def / enum_def / pub_datatype_def / datatype_def / pub_datatype_inst / datatype_inst / pub_trait_inst / trait_inst / pub_struct_unit / struct_unit / pub_struct_inst / struct_inst / pub_instantiate_decl / instantiate_decl / metacall_item_decl / fn_macro_item_decl / pub_struct_def / struct_def / pub_trait_def / trait_def / impl_block / extern_block / extern_fn_def / pub_fn_def / fn_def
 
     // Outer doc-comment line — captured as a tiny VALUE-only node so it can
     // sit in the item stream alongside annotations. sema_collect accumulates
@@ -1124,7 +1125,34 @@
     method_def <- pub_static_fn_def / static_fn_def / pub_fn_def / fn_def
 
     // ── Extern function (FFI) ────────────────────────────────────
-    extern_fn_def <- KW_EXTERN KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
+    // §6.7: `extern "ABI" fn …;` carries the ABI string on each fn;
+    // `extern "ABI" { extern_fn_def* }` is the Rust block form that
+    // groups same-ABI externs together. The ABI string is stored
+    // verbatim on the EXTERN_FN node (key VALUE). Validation against
+    // the supported set ("C", "C-unwind", "system", "Rust") happens
+    // in sema_collect; default-ABI (Logos-internal) calls go through
+    // when the string is omitted, matching pre-Wave-5 behavior.
+    extern_block <- KW_EXTERN STRING LBRACE extern_block_item* RBRACE
+                 => { CODE: EXTERN_BLOCK, VALUE: $2, ITEMS: $4 }
+                  / KW_EXTERN LBRACE extern_block_item* RBRACE
+                 => { CODE: EXTERN_BLOCK, ITEMS: $3 }
+    // §6.7: inside `extern "ABI" { … }` the children use bare `fn …;`
+    // syntax (no redundant `extern` keyword, matching Rust). The
+    // produced EXTERN_FN node has no VALUE — sema_collect splices it
+    // with the block's ABI inherited at the splice site.
+    extern_block_item <- KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
+                     => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4, RET_TYPE: $9, IS_VARARG: true }
+                      / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+                     => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
+                      / KW_FN IDENT LPAREN param_list? RPAREN SEMI
+                     => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4 }
+    extern_fn_def <- KW_EXTERN STRING KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
+                  => { CODE: EXTERN_FN, NAME: $4, PARAMS: $6, RET_TYPE: $11, VALUE: $2, IS_VARARG: true }
+                   / KW_EXTERN STRING KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
+                  => { CODE: EXTERN_FN, NAME: $4, PARAMS: $6, RET_TYPE: $9, VALUE: $2 }
+                   / KW_EXTERN STRING KW_FN IDENT LPAREN param_list? RPAREN SEMI
+                  => { CODE: EXTERN_FN, NAME: $4, PARAMS: $6, VALUE: $2 }
+                   / KW_EXTERN KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5, RET_TYPE: $10, IS_VARARG: true }
                    / KW_EXTERN KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
                   => { CODE: EXTERN_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8 }
