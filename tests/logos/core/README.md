@@ -2,7 +2,7 @@
 
 > Each test in this map proves a specific DoD-depth claim from
 > `docs/language/logos-core.md`. The scoreboard at
-> `logos-core.md §7a` is the canonical "closed at DoD-depth" register;
+> `logos-core.md §8a` is the canonical "closed at DoD-depth" register;
 > for an item to be ✅ there, it MUST have a verification test below
 > (or be marked "verified-by-suite" — pure internal refactor with
 > nothing user-visible to assert).
@@ -53,7 +53,23 @@ in `pass/` and `fail/`. Two reasons:
 | 4.2 | Match exhaustiveness | `tests/logos/pass/core_4_2_match_exhaustiveness.logos` ✓ + `tests/logos/fail/core_4_2_missing_variant.logos` ✓ | ✅ |
 | 4.3 | Chained autoderef in pat | `tests/logos/pass/core_4_3_match_double_ref.logos` ✓ | ✅ |
 | 5.1 | Atomics Ordering | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ | ✅ |
-| 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | partial (🟡) |
+| 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | ✅ |
+| 4.4 | `PAT_PATH` constants-as-patterns | TBD — Tier-3 #25 | ❌ |
+| 4.5 | fn-params irrefutable patterns | TBD — Tier-3 #23 | ❌ |
+| 6.1 | `union` item — parse + layout | TBD — Tier-3 #28 | ❌ |
+| 6.2 | `static`/`static mut` vs `const` split | TBD — Tier-3 #24 | ❌ |
+| 6.3 | `let-else` divergence assertion | TBD — Tier-1 #10 | ❌ |
+| 6.4 | let-chain in if/while/match | TBD — Tier-3 #18 | ❌ |
+| 6.5 | `?` on `Try` / `FromResidual` | TBD — Tier-2 #15 | ❌ |
+| 6.6 | `lookup_qualified_` pub-bypass tightening | TBD — Tier-1 #7 | ❌ |
+| 6.7 | `extern "ABI" { … }` blocks + ABI tag | TBD — Tier-3 #29 | ❌ |
+| 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | TBD — Tier-4 #37 | ❌ |
+| 6.9 | `ConstResolver` seam through `metacall` | TBD — Tier-4 #38/#39 | ❌ |
+| 6.10 | Derive handlers (8 sub-deliverables) | TBD — Tier-2 #11 | ❌ |
+| 6.11 | `unreachable!/todo!/unimplemented!` macros | TBD — Tier-2 #12 | ❌ |
+| 6.12 | `Range` family generics | TBD — Tier-2 #14 | ❌ |
+| 6.13 | `DerefMut` autoderef | TBD — Tier-2 #16 | ❌ |
+| 6.14 | Atomics per-variant Ordering MLIR | TBD — Tier-2 #17 + §5.1 follow-up | ❌ |
 
 ## Goal contract
 
@@ -64,12 +80,14 @@ When `/goal` closes an item, the agent must:
 3. **Write a test** at the path above (or one of them).
 4. **Run the full suite** (`bash ../tests/logos/ctest-summary.sh` from
    `build/`); must be 5288+ pass.
-5. **Update the scoreboard** at `logos-core.md §7a`: change the status
+5. **Update the scoreboard** at `logos-core.md §8a`: change the status
    cell from 🟡/❌ to ✅, replace "to add" with "✓".
 6. **Update this README's mapping table** with the new status.
 7. **Commit** with message citing the item §, the DoD-depth excerpt,
    and the verification test path.
 
-The score line in `logos-core.md §7a` is the single number `/goal`'s
-convergence checker reads. When it shows `21 / 21 ✅` and suite is green,
-the goal is closed.
+The score line in `logos-core.md §8a` is the single number `/goal`'s
+convergence checker reads. Catalog grew 2026-05-30: §§1-5 closed
+21/21 ✅ across Waves 1-3; §6 + §4.4/4.5 (Wave 4-5 catalog) brought
+the target to 37. When the score line shows `37 / 37 ✅` and suite
+is green, the extended M3 catalog is closed.

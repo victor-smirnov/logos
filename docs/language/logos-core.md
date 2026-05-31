@@ -510,6 +510,38 @@ five sub-tests:
   5. depth-3 binding extraction: `z: &&&i32`; `*(*(*z))` reaches
      the inner value.
 
+### 4.4. `PAT_PATH` — constants-as-patterns
+*Audit: F (Patterns), audit Tier-3 #25.*
+- **Issue:** `match x { CONST_NAME => ... }` over a const-bound
+  identifier doesn't parse as a pattern-path today — the grammar
+  only accepts `PAT_INT` / `PAT_BOOL` / `PAT_STR` literal forms and
+  variant paths. Ported tests using `match status { OK => ..., FAIL
+  => ... }` reroute to or-patterns of literals.
+- **Why core:** structural-equality patterns on constants are a
+  load-bearing match shape; pattern soundness requires that the
+  pattern-equality machinery be the SAME path the rest of sema uses
+  for `==` (Rust's `StructuralPartialEq` contract).
+- **DoD-depth:** new `PAT_PATH` AST node (path → const lookup); sema
+  emits a structural-equality guard via the const's typeck'd value;
+  rejects non-`StructuralPartialEq`-shaped consts with a specific
+  diagnostic ("only structural-equality types may appear in
+  patterns"). Targeted pass + fail tests.
+
+### 4.5. Fn-params accept arbitrary irrefutable patterns
+*Audit: F (Patterns), C (Items), audit Tier-3 #23.*
+- **Issue:** today only `IDENT` / `mut IDENT` / `(pat, …)` parse in
+  fn-param position. Rust accepts any irrefutable pattern
+  (`fn foo(Point { x, y }: Point)`, `fn bar([head, .., tail]: [i32; 4])`).
+- **Why core:** pattern uniformity invariant — `let` and fn-param
+  bindings should share the same accept-set (`is_refutable` ✓ today
+  but the fn-param grammar restricts the surface).
+- **DoD-depth:** `param` grammar rule references the full irrefutable-
+  pattern non-terminal; `lower_fn` synth-binds via the canonical
+  pattern-destructure machinery; refutable-pattern rejection at the
+  fn boundary cites the `is_refutable` predicate. Pass test for
+  struct + tuple-struct + slice patterns; fail test for the
+  refutable `fn(Some(x): Option<i32>)` shape.
+
 ---
 
 ## 5. Memory model core
@@ -567,7 +599,210 @@ follow-up. Verified-by-doc-existence (no .logos test).
 
 ---
 
-## 6. Coupling rules (depth ↔ breadth)
+## 6. Items / control-flow / FFI / attributes / const-eval core
+
+Audit categories C, E, I, L, M, N — language-surface items that were
+scoped OUT of §§1-5 (those focused on type-system / ownership /
+patterns / memory model). Each item below has a per-audit Tier ref
++ a single-session-or-less DoD. The catalog grew here in Wave 4
+(2026-05-30) to reflect what `feature-audit/README.md` ranked as
+Tier-1/2/3/4 NOT-yet-in-core.
+
+### 6.1. `union` item — parse + layout
+*Audit: C (Items), B (Type system), K (Unsafe), Tier-3 #28.*
+- **Issue:** `union { f1: T1, f2: T2 }` doesn't parse at all today.
+  Ported Rust code that mentions `union` (even just under
+  `#[cfg(...)]`-guarded blocks) fails at the grammar.
+- **Why core:** Rust's items grammar core surface. Union layout
+  + access rules are also a soundness gate (every field-read of a
+  union is unsafe).
+- **DoD-depth:** `KW_UNION` + `union_def` grammar; `LUnionDef` LIR
+  node; layout = max-of-fields aligned to max-alignment; field
+  access requires `unsafe` block; targeted pass test (parse +
+  unsafe-field-read works) + fail test (safe-field-read rejects).
+
+### 6.2. `static` / `static mut` distinct from `const`
+*Audit: C (Items), G (Memory and safety), M (Const-eval), Tier-3 #24.*
+- **Issue:** `static NAME: T = expr;` parses as `CONST_DEF` (inline
+  substitution at every use); no stable address. `static mut` not in
+  the grammar. `&STATIC` lifetime accounting wrong: today its slot
+  has the lifetime of the const literal, not `'static`.
+- **Why core:** soundness — `&STATIC` must be `'static`. Cross-module
+  storage anchors flow into ownership / lifetime invariants.
+- **DoD-depth:** distinct AST node (`STATIC_DEF`); stable-address
+  storage at link time; `&STATIC` references type as `&'static T`
+  (consumer of §2.1 region machinery); `static mut` lands as a
+  separate kind with `unsafe`-block requirement on read/write.
+
+### 6.3. `let-else` divergence assertion
+*Audit: E (Expressions), Tier-1 #10.*
+- **Issue:** `let Some(x) = expr else { … };` parses, but the else-
+  block is not statically verified to end in a hard terminator
+  (return / break / continue / panic / `loop {}`). Pre-fix a
+  fall-through else lets `x` be UNINITIALIZED, silently UB.
+- **Why core:** completes §1.1 / §2.7 family — definite-assignment
+  contract for `let-else` requires the divergence assertion.
+- **DoD-depth:** at `lower_let_else`, after lowering the else-block
+  invoke `block_always_diverges_simple` (now lives in sema_stmt.cpp
+  per §1.1) and error "let-else: else block must end with a hard
+  terminator (return / break / continue / panic)"; targeted fail
+  test for the fall-through shape.
+
+### 6.4. let-chain in if/while/match guards
+*Audit: E (Expressions), Tier-3 #18.*
+- **Issue:** `if let A && cond && let B { ... }` parses as a single
+  `if let A` followed by stray tokens (the multi-`&&` chain isn't
+  supported). Same for `while let`, `match ... if cond_with_let`.
+- **Why core:** Rust stable feature (2024 edition); ports of stdlib
+  control-flow lean on it heavily.
+- **DoD-depth:** shared `let_chain` non-terminal in the PEG grammar
+  consumed by `if_expr`, `while_stmt`, and `match_arm.GUARD`. Sema
+  desugars to nested `if let` / `match` arms with the conditions
+  sequenced. Pass test for 3-way chain; pass test for let-in-guard.
+
+### 6.5. `?` operator on `Try` / `FromResidual`
+*Audit: E (Expressions), C (Trait), Tier-2 #15.*
+- **Issue:** today `?` is hardcoded to match `Ok`/`Err`/`Some`/`None`
+  by callee-name. User types can't implement `?`; Rust's `Try` /
+  `FromResidual` trait surface is absent.
+- **Why core:** `?` is the canonical error-propagation contract.
+  Hardcoding by name is a long-standing parity divergence.
+- **DoD-depth:** stdlib lang-item traits `Try` + `FromResidual`;
+  sema lowers `?` to a call through the resolved `Try::branch` +
+  early-return through `FromResidual::from_residual`; ported
+  Result/Option still pass; `impl Try for MyType` pass test.
+
+### 6.6. `lookup_qualified_` bare-key fallback tightening
+*Audit: I (Modules/visibility), Tier-1 #7.*
+- **Issue:** the bare-key fallback tier at `sema_impl.hpp:2432`
+  short-circuits visibility check. A `use my_pkg::priv_fn;`
+  accidentally resolves through the fallback even when `priv_fn`
+  is not `pub` in `my_pkg`.
+- **Why core:** visibility is a soundness gate (privacy invariant).
+- **DoD-depth:** route the fallback through the same
+  `check_pub_access` predicate that the normal path uses; reject
+  with the standard "non-`pub` item" diagnostic. Pass-existing-
+  tests + fail-test for the cross-module-private path.
+
+### 6.7. `extern "ABI" { … }` blocks + ABI tag on `Kind::FnPtr`
+*Audit: N (FFI/linkage/ABI), B (Type system), Tier-3 #29.*
+- **Issue:** `extern fn` declarations are flat — no block form, no
+  ABI string. `Kind::FnPtr` doesn't carry an ABI tag, so all
+  `extern fn` calls go through the default Logos-internal
+  convention. Mismatched-ABI calls are silent UB.
+- **Why core:** FFI safety — the ABI string is part of the fn-ptr
+  type identity in Rust.
+- **DoD-depth:** grammar `extern_block <- KW_EXTERN STRING_LIT
+  LBRACE extern_item* RBRACE`; ABI string parsed (`"C"`, `"system"`,
+  `"C-unwind"`); `Kind::FnPtr` extended with `abi` field (stored in
+  `const_val` / new slot); calls through a non-default-ABI fn-ptr
+  emit the matching `llvm.func` calling convention.
+
+### 6.8. `#[cfg(all/any/not)]` combinators + `cfg_attr` activation
+*Audit: L (Attributes), Tier-4 #37.*
+- **Issue:** the structured `#[cfg(...)]` attribute path accepts only
+  single-arg predicates (`#[cfg(unix)]`); the `all/any/not`
+  combinators work in `cfg!()` macro context but not in attribute
+  position. `#[cfg_attr(pred, attr)]` wrapped-attribute activation
+  is a stub.
+- **Why core:** conditional-compilation parity; ported Rust code
+  uses `#[cfg(all(unix, target_arch = "x86_64"))]` extensively.
+- **DoD-depth:** unify the cfg predicate evaluator across attribute
+  and macro contexts (single `evaluate_cfg_predicate` shared);
+  add `all/any/not` parsing in the attribute path; activate
+  `cfg_attr` by recursively re-applying the wrapped attribute.
+  Pass tests for the 3 combinators + a `cfg_attr` wrap-and-activate.
+
+### 6.9. `ConstResolver` seam through `metacall { N }`
+*Audit: M (Const-eval), Tier-4 #38 + #39.*
+- **Issue:** path-to-const references inside `metacall { … }` don't
+  fold today — `ctfe::do_eval` is name-blind and can't resolve
+  `MY_CONST` to its value when the value lives in another module.
+  K10-co-06 tracks this.
+- **Why core:** const-eval through the metacall channel is the
+  primary "compile-time computation" surface in Logos (replacing
+  Rust's `const fn`). Without path-to-const folding, const args
+  flow as opaque tokens.
+- **DoD-depth:** `ConstResolver` interface threaded into
+  `ctfe::do_eval(node, ConstResolver*)`; mono passes the
+  `current_consts_` map as the resolver; one-source-of-truth
+  shared with `is_const_evaluable` (Tier-4 #39). Pass test:
+  `metacall { THRESHOLD + 1 }` where `THRESHOLD` is a stdlib
+  const folds correctly.
+
+### 6.10. Derive handlers — `Debug`/`PartialEq`/`Eq`/`Default`/`Hash`/`PartialOrd`/`Ord`/`Copy`
+*Audit: J (Macros), L (Attributes), Tier-2 #11.*
+- **Issue:** `#[derive(Debug)]` etc. parses as a no-op annotation;
+  the derive-handler infrastructure exists (a `#[metaprog_handler]`
+  channel) but no stdlib handlers are registered for the standard
+  derives. Ported tests using `assert_eq!(...)` on user types
+  require manual `impl PartialEq` boilerplate.
+- **Why core:** these derives are the standard surface every
+  ported Rust struct/enum touches.
+- **DoD-depth:** one `#[metaprog_handler]` per trait family in
+  stdlib (Debug formatter, PartialEq/Eq via field-by-field eq,
+  Default via const-zero / explicit-default chain, Hash via
+  field-by-field hasher, PartialOrd/Ord via lexicographic field
+  cmp, Copy via field-all-Copy check); each ships with its
+  per-derive pass test.
+
+### 6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros
+*Audit: O (Other / Panic), J (Macros), Tier-2 #12.*
+- **Issue:** these three are absent from stdlib; ports rewrite to
+  `panic!("unreachable")` / `panic!("todo")` etc. by hand.
+- **Why core:** standard library control-flow surface; pairs with
+  §1.1 Never machinery (their return type is `!`).
+- **DoD-depth:** three `#[fn_macro]` wrappers in
+  `stdlib/std/fmt/fmt.logos`; each returns `!`; targeted pass test
+  exercising each in a dead-branch.
+
+### 6.12. `Range` family — `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` as generics
+*Audit: E (Expressions / Range), Tier-2 #14.*
+- **Issue:** today only `RangeI32` and `RangeI64` exist (concrete
+  types per integer width). Rust's `Range<T>` is generic over the
+  element type.
+- **Why core:** ports of iterator chains (`0i32..count`, `'a'..='z'`)
+  rely on the generic surface.
+- **DoD-depth:** generic `Range<T>` + 5 siblings; `IntoIterator`-
+  style trait surface (or `Iterator` directly per Logos's model);
+  the `..` / `..=` operators desugar to the appropriate generic;
+  `RangeI32`/`RangeI64` become aliases or `Range<i32>`/`Range<i64>`
+  instantiations. Pass tests across the 6 forms.
+
+### 6.13. `DerefMut`-driven autoderef for `&mut self` methods
+*Audit: E (Expressions / method dispatch), B (Type system), Tier-2 #16.*
+- **Issue:** `box_ref.method()` auto-derefs through `Deref` for
+  `&self` methods but not through `DerefMut` for `&mut self`
+  methods. `let mut b = Box::new(Vec::new()); b.push(1);` fails
+  unless explicit `(*b).push(1)`.
+- **Why core:** standard ergonomics for smart-pointer receivers
+  (Box/Rc/Arc). Autoderef chain symmetry — `Deref` for shared,
+  `DerefMut` for mut, parallel.
+- **DoD-depth:** `lookup_method_with_autoderef` chains through
+  `DerefMut` when the receiver is mut-borrowable and the candidate
+  method takes `&mut self`. Targeted pass test:
+  `Box<Vec<i32>>::push` resolves automatically.
+
+### 6.14. Atomics per-variant `Ordering` lowered to MLIR (finish §5.1)
+*Audit: G (Memory model), N (FFI), Tier-2 #17 + §5.1 follow-up.*
+- **Issue:** §5.1's Wave-2 closure lands MLIR atomic intrinsics
+  with conservative `seq_cst` for every Ordering variant. The
+  ordering enum value at the call site flows in but is ignored —
+  always-sound on every target, but over-synchronizes
+  Relaxed/Acquire/Release on weak-memory backends.
+- **Why core:** completes the §5.1 contract — the Ordering enum
+  value must thread to the MLIR op's ordering attribute for ARM/
+  RISC-V codegen to emit the right barriers.
+- **DoD-depth:** const-eval the `Ordering` arg at the call site;
+  thread the resolved enum-disc to the MLIR atomic op's `ordering`
+  attribute (mapping Relaxed → monotonic, Acquire → acquire, etc.).
+  Add `AtomicUsize` / `AtomicIsize` to round out the integer
+  width matrix. Targeted multi-thread test that observes the
+  Acquire/Release ordering via the existing `thread_spawn` path.
+
+---
+
+## 7. Coupling rules (depth ↔ breadth)
 
 Breadth-first work runs in parallel with core work, but must respect
 these invariants so the core can land without breaking the breadth
@@ -591,9 +826,9 @@ surface:
 
 ---
 
-## 7. Definition of M3 "core done"
+## 8. Definition of M3 "core done"
 
-M3 ships when every item in §§1-5 is at DoD-depth, with the full suite
+M3 ships when every item in §§1-6 is at DoD-depth, with the full suite
 green and a 200-test imported-batch demonstrating the core items lit
 end-to-end (named lifetimes, dyn-trait with auto-traits, slice-mutability,
 match-exhaustive-with-guards, atomic ordering, etc.). At that point
@@ -605,14 +840,19 @@ core are recorded here with a rationale. Closing items move to a
 
 ---
 
-## 7a. Score (canonical — `/goal` reads this)
+## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 21 / 21 ✅ closed at DoD-depth (100%)** · 0 🟡 partial · 0 ❌ not
+> **Score: 21 / 37 ✅ closed at DoD-depth (56.8%)** · 0 🟡 partial · 16 ❌ not
 > started. Suite: 5307+ / 5307+ ✓.
 >
-> Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
+> Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
+> §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
+> not-yet-started catalog growth covering audit categories C/E/I/L/M/N
+> + surface-parity stdlib gaps that were Tier-1/2/3/4 in
+> `feature-audit/README.md` but scoped OUT of the original M3 catalog).
+> **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
-> is ✅ unless its DoD-depth (verbatim from §§ 1-5 above) is met AND a
+> is ✅ unless its DoD-depth (verbatim from §§ 1-6 above) is met AND a
 > verification test exists at `tests/logos/{pass,fail}/core_<§>_<slug>.logos`
 > (or the item is marked "verified-by-suite" for pure-refactor cases).
 
@@ -639,9 +879,25 @@ core are recorded here with a rationale. Closing items move to a
 | 4.3 | Chained auto-deref in pattern position | ✅ | `tests/logos/pass/core_4_3_match_double_ref.logos` ✓ — sema N-wrap + codegen N-deep load + multi-level binding extraction |
 | 5.1 | Atomics `Ordering` honoured | ✅ | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ — MLIR atomic intrinsics emit `seq_cst` (always-sound); two-thread Release/Acquire test via pthread |
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
+| 4.4 | `PAT_PATH` constants-as-patterns | ❌ | not started — Tier-3 #25 |
+| 4.5 | fn-params irrefutable patterns | ❌ | not started — Tier-3 #23 |
+| 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
+| 6.2 | `static`/`static mut` vs `const` split | ❌ | not started — Tier-3 #24 |
+| 6.3 | `let-else` divergence assertion | ❌ | not started — Tier-1 #10 |
+| 6.4 | let-chain in if/while/match | ❌ | not started — Tier-3 #18 |
+| 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
+| 6.6 | `lookup_qualified_` pub-bypass tightening | ❌ | not started — Tier-1 #7 |
+| 6.7 | `extern "ABI" { … }` blocks + ABI tag on FnPtr | ❌ | not started — Tier-3 #29 |
+| 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ❌ | not started — Tier-4 #37 |
+| 6.9 | `ConstResolver` seam through `metacall` | ❌ | not started — Tier-4 #38/#39 |
+| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
+| 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ❌ | not started — Tier-2 #12 |
+| 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
+| 6.13 | `DerefMut` autoderef for `&mut self` methods | ❌ | not started — Tier-2 #16 |
+| 6.14 | Atomics per-variant Ordering threaded to MLIR | ❌ | not started — Tier-2 #17 + §5.1 follow-up |
 
 **`/goal` convergence rule:** target = first column count where Status = ✅
-equals 21. Score line above is the canonical authority — when an item moves
+equals 37. Score line above is the canonical authority — when an item moves
 from 🟡/❌ to ✅, BOTH the per-item §-body AND this scoreboard row update in
 the same commit. No ✅ without (a) DoD-depth code change OR explicit
 "verified-by-suite" rationale; (b) a verification test by the recorded
@@ -649,7 +905,7 @@ path; (c) full suite gate.
 
 ---
 
-## 8. Implementation plan
+## 9. Implementation plan
 
 Effort labels: **S** ≈ single session ≤ 3 h, **M** ≈ 1-2 sessions ≤ 8 h, **L** ≈
 multi-session ≥ 10 h. Each phase ends with the full suite green
@@ -734,7 +990,54 @@ Goal: trait machinery soundness — Send/Sync, dyn-compat, slice mut, ?Sized.
 |---|------|--------|----------|
 | 21 | **5.2** UB list documented + per-anchor enforcement table | S | `docs/language/undefined-behavior.md` mirrors the spec's anchors with "enforced / partial / unenforced" per anchor; partial/unenforced each get a follow-up issue ID. |
 
-**M3 release gate:** §§1-5 all at DoD-depth; full suite green; 200-test imported-batch demonstrating core lit end-to-end (named lifetimes, dyn-trait+auto-traits, slice mut, exhaustive guards, atomic orderings).
+**M3 milestone gate (§§1-5):** all 21 original items at DoD-depth; full
+suite green; 200-test imported-batch demonstrating core lit end-to-end
+(named lifetimes, dyn-trait+auto-traits, slice mut, exhaustive guards,
+atomic orderings). **Closed 2026-05-30 across Waves 1-3.**
+
+### Phase 8 — Soundness/parity-tier 2 (Wave 4, planned)
+
+Goal: close the soundness-side audit Tier-1/Tier-3 items that were
+scoped out of the original M3 catalog — language-surface invariants
+adjacent to the §§1-5 core (let-else divergence pairs with §1.1,
+PAT_PATH extends §4 pattern soundness, pub-bypass is a visibility
+soundness gate).
+
+| # | Item | Effort | Approach |
+|---|------|--------|----------|
+| 22 | **6.3** `let-else` divergence assertion | S | After `lower_let_else` lowers the else block, call `body_always_diverges_simple` (already lives in sema_stmt.cpp per §1.1) and error if it returns false. Fail test for the fall-through shape. |
+| 23 | **6.6** `lookup_qualified_` pub-bypass tightening | S | Route the bare-key fallback at `sema_impl.hpp:2432` through `check_pub_access`. Fail test for a cross-module-private resolve. |
+| 24 | **4.4** `PAT_PATH` constants-as-patterns | M | Grammar adds `PAT_PATH`; sema lowers to a structural-equality guard via the resolved const value. Pass + fail tests. |
+| 25 | **6.2** `static` / `static mut` vs `const` split | M | Distinct AST + LIR; stable-address storage; `&STATIC` types as `&'static T` consumer of §2.1 region machinery; `static mut` lands behind unsafe. |
+| 26 | **6.1** `union` item — parse + layout | M | `KW_UNION` + `union_def`; `LUnionDef`; layout = max-of-fields with max-alignment; field access requires unsafe block. |
+| 27 | **4.5** fn-params accept arbitrary irrefutable patterns | S | `param` grammar references full irrefutable-pattern non-terminal; lower_fn synth-binds via canonical destructure machinery; uses `is_refutable` (§4.1) for rejection. |
+
+**Phase gate:** all six landed; 6 new tests; suite green.
+
+### Phase 9 — Surface parity (Wave 5, planned)
+
+Goal: close the breadth-in-core surface items that ports lean on —
+each is independently small but the cumulative impact unblocks
+~1000s of imported rustc-ui tests.
+
+| # | Item | Effort | Approach |
+|---|------|--------|----------|
+| 28 | **6.11** `unreachable!()` / `todo!()` / `unimplemented!()` | S | Three `#[fn_macro]` wrappers in stdlib; return type `!`; pass test exercising each in a dead-branch. |
+| 29 | **6.13** `DerefMut` autoderef for `&mut self` methods | M | `lookup_method_with_autoderef` chains through `DerefMut` when receiver mut-borrowable + method takes `&mut self`. Pass test: `Box<Vec<T>>::push`. |
+| 30 | **6.4** let-chain in if/while/match guards | M | Shared `let_chain` PEG non-terminal; sema desugars to nested if-let / match arms. 3-chain pass + let-in-guard. |
+| 31 | **6.8** `#[cfg(all/any/not)]` + `cfg_attr` activation | M | Unify `evaluate_cfg_predicate` across attribute + macro contexts; add combinators; activate `cfg_attr`. |
+| 32 | **6.7** `extern "ABI" { … }` blocks + ABI tag on FnPtr | M | Grammar + ABI string parsing; `Kind::FnPtr` extended with ABI field; non-default calling-convention codegen. |
+| 33 | **6.10** Derive handlers — Debug / PartialEq / Eq / Default / Hash / PartialOrd / Ord / Copy | L | One `#[metaprog_handler]` per trait family in stdlib; per-derive pass test. Sized for one item per session (8 sub-deliverables). |
+| 34 | **6.12** `Range` family generics | M | `Range<T>` + 5 siblings; `..` / `..=` desugar to generic; legacy `RangeI32`/`RangeI64` become aliases. Pass tests across 6 forms. |
+| 35 | **6.5** `?` on `Try` / `FromResidual` | L | Stdlib lang-item traits; sema lowers `?` through `Try::branch` + `FromResidual::from_residual`; retires the hardcoded callee-name match. |
+| 36 | **6.14** Atomics per-variant Ordering threaded to MLIR | M | Const-eval the Ordering arg at call site; thread enum-disc to MLIR atomic op `ordering` attribute (Relaxed→monotonic, etc.). Add `AtomicUsize`/`AtomicIsize`. |
+| 37 | **6.9** `ConstResolver` seam through `metacall` | M | Threading const map into `ctfe::do_eval`; unify with `is_const_evaluable`. Path-to-const folding inside metacall. K10-co-06 close. |
+
+**Phase gate:** all ten landed; 10+ new tests; suite green.
+
+**Extended M3 release gate (§§1-6):** all 37 catalog items at DoD-
+depth. Updated 2026-05-30 (catalog grown from 21 → 37 to absorb
+audit Tier-1/2/3/4 items previously scoped OUT).
 
 ---
 
