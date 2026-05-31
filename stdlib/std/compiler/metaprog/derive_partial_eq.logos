@@ -1,0 +1,91 @@
+// logos.std.compiler.metaprog — derive(PartialEq) for plain and
+// generic structs.
+//
+// Hook for `#[derive_partial_eq]`. Emits
+//
+//   impl<T1: PartialEq, ...> PartialEq for Name<T1, ...> {
+//       fn eq(&self, other: &Name<T1, ...>) -> bool {
+//           return self.f1 == other.f1 && self.f2 == other.f2 && …;
+//       }
+//   }
+//
+// Empty-field structs degenerate to `return true;`. Each field is
+// compared via `==`, which dispatches through the field's own
+// PartialEq impl (primitive impls live in `stdlib/lang/cmp/cmp.logos`).
+//
+// §6.10 sub-deliverable 2/8 — pairs with derive_eq (a marker trait
+// addition, separate hook) to give the standard `Eq` derive surface.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.string;
+use logos.lang.cmp;
+
+#[metaprog_handler("derive_partial_eq")]
+fn derive_partial_eq_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    // Empty-field struct: return true unconditionally (every value
+    // is equal to every other; matches Rust's degenerate case).
+    let body: ExprBlob = if nf == (0 as u64) {
+        quote_expr! { true }
+    } else {
+        quote_expr! { #( self.#fnames == other.#fnames )&&* }
+    };
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl PartialEq for #(nm) {
+                fn eq(&self, other: &#(nm)) -> bool {
+                    return #(body);
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: PartialEq ),*> PartialEq for #nm<#( #tparams ),*> {
+                fn eq(&self, other: &#nm<#( #tparams ),*>) -> bool {
+                    return #(body);
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}

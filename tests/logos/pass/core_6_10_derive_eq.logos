@@ -1,0 +1,21 @@
+// logos-core §6.10 sub-deliverable 3/8: derive(Eq). Same shape as
+// derive_partial_eq but targets the `Eq` trait. Logos's Eq carries
+// `eq`/`ne` methods (Eq ⊇ PartialEq in the hierarchy); the handler
+// emits the same per-field `==` conjunction.
+package core_6_10_derive_eq;
+
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+
+#[derive_eq]
+struct Pair { a: i64, b: i64 }
+
+fn main() -> i32 {
+    let x: Pair = Pair { a: 10 as i64, b: 20 as i64 };
+    let y: Pair = Pair { a: 10 as i64, b: 20 as i64 };
+    let z: Pair = Pair { a: 10 as i64, b: 21 as i64 };
+    if !x.eq(&y) { return 1i32; }
+    if x.eq(&z)  { return 2i32; }
+    if !x.ne(&z) { return 3i32; }   // default ne in Eq trait
+    return 0i32;
+}

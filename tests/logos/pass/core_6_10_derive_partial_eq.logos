@@ -1,0 +1,38 @@
+// logos-core §6.10 sub-deliverable 2/8: derive(PartialEq).
+//
+// The handler emits a per-field `==` conjunction in eq(): for
+// `struct Pt { x: i32, y: i32 }` it lands `self.x == other.x &&
+// self.y == other.y`. Empty-field structs degenerate to
+// `return true;` (every value is equal — matches Rust). Generic
+// structs get a `T: PartialEq` bound per type-param.
+package core_6_10_derive_partial_eq;
+
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+
+#[derive_partial_eq]
+struct Pt { x: i32, y: i32 }
+
+#[derive_partial_eq]
+struct GenPair<T> { a: T, b: T }
+
+fn main() -> i32 {
+    let p1: Pt = Pt { x: 1i32, y: 2i32 };
+    let p2: Pt = Pt { x: 1i32, y: 2i32 };
+    let p3: Pt = Pt { x: 1i32, y: 3i32 };
+    let p4: Pt = Pt { x: 9i32, y: 2i32 };
+
+    if !p1.eq(&p2) { return 1i32; }   // identical
+    if p1.eq(&p3)  { return 2i32; }   // y differs
+    if p1.eq(&p4)  { return 3i32; }   // x differs
+    if !p1.ne(&p3) { return 4i32; }   // ne is the derived default
+
+    // Generic struct, T = i64.
+    let g1: GenPair<i64> = GenPair { a: 5 as i64, b: 6 as i64 };
+    let g2: GenPair<i64> = GenPair { a: 5 as i64, b: 6 as i64 };
+    let g3: GenPair<i64> = GenPair { a: 5 as i64, b: 7 as i64 };
+    if !g1.eq(&g2) { return 5i32; }
+    if g1.eq(&g3)  { return 6i32; }
+
+    return 0i32;
+}

@@ -1,0 +1,86 @@
+// logos.std.compiler.metaprog — derive(Hash) for plain and generic
+// structs.
+//
+// Hook for `#[derive_hash]`. Emits
+//
+//   impl<T1: Hash, ...> Hash for Name<T1, ...> {
+//       fn hash<H: Hasher>(&self, state: &mut H) {
+//           self.f1.hash(state);
+//           self.f2.hash(state);
+//           ...
+//       }
+//   }
+//
+// Each field's `hash` method dispatches through its own `Hash` impl
+// (primitive impls in `stdlib/lang/hash/hash.logos`). Empty-field
+// structs emit an empty body (the field iteration produces no
+// statements — every empty struct hashes identically, matching
+// Rust's degenerate case).
+//
+// §6.10 sub-deliverable 4/8.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.string;
+use logos.lang.hash;
+
+#[metaprog_handler("derive_hash")]
+fn derive_hash_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl Hash for #(nm) {
+                fn hash<H: Hasher>(&self, state: &mut H) {
+                    #( self.#fnames.hash(state); )*
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: Hash ),*> Hash for #nm<#( #tparams ),*> {
+                fn hash<H: Hasher>(&self, state: &mut H) {
+                    #( self.#fnames.hash(state); )*
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}
