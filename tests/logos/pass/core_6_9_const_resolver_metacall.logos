@@ -1,0 +1,38 @@
+// logos-core §6.9: `ConstResolver` seam through `metacall { … }`.
+// Pre-Wave-5 `ctfe::do_eval` was name-blind — it could only fold
+// literal expressions; a bare ident like `THRESHOLD` inside a
+// metacall arg failed with "expression is not a compile-time
+// constant" even when THRESHOLD was a module-level const bound
+// to a literal RHS.
+//
+// Wave 5 wires a `ConstResolver` interface into ctfe::do_eval: on
+// VAR_REF nodes the evaluator consults the resolver, which (in
+// sema's implementation) looks up the name in `module_const_values_`
+// — the same map sema_stmt's PAT_PATH (§4.4) and pattern lowering
+// already use — and returns the const's RHS expression node.
+// do_eval recurses on that, so chains like `metacall { A + B - 1 }`
+// where A, B are module consts fold correctly.
+//
+// The resolver is plumbed at BOTH metacall call sites in
+// sema_expr.cpp (expression-position and item-position metacall).
+package core_6_9_const_resolver_metacall;
+
+const THRESHOLD: i64 = 42i64;
+const SCALE: i64 = 3i64;
+const OFFSET: i64 = 7i64;
+
+fn main() -> i32 {
+    // Simple path-to-const fold.
+    let a: i64 = metacall { THRESHOLD + 1i64 };
+    if a != 43 as i64 { return 1i32; }
+
+    // Compound expression mixing multiple consts and operators.
+    let b: i64 = metacall { THRESHOLD * SCALE - OFFSET };
+    if b != 119 as i64 { return 2i32; }
+
+    // Nested combinator: parens + unary + binop, all over consts.
+    let c: i64 = metacall { (THRESHOLD - OFFSET) * (SCALE + 1i64) };
+    if c != 140 as i64 { return 3i32; }
+
+    return 0i32;
+}

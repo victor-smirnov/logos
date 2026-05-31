@@ -15555,11 +15555,34 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // wrap it as a TinyMap with ITEMS=array (call_arg_list rule).
     // Stage 2: collect printable literal text for each arg so we can splice
     // into the synthesised thunk body. Empty string means CTFE failed.
+    //
+    // §6.9: thread a ConstResolver into ctfe::eval_expr so that
+    // `metacall { THRESHOLD + 1 }` (where THRESHOLD is a module-
+    // const bound to a literal RHS) folds correctly. The resolver
+    // looks the bare ident up in `module_const_values_` — same map
+    // that sema_stmt.cpp::build_pattern_impl consults for constants-
+    // as-patterns (§4.4). Cross-package consts work as long as the
+    // const got collected into the map.
+    struct SemaConstResolver final : ctfe::ConstResolver {
+        const logos::compiler::StrMap<hermes::TinyMapView>& consts;
+        hermes::MemHolder* h;
+        explicit SemaConstResolver(
+            const logos::compiler::StrMap<hermes::TinyMapView>& m,
+            hermes::MemHolder* holder) : consts(m), h(holder) {}
+        hermes::TinyMapView lookup_const(std::string_view name,
+                                         hermes::MemHolder** out_holder) override {
+            auto it = consts.find(name);
+            if (it == consts.end()) return hermes::TinyMapView{};
+            if (out_holder) *out_holder = h;
+            return it->second;
+        }
+    };
+    SemaConstResolver resolver_obj(module_const_values_, holder_);
     std::vector<std::string> arg_lits;
     auto eval_args_array = [&](hermes::ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
             auto a = map_of(args.get(i));
-            auto r = ctfe::eval_expr(a, holder_);
+            auto r = ctfe::eval_expr(a, holder_, &resolver_obj);
             if (!r) {
                 error(std::format("metacall: argument {} is not a compile-time constant ({})",
                                   i + 1, r.error().msg));
@@ -17565,11 +17588,28 @@ void SemaChecker::lower_metacall_item(hermes::TinyMapView node,
     }
 
     // CTFE each arg to a printable literal (mirrors lower_metacall).
+    // §6.9: same ConstResolver wiring as the expr-position metacall —
+    // path-to-const folds in item position too.
+    struct ItemMetacallConstResolver final : ctfe::ConstResolver {
+        const logos::compiler::StrMap<hermes::TinyMapView>& consts;
+        hermes::MemHolder* h;
+        explicit ItemMetacallConstResolver(
+            const logos::compiler::StrMap<hermes::TinyMapView>& m,
+            hermes::MemHolder* holder) : consts(m), h(holder) {}
+        hermes::TinyMapView lookup_const(std::string_view name,
+                                         hermes::MemHolder** out_holder) override {
+            auto it = consts.find(name);
+            if (it == consts.end()) return hermes::TinyMapView{};
+            if (out_holder) *out_holder = h;
+            return it->second;
+        }
+    };
+    ItemMetacallConstResolver item_resolver(module_const_values_, holder_);
     std::vector<std::string> arg_lits;
     auto eval_args_array = [&](ArrayView args) {
         for (uint64_t i = 0; i < args.size(); ++i) {
             auto a = map_of(args.get(i));
-            auto r = ctfe::eval_expr(a, holder_);
+            auto r = ctfe::eval_expr(a, holder_, &item_resolver);
             if (!r) {
                 error(std::format("metacall (item position): argument {} is not a compile-time constant ({})",
                                   i + 1, r.error().msg));

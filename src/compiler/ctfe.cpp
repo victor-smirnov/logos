@@ -62,7 +62,8 @@ K promote_float(K a, K b) noexcept {
 }
 
 logos::expected<CtfeValue, CtfeError>
-do_eval(TinyMapView node, MemHolder* h) noexcept;
+do_eval(TinyMapView node, MemHolder* h,
+        ConstResolver* resolver = nullptr) noexcept;
 
 logos::expected<CtfeValue, CtfeError>
 eval_lit_int(TinyMapView node, MemHolder* h) noexcept {
@@ -117,10 +118,10 @@ eval_lit_str(TinyMapView node, MemHolder* h) noexcept {
 }
 
 logos::expected<CtfeValue, CtfeError>
-eval_unary(TinyMapView node, MemHolder* h) noexcept {
+eval_unary(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
     auto op = str_of(node.get(la::OP.code), h);
     auto inner_node = map_of(node.get(la::VALUE.code), h);
-    auto v = do_eval(inner_node, h);
+    auto v = do_eval(inner_node, h, resolver);
     if (!v) return v;
     CtfeValue r = *v;
     if (op == "-") {
@@ -140,13 +141,13 @@ eval_unary(TinyMapView node, MemHolder* h) noexcept {
 }
 
 logos::expected<CtfeValue, CtfeError>
-eval_binop(TinyMapView node, MemHolder* h) noexcept {
+eval_binop(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
     auto op = str_of(node.get(la::OP.code), h);
     auto lhs_n = map_of(node.get(la::LHS.code), h);
     auto rhs_n = map_of(node.get(la::RHS.code), h);
-    auto lv_e = do_eval(lhs_n, h);
+    auto lv_e = do_eval(lhs_n, h, resolver);
     if (!lv_e) return lv_e;
-    auto rv_e = do_eval(rhs_n, h);
+    auto rv_e = do_eval(rhs_n, h, resolver);
     if (!rv_e) return rv_e;
     CtfeValue l = *lv_e, r = *rv_e;
 
@@ -245,23 +246,37 @@ eval_binop(TinyMapView node, MemHolder* h) noexcept {
 }
 
 logos::expected<CtfeValue, CtfeError>
-do_eval(TinyMapView node, MemHolder* h) noexcept {
+do_eval(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
     int32_t c = code_of(node);
     if (c == la::LIT_INT)    return eval_lit_int(node, h);
     if (c == la::LIT_FLOAT)  return eval_lit_float(node, h);
     if (c == la::LIT_BOOL)   return eval_lit_bool(node);
     if (c == la::LIT_STR)    return eval_lit_str(node, h);
-    if (c == la::PAREN_EXPR) return do_eval(map_of(node.get(la::VALUE.code), h), h);
-    if (c == la::UNARY)      return eval_unary(node, h);
-    if (c == la::BINOP)      return eval_binop(node, h);
+    if (c == la::PAREN_EXPR) return do_eval(map_of(node.get(la::VALUE.code), h), h, resolver);
+    if (c == la::UNARY)      return eval_unary(node, h, resolver);
+    if (c == la::BINOP)      return eval_binop(node, h, resolver);
+    // §6.9: path-to-const resolution. A bare IDENT in const-eval
+    // position (`metacall { THRESHOLD + 1 }`) lands as VAR_REF; the
+    // resolver hands us the const's RHS expression node + its
+    // owning holder, and we recurse. Cross-package consts work as
+    // long as the resolver knows about them.
+    if (c == la::VAR_REF && resolver) {
+        AnyVal name_av = node.get(la::NAME.code);
+        std::string_view name = str_of(name_av, h);
+        MemHolder* tgt_holder = h;
+        auto tgt_node = resolver->lookup_const(name, &tgt_holder);
+        if (!tgt_node.is_null())
+            return do_eval(tgt_node, tgt_holder, resolver);
+    }
     return std::unexpected(err("ctfe: expression is not a compile-time constant"));
 }
 
 } // namespace
 
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder) noexcept {
-    return do_eval(node, holder);
+eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
+          ConstResolver* resolver) noexcept {
+    return do_eval(node, holder, resolver);
 }
 
 } // namespace logos::compiler::ctfe

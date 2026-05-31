@@ -44,8 +44,28 @@ struct CtfeValue {
     std::string s;    // Slice<u8> (str literal)
 };
 
+// §6.9: path-to-const resolution. When a bare identifier appears in
+// expression position inside a `metacall { … }` arg or otherwise
+// const-evaluable context, the evaluator looks the name up via this
+// callback; the implementor (sema) supplies the AST node for the
+// const's RHS, which gets recursively evaluated. Returning nullptr
+// (`!`-resolved view) leaves the original "expression is not a
+// compile-time constant" diagnostic in place.
+struct ConstResolver {
+    virtual ~ConstResolver() = default;
+    // Look up `name` and return the RHS expression node + the holder
+    // that owns it (may differ from the caller's holder for cross-
+    // package consts). Returns null view when the name doesn't
+    // resolve to a const-evaluable item.
+    virtual hermes::TinyMapView lookup_const(std::string_view name,
+                                             hermes::MemHolder** out_holder) = 0;
+};
+
 // Evaluate one AST expression node. `holder` is the doc that owns `node`.
+// `resolver` is consulted on VAR_REF nodes (may be null — disables
+// path-to-const resolution).
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder) noexcept;
+eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
+          ConstResolver* resolver = nullptr) noexcept;
 
 } // namespace logos::compiler::ctfe

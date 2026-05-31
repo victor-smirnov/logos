@@ -820,22 +820,34 @@ Verification:
   evaluating to false drops the fn (calling it diagnoses
   "undefined function").
 
-### 6.9. `ConstResolver` seam through `metacall { N }`
+### ~~6.9. `ConstResolver` seam through `metacall { N }`~~ ✅
 *Audit: M (Const-eval), Tier-4 #38 + #39.*
-- **Issue:** path-to-const references inside `metacall { … }` don't
-  fold today — `ctfe::do_eval` is name-blind and can't resolve
-  `MY_CONST` to its value when the value lives in another module.
-  K10-co-06 tracks this.
-- **Why core:** const-eval through the metacall channel is the
-  primary "compile-time computation" surface in Logos (replacing
-  Rust's `const fn`). Without path-to-const folding, const args
-  flow as opaque tokens.
-- **DoD-depth:** `ConstResolver` interface threaded into
-  `ctfe::do_eval(node, ConstResolver*)`; mono passes the
-  `current_consts_` map as the resolver; one-source-of-truth
-  shared with `is_const_evaluable` (Tier-4 #39). Pass test:
-  `metacall { THRESHOLD + 1 }` where `THRESHOLD` is a stdlib
-  const folds correctly.
+**CLOSED 2026-05-31 (Wave 5).** Three pieces:
+1. **`ctfe::ConstResolver` interface** in `src/compiler/ctfe.hpp`:
+   a polymorphic callback the evaluator consults on `VAR_REF`
+   nodes. Implementations return the const's RHS expression node
+   + its owning holder (cross-package consts work as long as the
+   holder is reachable).
+2. **`ctfe::do_eval` threading.** `eval_expr` / `do_eval` /
+   `eval_unary` / `eval_binop` now take an optional
+   `ConstResolver*` (default null = legacy behavior). When set
+   and a VAR_REF reaches the evaluator, it's looked up via the
+   resolver and the returned RHS recurses through do_eval — so
+   chains like `A + B - 1` over multiple consts fold correctly.
+3. **Sema wiring** at both metacall call sites in
+   `sema_expr.cpp` (expression-position `lower_metacall` and the
+   item-position `lower_metacall_item`): a local
+   `SemaConstResolver` over `module_const_values_` — the same map
+   `sema_stmt.cpp::build_pattern_impl` already consumes for §4.4
+   constants-as-patterns — gets passed to `ctfe::eval_expr`.
+   One source of truth for "what counts as a known const".
+
+Verification:
+- `tests/logos/pass/core_6_9_const_resolver_metacall.logos`
+  exercises `metacall { THRESHOLD + 1 }`,
+  `metacall { THRESHOLD * SCALE - OFFSET }`, and
+  `metacall { (THRESHOLD - OFFSET) * (SCALE + 1) }` across three
+  module consts with mixed operators + parens.
 
 ### 6.10. Derive handlers — `Debug`/`PartialEq`/`Eq`/`Default`/`Hash`/`PartialOrd`/`Ord`/`Copy`
 *Audit: J (Macros), L (Attributes), Tier-2 #11.*
@@ -993,8 +1005,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 31 / 37 ✅ closed at DoD-depth (83.8%)** · 0 🟡 partial · 6 ❌ not
-> started. Suite: 5319 / 5319 ✓.
+> **Score: 32 / 37 ✅ closed at DoD-depth (86.5%)** · 0 🟡 partial · 5 ❌ not
+> started. Suite: 5320 / 5320 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -1040,7 +1052,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
-| 6.9 | `ConstResolver` seam through `metacall` | ❌ | not started — Tier-4 #38/#39 |
+| 6.9 | `ConstResolver` seam through `metacall` | ✅ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ — interface in ctfe.hpp + threading through do_eval + sema wiring at both metacall sites |
 | 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
