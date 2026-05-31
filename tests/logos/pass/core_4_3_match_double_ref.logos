@@ -1,27 +1,30 @@
-// logos-core §4.3 (preliminary): match-as-expression auto-deref through
-// arbitrary-depth `&` chains for the disc-only test path (no payload
-// binding extraction). Pre-fix `mlir_gen_expr.cpp` peeled exactly ONE
-// Ref/MutRef/Ptr layer before checking `enum_t.kind() == Enum`, so a
-// `match rr { Some(_) => ..., None => ... }` with `rr: &&Option<T>`
-// fell through to scrut being the OUTER `!llvm.ptr` and the downstream
-// disc compare emitted `arith.cmpi(!llvm.ptr, i64)` — module
-// verification failed with "operand #0 must be signless-integer-like".
+// logos-core §4.3 (finish): match auto-deref + binding extraction through
+// arbitrary-depth `&` chains. End-to-end pipeline:
 //
-// Wave 3 finish: extended the auto-deref loop to peel ALL Ref/MutRef/
-// Ptr layers and emit `via_ref_depth - 1` extra LoadOps before treating
-// the result as the enum-storage pointer. Tested at depths 2 AND 3,
-// plus the `None` arm.
+//   1. SEMA: pat_scrut_ref_depth counts peeled `&`/`&mut` layers; the
+//      binding_types pass wraps the payload type N times (outermost
+//      wrap inherits the strictest "mut-if-any" mutability per Rust's
+//      default binding modes).
 //
-// NOTE: payload BINDING through deep `&`-chains (`Some(z) => *z` where
-// rr: &&Option<i32>; z would need to bind as `&&i32`) is a SEPARATE
-// piece — requires sema's binding_types path to peel + codegen's
-// multi-level binding extraction machinery. That's the §4.3 follow-up
-// session. This test pins the disc-only path which fixes the
-// pre-existing `arith.cmpi(ptr, i64)` codegen bug.
+//   2. CODEGEN pat_test (disc compare): `mlir_gen_stmt.cpp` /
+//      `mlir_gen_expr.cpp` peel arbitrary `&` layers via LoadOp chain
+//      before the GEP+disc-load. Pre-fix only one layer was peeled,
+//      so deeper chains emitted the wrong `arith.cmpi(!llvm.ptr, i64)`.
+//
+//   3. CODEGEN pat_bind (`bind_enum_payload`): for a binding of type
+//      `&&T` (depth N=2), materialize one intermediate stack temp
+//      holding the payload-field address (depth-1 reference), then a
+//      final bind-slot whose value is the address of that temp
+//      (depth-2 reference). Reading the binding loads depth-N; `*z`
+//      peels one layer; `**z` peels the last.
+//
+// Tested at depths 2 and 3 — Some/None disc selection + payload
+// binding extraction with `*(*z)` / `*(*(*z))` derefs reaching the
+// inner i32 value.
 package core_4_3_match_double_ref;
 
 fn main() -> i32 {
-    // Depth-2: `&&Option<i32>` matching `Some(_)`.
+    // Depth-2 disc-only: `&&Option<i32>` matching `Some(_)`.
     let opt: Option<i32> = Some(7i32);
     let r: &Option<i32> = &opt;
     let rr: &&Option<i32> = &r;
@@ -31,13 +34,13 @@ fn main() -> i32 {
     };
     if y != 7i32 { return 1i32; }
 
-    // Depth-3: `&&&Option<i32>` matching `Some(_)`.
+    // Depth-3 disc-only: `&&&Option<i32>` matching `Some(_)`.
     let r3: &&&Option<i32> = &rr;
-    let z: i32 = match r3 {
+    let zd: i32 = match r3 {
         Some(_) => 33i32,
         None => 0i32,
     };
-    if z != 33i32 { return 2i32; }
+    if zd != 33i32 { return 2i32; }
 
     // Depth-2 with `None` arm.
     let none: Option<i32> = None;
@@ -48,6 +51,28 @@ fn main() -> i32 {
         None => 42i32,
     };
     if n != 42i32 { return 3i32; }
+
+    // Depth-2 binding EXTRACTION: `z` binds as `&&i32`; `*(*z)` deref's
+    // through both layers to reach the inner i32 value.
+    let opt2: Option<i32> = Some(15i32);
+    let r1: &Option<i32> = &opt2;
+    let r2: &&Option<i32> = &r1;
+    let bound2: i32 = match r2 {
+        Some(z) => *(*z),
+        None => 0i32,
+    };
+    if bound2 != 15i32 { return 4i32; }
+
+    // Depth-3 binding extraction: `z: &&&i32`; `*(*(*z))` is the i32.
+    let opt3: Option<i32> = Some(99i32);
+    let s1: &Option<i32> = &opt3;
+    let s2: &&Option<i32> = &s1;
+    let s3: &&&Option<i32> = &s2;
+    let bound3: i32 = match s3 {
+        Some(z) => *(*(*z)),
+        None => 0i32,
+    };
+    if bound3 != 99i32 { return 5i32; }
 
     return 0i32;
 }

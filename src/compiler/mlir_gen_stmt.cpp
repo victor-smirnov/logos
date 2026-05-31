@@ -47,16 +47,28 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
 
         // `ref v` / `ref mut v` — sema wraps pvd_binding_types[bi] in
         // Ref/MutRef while the payload type stays bare. Bind the GEP address.
+        // logos-core 4.3 (finish): the binding type may be wrapped MULTIPLE
+        // times (`&&T` / deeper) when match ergonomics flow through a
+        // `&&Option<T>`-style scrutinee. Count the layers via `ref_bind_depth`
+        // so the codegen materializes N-1 intermediate stack temps before
+        // the final binding slot (a depth-N reference is the address of a
+        // slot holding the depth-(N-1) value).
+        int ref_bind_depth = 0;
         bool is_ref_bind = false;
         if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
-            auto ot = TypeRef(pvd_binding_types[bi]);
+            TypeRef walk(pvd_binding_types[bi]);
+            while (walk &&
+                   (walk.kind() == LogosType::Kind::Ref ||
+                    walk.kind() == LogosType::Kind::MutRef) &&
+                   walk.pointee()) {
+                ++ref_bind_depth;
+                walk = walk.pointee();
+            }
             auto pt = lt ? TypeRef(lt) : TypeRef{};
-            bool pvd_is_ref = ot.kind() == LogosType::Kind::Ref ||
-                              ot.kind() == LogosType::Kind::MutRef;
             bool payload_is_ref = pt &&
                 (pt.kind() == LogosType::Kind::Ref ||
                  pt.kind() == LogosType::Kind::MutRef);
-            if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
+            if (ref_bind_depth > 0 && !payload_is_ref) is_ref_bind = true;
         }
         if (is_ref_bind) {
             // G151-1: `ref l` of a STRUCT-typed payload field binds `l : &Struct`.
@@ -66,20 +78,37 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             // ptr-of-ptr alloca with no struct-shape tracking made `l.field`
             // read garbage — the silent miscompile.) Scalar `ref l` keeps the
             // alloca-wrap below so `*l` derefs through one level.
+            //
+            // For depth > 1, materialize (ref_bind_depth - 1) intermediate
+            // stack temps. Each temp holds the previous-layer reference value;
+            // the next temp's value is the address of the previous temp. The
+            // resulting binding-slot's content is a depth-N ref, peeled by
+            // (N) loads at use sites.
             TypeRef pointee = lt ? TypeRef(lt) : TypeRef{};
             bool ref_to_struct = pointee &&
                 (pointee.kind() == LogosType::Kind::Struct ||
                  pointee.kind() == LogosType::Kind::ZonedStruct);
-            if (ref_to_struct) {
+            if (ref_to_struct && ref_bind_depth == 1) {
+                // Depth-1 ref-to-struct: bind fp directly + carry struct shape.
                 scope_[bindings[bi]] = fp;
                 let_vars_.insert(bindings[bi]);
                 var_struct_[bindings[bi]] = mlir_struct_key(lt);
                 added.push_back(bindings[bi]);
                 continue;
             }
-            auto alloca = create_entry_alloca(ptr_type());
-            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-            scope_[bindings[bi]] = alloca;
+            // General path: depth-1 = `alloca holds fp`. Depth-N = chain
+            // (N-1) intermediates + final bind slot. After this loop,
+            // `chain_val` is the depth-N reference value; we store it into
+            // `bind_slot` so reading the binding loads bind_slot → depth-N.
+            mlir::Value chain_val = fp;
+            for (int li = 1; li < ref_bind_depth; ++li) {
+                auto intermediate = create_entry_alloca(ptr_type());
+                builder_.create<mlir::LLVM::StoreOp>(loc_, chain_val, intermediate);
+                chain_val = intermediate;
+            }
+            auto bind_slot = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, chain_val, bind_slot);
+            scope_[bindings[bi]] = bind_slot;
             let_vars_.insert(bindings[bi]);
             var_elem_types_[bindings[bi]] = ptr_type();
             added.push_back(bindings[bi]);
@@ -3036,39 +3065,48 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         int64_t disc = pat.kind() == pc::Code::Variant
             ? lir_view::PatVariantView{pat}.disc()
             : lir_view::PatVariantDataView{pat}.disc();
-        bool via_ref_enum = ty &&
-            (TypeRef(ty).kind() == LogosType::Kind::Ref ||
-             TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(ty).pointee() &&
-            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum;
+        // logos-core 4.3 (finish): peel ALL `&`/`&mut` chain layers to reach
+        // the enum-storage pointer — pre-fix one layer was peeled which
+        // worked for `&Enum` but silently broke for `&&Enum`/deeper (the
+        // disc compare then ran on a ptr-to-ptr instead of the inline
+        // enum's i32 disc field).
+        int enum_ref_depth = 0;
+        TypeRef enum_ty = ty;
+        while (enum_ty &&
+               (TypeRef(enum_ty).kind() == LogosType::Kind::Ref ||
+                TypeRef(enum_ty).kind() == LogosType::Kind::MutRef) &&
+               TypeRef(enum_ty).pointee()) {
+            ++enum_ref_depth;
+            enum_ty = TypeRef(enum_ty).pointee();
+        }
+        bool via_ref_enum = enum_ref_depth > 0 && enum_ty &&
+            TypeRef(enum_ty).kind() == LogosType::Kind::Enum;
+        if (!via_ref_enum) enum_ref_depth = 0;
         // G160-8: resolve the tagged-enum spec off the ENUM type, not the
         // `&Enum` ref wrapper — passing the ref makes resolve_tagged_enum miss
         // the concrete spec (returns null) → the C-like fallback below
         // under-derefs the two-level `&Enum` element → SIGSEGV on a tuple of
         // `&Option<T>`.
-        auto* te = resolve_tagged_enum(ename, via_ref_enum ? TypeRef(ty).pointee() : ty);
+        auto* te = resolve_tagged_enum(ename, via_ref_enum ? enum_ty : ty);
         if (!te) {
-            // C-like enum (all-nullary, no TaggedEnumInfo): the value IS the i32
-            // discriminant — there is no heap struct. Load it and compare to the
-            // variant's disc. Previously this `return true_c()` made the test a
-            // NO-OP → C-like-enum tuple/match elements always-matched → wrong arm
-            // (G155-5(b)). A `&Enum` element is one pointer level deeper.
-            // C-like enum: the value IS the i32 disc. A `&Enum` element holds a
-            // pointer to that i32 — load once more to reach it.
+            // C-like enum (all-nullary, no TaggedEnumInfo): the value IS the
+            // i32 discriminant — there is no heap struct. Peel arbitrary-depth
+            // refs by chaining LoadOps before loading the disc.
             mlir::Value base = slot_ptr;
-            if (via_ref_enum)
-                base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+            for (int li = 0; li < enum_ref_depth; ++li)
+                base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), base);
             auto dv = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), base);
             auto dc = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
             return builder_.create<mlir::arith::CmpIOp>(
                 loc_, mlir::arith::CmpIPredicate::eq, dv, dc);
         }
-        // Enum value-repr: an enum element/field is INLINE — `slot_ptr` IS the
-        // enum-struct storage (one level, like a Struct). A `&Enum` element
-        // holds a pointer to that storage; load once to reach it.
+        // Enum value-repr: an enum element/field is INLINE — `slot_ptr` IS
+        // the enum-struct storage (one level, like a Struct). A `&Enum`
+        // element holds a pointer to that storage; load once per ref layer
+        // to reach the storage.
         mlir::Value enum_ptr = slot_ptr;
-        if (via_ref_enum)
-            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot_ptr);
+        for (int li = 0; li < enum_ref_depth; ++li)
+            enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
         auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, enum_ptr, di);
         auto dv = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
@@ -3289,20 +3327,30 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     case pc::Code::VariantData: {
         lir_view::PatVariantDataView pvd{pat};
         // G160-8: a `&Enum` slot resolves its tagged-enum spec off the ENUM
-        // pointee, not the `&Enum` ref wrapper (else resolve_tagged_enum returns
-        // null and the payload bind silently no-ops / mis-derefs).
-        bool via_ref_enum = ty &&
-            (TypeRef(ty).kind() == LogosType::Kind::Ref ||
-             TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(ty).pointee() &&
-            TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Enum;
+        // pointee, not the `&Enum` ref wrapper (else resolve_tagged_enum
+        // returns null and the payload bind silently no-ops / mis-derefs).
+        // logos-core 4.3 (finish): peel arbitrary-depth `&`/`&mut` chains so
+        // `let Some(z) = rr` where `rr: &&Option<T>` binds `z: &&T`.
+        int enum_ref_depth = 0;
+        TypeRef enum_ty = ty;
+        while (enum_ty &&
+               (TypeRef(enum_ty).kind() == LogosType::Kind::Ref ||
+                TypeRef(enum_ty).kind() == LogosType::Kind::MutRef) &&
+               TypeRef(enum_ty).pointee()) {
+            ++enum_ref_depth;
+            enum_ty = TypeRef(enum_ty).pointee();
+        }
+        bool via_ref_enum = enum_ref_depth > 0 && enum_ty &&
+            TypeRef(enum_ty).kind() == LogosType::Kind::Enum;
+        if (!via_ref_enum) enum_ref_depth = 0;
         auto* te = resolve_tagged_enum(std::string(pvd.enum_name()),
-                                       via_ref_enum ? TypeRef(ty).pointee() : ty);
+                                       via_ref_enum ? enum_ty : ty);
         if (!te) return;
         // Enum value-repr: `slot_ptr` IS the inline enum storage (one level). A
-        // `&Enum` element holds a pointer to it — load once to reach the storage.
+        // `&Enum` element holds a pointer to it — load `enum_ref_depth` times
+        // to reach the storage.
         mlir::Value enum_ptr = slot_ptr;
-        if (via_ref_enum)
+        for (int li = 0; li < enum_ref_depth; ++li)
             enum_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_ptr);
         // Delegate to the canonical full-fidelity payload binder (handles
         // ref-bind, inline struct/tuple/enum payloads, trait-object handles,

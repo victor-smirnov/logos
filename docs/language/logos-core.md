@@ -460,28 +460,55 @@ need today. Verification:
   missing variant → "match is not exhaustive — missing variant(s):
   Blue" diagnostic).
 
-### 4.3. Chained auto-deref in pattern position
+### ~~4.3. Chained auto-deref in pattern position~~ ✅
 *Audit: F (Pattern kinds), audit tier-1 #9.*
-- **Issue:** `match &&Some(x) { Some(x) => … }` doesn't bind `x` through
-  both `&` layers.
-- **Why core:** default-binding-modes ergonomics rule; without it, every
-  use of `match` over a doubly-borrowed value falls back to ad-hoc.
-- **DoD-depth:** scrutinee + pattern paired walk that peels `&` layers
-  in lockstep until shapes align; tested for arbitrary depth.
-- **Wave 3 partial close (disc-only path fixed).** The pre-existing
-  `arith.cmpi(!llvm.ptr, i64)` codegen bug for `match rr { Some(_) => …,
-  None => … }` on `rr: &&Option<T>` is fixed in
-  `mlir_gen_expr.cpp::gen_expr_kind(EMatchView)`: the auto-deref loop
-  now peels ALL Ref/MutRef/Ptr layers (`while`-loop, recording
-  `via_ref_depth`) and emits `via_ref_depth - 1` extra LoadOps before
-  treating the result as the enum-storage pointer. Disc tests work
-  at depth 2 AND 3. Verification:
-  `tests/logos/pass/core_4_3_match_double_ref.logos`. The PAYLOAD
-  BINDING piece (`Some(z) => *z` where rr: `&&Option<i32>`; z would
-  need to bind as `&&i32`) remains the open follow-up — requires
-  sema's `binding_types` peel through arbitrary depth + codegen's
-  multi-level binding extraction (materializing intermediate `&T`
-  temps on the stack) + per-layer mutability tracking.
+**CLOSED 2026-05-30 (Wave 3).** End-to-end pipeline for arbitrary-
+depth `&`/`&mut` chains in pattern position:
+
+- **Sema (`sema_stmt.cpp::build_pattern_variant_data`):**
+  - `pat_scrut_ref_depth: int` counts peeled `&`/`&mut` layers
+    on the scrutinee; `pat_scrut_by_mut` records the strictest
+    mutability seen (any-layer-mut → outermost wrap is `&mut`).
+  - The synth nested-binding type wrap at the inner-pattern site
+    loops `pat_scrut_ref_depth` times instead of one (outermost
+    layer takes the strictest mutability per Rust default binding
+    modes; inner layers stay shared).
+  - The top-level `binding_types` default-ref pass at the
+    `default_ref && binding_from_wild[k]` site mirrors the same
+    N-wrap.
+  - The `enum_scrut` type-arg substitution peel at the L5 site
+    walks `while`-loop instead of one-step so deeper chains
+    resolve the variant payload's TypeVar correctly.
+
+- **Codegen pat_test (`mlir_gen_stmt.cpp::pat_test` + the parallel
+  match-as-expression path in `mlir_gen_expr.cpp`):**
+  - Replaced `via_ref_enum: bool` (single peel) with
+    `enum_ref_depth: int` walking the full ref chain.
+  - Emit `enum_ref_depth` LoadOps before the disc compare (was the
+    `arith.cmpi(!llvm.ptr, i64)` pre-existing bug — fixed in this
+    same wave by commit `96ffd506`).
+  - Same loop for the C-like-enum (no TaggedEnumInfo) fallback —
+    peel extras then load i32 disc.
+
+- **Codegen pat_bind (`mlir_gen_stmt.cpp::bind_enum_payload`):**
+  - `ref_bind_depth: int` counts Ref/MutRef wraps on
+    `pvd_binding_types[bi]` instead of detecting one layer with a
+    bool.
+  - For depth N>=2: chain `N-1` intermediate stack-temp allocas
+    (each holds the previous-layer reference value), then a final
+    `bind_slot` holding the address of the chain. Reading the
+    binding loads the slot → gets a depth-N reference;
+    deref operations peel one layer per `*`.
+
+Verification: `tests/logos/pass/core_4_3_match_double_ref.logos` —
+five sub-tests:
+  1. depth-2 disc-only (`&&Option<i32>` + `Some(_)`/`None`).
+  2. depth-3 disc-only (`&&&Option<i32>`).
+  3. depth-2 `None`-arm.
+  4. depth-2 binding extraction: `Some(z) => *(*z)` where
+     `z: &&i32`; both deref layers reach the inner i32.
+  5. depth-3 binding extraction: `z: &&&i32`; `*(*(*z))` reaches
+     the inner value.
 
 ---
 
@@ -580,8 +607,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 7a. Score (canonical — `/goal` reads this)
 
-> **Score: 20 / 21 ✅ closed at DoD-depth (95.2%)** · 1 🟡 partial · 0 ❌ not
-> started. Suite: 5306 / 5306 ✓.
+> **Score: 21 / 21 ✅ closed at DoD-depth (100%)** · 0 🟡 partial · 0 ❌ not
+> started. Suite: 5307+ / 5307+ ✓.
 >
 > Updated 2026-05-30 (Wave 1 in progress). **Single source of truth for "closed" status — every
 > item's status here MUST match the actual implementation tree.** No item
@@ -609,7 +636,7 @@ core are recorded here with a rationale. Closing items move to a
 | 3.3 | GAT + object-safety | ✅ | `tests/logos/fail/core_3_3_gat_dyn_rejected.logos` ✓ |
 | 4.1 | `is_refutable` single foundation | ✅ | verified-by-suite (predicate `lir_view::is_irrefutable_pattern` consumed by 3 sites) |
 | 4.2 | Match exhaustiveness | ✅ | `tests/logos/pass/core_4_2_match_exhaustiveness.logos` ✓ + `tests/logos/fail/core_4_2_missing_variant.logos` ✓ |
-| 4.3 | Chained auto-deref in pattern position | 🟡 | sema multi-level peel ✓; binding-modes + codegen multi-level load absent |
+| 4.3 | Chained auto-deref in pattern position | ✅ | `tests/logos/pass/core_4_3_match_double_ref.logos` ✓ — sema N-wrap + codegen N-deep load + multi-level binding extraction |
 | 5.1 | Atomics `Ordering` honoured | ✅ | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ — MLIR atomic intrinsics emit `seq_cst` (always-sound); two-thread Release/Acquire test via pthread |
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
 
@@ -992,12 +1019,25 @@ DIVERGENCES.md §A7. New entries close in step with the items above.
   `tests/logos/fail/core_1_4_fnitem_distinct_arms.logos` —
   `let _arr = [add1, sub1];` rejects with
   `expected fn ITEM<add1>(i32) -> i32, got fn ITEM<sub1>(i32) -> i32`.
-- 🟡 **4.3** ESCALATED. Chained autoderef in pattern position: sema
-  multi-level peel + binding_types peel works in isolation, but
-  codegen has 6 `via_ref_enum` sites all hardcoded to one level,
-  AND `&&Enum` shape triggers a pre-existing null-check on
-  `!llvm.ptr` outside the via_ref code path. Multi-level codegen
-  + binding extraction machinery is its own focused session.
+- ~~**4.3**~~ ✅ Chained auto-deref in pattern position — full
+  end-to-end through arbitrary depth (was escalated mid-wave;
+  follow-up session landed in the same wave after the cmpi/ptr
+  fix at `mlir_gen_expr.cpp` cleared the way). Pipeline:
+  - Sema `build_pattern_variant_data` tracks `pat_scrut_ref_depth`
+    + any-layer-mut; nested-binding type wrap and top-level
+    binding_types pass both loop N times instead of one.
+  - Codegen `pat_test` (mlir_gen_stmt.cpp variant + mlir_gen_expr.cpp
+    match-as-expr) replaces the `via_ref_enum: bool` single-peel
+    with `enum_ref_depth: int` chained LoadOps before the disc
+    compare — fixes the pre-existing `arith.cmpi(!llvm.ptr, i64)`
+    bug for `match &&Enum`.
+  - Codegen `bind_enum_payload` materializes (N-1) intermediate
+    stack temps + a final bind-slot so `Some(z) => *(*z)` over
+    `&&Option<i32>` binds `z: &&i32` and the deref operations
+    correctly peel each layer.
+  Verification: `tests/logos/pass/core_4_3_match_double_ref.logos`
+  with five sub-tests (depth-2 disc, depth-3 disc, None-arm,
+  depth-2 binding extraction, depth-3 binding extraction).
 - ~~**3.2**~~ ✅ `?Sized` / `Sized` invariants. Verified the
   pipeline is already in place — classification on TypeParam, Sized
   enforcement at substitution sites (`sema_expr.cpp:3415` /

@@ -2914,12 +2914,27 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         }
     }
     // True when the scrutinee is by-reference (match ergonomics): a nested
-    // payload binding then binds by-ref (two-level), so synth types wrap in &.
-    bool pat_scrut_by_ref = scrut_type &&
-        (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
-         TypeRef(scrut_type).kind() == LogosType::Kind::MutRef);
-    bool pat_scrut_by_mut = scrut_type &&
-        TypeRef(scrut_type).kind() == LogosType::Kind::MutRef;
+    // payload binding then binds by-ref, so synth types wrap in &.
+    // logos-core 4.3 (finish): track FULL peel depth + any-layer-mut so
+    // binding types through arbitrary-depth &/&mut chains wrap correctly.
+    // `pat_scrut_by_ref`/`pat_scrut_by_mut` retain their boolean semantics
+    // (any depth ≥ 1 / any layer mut) for sites that only need the
+    // qualitative answer; `pat_scrut_ref_depth` is the count used by
+    // binding-type N-wrapping below.
+    int  pat_scrut_ref_depth = 0;
+    bool pat_scrut_by_ref = false;
+    bool pat_scrut_by_mut = false;
+    {
+        TypeRef t = scrut_type;
+        while (t && (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                     TypeRef(t).kind() == LogosType::Kind::MutRef) &&
+               TypeRef(t).pointee()) {
+            if (TypeRef(t).kind() == LogosType::Kind::MutRef) pat_scrut_by_mut = true;
+            ++pat_scrut_ref_depth;
+            t = TypeRef(t).pointee();
+        }
+        pat_scrut_by_ref = pat_scrut_ref_depth > 0;
+    }
     auto pat_field_type = [&](size_t idx) -> TypeRef {
         if (!vinfo || idx >= vinfo->payload_types.size()) return error_t();
         auto pt = vinfo->payload_types[idx];
@@ -2999,7 +3014,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 // (default binding modes handle that), matching the pattern
                 // binding type the binding_types pass assigns to this synth.
                 if (pat_scrut_by_ref && rt && TypeRef(rt).kind() != LogosType::Kind::Error) {
-                    rt = make_ref(pat_scrut_by_mut, rt);
+                    // logos-core 4.3: wrap N times for arbitrary-depth
+                    // scrutinees. Outermost layer carries the strictest
+                    // (mut-if-any) mutability; inner layers stay shared
+                    // (Rust's default binding modes — the outer-most
+                    // binding-mode determines the binding's mutability).
+                    for (int li = 0; li < pat_scrut_ref_depth; ++li)
+                        rt = make_ref(li == pat_scrut_ref_depth - 1 ? pat_scrut_by_mut : false, rt);
                     synth_wants_ref = true;
                 }
                 std::vector<lir::LExprPtr> inner_guards;
@@ -3467,12 +3488,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // for binding types needs the same unwrap so `match &opt {
         // Some(ref v) => *v }` over `&Option<i64>` binds `v: &i64`
         // (and `*v` → `i64`) instead of `v: T` (typevar).
+        // logos-core 4.3 (finish): peel ALL Ref/MutRef/Ptr layers
+        // (`&&Option<T>` and deeper) — match ergonomics through arbitrary
+        // depth.
         TypeRef enum_scrut = scrut_type;
-        if (enum_scrut &&
-            (TypeRef(enum_scrut).kind() == LogosType::Kind::Ref ||
-             TypeRef(enum_scrut).kind() == LogosType::Kind::MutRef ||
-             TypeRef(enum_scrut).kind() == LogosType::Kind::Ptr) &&
-            TypeRef(enum_scrut).pointee())
+        while (enum_scrut &&
+               (TypeRef(enum_scrut).kind() == LogosType::Kind::Ref ||
+                TypeRef(enum_scrut).kind() == LogosType::Kind::MutRef ||
+                TypeRef(enum_scrut).kind() == LogosType::Kind::Ptr) &&
+               TypeRef(enum_scrut).pointee())
             enum_scrut = TypeRef(enum_scrut).pointee();
         if (enum_scrut &&
             TypeRef(enum_scrut).kind() == LogosType::Kind::Enum &&
@@ -3541,11 +3565,13 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // same generic's type-arg → unbounded `&mut`-wrapping instantiation
     // (`OptionIter<&mut &mut … T>`, depth-limit blow-up). Needs a
     // self-referential guard before enabling — see plan-default-binding-modes.
-    bool default_ref = scrut_type &&
-        (TypeRef(scrut_type).kind() == LogosType::Kind::Ref ||
-         TypeRef(scrut_type).kind() == LogosType::Kind::MutRef);
-    bool default_mut = scrut_type &&
-        TypeRef(scrut_type).kind() == LogosType::Kind::MutRef;
+    // logos-core 4.3 (finish): the default-binding-mode wrap counts ALL ref
+    // layers in the scrutinee, not just the outermost. `pat_scrut_ref_depth`
+    // already tracks the count; `pat_scrut_by_mut` records the strictest
+    // (mut-if-any) mutability.
+    bool default_ref = pat_scrut_by_ref;
+    bool default_mut = pat_scrut_by_mut;
+    int  default_depth = pat_scrut_ref_depth;
     for (size_t k = 0; k < binding_types.size(); ++k) {
         if (!binding_types[k]) continue;
         bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
@@ -3567,7 +3593,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             // operator auto-deref isn't implemented). Under a `&mut` scrutinee
             // a CONCRETE payload (incl. Copy) is auto-`&mut`-bound so write-back
             // `*v = …` works — matching Rust ergonomics; reads then use `*v`.
-            binding_types[k] = make_ref(default_mut, binding_types[k]);
+            // logos-core 4.3: wrap N times to match the scrutinee's ref-chain
+            // depth (the outermost layer takes the strictest mutability).
+            for (int li = 0; li < default_depth; ++li)
+                binding_types[k] = make_ref(
+                    li == default_depth - 1 ? default_mut : false,
+                    binding_types[k]);
         }
     }
     auto mo = lir_mirror_emit_pat_variant_data(
