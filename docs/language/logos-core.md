@@ -852,19 +852,26 @@ if-arm position with mixed integer arms.
   `RangeI32`/`RangeI64` become aliases or `Range<i32>`/`Range<i64>`
   instantiations. Pass tests across the 6 forms.
 
-### 6.13. `DerefMut`-driven autoderef for `&mut self` methods
+### ~~6.13. `DerefMut`-driven autoderef for `&mut self` methods~~ ✅
 *Audit: E (Expressions / method dispatch), B (Type system), Tier-2 #16.*
-- **Issue:** `box_ref.method()` auto-derefs through `Deref` for
-  `&self` methods but not through `DerefMut` for `&mut self`
-  methods. `let mut b = Box::new(Vec::new()); b.push(1);` fails
-  unless explicit `(*b).push(1)`.
-- **Why core:** standard ergonomics for smart-pointer receivers
-  (Box/Rc/Arc). Autoderef chain symmetry — `Deref` for shared,
-  `DerefMut` for mut, parallel.
-- **DoD-depth:** `lookup_method_with_autoderef` chains through
-  `DerefMut` when the receiver is mut-borrowable and the candidate
-  method takes `&mut self`. Targeted pass test:
-  `Box<Vec<i32>>::push` resolves automatically.
+**CLOSED 2026-05-31 (Wave 5).** The method-autoderef loop at
+`sema_expr.cpp:6121` now picks the right deref shape per step.
+At each iteration we probe the Deref target type for any method
+named `method_name` whose first parameter is `&mut Self`; if one
+exists, `emit_generic_deref_step` is called with `want_mut=true`
+(falling back to `Deref` if the type lacks `DerefMut`). This
+preserves the existing shared-borrow chain for `&self` methods
+(`b.length()`, `b.iter()`, ...) while routing `b.push(...)` /
+`b.insert(...)` / similar through `Box::deref_mut` so the
+receiver is the proper `&mut Vec<i32>` instead of the previously
+silently-coerced `&Vec<i32>` (which would've mutated through a
+shared borrow). MLIR confirms the dispatch: same `Box<Vec<i32>>`
+emits `Box.deref_mut` before `Vec.push` and `Box.deref` before
+`Vec.length`.
+Verification: `tests/logos/pass/core_6_13_derefmut_autoderef.logos`
+exercises `Box<Vec<i32>>::push` + `Box<Vec<i32>>::borrow` + length
+on the same receiver — both mutating and immutable sides of the
+chain hit in one body.
 
 ### 6.14. Atomics per-variant `Ordering` lowered to MLIR (finish §5.1)
 *Audit: G (Memory model), N (FFI), Tier-2 #17 + §5.1 follow-up.*
@@ -925,8 +932,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 27 / 37 ✅ closed at DoD-depth (73.0%)** · 0 🟡 partial · 10 ❌ not
-> started. Suite: 5313 / 5313 ✓.
+> **Score: 28 / 37 ✅ closed at DoD-depth (75.7%)** · 0 🟡 partial · 9 ❌ not
+> started. Suite: 5314 / 5314 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -976,7 +983,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
-| 6.13 | `DerefMut` autoderef for `&mut self` methods | ❌ | not started — Tier-2 #16 |
+| 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |
 | 6.14 | Atomics per-variant Ordering threaded to MLIR | ❌ | not started — Tier-2 #17 + §5.1 follow-up |
 
 **`/goal` convergence rule:** target = first column count where Status = ✅

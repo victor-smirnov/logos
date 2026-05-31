@@ -6110,14 +6110,47 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
-    // Method autoderef through a user `Deref` impl: if the receiver is a
-    // struct with no DIRECT method `method_name` but it impls `Deref<Target>`,
-    // deref to `Target` and retry — Rust performs this as part of method
-    // resolution. Bounded loop (deref chains terminate; the cap guards against
-    // pathological cycles). Only fires when no direct method exists, so a
-    // method defined on the outer type always wins. Uses the immutable
-    // `Deref` (the surfaced cases are all `&self` calls); `DerefMut` for
-    // `&mut self` method autoderef is a separate follow-up.
+    // Method autoderef through a user `Deref` / `DerefMut` impl: if the
+    // receiver is a struct with no DIRECT method `method_name` but it
+    // impls `Deref<Target>`, deref to `Target` and retry. Rust performs
+    // this as part of method resolution. Bounded loop (deref chains
+    // terminate; the cap guards against pathological cycles). Only
+    // fires when no direct method exists, so a method defined on the
+    // outer type always wins.
+    //
+    // §6.13: per-step DerefMut detection. At each iteration we peek
+    // one step ahead: if the Deref target has a candidate method named
+    // `method_name` whose first parameter is `&mut Self`, use the
+    // `DerefMut` step at THIS level so the resulting receiver is the
+    // mutable place (not the &Target that immutable Deref would
+    // produce). For each level we look for methods on the immediate
+    // target after a single Deref probe — sufficient for the
+    // Box<Vec<T>>::push / Box<HashMap<K,V>>::insert / etc. shapes.
+    // Soundness: passing a &Target (Deref result) to a method that
+    // takes &mut Self would silently mutate through a shared borrow
+    // (UB shape); routing through DerefMut keeps the mutable-borrow
+    // discipline intact.
+    auto target_method_wants_mut_self = [&](TypeRef target_t,
+                                            std::string_view m) -> bool {
+        if (!target_t) return false;
+        TypeRef tr(target_t);
+        if (tr.kind() != LogosType::Kind::Struct &&
+            tr.kind() != LogosType::Kind::ZonedStruct) return false;
+        std::string sn  = concrete_struct_name(target_t);
+        std::string sb  = std::string(tr.struct_name());
+        auto probe_cands = [&](const std::string& key) -> bool {
+            auto cands = find_func_candidates(key);
+            for (auto* fi : cands) {
+                if (!fi || fi->param_types.empty()) continue;
+                TypeRef p0(fi->param_types[0]);
+                if (p0.kind() == LogosType::Kind::MutRef) return true;
+            }
+            return false;
+        };
+        if (probe_cands(sn + "__" + std::string(m))) return true;
+        if (!sb.empty() && probe_cands(sb + "__" + std::string(m))) return true;
+        return false;
+    };
     for (int deref_guard = 0; deref_guard < 16; ++deref_guard) {
         TypeRef rt = recv->type;
         if (TypeRef(rt).kind() != LogosType::Kind::Struct) break;
@@ -6127,9 +6160,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         bool direct = !find_func_candidates(sname_d + "__" + m).empty() ||
                       (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty());
         if (direct) break;
-        // Generic-aware deref step (works for generic Box/Rc/Arc impls, whose
-        // `deref` is not a concrete symbol at sema, AND for non-generic ones).
-        auto stepped = emit_generic_deref_step(recv, /*want_mut=*/false);
+        // Peek the Deref target type without committing — probe whether
+        // it has a candidate method that requires &mut self. If yes,
+        // and the receiver type also impls DerefMut, take the mutable
+        // step (emit_generic_deref_step falls back to Deref if there's
+        // no DerefMut impl, so an over-eager `want_mut=true` is safe).
+        TypeRef probe_target = nullptr;
+        if (auto sname_view = concrete_struct_name(rt);
+            !sname_view.empty())
+        {
+            std::string base   = std::string(TypeRef(rt).struct_name());
+            auto it = impls_.find(std::string("Deref::") + sname_view);
+            if (it == impls_.end()) it = impls_.find(std::string("Deref::") + base);
+            if (it != impls_.end() && !it->second.trait_type_args.empty()) {
+                probe_target = it->second.trait_type_args[0];
+                if (it->second.target_typeref) {
+                    logos::compiler::StrMap<TypeRef> binds;
+                    unify_types(it->second.target_typeref, rt, binds);
+                    SemaSubst s(binds.begin(), binds.end());
+                    probe_target = subst_type_sema(probe_target, s);
+                }
+            }
+        }
+        bool want_mut = target_method_wants_mut_self(probe_target, m);
+        auto stepped = emit_generic_deref_step(recv, want_mut);
         if (!stepped) break;
         recv = *stepped;
     }

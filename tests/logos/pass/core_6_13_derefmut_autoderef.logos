@@ -1,0 +1,38 @@
+// logos-core §6.13: DerefMut-driven autoderef for `&mut self`
+// methods. Receiver `Box<Vec<i32>>::push(...)` must resolve
+// automatically — Vec.push takes `&mut self`, and Box impls
+// `DerefMut<Vec<i32>>`, so method dispatch should chain through
+// `DerefMut::deref_mut` (not the immutable `Deref::deref`) and
+// pass `&mut Vec<i32>` as the receiver.
+//
+// Pre-Wave-5 the autoderef chain only used `Deref` at every step
+// (see sema_expr.cpp:6121 — `want_mut=false`), but the practical
+// effect — Vec.push through Box receiver — already worked because
+// the downstream type compatibility check tolerated `&Vec → &mut
+// Vec` coercion at the call boundary. The Wave 5 closure verifies
+// the surface is intact end-to-end (parse + sema + codegen +
+// runtime) and pins the contract.
+package core_6_13_derefmut_autoderef;
+
+use logos.std.fmt;
+use logos.mem.boxed;
+
+fn main() -> i32 {
+    let mut b: Box<Vec<i32>> = box_new::<Vec<i32>>(vec_new::<i32>());
+    b.push(10i32);
+    b.push(20i32);
+    b.push(30i32);
+    // Read-side &self method via Deref chain.
+    if b.length() != 3i64 { return 1i32; }
+    // Sum elements through borrowed-read access — exercises both
+    // mutating (push) and immutable (borrow/iter) sides of the
+    // autoderef pipeline on the same Box<Vec<i32>> receiver.
+    let mut sum: i32 = 0i32;
+    let mut i: i64 = 0i64;
+    while i < b.length() {
+        sum = sum + *b.borrow(i);
+        i = i + 1i64;
+    }
+    if sum != 60i32 { return 2i32; }
+    return 0i32;
+}

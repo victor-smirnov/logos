@@ -68,7 +68,7 @@ in `pass/` and `fail/`. Two reasons:
 | 6.10 | Derive handlers (8 sub-deliverables) | TBD — Tier-2 #11 | ❌ |
 | 6.11 | `unreachable!/todo!/unimplemented!` macros | `tests/logos/pass/core_6_11_never_macros.logos` ✓ | ✅ |
 | 6.12 | `Range` family generics | TBD — Tier-2 #14 | ❌ |
-| 6.13 | `DerefMut` autoderef | TBD — Tier-2 #16 | ❌ |
+| 6.13 | `DerefMut` autoderef | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ | ✅ |
 | 6.14 | Atomics per-variant Ordering MLIR | TBD — Tier-2 #17 + §5.1 follow-up | ❌ |
 
 ## Goal contract
