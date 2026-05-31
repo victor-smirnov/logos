@@ -1,0 +1,13 @@
+// logos-core §4 — Or-pattern in match arm: `1 | 2 | 3 => …` matches
+// any alternative. Pinpoint the single refutability predicate's
+// treatment of multi-disc arms.
+package core_4_1_or_pattern_match;
+fn main() -> i32 {
+    let x: i32 = 2i32;
+    let r: i32 = match x {
+        1i32 | 2i32 | 3i32 => 100i32,
+        _ => 200i32,
+    };
+    if r != 100i32 { return 1i32; }
+    return 0i32;
+}

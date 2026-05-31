@@ -1,0 +1,13 @@
+// logos-core §4 — record-form variant pattern `Shape::Circle { r }`.
+// Different lowering from tuple-form variant `Some(x)`.
+package core_4_1_variant_record_payload;
+enum Shape { Circle { r: i32 }, Square { side: i32 } }
+fn main() -> i32 {
+    let s: Shape = Shape::Circle { r: 7i32 };
+    let r: i32 = match s {
+        Shape::Circle { r } => r,
+        Shape::Square { side } => side * 4i32,
+    };
+    if r != 7i32 { return 1i32; }
+    return 0i32;
+}

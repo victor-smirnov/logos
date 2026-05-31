@@ -1,0 +1,10 @@
+// logos-core §4 — tuple-struct destructure pattern `Pair(a, b)`.
+// Different sema path from named-field struct pattern.
+package core_4_1_tuple_struct_pat;
+struct Pair(i32, i32);
+fn main() -> i32 {
+    let p: Pair = Pair(3i32, 4i32);
+    let Pair(a, b) = p;
+    if a + b != 7i32 { return 1i32; }
+    return 0i32;
+}

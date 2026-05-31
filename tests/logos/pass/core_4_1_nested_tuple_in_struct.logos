@@ -1,0 +1,13 @@
+// logos-core §4 — nested tuple sub-pattern inside struct pattern.
+// Exercises tuple-element extraction underneath struct-field GEP
+// (the same code path the §6.1 nested struct fix unified).
+package core_4_1_nested_tuple_in_struct;
+struct S { t: (i32, i32), x: i32 }
+fn main() -> i32 {
+    let s: S = S { t: (3i32, 4i32), x: 5i32 };
+    let r: i32 = match s {
+        S { t: (a, b), x } => a + b + x,
+    };
+    if r != 12i32 { return 1i32; }
+    return 0i32;
+}

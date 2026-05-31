@@ -1,0 +1,13 @@
+// logos-core §4 — at-binding `v @ subpat` binds `v` to the matched
+// value while also testing the sub-pattern. Combines refutable test
+// (range) with irrefutable binding.
+package core_4_1_at_binding;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: i32 = match x {
+        v @ 1i32..=10i32 => v * 2i32,
+        _ => 0i32,
+    };
+    if r != 10i32 { return 1i32; }
+    return 0i32;
+}

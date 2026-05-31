@@ -1,0 +1,11 @@
+// logos-core §4 — slice pattern with rest binding `[first, .., last]`.
+// Catches first + last elements; .. discards the middle.
+package core_4_1_slice_with_rest;
+fn main() -> i32 {
+    let arr: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
+    let r: i32 = match arr {
+        [first, .., last] => first + last,
+    };
+    if r != 50i32 { return 1i32; }
+    return 0i32;
+}

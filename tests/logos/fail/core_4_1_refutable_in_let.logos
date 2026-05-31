@@ -1,0 +1,10 @@
+// logos-core §4.1 — refutability gate: `let E::A(x) = e;` (refutable
+// shape) in an irrefutable let position must be rejected. Use
+// `let-else` or `match` instead. Pin the diagnostic.
+package core_4_1_refutable_in_let;
+enum E { A(i32), B }
+fn main() -> i32 {
+    let e: E = E::A(5i32);
+    let E::A(x) = e;
+    return x;
+}

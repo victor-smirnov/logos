@@ -1,0 +1,12 @@
+// logos-core §4 — closed-range pattern `a..=b` matches the inclusive
+// interval. Mirrors Rust `RangeInclusivePattern`.
+package core_4_1_range_inclusive;
+fn main() -> i32 {
+    let x: i32 = 7i32;
+    let r: i32 = match x {
+        1i32..=10i32 => 100i32,
+        _ => 200i32,
+    };
+    if r != 100i32 { return 1i32; }
+    return 0i32;
+}

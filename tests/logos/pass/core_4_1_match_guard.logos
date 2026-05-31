@@ -1,0 +1,12 @@
+// logos-core §4 — match arm guard: `n if n > 0 => …`. Exhaustiveness
+// already excludes guards from the covered set (§4.2 closure note).
+package core_4_1_match_guard;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r: i32 = match x {
+        n if n > 0i32 => n * 10i32,
+        _ => 0i32,
+    };
+    if r != 50i32 { return 1i32; }
+    return 0i32;
+}
