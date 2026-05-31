@@ -635,6 +635,43 @@ Tier-1/2/3/4 NOT-yet-in-core.
   node; layout = max-of-fields aligned to max-alignment; field
   access requires `unsafe` block; targeted pass test (parse +
   unsafe-field-read works) + fail test (safe-field-read rejects).
+- **Status (2026-05-30 Wave 4): ESCALATED for dedicated session.**
+  The pipeline is genuinely 6 files (lexer KW_UNION + grammar
+  `union_def` + schema `UNION_DEF` + sema `LUnionDef` collection +
+  mlir-gen max-of-fields layout + sema_expr unsafe-gate on field
+  read) plus pass/fail tests. Each step is well-scoped but the
+  combination touches enough surface area that doing it as a side
+  item under Wave 4's other 5 closures would risk a half-baked
+  landing — exactly the `[[feedback_workaround_is_temporary_scaffold]]`
+  pattern we're trying to avoid. The hand-off:
+  - Token: add `KW_UNION = "union"` parallel to `KW_STRUCT` at
+    `tools/peg_gen/grammars/logos.peg:326`.
+  - Schema: add `UNION_DEF` code in the LIR codes table parallel
+    to `STRUCT_DEF`; mirror the field shape (no methods, no tuple
+    form, no metaprog NAME_VAR — union is simpler).
+  - Grammar: `union_def <- KW_UNION IDENT type_param_list? LBRACE
+    field_def_or_doc* RBRACE => { CODE: UNION_DEF, NAME: $2,
+    TYPE_PARAMS: $3, FIELDS: $5 }` + `pub_union_def` sibling.
+    Hook into the top-level item dispatch alongside `struct_def`.
+  - Sema: `collect_unions` in `sema_decl.cpp` mirrors
+    `collect_structs` but sets `Type.is_union = true`; reuse
+    `LStructDef` storage for fields, no methods slot.
+  - Layout: in mlir-gen's struct layout computation, branch on
+    `is_union`: size = max(field.size), align = max(field.align),
+    each field overlaps at offset 0. Drop is field-by-field
+    impossible (no tag) — emit a diagnostic that `Drop` for union
+    requires a manual `impl`, like Rust.
+  - Unsafe gate: in `sema_expr.cpp` field-access path, after
+    resolving the struct/union containing the field, if
+    `containing.is_union`, require enclosing `unsafe` scope (reuse
+    the existing `in_unsafe_block_` flag the unsafe-fn-call site
+    already consults).
+  - Tests:
+    `tests/logos/pass/core_6_1_union_unsafe_read.logos` — declare
+    `union U { i: i32, f: f32 }`, write `i`, read inside `unsafe`
+    block, verify reinterpretation. `tests/logos/fail/core_6_1_
+    union_field_read_safe.logos` — read outside `unsafe` rejects
+    with "field access on `union` requires `unsafe` block".
 
 ### ~~6.2. `static` / `static mut` distinct from `const`~~ ✅ (partial — `static`)
 *Audit: C (Items), G (Memory and safety), M (Const-eval), Tier-3 #24.*
@@ -914,7 +951,7 @@ core are recorded here with a rationale. Closing items move to a
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
 | 4.4 | `PAT_PATH` constants-as-patterns | ✅ | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ — already wired at `sema_stmt.cpp:4582-4607` (P4-pm-06) |
 | 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
-| 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
+| 6.1 | `union` item — parse + layout | ❌ | escalated 2026-05-30 (Wave 4) — pipeline hand-off recorded in §6.1 body |
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if/while/match | ❌ | not started — Tier-3 #18 |
