@@ -778,42 +778,39 @@ with happy-path + first-bind-fail + second-bind-fail cases.
 let-chain. Both follow the same grammar+sema pattern but extend
 different productions; left for a follow-up slice.
 
-### 6.5. `?` operator on `Try` / `FromResidual`
+### ~~6.5. `?` operator on `Try` / `FromResidual`~~ ✅
 *Audit: E (Expressions), C (Trait), Tier-2 #15.*
-- **Issue:** today `?` is hardcoded to match `Ok`/`Err`/`Some`/`None`
-  by callee-name. User types can't implement `?`; Rust's `Try` /
-  `FromResidual` trait surface is absent.
-- **Why core:** `?` is the canonical error-propagation contract.
-  Hardcoding by name is a long-standing parity divergence.
-- **DoD-depth:** stdlib lang-item traits `Try` + `FromResidual`;
-  sema lowers `?` to a call through the resolved `Try::branch` +
-  early-return through `FromResidual::from_residual`; ported
-  Result/Option still pass; `impl Try for MyType` pass test.
-- **Status (2026-05-31 Wave 5): ESCALATED.** L-effort: two new
-  stdlib lang-item traits (`Try`, `FromResidual`) with their
-  `branch` / `from_residual` methods, an associated `Residual`
-  type, a `ControlFlow<B, C>` enum, plus a sema refactor at the
-  `?` lowering site to dispatch through the trait machinery
-  instead of the current name-based switch. The blanket impls
-  for stdlib `Result<T, E>` and `Option<T>` need to keep the
-  existing behavior bit-exact so no port regresses. Plan
-  outline for Wave 6:
-  1. Add `pub trait Try { type Output; type Residual;
-     fn branch(self) -> ControlFlow<Self::Residual, Self::Output>; }`
-     and `pub trait FromResidual<R = <Self as Try>::Residual> {
-     fn from_residual(r: R) -> Self; }` in `stdlib/lang/control_flow/`.
-  2. Add `pub enum ControlFlow<B, C> { Continue(C), Break(B) }`.
-  3. Wire `impl Try for Result<T, E>` and `impl Try for
-     Option<T>` (with `Residual = Result<core::convert::Infallible, E>`
-     mirror for Result, `Residual = Option<core::convert::Infallible>`
-     for Option), and `impl<T, E> FromResidual for Result<T, E>`
-     etc.
-  4. Refactor `lower_postfix_qmark` (or whichever sema site
-     handles `?`) to lower as:
-     `match Try::branch(e) { Continue(c) => c,
-                              Break(r)    => return FromResidual::from_residual(r) }`.
-  5. Pass test: a user `impl Try for MyType { … }` that round-
-     trips through `?` in a fn that returns `Result<U, MyType::Residual>`.
+**CLOSED 2026-05-31 (Wave 7).** Three pieces:
+1. **`stdlib/lang/control_flow/control_flow.logos`** — new
+   `ControlFlow<B, C>` enum (Continue/Break) with `is_continue`
+   / `is_break` predicates.
+2. **`stdlib/lang/try_trait/try_trait.logos`** — `Try<Continue,
+   Residual>` trait (`fn branch(self) -> ControlFlow<Residual,
+   Continue>`) and `FromResidual<R>` trait (`fn from_residual(r:
+   R) -> Self`). Slice 1 uses free generic params for Continue
+   and Residual rather than associated types (Logos's associated-
+   types-in-`?`-lowering wiring is P-trait-04, a separate slice).
+3. **Sema dispatch** at `sema_expr.cpp::TRY_EXPR`: the inner-
+   enum-name match for `Result` / `Option` keeps its legacy
+   fast-path (no Wave-pre-existing test regresses). When the
+   inner type isn't either, `?` lowers as
+       match (inner).branch() {
+           ControlFlow::Continue(__c) => __c,
+           ControlFlow::Break(__r) =>
+               return <RetType>::from_residual(__r),
+       }
+   The `RetType` is rendered from the current fn's `ret_type_`
+   so `from_residual`'s receiver is explicit (Logos's trait
+   method dispatch needs Self made explicit). User types opt-in
+   to `?` by implementing `Try` for their value type and
+   `FromResidual<R>` for the outer fn's return type.
+
+Verification: `tests/logos/pass/core_6_5_try_on_user_type.logos`
+exercises a `Wrap { v: i32 }` value type with `impl Try<i32,
+WrapErr> for Wrap` (split by sign) and `impl FromResidual<WrapErr>
+for i32` (synth `-1`). Both happy-path and early-return cases
+verified at runtime. Result/Option `?` unchanged — 64 stdlib
+match/qmark tests pass without regression.
 
 ### ~~6.6. `lookup_qualified_` bare-key fallback tightening~~ ✅
 *Audit: I (Modules/visibility), Tier-1 #7.*
@@ -1166,9 +1163,9 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 34 / 37 ✅ closed at DoD-depth (91.9%)** · 0 🟡 partial · 3 ❌ not
-> started (§6.5 ?-on-Try, §6.10 derive(Default)+derive(Debug) partial 6/8,
-> §6.12 Range generics). Suite: 5328+ / 5328+ ✓.
+> **Score: 35 / 37 ✅ closed at DoD-depth (94.6%)** · 0 🟡 partial · 2 ❌ not
+> started (§6.10 derive(Default)+derive(Debug) partial 6/8, §6.12 Range generics).
+> Suite: 5331+ / 5331+ ✓.
 >
 > Wave 5 closures (6 of the originally-listed 10 + 1 escalation): 6.11,
 > 6.13, 6.8, 6.14, 6.7 (parse half), 6.9. Closing the remaining items
@@ -1216,7 +1213,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if (if-form) | ✅ | `tests/logos/pass/core_6_4_let_chain.logos` ✓ — grammar + desugar via `lower_reparsed_tail_expr` with `0i32` synth-tail trick; while-let and match-guard chain forms are a follow-up slice |
-| 6.5 | `?` on `Try` / `FromResidual` | ❌ | escalated 2026-05-31 (Wave 5) — L-effort; 5-step plan in §6.5 body |
+| 6.5 | `?` on `Try` / `FromResidual` | ✅ | `tests/logos/pass/core_6_5_try_on_user_type.logos` ✓ — stdlib Try/FromResidual/ControlFlow + sema trait dispatch via render+reparse |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |

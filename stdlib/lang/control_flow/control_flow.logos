@@ -1,0 +1,32 @@
+// Logos standard library — logos.lang.control_flow
+//
+// `ControlFlow<B, C>` — Rust's two-state control-flow signal type
+// (Break vs Continue). Used as the return type of `Try::branch`:
+// the `?` operator desugars to a match on the Continue/Break
+// variants — Continue extracts the success value, Break early-
+// returns via FromResidual.
+//
+// §6.5 sub-deliverable 1/2 (paired with the Try / FromResidual
+// trait surface in `stdlib/lang/try_trait/`).
+
+package logos.lang.control_flow;
+
+pub enum ControlFlow<B, C> {
+    Continue(C),
+    Break(B),
+}
+
+impl<B, C> ControlFlow<B, C> {
+    pub fn is_continue(&self) -> bool {
+        match self {
+            ControlFlow::Continue(_) => { return true; }
+            ControlFlow::Break(_)    => { return false; }
+        }
+    }
+    pub fn is_break(&self) -> bool {
+        match self {
+            ControlFlow::Continue(_) => { return false; }
+            ControlFlow::Break(_)    => { return true; }
+        }
+    }
+}

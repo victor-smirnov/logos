@@ -874,8 +874,33 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                          && TypeRef(inner_t).enum_name() == "Option"
                          && TypeRef(inner_t).type_args().size() >= 1;
         if (!is_result && !is_option) {
-            error("'?' operator requires a Result<T, E> or Option<T> expression");
-            return error_expr();
+            // §6.5: trait-based ? dispatch. The inner type isn't a
+            // stdlib Result/Option; route through the Try /
+            // FromResidual trait surface. Lower as
+            //   match (<inner>).branch() {
+            //       ControlFlow::Continue(__c) => __c,
+            //       ControlFlow::Break(__r) =>
+            //           return <RetType>::from_residual(__r),
+            //   }
+            // The RetType is rendered from the current fn's
+            // ret_type_ so `from_residual`'s receiver is explicit
+            // (Logos doesn't infer trait Self from context).
+            std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
+            std::string rt_src = ret_type_
+                ? type_str(ret_type_)
+                : std::string{};
+            if (rt_src.empty()) {
+                error("'?' operator: cannot infer outer fn return type "
+                      "for FromResidual dispatch");
+                return error_expr();
+            }
+            std::string body = std::format(
+                "match ({}).branch() {{"
+                "  ControlFlow::Continue(__try_c) => __try_c,"
+                "  ControlFlow::Break(__try_r) => return {}::from_residual(__try_r),"
+                "}}",
+                inner_src, rt_src);
+            return lower_reparsed_tail_expr(body, "?-operator (Try dispatch)");
         }
         if (!ret_type_ || TypeRef(ret_type_).kind() != LogosType::Kind::Enum
             || TypeRef(ret_type_).enum_name() != TypeRef(inner_t).enum_name()) {

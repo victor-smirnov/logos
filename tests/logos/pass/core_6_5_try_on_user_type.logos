@@ -1,0 +1,52 @@
+// logos-core §6.5: `?` operator on user types via the
+// `Try` / `FromResidual` trait surface.
+//
+// Pre-Wave-7 `?` was hardcoded to Result and Option by enum-name
+// match. Wave 7 adds the stdlib lang-item traits + sema dispatch
+// so user types can opt-in to `?`:
+// - logos.lang.control_flow: `ControlFlow<B, C>` enum.
+// - logos.lang.try_trait: `Try<Continue, Residual>` trait with
+//   `branch(self) -> ControlFlow<Residual, Continue>`, and
+//   `FromResidual<R>` with `from_residual(r: R) -> Self`.
+// - sema's TRY_EXPR case at sema_expr.cpp routes to the trait
+//   dispatch when the inner type isn't Result / Option. Result
+//   and Option keep their legacy fast-path (no regression).
+//
+// This test wires a custom value type through `?`: Wrap carries
+// an i32, `branch` splits into Continue(i32) / Break(WrapErr),
+// and `FromResidual<WrapErr> for i32` synthesizes the early-
+// return value (here just `-1`).
+package core_6_5_try_on_user_type;
+
+use logos.lang.control_flow;
+use logos.lang.try_trait;
+
+struct WrapErr {}
+struct Wrap { v: i32 }
+
+impl Try<i32, WrapErr> for Wrap {
+    fn branch(self: Wrap) -> ControlFlow<WrapErr, i32> {
+        if self.v >= 0i32 { return ControlFlow::Continue(self.v); }
+        return ControlFlow::Break(WrapErr {});
+    }
+}
+
+impl FromResidual<WrapErr> for i32 {
+    fn from_residual(_r: WrapErr) -> i32 { return -1i32; }
+}
+
+fn doit(w: Wrap) -> i32 {
+    let v: i32 = w?;
+    return v + 1i32;
+}
+
+fn main() -> i32 {
+    // positive value: branch yields Continue → doit returns v+1
+    let pos: Wrap = Wrap { v: 41i32 };
+    if doit(pos) != 42i32 { return 1i32; }
+    // negative value: branch yields Break → from_residual fires,
+    // doit returns -1 (no `+1` applied because of early return).
+    let neg: Wrap = Wrap { v: 0i32 - 7i32 };
+    if doit(neg) != 0i32 - 1i32 { return 2i32; }
+    return 0i32;
+}

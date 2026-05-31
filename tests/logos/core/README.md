@@ -60,7 +60,7 @@ in `pass/` and `fail/`. Two reasons:
 | 6.2 | `static` vs `const` split (immutable half) | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ | ✅ |
 | 6.3 | `let-else` divergence assertion | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ | ✅ |
 | 6.4 | let-chain in if (if-form) | `tests/logos/pass/core_6_4_let_chain.logos` ✓ | ✅ |
-| 6.5 | `?` on `Try` / `FromResidual` | TBD — Tier-2 #15 | ❌ |
+| 6.5 | `?` on `Try` / `FromResidual` | `tests/logos/pass/core_6_5_try_on_user_type.logos` ✓ | ✅ |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | verified-by-suite (defense-in-depth) | ✅ |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ | ✅ |
 | 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ | ✅ |

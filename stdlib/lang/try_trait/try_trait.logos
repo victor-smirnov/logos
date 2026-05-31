@@ -1,0 +1,39 @@
+// Logos standard library — logos.lang.try_trait
+//
+// `Try` + `FromResidual` — lang-item traits that the `?` operator
+// desugars through. Pre-§6.5 `?` was hardcoded to Result and Option
+// by enum-name match; with this surface, user types can opt-in to
+// `?` by implementing `Try` (split value into Continue/Break via
+// `branch`) plus `FromResidual` on the OUTER fn's return type
+// (synthesize the early-return value from a Break residual).
+//
+// Logos's simplified shape (vs Rust's): `Try` carries a `Continue`
+// type plus a `Residual` type via free generic params rather than
+// associated types — the current Logos trait surface doesn't yet
+// have associated types wired for `?` lowering (P-trait-04 is the
+// follow-up). Result and Option still go through the legacy name-
+// based path for slice 1; this is the new trait surface user types
+// can implement to participate.
+//
+// §6.5 trait surface. Sema's `?` lowering at sema_expr.cpp:862
+// branches by inner-enum-name first; if the inner type isn't
+// Result/Option, the lowering will (in a follow-up slice) look up
+// a `Try` impl and dispatch through it.
+
+package logos.lang.try_trait;
+
+use logos.lang.control_flow;
+
+// Two type parameters: the Continue value type, and the Residual
+// type — Rust's `type Continue` / `type Residual` associated types
+// lifted to free generic params for the slice-1 surface.
+pub trait Try<Continue, Residual> {
+    fn branch(self: Self) -> ControlFlow<Residual, Continue>;
+}
+
+// From a Break residual (typically a stripped-of-Continue version
+// of the inner type), synthesize the outer fn's return value. Used
+// at the early-return site of `?`.
+pub trait FromResidual<R> {
+    fn from_residual(r: R) -> Self;
+}
