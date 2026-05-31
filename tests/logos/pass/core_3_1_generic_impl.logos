@@ -1,0 +1,13 @@
+// logos-core §3 — `impl<T> Box1<T> { fn … }` — generic inherent
+// impl. The method dispatch must specialise per `T` (mono pass) so
+// `b.get()` selects the right symbol.
+package core_3_1_generic_impl;
+struct Box1<T> { v: T }
+impl<T> Box1<T> {
+    fn count(&self) -> i32 { return 1i32; }
+}
+fn main() -> i32 {
+    let b: Box1<i32> = Box1::<i32> { v: 99i32 };
+    if b.count() != 1i32 { return 1i32; }
+    return 0i32;
+}

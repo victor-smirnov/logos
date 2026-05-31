@@ -1,0 +1,14 @@
+// logos-core §3 — multi-trait bound `T: A + B`. Both trait methods
+// must be available on `T` inside the fn body.
+package core_3_1_multi_bound;
+trait A { fn a(&self) -> i32; }
+trait B { fn b(&self) -> i32; }
+fn sum<T: A + B>(x: &T) -> i32 { return x.a() + x.b(); }
+struct X;
+impl A for X { fn a(&self) -> i32 { return 5i32; } }
+impl B for X { fn b(&self) -> i32 { return 7i32; } }
+fn main() -> i32 {
+    let x: X = X;
+    if sum::<X>(&x) != 12i32 { return 1i32; }
+    return 0i32;
+}

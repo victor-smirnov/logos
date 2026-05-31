@@ -1,0 +1,9 @@
+// logos-core §3 — two type parameters `<A, B>`. Mono must substitute
+// both consistently; turbofish must accept the position order.
+package core_3_1_two_type_params;
+fn pick_first<A, B>(a: A, _b: B) -> A { return a; }
+fn main() -> i32 {
+    let r: i32 = pick_first::<i32, bool>(5i32, true);
+    if r != 5i32 { return 1i32; }
+    return 0i32;
+}

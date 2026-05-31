@@ -1,0 +1,9 @@
+// logos-core §3 — type-arg inference at call site: `id(42i32)`
+// without turbofish. Sema must infer `T = i32` from the arg.
+package core_3_1_inferred_type_arg;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let r: i32 = id(42i32);
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}

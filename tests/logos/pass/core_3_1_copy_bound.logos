@@ -1,0 +1,10 @@
+// logos-core §3 — `T: Copy` bound + duplication. The bound check
+// must accept i32 (Copy) and the body's two uses of `x` must not
+// trigger move-after-move.
+package core_3_1_copy_bound;
+fn dup<T: Copy>(x: T) -> (T, T) { return (x, x); }
+fn main() -> i32 {
+    let p: (i32, i32) = dup::<i32>(5i32);
+    if p.0 + p.1 != 10i32 { return 1i32; }
+    return 0i32;
+}

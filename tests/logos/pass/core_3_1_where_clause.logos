@@ -1,0 +1,12 @@
+// logos-core §3 — `where T: Trait` clause (post-sig form), parallel
+// to `<T: Trait>` (in-sig form). Bound is enforced identically.
+package core_3_1_where_clause;
+trait Showable { fn val(&self) -> i32; }
+struct N { n: i32 }
+impl Showable for N { fn val(&self) -> i32 { return self.n; } }
+fn use_show<T>(x: &T) -> i32 where T: Showable { return x.val(); }
+fn main() -> i32 {
+    let n: N = N { n: 11i32 };
+    if use_show::<N>(&n) != 11i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,10 @@
+// logos-core §3 — nested generic instantiation `Box1<Box1<i32>>`.
+// Mono must walk recursively; struct registry's qualified-key
+// scheme must distinguish the two layer instances.
+package core_3_1_generic_nested;
+struct Box1<T> { v: T }
+fn main() -> i32 {
+    let bb: Box1<Box1<i32>> = Box1::<Box1<i32>> { v: Box1::<i32> { v: 7i32 } };
+    if bb.v.v != 7i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,8 @@
+// logos-core §3 — generic free fn with turbofish instantiation.
+package core_3_1_generic_fn;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let r: i32 = id::<i32>(42i32);
+    if r != 42i32 { return 1i32; }
+    return 0i32;
+}

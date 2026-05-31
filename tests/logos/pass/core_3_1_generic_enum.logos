@@ -1,0 +1,14 @@
+// logos-core §3 — generic enum with type-param + variant payloads.
+// Exercises mono substitution into both variant payload types AND
+// the match-arm pattern binding's TypeVar resolution.
+package core_3_1_generic_enum;
+enum Pair<T> { First(T), Both(T, T) }
+fn main() -> i32 {
+    let p: Pair<i32> = Pair::<i32>::Both(3i32, 4i32);
+    let r: i32 = match p {
+        Pair::First(x) => x,
+        Pair::Both(a, b) => a + b,
+    };
+    if r != 7i32 { return 1i32; }
+    return 0i32;
+}

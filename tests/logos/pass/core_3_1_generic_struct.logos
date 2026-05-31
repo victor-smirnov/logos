@@ -1,0 +1,8 @@
+// logos-core §3 — generic struct with type-param instantiation.
+package core_3_1_generic_struct;
+struct Pair<T> { a: T, b: T }
+fn main() -> i32 {
+    let p: Pair<i32> = Pair::<i32> { a: 3i32, b: 4i32 };
+    if p.a + p.b != 7i32 { return 1i32; }
+    return 0i32;
+}
