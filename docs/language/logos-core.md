@@ -965,25 +965,33 @@ Verification:
     so the trait bound is satisfied (sema's Ord→PartialOrd fallback
     handles the actual comparison logic). Pass test:
     `tests/logos/pass/core_6_10_derive_partial_ord.logos`.
-  Remaining 2 (Wave 7 ordering):
-  1. **Default** — field-by-field default initialization. Wave 6
-     prototypes hit the limit of `quote_expr!` antiquot at TYPE
-     position: `#fieldType::default()` or `default::<#fieldType>()`
-     both fail (the `#ftypes` cursor returns an empty type-name
-     view in type position). The infrastructure that did land:
+  Remaining 2 (Wave 8 ordering — both blocked on the SAME
+  `quote_expr!` type-position antiquot limit):
+  1. **Default** — field-by-field default initialization. Three
+     Wave 6+7 prototypes hit the same limit:
+     - `#fieldType::default()` — `#` not allowed at IDENT-before-
+       `::` static-call receiver position.
+     - `default::<#fieldType>()` — turbofish-type-arg substitution
+       silently expands to empty type-name view (cursor type is
+       Ident, type-arg slot wants Type).
+     - `#(ftypes)::default()` — paren-wrap antiquot also rejected
+       at static-call receiver position.
+     The infrastructure that did land:
      - `stdlib/lang/default/default.logos`: new
        `pub fn default<T: Default>() -> T` free fn that wraps
        `T::default()` (Rust-style inferred-T dispatch helper).
      - `stdlib/std/compiler/metaprog/ast.logos`: new
        `OView::ast_field_type_name` reads a FIELD_DEF's TYPE → NAME
        slot (returns "i32" / "Vec" / etc.).
-     Wave 7 unblockers (pick one):
-     - Extend quote_expr's antiquot expander to handle Ident
+     Wave 8 unblockers (pick one):
+     - Extend `quote_expr`'s antiquot expander to substitute Ident
        cursors at type position (the type-position antiquot in
-       `quote_ty!` exists as ANTIQUOT_TYPE — likely just a flag
-       to enable for quote_expr too).
-     - Or: add a builtin `metacall_default::<T>()` that bypasses
-       trait dispatch (sema-time type-arg → `T::default()` call).
+       `quote_ty!` already exists as ANTIQUOT_TYPE — likely just
+       a flag to enable for quote_expr too).
+     - Or: add an `OView::ast_field_type_blob` reader that returns
+       a typed-AST Type blob, then use it as a Vec<Type> cursor.
+     - Or: extend grammar's static-call alt to accept HASH-paren
+       antiquot at the IDENT-before-`::` receiver position.
   2. **Debug** — formatter chain; needs `Formatter::debug_struct`
      builder API which doesn't exist in stdlib today. The
      `derive_clone`-shaped emit form would be:
