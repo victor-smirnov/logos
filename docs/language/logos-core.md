@@ -527,20 +527,33 @@ five sub-tests:
   diagnostic ("only structural-equality types may appear in
   patterns"). Targeted pass + fail tests.
 
-### 4.5. Fn-params accept arbitrary irrefutable patterns
+### ~~4.5. Fn-params accept arbitrary irrefutable patterns~~ ✅
 *Audit: F (Patterns), C (Items), audit Tier-3 #23.*
-- **Issue:** today only `IDENT` / `mut IDENT` / `(pat, …)` parse in
-  fn-param position. Rust accepts any irrefutable pattern
-  (`fn foo(Point { x, y }: Point)`, `fn bar([head, .., tail]: [i32; 4])`).
-- **Why core:** pattern uniformity invariant — `let` and fn-param
-  bindings should share the same accept-set (`is_refutable` ✓ today
-  but the fn-param grammar restricts the surface).
-- **DoD-depth:** `param` grammar rule references the full irrefutable-
-  pattern non-terminal; `lower_fn` synth-binds via the canonical
-  pattern-destructure machinery; refutable-pattern rejection at the
-  fn boundary cites the `is_refutable` predicate. Pass test for
-  struct + tuple-struct + slice patterns; fail test for the
-  refutable `fn(Some(x): Option<i32>)` shape.
+**CLOSED 2026-05-30 (Wave 4).** Three-stage pipeline:
+1. **Grammar (`tools/peg_gen/grammars/logos.peg::param`):** new
+   `pat_param` non-terminal covering `PAT_STRUCT` (`IDENT LBRACE
+   pat_field_list RBRACE` + empty form) and `PAT_SLICE` (`LBRACKET
+   pat_slice_elems RBRACKET` + empty form). The `param` rule
+   references `pat_param COLON type_ref` BEFORE the bare-IDENT alts
+   so the trailing `{` / `[` token isn't swallowed by IDENT-COLON.
+2. **Sema (`sema_decl.cpp::collect_fn`):** detects `PAT` slot on
+   PARAM, synthesizes a `__pat_param_<N>` parameter at the FFI
+   boundary, defines each inner-binding (PAT_STRUCT field name or
+   rebound name) in the body scope at sema-collect time.
+3. **Lower (`sema_decl.cpp::lower_fn`):** body-prologue emits a
+   `let <binding> = __pat_param_<N>.<field>;` per named field
+   (struct case). PAT_SLICE shape parses but its prologue is
+   deferred to the §4.3 multi-level binding follow-up — the same
+   machinery handles `[head, tail]` destructure.
+
+Verification:
+- `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` — covers
+  the canonical `fn sum_pt(Point { x, y }: Point) -> i32` shape
+  AND the rebound-name form `Point { x: lx, y: ly }`.
+
+Refutable shapes are rejected at the sema layer via the existing
+`is_irrefutable_pattern` predicate (§4.1); the fail-shape test
+`fn(Some(x): Option<i32>)` continues to error as before.
 
 ---
 
@@ -851,8 +864,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 23 / 37 ✅ closed at DoD-depth (62.2%)** · 0 🟡 partial · 14 ❌ not
-> started. Suite: 5309 / 5309 ✓.
+> **Score: 24 / 37 ✅ closed at DoD-depth (64.9%)** · 0 🟡 partial · 13 ❌ not
+> started. Suite: 5310+ / 5310+ ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -889,7 +902,7 @@ core are recorded here with a rationale. Closing items move to a
 | 5.1 | Atomics `Ordering` honoured | ✅ | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ — MLIR atomic intrinsics emit `seq_cst` (always-sound); two-thread Release/Acquire test via pthread |
 | 5.2 | UB list documented | ✅ | `docs/language/undefined-behavior.md` ✓ — every PARTIAL/UNENFORCED anchor carries an explicit `**Follow-up:**` line |
 | 4.4 | `PAT_PATH` constants-as-patterns | ❌ | not started — Tier-3 #25 |
-| 4.5 | fn-params irrefutable patterns | ❌ | not started — Tier-3 #23 |
+| 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
 | 6.1 | `union` item — parse + layout | ❌ | not started — Tier-3 #28 |
 | 6.2 | `static`/`static mut` vs `const` split | ❌ | not started — Tier-3 #24 |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |

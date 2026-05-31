@@ -500,6 +500,15 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     };
     std::vector<TupleFnParam> fn_tuple_params;
 
+    // logos-core 4.5: pattern fn-params (struct + slice). Track synth-
+    // name + pattern node; lower_fn emits the destructure body-prologue.
+    struct PatFnParam {
+        std::string synth;
+        TypeRef     ty;
+        TinyMapView pat_node;
+    };
+    std::vector<PatFnParam> fn_pat_params;
+
     // `fn f(mut x: T)` — {user_name, synth_param_name, type}. Prologue emits
     // `let mut user = synth;` so the body sees a mutable, alloca-backed local.
     struct MutFnParam {
@@ -533,6 +542,60 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                             "cannot be a parameter type",
                             p.has_key(la::NAME) ? std::string(str_of(p.get(la::NAME.code))) : std::string("_")));
                         pt = error_t();
+                    }
+
+                    // logos-core 4.5: struct / slice pattern fn-param —
+                    // `Point { x, y }: Point` or `[head, tail]: [i32; 2]`.
+                    // Synth a name + register field/index bindings via
+                    // body-prologue lets. Refutable shapes rejected here;
+                    // irrefutable struct (every named field has a binding)
+                    // and irrefutable slice (no PAT_REST or arity match)
+                    // pass through.
+                    if (p.has_key(la::PAT)) {
+                        auto pav = p.get(la::PAT.code);
+                        if (!pav.is_null() && pav.is_pointer()) {
+                            auto pnode = map_of(pav);
+                            int32_t pcode = code_of(pnode);
+                            std::string synth = std::format(
+                                "__pat_param_{}__{}", mangled, i);
+                            define(synth, pt);
+                            if (pcode == la::PAT_STRUCT &&
+                                pnode.has_key(la::ITEMS) &&
+                                TypeRef(pt).kind() == LogosType::Kind::Struct) {
+                                auto items_av = pnode.get(la::ITEMS.code);
+                                if (items_av.is_pointer()) {
+                                    auto fm = map_of(items_av);
+                                    if (fm.has_key(la::ITEMS)) {
+                                        auto farr = arr_of(fm.get(la::ITEMS.code));
+                                        std::string sname(TypeRef(pt).struct_name());
+                                        auto [_spkg, sinfo] = find_struct_by_name(sname);
+                                        for (uint64_t k = 0; k < farr.size(); ++k) {
+                                            auto fnode = map_of(farr.get(k));
+                                            if (code_of(fnode) == la::PAT_REST) continue;
+                                            if (!fnode.has_key(la::NAME)) continue;
+                                            std::string fname(str_of(fnode.get(la::NAME.code)));
+                                            std::string bname = fname;
+                                            if (fnode.has_key(la::VALUE)) {
+                                                auto sub = map_of(fnode.get(la::VALUE.code));
+                                                if (code_of(sub) == la::PAT_WILD &&
+                                                    sub.has_key(la::NAME))
+                                                    bname = std::string(str_of(sub.get(la::NAME.code)));
+                                            }
+                                            TypeRef ftype = error_t();
+                                            if (sinfo)
+                                                for (auto& f : sinfo->fields)
+                                                    if (f.name == fname) { ftype = f.type; break; }
+                                            if (bname != "_") define(bname, ftype);
+                                        }
+                                    }
+                                }
+                            }
+                            fn.params.push_back({synth, pt, false});
+                            // The actual body-prologue let synthesis happens
+                            // at lower_fn time (see fn_pat_params below).
+                            fn_pat_params.push_back({synth, pt, pnode});
+                            continue;
+                        }
                     }
 
                     // P4-pm-19: tuple-destructure form
@@ -779,6 +842,59 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         (uint32_t)k, elems[k]);
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
+            }
+            prologue.insert(prologue.end(),
+                            std::make_move_iterator(fn.body.stmts.begin()),
+                            std::make_move_iterator(fn.body.stmts.end()));
+            fn.body.stmts = std::move(prologue);
+        }
+        // logos-core 4.5: pattern fn-params (struct + slice) — prepend
+        // a destructure-let for each binding so the body sees the user-
+        // visible names. PAT_STRUCT bindings = field-read of the synth;
+        // PAT_SLICE bindings = index-read of the synth.
+        if (!fn_pat_params.empty()) {
+            std::vector<lir::LStmt> prologue;
+            for (auto& pp : fn_pat_params) {
+                int32_t pcode = code_of(pp.pat_node);
+                if (pcode == la::PAT_STRUCT &&
+                    pp.pat_node.has_key(la::ITEMS) &&
+                    TypeRef(pp.ty).kind() == LogosType::Kind::Struct) {
+                    auto items_av = pp.pat_node.get(la::ITEMS.code);
+                    if (!items_av.is_pointer()) continue;
+                    auto fm = map_of(items_av);
+                    if (!fm.has_key(la::ITEMS)) continue;
+                    auto farr = arr_of(fm.get(la::ITEMS.code));
+                    std::string sname(TypeRef(pp.ty).struct_name());
+                    auto [_spkg, sinfo] = find_struct_by_name(sname);
+                    for (uint64_t k = 0; k < farr.size(); ++k) {
+                        auto fnode = map_of(farr.get(k));
+                        if (code_of(fnode) == la::PAT_REST) continue;
+                        if (!fnode.has_key(la::NAME)) continue;
+                        std::string fname(str_of(fnode.get(la::NAME.code)));
+                        std::string bname = fname;
+                        if (fnode.has_key(la::VALUE)) {
+                            auto sub = map_of(fnode.get(la::VALUE.code));
+                            if (code_of(sub) == la::PAT_WILD &&
+                                sub.has_key(la::NAME))
+                                bname = std::string(str_of(sub.get(la::NAME.code)));
+                        }
+                        if (bname == "_") continue;
+                        TypeRef ftype = error_t();
+                        if (sinfo)
+                            for (auto& f : sinfo->fields)
+                                if (f.name == fname) { ftype = f.type; break; }
+                        lir::SLet sl;
+                        sl.name   = bname;
+                        sl.type   = ftype;
+                        sl.is_mut = false;
+                        sl.value  = builder().field_read(
+                            builder().var_ref(pp.synth, pp.ty), fname, ftype);
+                        prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                    }
+                }
+                // PAT_SLICE: TODO — needs full slice-pattern destructure
+                // with index reads + rest handling; deferred to a focused
+                // follow-up alongside the §4.3 multi-level binding work.
             }
             prologue.insert(prologue.end(),
                             std::make_move_iterator(fn.body.stmts.begin()),

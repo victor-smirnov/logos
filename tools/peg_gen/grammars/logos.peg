@@ -1225,10 +1225,34 @@
            // user-visible names see the destructured tuple elements.
            / LPAREN pat_binding_list RPAREN COLON type_ref
           => { CODE: PARAM, NAMES: $2, TYPE: $5 }
+           // logos-core 4.5: fn-params accept arbitrary irrefutable
+           // patterns. Struct shape `Point { x, y }: Point` and slice
+           // shape `[head, tail]: [i32; 2]`. Must come BEFORE the
+           // bare-IDENT alt so the trailing `{` / `[` token isn't
+           // swallowed by IDENT-COLON. Refutability is rejected in
+           // sema via the existing `is_irrefutable_pattern` predicate
+           // (§4.1) — refutable patterns at the fn boundary emit the
+           // same diagnostic as for `let`. Sub-pattern node lives in
+           // the PAT slot (sema's collect_fn detects it and desugars
+           // to a synth temp + body-prologue destructure, mirroring
+           // the existing pat_binding_list path).
+           / pat_param COLON type_ref
+          => { CODE: PARAM, PAT: $1, TYPE: $3 }
            / IDENT COLON type_ref DOTDOTDOT
           => { CODE: PARAM, NAME: $1, TYPE: $3, IS_VARIADIC: true }
            / IDENT COLON type_ref
           => { CODE: PARAM, NAME: $1, TYPE: $3 }
+
+    // logos-core 4.5: struct / slice pattern shapes accepted at fn-param
+    // position. Refutability check happens in sema (§4.1).
+    pat_param <- IDENT LBRACE pat_field_list RBRACE
+              => { CODE: PAT_STRUCT, NAME: $1, ITEMS: $3 }
+               / IDENT LBRACE RBRACE
+              => { CODE: PAT_STRUCT, NAME: $1 }
+               / LBRACKET pat_slice_elems RBRACKET
+              => { CODE: PAT_SLICE, ITEMS: $2 }
+               / LBRACKET RBRACKET
+              => { CODE: PAT_SLICE }
 
     // ── Type reference ───────────────────────────────────────────
     // assoc_type_ref must come before simple_type to match T::Item before T

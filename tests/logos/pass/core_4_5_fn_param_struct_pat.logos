@@ -1,0 +1,40 @@
+// logos-core §4.5: fn-params accept arbitrary irrefutable patterns.
+// Pre-fix the `param` grammar only accepted `IDENT`, `mut IDENT`,
+// `& IDENT`, and tuple-destructure `(a, b): T`. Rust accepts any
+// irrefutable pattern; ports of stdlib code like
+// `fn foo(Point { x, y }: Point) -> i32 { x + y }` failed at the
+// grammar. Wave 4 closes the gap for STRUCT patterns (the most
+// common shape ports actually use).
+//
+// Pipeline:
+//   1. Grammar: new `pat_param` non-terminal with PAT_STRUCT /
+//      PAT_SLICE shapes; `param` references it before the bare-
+//      IDENT alts so the trailing `{` / `[` isn't swallowed.
+//   2. Sema: `collect_fn` detects the PAT slot, synthesizes a
+//      `__pat_param_<N>` parameter, defines the inner bindings
+//      via field-read of the synth.
+//   3. Lower: `lower_fn` prologue emits one `let <binding> =
+//      __pat_param_<N>.<field>;` per named field — body sees the
+//      user-visible names.
+//
+// Slice patterns (`[head, tail]: [i32; 2]`) are part of the same
+// surface; their destructure prologue is the §4.3 multi-level
+// follow-up — grammar accepts the shape, body-prologue codegen is
+// the open piece.
+package core_4_5_fn_param_struct_pat;
+
+struct Point { x: i32, y: i32 }
+
+// Canonical struct-pattern fn-param.
+fn sum_pt(Point { x, y }: Point) -> i32 { return x + y; }
+
+// Rebound names (`x: lx`) — bindings should use the rebound name.
+fn sum_renamed(Point { x: lx, y: ly }: Point) -> i32 { return lx - ly; }
+
+fn main() -> i32 {
+    let p: Point = Point { x: 5i32, y: 6i32 };
+    if sum_pt(p) != 11i32 { return 1i32; }
+    let q: Point = Point { x: 100i32, y: 7i32 };
+    if sum_renamed(q) != 93i32 { return 2i32; }
+    return 0i32;
+}

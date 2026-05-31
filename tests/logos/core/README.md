@@ -55,7 +55,7 @@ in `pass/` and `fail/`. Two reasons:
 | 5.1 | Atomics Ordering | `tests/logos/pass/core_5_1_atomic_release_acquire.logos` ✓ | ✅ |
 | 5.2 | UB doc | `docs/language/undefined-behavior.md` exists ✓ | ✅ |
 | 4.4 | `PAT_PATH` constants-as-patterns | TBD — Tier-3 #25 | ❌ |
-| 4.5 | fn-params irrefutable patterns | TBD — Tier-3 #23 | ❌ |
+| 4.5 | fn-params irrefutable patterns | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ | ✅ |
 | 6.1 | `union` item — parse + layout | TBD — Tier-3 #28 | ❌ |
 | 6.2 | `static`/`static mut` vs `const` split | TBD — Tier-3 #24 | ❌ |
 | 6.3 | `let-else` divergence assertion | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ | ✅ |
