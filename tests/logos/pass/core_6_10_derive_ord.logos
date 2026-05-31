@@ -1,0 +1,54 @@
+// logos-core §6.10 sub-deliverable 5/8: derive(Ord).
+//
+// Handler emits an impl whose cmp builds a per-field Vec<Ordering>
+// and returns the first non-Equal — equivalent to Rust's
+// lexicographic field-by-field derive(Ord), but the Vec form
+// sidesteps quote_expr!'s single-expression repeat-body limit
+// (the natural `.then(...)` chain doesn't have a matching repeat-
+// group separator operator).
+//
+// Verifies: equal structs cmp to Equal; first-field difference
+// determines order regardless of subsequent fields; equal first
+// field falls through to the next.
+package core_6_10_derive_ord;
+
+use logos.std.compiler.metaprog;
+use logos.lang.cmp;
+
+#[derive_ord]
+struct Pt { x: i32, y: i32, z: i32 }
+
+fn main() -> i32 {
+    let a: Pt = Pt { x: 1i32, y: 2i32, z: 3i32 };
+    let b: Pt = Pt { x: 1i32, y: 2i32, z: 3i32 };
+    let c: Pt = Pt { x: 1i32, y: 2i32, z: 9i32 };   // differs in z
+    let d: Pt = Pt { x: 1i32, y: 5i32, z: 0i32 };   // differs in y, equal in x
+    let e: Pt = Pt { x: 9i32, y: 0i32, z: 0i32 };   // differs in x
+
+    // identical → Equal
+    match a.cmp(&b) {
+        Ordering::Equal => {}
+        _ => { return 1i32; }
+    }
+    // z differs → cmp on x and y are Equal, z determines
+    match a.cmp(&c) {
+        Ordering::Less => {}
+        _ => { return 2i32; }
+    }
+    // y differs → x is Equal, y determines (a.y < d.y)
+    match a.cmp(&d) {
+        Ordering::Less => {}
+        _ => { return 3i32; }
+    }
+    // x differs → x determines immediately (a.x < e.x)
+    match a.cmp(&e) {
+        Ordering::Less => {}
+        _ => { return 4i32; }
+    }
+    // reverse direction (e > a)
+    match e.cmp(&a) {
+        Ordering::Greater => {}
+        _ => { return 5i32; }
+    }
+    return 0i32;
+}

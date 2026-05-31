@@ -1,0 +1,55 @@
+// logos.std.compiler.metaprog — derive(PartialOrd) for plain and
+// generic structs.
+//
+// Logos's `PartialOrd` is currently a no-method marker trait (see
+// `stdlib/lang/cmp/cmp.logos`); the bound-check fallback satisfies
+// `T: PartialOrd` whenever `T: Ord` is in scope. The derive just
+// emits `impl PartialOrd for S {}` so user types with derive get
+// the same surface as Rust without needing partial_cmp wiring.
+//
+// §6.10 sub-deliverable 6/8.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.string;
+use logos.lang.cmp;
+
+#[metaprog_handler("derive_partial_ord")]
+fn derive_partial_ord_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl PartialOrd for #(nm) {}
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: PartialOrd ),*> PartialOrd for #nm<#( #tparams ),*> {}
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}

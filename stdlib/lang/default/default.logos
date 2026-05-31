@@ -21,3 +21,11 @@ impl Default for isize { fn default() -> isize { return 0 as isize; } }
 impl Default for f32   { fn default() -> f32   { return 0.0 as f32; } }
 impl Default for f64   { fn default() -> f64   { return 0.0;        } }
 impl Default for bool  { fn default() -> bool  { return false;      } }
+
+// Free-fn dispatch helper. Lets call sites that know the expected
+// type (struct-field initializer, let with annotation, etc.) write
+// `default()` and have sema infer T from context. Mirrors Rust's
+// `Default::default()` shape — needed because Logos's
+// `Trait::method()` form doesn't trait-dispatch without a receiver
+// type, so derive(Default) emits this free-fn form per field.
+pub fn default<T: Default>() -> T { return T::default(); }

@@ -1,0 +1,113 @@
+// logos.std.compiler.metaprog — derive(Ord) for plain and generic
+// structs.
+//
+// Hook for `#[derive_ord]`. Emits an impl whose cmp builds a
+// per-field array of Orderings and returns the first non-Equal —
+// equivalent to lexicographic Rust derive(Ord), but the array
+// form sidesteps quote_expr!'s single-expression repeat-body limit.
+//
+//   impl<T1: Ord, ...> Ord for Name<T1, ...> {
+//       fn cmp(&self, other: &Name<T1, ...>) -> Ordering {
+//           let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
+//           __ords.push(self.f1.cmp(&other.f1));
+//           __ords.push(self.f2.cmp(&other.f2));
+//           …
+//           let mut __i: i64 = 0i64;
+//           let __n: i64 = __ords.length();
+//           while __i < __n {
+//               let __o: Ordering = __ords.get(__i);
+//               if !__o.is_eq() { return __o; }
+//               __i = __i + 1i64;
+//           }
+//           return Ordering::Equal;
+//       }
+//   }
+//
+// Empty-field structs degenerate to `return Ordering::Equal;` (the
+// loop just never enters).
+//
+// §6.10 sub-deliverable 5/8.
+
+package logos.std.compiler.metaprog;
+
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+use logos.mem.hermes.view;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.string;
+use logos.lang.cmp;
+
+#[metaprog_handler("derive_ord")]
+fn derive_ord_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+
+    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let nm_sv: StringView = view.ast_node_name(item);
+    if nm_sv.len == (0 as u64) { return; }
+    let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
+
+    let nf: u64 = view.ast_struct_field_count(item);
+    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut i: u64 = 0 as u64;
+    while i < nf {
+        let fld: AnyVal = view.ast_struct_field(item, i);
+        let fsv: StringView = view.ast_field_name(fld);
+        unsafe {
+            (&mut fnames as *mut Vec<Ident>).push(
+                Ident { ptr: fsv.ptr, len: fsv.len });
+        }
+        i = i + (1 as u64);
+    }
+
+    let np: u64 = view.ast_type_param_count(item);
+    let mut tparams: Vec<Ident> = vec_new::<Ident>();
+    let mut k: u64 = 0 as u64;
+    while k < np {
+        let tp: StringView = view.ast_type_param_name(item, k);
+        unsafe {
+            (&mut tparams as *mut Vec<Ident>).push(
+                Ident { ptr: tp.ptr, len: tp.len });
+        }
+        k = k + (1 as u64);
+    }
+
+    if np == (0 as u64) {
+        let blob: QuoteItemBlob = quote_item! {
+            impl Ord for #(nm) {
+                fn cmp(&self, other: &#(nm)) -> Ordering {
+                    let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
+                    #( __ords.push(self.#fnames.cmp(&other.#fnames)); )*
+                    let mut __i: i64 = 0i64;
+                    let __n: i64 = __ords.length();
+                    while __i < __n {
+                        let __o: Ordering = __ords.get(__i);
+                        if !__o.is_eq() { return __o; }
+                        __i = __i + 1i64;
+                    }
+                    return Ordering::Equal;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob); }
+    } else {
+        let blob2: QuoteItemBlob = quote_item! {
+            impl<#( #tparams: Ord ),*> Ord for #nm<#( #tparams ),*> {
+                fn cmp(&self, other: &#nm<#( #tparams ),*>) -> Ordering {
+                    let mut __ords: Vec<Ordering> = vec_new::<Ordering>();
+                    #( __ords.push(self.#fnames.cmp(&other.#fnames)); )*
+                    let mut __i: i64 = 0i64;
+                    let __n: i64 = __ords.length();
+                    while __i < __n {
+                        let __o: Ordering = __ords.get(__i);
+                        if !__o.is_eq() { return __o; }
+                        __i = __i + 1i64;
+                    }
+                    return Ordering::Equal;
+                }
+            }
+        };
+        unsafe { logos_emit_item_blob_subst(&blob2); }
+    }
+    return;
+}

@@ -65,7 +65,7 @@ in `pass/` and `fail/`. Two reasons:
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ | ✅ |
 | 6.8 | `#[cfg(all/any/not)]` + `cfg_attr` activation | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ | ✅ |
 | 6.9 | `ConstResolver` seam through `metacall` | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ | ✅ |
-| 6.10 | Derive handlers (4/8 done — Copy + PartialEq + Eq + Hash) | `tests/logos/pass/core_6_10_derive_{copy,partial_eq,eq,hash}.logos` ✓ | ❌ partial |
+| 6.10 | Derive handlers (6/8 done — Copy + PartialEq + Eq + Hash + Ord + PartialOrd) | `tests/logos/pass/core_6_10_derive_{copy,partial_eq,eq,hash,ord,partial_ord}.logos` ✓ | ❌ partial |
 | 6.11 | `unreachable!/todo!/unimplemented!` macros | `tests/logos/pass/core_6_11_never_macros.logos` ✓ | ✅ |
 | 6.12 | `Range` family generics | TBD — Tier-2 #14 | ❌ |
 | 6.13 | `DerefMut` autoderef | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ | ✅ |

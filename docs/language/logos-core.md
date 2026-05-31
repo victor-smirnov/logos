@@ -910,49 +910,63 @@ Verification:
   field-by-field hasher, PartialOrd/Ord via lexicographic field
   cmp, Copy via field-all-Copy check); each ships with its
   per-derive pass test.
-- **Status (2026-05-31 Wave 5): PARTIAL (4/8) — Copy + PartialEq + Eq + Hash landed.**
+- **Status (2026-05-31 Wave 6): PARTIAL (6/8) — Copy + PartialEq + Eq + Hash + Ord + PartialOrd landed.**
   Each derive is one-session sub-work; the parallel
   `derive_clone_hook` (`stdlib/std/compiler/metaprog/derive_clone.logos`)
   and `derive_branch_node` (`derive_branch_node.logos`) are the
   template.
   - ✅ **Copy** — `stdlib/std/compiler/metaprog/derive_copy.logos`.
-    No-method marker; emits `impl Copy for S {}` (or
-    `impl<T: Copy> Copy for S<T> {}`). Pass test:
+    No-method marker; emits `impl Copy for S {}`. Pass test:
     `tests/logos/pass/core_6_10_derive_copy.logos`.
-  - ✅ **PartialEq** — `derive_partial_eq.logos`. Emits per-field
-    `==` conjunction in `eq`; empty-field structs degenerate to
-    `return true;`. Pass test:
+  - ✅ **PartialEq** — `derive_partial_eq.logos`. Per-field `==`
+    conjunction in `eq`. Pass test:
     `tests/logos/pass/core_6_10_derive_partial_eq.logos`.
-  - ✅ **Eq** — `derive_eq.logos`. Same field-by-field shape as
-    PartialEq but targets the `Eq` trait (Logos's Eq carries
-    eq/ne methods, not a pure marker). Pass test:
+  - ✅ **Eq** — `derive_eq.logos`. Same shape as PartialEq targeting
+    the `Eq` trait. Pass test:
     `tests/logos/pass/core_6_10_derive_eq.logos`.
-  - ✅ **Hash** — `derive_hash.logos`. Emits
-    `fn hash<H: Hasher>(&self, state: &mut H) { self.f1.hash(state); ... }`
-    — each field dispatches through its own Hash impl. Pass test:
+  - ✅ **Hash** — `derive_hash.logos`. `fn hash<H: Hasher>(&self, state: &mut H)`
+    with per-field `.hash(state)`. Pass test:
     `tests/logos/pass/core_6_10_derive_hash.logos`.
-  Remaining 4 (Wave 6 ordering, easiest first):
-  1. **Default** — field-by-field `Default::default()` chain. First
-     attempt segfaulted during stdlib build — the `Default::default()`
-     call shape inside `quote_expr!` doesn't resolve through
-     trait dispatch the way Rust does. Needs a
-     `default_value::<T>() -> T` helper fn OR per-field type
-     rendering (extending `OView::ast_field_type` — not yet exposed).
-  2. **Ord / PartialOrd** — lexicographic field cmp. Tried during
-     Wave 5; the lexicographic short-circuit chain doesn't fit
-     into `quote_expr!`'s single-expression repeat body (the
-     existing repeat-group OP codes — none / comma / `&&` — can't
-     express the chained-match pattern). Needs either an
-     `Ordering::then` stdlib helper (the natural Rust idiom) OR a
-     dedicated repeat-group operator for chained-cmp. Skipped to
-     keep main clean.
-  3. **Debug** — formatter chain; most involved; needs
-     `Formatter::debug_struct` builder API.
+  - ✅ **Ord** — `derive_ord.logos`. Builds a per-field `Vec<Ordering>`
+    in cmp body and returns the first non-Equal (sidesteps quote_expr's
+    single-expression repeat-body limit — the natural Rust `.then(...)`
+    chain has no matching repeat-group operator). Pass test:
+    `tests/logos/pass/core_6_10_derive_ord.logos`.
+  - ✅ **PartialOrd** — `derive_partial_ord.logos`. Logos's PartialOrd
+    is a marker trait (no methods); emits `impl PartialOrd for S {}`
+    so the trait bound is satisfied (sema's Ord→PartialOrd fallback
+    handles the actual comparison logic). Pass test:
+    `tests/logos/pass/core_6_10_derive_partial_ord.logos`.
+  Remaining 2 (Wave 7 ordering):
+  1. **Default** — field-by-field default initialization. Wave 6
+     prototypes hit the limit of `quote_expr!` antiquot at TYPE
+     position: `#fieldType::default()` or `default::<#fieldType>()`
+     both fail (the `#ftypes` cursor returns an empty type-name
+     view in type position). The infrastructure that did land:
+     - `stdlib/lang/default/default.logos`: new
+       `pub fn default<T: Default>() -> T` free fn that wraps
+       `T::default()` (Rust-style inferred-T dispatch helper).
+     - `stdlib/std/compiler/metaprog/ast.logos`: new
+       `OView::ast_field_type_name` reads a FIELD_DEF's TYPE → NAME
+       slot (returns "i32" / "Vec" / etc.).
+     Wave 7 unblockers (pick one):
+     - Extend quote_expr's antiquot expander to handle Ident
+       cursors at type position (the type-position antiquot in
+       `quote_ty!` exists as ANTIQUOT_TYPE — likely just a flag
+       to enable for quote_expr too).
+     - Or: add a builtin `metacall_default::<T>()` that bypasses
+       trait dispatch (sema-time type-arg → `T::default()` call).
+  2. **Debug** — formatter chain; needs `Formatter::debug_struct`
+     builder API which doesn't exist in stdlib today. The
+     `derive_clone`-shaped emit form would be:
+     `f.debug_struct("Name").field("f1", &self.f1).field(...).finish()`.
+     A simpler `println!`-style emit (`write!(f, "Name {{ f1: {:?}, ... }}", self.f1, ...)`)
+     would work given §6.11's panic-family infrastructure.
   Each derive lands as its own commit with a pass test under
   `tests/logos/pass/core_6_10_derive_<name>.logos`. Closing 6.10
   in the scoreboard fully requires all 8 (the audit's spec); the
-  4/8 slice landed in Wave 5 marks meaningful progress but the
-  row stays ❌ partial until full closure.
+  6/8 slice landed in Waves 5+6 marks substantial progress but
+  the row stays ❌ partial until full closure.
 
 ### ~~6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros~~ ✅
 *Audit: O (Other / Panic), J (Macros), Tier-2 #12.*
@@ -1176,7 +1190,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
 | 6.9 | `ConstResolver` seam through `metacall` | ✅ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ — interface in ctfe.hpp + threading through do_eval + sema wiring at both metacall sites |
-| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ partial (4/8) | Copy + PartialEq + Eq + Hash landed (`tests/logos/pass/core_6_10_derive_{copy,partial_eq,eq,hash}.logos` ✓); remaining 4 derives have per-item plans in §6.10 body |
+| 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ partial (6/8) | Copy + PartialEq + Eq + Hash + Ord + PartialOrd landed (`tests/logos/pass/core_6_10_derive_{copy,partial_eq,eq,hash,ord,partial_ord}.logos` ✓); remaining 2 (Default, Debug) have per-item plans in §6.10 body |
 | 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | escalated 2026-05-31 (Wave 5) — L-effort (mis-labeled M); 6-step plan in §6.12 body |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |
