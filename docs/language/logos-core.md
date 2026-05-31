@@ -725,6 +725,27 @@ Verification:
   consumed by `if_expr`, `while_stmt`, and `match_arm.GUARD`. Sema
   desugars to nested `if let` / `match` arms with the conditions
   sequenced. Pass test for 3-way chain; pass test for let-in-guard.
+- **Status (2026-05-31 Wave 5): ESCALATED — partial slice prototype
+  hit segfault in the desugar path; reverted to keep main clean.**
+  The grammar pieces that landed and were reverted:
+  - New `IF_LET_CHAIN`, `LET_CHAIN_LET`, `LET_CHAIN_COND` schema
+    codes (250 / 251 / 252).
+  - `if_let_chain` PEG production: `let_chain_let AND
+    let_chain_seg (AND let_chain_seg)* &(LBRACE)` with first-seg
+    forced to be a let. Tests confirmed the grammar parses both
+    let-only and let-mixed-cond chains.
+  - Sema dispatch routed `IF_LET_CHAIN` to a desugar in
+    `lower_if_expr` that builds nested `if let … else …` source
+    via `render_pat_src` / `render_expr_src` / `render_block_src`
+    and feeds it back through `lower_reparsed_tail_expr`.
+  The segfault traces to the desugar path (likely a render helper
+  hitting an unhandled node kind in the LET_CHAIN_LET seg, or
+  ELSE-duplication causing scope issues). Next session: instrument
+  the render helpers + verify each seg's PAT/VALUE shape against
+  the canonical `if let` AST before re-attempting the desugar.
+  Hand-off note: a CLEANER desugar uses a single `match (e1, e2, …)`
+  on a tuple of all let-segs' scrutinees — fewer ELSE
+  duplications, no scope-shadow concerns.
 
 ### 6.5. `?` operator on `Try` / `FromResidual`
 *Audit: E (Expressions), C (Trait), Tier-2 #15.*
@@ -1006,7 +1027,7 @@ core are recorded here with a rationale. Closing items move to a
 ## 8a. Score (canonical — `/goal` reads this)
 
 > **Score: 32 / 37 ✅ closed at DoD-depth (86.5%)** · 0 🟡 partial · 5 ❌ not
-> started. Suite: 5320 / 5320 ✓.
+> started (1 of those — §6.4 — escalated 2026-05-31). Suite: 5320 / 5320 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -1047,7 +1068,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.1 | `union` item — parse + layout | ❌ | escalated 2026-05-30 (Wave 4) — pipeline hand-off recorded in §6.1 body |
 | 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
-| 6.4 | let-chain in if/while/match | ❌ | not started — Tier-3 #18 |
+| 6.4 | let-chain in if/while/match | ❌ | escalated 2026-05-31 (Wave 5) — grammar prototype landed + reverted (desugar segfault); hand-off recorded in §6.4 body |
 | 6.5 | `?` on `Try` / `FromResidual` | ❌ | not started — Tier-2 #15 |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
