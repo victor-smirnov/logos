@@ -1,0 +1,11 @@
+// logos-core §2 — a `&'static T` borrow from a `static` item.
+// region_infer treats global items as `'static` so the returned
+// reference outlives any caller stack frame.
+package core_2_1_static_lifetime_borrow;
+static S: i32 = 42i32;
+fn get_ref() -> &'static i32 { return &S; }
+fn main() -> i32 {
+    let r: &i32 = get_ref();
+    if *r != 42i32 { return 1i32; }
+    return 0i32;
+}

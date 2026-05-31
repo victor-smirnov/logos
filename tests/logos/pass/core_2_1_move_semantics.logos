@@ -1,0 +1,9 @@
+// logos-core §2.1 — move semantics: an owning value moved into a
+// new binding leaves the source moved. Subsequent use is rejected
+// (see fail/core_2_1_use_after_move).
+package core_2_1_move_semantics;
+fn main() -> i32 {
+    let s: String = String::new();
+    let _t: String = s;
+    return 0i32;
+}

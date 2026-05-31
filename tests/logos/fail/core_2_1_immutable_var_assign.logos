@@ -1,0 +1,8 @@
+// logos-core §2 — assignment to a `let`-bound (non-`mut`) variable
+// is rejected.
+package core_2_1_immutable_var_assign;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    x = 10i32;
+    return 0i32;
+}

@@ -1,0 +1,14 @@
+// logos-core §2 — distinct field-path borrows on the same struct
+// are independent: `&mut s.a` + `&mut s.b` is allowed (Rust's
+// disjoint-field rule, RFC 2229 + classic B83 field-borrow set).
+package core_2_1_field_borrow_distinct;
+struct S { a: i32, b: i32 }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i32, b: 2i32 };
+    let ra: &mut i32 = &mut s.a;
+    let rb: &mut i32 = &mut s.b;
+    *ra = 10i32;
+    *rb = 20i32;
+    if s.a + s.b != 30i32 { return 1i32; }
+    return 0i32;
+}

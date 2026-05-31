@@ -1,0 +1,12 @@
+// logos-core §2 — NLL release: the mut borrow on `x` ends at `r1`'s
+// last use (`*r1 = 10`), so reading `x` afterwards is legal under
+// the non-lexical-lifetime model.
+package core_2_1_nll_release;
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let r1: &mut i32 = &mut x;
+    *r1 = 10i32;
+    let v: i32 = x;
+    if v != 10i32 { return 1i32; }
+    return 0i32;
+}

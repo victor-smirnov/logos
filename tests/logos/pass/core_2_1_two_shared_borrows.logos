@@ -1,0 +1,10 @@
+// logos-core §2 — two simultaneous shared borrows are allowed.
+// `&x` + `&x` is the canonical multi-reader-no-writer shape.
+package core_2_1_two_shared_borrows;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let r1: &i32 = &x;
+    let r2: &i32 = &x;
+    if *r1 + *r2 != 10i32 { return 1i32; }
+    return 0i32;
+}

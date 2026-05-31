@@ -1,0 +1,12 @@
+// logos-core §2 — passing `&mut x` to a fn that mutates through
+// the ref; on return, x reflects the in-place write. Tests the
+// caller-side ABI for &mut + the fn-body's *r = … place write.
+package core_2_1_mut_ref_via_fn;
+fn inc(r: &mut i32) { *r = *r + 1i32; }
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    inc(&mut x);
+    inc(&mut x);
+    if x != 7i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,11 @@
+// logos-core §2 — `&x` while a `&mut x` is live must be rejected
+// (multiple-borrow soundness rule).
+package core_2_1_mut_shared_conflict;
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let r1: &mut i32 = &mut x;
+    let r2: &i32 = &x;
+    *r1 = 1i32;
+    let _ = *r2;
+    return 0i32;
+}

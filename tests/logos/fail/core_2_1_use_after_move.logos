@@ -1,0 +1,8 @@
+// logos-core §2.1 — using a moved binding must be rejected.
+package core_2_1_use_after_move;
+fn main() -> i32 {
+    let s: String = String::new();
+    let _t: String = s;
+    let _l: usize = s.len();
+    return 0i32;
+}
