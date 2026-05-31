@@ -816,15 +816,28 @@ diagnostic, matching the audit's intended contract).
   cmp, Copy via field-all-Copy check); each ships with its
   per-derive pass test.
 
-### 6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros
+### ~~6.11. `unreachable!()` / `todo!()` / `unimplemented!()` macros~~ ✅
 *Audit: O (Other / Panic), J (Macros), Tier-2 #12.*
-- **Issue:** these three are absent from stdlib; ports rewrite to
-  `panic!("unreachable")` / `panic!("todo")` etc. by hand.
-- **Why core:** standard library control-flow surface; pairs with
-  §1.1 Never machinery (their return type is `!`).
-- **DoD-depth:** three `#[fn_macro]` wrappers in
-  `stdlib/std/fmt/fmt.logos`; each returns `!`; targeted pass test
-  exercising each in a dead-branch.
+**CLOSED 2026-05-30 (Wave 5).** All three Rust marker macros land
+as compiler built-ins in `sema_expr.cpp::lower_builtin_macro`, each
+expanding to `panic!(<default-prefix>: {}, format!(<user_args>))`.
+Routing through `panic!` puts them on the format-family fast-path
+(`is_format_family` already includes "panic"), which sema-inlines
+the call as a synthesized block ending in `__fmt_panic` — the call
+site types as Never (consumer of §1.1) in any position (if-arm,
+match-arm, fn tail). The DoD originally specified
+`#[fn_macro]` wrappers in `stdlib/std/fmt/fmt.logos`, but the
+fn_macro path returns an ExprBlob-typed lit at the call site and
+the splice-time re-typecheck doesn't propagate Never through the
+expanded block — same C++-side layer as panic!/cfg!/line!/file!/
+vec! is where these belong. Both the `!()` bare form and
+`!("fmt {}", args)` formatted form work; user args wrap in an
+inner `format!(...)` so panic!'s format string consumes the
+rendered String through a single `{}` placeholder (sidesteps
+re-splicing user format placeholders into a synthesized one).
+Verification: `tests/logos/pass/core_6_11_never_macros.logos` —
+exercises all three macros across no-arg + formatted-arg forms in
+if-arm position with mixed integer arms.
 
 ### 6.12. `Range` family — `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` as generics
 *Audit: E (Expressions / Range), Tier-2 #14.*
@@ -912,8 +925,8 @@ core are recorded here with a rationale. Closing items move to a
 
 ## 8a. Score (canonical — `/goal` reads this)
 
-> **Score: 26 / 37 ✅ closed at DoD-depth (70.3%)** · 0 🟡 partial · 11 ❌ not
-> started. Suite: 5312 / 5312 ✓.
+> **Score: 27 / 37 ✅ closed at DoD-depth (73.0%)** · 0 🟡 partial · 10 ❌ not
+> started. Suite: 5313 / 5313 ✓.
 >
 > Updated 2026-05-30 (Wave 4 catalog expansion — extended from 21 to 37 items;
 > §§1-5 still 21/21 ✅ at DoD-depth, new §6 items + §4.4/4.5 are the
@@ -961,7 +974,7 @@ core are recorded here with a rationale. Closing items move to a
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ❌ | not started — Tier-4 #37 |
 | 6.9 | `ConstResolver` seam through `metacall` | ❌ | not started — Tier-4 #38/#39 |
 | 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ❌ | not started — Tier-2 #11 (one-per-session sub-deliverables) |
-| 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ❌ | not started — Tier-2 #12 |
+| 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ❌ | not started — Tier-2 #14 |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ❌ | not started — Tier-2 #16 |
 | 6.14 | Atomics per-variant Ordering threaded to MLIR | ❌ | not started — Tier-2 #17 + §5.1 follow-up |

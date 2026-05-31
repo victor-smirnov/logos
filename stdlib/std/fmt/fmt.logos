@@ -306,3 +306,12 @@ pub fn assert_ne(args: Vec<ExprBlob>) -> ExprBlob {
         }
     };
 }
+
+// §6.11 marker macros — `unreachable!(...)`, `todo!(...)`,
+// `unimplemented!(...)` — are wired as compiler built-ins in
+// `sema_expr.cpp::lower_builtin_macro` (they re-parse to
+// `panic!(...)` so the format-family fast-path types the call as
+// Never in any position — arm, tail, expression). Keeping the
+// expansion in C++ avoids re-implementing the per-callee fast-path
+// in stdlib metaprog form, which would require a way to route a
+// fn_macro return through the format-family inlining.

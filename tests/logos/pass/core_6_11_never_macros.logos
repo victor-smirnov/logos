@@ -1,0 +1,35 @@
+// logos-core §6.11: `unreachable!()` / `todo!()` / `unimplemented!()`
+// in dead-branch position. Each macro expands to a `__fmt_panic`
+// block; the call returns Never, so the if-arm typeck'd as the
+// active arm's type. Wave 5 verifies the macros parse + lower
+// correctly across the no-arg and formatted-arg forms; runtime
+// reaches only the live arm.
+package core_6_11_never_macros;
+
+use logos.std.fmt;
+
+fn pick(tag: i32) -> i32 {
+    // Live arm returns tag*10; the dead arms exercise each macro
+    // form (no-arg + formatted) — type-checker has to accept the
+    // mixed-arm match because the macro-arm types as Never.
+    if tag == 1i32 {
+        return tag * 10i32;
+    } else if tag == 2i32 {
+        unreachable!()
+    } else if tag == 3i32 {
+        unreachable!("tag was {}", tag)
+    } else if tag == 4i32 {
+        todo!()
+    } else if tag == 5i32 {
+        todo!("handle tag={}", tag)
+    } else if tag == 6i32 {
+        unimplemented!()
+    } else {
+        unimplemented!("tag={}", tag)
+    }
+}
+
+fn main() -> i32 {
+    if pick(1i32) != 10i32 { return 1i32; }
+    return 0i32;
+}

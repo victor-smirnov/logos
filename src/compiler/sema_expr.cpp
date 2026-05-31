@@ -16462,6 +16462,50 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         return builder().lit_str(std::move(text), slice_u8_t);
     }
 
+    // §6.11: `unreachable!(...)` / `todo!(...)` / `unimplemented!(...)` —
+    // the three Rust marker macros. Each is a thin wrapper around
+    // `panic!` with a default prefix message. Lowering through
+    // `panic!(...)` routes them via the format-family fast-path, so
+    // the call site types as `!` (Never) and works in any position
+    // (if-arm, match-arm, fn tail) — same shape as Rust.
+    if (callee_name == "unreachable" || callee_name == "todo" ||
+        callee_name == "unimplemented") {
+        const std::string prefix =
+            callee_name == "unreachable" ? "internal error: entered unreachable code"
+          : callee_name == "todo"        ? "not yet implemented"
+          : /* unimplemented */            "not implemented";
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        // Trim outer whitespace.
+        auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
+        while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
+        while (!raw.empty() && ws(raw.back()))  raw.pop_back();
+        // Escape `"` and `\\` in prefix so it embeds safely as a string
+        // literal (prefixes are static — this matters only if a future
+        // edit ever introduces a quote, but stays safe).
+        auto esc = [](std::string_view s) {
+            std::string out;
+            for (char c : s) {
+                if (c == '"' || c == '\\') out.push_back('\\');
+                out.push_back(c);
+            }
+            return out;
+        };
+        std::string body;
+        if (raw.empty()) {
+            body = std::format("panic!(\"{}\")", esc(prefix));
+        } else {
+            // Wrap user args in an inner `format!(...)` so panic!'s
+            // format string consumes the rendered String via a single
+            // `{}` placeholder. Avoids having to splice the user's
+            // format placeholders into a synthesized one.
+            body = std::format("panic!(\"{}: {{}}\", format!({}))",
+                               esc(prefix), raw);
+        }
+        return lower_reparsed_tail_expr(body, callee_name + "!");
+    }
+
     // compile_error!("msg") — emit a compile-time error and return error_expr.
     // Takes exactly one string-literal arg; reads it from the raw-text path
     // since args may not have been lowered yet.

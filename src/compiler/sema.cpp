@@ -1580,6 +1580,9 @@ bool SemaChecker::is_divergent_call_node(hermes::TinyMapView node) {
     // `panic` symbol may not be visible yet at the call site. Keep the
     // name fast-path as an anchor for the macro shape; the generic
     // Never-return check below handles every other diverging callee.
+    // §6.11 marker-macros (unreachable!/todo!/unimplemented!) lower
+    // through `panic!` in `lower_builtin_macro`, so they're handled
+    // by the `panic` fast-path indirectly.
     if (callee == "panic") return true;
     for (auto* fi : find_func_candidates(std::string(callee)))
         if (fi && fi->ret_type &&
