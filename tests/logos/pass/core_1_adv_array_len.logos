@@ -1,0 +1,7 @@
+package h08;
+fn main() -> i32 {
+    let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
+    let n: i64 = arr.len();
+    if n != 4i64 { return 1i32; }
+    return 0i32;
+}

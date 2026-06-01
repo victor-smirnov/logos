@@ -1,0 +1,7 @@
+package h19;
+fn main() -> i32 {
+    let s: &str = "abc";
+    let c: u8 = s.as_bytes()[0];
+    if c != 97u8 { return 1i32; }
+    return 0i32;
+}

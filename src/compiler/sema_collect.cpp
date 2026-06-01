@@ -2065,6 +2065,34 @@ void SemaChecker::collect_const(TinyMapView node) {
                     // name resolves to at least one known free fn.
                     if (!find_func_candidates(vn).empty()) return true;
                 }
+                // §5 Wave 9 — `static G: AtomicI32 = atomic_i32_new(0);`.
+                // The const-eval validator now accepts a CALL whose
+                // callee is a free fn AND whose args are all
+                // const-evaluable. Effectively recognises "constructor"
+                // helpers like `atomic_i32_new(v)` that just wrap a
+                // struct literal. Mono will inline the call at the
+                // static's storage slot.
+                // §5 Wave 9 — accept CALL with a bare-IDENT callee and all
+                // args themselves const-evaluable. Phase ordering means
+                // free fns aren't yet in funcs_ when is_const_evaluable
+                // runs (collect_const is phase 2, fns are phase 1, and
+                // phase 2 runs FIRST), so we can't verify the callee is a
+                // known fn here. Trust the shape; mono inlines the call
+                // at the static's storage slot, and any bad-shape callee
+                // surfaces at the call-resolution site (post-mono).
+                if (vc == la::CALL && v.has_key(la::CALLEE)) {
+                    bool args_ok = true;
+                    if (v.has_key(la::ARGS)) {
+                        auto args = arr_of(v.get(la::ARGS.code));
+                        for (uint64_t i = 0; i < args.size(); ++i) {
+                            auto an = map_of(args.get(i));
+                            if (!is_const_evaluable(an)) {
+                                args_ok = false; break;
+                            }
+                        }
+                    }
+                    if (args_ok) return true;
+                }
                 // `&X` parses as UNARY{op:"&", value:X}; `&mut X` is
                 // ADDR_OF_MUT (static-init can't be `&mut` — rejected
                 // by type-check anyway). Accept the shared form when

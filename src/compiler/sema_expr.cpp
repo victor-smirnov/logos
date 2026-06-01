@@ -5620,6 +5620,16 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
     if (method_name == "as_ptr") {
         return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
     }
+    // §6 Wave 9 (h19) — `&str.as_bytes()` returns the bytes of the
+    // string slice. Because Logos models `&str` as `Slice<u8>` (= the
+    // exact same fat-pointer ABI as `&[u8]`), `.as_bytes()` is
+    // identity: forward the receiver verbatim. Same shape as
+    // `.iter()`-as-identity tricks in iterator wrappers.
+    if (method_name == "as_bytes" &&
+        TypeRef(recv->type).elem() &&
+        TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
+        return std::move(recv);
+    }
     // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
     // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
     // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).
@@ -6326,6 +6336,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (auto r = try_method_on_tuple(node, recv, method_name)) return *r;
 
     if (auto r = try_method_on_slice(node, recv, method_name)) return *r;
+
+    // §1 Wave 9 (a43/h08) — `[T; N].len()`: built-in for a raw fixed
+    // array. The length is the array's compile-time size; no runtime
+    // call needed. Returns i64 to match the slice .len() convention
+    // (Logos divergence — stdlib uses i64 throughout).
+    if (TypeRef(recv->type).kind() == LogosType::Kind::Array &&
+        method_name == "len") {
+        int64_t sz = TypeRef(recv->type).arr_size();
+        return builder().lit_int(sz, prim(LogosType::Kind::I64));
+    }
 
     // Phase 1B-15: method call on a DstRef receiver. The impl method's
     // self type (`&Self` / `&mut Self`) resolved to DstRef per Phase
