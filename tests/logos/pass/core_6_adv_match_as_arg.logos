@@ -1,0 +1,7 @@
+package f10_match_expr_as_arg;
+fn take(_x: i32) -> i32 { return 0i32; }
+fn main() -> i32 {
+    let v: i32 = 5i32;
+    let _ = take(match v { 5i32 => 50i32, _ => 0i32 });
+    return 0i32;
+}

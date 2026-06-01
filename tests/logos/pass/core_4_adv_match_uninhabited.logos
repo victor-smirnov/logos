@@ -1,0 +1,4 @@
+package d13_match_empty;
+enum Void {}
+fn f(v: Void) -> i32 { match v {} }
+fn main() -> i32 { return 0i32; }

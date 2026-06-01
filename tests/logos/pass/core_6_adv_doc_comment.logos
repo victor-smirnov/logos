@@ -1,0 +1,8 @@
+// §6 — outer doc comments (`///`) parse and compile cleanly.
+package core_6_adv_doc_comment;
+/// A documented fn.
+fn doc_fn() -> i32 { return 5i32; }
+fn main() -> i32 {
+    if doc_fn() != 5i32 { return 1i32; }
+    return 0i32;
+}

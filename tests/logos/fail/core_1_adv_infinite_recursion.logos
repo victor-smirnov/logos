@@ -1,0 +1,3 @@
+package a42_inf_recursion_type;
+struct Node { v: i32, next: Node }
+fn main() -> i32 { return 0i32; }

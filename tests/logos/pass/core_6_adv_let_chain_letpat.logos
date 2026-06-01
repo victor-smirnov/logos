@@ -1,0 +1,9 @@
+package f9_let_chain;
+enum E { A(i32), B }
+fn main() -> i32 {
+    let e: E = E::A(5i32);
+    if let E::A(x) = e && x > 0i32 {
+        if x != 5i32 { return 1i32; }
+    }
+    return 0i32;
+}

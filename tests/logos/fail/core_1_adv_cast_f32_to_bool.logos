@@ -1,0 +1,7 @@
+package a36_cast_f32_to_bool;
+fn main() -> i32 {
+    let f: f32 = 1.0f32;
+    let b: bool = f as bool;
+    let _ = b;
+    return 0i32;
+}

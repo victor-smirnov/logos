@@ -1,0 +1,8 @@
+package d3_range_char;
+fn is_lower(c: char) -> bool {
+    return match c { 'a'..='z' => true, _ => false };
+}
+fn main() -> i32 {
+    if !is_lower('m') { return 1i32; }
+    return 0i32;
+}

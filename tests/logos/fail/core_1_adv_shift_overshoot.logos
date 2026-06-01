@@ -1,0 +1,6 @@
+package a41_shift_overshoot;
+fn main() -> i32 {
+    let x: i32 = 1i32 << 32u32;
+    let _ = x;
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+package a38_neg_unsigned;
+fn main() -> i32 {
+    let x: u32 = 5u32;
+    let y: u32 = -x;
+    let _ = y;
+    return 0i32;
+}

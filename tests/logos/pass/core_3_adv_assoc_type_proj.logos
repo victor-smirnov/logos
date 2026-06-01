@@ -1,0 +1,9 @@
+package c10_assoc_type_proj;
+trait Container { type Item; fn val(&self) -> Self::Item; }
+struct B { x: i32 }
+impl Container for B { type Item = i32; fn val(&self) -> i32 { return self.x; } }
+fn main() -> i32 {
+    let b: B = B { x: 5i32 };
+    if b.val() != 5i32 { return 1i32; }
+    return 0i32;
+}

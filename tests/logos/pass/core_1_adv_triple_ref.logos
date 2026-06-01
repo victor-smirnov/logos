@@ -1,0 +1,8 @@
+package a27_triple_ref;
+fn main() -> i32 {
+    let x: i32 = 7i32;
+    let rrr: &&&i32 = &&&x;
+    let v: i32 = ***rrr;
+    if v != 7i32 { return 1i32; }
+    return 0i32;
+}

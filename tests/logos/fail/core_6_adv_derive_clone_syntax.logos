@@ -1,0 +1,9 @@
+package f3_derive_clone;
+#[derive(Clone)]
+struct P { x: i32, y: i32 }
+fn main() -> i32 {
+    let p: P = P { x: 1i32, y: 2i32 };
+    let q: P = p.clone();
+    if q.x + q.y != 3i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,6 @@
+package c5_generic_bound_propagation;
+trait Iter { type Item; fn next(&mut self) -> Option<Self::Item>; }
+fn collect_first<I: Iter>(mut it: I) -> Option<I::Item> {
+    return it.next();
+}
+fn main() -> i32 { return 0i32; }

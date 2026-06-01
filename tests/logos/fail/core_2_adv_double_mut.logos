@@ -1,0 +1,9 @@
+package b5_double_mut;
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    let r1: &mut i32 = &mut x;
+    let r2: &mut i32 = &mut x;
+    *r1 = 1i32;
+    *r2 = 2i32;
+    return 0i32;
+}

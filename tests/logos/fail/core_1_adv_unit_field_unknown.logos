@@ -1,0 +1,7 @@
+package a32_unit_in_struct;
+struct S { u: (), x: i32 }
+fn main() -> i32 {
+    let s: S = S { u: (), x: 7i32 };
+    if s.x != 7i32 { return 1i32; }
+    return 0i32;
+}

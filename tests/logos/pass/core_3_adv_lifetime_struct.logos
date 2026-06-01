@@ -1,0 +1,8 @@
+package c11_lifetime_param_struct;
+struct Wrap<'a> { r: &'a i32 }
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let w: Wrap = Wrap { r: &x };
+    if *w.r != 5i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+package f8_const_in_struct;
+struct S { v: i32 }
+impl S { const ZERO: S = S { v: 0i32 }; }
+fn main() -> i32 {
+    if S::ZERO.v != 0i32 { return 1i32; }
+    return 0i32;
+}

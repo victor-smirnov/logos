@@ -698,6 +698,25 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         if (src_agg && tgt_scalar && !src_is_cstyle_enum)
             error(std::format("cannot cast '{}' to '{}'",
                   type_str(inner->type), type_str(target)));
+        // §1.2 — `as bool` is not a permitted cast in Rust. Only the
+        // reverse direction (`bool as i32`) is valid (true→1, false→0).
+        // Previously `let i: i32 = 1; let b: bool = i as bool;` and the
+        // float variant both compiled to a value-truncating cast, which
+        // silently produced a `bool` from arbitrary i32/f32/etc. bits —
+        // unsound (any non-0/1 bit pattern in a `bool` is UB per the
+        // boolean validity invariant).
+        if (TypeRef(target).kind() == LogosType::Kind::Bool) {
+            auto sk = TypeRef(inner->type).kind();
+            bool src_is_bool = (sk == LogosType::Kind::Bool);
+            // A C-style enum cast to bool: same shape as int-to-bool —
+            // also reject.
+            if (!src_is_bool)
+                error(std::format(
+                    "cannot cast `{}` to `bool` — `as bool` is not a "
+                    "permitted Rust cast (use `x != 0` for integers, "
+                    "`x != 0.0` for floats)",
+                    type_str(inner->type)));
+        }
         // Sprint 3.4: also forbid scalar/pointer → aggregate (closes B-ex-05).
         // Casting to a struct/enum/tuple/array reinterprets unrelated bits;
         // there is no well-defined operation here.
@@ -1926,6 +1945,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             error(std::format("operator '{}': right must be numeric, got {}", op, type_str(rt)));
         // B-ex-02: division/remainder by literal zero is a guaranteed
         // runtime SIGFPE. Detect at sema when the divisor is a literal.
+        // Restricted to untyped IntLit RHS so short-circuit guards like
+        // `cond && (1i64 / 0i64 == 0i64)` aren't rejected at sema —
+        // they're statically unreachable and never execute the divide.
         if ((op == "/" || op == "%") && TypeRef(rt).kind() == LogosType::Kind::IntLit) {
             if (auto v = get_intlit_value(rhs))
                 if (*v == 0)
@@ -2035,6 +2057,36 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (*v < 0)
                     error(std::format("operator '{}': shift count must be non-negative (got {})",
                           op, *v));
+        }
+        // §1 Wave 9 — shift count >= bit-width is UB in Rust. The LHS
+        // type width bounds the legal shift count. Reject at sema for
+        // literal shift counts that exceed the LHS bit-width.
+        if ((op == "<<" || op == ">>") &&
+            (TypeRef(rt).kind() == LogosType::Kind::IntLit ||
+             is_integer_kind(TypeRef(rt).kind()))) {
+            if (auto v = get_intlit_value(rhs)) {
+                using K = LogosType::Kind;
+                auto bits = [](K k) -> int {
+                    switch (k) {
+                        case K::I8: case K::U8:        return 8;
+                        case K::I16: case K::U16:      return 16;
+                        case K::I24: case K::U24:      return 24;
+                        case K::I32: case K::U32:      return 32;
+                        case K::I56: case K::U56:      return 56;
+                        case K::I64: case K::U64:      return 64;
+                        case K::I128: case K::U128:    return 128;
+                        case K::Usize: case K::Isize:  return 64;  // 64-bit target
+                        default: return 0;
+                    }
+                };
+                int w = bits(TypeRef(lt).kind());
+                if (w > 0 && *v >= w)
+                    error(std::format(
+                        "operator '{}': shift count {} >= bit-width of "
+                        "'{}' ({}); shifting by >= width is undefined "
+                        "behavior in Rust",
+                        op, *v, type_str(lt), w));
+            }
         }
         result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.

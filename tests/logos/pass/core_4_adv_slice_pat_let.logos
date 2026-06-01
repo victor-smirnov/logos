@@ -1,0 +1,7 @@
+package d14_slice_pat_in_let;
+fn main() -> i32 {
+    let arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let [a, b, c] = arr;
+    if a + b + c != 6i32 { return 1i32; }
+    return 0i32;
+}

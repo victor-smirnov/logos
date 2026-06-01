@@ -1,0 +1,5 @@
+package c1_hrtb_call;
+fn apply<F: for<'a> Fn(&'a i32) -> i32>(f: F, x: i32) -> i32 {
+    return f(&x);
+}
+fn main() -> i32 { return 0i32; }

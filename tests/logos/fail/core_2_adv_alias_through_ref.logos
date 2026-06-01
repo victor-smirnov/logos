@@ -1,0 +1,7 @@
+package b6_alias_through_ref;
+fn swap(a: &mut i32, b: &mut i32) { let t: i32 = *a; *a = *b; *b = t; }
+fn main() -> i32 {
+    let mut x: i32 = 5i32;
+    swap(&mut x, &mut x);
+    return 0i32;
+}

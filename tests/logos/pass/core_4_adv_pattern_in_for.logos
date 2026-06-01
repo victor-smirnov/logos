@@ -1,0 +1,8 @@
+package d8_pattern_in_for;
+fn main() -> i32 {
+    let arr: [(i32, i32); 2] = [(1i32, 2i32), (3i32, 4i32)];
+    let mut sum: i32 = 0i32;
+    for (a, b) in arr { sum = sum + a + b; }
+    if sum != 10i32 { return 1i32; }
+    return 0i32;
+}

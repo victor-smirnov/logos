@@ -1,0 +1,9 @@
+package b3_move_in_if;
+struct S { v: i32 }
+fn take(_s: S) {}
+fn main() -> i32 {
+    let s: S = S { v: 1i32 };
+    if true { take(s); }
+    let _ = s.v;
+    return 0i32;
+}

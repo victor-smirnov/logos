@@ -1,0 +1,7 @@
+package e6_atomic_i8;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI8 = atomic_i8_new(5i8);
+    let _ = a.load();
+    return 0i32;
+}

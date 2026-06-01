@@ -1,0 +1,10 @@
+package b9_move_in_match;
+struct S { v: String }
+fn main() -> i32 {
+    let s: S = S { v: String::new() };
+    match s {
+        S { v: _ } => { }
+    }
+    let _ = s.v;
+    return 0i32;
+}

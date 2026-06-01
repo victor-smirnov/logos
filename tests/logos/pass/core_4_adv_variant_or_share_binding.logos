@@ -1,0 +1,11 @@
+package d2_nested_or;
+enum E { A(i32), B(i32), C }
+fn main() -> i32 {
+    let e: E = E::B(5i32);
+    let r: i32 = match e {
+        E::A(x) | E::B(x) => x,
+        E::C => 0i32,
+    };
+    if r != 5i32 { return 1i32; }
+    return 0i32;
+}

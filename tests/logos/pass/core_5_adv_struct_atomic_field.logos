@@ -1,0 +1,14 @@
+package a13_struct_field;
+use logos.lang.atomic;
+struct Counter { c: AtomicI32 }
+fn main() -> i32 {
+    let mut s: Counter = Counter { c: atomic_i32_new(0i32) };
+    let p: *mut AtomicI32 = &mut s.c as *mut AtomicI32;
+    unsafe {
+        p.fetch_add(1i32);
+        p.fetch_add(1i32);
+        p.fetch_add(1i32);
+    }
+    if s.c.load() != 3i32 { return 1i32; }
+    return 0i32;
+}

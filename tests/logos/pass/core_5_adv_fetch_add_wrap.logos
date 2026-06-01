@@ -1,0 +1,12 @@
+package a15_overflow_wrap;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(2147483646i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    let prev: i32 = unsafe { p.fetch_add(2i32) };
+    if prev != 2147483646i32 { return 1i32; }
+    // wrapping behavior: 2147483646 + 2 = -2147483648 (i32 wrap)
+    let v: i32 = a.load();
+    if v != -2147483648i32 { return 2i32; }
+    return 0i32;
+}

@@ -1,0 +1,4 @@
+package b12_borrowed_self_consume;
+struct V { v: i32 }
+impl V { fn consume(self) -> i32 { return self.v; } }
+fn main() -> i32 { return 0i32; }

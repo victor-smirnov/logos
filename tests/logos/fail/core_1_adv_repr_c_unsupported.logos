@@ -1,0 +1,7 @@
+package a31_repr_c_layout;
+#[repr(C)]
+struct S { a: u8, b: u32, c: u8 }
+fn main() -> i32 {
+    let _s: S = S { a: 1u8, b: 2u32, c: 3u8 };
+    return 0i32;
+}

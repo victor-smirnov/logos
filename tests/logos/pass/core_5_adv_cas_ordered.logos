@@ -1,0 +1,12 @@
+package a12_cas_ordered;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(7i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    let ok: bool = unsafe {
+        p.compare_exchange_ordered(7i32, 8i32, Ordering::AcqRel, Ordering::Acquire)
+    };
+    if !ok { return 1i32; }
+    if a.load() != 8i32 { return 2i32; }
+    return 0i32;
+}

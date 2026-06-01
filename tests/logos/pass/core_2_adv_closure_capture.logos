@@ -1,0 +1,7 @@
+package b14_capture_in_closure;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let f = || x;
+    if f() != 5i32 { return 1i32; }
+    return 0i32;
+}

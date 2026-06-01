@@ -1,0 +1,8 @@
+package a44_cast_ptr_to_int;
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    let p: *const i32 = &x;
+    let n: usize = p as usize;
+    if n == 0usize { return 1i32; }
+    return 0i32;
+}

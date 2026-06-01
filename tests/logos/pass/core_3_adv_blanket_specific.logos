@@ -1,0 +1,9 @@
+package c2_blanket_conflict;
+trait Foo { fn foo(&self) -> i32; }
+impl<T> Foo for T { fn foo(&self) -> i32 { return 1i32; } }
+impl Foo for i32 { fn foo(&self) -> i32 { return 2i32; } }
+fn main() -> i32 {
+    let x: i32 = 5i32;
+    if x.foo() != 2i32 { return 1i32; }
+    return 0i32;
+}

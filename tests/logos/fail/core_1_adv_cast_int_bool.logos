@@ -1,0 +1,7 @@
+package a34_cast_int_bool;
+fn main() -> i32 {
+    let i: i32 = 1i32;
+    let b: bool = i as bool;
+    if !b { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+package a26_generic_zst;
+struct ZST;
+fn id<T>(x: T) -> T { return x; }
+fn main() -> i32 {
+    let _z: ZST = id::<ZST>(ZST);
+    return 0i32;
+}

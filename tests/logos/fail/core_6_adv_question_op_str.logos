@@ -1,0 +1,10 @@
+package f5_question_op;
+enum Result<T, E> { Ok(T), Err(E) }
+fn parse(s: &str) -> Result<i32, i32> {
+    return Result::<i32, i32>::Ok(5i32);
+}
+fn main_inner() -> Result<i32, i32> {
+    let v: i32 = parse("5")?;
+    return Result::<i32, i32>::Ok(v);
+}
+fn main() -> i32 { return 0i32; }

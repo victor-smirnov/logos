@@ -1,0 +1,7 @@
+package c6_default_type_param;
+struct Pair<T = i32> { a: T, b: T }
+fn main() -> i32 {
+    let p: Pair = Pair { a: 1i32, b: 2i32 };
+    if p.a + p.b != 3i32 { return 1i32; }
+    return 0i32;
+}

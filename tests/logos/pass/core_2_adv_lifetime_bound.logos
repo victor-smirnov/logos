@@ -1,0 +1,3 @@
+package b11_mut_ref_lifetime;
+fn longer<'a, 'b: 'a>(r: &'b i32) -> &'a i32 { return r; }
+fn main() -> i32 { return 0i32; }

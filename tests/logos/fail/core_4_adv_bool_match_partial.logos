@@ -1,0 +1,6 @@
+package d5_exhaustive_neg;
+fn main() -> i32 {
+    let x: bool = true;
+    let r: i32 = match x { true => 1i32 };
+    return r;
+}

@@ -1,0 +1,6 @@
+package d11_float_range;
+fn main() -> i32 {
+    let x: f32 = 1.5f32;
+    let r: i32 = match x { 1.0f32..=2.0f32 => 1i32, _ => 0i32 };
+    return r;
+}

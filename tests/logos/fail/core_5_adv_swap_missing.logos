@@ -1,0 +1,10 @@
+package e2_atomic_swap;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(5i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    let prev: i32 = unsafe { p.swap(99i32) };
+    if prev != 5i32 { return 1i32; }
+    if a.load() != 99i32 { return 2i32; }
+    return 0i32;
+}

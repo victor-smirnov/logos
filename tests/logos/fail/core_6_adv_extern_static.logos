@@ -1,0 +1,5 @@
+package f2_extern_global;
+extern "C" {
+    static EXTERN_VAR: i32;
+}
+fn main() -> i32 { return 0i32; }

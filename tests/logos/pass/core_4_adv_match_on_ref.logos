@@ -1,0 +1,8 @@
+package d15_match_on_ref;
+struct P { x: i32 }
+fn main() -> i32 {
+    let p: P = P { x: 5i32 };
+    let r: i32 = match &p { P { x } => *x };
+    if r != 5i32 { return 1i32; }
+    return 0i32;
+}

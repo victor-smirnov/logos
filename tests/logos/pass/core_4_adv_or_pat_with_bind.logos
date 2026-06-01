@@ -1,0 +1,10 @@
+package d1_or_pat_with_bind;
+fn main() -> i32 {
+    let x: i32 = 3i32;
+    let r: i32 = match x {
+        1i32 | 2i32 => 10i32,
+        n => n,
+    };
+    if r != 3i32 { return 1i32; }
+    return 0i32;
+}

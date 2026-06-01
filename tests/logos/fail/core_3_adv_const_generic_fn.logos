@@ -1,0 +1,7 @@
+package c9_const_generic;
+fn make_arr<const N: usize>() -> [i32; N] { return [0i32; N]; }
+fn main() -> i32 {
+    let arr: [i32; 5] = make_arr::<5usize>();
+    if arr[0] != 0i32 { return 1i32; }
+    return 0i32;
+}

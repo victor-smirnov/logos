@@ -1,0 +1,6 @@
+package b10_return_local_ref;
+fn bad<'a>() -> &'a i32 {
+    let x: i32 = 5i32;
+    return &x;
+}
+fn main() -> i32 { return 0i32; }

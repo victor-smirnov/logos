@@ -1,0 +1,8 @@
+package b15_borrow_through_index;
+fn main() -> i32 {
+    let mut arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let r: &mut i32 = &mut arr[0];
+    *r = 99i32;
+    if arr[0] != 99i32 { return 1i32; }
+    return 0i32;
+}
