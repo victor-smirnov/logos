@@ -147,6 +147,18 @@ impl<T> Vec<T> {
     pub fn new() -> Vec<T> {
         return vec_new::<T>();
     }
+    // Swap two elements by index (Rust API parity).
+    pub fn swap(&mut self, i: i64, j: i64) {
+        if i < 0i64 || i >= self.len || j < 0i64 || j >= self.len {
+            panic("Vec::swap: index out of bounds");
+        }
+        if i == j { return; }
+        unsafe {
+            let tmp: T = self.ptr[i];
+            self.ptr[i] = self.ptr[j];
+            self.ptr[j] = tmp;
+        }
+    }
 
     // Remove and return the last element, or None if empty.
     pub fn pop(&mut self) -> Option<T> {
