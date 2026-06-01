@@ -5630,6 +5630,35 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
         TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
         return std::move(recv);
     }
+    // §6 Wave 9 (h32) — `s.starts_with(prefix)` / `s.ends_with(suffix)` /
+    // `s.contains(needle)` on `&str` forward to the stdlib free fns
+    // `str_starts_with` / `str_ends_with` / `str_contains` so the
+    // method-call shape works without users having to import the bare
+    // fn names.
+    if (TypeRef(recv->type).elem() &&
+        TypeRef(TypeRef(recv->type).elem()).kind() == LogosType::Kind::U8) {
+        const std::pair<std::string_view, std::string_view> forwards[] = {
+            {"starts_with",  "str_starts_with"},
+            {"ends_with",    "str_ends_with"},
+            {"contains",     "str_contains"},
+            {"eq_str",       "str_eq"},
+        };
+        for (auto& [m, sym] : forwards) {
+            if (method_name == m) {
+                auto cands = find_func_candidates(std::string(sym));
+                if (cands.empty()) continue;
+                const SemaFuncInfo& fi = *cands[0];
+                std::vector<lir::LExprPtr> args;
+                args.push_back(std::move(recv));
+                std::vector<TinyMapView> arg_asts = collect_arg_asts(node);
+                for (auto an : arg_asts) args.push_back(lower_expr(an));
+                return builder().call(fi.symbol_name.empty()
+                                          ? std::string(sym)
+                                          : fi.symbol_name,
+                                      {}, std::move(args), fi.ret_type);
+            }
+        }
+    }
     // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
     // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
     // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).

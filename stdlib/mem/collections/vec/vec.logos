@@ -123,6 +123,12 @@ impl<T> Vec<T> {
         return self.len;
     }
 
+    // §2 Wave 9 — Rust API parity: `len()` is the canonical name. The
+    // existing `length()` stays as a Logos-specific alias.
+    pub fn len(&self) -> i64 {
+        return self.len;
+    }
+
     pub fn is_empty(&self) -> bool {
         return self.len == 0 as i64;
     }

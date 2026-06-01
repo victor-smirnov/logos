@@ -1,0 +1,6 @@
+package h32;
+fn main() -> i32 {
+    let s: &str = "hello world";
+    if !s.starts_with("hello") { return 1i32; }
+    return 0i32;
+}
