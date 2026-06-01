@@ -1279,7 +1279,118 @@ for a Wave 6 ergonomics pass, not a soundness gap.
 
 ---
 
-## 7. Coupling rules (depth ↔ breadth)
+## 7. Closures + Fn traits
+
+Closures land most of their surface (parameterless / shared-capture
+/ FnMut-mutated / fn-pointer coercion of no-capture forms), but the
+**move + droppable capture** corner is unsound at runtime (double-
+free) and several call-site shapes are missing or produce confusing
+diagnostics. Each item below has a per-shape DoD.
+
+### 7.1. `move` closure + droppable capture — non-escaping double-free
+*Audit: B (Capture modes), G (RAII).*
+- **Issue:** `let s: String = String::from("hi"); let f = move || { let _ = s; }; f();`
+  aborts with `free(): double free detected in tcache 2`. The
+  non-escaping `move` closure captures `s` by-pointer-borrow into a
+  stack env, and `closure_owned_drop_.insert(s)` schedules `s`'s
+  destructor in the SOURCE scope. The closure body's `let _ = s;`
+  ALSO emits a drop — second free.
+- **Why core:** safety-class invariant — owning RAII destructors must
+  run exactly once. Doubles produce CVE-class memory corruption on
+  any `Drop` impl that frees heap.
+- **DoD-depth:** for a non-escaping `move` closure whose capture is a
+  move-type, EITHER the source scope drops (and the closure body's
+  use is a value-borrow, no drop) OR the closure env owns + drops
+  (capture_own_inline=true, source skip). Mirror sema/mlir-gen
+  decisions, exactly. Tests: pin both `move ||` direct-call and
+  `move ||` passed to `FnOnce` arg.
+
+### 7.2. Capturing closure → `fn` pointer coercion diagnostic
+*Audit: B (Coercions), F (Fn trait family).*
+- **Issue:** `let f: fn(i32) -> i32 = |a| a + x;` (x captured) errors
+  "expected fn(i32) -> i32, got |i32| -> i32". The rejection is
+  correct (only a non-capturing closure coerces to a fn pointer per
+  Rust), but the `|i32| -> i32` rendering doesn't match Rust's
+  `[closure …]` and obscures the reason.
+- **Why core:** diagnostic legibility for users porting Rust code;
+  the rejection itself is right.
+- **DoD-depth:** pin the diagnostic with a fail-test; render the
+  closure type as "closure capturing N value(s)" or the Rust spec's
+  `[closure@…]` form for clarity.
+
+### 7.3. Capturing closure as fn return
+*Audit: B (Coercions), F.*
+- **Issue:** `fn make(x: i32) -> fn(i32) -> i32 { move |y| y + x }`
+  errors at the return (`got |i32| -> i32`). The fix is either to
+  accept `impl Fn(i32) -> i32` as the return type, or to box the
+  closure (`Box<dyn Fn(i32) -> i32>`). Both work in Rust; Logos
+  currently parses neither cleanly at the return-type position.
+- **Why core:** the canonical Rust pattern for "function-as-data
+  factory" (parameterized callbacks, builder patterns) needs one
+  of the two paths to land.
+- **DoD-depth:** `impl Trait` in fn return — at least for `Fn`
+  family — parses + resolves to anon-struct closure type at sema;
+  alternative `-> Box<dyn Fn…>` accepts boxed escaping closure.
+
+### 7.4. `FnOnce` arg + move-type capture — double-free
+*Audit: B (Capture modes), F (Fn family), G (RAII).*
+- **Issue:** `fn consume<F: FnOnce() -> i32>(f: F) -> i32 { f() }` +
+  `consume(move || { let _ = s; 42 })` (`s: String`). Same
+  double-free shape as 7.1, surfacing via the FnOnce monomorphisation
+  path. The closure here SHOULD be escaping (FnOnce arg is passed by
+  value, env must travel with it) — escapes detection misses this
+  shape (sets escapes=true only when wrapping in `Box<…Fn>`).
+- **Why core:** linked to 7.1 — same root, different trigger shape.
+- **DoD-depth:** escapes detection extended to FnOnce/FnMut/Fn arg
+  monomorphisation sites; mlir-gen `capture_own_inline` then fires;
+  source scope correctly skips the drop.
+
+### ~~7.5. No-capture closure → `fn(args) -> ret` coercion~~ ✅
+Closures with empty capture list coerce cleanly to the matching
+`fn` pointer type via the existing `Closure → FnPtr` rule. Test:
+`pass/core_7_adv_fn_ptr_no_capture`.
+
+### ~~7.6. Shared-capture closure (FnMut + value-only)~~ ✅
+Reading a non-`mut` outer in a closure body works (`|y| y + x`
+for x: i32). The non-Copy / move-out variants land via 7.1.
+
+### ~~7.7. Mut-capture closure~~ ✅
+`let mut x: i32 = 0; let mut bump = || { x = x + 1; };` correctly
+re-borrows mutably on each call; NLL releases the mut borrow
+between calls.
+
+### ~~7.8. Fn / FnMut trait-bound generic arg~~ ✅
+`fn apply<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 { f(x) }` and
+the FnMut analog work end-to-end.
+
+### 7.9. Closure type display in errors
+*Audit: B (Coercions), audit-finding.*
+- **Issue:** error messages print the closure type as `|i32| -> i32`
+  using the parameter-pipe form. Rust prints `[closure@file:line:col]`
+  or a structural description. The pipe form collides with the
+  closure-literal syntax in user-facing diagnostic text.
+- **Why core:** porting-friendliness; aligns Logos diagnostics with
+  Rust's conventions so users can search/match against Rust resources.
+- **DoD-depth:** `type_str` for `Kind::Closure` emits a stable
+  human-readable form distinct from the literal syntax.
+
+### 7.10. `move` keyword preserved through generic Fn-bound mono
+*Audit: B (Capture modes), F.*
+- **Issue:** when a `move` closure is monomorphised through a
+  `Fn`/`FnMut`/`FnOnce` arg, the `is_move` flag must be preserved
+  so the env-build site (heap vs stack) and the drop site
+  (capture_own_inline) decide consistently. Currently the link
+  between sema's `ec->is_move` and mlir-gen's `v.is_move()` holds
+  at the immediate site, but cross-mono propagation is untested.
+- **Why core:** mono is where the closure's actual type appears;
+  losing is_move there means the env-build picks the wrong shape.
+- **DoD-depth:** a test that creates a `move` closure, passes it
+  through a generic `F: Fn(…)` boundary, and verifies the env's
+  drop runs exactly once.
+
+---
+
+## 8. Coupling rules (depth ↔ breadth)
 
 Breadth-first work runs in parallel with core work, but must respect
 these invariants so the core can land without breaking the breadth
@@ -1303,7 +1414,7 @@ surface:
 
 ---
 
-## 8. Definition of M3 "core done"
+## 9. Definition of M3 "core done"
 
 M3 ships when every item in §§1-6 is at DoD-depth, with the full suite
 green and a 200-test imported-batch demonstrating the core items lit
@@ -1317,7 +1428,7 @@ core are recorded here with a rationale. Closing items move to a
 
 ---
 
-## 8a. Score (canonical — `/goal` reads this)
+## 9a. Score (canonical — `/goal` reads this)
 
 > **Score: 37 / 37 ✅ closed at DoD-depth (100%)** · 0 🟡 partial · 0 ❌ not
 > started. Suite: 5334+ / 5334+ ✓.
@@ -1391,7 +1502,7 @@ path; (c) full suite gate.
 
 ---
 
-## 9. Implementation plan
+## 10. Implementation plan
 
 Effort labels: **S** ≈ single session ≤ 3 h, **M** ≈ 1-2 sessions ≤ 8 h, **L** ≈
 multi-session ≥ 10 h. Each phase ends with the full suite green

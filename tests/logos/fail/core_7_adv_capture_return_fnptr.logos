@@ -1,0 +1,9 @@
+package c7_08;
+fn make_adder(x: i32) -> fn(i32) -> i32 {
+    return move |y| y + x;
+}
+fn main() -> i32 {
+    let f = make_adder(10i32);
+    if f(5i32) != 15i32 { return 1i32; }
+    return 0i32;
+}

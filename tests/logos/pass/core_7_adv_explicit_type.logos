@@ -1,0 +1,6 @@
+package c7_10;
+fn main() -> i32 {
+    let f: fn(i32) -> i32 = |x: i32| -> i32 { x + 1i32 };
+    if f(5i32) != 6i32 { return 1i32; }
+    return 0i32;
+}

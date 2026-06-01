@@ -1,0 +1,6 @@
+package c7_09;
+fn main() -> i32 {
+    let f: fn() -> i32 = || 42i32;
+    if f() + f() != 84i32 { return 1i32; }
+    return 0i32;
+}

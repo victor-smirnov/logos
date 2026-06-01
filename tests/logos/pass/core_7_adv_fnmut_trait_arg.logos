@@ -1,0 +1,8 @@
+package c7_06;
+fn each<F: FnMut(i32)>(mut f: F) { f(1i32); f(2i32); f(3i32); }
+fn main() -> i32 {
+    let mut sum: i32 = 0i32;
+    each(|x| { sum = sum + x; });
+    if sum != 6i32 { return 1i32; }
+    return 0i32;
+}

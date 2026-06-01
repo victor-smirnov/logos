@@ -1,0 +1,8 @@
+package c7_03;
+fn main() -> i32 {
+    let mut x: i32 = 0i32;
+    let mut bump = || { x = x + 1i32; };
+    bump(); bump(); bump();
+    if x != 3i32 { return 1i32; }
+    return 0i32;
+}

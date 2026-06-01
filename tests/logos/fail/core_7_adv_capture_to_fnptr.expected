@@ -1,0 +1,1 @@
+expected fn(i32) -> i32, got |i32| -> i32

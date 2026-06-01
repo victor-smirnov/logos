@@ -1,0 +1,6 @@
+package c7_01;
+fn main() -> i32 {
+    let add: fn(i32, i32) -> i32 = |a, b| a + b;
+    if add(3i32, 4i32) != 7i32 { return 1i32; }
+    return 0i32;
+}

@@ -1,0 +1,7 @@
+package c7_05;
+fn apply<F: Fn(i32) -> i32>(f: F, x: i32) -> i32 { return f(x); }
+fn main() -> i32 {
+    let r: i32 = apply(|x| x * 2i32, 5i32);
+    if r != 10i32 { return 1i32; }
+    return 0i32;
+}
