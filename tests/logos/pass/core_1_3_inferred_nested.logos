@@ -7,6 +7,6 @@ package core_1_3_inferred_nested;
 use logos.mem.collections.vec;
 
 fn main() -> i32 {
-    let v: Vec<_> = vec_new::<i32>();
+    let v: Vec<_> = Vec::<i32>::new();
     return v.length() as i32;
 }

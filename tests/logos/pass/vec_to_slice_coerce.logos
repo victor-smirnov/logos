@@ -17,9 +17,9 @@ fn first(s: &[i64]) -> i64 {
 fn first_mut(s: &[i64]) -> i64 { return 7i64; }
 
 fn main() -> i32 {
-    let v: Vec<i64> = vec_new::<i64>();
+    let v: Vec<i64> = Vec::<i64>::new();
     if first(&v)     != 42i64 { return 1; }
-    let mut vm: Vec<i64> = vec_new::<i64>();
+    let mut vm: Vec<i64> = Vec::<i64>::new();
     if first_mut(&vm) != 7i64 { return 2; }
     return 0;
 }

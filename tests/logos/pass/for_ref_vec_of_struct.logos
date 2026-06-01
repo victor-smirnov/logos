@@ -7,7 +7,7 @@ package for_ref_vec_of_struct;
 struct P3 { a: i64, b: i64, c: i64 }
 
 fn main() -> i32 {
-    let mut v: Vec<P3> = vec_new::<P3>();
+    let mut v: Vec<P3> = Vec::<P3>::new();
     v.push(P3 { a: 1i64, b: 10i64, c: 100i64 });
     v.push(P3 { a: 2i64, b: 20i64, c: 200i64 });
     v.push(P3 { a: 4i64, b: 40i64, c: 400i64 });

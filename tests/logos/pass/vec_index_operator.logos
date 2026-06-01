@@ -16,13 +16,13 @@ fn main() -> i32 {
     if v[1i64] != 35i64 { return 4i32; }
 
     // Index on a Vec of non-Copy elements (returns the element place).
-    let mut s: Vec<String> = vec_new::<String>();
+    let mut s: Vec<String> = Vec::<String>::new();
     s.push(String::from("ab"));
     if s[0i64] != "ab" { return 5i32; }
 
     // Index a Vec of FAT (&dyn) elements: read must LOAD the 8-byte handle (a
     // no-op handle deref returned the slot pointer → bad vtable → SIGSEGV).
-    let mut dynv: Vec<&dyn Describe> = vec_new::<&dyn Describe>();
+    let mut dynv: Vec<&dyn Describe> = Vec::<&dyn Describe>::new();
     let n1: i64 = 7i64;
     let n2: i64 = 11i64;
     dynv.push(&n1 as &dyn Describe);

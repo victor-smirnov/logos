@@ -7,7 +7,7 @@ package const_generic_numeric;
 use logos.mem.collections.vec;
 
 pub fn cg_vec_from_arr<T: Copy, const N: i64>(arr: [T; N]) -> Vec<T> {
-    let mut v: Vec<T> = vec_new::<T>();
+    let mut v: Vec<T> = Vec::<T>::new();
     let mut i: i64 = 0i64;
     while i < N {
         v.push(arr[i]);

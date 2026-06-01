@@ -43,7 +43,7 @@ fn main() -> i32 {
     let r = check(fmt_debug_to_string::<()>(&()),   "()", 46); if r != 0 { return r; }
 
     // Vec Debug.
-    let mut v: Vec<i32> = vec_new::<i32>();
+    let mut v: Vec<i32> = Vec::<i32>::new();
     v.push(1); v.push(2); v.push(3);
     let r = check(fmt_debug_to_string::<Vec<i32>>(&v), "[1, 2, 3]", 51); if r != 0 { return r; }
 

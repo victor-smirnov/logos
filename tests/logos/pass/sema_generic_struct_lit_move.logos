@@ -14,7 +14,7 @@ pub struct Holder<const N: i64> {
 }
 
 unsafe fn main() -> i32 {
-    let mut v: Vec<i64> = vec_new::<i64>();
+    let mut v: Vec<i64> = Vec::<i64>::new();
     v.push(7i64);
     v.push(11i64);
     v.push(13i64);

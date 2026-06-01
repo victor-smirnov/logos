@@ -24,7 +24,7 @@ fn main() -> i32 {
 
         // Decode via read_chunked_body over BufReader<FdReader>.
         let mut br: BufReader<FdReader> = buf_reader_wrap::<FdReader>(fd_reader(rfd), 64 as i64);
-        let mut out: Vec<u8> = vec_new::<u8>();
+        let mut out: Vec<u8> = Vec::<u8>::new();
         let n: i64 = read_chunked_body::<BufReader<FdReader>>(&mut br, &mut out);
         if n < 0 as i64 { return 2; }
         if n != 11 as i64 { return (10 + n) as i32; }

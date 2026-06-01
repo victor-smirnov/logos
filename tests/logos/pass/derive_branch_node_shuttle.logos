@@ -42,7 +42,7 @@ fn main() -> i32 {
         p.base.rc      = 1u64;
         p.base.is_leaf = false;
         p.keys         = Buffer::<u64>::new();
-        p.children     = vec_new::<NodeARC<StoreCfg>>();
+        p.children     = Vec::<NodeARC<StoreCfg>>::new();
         p.sizes        = PrimVec::<u64>::empty();
         p.maxes        = PrimVec::<u64>::empty();
         p.sizes.push(3u64);

@@ -25,7 +25,7 @@ fn derive_clone_q_hook(target_offset: u32) -> () {
     let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
 
     let nf: u64 = view.ast_struct_field_count(item);
-    let mut fnames: Vec<Ident> = vec_new::<Ident>();
+    let mut fnames: Vec<Ident> = Vec::<Ident>::new();
     let mut i: u64 = 0 as u64;
     while i < nf {
         let fld: AnyVal = view.ast_struct_field(item, i);

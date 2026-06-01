@@ -20,7 +20,7 @@ trait Maker<T> {
 
 impl<T, E> Maker<T> for Result<Vec<T>, E> {
     fn make(x: T) -> Result<Vec<T>, E> {
-        let mut v: Vec<T> = vec_new::<T>();
+        let mut v: Vec<T> = Vec::<T>::new();
         v.push(x);
         return Result::Ok(v);
     }

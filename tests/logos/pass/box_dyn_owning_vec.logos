@@ -9,7 +9,7 @@ trait Sp { fn v(&self) -> i64; }
 struct A { name: String, x: i64 }
 impl Sp for A { fn v(&self) -> i64 { return self.x; } }
 fn main() -> i32 {
-    let mut vs: Vec<Box<dyn Sp>> = vec_new::<Box<dyn Sp>>();
+    let mut vs: Vec<Box<dyn Sp>> = Vec::<Box<dyn Sp>>::new();
     vs.push(box_new(A { name: String::from("a"), x: 3 }) as Box<dyn Sp>);
     vs.push(box_new(A { name: String::from("b"), x: 4 }) as Box<dyn Sp>);
     let mut acc: i64 = 0i64;

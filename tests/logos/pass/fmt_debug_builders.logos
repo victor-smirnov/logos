@@ -110,7 +110,7 @@ fn main() -> i32 {
     // Container Debug via DebugList — render a Vec<i32> through the
     // builder. Same shape as the existing stdlib Vec Debug impl, so
     // this just verifies entry()-chain on a real collection.
-    let mut v: Vec<i32> = vec_new::<i32>();
+    let mut v: Vec<i32> = Vec::<i32>::new();
     v.push(10i32);
     v.push(20i32);
     v.push(30i32);

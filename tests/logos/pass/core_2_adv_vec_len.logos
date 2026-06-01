@@ -1,6 +1,6 @@
 package h31;
 fn main() -> i32 {
-    let mut v: Vec<i32> = vec_new::<i32>();
+    let mut v: Vec<i32> = Vec::<i32>::new();
     v.push(1i32);
     v.push(2i32);
     v.push(3i32);

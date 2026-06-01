@@ -27,8 +27,8 @@ fn derive_struct_with_cols_hook(target_offset: u32) -> () {
     let s_b:   str = "b";
     let s_u64: str = "u64";
     let s_i64: str = "i64";
-    let mut col_names: Vec<Ident> = vec_new::<Ident>();
-    let mut col_types: Vec<Ident> = vec_new::<Ident>();
+    let mut col_names: Vec<Ident> = Vec::<Ident>::new();
+    let mut col_types: Vec<Ident> = Vec::<Ident>::new();
     unsafe {
         (&mut col_names as *mut Vec<Ident>).push(Ident { ptr: s_a.as_ptr(),   len: s_a.len()   as u64 });
         (&mut col_types as *mut Vec<Ident>).push(Ident { ptr: s_u64.as_ptr(), len: s_u64.len() as u64 });

@@ -23,7 +23,7 @@ fn main() -> i32 {
     let cp: *mut u64 = &mut count as *mut u64;
 
     {
-        let mut v: Vec<Bumper> = vec_new::<Bumper>();
+        let mut v: Vec<Bumper> = Vec::<Bumper>::new();
         v.push(Bumper { counter: cp });
         v.push(Bumper { counter: cp });
         v.push(Bumper { counter: cp });
@@ -33,7 +33,7 @@ fn main() -> i32 {
 
     // Empty vec — no Drop calls.
     {
-        let v: Vec<Bumper> = vec_new::<Bumper>();
+        let v: Vec<Bumper> = Vec::<Bumper>::new();
         let _ = v.length();
     }
     if count != 3u64 { return 2; }

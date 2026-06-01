@@ -11,7 +11,7 @@ pub fn add_one(x: i32) -> i32 {
 }
 
 pub fn sum_vec(n: i32) -> i64 {
-    let mut v = vec_new::<i64>();
+    let mut v = Vec::<i64>::new();
     let mut i: i64 = 0;
     while i < (n as i64) {
         v.push(i);

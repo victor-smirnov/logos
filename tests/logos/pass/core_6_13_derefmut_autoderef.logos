@@ -18,7 +18,7 @@ use logos.std.fmt;
 use logos.mem.boxed;
 
 fn main() -> i32 {
-    let mut b: Box<Vec<i32>> = box_new::<Vec<i32>>(vec_new::<i32>());
+    let mut b: Box<Vec<i32>> = box_new::<Vec<i32>>(Vec::<i32>::new());
     b.push(10i32);
     b.push(20i32);
     b.push(30i32);

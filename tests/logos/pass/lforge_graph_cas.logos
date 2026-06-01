@@ -216,7 +216,7 @@ unsafe fn main() -> i32 {
     if a.hash.eq_string(&b.hash) { return 6; }   // distinct content → distinct hash
 
     // 2. ActionKey: stable for same inputs+args.
-    let mut inputs: Vec<FileNode> = vec_new::<FileNode>();
+    let mut inputs: Vec<FileNode> = Vec::<FileNode>::new();
     let inputs_p: *mut Vec<FileNode> = (&mut inputs) as *mut Vec<FileNode>;
     // Build inputs by reading from disk fresh (no clone yet for FileNode).
     let a2: FileNode = match file_node_of("/tmp/__lf_b04__/src/a.logos") {
@@ -225,7 +225,7 @@ unsafe fn main() -> i32 {
     };
     inputs_p.push(a2);
 
-    let mut args: Vec<String> = vec_new::<String>();
+    let mut args: Vec<String> = Vec::<String>::new();
     let args_p: *mut Vec<String> = (&mut args) as *mut Vec<String>;
     let mut a1: String = String::new(); a1.push_str("logosc");
     let mut a2s: String = String::new(); a2s.push_str("-O2");

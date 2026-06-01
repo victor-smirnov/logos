@@ -9,7 +9,7 @@ use logos.lang.cmp;
 fn main() -> i32 {
     unsafe {
         // ── push / get / length ─────────────────────────────────────────────
-        let mut v: Vec<i32> = vec_new::<i32>();
+        let mut v: Vec<i32> = Vec::<i32>::new();
         v.push(10);
         v.push(20);
         v.push(30);

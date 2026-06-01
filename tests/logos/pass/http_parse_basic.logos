@@ -64,7 +64,7 @@ fn main() -> i32 {
     (&mut r2.headers).append("Host", "example.com");
     (&mut r2.headers).append("Accept", "text/plain");
 
-    let mut buf: Vec<u8> = vec_new::<u8>();
+    let mut buf: Vec<u8> = Vec::<u8>::new();
     serialize_request(&r2, &mut buf);
 
     unsafe {

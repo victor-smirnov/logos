@@ -122,7 +122,7 @@ unsafe fn branch_new(id: u64, snap_id: u64, counter: *mut u64) -> *mut BranchN<S
     p.base.snapshot_id = snap_id;
     p.base.is_leaf     = false;
     p.counter          = counter;
-    p.children         = vec_new::<NodeARC<StoreCfg>>();
+    p.children         = Vec::<NodeARC<StoreCfg>>::new();
     return p;
 }
 

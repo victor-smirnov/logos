@@ -19,7 +19,7 @@ fn main() -> i32 {
     if s2 != 6i64 { return 2i32; }
 
     // Vec borrow (as_slice)
-    let mut v: Vec<i64> = vec_new::<i64>();
+    let mut v: Vec<i64> = Vec::<i64>::new();
     v.push(10i64); v.push(20i64); v.push(30i64);
     let mut s3: i64 = 0i64;
     for x in &v { s3 = s3 + take_ref(x); }   // x: &i64

@@ -18,7 +18,7 @@ use logos.lang.option;
 use logos.lang.iter;
 
 fn main() -> i32 {
-    let mut v: Vec<i32> = vec_new::<i32>();
+    let mut v: Vec<i32> = Vec::<i32>::new();
     v.push(10i32);
     v.push(20i32);
     v.push(30i32);

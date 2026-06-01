@@ -11,7 +11,7 @@ use logos.lang.result;
 fn main() -> i32 {
     // ── Direct codec round-trip ──────────────────────────────────────────
     let payload: str = "Hello, chunked world! This is a slightly longer body.";
-    let mut enc: Vec<u8> = vec_new::<u8>();
+    let mut enc: Vec<u8> = Vec::<u8>::new();
     chunked_encode(payload.as_ptr(), payload.len(), &mut enc);
 
     // First byte of hex length: "5"... actually 0x35='5', not "5". len=53=0x35.
@@ -27,7 +27,7 @@ fn main() -> i32 {
         if ep.get(n - 1) != 10 as u8 { return 6; }
     }
 
-    let mut dec: Vec<u8> = vec_new::<u8>();
+    let mut dec: Vec<u8> = Vec::<u8>::new();
     let enc_ptr: *const u8 = unsafe {
         let ep: *mut Vec<u8> = &enc as *const Vec<u8> as *mut Vec<u8>;
         ep.at_const(0 as i64) as *const u8
@@ -53,7 +53,7 @@ fn main() -> i32 {
 
     // ── Multi-chunk decode (hand-crafted) ────────────────────────────────
     let multi: str = "5\r\nHello\r\n7\r\n, world\r\n0\r\n\r\n";
-    let mut dec2: Vec<u8> = vec_new::<u8>();
+    let mut dec2: Vec<u8> = Vec::<u8>::new();
     let c2: i64 = chunked_decode(multi.as_ptr(), multi.len(), &mut dec2);
     if c2 != multi.len() { return 20; }
     unsafe {
@@ -69,7 +69,7 @@ fn main() -> i32 {
 
     // ── Malformed: missing terminator ────────────────────────────────────
     let bad: str = "5\r\nHello\r\n";    // no 0-length chunk
-    let mut bad_out: Vec<u8> = vec_new::<u8>();
+    let mut bad_out: Vec<u8> = Vec::<u8>::new();
     let br: i64 = chunked_decode(bad.as_ptr(), bad.len(), &mut bad_out);
     if br >= 0 { return 30; }
 

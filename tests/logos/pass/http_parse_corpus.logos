@@ -204,7 +204,7 @@ fn t009() -> i32 {
 
 // Large Content-Length with a big body (stay sub-KB for test speed).
 fn t010() -> i32 {
-    let mut buf: Vec<u8> = vec_new::<u8>();
+    let mut buf: Vec<u8> = Vec::<u8>::new();
     push_str(&mut buf, "POST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 512\r\n\r\n");
     let mut i: i64 = 0 as i64;
     while i < 512 as i64 {

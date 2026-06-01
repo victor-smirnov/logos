@@ -27,7 +27,7 @@ pub struct Frame {
 }
 
 unsafe fn make() {
-    let mut path: Vec<Frame> = vec_new::<Frame>();
+    let mut path: Vec<Frame> = Vec::<Frame>::new();
     let mut cur: Owner = Owner { p: alloc(8) };
     let mut i: i64 = 0;
     while i < 3 {
