@@ -1,0 +1,7 @@
+// §6 Wave 9 — Box::new(v) static method.
+package core_6_adv_box_new;
+fn main() -> i32 {
+    let b: Box<i32> = Box::<i32>::new(42i32);
+    if *b != 42i32 { return 1i32; }
+    return 0i32;
+}

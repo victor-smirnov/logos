@@ -49,6 +49,13 @@ pub fn box_leak<T>(b: Box<T>) -> &mut T {
 }
 
 impl<T> Box<T> {
+    // §6 Wave 9 — Rust API parity: `Box::new(v)` is the canonical
+    // constructor. Delegates to the existing free-fn `box_new` so
+    // both styles are usable.
+    pub fn new(val: T) -> Box<T> {
+        return box_new::<T>(val);
+    }
+
     // Immutable access to the boxed value.
     pub unsafe fn get(self: *mut Box<T>) -> *const T {
         return self.ptr as *const T;

@@ -133,6 +133,21 @@ impl<T> Vec<T> {
         return self.len == 0 as i64;
     }
 
+    // §2 Wave 9 — Rust API parity additions.
+    pub fn first(&self) -> Option<&T> {
+        if self.len == 0i64 { return Option::None; }
+        unsafe { return Option::Some(&self.ptr[0i64]); }
+    }
+    pub fn last(&self) -> Option<&T> {
+        if self.len == 0i64 { return Option::None; }
+        unsafe { return Option::Some(&self.ptr[self.len - 1i64]); }
+    }
+    // Rust `Vec::new()` constructor — delegates to the existing free
+    // fn vec_new::<T>().
+    pub fn new() -> Vec<T> {
+        return vec_new::<T>();
+    }
+
     // Remove and return the last element, or None if empty.
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 as i64 { 
@@ -376,17 +391,26 @@ impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
 
 // Linear-search contains; requires T: Eq (free function to avoid bound on main impl).
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
-    let mut i: i64 = 0;        
+    let mut i: i64 = 0;
     unsafe {
         while i < v.len {
             let item: T = v.ptr[i];
-            if (&item).eq(val) { 
-                return true; 
+            if (&item).eq(val) {
+                return true;
             }
             i = i + 1;
         }
     }
     return false;
+}
+
+// §2 Wave 9 — `vec.contains(&val)` method-call shape (Rust API parity).
+// Bound `T: Eq` keyed on a separate impl block so the bare `impl<T> Vec<T>`
+// stays bound-free for other methods.
+impl<T: Eq> Vec<T> {
+    pub fn contains(&self, val: &T) -> bool {
+        return vec_contains::<T>(self, val);
+    }
 }
 
 // Auto-Drop (Rust parity). On scope exit:

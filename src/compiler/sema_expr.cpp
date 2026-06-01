@@ -5648,6 +5648,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             {"trim",         "str_trim"},
             {"trim_start",   "str_trim_start"},
             {"trim_end",     "str_trim_end"},
+            {"split",        "split"},
         };
         for (auto& [m, sym] : forwards) {
             if (method_name == m) {
