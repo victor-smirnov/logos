@@ -1,4 +1,0 @@
-package e7_atomic_const_init;
-use logos.lang.atomic;
-const C: AtomicI32 = atomic_i32_new(0i32);
-fn main() -> i32 { return 0i32; }

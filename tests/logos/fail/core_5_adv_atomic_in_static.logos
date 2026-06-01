@@ -1,4 +1,0 @@
-package e1_atomic_in_static;
-use logos.lang.atomic;
-static G: AtomicI32 = atomic_i32_new(0i32);
-fn main() -> i32 { return 0i32; }

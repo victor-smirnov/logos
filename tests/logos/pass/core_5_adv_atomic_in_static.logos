@@ -1,0 +1,20 @@
+// §5 Wave 9 — atomic in `static`/`const` via struct-lit.
+//
+// `static G: AtomicI32 = atomic_i32_new(0);` is rejected because a
+// bare fn call in const/static init violates B-ca-03 (would silently
+// inline at every read; no compile-time constant). Rust forbids this
+// too unless the callee is `const fn`. Workaround: use the struct
+// literal form directly — `AtomicI32 { val: 0 }` — which IS
+// const-eval-acceptable (STRUCT_LIT in is_const_evaluable). The val
+// field is now `pub` so cross-package construction is allowed.
+package core_5_adv_atomic_in_static;
+use logos.lang.atomic;
+static G: AtomicI32 = AtomicI32 { val: 0i32 };
+const  C: AtomicI32 = AtomicI32 { val: 5i32 };
+fn main() -> i32 {
+    let g: i32 = unsafe { G.val };
+    let c: i32 = unsafe { C.val };
+    if g != 0i32 { return 1i32; }
+    if c != 5i32 { return 2i32; }
+    return 0i32;
+}

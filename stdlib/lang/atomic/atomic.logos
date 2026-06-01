@@ -117,7 +117,7 @@ extern fn logos_atomic_cas_weak64_ord(ptr: *mut i64, expected: i64, desired: i64
 
 // ── AtomicI32 ─────────────────────────────────────────────────────────────────
 
-pub struct AtomicI32 { val: i32 }
+pub struct AtomicI32 { pub val: i32 }
 
 pub fn atomic_i32_new(v: i32) -> AtomicI32 { return AtomicI32 { val: v }; }
 
@@ -197,7 +197,7 @@ impl AtomicI32 {
 
 // ── AtomicU32 — same layout, different sign convention ──────────────────────
 
-pub struct AtomicU32 { val: i32 }  // stored as i32 bits
+pub struct AtomicU32 { pub val: i32 }  // stored as i32 bits
 
 pub fn atomic_u32_new(v: u32) -> AtomicU32 { return AtomicU32 { val: v as i32 }; }
 
@@ -240,7 +240,7 @@ impl AtomicU32 {
 
 // ── AtomicI64 ─────────────────────────────────────────────────────────────────
 
-pub struct AtomicI64 { val: i64 }
+pub struct AtomicI64 { pub val: i64 }
 
 pub fn atomic_i64_new(v: i64) -> AtomicI64 { return AtomicI64 { val: v }; }
 
@@ -281,7 +281,7 @@ impl AtomicI64 {
 
 // ── AtomicU64 ─────────────────────────────────────────────────────────────────
 
-pub struct AtomicU64 { val: i64 }  // stored as i64 bits
+pub struct AtomicU64 { pub val: i64 }  // stored as i64 bits
 
 pub fn atomic_u64_new(v: u64) -> AtomicU64 { return AtomicU64 { val: v as i64 }; }
 
@@ -322,7 +322,7 @@ impl AtomicU64 {
 
 // ── AtomicBool — backed by i32 (0 = false, 1 = true) ─────────────────────────
 
-pub struct AtomicBool { val: i32 }
+pub struct AtomicBool { pub val: i32 }
 
 pub fn atomic_bool_new(v: bool) -> AtomicBool {
     if v { return AtomicBool { val: 1 }; }
@@ -404,7 +404,7 @@ impl<T> AtomicPtr<T> {
 // boundary so observable behaviour is bit-for-bit equivalent on a
 // strongly-ordered target.
 
-pub struct AtomicI8 { val: i32 }
+pub struct AtomicI8 { pub val: i32 }
 
 pub fn atomic_i8_new(v: i8) -> AtomicI8 { return AtomicI8 { val: v as i32 }; }
 
@@ -440,7 +440,7 @@ impl AtomicI8 {
     }
 }
 
-pub struct AtomicI16 { val: i32 }
+pub struct AtomicI16 { pub val: i32 }
 
 pub fn atomic_i16_new(v: i16) -> AtomicI16 { return AtomicI16 { val: v as i32 }; }
 
@@ -476,7 +476,7 @@ impl AtomicI16 {
     }
 }
 
-pub struct AtomicU8 { val: i32 }
+pub struct AtomicU8 { pub val: i32 }
 
 pub fn atomic_u8_new(v: u8) -> AtomicU8 { return AtomicU8 { val: v as i32 }; }
 
@@ -512,7 +512,7 @@ impl AtomicU8 {
     }
 }
 
-pub struct AtomicU16 { val: i32 }
+pub struct AtomicU16 { pub val: i32 }
 
 pub fn atomic_u16_new(v: u16) -> AtomicU16 { return AtomicU16 { val: v as i32 }; }
 
