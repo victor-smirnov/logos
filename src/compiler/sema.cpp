@@ -2390,7 +2390,33 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
     }
     {
         auto [spkg, ssi] = find_struct_by_name(name);
-        if (ssi) return make_struct_type(name, spkg);
+        if (ssi) {
+            // §3 Wave 9 — bare `Pair` (no `<…>`) over a generic struct
+            // whose type-params all have defaults resolves to the
+            // defaulted instantiation `Pair<default0, default1, …>`.
+            // resolve_type_generic_inst already handles this for the
+            // `Pair<X>` (GENERIC_INST) path; mirror it here so a plain
+            // TYPE_REF annotation `let p: Pair` matches the construction
+            // shape `Pair { a, b }` instead of producing the unsubst'd
+            // `Pair` with no args. Only applies when ALL params default.
+            if (!ssi->type_params.empty()) {
+                std::vector<TypeRef> args;
+                bool all_default = true;
+                SemaSubst dsubst;
+                for (auto& tp : ssi->type_params) {
+                    if (!tp.default_type) { all_default = false; break; }
+                    TypeRef d = dsubst.empty() ? tp.default_type
+                                               : subst_type_sema(tp.default_type, dsubst);
+                    args.push_back(d);
+                    dsubst[tp.name] = d;
+                }
+                if (all_default && !args.empty()) {
+                    std::vector<std::string> lt_args;
+                    return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
+                }
+            }
+            return make_struct_type(name, spkg);
+        }
     }
     {
         auto [dpkg, dsi] = find_datatype_by_name(name);
