@@ -5642,6 +5642,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             {"ends_with",    "str_ends_with"},
             {"contains",     "str_contains"},
             {"eq_str",       "str_eq"},
+            {"cmp",          "str_cmp"},
+            {"index_of",     "str_index_of"},
+            {"find",         "str_index_of"},
+            {"trim",         "str_trim"},
+            {"trim_start",   "str_trim_start"},
+            {"trim_end",     "str_trim_end"},
         };
         for (auto& [m, sym] : forwards) {
             if (method_name == m) {

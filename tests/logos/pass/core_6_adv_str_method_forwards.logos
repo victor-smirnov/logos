@@ -1,0 +1,12 @@
+package sf_test;
+fn main() -> i32 {
+    let s: &str = "  hello  ";
+    let t: &str = s.trim();
+    if t.len() != 5i64 { return 1i32; }
+    if !"hello world".starts_with("hello") { return 2i32; }
+    if !"hello world".ends_with("world") { return 3i32; }
+    if !"hello world".contains("lo wo") { return 4i32; }
+    if "hello".cmp("hellx") >= 0i32 { return 5i32; }
+    if "hello".index_of("ll") != 2i64 { return 6i32; }
+    return 0i32;
+}
