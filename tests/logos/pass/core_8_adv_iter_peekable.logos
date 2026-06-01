@@ -1,0 +1,28 @@
+package i08_peek;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(10i32); v.push(20i32); v.push(30i32);
+    let mut p = v.iter().peekable();
+    // peek doesn't consume — returns same value twice
+    let r1 = unsafe { p.peek() };
+    let v1: i32 = match r1 { Option::Some(x) => *x, Option::None => -1i32 };
+    if v1 != 10i32 { return 1i32; }
+    let r2 = unsafe { p.peek() };
+    let v2: i32 = match r2 { Option::Some(x) => *x, Option::None => -1i32 };
+    if v2 != 10i32 { return 2i32; }
+    // next consumes cache, then pulls inner
+    let n1 = p.next();
+    if match n1 { Option::Some(x) => x, Option::None => -1i32 } != 10i32 { return 3i32; }
+    let n2 = p.next();
+    if match n2 { Option::Some(x) => x, Option::None => -1i32 } != 20i32 { return 4i32; }
+    // peek-then-next chain
+    let r3 = unsafe { p.peek() };
+    if match r3 { Option::Some(x) => *x, Option::None => -1i32 } != 30i32 { return 5i32; }
+    let n3 = p.next();
+    if match n3 { Option::Some(x) => x, Option::None => -1i32 } != 30i32 { return 6i32; }
+    // exhausted
+    let n4 = p.next();
+    let done: bool = match n4 { Option::Some(_) => false, Option::None => true };
+    if !done { return 7i32; }
+    return 0i32;
+}

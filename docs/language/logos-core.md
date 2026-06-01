@@ -1392,9 +1392,12 @@ the FnMut analog work end-to-end.
 ## 8. Iterator trait surface
 
 stdlib `lang/iter/iter.logos` exposes a robust set of iterator
-primitives. After Wave 9, **nine of ten** catalogued method-call
-shapes land as trait defaults; only `.peekable()` remains free-fn-
-only pending a stack-only `mem::zeroed::<T>()` primitive.
+primitives. After Wave 9, **all ten** catalogued method-call shapes
+land as trait defaults. The Wave 9 work also added three reusable
+compiler facilities: forward-ref-friendly generic-struct registration
+(closed §8.3/§8.4), where-clauses on trait method bodies with
+conditional default-method synthesis (closed §8.5), and Option<T>-
+as-struct-field validated by B7 enum-value-repr (closed §8.10).
 
 ### ~~8.1. `it.next() / .count() / .sum() / .map() / .filter() / .collect()`~~ ✅
 Six foundational adapter methods dispatch correctly through the
@@ -1467,21 +1470,16 @@ Already a trait default method (line 434, `unsafe fn position(&mut self, …)`).
 The earlier "missing as method" framing was wrong — only the more
 specialised `iter_rposition` was free-fn-only.
 
-### 8.10. `.peekable()` / `.peek()`
-- **Status:** free fn `iter_peekable(it, zero)` works; the **trait
-  default method** is blocked. PeekableIter carries a real
-  `peeked_val: T` cache (not a phantom — driven by `peek()`'s
-  lookahead). Constructing it from a trait default with `Item` in
-  scope but no value requires one of:
-  - **`Item: Default` bound** — restrictive (excludes many shapes).
-  - **`MaybeUninit::<Item>::uninit()`** — works but requires every
-    impl's package to `use logos.mem.uninit` (Logos `use` is not
-    transitive); fully-qualified `logos.mem.uninit.MaybeUninit`
-    path in a type position is a Logos-model conformance item.
-  - **Stack-only `unsafe_uninit_value::<T>()` built-in** — cleanest.
-- **DoD-depth:** add a compiler-builtin or fix transitive-use /
-  qualified-path resolution so a single trait-default site can
-  reach MaybeUninit. Tracked as the **only remaining** §8 gap.
+### ~~8.10. `.peekable()` / `.peek()`~~ ✅
+Closed by refactoring PeekableIter's cache from `has_peeked: bool +
+peeked_val: T` to a clean `peeked: Option<T>`. The earlier comment
+in iter.logos:1245 noting the Option-in-struct layout mismatch was
+pre-B7 (enum-value-repr, landed 2026-05-26). Inline Option<T> in a
+struct field now stores discriminant + payload soundly. The trait
+default constructs `PeekableIter { inner: self, peeked: Option::None }`
+— no placeholder T needed. `peek()` borrows the cached payload via
+`Option::as_ref` (Option<&T> with lifetime tied to the cache slot).
+Test `pass/core_8_adv_iter_peekable`.
 
 ---
 

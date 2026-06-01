@@ -146,22 +146,16 @@ pub trait Iterator<Item> {
         return iter_min::<Self, Item>(self);
     }
 
-    // §8.10: `.peekable()` — wrap into a one-element-lookahead iterator.
-    // PeekableIter has a `peeked_val: T` cache; until Logos lands a
-    // stack-only `mem::zeroed::<T>()` primitive (or fixes the
-    // Option<T>-in-struct layout mismatch noted at PeekableIter), the
-    // placeholder comes from `MaybeUninit::<Item>::uninit().value`.
-    // `unsafe` because the placeholder is undef bytes; `has_peeked=false`
-    // ensures no read until a real `peek()` writes the slot.
-    // §8.10: `.peekable()` is NOT a trait default method. PeekableIter
-    // has a `peeked_val: T` cache that needs a placeholder at
-    // construction; Logos doesn't expose a stack-only `mem::zeroed::<T>()`
-    // primitive, and the user-facing alternatives (MaybeUninit/Default)
-    // require either a tparam bound or the impl's package to `use
-    // logos.mem.uninit` (Logos's `use` machinery isn't transitive). Free
-    // fn `iter_peekable(it, zero)` remains the canonical form. Closing
-    // this needs either a `Default` bound (restrictive) or a built-in
-    // stack-only `unsafe_uninit_value::<T>()` primitive.
+    // §8.10: `.peekable()` — wrap into a one-element-lookahead iter.
+    // PeekableIter's cache is `Option<T>` (B7 enum-value-repr made
+    // inline enum-in-struct sound), so the trait default constructs
+    // it with `Option::None` — no placeholder T needed.
+    fn peekable(self: Self) -> PeekableIter<Self, Item> {
+        return PeekableIter::<Self, Item> {
+            inner: self,
+            peeked: Option::<Item>::None,
+        };
+    }
 
     // SL-sl-05: `.collect<B>` — terminal that pours the iterator into
     // any `B: FromIterator<Item>`. Standard impls: Vec<T>, plus user-
@@ -1291,60 +1285,59 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for InspectIter<I, T> 
 //
 // `peek()` fetches & caches the next item without consuming it.
 // Subsequent `next()` returns the cached item, then resumes normal
-// iteration. Uses a `has_peeked: bool` + bare `peeked_val: T` instead
-// of `peeked: Option<T>` because Logos's struct-lit `Option::None`
-// initialisation stores an i32 disc into the ptr-typed field slot
-// (mlir-gen layout mismatch), making is_none() crash on first peek.
+// iteration. Cache is `peeked: Option<T>` — `None` initial, `Some(v)`
+// after a peek. (Earlier two-state `has_peeked + peeked_val: T`
+// workaround was needed pre-B7 enum-value-repr; now Option<T> inline
+// in a struct field is sound.)
 
 pub struct PeekableIter<I, T> {
     pub inner: I,
-    pub has_peeked: bool,
-    pub peeked_val: T,
+    pub peeked: Option<T>,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for PeekableIter<I, T> {
     fn next(self: &mut PeekableIter<I, T>) -> Option<T> {
         unsafe {
-            if self.has_peeked {
-                self.has_peeked = false;
-                let v_copy: T = *((&self.peeked_val) as *const T);
-                return Option::Some(v_copy);
+            // Take the cached value if present, else pull from inner.
+            let cached: Option<T> = *((&self.peeked) as *const Option<T>);
+            match cached {
+                Option::Some(v) => {
+                    self.peeked = Option::None;
+                    return Option::Some(v);
+                }
+                Option::None => { return self.inner.next(); }
             }
         }
-        return self.inner.next();
     }
 }
 
 impl<I: Iterator<T>, T> PeekableIter<I, T> {
     pub unsafe fn peek(self: &mut PeekableIter<I, T>) -> Option<&T> {
-        if !self.has_peeked {
-            match self.inner.next() {
-                Option::Some(v) => {
-                    self.peeked_val = v;
-                    self.has_peeked = true;
+        // Fill the cache on first peek.
+        let probe: Option<T> = *((&self.peeked) as *const Option<T>);
+        match probe {
+            Option::None => {
+                match self.inner.next() {
+                    Option::Some(v) => { self.peeked = Option::Some(v); }
+                    Option::None => { return Option::None; }
                 }
-                Option::None => { return Option::None; }
             }
+            Option::Some(_) => {}
         }
-        // Address-of the field slot — points into the struct's storage,
-        // not a temp copy. Caller's `*r` dereferences back to the
-        // cached value. Lifetime tied to the PeekableIter's storage.
-        let r: *const T = &self.peeked_val as *const T;
-        return Option::Some(&*r);
+        // Borrow the cached payload via Option::as_ref — yields
+        // Option<&T> with the lifetime tied to self.peeked's storage.
+        return self.peeked.as_ref();
     }
 }
 
-pub unsafe fn iter_peekable<I: Iterator<T>, T>(iter: I, zero: T) -> PeekableIter<I, T> {
-    return PeekableIter { inner: iter, has_peeked: false, peeked_val: zero };
+pub fn iter_peekable<I: Iterator<T>, T>(iter: I, _zero: T) -> PeekableIter<I, T> {
+    return PeekableIter::<I, T> { inner: iter, peeked: Option::None };
 }
 
 // DEI: pull from inner.next_back; if inner is exhausted but a front
 // peek is cached, return that cached value (so the cached peek
 // always observes as the last element from either direction).
 // Matches Rust's std::iter::Peekable<I: DoubleEndedIterator> shape.
-// Intermediate `back` local is required to dodge the disc-load
-// codegen bug on rvalue-call-match-result (same workaround as
-// SkipIter DEI).
 impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for PeekableIter<I, T> {
     fn next_back(self: &mut PeekableIter<I, T>) -> Option<T> {
         unsafe {
@@ -1352,12 +1345,14 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for PeekableIter<I, T>
             match back {
                 Option::Some(v) => { return Option::Some(v); }
                 Option::None => {
-                    if self.has_peeked {
-                        self.has_peeked = false;
-                        let v_copy: T = *((&self.peeked_val) as *const T);
-                        return Option::Some(v_copy);
+                    let cached: Option<T> = *((&self.peeked) as *const Option<T>);
+                    match cached {
+                        Option::Some(v) => {
+                            self.peeked = Option::None;
+                            return Option::Some(v);
+                        }
+                        Option::None => { return Option::None; }
                     }
-                    return Option::None;
                 }
             }
         }
