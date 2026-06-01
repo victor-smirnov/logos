@@ -1,0 +1,16 @@
+// logos-core §2.5 — a struct holding `&mut T` must NOT auto-Copy.
+// Pre-fix `field_kind_is_trivially_copy` accepted `K::MutRef` along
+// with `K::Ref` / `K::Ptr` / `K::FnPtr`, so `struct S { r: &mut T }`
+// silently auto-impl'd Copy → a binding move was treated as a copy
+// → both bindings could alias the same target through their `r`.
+// Removing MutRef from the trivially-copy set restores Rust's
+// "exclusive references are move-only" rule.
+package core_2_5_mut_ref_no_auto_copy;
+struct Holder<'a> { r: &'a mut i32 }
+fn main() -> i32 {
+    let mut v: i32 = 5i32;
+    let h: Holder = Holder { r: &mut v };
+    let _h2: Holder = h;
+    let _ = h.r;
+    return 0i32;
+}

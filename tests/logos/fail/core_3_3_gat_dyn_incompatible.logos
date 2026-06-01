@@ -1,0 +1,20 @@
+// logos-core §3.3 — GAT-carrying traits are not object-safe.
+// Generic associated types need a concrete impl to instantiate;
+// a `dyn Trait` erases the impl, so the GAT can't be projected
+// → unsound to coerce. The check rejects `&T → &dyn TraitWithGAT`
+// at the unsize site.
+package core_3_3_gat_dyn_incompatible;
+trait Container {
+    type Item<T>;
+    fn first(&self) -> i32;
+}
+struct V { x: i32 }
+impl Container for V {
+    type Item<T> = i32;
+    fn first(&self) -> i32 { return self.x; }
+}
+fn main() -> i32 {
+    let v: V = V { x: 5i32 };
+    let d: &dyn Container = &v;
+    return d.first();
+}

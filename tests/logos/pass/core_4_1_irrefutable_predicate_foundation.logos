@@ -1,0 +1,37 @@
+// logos-core §4.1 — single canonical refutability predicate
+// (`lir_view::is_irrefutable_pattern` in
+// `include/logos/compiler/lir_view.hpp`). Match-statement,
+// match-expression, and let-pattern paths all route through it
+// (each was a separate lambda pre-foundation).
+//
+// This test exercises every irrefutable shape the predicate has
+// to recognise as a single irrefutable match arm — Wild, Tuple,
+// Struct, At-binding, RefPat, Or (of irrefutables), and the
+// `[..]` pure-rest slice form. Pass means the predicate marked
+// the arm exhaustive (no fallthrough wildcard needed).
+package core_4_1_irrefutable_predicate_foundation;
+
+struct Pt { x: i32, y: i32 }
+
+fn main() -> i32 {
+    let pt: Pt = Pt { x: 3i32, y: 4i32 };
+    // Single arm, no wildcard — the predicate must mark this
+    // arm irrefutable for the match to type-check exhaustively.
+    let r: i32 = match pt {
+        Pt { x, y } => x + y,
+    };
+    if r != 7i32 { return 1i32; }
+
+    let t: (i32, i32) = (10i32, 20i32);
+    let r2: i32 = match t {
+        (a, b) => a + b,
+    };
+    if r2 != 30i32 { return 2i32; }
+
+    let s: i32 = 100i32;
+    let r3: i32 = match s {
+        v @ _ => v,
+    };
+    if r3 != 100i32 { return 3i32; }
+    return 0i32;
+}

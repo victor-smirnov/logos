@@ -1,0 +1,20 @@
+// logos-core §2.3 — `variance_in_type` has a TraitObject arm:
+// lifetime Co, type-args Inv. Pre-fix this fell through to BiVar
+// (bivariant — accepts both directions silently). The Inv on type
+// args means `&dyn Trait<X>` and `&dyn Trait<Y>` only unify when
+// X == Y; the Co on `'a` allows `&'long dyn T → &'short dyn T`.
+// This smoke test is the simplest covariance-respecting use: a
+// fresh `&dyn Speak` flows through coercion to a fn arg.
+package core_2_3_dyn_variance;
+
+trait Speak { fn n(&self) -> i32; }
+struct S { v: i32 }
+impl Speak for S { fn n(&self) -> i32 { return self.v; } }
+
+fn take(d: &dyn Speak) -> i32 { return d.n(); }
+fn main() -> i32 {
+    let s: S = S { v: 7i32 };
+    let d: &dyn Speak = &s;
+    if take(d) != 7i32 { return 1i32; }
+    return 0i32;
+}

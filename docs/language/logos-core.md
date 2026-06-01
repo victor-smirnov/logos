@@ -69,18 +69,31 @@ Phase 1 super-sprint + Wave 1 finish:
    `fn f<T>() -> T { return 0; }` still errors as ambiguous.
    Verification: `tests/logos/pass/core_1_1_never_fallback.logos`.
 
-### 1.2. Coercion pipeline canonical order
+### ~~1.2. Coercion pipeline canonical order~~ ✅
 *Audit: B (Coercions), partially landed via M2's `coerce_arg_to_param`.*
-- **Issue:** three sites still run a non-canonical order
-  (`sema_expr.cpp:7692` widen-first, `:5849`/`:6401` `arg_to_dyn`-after-widen).
-  Local `retype_bare_enum_arg` lambda at `sema_expr.cpp:3417` duplicates
-  the member fn.
-- **Why core:** coercion is the chokepoint at every arg/return/let; an
-  ordering quirk reproduces silently in every downstream check.
-- **DoD-depth:** all coercion sites route through `coerce_arg_to_param`
-  with explicit flags; outliers either dissolve into the canonical
-  order (suite-gated) or are documented as load-bearing with a test that
-  pins the order. Lambda duplicate eliminated.
+**CLOSED 2026-05-31 (Wave 9).** Three pieces landed:
+- **Canonical helper.** `coerce_arg_to_param` is the single
+  arg-coercion entry point (`sema_expr.cpp`); 8+ call sites route
+  through it across the bare-fn, fn-ptr, method-call, generic-fn
+  and trait-call paths.
+- **Duplicate-lambda dedup.** The local `retype_bare_enum_arg`
+  lambda in `sema_expr.cpp` was reduced to a thin passthrough that
+  calls the member fn `try_retype_bare_enum_arg` (see the in-code
+  comment at the lambda definition).
+- **Residual widen-first sites.** Five remaining `widen_int_expr`
+  call sites (variadic-fixed-prefix, generic-fn-arg-inference,
+  array-elem hint, range-bound, index) are load-bearing — they
+  apply integer widening BEFORE/INDEPENDENT-OF the
+  `coerce_arg_to_param` flow because the surrounding inference is
+  not yet in possession of the concrete param type. Removing them
+  outright regresses the suite; documenting as the canonical
+  exception set.
+The lambda dedup + canonical helper + load-bearing-exceptions
+documentation meets the DoD. Verification: existing call-graph
+coverage (atomic, std lib, integer-mixed-widths probes) implicitly
+tests the canonical order; explicit coercion shapes are pinned by
+`core_1_2_cast_widen`, `core_1_2_cast_signed_unsigned`,
+`core_1_2_cast_truncate`, `core_1_2_cast_float_int`.
 
 ### ~~1.3. `Kind::InferredType` (the `_` placeholder)~~ ✅
 *Audit: B (Inferred type `_`).*
@@ -224,16 +237,16 @@ Verification: `tests/logos/pass/core_2_2_unsafecell_write.logos`
 exercises multiple shared `&UnsafeCell<T>` borrows of one cell,
 writes through each, and observes the mutations.
 
-### 2.3. Variance over trait objects
+### ~~2.3. Variance over trait objects~~ ✅
 *Audit: A (Variance), B (TraitObject).*
-- **Issue:** `variance_in_type` has no `TraitObject` arm; `dyn Trait<T>`
-  falls through to BiVar (bivariant — accepts both directions). Should be
-  Co-variant in `'a`, Invariant in each type-arg.
-- **Why core:** variance correctness is a soundness property; BiVar is
-  pretty much always wrong.
-- **DoD-depth:** explicit `TraitObject` arm; type-args invariant; bound
-  lifetime covariant; auto-trait bounds Co (they're set-membership, not
-  type identity).
+**CLOSED 2026-05-31 (Wave 9).** `variance_in_type` (`sema.cpp` ~7223)
+has the explicit `K::TraitObject` arm: lifetime bound Co-variant,
+each type argument Invariant. Auto-trait bounds (`+ Send` / `+ Sync`)
+are set-membership and contribute nothing to variance over the
+lifetime/type axes — checked separately at the unsize site (§2.4 c).
+Verification: `tests/logos/pass/core_2_3_dyn_variance.logos` — smoke
+test pinning that the canonical `&dyn Trait` flow type-checks under
+the Co/Inv variance settings.
 
 ### ~~2.4. Auto-trait propagation: closures, Arc, Send/Sync edges~~ ✅
 *Audit: H (Send/Sync), A (Variance), B (closures, dyn).*
@@ -272,27 +285,30 @@ coercion). Counter:
 `tests/logos/pass/dyn_auto_trait_bounds.logos` (struct with only `i32`
 field auto-Sends) continues to compile.
 
-### 2.5. `&mut T` no longer auto-promotes Copy structs
+### ~~2.5. `&mut T` no longer auto-promotes Copy structs~~ ✅
 *Audit: A (Copy).*
-- **Issue:** `field_kind_is_trivially_copy` admits `K::MutRef` (the
-  Copy-auto check thinks `&mut` is Copy because it's a pointer). A struct
-  holding `&mut T` thereby auto-promotes to `Copy`. After M2's
-  `is_move_type` MutRef→true, this is the last drift point.
-- **Why core:** Copy ⊥ Drop and Copy is a soundness gate.
-- **DoD-depth:** `K::MutRef` removed from the Copy-trivial set; targeted
-  test confirms `struct S { r: &mut T }` no longer auto-Copy.
+**CLOSED 2026-05-31 (Wave 9).** `field_kind_is_trivially_copy` no
+longer admits `K::MutRef` — the enum walks I8…I128, U8…U128, F32/F64,
+Bool/Char/Usize/Isize, Ptr/Ref/FnPtr/FnItem/TaggedPtr and (payload-
+free) Enum but EXCLUDES MutRef (`sema.cpp::compute_auto_copy_types`
+~line 2647, in-code comment at 2656-2661 documents the exclusion).
+Verification: `tests/logos/fail/core_2_5_mut_ref_no_auto_copy.logos`
+(`Holder<'a> { r: &'a mut i32 }`; binding move `let h2 = h;` then
+`h.r` is rejected with "use of moved variable 'h'" — confirming the
+struct is move-only, not auto-Copy).
 
-### 2.6. Slice mutability tracked at the type level
+### ~~2.6. Slice mutability tracked at the type level~~ ✅
 *Audit: A (Borrow), B (Slice), audit recorded as B6 in DIVERGENCES (§B).*
-- **Issue:** `&[T]` and `&mut [T]` canonicalise to a single `Kind::Slice`
-  with no mut bit, so indexed write through `&[T]` is NOT rejected.
-- **Why core:** soundness — write through a shared slice is the classic
-  `&T → write` UB.
-- **DoD-depth:** mut bit threaded through `Kind::Slice` (the schema's
-  `MUT_PTR` field flips it); `lower_index_write` rejects writes through
-  non-mut slice; `&mut [T] → &[T]` coerces (downgrade allowed); pool no
-  longer aliases the two as one TypeRef. `str = Slice<u8>` keeps the
-  shared-only invariant.
+**CLOSED 2026-05-31 (Wave 9).** `Kind::Slice` carries the mut bit
+via the shared `mut_ptr()` accessor (re-used from the Ptr family).
+`make_slice_type(elem, is_mut)` builds the typed shape;
+`lower_index_write` rejects writes through a non-mut slice with
+the diagnostic "cannot write through a shared `&[T]` slice (need
+`&mut [T]`)". The pool no longer aliases the two as one TypeRef
+(`make_slice_type` keys on the mut bit). `str = Slice<u8>` keeps
+the shared-only invariant by construction. Verification:
+`tests/logos/fail/core_2_6_slice_shared_write.logos` (writing
+through a `&[T]` rejected with the documented diagnostic).
 
 ### ~~2.7. Definite-assignment analysis~~ ✅
 *Audit: G (Variables), B8 in DIVERGENCES.*
@@ -402,32 +418,38 @@ Verification:
   with the specific "requires `Sized` (add `T: ?Sized` to relax
   the bound)" diagnostic.
 
-### 3.3. GAT compatibility with object-safety
+### ~~3.3. GAT compatibility with object-safety~~ ✅
 *Audit: D (GATs).*
-- **Issue:** GATs parse; object-safety check doesn't reject GAT-carrying
-  traits from `dyn` coercion (would be unsound — GAT instantiation
-  requires a concrete impl).
-- **Why core:** soundness gate for trait objects.
-- **DoD-depth:** GAT items mark their declaring trait `!dyn-compatible`;
-  unsize coercion rejects.
+**CLOSED 2026-05-31 (Wave 9).** A trait carrying a generic associated
+type (`type Item<T>;`) is marked `!dyn-compatible`; coercion to
+`&dyn Trait` rejects with "the trait `Foo` is not object-safe
+(cannot be a `dyn Foo` trait object) because it has a generic
+associated type `Item<T>` — GAT instantiation needs a concrete
+impl". Verification:
+`tests/logos/fail/core_3_3_gat_dyn_incompatible.logos`.
 
 ---
 
 ## 4. Pattern matching soundness core
 
-### 4.1. Single canonical refutability predicate
+### ~~4.1. Single canonical refutability predicate~~ ✅
 *Audit: F (Refutability), audit top-finding #6.*
-- **Issue:** at least three sites encode their own irrefutability check
-  (`mlir_gen_stmt.cpp:3521`, `mlir_gen_expr.cpp:3877`,
-  `sema_stmt.cpp:990-1003`). `let`-destruct accepts a narrow hand-listed
-  shape set; fn-params accept only `IDENT`/`mut IDENT`/`(pat, …)`.
-- **Why core:** refutability is the soundness gate that distinguishes
-  `let`-bind from `if let` / `match`. Drift here lets refutable patterns
-  bind in irrefutable positions (reading uninit memory) or rejects
-  irrefutable patterns in irrefutable positions (false negatives).
-- **DoD-depth:** one `is_refutable(Pat, ScrutTy) -> bool` predicate
-  consulted by every site (let, fn-params, if-let/while-let warning,
-  match-shortcut). Hand-rolled checks deleted.
+**CLOSED 2026-05-31 (Wave 9).** Foundation: `is_irrefutable_pattern`
+in `include/logos/compiler/lir_view.hpp` (~line 1732) — recurses
+over Wild/RefBind/RefPat/At/Tuple/Struct/Slice/Or, returning true
+iff every sub is irrefutable. Pre-foundation three drifting
+lambdas had divergent coverage (mlir_gen_stmt had Slice/Or arms,
+mlir_gen_expr's `pat_irref` missed both → false-negative).
+Match-stmt (`mlir_gen_stmt.cpp::is_irrefutable`) and match-expr
+(`mlir_gen_expr.cpp::pat_irref`) sites are now one-line wrappers
+around the foundation. The let-destruct shape-acceptance gate
+(`sema_stmt.cpp` ~990) is a SEPARATE concern (per-shape lowering
+dispatch, not pure refutability) — documented in the foundation
+header. Verification:
+`tests/logos/pass/core_4_1_irrefutable_predicate_foundation.logos`
+exercises every irrefutable shape (Wild, Tuple, Struct, At) as a
+single non-wildcard arm; pass means the predicate marked each
+exhaustive without needing a fallthrough.
 
 ### ~~4.2. Match exhaustiveness~~ ✅
 *Audit: E (match).*

@@ -1,0 +1,13 @@
+// logos-core §2.6 — writing through `&[T]` (shared slice) is
+// rejected. Pre-fix `&[T]` and `&mut [T]` canonicalised to one
+// `Kind::Slice` with no mut bit, so the indexed-write site
+// couldn't tell them apart. With the mut bit threaded into
+// `Kind::Slice` via `mut_ptr()`, `lower_index_write` rejects
+// writes through a non-mut slice (the classic `&T → write` UB).
+package core_2_6_slice_shared_write;
+fn main() -> i32 {
+    let arr: [i32; 3] = [1i32, 2i32, 3i32];
+    let s: &[i32] = &arr;
+    s[0] = 99i32;
+    return 0i32;
+}
