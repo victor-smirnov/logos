@@ -111,6 +111,43 @@ pub trait Iterator<Item> {
         return MapIter { inner: self, f: f };
     }
 
+    // §8.8: `.take(n)` / `.skip(n)` adapters. Adapter structs no longer
+    // need a phantom T field — these methods construct them inline with
+    // Item already in scope, so no zero-sentinel workaround.
+    fn take(self: Self, n: i64) -> TakeIter<Self, Item> {
+        return TakeIter::<Self, Item> { inner: self, remaining: n };
+    }
+
+    fn skip(self: Self, n: i64) -> SkipIter<Self, Item> {
+        return SkipIter::<Self, Item> { inner: self, remaining: n };
+    }
+
+    // §8.2: `.enumerate()` — yield (idx, item) pairs.
+    fn enumerate(self: Self) -> EnumIter<Self, Item> {
+        return EnumIter::<Self, Item> { inner: self, idx: 0 as i64 };
+    }
+
+    // §8.3 / §8.4: `.chain(other)` / `.zip(other)` are NOT trait
+    // default methods. Under `--test` mode sema rejects the return
+    // type "unknown generic type 'ChainIter' / 'ZipIter'" — both
+    // structs have a multi-Iterator impl block (two `Iterator<T>`
+    // bounds, distinct items in zip's case) and the trait-decl-time
+    // resolution of the return type fails to forward-resolve them.
+    // Workaround: keep `iter_chain(a, b, zero)` / `iter_zip(a, b, zt, zu)`
+    // as the canonical free-fn form. Once the forward-ref issue
+    // closes the methods can be added without API change.
+
+    // §8.5: bare `.max()` / `.min()` are NOT trait default methods
+    // because Logos's mono eagerly instantiates trait defaults for
+    // every impl, so a default body referencing `iter_max::<Self,Item>`
+    // (which carries `Item: Ord`) would fail for impls whose Item is
+    // not Ord (e.g. `Chunks` yielding `&[T]`). Without a `where Item:
+    // Ord` gate on the method (Logos doesn't support method-level
+    // bounds on impl-tparams yet — see option_unwrap_or_default for
+    // the same workaround), the canonical form is the free fn
+    // `iter_max(it) / iter_min(it)`. `.max_by(cmp)` / `.min_by(cmp)`
+    // are available as trait defaults above.
+
     // SL-sl-05: `.collect<B>` — terminal that pours the iterator into
     // any `B: FromIterator<Item>`. Standard impls: Vec<T>, plus user-
     // defined collections.
@@ -993,9 +1030,8 @@ impl<I: DoubleEndedIterator<T>, T> DoubleEndedIterator<T> for FilterIter<I, T> {
 // ── TakeIter<I, T> — limit to first n items ──────────────────────────────────
 
 pub struct TakeIter<I, T> {
-    inner: I,
-    remaining: i64,
-    _t: T,
+    pub inner: I,
+    pub remaining: i64,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for TakeIter<I, T> {
@@ -1006,8 +1042,8 @@ impl<I: Iterator<T>, T> Iterator<T> for TakeIter<I, T> {
     }
 }
 
-pub unsafe fn iter_take<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> TakeIter<I, T> {
-    return TakeIter { inner: iter, remaining: n, _t: zero };
+pub fn iter_take<I: Iterator<T>, T>(iter: I, n: i64, _zero: T) -> TakeIter<I, T> {
+    return TakeIter::<I, T> { inner: iter, remaining: n };
 }
 
 // DEI: requires inner: ExactSizeIterator so we know how much to
@@ -1043,9 +1079,8 @@ impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<T> for TakeIter<I, T> {
 // ── SkipIter<I, T> — skip first n items ──────────────────────────────────────
 
 pub struct SkipIter<I, T> {
-    inner: I,
-    remaining: i64,
-    _t: T,
+    pub inner: I,
+    pub remaining: i64,
 }
 
 impl<I: Iterator<T>, T> Iterator<T> for SkipIter<I, T> {
@@ -1061,8 +1096,8 @@ impl<I: Iterator<T>, T> Iterator<T> for SkipIter<I, T> {
     }
 }
 
-pub unsafe fn iter_skip<I: Iterator<T>, T>(iter: I, n: i64, zero: T) -> SkipIter<I, T> {
-    return SkipIter { inner: iter, remaining: n, _t: zero };
+pub fn iter_skip<I: Iterator<T>, T>(iter: I, n: i64, _zero: T) -> SkipIter<I, T> {
+    return SkipIter::<I, T> { inner: iter, remaining: n };
 }
 
 // DEI: drain skip-prefix from the front first so back doesn't
@@ -1825,9 +1860,8 @@ pub struct EnumPair<T> {
 }
 
 pub struct EnumIter<I, T> {
-    inner: I,
-    idx: i64,
-    _t: T,
+    pub inner: I,
+    pub idx: i64,
 }
 
 impl<I: Iterator<T>, T> Iterator<EnumPair<T>> for EnumIter<I, T> {
@@ -1843,8 +1877,8 @@ impl<I: Iterator<T>, T> Iterator<EnumPair<T>> for EnumIter<I, T> {
     }
 }
 
-pub unsafe fn iter_enumerate<I: Iterator<T>, T>(iter: I, zero: T) -> EnumIter<I, T> {
-    return EnumIter { inner: iter, idx: 0 as i64, _t: zero };
+pub fn iter_enumerate<I: Iterator<T>, T>(iter: I, _zero: T) -> EnumIter<I, T> {
+    return EnumIter::<I, T> { inner: iter, idx: 0 as i64 };
 }
 
 // DEI: yields (position, value) from the back. The position is
@@ -1872,10 +1906,9 @@ impl<I: ExactSizeIterator<T>, T> ExactSizeIterator<EnumPair<T>> for EnumIter<I, 
 // ── ChainIter<A, B, T> — concatenate two iterators of the same Item ──────────
 
 pub struct ChainIter<A, B, T> {
-    first: A,
-    second: B,
-    first_done: bool,
-    _t: T,
+    pub first: A,
+    pub second: B,
+    pub first_done: bool,
 }
 
 impl<A: Iterator<T>, B: Iterator<T>, T> Iterator<T> for ChainIter<A, B, T> {
@@ -1890,8 +1923,8 @@ impl<A: Iterator<T>, B: Iterator<T>, T> Iterator<T> for ChainIter<A, B, T> {
     }
 }
 
-pub unsafe fn iter_chain<A: Iterator<T>, B: Iterator<T>, T>(a: A, b: B, zero: T) -> ChainIter<A, B, T> {
-    return ChainIter { first: a, second: b, first_done: false, _t: zero };
+pub fn iter_chain<A: Iterator<T>, B: Iterator<T>, T>(a: A, b: B, _zero: T) -> ChainIter<A, B, T> {
+    return ChainIter::<A, B, T> { first: a, second: b, first_done: false };
 }
 
 // DEI: pull from the back of `second` first; once `second` is
@@ -1918,10 +1951,8 @@ pub struct ZipPair<A, B> {
 }
 
 pub struct ZipIter<A, B, T, U> {
-    left: A,
-    right: B,
-    _t: T,
-    _u: U,
+    pub left: A,
+    pub right: B,
 }
 
 impl<A: Iterator<T>, B: Iterator<U>, T, U> Iterator<ZipPair<T, U>> for ZipIter<A, B, T, U> {
@@ -1940,8 +1971,8 @@ impl<A: Iterator<T>, B: Iterator<U>, T, U> Iterator<ZipPair<T, U>> for ZipIter<A
     }
 }
 
-pub unsafe fn iter_zip<A: Iterator<T>, B: Iterator<U>, T, U>(a: A, b: B, zt: T, zu: U) -> ZipIter<A, B, T, U> {
-    return ZipIter { left: a, right: b, _t: zt, _u: zu };
+pub fn iter_zip<A: Iterator<T>, B: Iterator<U>, T, U>(a: A, b: B, _zt: T, _zu: U) -> ZipIter<A, B, T, U> {
+    return ZipIter::<A, B, T, U> { left: a, right: b };
 }
 
 // DEI: both halves must be DEI + ESI so we can align their lengths

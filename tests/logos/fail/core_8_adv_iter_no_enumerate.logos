@@ -1,9 +1,0 @@
-package i07;
-fn main() -> i32 {
-    let mut v: Vec<i32> = Vec::<i32>::new();
-    v.push(10i32); v.push(20i32);
-    let mut it = v.iter().enumerate();
-    let n: Option<(usize, &i32)> = it.next();
-    if n.is_none() { return 1i32; }
-    return 0i32;
-}

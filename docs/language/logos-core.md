@@ -1391,85 +1391,107 @@ the FnMut analog work end-to-end.
 
 ## 8. Iterator trait surface
 
-stdlib `lang/iter/iter.logos` is large (~1500 LOC) and exposes a
-robust set of iterator primitives, but the **method-call dispatch
-surface** on `Iter`/`IntoIterator` types misses common chains.
-Most adapter free-fns exist (`iter_enumerate`, `iter_chain`,
-`iter_zip`, `iter_max_by_key`) but aren't surfaced as methods.
-Each item below pins a missing method.
+stdlib `lang/iter/iter.logos` is large (~2300 LOC) and exposes a
+robust set of iterator primitives. After Wave 9, six of the ten
+catalogued shapes are CLOSED as trait default methods (8.1, 8.2,
+8.6, 8.7, 8.8, 8.9). The remaining four (8.3 zip, 8.4 chain, 8.5
+max/min, 8.10 peekable) are blocked on three orthogonal compiler
+gaps:
+- **`--test`-mode multi-Iterator forward-ref** (8.3/8.4): a trait
+  default-method return type referencing a struct whose impl carries
+  two `Iterator<…>` bounds (e.g. `ChainIter<A, B, T>`, `ZipIter<A,
+  B, T, U>`) fails to forward-resolve, even though single-Iterator
+  forward-refs (FilterIter, TakeIter, EnumIter, …) work.
+- **Method-level where-bounds on impl-tparams** (8.5): `fn max(self)
+  -> Option<Item> where Item: Ord` can't be written; without the
+  gate, mono eagerly instantiates the default for every impl,
+  including ones whose Item isn't Ord.
+- **No stack-only `mem::zeroed::<T>()`** (8.10): `PeekableIter`'s
+  `peeked_val: T` cache needs a placeholder at construction;
+  `MaybeUninit::<T>::uninit()` allocates+deallocates per call.
+
+The free-fn forms (`iter_chain`, `iter_zip`, `iter_max`, `iter_min`,
+`iter_peekable`) work today; only the method-call ergonomics are
+blocked.
 
 ### ~~8.1. `it.next() / .count() / .sum() / .map() / .filter() / .collect()`~~ ✅
 Six foundational adapter methods dispatch correctly through the
 `Iterator<T>` trait impls (`VecIter<T>`, `RevIter`, `MapIter`,
 `FilterIter`, `Chain`). Tests in `pass/core_8_adv_iter_basics`.
 
-### 8.2. `.enumerate()` method
-- **Issue:** `it.enumerate()` errors "method call: VecIter has no
-  method 'enumerate'". `iter_enumerate` exists as `unsafe pub fn`
-  taking a `zero: T` workaround arg for type inference. Adding the
-  method form needs an `EnumerateIter<I, T>` wrapper exposed
-  through `impl<I: Iterator<T>, T> Iterator<(usize, T)> for I` (or
-  a method on each Iter struct).
-- **Why core:** the `for (i, x) in v.iter().enumerate()` shape is
-  the canonical Rust idiom for indexed iteration; without it users
-  fall back to `while i < v.len() { … i = i + 1; }`.
-- **DoD-depth:** `.enumerate()` returns an iterator yielding
-  `(i64, T)` (or `(usize, T)` once §1.2 lifts the usize/i64
-  alignment).
+### ~~8.2. `.enumerate()` method~~ ✅
+Added as trait default method on `Iterator<Item>`. `EnumIter<I, T>`'s
+phantom `_t: T` field removed (Logos supports phantom struct tparams
+without backing fields, so no MaybeUninit dance needed). Test
+`pass/core_8_adv_iter_enumerate`.
 
 ### 8.3. `.zip(other)` method
-- **Issue:** same shape as 8.2 — `iter_zip` exists but
-  `.zip(other_iter)` method doesn't dispatch.
-- **Why core:** pairing two iterators is a common Rust idiom (e.g.
-  parallel-data walk).
-- **DoD-depth:** `.zip(other)` returns iterator yielding `(A, B)`
-  pairs, terminates on the shorter.
+- **Status:** free-fn form `iter_zip(a, b, zero_a, zero_b)` works;
+  the **trait default method** is blocked by a Logos forward-ref
+  bug in `--test` mode: a default method returning a struct with a
+  multi-Iterator impl (e.g. `ZipIter<A, B, T, U>` with `A: Iterator<T>,
+  B: Iterator<U>`) yields `unknown generic type 'ZipIter'` at trait
+  declaration time, even though the struct is defined later in the
+  same file and other forward-refs (FilterIter, MapIter, TakeIter,
+  SkipIter, EnumIter) work. Single-Iterator return-type forward-refs
+  resolve; multi-Iterator ones don't.
+- **DoD-depth:** when the forward-ref bug closes, add
+  `fn zip<O, OItem>(self, other: O) -> ZipIter<Self, O, Item, OItem>`
+  as a trait default. Then update doc.
 
 ### 8.4. `.chain(other)` method
-- **Issue:** `iter_chain` exists as `unsafe pub fn` with zero-arg
-  trick; the method form is missing.
-- **Why core:** concatenating two iterators is canonical.
-- **DoD-depth:** `.chain(other)` returns iterator over A then B.
+- **Status:** same shape as 8.3 — `iter_chain(a, b, zero)` free fn
+  works; trait default method blocked by the same `--test`-mode
+  multi-Iterator forward-ref bug (`ChainIter<A, B, T>` with two
+  `Iterator<T>` bounds).
+- **DoD-depth:** same — add `fn chain<O>(self, other: O) -> ChainIter<Self, O, Item>`
+  as a trait default once forward-ref closes.
 
 ### 8.5. `.max() / .min()` method (Ord-bound)
-- **Issue:** stdlib has `iter_max_by_key<I, T: Copy, K: Ord>` but no
-  bare `iter_max<I: Iterator<T>, T: Ord>`. The method form
-  `.max()` should yield `Option<T>` when `T: Ord`.
-- **Why core:** Rust's `Iterator::max` is the canonical reduction
-  for ordered values.
-- **DoD-depth:** `.max()` / `.min()` methods + their underlying
-  free fns; `T: Ord` bound; `Option<T>` return.
+- **Status:** free fns `iter_max<I: Iterator<T>, T: Ord>(it) -> Option<T>`
+  and `iter_min` already in stdlib (lines 2246/2271 of iter.logos).
+  The **trait default method** form is blocked: Logos doesn't yet
+  support `fn max(self) -> Option<Item> where Item: Ord` (method-
+  level where-bound on the impl-tparam). Without the bound, mono
+  eagerly instantiates the default for every impl, including ones
+  whose Item isn't Ord (e.g. `Chunks<T>` yielding `&[T]`) — that
+  fails. Same workaround pattern as `option_unwrap_or_default`
+  (free fn until method-level where-bounds land).
+- **DoD-depth:** Logos sema for `fn …() where Item: Ord` lifts to
+  conditional default-method instantiation → method form lands.
 
-### 8.6. `.fold(init, f)` method
-- **Issue:** the `iter_fold`-style reduce is implementable via
-  `loop { it.next() }` today but lacks the canonical method form.
-- **Why core:** fundamental functional reduction primitive.
-- **DoD-depth:** `.fold::<B>(init: B, f: fn(B, T) -> B) -> B`.
+### ~~8.6. `.fold(init, f)` method~~ ✅
+Already a trait default method on `Iterator<Item>` (line 226). The
+earlier "missing" framing was wrong — only `.max()/.min()/.zip()/
+.chain()/.enumerate()/.take()/.skip()/.peekable()` were genuinely
+missing. Test `pass/core_8_adv_iter_basics`.
 
-### 8.7. `.any(pred) / .all(pred)` method
-- **Issue:** boolean reductions missing as methods.
-- **Why core:** `if v.iter().any(|x| x > 5)` is canonical Rust.
-- **DoD-depth:** short-circuiting `.any` / `.all` over a predicate.
+### ~~8.7. `.any(pred) / .all(pred)` method~~ ✅
+Already trait default methods (lines 378, 390). Tests cover this
+shape under the basics check.
 
-### 8.8. `.take(n) / .skip(n)` adapters
-- **Issue:** truncation/offset adapters missing.
-- **Why core:** common chain elements.
-- **DoD-depth:** `.take(n: usize)` / `.skip(n: usize)` adapters
-  yielding bounded sub-iterators.
+### ~~8.8. `.take(n) / .skip(n)` adapters~~ ✅
+Added as trait default methods on `Iterator<Item>`. `TakeIter<I, T>`
+and `SkipIter<I, T>` phantom `_t: T` fields removed. Tests
+`pass/core_8_adv_iter_take` / `pass/core_8_adv_iter_skip`.
 
-### 8.9. `.position(pred)` method
-- **Issue:** find-by-predicate returning the index is missing as
-  method (free fn `iter_rposition` exists but specifically for
-  reverse position).
-- **Why core:** searching a stream for an index by predicate.
-- **DoD-depth:** `.position(pred) -> Option<usize>`.
+### ~~8.9. `.position(pred)` method~~ ✅
+Already a trait default method (line 434, `unsafe fn position(&mut self, …)`).
+The earlier "missing as method" framing was wrong — only the more
+specialised `iter_rposition` was free-fn-only.
 
 ### 8.10. `.peekable()` / `.peek()`
-- **Issue:** the canonical "look-ahead one element without
-  consuming" wrapper missing.
-- **Why core:** parsers / lookahead-driven state machines.
-- **DoD-depth:** `Peekable<I>` wrapper that buffers one element;
-  `.peek() -> Option<&T>` doesn't advance.
+- **Status:** free fn `iter_peekable(it, zero)` works; the **trait
+  default method** is blocked because `PeekableIter<I, T>` carries
+  a real `peeked_val: T` cache field (not a phantom) — constructing
+  it from a trait default with `Item` in scope but no concrete
+  value of T requires either `T: Default`, `MaybeUninit<T>` (which
+  alloc/dealloc's a `sizeof(T)` block per peekable), or a refactor
+  to `Option<T>` (a prior attempt hit a Logos enum-in-struct layout
+  mismatch — see iter.logos:1245 comment).
+- **DoD-depth:** either the `Option<T>` layout bug closes (trait
+  method becomes free), or a stack-only `mem::zeroed::<T>()`
+  primitive lands.
 
 ---
 
