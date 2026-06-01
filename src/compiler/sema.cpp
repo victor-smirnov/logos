@@ -5059,6 +5059,19 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (node.has_key(la::POINTEE)) {
             int32_t pc = code_of(map_of(node.get(la::POINTEE.code)));
             ref_pointee_unsized = (pc == la::UNSIZED_SLICE_TYPE || pc == la::DYN_TYPE);
+            // §6 Wave 9 — `&str` parses as REF_TYPE wrapping TYPE_REF{name="str"}.
+            // Without the unsized-ok flag, `str` resolves to Sized Slice<u8>,
+            // and the outer Ref then wraps it: `Ref<Slice<u8>>` = `&&[u8]`.
+            // That's the silent-doubled-& shape that mismatched every
+            // `&str = "literal"` site (S20 / §6 question-op-str root).
+            // Let `str` resolve as unsized here so the canonicalisation
+            // below folds `&UnsizedSlice<u8>` → `Slice<u8>` and matches
+            // the str literal.
+            if (pc == la::TYPE_REF) {
+                auto pn = map_of(node.get(la::POINTEE.code));
+                if (pn.has_key(la::NAME) && str_of(pn.get(la::NAME.code)) == "str")
+                    ref_pointee_unsized = true;
+            }
         }
         bool was_ok = unsized_ok_;
         if (ref_pointee_unsized) unsized_ok_ = true;

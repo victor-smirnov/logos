@@ -1,0 +1,20 @@
+// §6 Wave 9 — `&str = "literal"` and `&str` fn parameters now
+// type-check. Pre-fix `&str` resolved to `Ref<Slice<u8>>` (sized
+// inner), and a string literal lowered as `Slice<u8>` — the static
+// init / fn-call site saw the doubled-& shape "expected &&[u8],
+// got &[u8]" (the §6.2 S20 / §6 question-op-str root). Fix: in
+// resolve_type for REF_TYPE, when pointee is the `str` keyword,
+// set unsized_ok_ so `str` resolves to UnsizedSlice<u8>; the
+// `&UnsizedSlice<u8>` → `Slice<u8>` canonicalisation then folds
+// the outer ref away, yielding the right fat-pointer shape.
+package core_6_adv_str_literal_ref;
+
+static MSG: &str = "hello";
+
+fn take_str(_s: &str) -> i32 { return 1i32; }
+
+fn main() -> i32 {
+    let _m = MSG;
+    if take_str("world") != 1i32 { return 1i32; }
+    return 0i32;
+}

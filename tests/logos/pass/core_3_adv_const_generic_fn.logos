@@ -1,0 +1,3 @@
+package c9_const_generic;
+fn capacity<const N: i64>() -> i64 { return N; }
+fn main() -> i32 { return 0i32; }

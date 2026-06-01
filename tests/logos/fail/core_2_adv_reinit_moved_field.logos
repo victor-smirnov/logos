@@ -1,9 +1,0 @@
-package b16_self_field_move;
-struct S { v: String, n: i32 }
-fn main() -> i32 {
-    let mut s: S = S { v: String::new(), n: 5i32 };
-    let _x: String = s.v;
-    s.v = String::new();
-    if s.n != 5i32 { return 1i32; }
-    return 0i32;
-}

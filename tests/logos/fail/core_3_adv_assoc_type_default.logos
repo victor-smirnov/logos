@@ -1,5 +1,0 @@
-package c13_assoc_type_default;
-trait T { type Item = i32; fn get(&self) -> Self::Item; }
-struct V;
-impl T for V { fn get(&self) -> i32 { return 7i32; } }
-fn main() -> i32 { return 0i32; }

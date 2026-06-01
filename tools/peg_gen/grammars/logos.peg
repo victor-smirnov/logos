@@ -1178,6 +1178,10 @@
                      => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
                       / KW_FN IDENT LPAREN param_list? RPAREN SEMI
                      => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4 }
+                      / KW_STATIC KW_MUT IDENT COLON type_ref SEMI
+                     => { CODE: STATIC_DEF, IS_MUT: 1, NAME: $3, TYPE: $5 }
+                      / KW_STATIC IDENT COLON type_ref SEMI
+                     => { CODE: CONST_DEF, NAME: $2, TYPE: $4 }
     extern_fn_def <- KW_EXTERN STRING KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
                   => { CODE: EXTERN_FN, NAME: $4, PARAMS: $6, RET_TYPE: $11, VALUE: $2, IS_VARARG: true }
                    / KW_EXTERN STRING KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI
@@ -2706,6 +2710,8 @@
                  => { CODE: ARR_FILL_LIT, VALUE: $2, BODY: $5 }
                   / LBRACKET expr SEMI INTEGER RBRACKET
                  => { CODE: ARR_FILL_LIT, VALUE: $2, SIZE: $4 }
+                  / LBRACKET expr SEMI IDENT RBRACKET
+                 => { CODE: ARR_FILL_LIT, VALUE: $2, NAME: $4 }
 
     // ── List comprehension: [expr for x in iter (if p)?] ─────────
     list_comp <- LBRACKET expr KW_FOR IDENT KW_IN expr KW_IF expr RBRACKET

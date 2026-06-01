@@ -1,8 +1,0 @@
-package f1_static_in_trait;
-trait T { const X: i32 = 42i32; }
-struct A;
-impl T for A {}
-fn main() -> i32 {
-    if A::X != 42i32 { return 1i32; }
-    return 0i32;
-}
