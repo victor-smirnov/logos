@@ -851,34 +851,57 @@
               / trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, NAME: $2, ITEMS: $... }
 
-    trait_method <- KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
+    // §8.5: trait-method default bodies accept an optional `where`
+    // clause. `fn max(self) -> Option<Item> where Item: Ord { ... }` —
+    // sema-side, the WHERE bounds gate per-impl default synthesis
+    // (skip if the bound doesn't hold for the impl's concrete Item),
+    // matching Rust's conditional-default-method semantics. The where-
+    // clause is positioned between the signature and the block,
+    // consistent with the body-less alt order below.
+    trait_method <- KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                  / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
                   / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause? SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10 }
+                  / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
                   / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN block
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
                   / KW_UNSAFE KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause? SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8 }
+                  / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref where_clause block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref where_clause? SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9 }
+                  / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN where_clause block
+                 => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN block
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, BODY: $7 }
                   / KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN where_clause? SEMI
                  => { CODE: FN, IS_UNSAFE: 1, NAME: $3, PARAMS: $5, WHERE: $7 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause block
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
                   / KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
                   / KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause? SEMI
                  => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9 }
+                  / KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause block
+                 => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
                   / KW_FN IDENT type_param_list LPAREN param_list? RPAREN block
                  => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, BODY: $7 }
                   / KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause? SEMI
                  => { CODE: FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7 }
+                  / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref where_clause block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, WHERE: $8, BODY: $9 }
                   / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                  => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
                   / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref where_clause? SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, WHERE: $8 }
+                  / KW_FN IDENT LPAREN param_list? RPAREN where_clause block
+                 => { CODE: FN, NAME: $2, PARAMS: $4, WHERE: $6, BODY: $7 }
                   / KW_FN IDENT LPAREN param_list? RPAREN block
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN IDENT LPAREN param_list? RPAREN where_clause? SEMI

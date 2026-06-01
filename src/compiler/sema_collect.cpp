@@ -2348,14 +2348,22 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         for (uint64_t wi = 0; wi < witems.size(); ++wi) {
                             auto witem = map_of(witems.get(wi));
                             if (code_of(witem) != la::TYPE_PARAM) continue;
-                            if (std::string(str_of(witem.get(la::NAME.code))) != "Self") continue;
+                            std::string subject(str_of(witem.get(la::NAME.code)));
                             if (!witem.has_key(la::ITEMS)) continue;
                             auto inner = arr_of(witem.get(la::ITEMS.code));
                             for (uint64_t bj = 0; bj < inner.size(); ++bj) {
                                 auto bnode = map_of(inner.get(bj));
-                                if (code_of(bnode) == la::TRAIT_BOUND &&
-                                    std::string(str_of(bnode.get(la::NAME.code))) == "Sized")
-                                    mi.requires_sized_self = true;
+                                if (code_of(bnode) != la::TRAIT_BOUND) continue;
+                                std::string bound_trait(str_of(bnode.get(la::NAME.code)));
+                                if (subject == "Self") {
+                                    if (bound_trait == "Sized")
+                                        mi.requires_sized_self = true;
+                                } else {
+                                    // §8.5: a where-bound whose subject is a
+                                    // TRAIT type-param (Item, K, …) — captured
+                                    // for per-impl default synthesis gating.
+                                    mi.where_param_bounds.push_back({subject, bound_trait});
+                                }
                             }
                         }
                     }
@@ -3864,7 +3872,51 @@ bool SemaChecker::is_specialization_fn(TinyMapView node) {
 
 
 bool SemaChecker::is_specialization_struct(TinyMapView node) {
-    return is_specialization_fn(node);  // identical check
+    // §8 fix (Iterator.chain/zip false-spec): the pass0_decl_names_ probe
+    // (see is_specialization_fn) misclassifies a GENERIC struct decl
+    // whose bare type-param NAME happens to match a user struct in
+    // another module. Example: `pub struct ChainIter<A, B, T>` in
+    // iter.logos collides with a test file's `struct A` / `struct B`,
+    // so ChainIter is flagged as a spec and never registered in
+    // structs_ — every later `ChainIter<…>` reference then errors
+    // "unknown generic type 'ChainIter'".
+    //
+    // For a STRUCT decl, a real specialisation by construction matches
+    // an EXISTING base of the same name. So gate the pass0 probe on
+    // "a struct with this name is already registered" — for `Map<Bitmap,V>`
+    // the base `Map<K,V>` is registered first (same module, ordered),
+    // and the spec probe falls through normally. For `ChainIter<A,B,T>`
+    // no prior `ChainIter` exists → returns false → registered as a
+    // fresh generic decl.
+    if (!node.has_key(la::TYPE_PARAMS)) return false;
+    AnyVal tpav = node.get(la::TYPE_PARAMS.code);
+    if (tpav.is_null()) return false;
+    auto tplist = map_of(tpav);
+    if (!tplist.has_key(la::ITEMS)) return false;
+    auto items = arr_of(tplist.get(la::ITEMS.code));
+    // Gate: structs/datatypes/enums with this name already registered?
+    bool base_exists = false;
+    if (node.has_key(la::NAME.code)) {
+        auto sname = std::string(str_of(node.get(la::NAME.code)));
+        auto key_in_pkg = sema_key(cur_package_, sname);
+        base_exists = structs_.count(key_in_pkg) > 0
+                   || datatypes_.count(key_in_pkg) > 0;
+    }
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto n = map_of(items.get(i));
+        int32_t c = code_of(n);
+        if (c == la::PTR_TYPE || c == la::ARR_TYPE)
+            return true;  // structured pattern → specialisation
+        if (c == la::TYPE_PARAM && !n.has_key(la::ITEMS)) {
+            auto name = str_of(n.get(la::NAME.code));
+            if (try_resolve_as_known_type(name))
+                return true;  // primitive name → specialisation
+            if (base_exists && pass0_decl_names_
+                && pass0_decl_names_->count(std::string(name)))
+                return true;  // user-type name AND base exists → spec
+        }
+    }
+    return false;
 }
 
 lir::LStructDef SemaChecker::lower_spec_struct(TinyMapView node) {

@@ -1,0 +1,13 @@
+package i08_chain;
+fn main() -> i32 {
+    let mut a: Vec<i32> = Vec::<i32>::new();
+    a.push(1i32); a.push(2i32); a.push(3i32);
+    let mut b: Vec<i32> = Vec::<i32>::new();
+    b.push(10i32); b.push(20i32);
+    let cc: i64 = a.iter().chain::<VecIter<i32>>(b.iter()).count();
+    if cc != 5i64 { return 1i32; }
+    let s: i32 = a.iter().chain::<VecIter<i32>>(b.iter())
+        .fold::<i32, fn(i32,i32)->i32>(0i32, |x, y| x + y);
+    if s != 36i32 { return 2i32; }
+    return 0i32;
+}

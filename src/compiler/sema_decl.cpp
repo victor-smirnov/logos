@@ -1888,6 +1888,45 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // by try_blanket_method_dispatch dangles to an empty stub.
                 auto mangled = lower_target + "__" + m.name;
                 if (m.has_default && !overridden.count(mangled)) {
+                    // §8.5: per-method where-clause gate. A method like
+                    // `fn max() where Item: Ord` is only synthesised for
+                    // an impl whose concrete trait-arg satisfies the
+                    // bound (Rust conditional-default semantics). For
+                    // each (param_name, trait_name) bound: locate the
+                    // trait-param's index, map to the impl's concrete
+                    // arg, check `concrete: trait` via the recursive
+                    // impls_ probe. A failing bound silently skips
+                    // default synthesis — the method is unavailable
+                    // for this impl. Blanket impls (Self = TypeVar) and
+                    // generic-impl args (TypeVar args) defer: the
+                    // concrete is unknown at sema, so synthesise the
+                    // default template and let mono error if needed.
+                    bool gate_skip = false;
+                    if (!ib.is_blanket && !m.where_param_bounds.empty()) {
+                        for (auto& wb : m.where_param_bounds) {
+                            // Find the trait-param index by name.
+                            size_t pidx = SIZE_MAX;
+                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
+                                if (tit->second.type_params[pi].name == wb.param_name) {
+                                    pidx = pi; break;
+                                }
+                            if (pidx == SIZE_MAX) continue;
+                            if (pidx >= impl_trait_args.size()) continue;
+                            TypeRef concrete = impl_trait_args[pidx];
+                            if (!concrete) continue;
+                            TypeRef cv{concrete};
+                            // TypeVar / unresolved: defer to mono.
+                            if (cv.kind() == LogosType::Kind::TypeVar) continue;
+                            if (cv.kind() == LogosType::Kind::Error) continue;
+                            std::string cstr = type_str(concrete);
+                            logos::compiler::StrSet seen;
+                            if (!sema_has_impl_recursive(wb.trait_name, cstr, /*alt=*/"", seen)) {
+                                gate_skip = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (gate_skip) continue;
                     // Push Self → target type; for generic impls include type params as TypeVars.
                     TypeRef self_type = nullptr;
                     if (ib.is_blanket) {
@@ -1947,6 +1986,38 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             fn.type_params = std::move(kept);
                         }
                         fn.impl_type_params = impl_tps;
+                        // §8.5: propagate where-clause TRAIT-param bounds
+                        // (e.g. `Item: Ord`) onto the now-final
+                        // fn.impl_type_params so mono's `method_bound_ok`
+                        // rejects a clone whose substituted concrete arg
+                        // doesn't implement the required trait. Must run
+                        // AFTER `fn.impl_type_params = impl_tps` (which
+                        // overwrites bounds added earlier).
+                        for (auto& wb : m.where_param_bounds) {
+                            size_t pidx = SIZE_MAX;
+                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
+                                if (tit->second.type_params[pi].name == wb.param_name) {
+                                    pidx = pi; break;
+                                }
+                            if (pidx == SIZE_MAX || pidx >= impl_trait_args.size()) continue;
+                            TypeRef arg = impl_trait_args[pidx];
+                            if (!arg) continue;
+                            TypeRef av{arg};
+                            if (av.kind() != LogosType::Kind::TypeVar) continue;
+                            std::string tvname(av.type_var_name());
+                            for (auto& tp : fn.impl_type_params) {
+                                if (tp.name != tvname) continue;
+                                bool dup = false;
+                                for (auto& b : tp.bounds)
+                                    if (b.trait_name == wb.trait_name) { dup = true; break; }
+                                if (!dup) {
+                                    TraitBound tb;
+                                    tb.trait_name = wb.trait_name;
+                                    tp.bounds.push_back(std::move(tb));
+                                }
+                                break;
+                            }
+                        }
                         target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for

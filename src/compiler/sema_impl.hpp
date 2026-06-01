@@ -2077,6 +2077,20 @@ private:
         bool has_self_receiver = false;  // first param is `self`/`&self`/`&mut self`/`self: …`
         bool requires_sized_self = false;  // `where Self: Sized` → excluded from the
                                             // vtable (ignored for object-safety, P2-15)
+        // §8.5: per-method where-clause bounds whose subject is a TRAIT
+        // type-param (e.g. `where Item: Ord` on `fn max()` in
+        // Iterator<Item>). Captured here for the per-impl default-method
+        // gating in lower_target — when an impl substitutes Item with a
+        // concrete type, the bound is rewritten and looked up in impls_
+        // (sema_has_impl_recursive). A failing bound skips default synth
+        // for that impl (the method is simply unavailable, matching
+        // Rust's conditional-default-method semantics). Self-side bounds
+        // (`where Self: Sized`) live in `requires_sized_self` above.
+        struct ParamBound {
+            std::string param_name;   // the trait type-param being bounded (Item)
+            std::string trait_name;   // the required trait (Ord)
+        };
+        std::vector<ParamBound> where_param_bounds;
         hermes::AnyVal default_ast{};    // AST node for default method (valid when has_default)
         hermes::MemHolder* default_holder = nullptr;  // zone that owns default_ast
         std::string doc;     // Phase A.2: outer `///` doc-comment

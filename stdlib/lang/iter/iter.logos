@@ -9,6 +9,7 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.ops;
+use logos.mem.uninit;
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
 //
@@ -127,26 +128,40 @@ pub trait Iterator<Item> {
         return EnumIter::<Self, Item> { inner: self, idx: 0 as i64 };
     }
 
-    // §8.3 / §8.4: `.chain(other)` / `.zip(other)` are NOT trait
-    // default methods. Under `--test` mode sema rejects the return
-    // type "unknown generic type 'ChainIter' / 'ZipIter'" — both
-    // structs have a multi-Iterator impl block (two `Iterator<T>`
-    // bounds, distinct items in zip's case) and the trait-decl-time
-    // resolution of the return type fails to forward-resolve them.
-    // Workaround: keep `iter_chain(a, b, zero)` / `iter_zip(a, b, zt, zu)`
-    // as the canonical free-fn form. Once the forward-ref issue
-    // closes the methods can be added without API change.
+    fn chain<ChainOther>(self: Self, other: ChainOther) -> ChainIter<Self, ChainOther, Item> {
+        return ChainIter { first: self, second: other, first_done: false };
+    }
+    fn zip<ZipOther, ZipOtherItem>(self: Self, other: ZipOther) -> ZipIter<Self, ZipOther, Item, ZipOtherItem> {
+        return ZipIter { left: self, right: other };
+    }
 
-    // §8.5: bare `.max()` / `.min()` are NOT trait default methods
-    // because Logos's mono eagerly instantiates trait defaults for
-    // every impl, so a default body referencing `iter_max::<Self,Item>`
-    // (which carries `Item: Ord`) would fail for impls whose Item is
-    // not Ord (e.g. `Chunks` yielding `&[T]`). Without a `where Item:
-    // Ord` gate on the method (Logos doesn't support method-level
-    // bounds on impl-tparams yet — see option_unwrap_or_default for
-    // the same workaround), the canonical form is the free fn
-    // `iter_max(it) / iter_min(it)`. `.max_by(cmp)` / `.min_by(cmp)`
-    // are available as trait defaults above.
+    // §8.5: `.max()` / `.min()` — terminals for `Item: Ord`. The where-
+    // clause gates per-impl default synthesis: sema only materialises
+    // `Chunks__min` etc. if the impl's concrete Item satisfies the
+    // bound (Rust-conformant conditional default-method semantics).
+    fn max(self: Self) -> Option<Item> where Item: Ord {
+        return iter_max::<Self, Item>(self);
+    }
+    fn min(self: Self) -> Option<Item> where Item: Ord {
+        return iter_min::<Self, Item>(self);
+    }
+
+    // §8.10: `.peekable()` — wrap into a one-element-lookahead iterator.
+    // PeekableIter has a `peeked_val: T` cache; until Logos lands a
+    // stack-only `mem::zeroed::<T>()` primitive (or fixes the
+    // Option<T>-in-struct layout mismatch noted at PeekableIter), the
+    // placeholder comes from `MaybeUninit::<Item>::uninit().value`.
+    // `unsafe` because the placeholder is undef bytes; `has_peeked=false`
+    // ensures no read until a real `peek()` writes the slot.
+    // §8.10: `.peekable()` is NOT a trait default method. PeekableIter
+    // has a `peeked_val: T` cache that needs a placeholder at
+    // construction; Logos doesn't expose a stack-only `mem::zeroed::<T>()`
+    // primitive, and the user-facing alternatives (MaybeUninit/Default)
+    // require either a tparam bound or the impl's package to `use
+    // logos.mem.uninit` (Logos's `use` machinery isn't transitive). Free
+    // fn `iter_peekable(it, zero)` remains the canonical form. Closing
+    // this needs either a `Default` bound (restrictive) or a built-in
+    // stack-only `unsafe_uninit_value::<T>()` primitive.
 
     // SL-sl-05: `.collect<B>` — terminal that pours the iterator into
     // any `B: FromIterator<Item>`. Standard impls: Vec<T>, plus user-

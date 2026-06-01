@@ -1391,28 +1391,10 @@ the FnMut analog work end-to-end.
 
 ## 8. Iterator trait surface
 
-stdlib `lang/iter/iter.logos` is large (~2300 LOC) and exposes a
-robust set of iterator primitives. After Wave 9, six of the ten
-catalogued shapes are CLOSED as trait default methods (8.1, 8.2,
-8.6, 8.7, 8.8, 8.9). The remaining four (8.3 zip, 8.4 chain, 8.5
-max/min, 8.10 peekable) are blocked on three orthogonal compiler
-gaps:
-- **`--test`-mode multi-Iterator forward-ref** (8.3/8.4): a trait
-  default-method return type referencing a struct whose impl carries
-  two `Iterator<…>` bounds (e.g. `ChainIter<A, B, T>`, `ZipIter<A,
-  B, T, U>`) fails to forward-resolve, even though single-Iterator
-  forward-refs (FilterIter, TakeIter, EnumIter, …) work.
-- **Method-level where-bounds on impl-tparams** (8.5): `fn max(self)
-  -> Option<Item> where Item: Ord` can't be written; without the
-  gate, mono eagerly instantiates the default for every impl,
-  including ones whose Item isn't Ord.
-- **No stack-only `mem::zeroed::<T>()`** (8.10): `PeekableIter`'s
-  `peeked_val: T` cache needs a placeholder at construction;
-  `MaybeUninit::<T>::uninit()` allocates+deallocates per call.
-
-The free-fn forms (`iter_chain`, `iter_zip`, `iter_max`, `iter_min`,
-`iter_peekable`) work today; only the method-call ergonomics are
-blocked.
+stdlib `lang/iter/iter.logos` exposes a robust set of iterator
+primitives. After Wave 9, **nine of ten** catalogued method-call
+shapes land as trait defaults; only `.peekable()` remains free-fn-
+only pending a stack-only `mem::zeroed::<T>()` primitive.
 
 ### ~~8.1. `it.next() / .count() / .sum() / .map() / .filter() / .collect()`~~ ✅
 Six foundational adapter methods dispatch correctly through the
@@ -1425,40 +1407,45 @@ phantom `_t: T` field removed (Logos supports phantom struct tparams
 without backing fields, so no MaybeUninit dance needed). Test
 `pass/core_8_adv_iter_enumerate`.
 
-### 8.3. `.zip(other)` method
-- **Status:** free-fn form `iter_zip(a, b, zero_a, zero_b)` works;
-  the **trait default method** is blocked by a Logos forward-ref
-  bug in `--test` mode: a default method returning a struct with a
-  multi-Iterator impl (e.g. `ZipIter<A, B, T, U>` with `A: Iterator<T>,
-  B: Iterator<U>`) yields `unknown generic type 'ZipIter'` at trait
-  declaration time, even though the struct is defined later in the
-  same file and other forward-refs (FilterIter, MapIter, TakeIter,
-  SkipIter, EnumIter) work. Single-Iterator return-type forward-refs
-  resolve; multi-Iterator ones don't.
-- **DoD-depth:** when the forward-ref bug closes, add
-  `fn zip<O, OItem>(self, other: O) -> ZipIter<Self, O, Item, OItem>`
-  as a trait default. Then update doc.
+### ~~8.3. `.zip(other)` method~~ ✅
+Closed by the **`is_specialization_struct` collision fix** in
+sema_collect.cpp: a generic struct decl like `ZipIter<A, B, T, U>`
+was misclassified as a specialization when pass-0's decl-name set
+contained a user struct named `A` or `B` (from another module),
+because the bare TYPE_PARAM names matched. Gated the pass0_decl_names_
+probe on "a base struct with this name is already registered" —
+true specs (e.g. `Map<Bitmap, V>` over base `Map<K, V>`) keep
+working. `.zip()` lands as a trait default. Test
+`pass/core_8_adv_iter_zip`.
 
-### 8.4. `.chain(other)` method
-- **Status:** same shape as 8.3 — `iter_chain(a, b, zero)` free fn
-  works; trait default method blocked by the same `--test`-mode
-  multi-Iterator forward-ref bug (`ChainIter<A, B, T>` with two
-  `Iterator<T>` bounds).
-- **DoD-depth:** same — add `fn chain<O>(self, other: O) -> ChainIter<Self, O, Item>`
-  as a trait default once forward-ref closes.
+### ~~8.4. `.chain(other)` method~~ ✅
+Closed by the same fix as 8.3 (`ChainIter<A, B, T>`). Test
+`pass/core_8_adv_iter_chain`.
 
-### 8.5. `.max() / .min()` method (Ord-bound)
-- **Status:** free fns `iter_max<I: Iterator<T>, T: Ord>(it) -> Option<T>`
-  and `iter_min` already in stdlib (lines 2246/2271 of iter.logos).
-  The **trait default method** form is blocked: Logos doesn't yet
-  support `fn max(self) -> Option<Item> where Item: Ord` (method-
-  level where-bound on the impl-tparam). Without the bound, mono
-  eagerly instantiates the default for every impl, including ones
-  whose Item isn't Ord (e.g. `Chunks<T>` yielding `&[T]`) — that
-  fails. Same workaround pattern as `option_unwrap_or_default`
-  (free fn until method-level where-bounds land).
-- **DoD-depth:** Logos sema for `fn …() where Item: Ord` lifts to
-  conditional default-method instantiation → method form lands.
+### ~~8.5. `.max() / .min()` method (Ord-bound)~~ ✅
+Closed by adding **where-clause support on trait method default
+bodies** end-to-end:
+1. **Grammar** — `trait_method` productions accept `where_clause?`
+   between signature and `block` (12 new alts in logos.peg).
+2. **Sema collect** — `SemaTraitMethodInfo.where_param_bounds`
+   captures non-Self bounds; `requires_sized_self` keeps handling
+   `where Self: Sized` independently.
+3. **Sema default synthesis** (lower_target):
+   - **Concrete-impl gate.** If the impl's concrete trait-arg
+     doesn't satisfy the bound (via `sema_has_impl_recursive`),
+     skip default synthesis — method is unavailable for that impl
+     (Rust conditional-default semantics).
+   - **Generic-impl propagation.** For `impl<T> Iter<T> for X<T>`,
+     map the trait-param to the impl's TypeVar and attach the bound
+     to the synthesized fn's `impl_type_params`, so mono's existing
+     `method_bound_ok` rejects clones whose substituted T fails.
+
+The body simply delegates: `iter_max::<Self, Item>(self)` /
+`iter_min`. Test `pass/core_8_adv_iter_max_min_method`.
+
+The same machinery is now available for any trait default that
+wants conditional-on-tparam-bound semantics (`fn unwrap_or_default()
+where T: Default`, etc.).
 
 ### ~~8.6. `.fold(init, f)` method~~ ✅
 Already a trait default method on `Iterator<Item>` (line 226). The
@@ -1482,16 +1469,19 @@ specialised `iter_rposition` was free-fn-only.
 
 ### 8.10. `.peekable()` / `.peek()`
 - **Status:** free fn `iter_peekable(it, zero)` works; the **trait
-  default method** is blocked because `PeekableIter<I, T>` carries
-  a real `peeked_val: T` cache field (not a phantom) — constructing
-  it from a trait default with `Item` in scope but no concrete
-  value of T requires either `T: Default`, `MaybeUninit<T>` (which
-  alloc/dealloc's a `sizeof(T)` block per peekable), or a refactor
-  to `Option<T>` (a prior attempt hit a Logos enum-in-struct layout
-  mismatch — see iter.logos:1245 comment).
-- **DoD-depth:** either the `Option<T>` layout bug closes (trait
-  method becomes free), or a stack-only `mem::zeroed::<T>()`
-  primitive lands.
+  default method** is blocked. PeekableIter carries a real
+  `peeked_val: T` cache (not a phantom — driven by `peek()`'s
+  lookahead). Constructing it from a trait default with `Item` in
+  scope but no value requires one of:
+  - **`Item: Default` bound** — restrictive (excludes many shapes).
+  - **`MaybeUninit::<Item>::uninit()`** — works but requires every
+    impl's package to `use logos.mem.uninit` (Logos `use` is not
+    transitive); fully-qualified `logos.mem.uninit.MaybeUninit`
+    path in a type position is a Logos-model conformance item.
+  - **Stack-only `unsafe_uninit_value::<T>()` built-in** — cleanest.
+- **DoD-depth:** add a compiler-builtin or fix transitive-use /
+  qualified-path resolution so a single trait-default site can
+  reach MaybeUninit. Tracked as the **only remaining** §8 gap.
 
 ---
 
