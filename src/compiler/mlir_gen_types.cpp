@@ -307,6 +307,15 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::Void) {
+            // §1 Wave 9 — unit type `()` as a struct field. Zero-sized; same
+            // layout as a Never-field (`[i8; 0]`) so the struct's other
+            // fields keep their offsets. `logos_to_mlir(())` is nullptr in
+            // value/result contexts; treat field-position separately.
+            ft = mlir::LLVM::LLVMArrayType::get(builder_.getI8Type(), 0);
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else {
             ft = logos_to_mlir(f.type);
             if (!ft) {
