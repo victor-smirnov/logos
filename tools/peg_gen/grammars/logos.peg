@@ -902,10 +902,16 @@
                  => { CODE: FN, NAME: $2, PARAMS: $4, BODY: $6 }
                   / KW_FN KW_NULL LPAREN param_list? RPAREN where_clause? SEMI
                  => { CODE: FN, NAME: $2, PARAMS: $4, WHERE: $6 }
+                  / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                   / KW_TYPE IDENT type_param_list (COLON trait_bound (PLUS trait_bound)*)? SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE_PARAMS: $3, ITEMS: $... }
+                  / KW_TYPE IDENT ASSIGN type_ref SEMI
+                 => { CODE: ASSOC_TYPE_DEF, NAME: $2, TYPE: $4 }
                   / KW_TYPE IDENT (COLON trait_bound (PLUS trait_bound)*)? SEMI
                  => { CODE: ASSOC_TYPE_DEF, NAME: $2, ITEMS: $... }
+                  / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+                 => { CODE: ASSOC_CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
                   / KW_CONST IDENT COLON type_ref SEMI
                  => { CODE: ASSOC_CONST_DEF, NAME: $2, TYPE: $4 }
 

@@ -76,6 +76,38 @@ extern fn logos_atomic_fetch_add64_ord(ptr: *mut i64, val: i64, ord: Ordering) -
 extern fn logos_atomic_cas64_ord(ptr: *mut i64, expected: i64, desired: i64,
                                  success: Ordering, failure: Ordering) -> bool;
 
+// §5 Wave 9 — full RMW family (Rust `std::sync::atomic` parity):
+//   swap → xchg (returns old, writes new)
+//   fetch_or / fetch_and / fetch_xor → bitwise RMW
+//   fetch_sub → as fetch_add of negated delta (already used by the
+//     wrapper methods, but adding a direct primitive for clarity)
+//   cas_weak → may spuriously fail; used in retry loops where the
+//     surrounding loop re-checks. Same LLVM op as strong CAS today;
+//     the weak-vs-strong codegen choice can be threaded later.
+extern fn logos_atomic_swap32(ptr: *mut i32, val: i32) -> i32;
+extern fn logos_atomic_swap64(ptr: *mut i64, val: i64) -> i64;
+extern fn logos_atomic_fetch_or32(ptr: *mut i32, val: i32) -> i32;
+extern fn logos_atomic_fetch_or64(ptr: *mut i64, val: i64) -> i64;
+extern fn logos_atomic_fetch_and32(ptr: *mut i32, val: i32) -> i32;
+extern fn logos_atomic_fetch_and64(ptr: *mut i64, val: i64) -> i64;
+extern fn logos_atomic_fetch_xor32(ptr: *mut i32, val: i32) -> i32;
+extern fn logos_atomic_fetch_xor64(ptr: *mut i64, val: i64) -> i64;
+extern fn logos_atomic_cas_weak32(ptr: *mut i32, expected: i32, desired: i32) -> bool;
+extern fn logos_atomic_cas_weak64(ptr: *mut i64, expected: i64, desired: i64) -> bool;
+
+extern fn logos_atomic_swap32_ord(ptr: *mut i32, val: i32, ord: Ordering) -> i32;
+extern fn logos_atomic_swap64_ord(ptr: *mut i64, val: i64, ord: Ordering) -> i64;
+extern fn logos_atomic_fetch_or32_ord(ptr: *mut i32, val: i32, ord: Ordering) -> i32;
+extern fn logos_atomic_fetch_or64_ord(ptr: *mut i64, val: i64, ord: Ordering) -> i64;
+extern fn logos_atomic_fetch_and32_ord(ptr: *mut i32, val: i32, ord: Ordering) -> i32;
+extern fn logos_atomic_fetch_and64_ord(ptr: *mut i64, val: i64, ord: Ordering) -> i64;
+extern fn logos_atomic_fetch_xor32_ord(ptr: *mut i32, val: i32, ord: Ordering) -> i32;
+extern fn logos_atomic_fetch_xor64_ord(ptr: *mut i64, val: i64, ord: Ordering) -> i64;
+extern fn logos_atomic_cas_weak32_ord(ptr: *mut i32, expected: i32, desired: i32,
+                                      success: Ordering, failure: Ordering) -> bool;
+extern fn logos_atomic_cas_weak64_ord(ptr: *mut i64, expected: i64, desired: i64,
+                                      success: Ordering, failure: Ordering) -> bool;
+
 // AtomicI8 / AtomicI16 / AtomicU8 / AtomicU16 reuse the 32-bit primitives
 // today: x86 LOCK-prefixed RMW supports narrow widths natively, but
 // we don't yet have 8/16-bit variants of the assembly stubs surfaced
@@ -128,6 +160,38 @@ impl AtomicI32 {
     pub fn compare_exchange_ordered(self: *mut AtomicI32, expected: i32, desired: i32,
                                     success: Ordering, failure: Ordering) -> bool {
         unsafe { return logos_atomic_cas32_ord(&mut self.val as *mut i32, expected, desired, success, failure); }
+    }
+    // §5 Wave 9 — full RMW family.
+    pub fn swap(self: *mut AtomicI32, v: i32) -> i32 {
+        unsafe { return logos_atomic_swap32(&mut self.val as *mut i32, v); }
+    }
+    pub fn fetch_or(self: *mut AtomicI32, v: i32) -> i32 {
+        unsafe { return logos_atomic_fetch_or32(&mut self.val as *mut i32, v); }
+    }
+    pub fn fetch_and(self: *mut AtomicI32, v: i32) -> i32 {
+        unsafe { return logos_atomic_fetch_and32(&mut self.val as *mut i32, v); }
+    }
+    pub fn fetch_xor(self: *mut AtomicI32, v: i32) -> i32 {
+        unsafe { return logos_atomic_fetch_xor32(&mut self.val as *mut i32, v); }
+    }
+    pub fn compare_exchange_weak(self: *mut AtomicI32, expected: i32, desired: i32) -> bool {
+        unsafe { return logos_atomic_cas_weak32(&mut self.val as *mut i32, expected, desired); }
+    }
+    pub fn swap_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_swap32_ord(&mut self.val as *mut i32, v, ord); }
+    }
+    pub fn fetch_or_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_fetch_or32_ord(&mut self.val as *mut i32, v, ord); }
+    }
+    pub fn fetch_and_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_fetch_and32_ord(&mut self.val as *mut i32, v, ord); }
+    }
+    pub fn fetch_xor_ordered(self: *mut AtomicI32, v: i32, ord: Ordering) -> i32 {
+        unsafe { return logos_atomic_fetch_xor32_ord(&mut self.val as *mut i32, v, ord); }
+    }
+    pub fn compare_exchange_weak_ordered(self: *mut AtomicI32, expected: i32, desired: i32,
+                                         success: Ordering, failure: Ordering) -> bool {
+        unsafe { return logos_atomic_cas_weak32_ord(&mut self.val as *mut i32, expected, desired, success, failure); }
     }
 }
 

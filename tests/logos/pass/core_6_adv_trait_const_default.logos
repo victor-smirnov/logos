@@ -1,0 +1,5 @@
+package f1_static_in_trait;
+trait MyTrait { const X: i32 = 42i32; }
+struct A;
+impl MyTrait for A {}
+fn main() -> i32 { return 0i32; }

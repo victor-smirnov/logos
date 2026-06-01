@@ -2067,11 +2067,13 @@ private:
         std::string name;              // e.g. "Item"
         std::vector<TraitBound> bounds;
         std::vector<TypeParam>  type_params;  // GAT params: type Item<T> has [T]
+        TypeRef default_type = nullptr; // §3 c13: `type Item = i32;` default
         std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaAssocConstInfo {
         std::string      name;         // e.g. "MAX"
         TypeRef type = nullptr;
+        bool has_default = false;      // §6 f1: `const X: i32 = 42;` default
         std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaTraitInfo {

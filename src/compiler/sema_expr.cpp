@@ -8351,6 +8351,20 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     auto sname_sv = str_of(node.get(la::NAME.code));
     std::string sname_buf(sname_sv);  // mutable copy in case we resolve alias
+    // §3 Wave 9 — `Self { … }` in an inherent impl assoc fn must
+    // resolve `Self` to the impl's target struct. current_type_params_
+    // carries the binding under the literal key "Self". Pre-fix
+    // lower_struct_lit just looked up "Self" in structs_, didn't find
+    // it, and errored "unknown struct 'Self'".
+    if (sname_buf == "Self") {
+        auto svit = current_type_params_.find("Self");
+        if (svit != current_type_params_.end() && svit->second &&
+            (TypeRef(svit->second).kind() == LogosType::Kind::Struct ||
+             TypeRef(svit->second).kind() == LogosType::Kind::ZonedStruct)) {
+            sname_buf = std::string(TypeRef(svit->second).struct_name());
+            hint_struct_type_ = svit->second;
+        }
+    }
     // Find in structs_ or datatypes_ (package-aware).
     bool slit_is_zoned = false;
     auto find_struct_info = [&](const std::string& name) -> SemaStructInfo* {

@@ -1,0 +1,10 @@
+package e3_fetch_or;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicI32 = atomic_i32_new(0b1010i32);
+    let p: *mut AtomicI32 = &mut a as *mut AtomicI32;
+    let prev: i32 = unsafe { p.fetch_or(0b0101i32) };
+    if prev != 0b1010i32 { return 1i32; }
+    if a.load() != 0b1111i32 { return 2i32; }
+    return 0i32;
+}

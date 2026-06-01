@@ -1683,7 +1683,20 @@ class BorrowChecker {
             // ── Field write: recv.field = value ──────────────────────────
             case Code::FieldWrite: {
                 SFieldWriteView v{sr};
-                check_live(std::string(v.receiver()), ln);
+                // §2 Wave 9 — assigning to a moved-out field REINITIALIZES it.
+                // The previous "partially moved" state on the receiver is
+                // cleared for THIS specific field before check_live runs so
+                // `let _ = s.v; s.v = …;` re-binds the field without rejecting
+                // the receiver as partially-moved. Rust's NLL move analysis
+                // does the same — drop-flag tracking is replaced on the new
+                // bits.
+                std::string recv_nm(v.receiver());
+                std::string field_nm(v.field());
+                if (!recv_nm.empty() && !field_nm.empty()) {
+                    if (auto it = states_.find(recv_nm); it != states_.end())
+                        it->second.moved_fields.erase(field_nm);
+                }
+                check_live(recv_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
                 break;
             }
@@ -1786,6 +1799,25 @@ class BorrowChecker {
                                 report(ln, std::format(
                                     "cannot assign through '{}[..]' while '{}' is mutably borrowed",
                                     root, root));
+                        }
+                    }
+                    // §2 Wave 9 — reinit of a moved-out field. The simplest
+                    // place shape `s.f = …` lowers to
+                    // `SDerefWrite(AddrOfTemp(FieldRead(VarRef s, f)), val)`.
+                    // Before visiting the LHS (which walks the FieldRead and
+                    // would trip the moved-field check), clear
+                    // moved_fields[f] on the root — the assignment
+                    // reinitialises the field. Rust's NLL drop-flag analysis
+                    // does the same: the new bits replace the old.
+                    auto inner = atv.inner();
+                    if (inner && inner.kind() == EC::FieldRead) {
+                        EFieldReadView fv{inner};
+                        auto recv = fv.receiver();
+                        if (recv && recv.kind() == EC::VarRef) {
+                            std::string root(EVarRefView{recv}.name());
+                            std::string field(fv.field());
+                            if (auto it = states_.find(root); it != states_.end())
+                                it->second.moved_fields.erase(field);
                         }
                     }
                 }

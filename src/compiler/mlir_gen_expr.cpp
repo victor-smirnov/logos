@@ -1813,6 +1813,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         return builder_.create<mlir::LLVM::ExtractValueOp>(
             loc_, cmpxchg, mlir::ArrayRef<int64_t>{1});
     };
+    // §5 Wave 9 — generic atomic RMW emit helper for swap, fetch_or,
+    // fetch_and, fetch_xor, fetch_sub. The LLVM dialect's AtomicBinOp
+    // enum maps directly onto the operation kind; all RMW variants
+    // share the same signature shape (ptr, val) → old_value.
+    auto emit_atomic_rmw = [&](mlir::LLVM::AtomicBinOp op,
+                               mlir::Type res_type,
+                               mlir::LLVM::AtomicOrdering ord =
+                                   mlir::LLVM::AtomicOrdering::seq_cst,
+                               size_t expected_args = 2) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        return builder_.create<mlir::LLVM::AtomicRMWOp>(
+            loc_, op, ptr_v, val_v, ord);
+    };
     if (bare_intrinsic == "logos_atomic_load32")
         if (auto v = emit_atomic_load(builder_.getI32Type(), 4)) return v;
     if (bare_intrinsic == "logos_atomic_load64")
@@ -1848,6 +1863,66 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     if (bare_intrinsic == "logos_atomic_cas64_ord")
         if (auto v = emit_atomic_cas(builder_.getI64Type(),
                                      read_ordering_at(3), read_ordering_at(4), 5)) return v;
+    // §5 Wave 9 — RMW variants beyond fetch_add: swap (xchg), fetch_or,
+    // fetch_and, fetch_xor, fetch_sub. Each has a 32-bit and 64-bit
+    // form plus matching _ord overload taking the Ordering as the last
+    // argument. compare_exchange_weak shares the same shape as the
+    // regular CAS at the MLIR level — the weak vs strong distinction
+    // matters only on platforms that can spuriously fail the strong
+    // form; LLVM models both via the same op and the codegen picks the
+    // weaker variant when the instruction follows a retry loop.
+    using ABinOp = mlir::LLVM::AtomicBinOp;
+    auto i32 = builder_.getI32Type();
+    auto i64 = builder_.getI64Type();
+    if (bare_intrinsic == "logos_atomic_swap32")
+        if (auto v = emit_atomic_rmw(ABinOp::xchg, i32)) return v;
+    if (bare_intrinsic == "logos_atomic_swap64")
+        if (auto v = emit_atomic_rmw(ABinOp::xchg, i64)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_or32")
+        if (auto v = emit_atomic_rmw(ABinOp::_or, i32)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_or64")
+        if (auto v = emit_atomic_rmw(ABinOp::_or, i64)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_and32")
+        if (auto v = emit_atomic_rmw(ABinOp::_and, i32)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_and64")
+        if (auto v = emit_atomic_rmw(ABinOp::_and, i64)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_xor32")
+        if (auto v = emit_atomic_rmw(ABinOp::_xor, i32)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_xor64")
+        if (auto v = emit_atomic_rmw(ABinOp::_xor, i64)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_sub32")
+        if (auto v = emit_atomic_rmw(ABinOp::sub, i32)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_sub64")
+        if (auto v = emit_atomic_rmw(ABinOp::sub, i64)) return v;
+    if (bare_intrinsic == "logos_atomic_cas_weak32")
+        if (auto v = emit_atomic_cas(i32)) return v;
+    if (bare_intrinsic == "logos_atomic_cas_weak64")
+        if (auto v = emit_atomic_cas(i64)) return v;
+    // _ord variants — last arg is the Ordering enum value.
+    if (bare_intrinsic == "logos_atomic_swap32_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::xchg, i32, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_swap64_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::xchg, i64, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_or32_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_or, i32, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_or64_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_or, i64, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_and32_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_and, i32, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_and64_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_and, i64, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_xor32_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_xor, i32, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_xor64_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::_xor, i64, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_sub32_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::sub, i32, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_fetch_sub64_ord")
+        if (auto v = emit_atomic_rmw(ABinOp::sub, i64, read_ordering_at(2), 3)) return v;
+    if (bare_intrinsic == "logos_atomic_cas_weak32_ord")
+        if (auto v = emit_atomic_cas(i32, read_ordering_at(3), read_ordering_at(4), 5)) return v;
+    if (bare_intrinsic == "logos_atomic_cas_weak64_ord")
+        if (auto v = emit_atomic_cas(i64, read_ordering_at(3), read_ordering_at(4), 5)) return v;
 
     // str_from_raw(ptr: *const u8, len: i64) -> str
     // Constructs a str fat-pointer {ptr, len} on the stack, mirroring ELitStr.

@@ -7079,6 +7079,22 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                         sub.get(la::IS_REF.code).as_value<uint8_t>() != 0)
                                         continue;
                                 }
+                                // §2 Wave 9 — an anonymous `_` field
+                                // sub-pattern (e.g. `S { v: _ }`) DISCARDS
+                                // the field instead of binding it; no value
+                                // moves out. Skip same as `ref`-bound. The
+                                // shorthand `S { v }` (no VALUE node) DOES
+                                // bind `v` and so still counts as a move.
+                                // PAT_WILD always carries a NAME key; the
+                                // literal `_` shape has NAME=="_".
+                                if (fn.has_key(la::VALUE)) {
+                                    auto sub = map_of(fn.get(la::VALUE.code));
+                                    if (code_of(sub) == la::PAT_WILD) {
+                                        if (!sub.has_key(la::NAME)) continue;
+                                        auto nm = str_of(sub.get(la::NAME.code));
+                                        if (nm == "_") continue;
+                                    }
+                                }
                                 auto fnm = std::string(str_of(fn.get(la::NAME.code)));
                                 for (auto& f : si_->fields)
                                     if (f.name == fnm && is_move_type(f.type)) {

@@ -2254,6 +2254,12 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         }
                     }
                 }
+                // §3 c13 Wave 9 — `type Item = i32;` default RHS. The
+                // grammar emits a TYPE slot when the `= type_ref` form
+                // matched. An impl that omits this assoc type then
+                // falls back to the default (Rust behavior).
+                if (m.has_key(la::TYPE))
+                    at.default_type = resolve_type(map_of(m.get(la::TYPE.code)));
                 pop_type_params(at.type_params);
                 info.assoc_types.push_back(std::move(at));
                 continue;
@@ -2263,6 +2269,10 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 ac.name = std::string(str_of(m.get(la::NAME.code)));
                 if (m.has_key(la::TYPE))
                     ac.type = resolve_type(map_of(m.get(la::TYPE.code)));
+                // §6 f1 Wave 9 — `const X: i32 = 42;` default. When the
+                // grammar matched the `= expr` form a VALUE slot is set;
+                // record so impl that omits this const falls back to it.
+                if (m.has_key(la::VALUE)) ac.has_default = true;
                 ac.doc = std::move(trait_method_sweep_doc);
                 trait_method_sweep_doc.clear();
                 info.assoc_consts.push_back(std::move(ac));
@@ -3307,16 +3317,31 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // sibling dual impl. Check the suffixed key for THIS impl.
                 std::string key = trait_name + trait_targ_suffix(trait_type_args)
                                 + "::" + target + "::" + at.name;
-                if (!assoc_type_impls_.count(key))
-                    error(std::format("impl {} for {}: missing associated type '{}'",
-                          trait_name, target, at.name));
+                if (!assoc_type_impls_.count(key)) {
+                    // §3 c13 Wave 9 — an impl that omits an assoc type falls
+                    // back to the trait's default (Rust:
+                    // `trait T { type Item = i32; }`); only error when the
+                    // trait declared NO default and the impl didn't provide.
+                    if (at.default_type) {
+                        AssocTypeEntry ae;
+                        ae.type = at.default_type;
+                        assoc_type_impls_[key] = std::move(ae);
+                    } else
+                        error(std::format("impl {} for {}: missing associated type '{}'",
+                              trait_name, target, at.name));
+                }
             }
             // Check associated constant completeness
             for (auto& ac : tit->second.assoc_consts) {
                 std::string key = trait_name + "::" + target + "::" + ac.name;
-                if (!assoc_const_impls_.count(key))
-                    error(std::format("impl {} for {}: missing associated constant '{}'",
-                          trait_name, target, ac.name));
+                if (!assoc_const_impls_.count(key)) {
+                    // §6 f1 Wave 9 — a default value in the trait lets the
+                    // impl omit the const (Rust:
+                    // `trait T { const X: i32 = 42; }`).
+                    if (!ac.has_default)
+                        error(std::format("impl {} for {}: missing associated constant '{}'",
+                              trait_name, target, ac.name));
+                }
             }
             // Check unsafe parity
             if (tit->second.is_unsafe && !impl_is_unsafe)

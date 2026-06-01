@@ -1,0 +1,10 @@
+package c15_self_in_assoc_fn;
+struct S { v: i32 }
+impl S {
+    fn make(v: i32) -> Self { return Self { v }; }
+}
+fn main() -> i32 {
+    let s: S = S::make(7i32);
+    if s.v != 7i32 { return 1i32; }
+    return 0i32;
+}
