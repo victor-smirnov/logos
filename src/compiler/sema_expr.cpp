@@ -13409,6 +13409,71 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     for (size_t i = 0; i < ec->captures.size(); ++i)
         ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0;
 
+    // §7.1 Wave 9 — body-side rebind detection. A `let x = capture` (or
+    // `let _ = capture`) inside a move-closure body memcpy-aliases the
+    // capture's heap into a new body-local, whose scope-exit drop also
+    // frees that heap. With the non-escape model also having the
+    // source-scope drop it (`closure_owned_drop_`), we get a double
+    // free. Detect this shape narrowly: walk body LIR for SLet whose
+    // value is VarRef(capture-name). For those captures, suppress the
+    // `closure_owned_drop_` insertion below — the body's rebind drop
+    // is the sole drop site. Cases like `consume(capture)` (Call arg
+    // by value) are left untouched because Logos's fn-param convention
+    // does NOT fire a scope-end drop on the callee's binding (uc-infer-
+    // fnonce-drop-b158 relies on the source-scope drop for counter=1).
+    StrSet body_rebound_captures;
+    if (is_move) {
+        using EC = lir_schema::expr::Code;
+        using SC = lir_schema::stmt::Code;
+        StrSet cap_set;
+        for (auto& nm : ec->captures) cap_set.insert(nm);
+        std::function<void(lir_view::BlockRef)> visit_block;
+        std::function<void(lir_view::StmtRef)> visit_stmt;
+        auto var_ref_root = [](lir_view::ExprRef e) -> std::string {
+            if (!e) return {};
+            if (e.kind() == EC::VarRef)
+                return std::string(lir_view::EVarRefView{e}.name());
+            return {};
+        };
+        visit_stmt = [&](lir_view::StmtRef s) {
+            if (!s) return;
+            switch (s.kind()) {
+                case SC::Let: {
+                    auto v = lir_view::SLetView{s};
+                    auto root = var_ref_root(v.value());
+                    if (!root.empty() && cap_set.count(root))
+                        body_rebound_captures.insert(root);
+                    break;
+                }
+                case SC::If: {
+                    auto v = lir_view::SIfView{s};
+                    visit_block(v.then_block());
+                    visit_block(v.else_block());
+                    break;
+                }
+                case SC::While: visit_block(lir_view::SWhileView{s}.body()); break;
+                case SC::For:   visit_block(lir_view::SForView{s}.body()); break;
+                case SC::Loop:  visit_block(lir_view::SLoopView{s}.body()); break;
+                case SC::Block: visit_block(lir_view::SBlockView{s}.body()); break;
+                case SC::Match: {
+                    auto v = lir_view::SMatchView{s};
+                    v.each_arm([&](lir_view::EMatchArmRef arm){
+                        if (auto b = arm.body()) visit_block(b);
+                    });
+                    break;
+                }
+                case SC::ForEach: visit_block(lir_view::SForEachView{s}.body()); break;
+                default: break;
+            }
+        };
+        visit_block = [&](lir_view::BlockRef b){
+            if (!b) return;
+            b.each_stmt([&](lir_view::StmtRef s){ visit_stmt(s); });
+        };
+        lir_view::BlockRef br{cur_prog_->type_pool.arena(), ec->body.mirror_offset_};
+        visit_block(br);
+    }
+
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             // RFC-2229 phase-2: a narrow capture (capture_field_types[i] non-
@@ -13464,18 +13529,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // SOURCE scope still drops it. Keep it moved (use-after-move
                 // enforced) but record it so collect_drops un-skips the dtor.
                 //
-                // §7.1 Wave 9 — NOTE: the double-free shape (p11/p14)
-                // surfaces when the closure body has a SECOND drop
-                // path (`let _ = s;` or by-value `consume(s)`) on top
-                // of this source-drop. The "correct" fix needs the
-                // body's use to be a borrow (Logos's actual env model)
-                // — at body lowering time, the capture's type must be
-                // wrapped in `&` so move semantics in the body don't
-                // emit drops. Naive "skip source-drop" breaks tests
-                // like uc-infer-fnonce-drop-b158 where the body's
-                // `consume(drop_me)` correctly drops once and the
-                // source skip would zero the destructor count.
-                // Tracked as the §7.1 OPEN.
+                // §7.1 Wave 9 — EXCEPT: if the body rebinds the capture
+                // via `let x = capture` (or `let _ = capture`), the body
+                // local's scope-end drop already frees that heap. Adding
+                // a source-scope drop would double-free. Suppress.
+                if (body_rebound_captures.count(ec->captures[i])) continue;
                 closure_owned_drop_.insert(ec->captures[i]);
             }
         }

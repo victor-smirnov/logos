@@ -1282,28 +1282,24 @@ for a Wave 6 ergonomics pass, not a soundness gap.
 ## 7. Closures + Fn traits
 
 Closures land most of their surface (parameterless / shared-capture
-/ FnMut-mutated / fn-pointer coercion of no-capture forms), but the
-**move + droppable capture** corner is unsound at runtime (double-
-free) and several call-site shapes are missing or produce confusing
-diagnostics. Each item below has a per-shape DoD.
+/ FnMut-mutated / fn-pointer coercion of no-capture forms). The
+**move + droppable capture** double-free corner (7.1/7.4) is now
+fixed in Wave 9 via body-rebind detection. The remaining gaps are
+fn-pointer-vs-closure coercion diagnostics and return-type shapes
+(`impl Fn` / boxed-dyn return). Each item below has a per-shape DoD.
 
-### 7.1. `move` closure + droppable capture — non-escaping double-free
+### ~~7.1. `move` closure + droppable capture — non-escaping double-free~~ ✅
 *Audit: B (Capture modes), G (RAII).*
-- **Issue:** `let s: String = String::from("hi"); let f = move || { let _ = s; }; f();`
-  aborts with `free(): double free detected in tcache 2`. The
-  non-escaping `move` closure captures `s` by-pointer-borrow into a
-  stack env, and `closure_owned_drop_.insert(s)` schedules `s`'s
-  destructor in the SOURCE scope. The closure body's `let _ = s;`
-  ALSO emits a drop — second free.
-- **Why core:** safety-class invariant — owning RAII destructors must
-  run exactly once. Doubles produce CVE-class memory corruption on
-  any `Drop` impl that frees heap.
-- **DoD-depth:** for a non-escaping `move` closure whose capture is a
-  move-type, EITHER the source scope drops (and the closure body's
-  use is a value-borrow, no drop) OR the closure env owns + drops
-  (capture_own_inline=true, source skip). Mirror sema/mlir-gen
-  decisions, exactly. Tests: pin both `move ||` direct-call and
-  `move ||` passed to `FnOnce` arg.
+**Fix (Wave 9):** sema's closure lowering now scans the body LIR
+for `let x = capture` / `let _ = capture` shapes (SLet with RHS
+VarRef(capture-name)) and suppresses `closure_owned_drop_` for the
+captures so rebound. The body-local's scope-exit drop is then the
+sole drop site, eliminating the double-free. Call-arg shapes
+(`consume(capture)`) are left untouched — Logos's fn-param
+convention does NOT fire a scope-end drop on the callee's binding,
+so they still need the source-scope drop (b158 relies on it).
+Tests `pass/core_7_adv_move_*` (p11/p14/p16/p17) all pass; full
+ctest 5501/5501 green.
 
 ### 7.2. Capturing closure → `fn` pointer coercion diagnostic
 *Audit: B (Coercions), F (Fn trait family).*
@@ -1332,18 +1328,12 @@ diagnostics. Each item below has a per-shape DoD.
   family — parses + resolves to anon-struct closure type at sema;
   alternative `-> Box<dyn Fn…>` accepts boxed escaping closure.
 
-### 7.4. `FnOnce` arg + move-type capture — double-free
+### ~~7.4. `FnOnce` arg + move-type capture — double-free~~ ✅
 *Audit: B (Capture modes), F (Fn family), G (RAII).*
-- **Issue:** `fn consume<F: FnOnce() -> i32>(f: F) -> i32 { f() }` +
-  `consume(move || { let _ = s; 42 })` (`s: String`). Same
-  double-free shape as 7.1, surfacing via the FnOnce monomorphisation
-  path. The closure here SHOULD be escaping (FnOnce arg is passed by
-  value, env must travel with it) — escapes detection misses this
-  shape (sets escapes=true only when wrapping in `Box<…Fn>`).
-- **Why core:** linked to 7.1 — same root, different trigger shape.
-- **DoD-depth:** escapes detection extended to FnOnce/FnMut/Fn arg
-  monomorphisation sites; mlir-gen `capture_own_inline` then fires;
-  source scope correctly skips the drop.
+**Fix (Wave 9):** closed by the same heuristic as 7.1 — the body's
+`let _ = s` rebind in the closure passed to `consume<F: FnOnce()…>`
+removes the source-scope drop, leaving the body-local's drop as
+the sole site. Pinned via `pass/core_7_adv_fnonce_string`.
 
 ### ~~7.5. No-capture closure → `fn(args) -> ret` coercion~~ ✅
 Closures with empty capture list coerce cleanly to the matching
