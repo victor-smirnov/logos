@@ -1390,7 +1390,91 @@ the FnMut analog work end-to-end.
 
 ---
 
-## 8. Coupling rules (depth ↔ breadth)
+## 8. Iterator trait surface
+
+stdlib `lang/iter/iter.logos` is large (~1500 LOC) and exposes a
+robust set of iterator primitives, but the **method-call dispatch
+surface** on `Iter`/`IntoIterator` types misses common chains.
+Most adapter free-fns exist (`iter_enumerate`, `iter_chain`,
+`iter_zip`, `iter_max_by_key`) but aren't surfaced as methods.
+Each item below pins a missing method.
+
+### ~~8.1. `it.next() / .count() / .sum() / .map() / .filter() / .collect()`~~ ✅
+Six foundational adapter methods dispatch correctly through the
+`Iterator<T>` trait impls (`VecIter<T>`, `RevIter`, `MapIter`,
+`FilterIter`, `Chain`). Tests in `pass/core_8_adv_iter_basics`.
+
+### 8.2. `.enumerate()` method
+- **Issue:** `it.enumerate()` errors "method call: VecIter has no
+  method 'enumerate'". `iter_enumerate` exists as `unsafe pub fn`
+  taking a `zero: T` workaround arg for type inference. Adding the
+  method form needs an `EnumerateIter<I, T>` wrapper exposed
+  through `impl<I: Iterator<T>, T> Iterator<(usize, T)> for I` (or
+  a method on each Iter struct).
+- **Why core:** the `for (i, x) in v.iter().enumerate()` shape is
+  the canonical Rust idiom for indexed iteration; without it users
+  fall back to `while i < v.len() { … i = i + 1; }`.
+- **DoD-depth:** `.enumerate()` returns an iterator yielding
+  `(i64, T)` (or `(usize, T)` once §1.2 lifts the usize/i64
+  alignment).
+
+### 8.3. `.zip(other)` method
+- **Issue:** same shape as 8.2 — `iter_zip` exists but
+  `.zip(other_iter)` method doesn't dispatch.
+- **Why core:** pairing two iterators is a common Rust idiom (e.g.
+  parallel-data walk).
+- **DoD-depth:** `.zip(other)` returns iterator yielding `(A, B)`
+  pairs, terminates on the shorter.
+
+### 8.4. `.chain(other)` method
+- **Issue:** `iter_chain` exists as `unsafe pub fn` with zero-arg
+  trick; the method form is missing.
+- **Why core:** concatenating two iterators is canonical.
+- **DoD-depth:** `.chain(other)` returns iterator over A then B.
+
+### 8.5. `.max() / .min()` method (Ord-bound)
+- **Issue:** stdlib has `iter_max_by_key<I, T: Copy, K: Ord>` but no
+  bare `iter_max<I: Iterator<T>, T: Ord>`. The method form
+  `.max()` should yield `Option<T>` when `T: Ord`.
+- **Why core:** Rust's `Iterator::max` is the canonical reduction
+  for ordered values.
+- **DoD-depth:** `.max()` / `.min()` methods + their underlying
+  free fns; `T: Ord` bound; `Option<T>` return.
+
+### 8.6. `.fold(init, f)` method
+- **Issue:** the `iter_fold`-style reduce is implementable via
+  `loop { it.next() }` today but lacks the canonical method form.
+- **Why core:** fundamental functional reduction primitive.
+- **DoD-depth:** `.fold::<B>(init: B, f: fn(B, T) -> B) -> B`.
+
+### 8.7. `.any(pred) / .all(pred)` method
+- **Issue:** boolean reductions missing as methods.
+- **Why core:** `if v.iter().any(|x| x > 5)` is canonical Rust.
+- **DoD-depth:** short-circuiting `.any` / `.all` over a predicate.
+
+### 8.8. `.take(n) / .skip(n)` adapters
+- **Issue:** truncation/offset adapters missing.
+- **Why core:** common chain elements.
+- **DoD-depth:** `.take(n: usize)` / `.skip(n: usize)` adapters
+  yielding bounded sub-iterators.
+
+### 8.9. `.position(pred)` method
+- **Issue:** find-by-predicate returning the index is missing as
+  method (free fn `iter_rposition` exists but specifically for
+  reverse position).
+- **Why core:** searching a stream for an index by predicate.
+- **DoD-depth:** `.position(pred) -> Option<usize>`.
+
+### 8.10. `.peekable()` / `.peek()`
+- **Issue:** the canonical "look-ahead one element without
+  consuming" wrapper missing.
+- **Why core:** parsers / lookahead-driven state machines.
+- **DoD-depth:** `Peekable<I>` wrapper that buffers one element;
+  `.peek() -> Option<&T>` doesn't advance.
+
+---
+
+## 9. Coupling rules (depth ↔ breadth)
 
 Breadth-first work runs in parallel with core work, but must respect
 these invariants so the core can land without breaking the breadth
@@ -1414,7 +1498,7 @@ surface:
 
 ---
 
-## 9. Definition of M3 "core done"
+## 10. Definition of M3 "core done"
 
 M3 ships when every item in §§1-6 is at DoD-depth, with the full suite
 green and a 200-test imported-batch demonstrating the core items lit
@@ -1428,7 +1512,7 @@ core are recorded here with a rationale. Closing items move to a
 
 ---
 
-## 9a. Score (canonical — `/goal` reads this)
+## 10a. Score (canonical — `/goal` reads this)
 
 > **Score: 37 / 37 ✅ closed at DoD-depth (100%)** · 0 🟡 partial · 0 ❌ not
 > started. Suite: 5334+ / 5334+ ✓.
@@ -1502,7 +1586,7 @@ path; (c) full suite gate.
 
 ---
 
-## 10. Implementation plan
+## 11. Implementation plan
 
 Effort labels: **S** ≈ single session ≤ 3 h, **M** ≈ 1-2 sessions ≤ 8 h, **L** ≈
 multi-session ≥ 10 h. Each phase ends with the full suite green

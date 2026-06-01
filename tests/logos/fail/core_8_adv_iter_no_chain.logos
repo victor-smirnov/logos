@@ -1,0 +1,8 @@
+package i09;
+fn main() -> i32 {
+    let mut a: Vec<i32> = Vec::<i32>::new(); a.push(1i32); a.push(2i32);
+    let mut b: Vec<i32> = Vec::<i32>::new(); b.push(3i32); b.push(4i32);
+    let mut it = a.iter().chain(b.iter());
+    let _ = it.next();
+    return 0i32;
+}

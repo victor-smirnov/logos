@@ -1,0 +1,8 @@
+package i10;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(1i32); v.push(5i32); v.push(3i32);
+    let m: Option<&i32> = v.iter().max();
+    if m.is_none() { return 1i32; }
+    return 0i32;
+}

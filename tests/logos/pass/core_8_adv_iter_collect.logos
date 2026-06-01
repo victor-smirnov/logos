@@ -1,0 +1,8 @@
+package i06;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(1i32); v.push(2i32); v.push(3i32);
+    let w: Vec<i32> = v.iter().map(|x| *x * 2i32).collect::<Vec<i32>>();
+    if w.len() != 3i64 { return 1i32; }
+    return 0i32;
+}

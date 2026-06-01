@@ -1,0 +1,8 @@
+package i03;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(1i32); v.push(2i32); v.push(3i32);
+    let s: i32 = v.iter().sum::<i32>();
+    if s != 6i32 { return 1i32; }
+    return 0i32;
+}
