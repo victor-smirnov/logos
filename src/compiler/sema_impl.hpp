@@ -1591,6 +1591,12 @@ private:
     bool pending_loop_body_scope_ = false;
 
     std::set<std::string> moved_vars_;   // variables consumed by move
+    // §7.1 follow-up: EVER-moved across branches (lifted per-fn). Per-branch
+    // save/restore reverts moved_vars_ on diverging paths but mlir-gen
+    // merges branches; param drops at fn epilogue must consult this set so a
+    // conditional move (e.g. `if b { return f(x); }`) doesn't trigger a
+    // drop on the merge that re-frees a moved-out heap.
+    std::set<std::string> body_ever_moved_;
     // B8 drop-before-replace: vars declared WITHOUT an initializer (`let mut
     // x: T;`). Such a var is not definitely-initialized at a later assignment
     // (a conditional path may have left it uninit), so we must NOT drop the
@@ -1719,7 +1725,19 @@ private:
     // is a Copy type and which have no `impl Drop`. Called after
     // check_supertrait_impls so manual `impl Copy` entries are already in.
     void compute_auto_copy_types();
-    void mark_moved(const std::string& name) { moved_vars_.insert(name); }
+    void mark_moved(const std::string& name) {
+        moved_vars_.insert(name);
+        // §7.1 follow-up: track EVER-moved across branches. per-branch
+        // save/restore (lower_if / lower_match) reverts moved_vars_ on
+        // diverging branches, but Logos's mlir-gen merges branches into a
+        // single CFG block — a drop emitted in the merge fires for ALL
+        // incoming branches, including the one that moved the var. To
+        // avoid double-free on conditional-move shapes (e.g. recursion-
+        // tail-call-no-arg-leak), fn-epilogue param drops consult this
+        // ever-set, NOT just the post-merge moved_vars_. (Proper fix is
+        // B8-style drop-flag elaboration extended to params — tracked.)
+        body_ever_moved_.insert(name);
+    }
 
     // Writing a move-type RHS into a memory cell (deref, indexed, field, …)
     // is a move. Mark the source so its scope-exit auto-drop is suppressed

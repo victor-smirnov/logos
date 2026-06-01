@@ -486,6 +486,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // `format!` reports a spurious "use of moved variable '__buf'". User-named
     // locals never leaked (distinct scopes/names), which masked this.
     moved_vars_.clear();
+    body_ever_moved_.clear();  // §7.1: reset ever-moved per fn (consulted in param-drop)
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     currently_uninit_vars_.clear();  // logos-core 2.7: reset definite-assignment tracker per fn
 
@@ -940,6 +941,41 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             error("not all paths return a value");
         }
         tail_as_return_ = saved_check_flag;
+        // §7.1 / Rust-conformance: by-value fn params (move-type, droppable)
+        // must drop at the function epilogue, just like a `let` binding. The
+        // body block's normal-exit collect_drops only walks the INNER scope
+        // (the body's own locals); params live in the OUTER (params) scope
+        // pushed by lower_fn. A body with an EXPLICIT `return` already drops
+        // params via collect_all_drops (walks all scopes), but a void fn
+        // (or any fn falling off the end) misses them. Emit drops for the
+        // params scope here so `fn consume(_x: Move) {}` correctly drops _x.
+        bool body_terminated = false;
+        if (!fn.body.stmts.empty()) {
+            auto br = stmt_ref_of(fn.body.stmts.back());
+            if (br) {
+                auto k = br.kind();
+                body_terminated = (k == lir_schema::stmt::Code::Return ||
+                                   k == lir_schema::stmt::Code::Break ||
+                                   k == lir_schema::stmt::Code::Continue);
+            }
+        }
+        if (!body_terminated) {
+            // §7.1 follow-up: a param that was EVER moved (on any branch) is
+            // a conditional-move shape — emitting a static drop at the merge
+            // would re-free on the move-path. Conservative skip (sound, may
+            // leak on the non-move path). Proper fix = B8-style drop-flag
+            // elaboration extended to params.
+            auto& frame = scope_.back();
+            for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
+                if (body_ever_moved_.count(*it)) continue;
+                if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
+                auto vit = frame.vars.find(*it);
+                if (vit == frame.vars.end()) continue;
+                if (auto d = make_drop_stmt(*it, vit->second))
+                    fn.body.stmts.push_back(std::move(*d));
+            }
+        }
+        body_ever_moved_.clear();
     }
 
     inside_unsafe_ = was_unsafe;

@@ -1290,16 +1290,25 @@ fn-pointer-vs-closure coercion diagnostics and return-type shapes
 
 ### ~~7.1. `move` closure + droppable capture — non-escaping double-free~~ ✅
 *Audit: B (Capture modes), G (RAII).*
-**Fix (Wave 9):** sema's closure lowering now scans the body LIR
-for `let x = capture` / `let _ = capture` shapes (SLet with RHS
-VarRef(capture-name)) and suppresses `closure_owned_drop_` for the
-captures so rebound. The body-local's scope-exit drop is then the
-sole drop site, eliminating the double-free. Call-arg shapes
-(`consume(capture)`) are left untouched — Logos's fn-param
-convention does NOT fire a scope-end drop on the callee's binding,
-so they still need the source-scope drop (b158 relies on it).
-Tests `pass/core_7_adv_move_*` (p11/p14/p16/p17) all pass; full
-ctest 5501/5501 green.
+**Fix (Wave 9, proper Rust-conformant):** two coupled changes:
+1. **fn-param scope-end drop.** A by-value move-type fn param now
+   drops at the function epilogue, like a `let` binding (the prior
+   "body collect_drops only walks the inner block" miss was the
+   real bug). Implemented via `body_ever_moved_` (per-fn, monotone)
+   so conditional moves (e.g. `if b { return f(p); }`) skip the
+   merge-block drop — sound but may leak on the non-move path
+   until B8-style drop-flag elaboration is extended to params.
+2. **Skip `closure_owned_drop_` for body-moved captures.** With
+   callee param drops working, the legacy source-scope drop that
+   compensated for them is redundant — and double-frees when the
+   body also consumes (e.g. `move || consume(s)`). Sema's
+   `lower_closure_expr` now snapshots `body_ever_moved_` before
+   and after the body to compute `body_moved_outer`, and skips
+   the `closure_owned_drop_.insert` for those captures.
+
+Pinned shapes — `consume(capture)`, `let x = capture`, `let _ = capture`
+— all green (uc-infer-fnonce-drop-b158, p11/p14/p16/p17). Full
+ctest 5501/5501.
 
 ### 7.2. Capturing closure → `fn` pointer coercion diagnostic
 *Audit: B (Coercions), F (Fn trait family).*

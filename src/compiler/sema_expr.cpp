@@ -12843,6 +12843,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     TypeRef ret_type = has_annot
         ? resolve_type(map_of(node.get(la::RET_TYPE.code))) : void_t();
 
+    // §7.1: snapshot body_ever_moved_ before the closure body so we can
+    // compute the body-MOVED set of OUTER (capture-source) vars. With fn
+    // params now dropping at scope-end (Rust-conformant), the historical
+    // `closure_owned_drop_` source-side drop double-drops on shapes where
+    // the body itself moves a capture into a callee that drops (e.g.
+    // `consume(drop_me)`) — the callee's param drop is already the
+    // canonical drop site. Per-capture, skip `closure_owned_drop_` iff
+    // the body moved that capture.
+    auto outer_ever_moved_pre = body_ever_moved_;
+
     // Push a new scope with closure params. It is a DROP BOUNDARY (G156-7): a
     // `return` inside the body drops only the closure's own frames, not the
     // enclosing function's captured locals (the env borrows them / the original
@@ -12935,6 +12945,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;
     pop_scope();
+    // §7.1: which outer vars did the body itself move?
+    StrSet body_moved_outer;
+    for (const auto& nm : body_ever_moved_)
+        if (!outer_ever_moved_pre.count(nm)) body_moved_outer.insert(nm);
 
     // C5-cl-06: if no `-> R` annotation, scan body stmts (via the
     // lir_view mirrors that were eager-emitted by the builder) and
@@ -13409,71 +13423,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     for (size_t i = 0; i < ec->captures.size(); ++i)
         ec->mut_captures[i] = mut_captures_set.count(ec->captures[i]) > 0;
 
-    // §7.1 Wave 9 — body-side rebind detection. A `let x = capture` (or
-    // `let _ = capture`) inside a move-closure body memcpy-aliases the
-    // capture's heap into a new body-local, whose scope-exit drop also
-    // frees that heap. With the non-escape model also having the
-    // source-scope drop it (`closure_owned_drop_`), we get a double
-    // free. Detect this shape narrowly: walk body LIR for SLet whose
-    // value is VarRef(capture-name). For those captures, suppress the
-    // `closure_owned_drop_` insertion below — the body's rebind drop
-    // is the sole drop site. Cases like `consume(capture)` (Call arg
-    // by value) are left untouched because Logos's fn-param convention
-    // does NOT fire a scope-end drop on the callee's binding (uc-infer-
-    // fnonce-drop-b158 relies on the source-scope drop for counter=1).
-    StrSet body_rebound_captures;
-    if (is_move) {
-        using EC = lir_schema::expr::Code;
-        using SC = lir_schema::stmt::Code;
-        StrSet cap_set;
-        for (auto& nm : ec->captures) cap_set.insert(nm);
-        std::function<void(lir_view::BlockRef)> visit_block;
-        std::function<void(lir_view::StmtRef)> visit_stmt;
-        auto var_ref_root = [](lir_view::ExprRef e) -> std::string {
-            if (!e) return {};
-            if (e.kind() == EC::VarRef)
-                return std::string(lir_view::EVarRefView{e}.name());
-            return {};
-        };
-        visit_stmt = [&](lir_view::StmtRef s) {
-            if (!s) return;
-            switch (s.kind()) {
-                case SC::Let: {
-                    auto v = lir_view::SLetView{s};
-                    auto root = var_ref_root(v.value());
-                    if (!root.empty() && cap_set.count(root))
-                        body_rebound_captures.insert(root);
-                    break;
-                }
-                case SC::If: {
-                    auto v = lir_view::SIfView{s};
-                    visit_block(v.then_block());
-                    visit_block(v.else_block());
-                    break;
-                }
-                case SC::While: visit_block(lir_view::SWhileView{s}.body()); break;
-                case SC::For:   visit_block(lir_view::SForView{s}.body()); break;
-                case SC::Loop:  visit_block(lir_view::SLoopView{s}.body()); break;
-                case SC::Block: visit_block(lir_view::SBlockView{s}.body()); break;
-                case SC::Match: {
-                    auto v = lir_view::SMatchView{s};
-                    v.each_arm([&](lir_view::EMatchArmRef arm){
-                        if (auto b = arm.body()) visit_block(b);
-                    });
-                    break;
-                }
-                case SC::ForEach: visit_block(lir_view::SForEachView{s}.body()); break;
-                default: break;
-            }
-        };
-        visit_block = [&](lir_view::BlockRef b){
-            if (!b) return;
-            b.each_stmt([&](lir_view::StmtRef s){ visit_stmt(s); });
-        };
-        lir_view::BlockRef br{cur_prog_->type_pool.arena(), ec->body.mirror_offset_};
-        visit_block(br);
-    }
-
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             // RFC-2229 phase-2: a narrow capture (capture_field_types[i] non-
@@ -13529,11 +13478,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // SOURCE scope still drops it. Keep it moved (use-after-move
                 // enforced) but record it so collect_drops un-skips the dtor.
                 //
-                // §7.1 Wave 9 — EXCEPT: if the body rebinds the capture
-                // via `let x = capture` (or `let _ = capture`), the body
-                // local's scope-end drop already frees that heap. Adding
-                // a source-scope drop would double-free. Suppress.
-                if (body_rebound_captures.count(ec->captures[i])) continue;
+                // §7.1: EXCEPT — if the closure body itself moved this
+                // capture (into a callee that drops, or rebound via
+                // `let x = capture`), the body-side drop is already the
+                // canonical drop site (callee fn-param drop, or body-
+                // local's scope-end drop). Adding source-scope drop
+                // double-frees. Skip the insertion.
+                if (body_moved_outer.count(ec->captures[i])) continue;
                 closure_owned_drop_.insert(ec->captures[i]);
             }
         }
