@@ -13463,6 +13463,19 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // source's storage (mlir-gen keeps a pointer-repr borrow), so the
                 // SOURCE scope still drops it. Keep it moved (use-after-move
                 // enforced) but record it so collect_drops un-skips the dtor.
+                //
+                // §7.1 Wave 9 — NOTE: the double-free shape (p11/p14)
+                // surfaces when the closure body has a SECOND drop
+                // path (`let _ = s;` or by-value `consume(s)`) on top
+                // of this source-drop. The "correct" fix needs the
+                // body's use to be a borrow (Logos's actual env model)
+                // — at body lowering time, the capture's type must be
+                // wrapped in `&` so move semantics in the body don't
+                // emit drops. Naive "skip source-drop" breaks tests
+                // like uc-infer-fnonce-drop-b158 where the body's
+                // `consume(drop_me)` correctly drops once and the
+                // source skip would zero the destructor count.
+                // Tracked as the §7.1 OPEN.
                 closure_owned_drop_.insert(ec->captures[i]);
             }
         }
