@@ -32,7 +32,7 @@ use logos.lang.option;
 // (round_up(8, align(T)) — two atomic i32 counters) for both — one uniform
 // rule. `weak` = live Weak handles + one implicit weak owned collectively by
 // the strong handles; T drops at strong→0, the block frees at weak→0.
-struct ArcInner<T> {
+struct ArcInner<T: ?Sized> {
     strong: AtomicI32,
     weak:   AtomicI32,
     val:    T,
@@ -40,13 +40,13 @@ struct ArcInner<T> {
 
 // ── Arc<T: Send + Sync> ───────────────────────────────────────────────────────
 
-pub struct Arc<T> {
+pub struct Arc<T: ?Sized> {
     inner: *mut ArcInner<T>,
 }
 
 // Weak<T> — a non-owning, thread-safe handle to an Arc allocation. `upgrade()`
 // yields `Some(Arc)` only while a strong reference survives. Breaks Arc cycles.
-pub struct Weak<T> {
+pub struct Weak<T: ?Sized> {
     inner: *mut ArcInner<T>,
 }
 
@@ -57,10 +57,10 @@ pub struct Weak<T> {
 // requires, so the safety promise lives at the API surface (only `&T`
 // access through the handle, atomic clone/drop). Bound `T: Send + Sync`
 // — mirrors Rust's `impl<T: Sync + Send + ?Sized> {Send,Sync} for Arc<T>`.
-unsafe impl<T: Send + Sync> Send for Arc<T> {}
-unsafe impl<T: Send + Sync> Sync for Arc<T> {}
-unsafe impl<T: Send + Sync> Send for Weak<T> {}
-unsafe impl<T: Send + Sync> Sync for Weak<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Send for Arc<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Sync for Arc<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Send for Weak<T> {}
+unsafe impl<T: ?Sized + Send + Sync> Sync for Weak<T> {}
 
 pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
     let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
@@ -72,7 +72,7 @@ pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
     return Arc { inner: inner };
 }
 
-impl<T: Send + Sync> Arc<T> {
+impl<T: ?Sized> Arc<T> {
     // Immutable access to the contained value.
     pub unsafe fn get(self: *mut Arc<T>) -> *const T {
         return &self.inner.val as *const T;
@@ -136,7 +136,7 @@ impl<T: Send + Sync> Arc<T> {
     }
 }
 
-impl<T: Send + Sync> Weak<T> {
+impl<T: ?Sized> Weak<T> {
     // Attempt to obtain a strong Arc. Returns None if no strong reference
     // remains. NOTE: not yet a full lock-free CAS loop (load-then-bump) — a
     // strong-count race with a concurrent last-drop is possible; sufficient for
@@ -161,7 +161,7 @@ impl<T: Send + Sync> Weak<T> {
     }
 }
 
-impl<T: Send + Sync> Drop for Weak<T> {
+impl<T: ?Sized> Drop for Weak<T> {
     fn drop(self: Weak<T>) {
         unsafe {
             let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
@@ -170,7 +170,7 @@ impl<T: Send + Sync> Drop for Weak<T> {
     }
 }
 
-impl<T: Send + Sync> Clone for Weak<T> {
+impl<T: ?Sized> Clone for Weak<T> {
     fn clone(&self) -> Weak<T> {
         unsafe {
             let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
@@ -184,7 +184,7 @@ impl<T: Send + Sync> Clone for Weak<T> {
 
 // Auto-Drop. Mirrors Rc's contract: decrements + frees if last,
 // without calling T's destructor.
-impl<T: Send + Sync> Drop for Arc<T> {
+impl<T: ?Sized> Drop for Arc<T> {
     fn drop(self: Arc<T>) {
         unsafe {
             let p: *mut Arc<T> = &self as *const Arc<T> as *mut Arc<T>;
@@ -196,7 +196,7 @@ impl<T: Send + Sync> Drop for Arc<T> {
 // Clone (Rust parity): atomically bumps the strong count and returns a second
 // handle (shared ownership), NOT a deep copy. Standard `Clone` trait so
 // `.clone()` and generic `T: Clone` dispatch uniformly with Rc/Box.
-impl<T: Send + Sync> Clone for Arc<T> {
+impl<T: ?Sized> Clone for Arc<T> {
     fn clone(&self) -> Arc<T> {
         unsafe {
             let p: *mut Arc<T> = self as *const Arc<T> as *mut Arc<T>;
@@ -209,13 +209,13 @@ impl<T: Send + Sync> Clone for Arc<T> {
 // The inner block is heap-stable for any Arc handle. `deref_mut` is a
 // single-thread escape hatch (cross-thread mutation must use Mutex/atomics on
 // T, which take &T). Standard trait surface — uniform with Box/Rc.
-impl<T: Send + Sync> Deref<T> for Arc<T> {
+impl<T: ?Sized> Deref<T> for Arc<T> {
     fn deref(&self) -> &T {
         unsafe { return &self.inner.val; }
     }
 }
 
-impl<T: Send + Sync> DerefMut<T> for Arc<T> {
+impl<T: ?Sized> DerefMut<T> for Arc<T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { return &mut self.inner.val; }
     }

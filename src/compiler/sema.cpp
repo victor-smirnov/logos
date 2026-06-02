@@ -4861,8 +4861,9 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 // per the custom-DST machinery) by falling through to the normal
                 // generic-struct path below. All generic methods (clone/drop/
                 // deref) then run directly on the struct — no repr-aware
-                // specials. Box/Arc<dyn> still collapse here (flip pending).
+                // specials. Box<dyn> still collapses here (flip pending).
                 if (sp_kind != TypeRef::OwningKind::Rc &&
+                    sp_kind != TypeRef::OwningKind::Arc &&
                     inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
                               TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
                     TypeRef ti(inner);

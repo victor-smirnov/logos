@@ -344,7 +344,7 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
         return off;
     }
     case K::Struct: case K::ZonedStruct: {
-        auto* sit = find_struct_template_bare_first(t.pkg_name(), t.struct_name());
+        auto* sit = find_any_struct(t.pkg_name(), t.struct_name());
         if (!sit) return 8;
         SubstMap m;
         auto args = t.type_args();
@@ -367,7 +367,7 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
 bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                  uint64_t& off_out, TypeRef& ftype_out) {
     using K = LogosType::Kind;
-    auto* sit = find_struct_template_bare_first(dstref.pkg_name(), dstref.struct_name());
+    auto* sit = find_any_struct(dstref.pkg_name(), dstref.struct_name());
     if (!sit || sit->fields.empty()) return false;
     SubstMap m;
     auto args = dstref.type_args();
