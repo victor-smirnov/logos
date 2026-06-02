@@ -379,11 +379,12 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
         uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
         if (a > 1) off = (off + a - 1) & ~(a - 1);
         if (f.name == field) {
-            // Only PREFIX (sized) fields are re-lowered as an offset read; the
-            // unsized tail (UnsizedDyn/UnsizedSlice) is projected at concrete
-            // sites with its metadata, never read by value in a generic body.
-            auto fk = ft ? ft.kind() : K::Error;
-            if (fk == K::UnsizedDyn || fk == K::UnsizedSlice) return false;
+            // Returns the field's byte offset + (substituted) type. The caller
+            // branches on the kind: a sized PREFIX field → offset deref; the
+            // unsized TAIL (UnsizedDyn/UnsizedSlice) → fat-pair projection that
+            // reuses the DstRef's carried metadata (vtable/len). `off` is already
+            // aligned to this field's natural alignment above (dyn/slice → 8).
+            (void)K::Error;
             off_out = off; ftype_out = ft; return true;
         }
         off += sz;
@@ -550,13 +551,16 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // the receiver a custom-DST fat pointer (`*mut RcInner<dyn>` →
             // DstRef), the field-access shape baked thin at sema-lower time
             // (T abstract) is wrong — a thin struct GEP would read the fat
-            // pointer's data-half low bits as the field. Re-emit the byte-offset
-            // projection off the data half (mirror of sema_expr's DstRef field
-            // path) for the sized prefix field. Tail field is left alone.
+            // pointer's data-half low bits as the field. Re-emit the projection
+            // off the fat pointer's data half (mirror of sema_expr's DstRef field
+            // path): a sized PREFIX field → typed offset deref; the unsized TAIL
+            // → fat-pair {data+off, carried metadata} reusing the DstRef's own
+            // len (slice tail) or vtable (dyn tail).
             if (rcv && rcv->type &&
                 TypeRef(rcv->type).kind() == LogosType::Kind::DstRef) {
                 uint64_t off = 0; TypeRef ftype;
                 if (mono_dst_prefix_field(rcv->type, field, off, ftype) && ftype) {
+                    auto fk = TypeRef(ftype).kind();
                     LogosTypeBuilder u8b; u8b.kind = LogosType::Kind::U8;
                     TypeRef u8t = out_.type_pool.alloc(std::move(u8b));
                     auto mk_ptr = [&](TypeRef pointee) {
@@ -571,10 +575,41 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto* e = lir::alloc_expr(out_);
                         e->type = ty; e->mirror_offset_ = mo; return e;
                     };
+                    // data half (field 0) + tail/field pointer = data + off.
                     auto data = mk_node(u8p, lir_mirror_emit_slice_ptr(out_, u8p, rcv));
                     auto offl = mk_node(i64t, lir_mirror_emit_lit_int(out_, i64t, (int64_t)off));
                     auto fpu8 = mk_node(u8p, lir_mirror_emit_ptr_arith(
                         out_, u8p, (uint8_t)lir::EPtrArith::Op::ByteAdd, data, offl));
+                    if (fk == LogosType::Kind::UnsizedDyn) {
+                        // dyn tail → `&dyn Tr` {data+off, vtable=DstRef's field1}.
+                        // Built via a slice_lit typed as TraitObject (metadata slot
+                        // = vtable), mirroring sema's dyn-tail projection.
+                        LogosTypeBuilder tb; tb.kind = LogosType::Kind::TraitObject;
+                        tb.trait_name = std::string(TypeRef(ftype).trait_name());
+                        tb.type_args = std::vector<TypeRef>(
+                            TypeRef(ftype).type_args().begin(),
+                            TypeRef(ftype).type_args().end());
+                        TypeRef to_t = out_.type_pool.alloc(std::move(tb));
+                        auto vtbl = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
+                        result->type = to_t;
+                        result->mirror_offset_ =
+                            lir_mirror_emit_slice_lit(out_, to_t, fpu8, vtbl);
+                        break;
+                    }
+                    if (fk == LogosType::Kind::UnsizedSlice) {
+                        // slice tail → `&[U]` {data+off, len=DstRef's field1}.
+                        TypeRef elem = TypeRef(ftype).elem();
+                        LogosTypeBuilder sb; sb.kind = LogosType::Kind::Slice; sb.elem = elem;
+                        TypeRef sl_t = out_.type_pool.alloc(std::move(sb));
+                        auto fpe = mk_node(mk_ptr(elem),
+                            lir_mirror_emit_cast(out_, mk_ptr(elem), fpu8, ""));
+                        auto len = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
+                        result->type = sl_t;
+                        result->mirror_offset_ =
+                            lir_mirror_emit_slice_lit(out_, sl_t, fpe, len);
+                        break;
+                    }
+                    // sized prefix field → typed offset deref.
                     auto fpft = mk_node(mk_ptr(ftype),
                         lir_mirror_emit_cast(out_, mk_ptr(ftype), fpu8, ""));
                     result->type = ftype;

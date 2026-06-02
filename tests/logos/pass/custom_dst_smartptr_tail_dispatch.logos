@@ -1,0 +1,32 @@
+// pass — dyn-TAIL dispatch inside a GENERIC method over a custom-DST smart
+// pointer (B3 stage 2b). MyRc<T:?Sized>{inner:*mut Inner<T>}; `payload(&self)`
+// does `(&self.inner.val as &dyn Tr).v()` — the unsized tail. Lowered ONCE by
+// sema with `*mut Inner<T>` thin; mono RE-LOWERS the tail field access per
+// instantiation to a `&dyn` fat pair {data+tail_off, vtable=the DstRef's own
+// carried metadata}, reusing the fat pointer's vtable. (Prefix read = count().)
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+struct Inner<T: ?Sized> { strong: i32, val: T }
+struct MyRc<T: ?Sized> { inner: *mut Inner<T> }
+impl<T: ?Sized> MyRc<T> {
+    fn count(&self) -> i32 { unsafe { return self.inner.strong; } }
+    // tail dyn dispatch INSIDE a generic method (re-lowered per-instance):
+    fn payload(&self) -> i64 { unsafe { return (&self.inner.val as &dyn Tr).v(); } }
+}
+fn make(raw: *mut u8, x: i64) -> MyRc<A> {
+    unsafe { let ic: *mut Inner<A> = raw as *mut Inner<A>; ic.strong = 7; ic.val = A { x: x }; return MyRc::<A> { inner: ic }; }
+}
+fn main() -> i32 {
+  unsafe {
+    let raw: *mut u8 = malloc(64);
+    let r: MyRc<dyn Tr> = make(raw, 35) as MyRc<dyn Tr>;
+    let s: i64 = r.count() as i64;     // 7
+    let p: i64 = r.payload();          // 35 (tail dispatch in generic method)
+    free(raw);
+    return (s + p) as i32;             // 7 + 35 = 42
+  }
+}
