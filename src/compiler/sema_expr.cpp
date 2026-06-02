@@ -5925,11 +5925,18 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         dyn_t = TypeRef(rt.pointee());
     if (!(dyn_t && dyn_t.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
     auto tname = std::string(dyn_t.trait_name());
-    // Rc<dyn>/Arc<dyn>.clone(): a shared-ownership clone (bump the strong count +
-    // copy the fat pair), NOT a deep copy and NOT a trait-vtable method. Box<dyn>
-    // is excluded (Box: dyn Trait is not Clone). Emit a marker method call that
-    // mlir-gen lowers via the OwningKind on the result type (atomic bump for Arc).
-    if (method_name == "clone" &&
+    // Rc<dyn>/Arc<dyn>.clone() (and the inherent `clone_ref`/`clone_rc`, whose
+    // semantics are identical): a shared-ownership clone — bump the strong count
+    // + copy the fat pair, NOT a deep copy and NOT a trait-vtable method. These
+    // inherent methods of the Rc/Arc owner can't be resolved through the normal
+    // struct path because `Rc<dyn T>` is represented as an owning trait-object
+    // {data, vtable}, layout-incompatible with `Rc<T>`'s `{inner}` struct (the
+    // generic body reads `self.inner.strong` and would crash on the fat pair);
+    // route them through the same repr-aware marker as `.clone()`. Box<dyn> is
+    // excluded (Box: dyn Trait is not Clone). mlir-gen lowers the marker via the
+    // OwningKind on the result type (atomic bump for Arc).
+    if ((method_name == "clone" || method_name == "clone_ref" ||
+         method_name == "clone_rc") &&
         (dyn_t.trait_owning_kind() == TypeRef::OwningKind::Rc ||
          dyn_t.trait_owning_kind() == TypeRef::OwningKind::Arc)) {
         lir::EMethodCall mc;

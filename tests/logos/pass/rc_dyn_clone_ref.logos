@@ -1,0 +1,24 @@
+// Inherent clone-family methods on a smart-pointer trait object.
+// `Rc<dyn T>` / `Arc<dyn T>` are represented as owning trait-objects
+// {data, vtable}, layout-incompatible with the `Rc<T>` `{inner}` struct, so
+// the generic inherent body (`self.inner.strong`) can't run on them directly.
+// `clone_ref` / `clone_rc` have the same semantics as `.clone()` (bump the
+// strong count + copy the fat pair) and are routed through the same repr-aware
+// marker. Previously `r.clone_ref()` failed with "trait has no method".
+package test;
+use logos.mem.rc;
+use logos.mem.sync;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn main() -> i32 {
+    // NOTE: the explicit `as Rc<dyn Sp>` is currently required — implicit
+    // unsize coercion at a type-annotated let compiles but does not perform
+    // the unsize (GAP-C), so it is kept here until that is fixed.
+    let mut r:  Rc<dyn Sp>  = rc_new(A { x: 10 }) as Rc<dyn Sp>;
+    let r2: Rc<dyn Sp>  = r.clone_ref();     // inherent clone_ref on Rc<dyn>
+    let mut a:  Arc<dyn Sp> = arc_new(A { x: 11 }) as Arc<dyn Sp>;
+    let a2: Arc<dyn Sp> = a.clone_ref();     // inherent clone_ref on Arc<dyn>
+    // 10 + 10 + 11 + 11 = 42; all four handles drop cleanly (last ref frees).
+    return (r.v() + r2.v() + a.v() + a2.v()) as i32;
+}
