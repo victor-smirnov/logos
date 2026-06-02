@@ -630,6 +630,29 @@ at `offset(val)`, dispatched via the vtable). Then:
    the `RcInner<dyn>` *owning-trait-object* `{data=val, vtable}` path, but
    NOT this struct-with-unsized-trait-tail + header-bearing fat pointer.
    This step makes the repro pass; everything below depends on it.
+
+   **Precise root (2026-06-02 investigation):** the foundation probe's three
+   cases isolate it — `Inner<A>` sized read OK; cast + header read
+   (`id.strong`) OK; cast + **tail dispatch** (`(&id.val as &dyn Tr).v()`)
+   **segfaults**, and `sizeof(*mut Inner<dyn Tr>) == 8` (THIN, not fat). Cause:
+   `dyn Tr` in a type-arg / DST-tail position resolves to the **sized owning
+   `TraitObject`** (16B value), so `Inner<dyn Tr>` is treated as a *sized*
+   struct `{strong, val: 16B-owning-TO}` — `is_effective_dst` (sema.cpp:3439,
+   which only accepts an `UnsizedSlice`/`UnsizedDyn` substituted tail) returns
+   false, the `*mut` is thin, and the `Inner<A> → Inner<dyn>` cast drops the
+   8B `A` payload into the 16B owning-TO slot → `&val as &dyn` reads a garbage
+   vtable. This is exactly Rust's `Pointee::Metadata`-for-dyn + custom-DST
+   unsize coercion (the deferred B3). Four coupled sub-changes:
+   - (1) resolve `dyn` in a DST-tail/type-arg position as **unsized**
+     (`UnsizedDyn`), not the sized owning `TraitObject`;
+   - (2) `*mut`/`&Inner<dyn>` → a **DstRef carrying a vtable** (fat
+     `{base, vtable}`), not a slice `len` (sema.cpp:3924 + DstRef metadata —
+     reuse the existing `{data, vtable}` TraitObject fat-ptr layout);
+   - (3) **unsize coercion** `*mut Inner<A>`(thin) → `*mut Inner<dyn>`(fat),
+     attaching the concrete type's vtable (same synthesis as `&A as &dyn`),
+     at the `as`-cast AND implicit coercion sites (also closes GAP-C);
+   - (4) field projection: header via `base`; `&p.val as &dyn` reuses the
+     carried vtable.
 2. Change the `sema.cpp` ~4848 resolver: `Rc/Arc<dyn>` → struct
    `Rc/Arc<custom-dst inner>`, NOT `make_trait_object`.
 3. Unsize coercion of the `inner` pointer at `as`-cast, then at the
