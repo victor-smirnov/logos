@@ -3022,6 +3022,46 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     auto target = logos_to_mlir(type);
     if (!target) return val;
 
+    // Custom-DST unsize coercion: `*mut/*const/&  ConcreteStruct<Sized>` whose
+    // tail param is bound to a concrete type → DstRef with a `dyn` tail (e.g.
+    // `*mut Inner<A>` → `*mut Inner<dyn Tr>`). Build the fat {data, vtable} pair:
+    // `data` = the (thin) source pointer to the WHOLE struct; `vtable` = the
+    // concrete tail type's vtable for the tail trait. Reuses the same
+    // {data,vtable} layout + vtable machinery as `&concrete as &dyn`; the tail-
+    // field byte offset is applied later at `&p.tail as &dyn` projection (the
+    // vtable is shared by the prefix-fat and the tail handle). This is Rust's
+    // CoerceUnsized for a struct with an unsized (`dyn`) tail field. Gated on a
+    // dyn tail only — slice-tail DSTs build their DstRef via the slice path.
+    if (type && TypeRef(type).kind() == LogosType::Kind::DstRef &&
+        !TypeRef(type).type_args().empty() && op_le->type &&
+        val.getType() == ptr_type()) {
+        TypeRef tgt_tail = TypeRef(type).type_args().back();
+        auto ttk = TypeRef(tgt_tail).kind();
+        if (ttk == LogosType::Kind::TraitObject || ttk == LogosType::Kind::UnsizedDyn) {
+            TypeRef src(op_le->type);
+            TypeRef src_pointee =
+                (src.kind() == LogosType::Kind::Ptr ||
+                 src.kind() == LogosType::Kind::Ref ||
+                 src.kind() == LogosType::Kind::MutRef) ? src.pointee() : TypeRef(nullptr);
+            if (src_pointee &&
+                (TypeRef(src_pointee).kind() == LogosType::Kind::Struct ||
+                 TypeRef(src_pointee).kind() == LogosType::Kind::ZonedStruct) &&
+                !TypeRef(src_pointee).type_args().empty()) {
+                // The tail param's concrete binding is the source instance's
+                // last type-arg (the `?Sized` tail param is declared last).
+                TypeRef concrete_tail = TypeRef(src_pointee).type_args().back();
+                std::string trait = std::string(TypeRef(tgt_tail).trait_name());
+                std::string vt_name =
+                    (TypeRef(concrete_tail).kind() == LogosType::Kind::Struct ||
+                     TypeRef(concrete_tail).kind() == LogosType::Kind::ZonedStruct)
+                        ? concrete_struct_name(concrete_tail)
+                        : type_str(concrete_tail);
+                if (auto alloca = coerce_to_dyn(val, trait, vt_name, concrete_tail))
+                    return alloca;
+            }
+        }
+    }
+
     // NOTE: there is NO "thin `Ptr<TraitObject>` handle" cast. A `*const/*mut dyn
     // Trait` is a 16-byte fat pair (sema folds the literal-`dyn` pointee to bare
     // TraitObject, exactly like `&dyn`), handled by the bare-TraitObject branch
@@ -4612,24 +4652,38 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type)
 // Slice helpers
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {
     auto* base_l = lexpr_of(v.base());
     auto* len_l  = lexpr_of(v.len());
     if (!base_l || !len_l) return nullptr;
     auto base = gen_expr(*base_l);
-    auto len  = gen_expr(*len_l);
-    if (!base || !len) return nullptr;
-    auto stype = slice_llvm_type();
+    auto meta = gen_expr(*len_l);
+    if (!base || !meta) return nullptr;
+    // A `dyn`-tail custom-DST projection builds a TraitObject {data,vtable}
+    // through this same 2-slot fat-pair node — the metadata slot carries the
+    // vtable pointer (not a length). Use the {ptr,ptr} dyn layout and store the
+    // metadata as a pointer (the source is the vtable bits loaded as i64 from
+    // the parent fat pointer's field 1 — reinterpret via inttoptr).
+    bool is_dyn = type && TypeRef(type).kind() == LogosType::Kind::TraitObject;
+    auto stype = is_dyn ? dyn_llvm_type() : slice_llvm_type();
     auto alloca = create_entry_alloca(stype);
     // Store ptr at field 0
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
     auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
     builder_.create<mlir::LLVM::StoreOp>(loc_, base, pp);
-    // Store len at field 1
+    // Store the metadata at field 1: len (i64) for a slice, vtable (ptr) for dyn.
     llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
     auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
-    auto len64 = coerce_int(len, builder_.getI64Type());
-    builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
+    if (is_dyn) {
+        mlir::Value vt = meta;
+        if (vt.getType() != ptr_type())
+            vt = builder_.create<mlir::LLVM::IntToPtrOp>(
+                loc_, ptr_type(), coerce_int(vt, builder_.getI64Type()));
+        builder_.create<mlir::LLVM::StoreOp>(loc_, vt, lp);
+    } else {
+        auto len64 = coerce_int(meta, builder_.getI64Type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
+    }
     return alloca;
 }
 

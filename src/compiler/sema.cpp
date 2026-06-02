@@ -3433,8 +3433,22 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     auto k = t.kind();
     if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) return false;
     std::string sn(t.struct_name());
-    auto [spkg, ssi] = find_struct_by_name(sn);
-    if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; }
+    // Re-entrancy guard. The tail-field probe below runs subst_type_sema, whose
+    // Ptr/Ref handlers canonicalise `*mut/&DstStruct` → DstRef by re-calling
+    // is_effective_dst on the pointee. A self-referential struct
+    // (`S<T>{val:*mut S<S<T>>}`) would recurse forever. But a field behind a
+    // pointer is ALWAYS sized — re-entering for a struct already on the stack
+    // means its tail reaches itself only through a pointer, so it is NOT a DST.
+    thread_local std::unordered_set<std::string> in_progress;
+    if (!in_progress.insert(sn).second) return false;
+    struct PopGuard { std::unordered_set<std::string>& s; std::string n;
+        ~PopGuard() { s.erase(n); } } pop{in_progress, sn};
+    // Layout-only query: look up WITHOUT pub enforcement. is_effective_dst is
+    // called on substituted field types (e.g. `Arc<i32>`'s `inner: *mut
+    // ArcInner<T>` → recurse into the package-private `ArcInner`), and a
+    // privacy diagnostic must not fire from a pure structural probe.
+    auto [spkg, ssi] = lookup_qualified_<false>(structs_, sn);
+    if (!ssi) { auto [dpkg, dsi] = lookup_qualified_<false>(datatypes_, sn); ssi = dsi; }
     if (!ssi) return false;
     if (ssi->is_dst) return true;
     // Generic instantiation check: substitute type-args into the
@@ -5059,14 +5073,21 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             inner && inner.kind() == LogosType::Kind::TraitObject)
             return inner;
         // Phase 1B-14: `*const DstStruct` / `*mut DstStruct` → DstRef
-        // (fat pointer). Same canonicalisation as REF_TYPE for DST.
-        if (inner && (inner.kind() == LogosType::Kind::Struct ||
-                      inner.kind() == LogosType::Kind::ZonedStruct)) {
+        // (fat pointer). Same canonicalisation as REF_TYPE for DST. Use
+        // is_effective_dst (not the raw template `is_dst` flag) so a generic
+        // struct whose tail type-param is substituted with an unsized type
+        // (`Inner<dyn Tr>`, `Inner<[T]>`) is recognised as DST per-instance —
+        // not just structs whose template tail is a literal slice.
+        if (inner && is_effective_dst(inner)) {
             std::string sn(inner.struct_name());
-            auto [spkg, ssi] = find_struct_by_name(sn);
-            if (!ssi) { auto [dpkg, dsi] = find_datatype_by_name(sn); ssi = dsi; if (dsi) spkg = dpkg; }
-            if (ssi && ssi->is_dst)
-                return make_dst_ref(sn, spkg, mut);
+            std::string spkg(inner.pkg_name());
+            if (spkg.empty()) {
+                auto [p, ssi] = find_struct_by_name(sn);
+                if (ssi) spkg = p;
+                else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
+            }
+            std::vector<TypeRef> targs = inner.type_args();
+            return make_dst_ref(sn, spkg, mut, std::move(targs));
         }
         return make_ptr(mut, inner);
     }

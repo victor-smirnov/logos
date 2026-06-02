@@ -1,0 +1,37 @@
+// pass — custom-DST with a `dyn`-trait tail (B3 foundation).
+//
+// A generic struct whose last (`?Sized`) field is bound to `dyn Trait` is an
+// unsized custom-DST instance: a raw pointer / reference to it is a FAT pointer
+// {data, vtable}, NOT a thin one. This exercises the four foundation pieces:
+//   1. `*mut Inner<dyn Tr>` resolves to a fat DstRef (per-instance DST — the
+//      tail type-param was substituted with an unsized `dyn`).
+//   2. the unsize coercion `ic as *mut Inner<dyn Tr>` attaches the concrete
+//      tail type's vtable to the fat pair (data = ptr-to-whole-struct).
+//   3. a PREFIX field read (`id.strong`) addresses the field by byte offset off
+//      the fat pointer's data half (the unsized instance has no GEP-able layout).
+//   4. the TAIL projection (`&id.val as &dyn Tr`) builds a `&dyn Tr` reusing the
+//      vtable carried in the fat pointer, and dispatches through it.
+package test;
+
+extern fn malloc(n: i64) -> *mut u8;
+
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+
+// RcInner-shaped: a fixed sized prefix + an unsized (`?Sized`) tail field.
+struct Inner<T: ?Sized> { strong: i32, val: T }
+
+fn main() -> i32 {
+  unsafe {
+    let raw: *mut u8 = malloc(64);
+    let ic: *mut Inner<A> = raw as *mut Inner<A>;
+    ic.strong = 5;
+    ic.val = A { x: 37 };
+    // Unsize: thin `*mut Inner<A>` → fat `*mut Inner<dyn Tr>` (vtable attached).
+    let id: *mut Inner<dyn Tr> = ic as *mut Inner<dyn Tr>;
+    let s: i32 = id.strong;                 // prefix field, read off the base
+    let vv: i64 = (&id.val as &dyn Tr).v(); // unsized tail dispatch, shared vtable
+    return (s as i64 + vv) as i32;          // 5 + 37 = 42
+  }
+}

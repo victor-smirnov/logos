@@ -8236,28 +8236,34 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         if (!ssi_dst) { auto [dpkg, dsi] = find_datatype_by_name(sname_dst); ssi_dst = dsi; }
         bool is_tail_access = false;
         TypeRef tail_elem_t;
+        TypeRef tail_post_;
         size_t prefix_byte_size = 0;
+        // Substitution map from the DstRef's type-args onto the template's
+        // params — shared by the prefix-offset walk and the tail-type probe.
+        SemaSubst dst_subst;
+        if (ssi_dst && !TypeRef(recv_base_t).type_args().empty() &&
+            !ssi_dst->type_params.empty()) {
+            auto& tps = ssi_dst->type_params;
+            auto ta = TypeRef(recv_base_t).type_args();
+            for (size_t j = 0; j < tps.size() && j < ta.size(); ++j)
+                dst_subst[tps[j].name] = ta[j];
+        }
         if (ssi_dst && !ssi_dst->fields.empty()) {
             auto& tail = ssi_dst->fields.back();
             // Phase 1B-15: post-subst the tail-field type using the DstRef's
             // type_args (carried from the &Struct<...> form). For generic
             // DST templates, the template's tail field may be `T` (TypeVar);
             // substitution lands on UnsizedSlice<U> when T was bound to [U].
-            TypeRef post_tail = tail.type;
-            if (!TypeRef(recv_base_t).type_args().empty() &&
-                !ssi_dst->type_params.empty()) {
-                SemaSubst tmp;
-                auto& tps = ssi_dst->type_params;
-                auto ta = TypeRef(recv_base_t).type_args();
-                for (size_t i = 0; i < tps.size() && i < ta.size(); ++i)
-                    tmp[tps[i].name] = ta[i];
-                post_tail = subst_type_sema(post_tail, tmp);
-            }
-            if (tail.name == field_name &&
-                post_tail &&
-                TypeRef(post_tail).kind() == LogosType::Kind::UnsizedSlice) {
+            TypeRef post_tail = dst_subst.empty()
+                ? TypeRef(tail.type) : subst_type_sema(tail.type, dst_subst);
+            bool tail_is_slice = post_tail &&
+                TypeRef(post_tail).kind() == LogosType::Kind::UnsizedSlice;
+            bool tail_is_dyn = post_tail &&
+                TypeRef(post_tail).kind() == LogosType::Kind::UnsizedDyn;
+            if (tail.name == field_name && (tail_is_slice || tail_is_dyn)) {
                 is_tail_access = true;
-                tail_elem_t = TypeRef(post_tail).elem();
+                tail_post_ = post_tail;
+                tail_elem_t = tail_is_slice ? TypeRef(post_tail).elem() : TypeRef(nullptr);
                 // Phase 1B-15: compute prefix size via the sema-side
                 // recursive ABI sizer. Same algorithm as mlir_gen's
                 // logos_abi_byte_size — handles primitives, structs,
@@ -8267,25 +8273,53 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                 uint64_t off = 0, max_align = 1;
                 for (size_t i = 0; i + 1 < ssi_dst->fields.size(); ++i) {
                     auto& f = ssi_dst->fields[i];
+                    TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
+                                                   : subst_type_sema(f.type, dst_subst);
                     logos::compiler::StrSet seen;
-                    uint64_t esz = sema_abi_byte_size(f.type, seen);
+                    uint64_t esz = sema_abi_byte_size(ft, seen);
                     uint64_t align = std::min(esz, (uint64_t)8);
                     if (align > 1) off = (off + align - 1) & ~(align - 1);
                     off += esz;
                     if (align > max_align) max_align = align;
                 }
-                // Tail begins at the offset aligned to its element type's
-                // natural alignment. For [T] tail, align to size_of(T)
-                // (capped at 8). This matches Rust/C struct layout rules.
-                {
+                // Tail begins at the offset aligned to its natural alignment.
+                // For `[T]` tail, align to size_of(T); for a `dyn` tail the
+                // concrete payload alignment is unknown statically — align to
+                // the pointer width (8), which is the max alignment a sized
+                // prefix can demand (Rust over-aligns conservatively here).
+                uint64_t tail_align = 8;
+                if (tail_is_slice) {
                     logos::compiler::StrSet seen;
                     uint64_t tail_elem_sz = sema_abi_byte_size(tail_elem_t, seen);
-                    uint64_t tail_align = std::min(tail_elem_sz, (uint64_t)8);
-                    if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
+                    tail_align = std::min(tail_elem_sz ? tail_elem_sz : (uint64_t)1, (uint64_t)8);
                 }
+                if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
                 prefix_byte_size = off;
                 (void)max_align;
             }
+        }
+        if (is_tail_access && tail_post_ &&
+            TypeRef(tail_post_).kind() == LogosType::Kind::UnsizedDyn) {
+            // `dyn`-tail projection: `p.tail` (and `&p.tail`) yields a `&dyn Tr`
+            // fat pair {data = base + prefix_size, vtable = the DstRef's OWN
+            // carried vtable (fat-pair field 1)}. Built via slice_lit typed as
+            // a TraitObject — same 2-slot fat pair, second slot = vtable. The
+            // vtable is SHARED with the prefix-fat (Rust: a struct's unsized
+            // tail reuses the wide pointer's metadata). No static vtable lookup
+            // — the metadata travels with the value.
+            auto data_ptr = builder().slice_ptr(recv, make_ptr(false, u8_t()));
+            auto vtable   = builder().slice_len(recv, prim(LogosType::Kind::I64));
+            auto offset_lit = builder().lit_int(static_cast<int64_t>(prefix_byte_size),
+                                                prim(LogosType::Kind::I64));
+            auto tail_ptr = builder().ptr_arith(lir::EPtrArith::Op::ByteAdd,
+                                                std::move(data_ptr),
+                                                std::move(offset_lit),
+                                                make_ptr(false, u8_t()));
+            auto to_t = make_trait_object(std::string(TypeRef(tail_post_).trait_name()),
+                                          std::vector<TypeRef>(
+                                              TypeRef(tail_post_).type_args().begin(),
+                                              TypeRef(tail_post_).type_args().end()));
+            return builder().slice_lit(std::move(tail_ptr), std::move(vtable), to_t);
         }
         if (is_tail_access) {
             // Synthesise `Slice { ptr: data_ptr + prefix_size, len: len }`.
@@ -8308,8 +8342,44 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             return builder().slice_lit(std::move(tail_ptr_elem), std::move(len),
                                        make_slice_type(tail_elem_t));
         }
-        // Non-tail field: reinterpret data ptr as *const Struct and route
-        // through the standard pointer-field-read path.
+        // Non-tail (prefix) field. A generic DST instance (`Inner<dyn Tr>`) has
+        // NO concrete struct layout to GEP — the tail is unsized, so the
+        // monomorphized struct type was never registered. Address the field
+        // POSITIONALLY: compute its byte offset over the sized prefix (same
+        // Rust/C layout the tail-slice path uses) with the DstRef's type-args
+        // substituted, then deref a base+offset pointer typed as the field.
+        // Mirrors the tail-slice synth — every field is reached off the fat
+        // pointer's data half. Works uniformly for generic and non-generic DST.
+        if (ssi_dst && !ssi_dst->fields.empty()) {
+            uint64_t off = 0;
+            TypeRef fld_type;
+            bool found_fld = false;
+            for (size_t i = 0; i < ssi_dst->fields.size(); ++i) {
+                auto& f = ssi_dst->fields[i];
+                TypeRef ft = dst_subst.empty() ? TypeRef(f.type)
+                                               : subst_type_sema(f.type, dst_subst);
+                logos::compiler::StrSet seen;
+                uint64_t esz = sema_abi_byte_size(ft, seen);
+                uint64_t align = std::min(esz ? esz : (uint64_t)1, (uint64_t)8);
+                if (align > 1) off = (off + align - 1) & ~(align - 1);
+                if (f.name == field_name) { fld_type = ft; found_fld = true; break; }
+                off += esz;
+            }
+            if (found_fld && fld_type) {
+                auto data_ptr = builder().slice_ptr(std::move(recv),
+                                                    make_ptr(false, u8_t()));
+                auto off_lit = builder().lit_int(static_cast<int64_t>(off),
+                                                 prim(LogosType::Kind::I64));
+                auto fp_u8 = builder().ptr_arith(lir::EPtrArith::Op::ByteAdd,
+                                                 std::move(data_ptr),
+                                                 std::move(off_lit),
+                                                 make_ptr(false, u8_t()));
+                auto fp = builder().cast(std::move(fp_u8), make_ptr(false, fld_type));
+                return builder().deref(std::move(fp), fld_type);
+            }
+        }
+        // Fallback (non-generic DST, no field info): reinterpret as the named
+        // struct and route through the standard pointer-field-read path.
         TypeRef struct_t = make_struct_type(sname_dst, spkg_dst);
         auto data_ptr_u8 = builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
         auto data_ptr_struct = builder().cast(std::move(data_ptr_u8),
