@@ -515,28 +515,63 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         ? resolve_type(map_of(expr.get(la::TYPE.code)))
         : error_t();
 
-    // Unsizing a NON-Box smart pointer — `Rc<T> as Rc<dyn Trait>`, `Arc<T> as
-    // Arc<dyn>`, or any user `Struct<T> as Struct<dyn>` — is not yet supported:
-    // only Box<dyn> (the owning value trait object) has a representation. Reject
-    // cleanly instead of building a bad value that segfaults on dispatch (the
-    // generic Deref auto-deref would otherwise read a garbage vtable). Proper
-    // support needs a refcounted fat-pointer trait object (CoerceUnsized — 2c).
-    if (target && inner && inner->type && !is_stdlib_box(target) &&
+    // Struct → struct unsize coercion (Rust CoerceUnsized): same struct, type-
+    // args differ such that a field changes from a sized type to an unsized
+    // custom-DST / trait-object / slice form — e.g. `Rc<A> as Rc<dyn Tr>`
+    // unsizes the inner `*mut RcInner<A>` → fat `*mut RcInner<dyn Tr>`. Rebuild
+    // the target struct, coercing the changed field and copying the rest, so
+    // the widened field gets its metadata (vtable/len) — NOT a flat memcpy that
+    // leaves those bytes garbage (→ segfault on later dispatch). Built directly
+    // via struct_lit + the resolved target/per-field types, bypassing source-
+    // level turbofish (which mis-resolves a bare `dyn` arg as sized).
+    if (target && inner && inner->type &&
         (TypeRef(target).kind() == LogosType::Kind::Struct ||
          TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
-        TypeRef(target).type_args().size() == 1 &&
-        TypeRef(TypeRef(target).type_args()[0]).kind() == LogosType::Kind::TraitObject &&
         (TypeRef(inner->type).kind() == LogosType::Kind::Struct ||
          TypeRef(inner->type).kind() == LogosType::Kind::ZonedStruct) &&
         TypeRef(inner->type).struct_name() == TypeRef(target).struct_name() &&
-        TypeRef(inner->type).type_args().size() == 1 &&
-        TypeRef(TypeRef(inner->type).type_args()[0]).kind() != LogosType::Kind::TraitObject) {
-        error(std::format(
-            "unsizing `{}<T>` to a trait object is not supported (only `Box<dyn "
-            "Trait>` is); `Rc`/`Arc`/user smart-pointer trait objects need "
-            "CoerceUnsized, not yet implemented",
-            std::string(TypeRef(target).struct_name())));
-        return error_expr();
+        !TypeRef(target).type_args().empty() &&
+        TypeRef(inner->type).type_args().size() == TypeRef(target).type_args().size()) {
+        std::string sname(TypeRef(target).struct_name());
+        auto [spkg, ssi] = find_struct_by_name(sname);
+        if (ssi && !ssi->fields.empty()) {
+            SemaSubst src_s, tgt_s;
+            auto sa = TypeRef(inner->type).type_args();
+            auto ta = TypeRef(target).type_args();
+            for (size_t i = 0; i < ssi->type_params.size(); ++i) {
+                if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
+                if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
+            }
+            std::vector<TypeRef> sft(ssi->fields.size()), tft(ssi->fields.size());
+            int changed = 0;
+            for (size_t i = 0; i < ssi->fields.size(); ++i) {
+                sft[i] = src_s.empty() ? TypeRef(ssi->fields[i].type)
+                                       : subst_type_sema(ssi->fields[i].type, src_s);
+                tft[i] = tgt_s.empty() ? TypeRef(ssi->fields[i].type)
+                                       : subst_type_sema(ssi->fields[i].type, tgt_s);
+                if (sft[i] != tft[i]) changed++;
+            }
+            // Only a genuine unsize (a field type actually changed) is rebuilt
+            // here; identical-arg casts fall through to the no-op below.
+            if (changed > 0 && ssi->fields.size() == 1) {
+                // Single-field smart-pointer shape (Rc/Arc/Box/user): read the
+                // field, coerce it to the target field type (the ptr→DstRef
+                // unsize is handled in mlir-gen's cast), repack into the target.
+                std::string fname0(ssi->fields[0].name);
+                auto fr = builder().field_read(std::move(inner), fname0, sft[0]);
+                lir::LExprPtr fv = (sft[0] != tft[0])
+                    ? builder().cast(std::move(fr), tft[0]) : std::move(fr);
+                std::vector<std::pair<std::string, lir::LExprPtr>> flds;
+                flds.emplace_back(fname0, std::move(fv));
+                return builder().struct_lit(sname, std::move(flds), target);
+            }
+            if (changed > 0) {
+                error(std::format(
+                    "unsizing multi-field struct `{}` (CoerceUnsized with more "
+                    "than one field) is not yet supported", sname));
+                return error_expr();
+            }
+        }
     }
 
     // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────

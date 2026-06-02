@@ -1,0 +1,47 @@
+// pass — generic methods over a custom-DST smart-pointer (B3 stage 2, option B).
+//
+// MyRc<T:?Sized>{inner:*mut Inner<T>} is the Rc shape. `MyRc<A> as MyRc<dyn Tr>`
+// is a struct-level unsize coercion (rebuild, widening the inner pointer to a
+// fat DstRef). The GENERIC methods strong_count/bump access `self.inner.strong`
+// (a prefix field) — lowered ONCE by sema with `*mut Inner<T>` THIN (T abstract);
+// mono RE-LOWERS that access per-instantiation to a byte-offset projection off
+// the fat pointer's data half when T binds to an unsized `dyn` (option B). The
+// unsized tail (`self.inner.val`) is dispatched at the concrete call site.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+
+struct Inner<T: ?Sized> { strong: i32, val: T }
+struct MyRc<T: ?Sized> { inner: *mut Inner<T> }
+
+impl<T: ?Sized> MyRc<T> {
+    fn strong_count(&self) -> i32 { unsafe { return self.inner.strong; } }
+    fn bump(&mut self) { unsafe { self.inner.strong = self.inner.strong + 1; } }
+}
+
+fn make_a(raw: *mut u8, x: i64) -> MyRc<A> {
+    unsafe {
+        let ic: *mut Inner<A> = raw as *mut Inner<A>;
+        ic.strong = 1;
+        ic.val = A { x: x };
+        return MyRc::<A> { inner: ic };
+    }
+}
+
+fn main() -> i32 {
+  unsafe {
+    let raw: *mut u8 = malloc(64);
+    let rc_a: MyRc<A> = make_a(raw, 37);
+    // Whole-struct unsize coercion: MyRc<A> -> MyRc<dyn Tr>.
+    let mut rd: MyRc<dyn Tr> = rc_a as MyRc<dyn Tr>;
+    rd.bump();
+    let s: i32 = rd.strong_count();
+    let vv: i64 = (&rd.inner.val as &dyn Tr).v();
+    free(raw);
+    return (s as i64 + vv + 3) as i32;   // 2 + 37 + 3 = 42
+  }
+}

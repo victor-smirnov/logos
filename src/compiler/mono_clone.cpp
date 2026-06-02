@@ -6,6 +6,7 @@
 #include "logos/compiler/sha256.hpp"
 #include <logos/compiler/lir_mirror.hpp>
 #include <logos/compiler/lir_builder.hpp>
+#include <algorithm>
 #include <functional>
 
 namespace logos::compiler {
@@ -315,6 +316,81 @@ lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     return w.walk(pref);
 }
 
+uint64_t Mono::mono_abi_size(TypeRef t) {
+    using K = LogosType::Kind;
+    if (!t) return 8;
+    switch (t.kind()) {
+    case K::Void: case K::Never: return 0;
+    case K::Bool: case K::U8: case K::I8: return 1;
+    case K::I16: case K::U16: return 2;
+    case K::I24: case K::U24: return 3;
+    case K::I32: case K::U32: case K::F32: case K::Char: case K::IntLit: return 4;
+    case K::I56: case K::U56: return 7;
+    case K::I64: case K::U64: case K::F64: case K::FloatLit:
+    case K::Ptr: case K::Ref: case K::MutRef: case K::FnPtr: case K::FnItem:
+    case K::Usize: case K::Isize: case K::TaggedPtr: return 8;
+    case K::I128: case K::U128: return 16;
+    case K::Slice: case K::Closure: case K::TraitObject: case K::DstRef: return 16;
+    case K::Array:
+        return t.elem() ? t.arr_size() * mono_abi_size(t.elem()) : 0;
+    case K::Tuple: {
+        uint64_t off = 0, maxa = 1;
+        for (auto e : t.tuple_elems()) {
+            uint64_t sz = mono_abi_size(e), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
+            if (a > 1) off = (off + a - 1) & ~(a - 1);
+            off += sz; if (a > maxa) maxa = a;
+        }
+        if (maxa > 1) off = (off + maxa - 1) & ~(maxa - 1);
+        return off;
+    }
+    case K::Struct: case K::ZonedStruct: {
+        auto* sit = find_struct_template_bare_first(t.pkg_name(), t.struct_name());
+        if (!sit) return 8;
+        SubstMap m;
+        auto args = t.type_args();
+        for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
+            m[sit->type_params[i].name] = args[i];
+        uint64_t off = 0, maxa = 1;
+        for (auto& f : sit->fields) {
+            TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);
+            uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
+            if (a > 1) off = (off + a - 1) & ~(a - 1);
+            off += sz; if (a > maxa) maxa = a;
+        }
+        if (maxa > 1) off = (off + maxa - 1) & ~(maxa - 1);
+        return off;
+    }
+    default: return 8;
+    }
+}
+
+bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
+                                 uint64_t& off_out, TypeRef& ftype_out) {
+    using K = LogosType::Kind;
+    auto* sit = find_struct_template_bare_first(dstref.pkg_name(), dstref.struct_name());
+    if (!sit || sit->fields.empty()) return false;
+    SubstMap m;
+    auto args = dstref.type_args();
+    for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
+        m[sit->type_params[i].name] = args[i];
+    uint64_t off = 0;
+    for (auto& f : sit->fields) {
+        TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);
+        uint64_t sz = mono_abi_size(ft), a = std::min(sz ? sz : (uint64_t)1, (uint64_t)8);
+        if (a > 1) off = (off + a - 1) & ~(a - 1);
+        if (f.name == field) {
+            // Only PREFIX (sized) fields are re-lowered as an offset read; the
+            // unsized tail (UnsizedDyn/UnsizedSlice) is projected at concrete
+            // sites with its metadata, never read by value in a generic body.
+            auto fk = ft ? ft.kind() : K::Error;
+            if (fk == K::UnsizedDyn || fk == K::UnsizedSlice) return false;
+            off_out = off; ftype_out = ft; return true;
+        }
+        off += sz;
+    }
+    return false;
+}
+
 lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                           const PackMap& /*unused*/) {
     // packs are stored in cur_packs_ (set by clone_fn)
@@ -470,6 +546,42 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EFieldReadView v{eref};
             std::string field(v.field());
             auto rcv = subst_child_expr(v.receiver());
+            // Stage 2 (B): per-instantiation re-lowering. If THIS instance made
+            // the receiver a custom-DST fat pointer (`*mut RcInner<dyn>` →
+            // DstRef), the field-access shape baked thin at sema-lower time
+            // (T abstract) is wrong — a thin struct GEP would read the fat
+            // pointer's data-half low bits as the field. Re-emit the byte-offset
+            // projection off the data half (mirror of sema_expr's DstRef field
+            // path) for the sized prefix field. Tail field is left alone.
+            if (rcv && rcv->type &&
+                TypeRef(rcv->type).kind() == LogosType::Kind::DstRef) {
+                uint64_t off = 0; TypeRef ftype;
+                if (mono_dst_prefix_field(rcv->type, field, off, ftype) && ftype) {
+                    LogosTypeBuilder u8b; u8b.kind = LogosType::Kind::U8;
+                    TypeRef u8t = out_.type_pool.alloc(std::move(u8b));
+                    auto mk_ptr = [&](TypeRef pointee) {
+                        LogosTypeBuilder pb; pb.kind = LogosType::Kind::Ptr;
+                        pb.mut_ptr = false; pb.pointee = pointee;
+                        return out_.type_pool.alloc(std::move(pb));
+                    };
+                    TypeRef u8p = mk_ptr(u8t);
+                    LogosTypeBuilder i64b; i64b.kind = LogosType::Kind::I64;
+                    TypeRef i64t = out_.type_pool.alloc(std::move(i64b));
+                    auto mk_node = [&](TypeRef ty, hermes::arena_offset_t mo) {
+                        auto* e = lir::alloc_expr(out_);
+                        e->type = ty; e->mirror_offset_ = mo; return e;
+                    };
+                    auto data = mk_node(u8p, lir_mirror_emit_slice_ptr(out_, u8p, rcv));
+                    auto offl = mk_node(i64t, lir_mirror_emit_lit_int(out_, i64t, (int64_t)off));
+                    auto fpu8 = mk_node(u8p, lir_mirror_emit_ptr_arith(
+                        out_, u8p, (uint8_t)lir::EPtrArith::Op::ByteAdd, data, offl));
+                    auto fpft = mk_node(mk_ptr(ftype),
+                        lir_mirror_emit_cast(out_, mk_ptr(ftype), fpu8, ""));
+                    result->type = ftype;
+                    result->mirror_offset_ = lir_mirror_emit_deref(out_, ftype, fpft);
+                    break;
+                }
+            }
             result->mirror_offset_ = lir_mirror_emit_field_read(
                 out_, result->type, rcv, field);
             break;

@@ -105,7 +105,36 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             // specific call (DST flag is pkg-independent in practice, but
             // bare-first is the historical ordering here).
             auto* sit_ptr = find_struct_template_bare_first(inner.pkg_name(), sn);
-            if (sit_ptr && sit_ptr->is_dst) {
+            // Per-instance DST: the template is NOT flagged is_dst (its tail is
+            // a generic `T`, not a literal `[U]`), but THIS instantiation bound
+            // that tail param to an unsized type — `Inner<dyn Tr>` /
+            // `RcInner<dyn Tr>`. The instance is then a custom-DST and `*mut/&`
+            // to it is a fat pointer. Detect SHALLOWLY (no recursion — a field
+            // reached through a pointer is itself sized): the template's last
+            // field is exactly the tail type-param, and this instance's
+            // corresponding type-arg is unsized (UnsizedDyn / UnsizedSlice).
+            // Without this, a generic method's `self.inner.field` baked a thin
+            // GEP at sema-lower time and reads the fat pointer's data half as
+            // the field → garbage. Mirrors sema is_effective_dst at mono time.
+            bool inst_dst = false;
+            if (sit_ptr && !sit_ptr->is_dst && !sit_ptr->fields.empty() &&
+                !sit_ptr->type_params.empty()) {
+                TypeRef lastf = sit_ptr->fields.back().type;
+                auto args = inner.type_args();
+                if (lastf && lastf.kind() == LogosType::Kind::TypeVar) {
+                    std::string tvn(lastf.type_var_name());
+                    for (size_t i = 0; i < sit_ptr->type_params.size() &&
+                                       i < args.size(); ++i) {
+                        if (sit_ptr->type_params[i].name == tvn) {
+                            auto ak = args[i].kind();
+                            inst_dst = (ak == LogosType::Kind::UnsizedDyn ||
+                                        ak == LogosType::Kind::UnsizedSlice);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (sit_ptr && (sit_ptr->is_dst || inst_dst)) {
                 LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
                 dn.struct_name = sn;
                 dn.pkg_name = std::string(inner.pkg_name());

@@ -198,6 +198,17 @@ private:
             return it->second;
         return nullptr;
     }
+    // Stage 2 (B): ABI size of a (substituted) type and the byte offset of a
+    // PREFIX field inside a custom-DST struct instance. Used to RE-LOWER a
+    // generic method's `self.<dstfield>.<prefix>` access per instantiation
+    // (the access shape was baked thin at sema-lower time, before T was known
+    // to be unsized). Mirrors sema_abi_byte_size / sema_expr's DstRef field
+    // projection, at mono time. Returns false (no re-lower) for the unsized
+    // tail field — that is only ever projected at concrete use sites.
+    uint64_t mono_abi_size(TypeRef t);
+    bool mono_dst_prefix_field(TypeRef dstref, std::string_view field,
+                               uint64_t& off_out, TypeRef& ftype_out);
+
     const lir::LStructDef*
     find_struct_template_bare_first(std::string_view pkg, std::string_view base) const noexcept {
         if (auto it = struct_templates_.find(std::string(base));
