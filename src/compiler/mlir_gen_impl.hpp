@@ -793,6 +793,13 @@ private:
     // elements (runtime loop over the fat-pointer length) then free the block.
     // `dst_ptr` points at the {data,len} fat pair (DstRef value = slice repr).
     void gen_drop_owning_dst(mlir::Value dst_ptr, TypeRef ty);
+    // Drop the concrete payload behind a `&dyn` fat pair IN PLACE — run
+    // vtable[0](data) (the concrete Drop) only, with NO free and NO refcount
+    // change. This is the move-out-drop of an unsized `dyn` tail (`let _v: T =
+    // self.inner.val` with T = dyn): same "run Drop, don't free the block"
+    // semantics as the sized case (the block is freed separately by the caller).
+    // `fat_ptr` points at the 16-byte {data,vtable} pair.
+    void gen_drop_dyn_in_place(mlir::Value fat_ptr);
     // Rc<dyn>/Arc<dyn>.clone(): bump strong (at data − round_up(4, vtable.align);
     // atomic for Arc) and return a copy of the {data,vtable} fat pair.
     mlir::Value gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t);

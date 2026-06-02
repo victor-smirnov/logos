@@ -4123,6 +4123,15 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                 // top-level TraitObject.
                 drop_fn = "__box_dyn__drop";
             }
+            else if (ty && TypeRef(ty).kind() == LogosType::Kind::UnsizedDyn) {
+                // Move-out drop of an unsized `dyn` TAIL (`let _v: T =
+                // self.inner.val`, T bound to `dyn`): T substitutes to
+                // UnsizedDyn. The RHS re-lowered to a `&dyn` handle; drop the
+                // concrete payload in place via vtable[0] (no free — the block
+                // is freed separately by the surrounding drop). Mirrors the
+                // sized case ("run Drop, don't free the storage").
+                drop_fn = "__dyn_drop_in_place__";
+            }
             else if (ty && (TypeRef(ty).kind() == LogosType::Kind::Enum ||
                             TypeRef(ty).kind() == LogosType::Kind::Tuple ||
                             TypeRef(ty).kind() == LogosType::Kind::Array ||

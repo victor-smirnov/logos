@@ -392,6 +392,39 @@ bool MLIRGenImpl::value_needs_drop(TypeRef ty) {
     return false;
 }
 
+void MLIRGenImpl::gen_drop_dyn_in_place(mlir::Value fat_ptr) {
+    if (!fat_ptr) return;
+    auto dyn_struct = dyn_llvm_type();
+    if (fat_ptr.getType() == dyn_struct) fat_ptr = spill_to_alloca(fat_ptr);
+    if (fat_ptr.getType() != ptr_type()) return;
+    auto void_t = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
+    auto fn_t   = mlir::LLVM::LLVMFunctionType::get(void_t, {ptr_type()});
+    // data = pair->field0, vtable = pair->field1
+    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+    auto dpp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, di);
+    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dpp);
+    // Null-guard (a moved-from / zeroed handle).
+    auto null = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+    auto nn = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, data, null);
+    auto* region = builder_.getBlock()->getParent();
+    auto* then_blk = new mlir::Block();
+    auto* cont_blk = new mlir::Block();
+    region->push_back(then_blk);
+    region->push_back(cont_blk);
+    builder_.create<mlir::cf::CondBranchOp>(loc_, nn, then_blk, cont_blk);
+    builder_.setInsertionPointToStart(then_blk);
+    llvm::SmallVector<mlir::LLVM::GEPArg> vi{int32_t(0), int32_t(1)};
+    auto vpp    = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, vi);
+    auto vtable = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vpp);
+    auto slot0  = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), vtable);
+    llvm::SmallVector<mlir::Value> ops{slot0, data};
+    builder_.create<mlir::LLVM::CallOp>(loc_, fn_t, mlir::FlatSymbolRefAttr{},
+                                        mlir::ValueRange(ops));
+    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    builder_.setInsertionPointToStart(cont_blk);
+}
+
 void MLIRGenImpl::gen_drop_owning_dyn_handle(mlir::Value fat_ptr,
                                              TypeRef::OwningKind kind) {
     if (!fat_ptr) return;
@@ -919,6 +952,17 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     //    the kind is read from the binding's TraitObject type.
     if (std::string(v.drop_fn()) == "__box_dyn__drop") {
         gen_drop_owning_dyn_handle(it->second, v.type(pool_impl()).trait_owning_kind());
+        return;
+    }
+    // Move-out drop of an unsized `dyn` tail (`let _v: T = self.inner.val`,
+    // T = dyn): the binding holds a `&dyn` handle (ptr to the {data,vtable}
+    // pair). Run the concrete Drop via vtable[0](data) only — NO free (the
+    // enclosing block is freed separately by drop_rc's `free(self.inner)`).
+    if (std::string(v.drop_fn()) == "__dyn_drop_in_place__") {
+        mlir::Value fp = it->second;
+        if (let_vars_.count(var_name))
+            fp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
+        gen_drop_dyn_in_place(fp);
         return;
     }
 

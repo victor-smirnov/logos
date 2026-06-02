@@ -1,0 +1,64 @@
+// pass — OWNING custom-DST smart pointer over `dyn` (B3 stage 2b drop).
+// MyRc<T:?Sized>{inner:*mut Inner<T>} == Rc shape. Exercises the full owning
+// lifecycle through generic methods on `MyRc<dyn Tr>`: clone (strong++ prefix
+// write), payload (tail dispatch), and drop_me — which on the last ref does
+// `let _v: T = self.inner.val` (move-out drop of the UNSIZED dyn tail) then
+// `free(self.inner as *mut u8)`. The move-out is re-lowered per-instance to a
+// vtable[0] drop-in-place (run A::Drop, NO free); the cast `DstRef as *mut u8`
+// extracts the data half (heap block). A is dropped exactly once at refcount 0.
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+trait Tr { fn v(&self) -> i64; }
+struct A { x: i64, freed: *mut i64 }
+impl Tr for A { fn v(&self) -> i64 { return self.x; } }
+impl Drop for A {
+    fn drop(self: A) { unsafe { self.freed[0] = self.freed[0] + 1; } }
+}
+
+struct Inner<T: ?Sized> { strong: i32, val: T }
+struct MyRc<T: ?Sized> { inner: *mut Inner<T> }
+
+impl<T: ?Sized> MyRc<T> {
+    fn count(&self) -> i32 { unsafe { return self.inner.strong; } }
+    fn clone_me(&self) -> MyRc<T> {
+        unsafe { self.inner.strong = self.inner.strong + 1; return MyRc::<T> { inner: self.inner }; }
+    }
+    // drop one ref; at 0, drop the payload (via the dyn tail) + free the block.
+    fn drop_me(&mut self) {
+        unsafe {
+            self.inner.strong = self.inner.strong - 1;
+            if self.inner.strong == 0 {
+                let _v: T = self.inner.val;     // move-out drop of the (dyn) tail
+                free(self.inner as *mut u8);
+            }
+        }
+    }
+    fn payload(&self) -> i64 { unsafe { return (&self.inner.val as &dyn Tr).v(); } }
+}
+
+fn make(raw: *mut u8, x: i64, freed: *mut i64) -> MyRc<A> {
+    unsafe {
+        let ic: *mut Inner<A> = raw as *mut Inner<A>;
+        ic.strong = 1; ic.val = A { x: x, freed: freed };
+        return MyRc::<A> { inner: ic };
+    }
+}
+
+fn main() -> i32 {
+  unsafe {
+    let fbuf: *mut u8 = malloc(8); let pf: *mut i64 = fbuf as *mut i64; pf[0] = 0;
+    let raw: *mut u8 = malloc(64);
+    let mut r1: MyRc<dyn Tr> = make(raw, 37, pf) as MyRc<dyn Tr>;
+    let mut r2: MyRc<dyn Tr> = r1.clone_me();   // strong 1->2
+    if r1.count() != 2 { return 91; }
+    if r1.payload() != 37 { return 92; }
+    r2.drop_me();                                // strong 2->1, no free
+    if pf[0] != 0 { return 93; }                 // A not yet dropped
+    r1.drop_me();                                // strong 1->0, drop A + free
+    if pf[0] != 1 { return 94; }                 // A dropped exactly once
+    free(fbuf);
+    return 42;
+  }
+}

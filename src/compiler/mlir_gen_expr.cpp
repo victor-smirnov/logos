@@ -3224,6 +3224,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
                               fk == LogosType::Kind::Closure ||
                               src_is_dyn_ref;
         bool src_is_slice = fk == LogosType::Kind::Slice;
+        // A custom-DST reference VALUE (DstRef, a pointer to the 16-byte
+        // {data, meta} pair) cast to a thin pointer extracts the DATA half —
+        // e.g. drop_rc's `free(self.inner as *mut u8)` on an `Rc<dyn>` must
+        // free the heap RcInner (the data ptr), not the fat-pair storage.
+        bool src_is_dst = fk == LogosType::Kind::DstRef;
         bool dst_is_void_ptr =
             tk == LogosType::Kind::Ptr &&
             TypeRef(type).pointee() &&
@@ -3237,6 +3242,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (src_is_dyn_ptr && dst_is_void_ptr) fat_to_thin = true;
         if (src_is_dyn_val && (dst_is_void_ptr || dst_is_thin_ptr)) fat_to_thin = true;
         if (src_is_slice  && dst_is_thin_ptr) fat_to_thin = true;
+        if (src_is_dst    && dst_is_thin_ptr) fat_to_thin = true;
     }
     if (fat_to_thin) {
         auto fat_t = mlir::LLVM::LLVMStructType::getLiteral(
