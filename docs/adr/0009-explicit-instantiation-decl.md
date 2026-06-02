@@ -102,7 +102,7 @@ their methods (verified via `nm` showing `Box$G1$i64__unused`,
 ## Non-goals
 
 - Not a vehicle for `#[type_code=N]` binding. That stays on the existing
-  `eidos Foo<T>;` / `struct Foo<T>;` no-body forms.
+  `struct Foo<T>;` no-body form.
 - Does not affect free `fn` — those remain lazy via the existing worklist.
 - (resolved 2026-05-01) Cross-package pre-instantiation re-use now works
   via `pub instantiate` + the existing `binary_symbols` skip path.

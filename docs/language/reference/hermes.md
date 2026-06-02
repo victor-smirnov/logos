@@ -50,14 +50,6 @@ A `#[zoned]` struct is a *datatype*: laid out for the Hermes wire format, no hea
 
 Datatypes are passed by *fat pointer* (`(zone, offset)`) when they contain relative pointers, or by-value (in registers / by reference) when they're "data plain" — see [memory: feat_datatype_passing](../../README.md). The compiler infers the passing convention; user code rarely needs to think about it.
 
-### `eidos` declaration form
-
-```logos
-eidos Decimal { coef: i128, scale: i8 }
-```
-
-`eidos Foo { ... }` is the canonical, schema-aware declaration form for a datatype. It's equivalent to `#[zoned] struct Foo { ... }` semantically; the difference is intent: `eidos` signals "this is a Hermes-resident POD with a wire schema", while `#[zoned] struct` is a more incidental annotation. Most stdlib types still use `#[zoned] struct`.
-
 ### Generic containers
 
 ```logos
@@ -104,11 +96,11 @@ See [memory: feat_tag_dispatch](../../README.md) and [memory: feat_logos_type_ha
 ## Schemas and `type_code`
 
 ```logos
-#[type_code = 0x42] eidos Decimal { ... }
+#[type_code = 0x42] #[zoned] struct Decimal { ... }
 #[type_code = 100]  struct Array<i32>;       // explicit instantiation
 ```
 
-The `#[type_code = N]` attribute binds a numeric tag to a datatype or to a generic instantiation. The body-less form `struct Type;` / `eidos Type;` exists specifically to attach metadata (typically `#[type_code]`) to generic instantiations without introducing new fields. See [Items](items.md#tuple-structs-and-explicit-instantiations) and [Attributes](attributes.md#type_code).
+The `#[type_code = N]` attribute binds a numeric tag to a datatype or to a generic instantiation. The body-less form `struct Type;` exists specifically to attach metadata (typically `#[type_code]`) to generic instantiations without introducing new fields. See [Items](items.md#tuple-structs-and-explicit-instantiations) and [Attributes](attributes.md#type_code).
 
 ## Trait Registry
 

@@ -37,7 +37,7 @@ struct Foo { x: i32 }
 struct Foo<T> { x: T }   // generic template — should reject
 ```
 **Observed**: Compiles cleanly.
-**Expected**: Per [attributes.md](../language/reference/attributes.md): "`#[type_code]` is rejected on a template genos / generic struct; only fully-specialised forms or non-generic datatypes may carry it."
+**Expected**: Per [attributes.md](../language/reference/attributes.md): "`#[type_code]` is rejected on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms or non-generic datatypes may carry it."
 **Suspected root**: [sema_collect.cpp](../../src/compiler/sema_collect.cpp) annotation-handler doesn't check `type_params.empty()` before accepting `#[type_code]`.
 **Tags**: `oversight:simple`, `tech-debt:no-attribute-validation`
 
@@ -49,7 +49,7 @@ struct Foo<T> { x: T }   // generic template — should reject
 ```logos
 #[type_code = 42]
 #[type_code = 100]
-pub eidos Foo { x: i32 }
+#[zoned] pub struct Foo { x: i32 }
 ```
 **Observed**: Compiles cleanly. Implementation-defined which type_code wins.
 **Expected**: "duplicate `#[type_code]` annotation".
@@ -104,7 +104,7 @@ struct Foo { x: i32 }
 **Repro**: `B13/` —
 ```logos
 #[type_code = 100]   // per docs: 1-127 reserved for system
-pub eidos Foo { x: i32 }
+#[zoned] pub struct Foo { x: i32 }
 ```
 **Observed**: Compiles cleanly.
 **Expected**: Per [attributes.md](../language/reference/attributes.md): "Codes 1–127 are reserved for system use; user codes start at 128." Should warn or error.

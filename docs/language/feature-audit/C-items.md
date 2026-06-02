@@ -2,7 +2,7 @@
 
 Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victor/cxx/reference`)
 
-12 features audited: 6 OK, 4 WARN, 2 GAP. Highlights: Logos has solid coverage of `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `type alias`, and `use` with Rust-aligned naming for most. Genuine gaps: **Union** is entirely absent (no `KW_UNION` in grammar; no `Kind::Union` in LIR); **`static mut`** is not a distinct mechanism — only immutable module-level `static` is parsed, and it lowers to the same `LConst` node as `const`. Naming warns: `MODULE` does not exist as an inline item form (Logos uses package-per-file), and the `pub_datatype_def` (`eidos`) / inherent vs trait impl machinery have Logos-specific extensions.
+12 features audited: 6 OK, 4 WARN, 2 GAP. Highlights: Logos has solid coverage of `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `type alias`, and `use` with Rust-aligned naming for most. Genuine gaps: **Union** is entirely absent (no `KW_UNION` in grammar; no `Kind::Union` in LIR); **`static mut`** is not a distinct mechanism — only immutable module-level `static` is parsed, and it lowers to the same `LConst` node as `const`. Naming warns: `MODULE` does not exist as an inline item form (Logos uses package-per-file), and the `pub_datatype_def` (`#[zoned] struct`) / inherent vs trait impl machinery have Logos-specific extensions.
 
 ---
 
@@ -121,7 +121,7 @@ Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victo
 
 **Gaps / debt:**
 - Add a §B row in DIVERGENCES (no §A blessing; FFI parity wants it).
-- For Hermes purposes the closest analogue is the `eidos` POD `datatype` (`grammars/logos.peg:1019`) but that's struct-shaped, not union.
+- For Hermes purposes the closest analogue is the `#[zoned] struct` POD datatype (`grammars/logos.peg:1019`) but that's struct-shaped, not union.
 - Imports that mention `union` will be hard-skipped.
 
 ---
@@ -204,7 +204,7 @@ Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victo
 **Gaps / debt:**
 - Send/Sync auto-derivation absent (also Cat H).
 - `?Trait` relaxed bound: `RELAXED` slot exists (`grammars/logos.peg:%fields RELAXED=39`) but only `?Sized` is honoured.
-- `genos` keyword referenced as a comment at `grammars/logos.peg:780` ("the upcoming spec form") — dead reference, can be removed.
+- `genos` keyword + `GENOS_DEF` AST node are intentionally retained (`grammars/logos.peg`, `trait_kw` comment) for the computable form-specification role; the legacy data-trait-family role was migrated to `pub trait` + `#[hermes_eidos]`. Not a trait synonym, not a datatype form.
 
 ---
 

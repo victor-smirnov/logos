@@ -18,27 +18,24 @@ The supported attribute names are recognised by sema (`src/compiler/sema*.cpp`).
 
 ## `#[type_code = N]`
 
-Binds an explicit integer tag to a datatype, genos, or generic instantiation. `N` participates in:
+Binds an explicit integer tag to a datatype or a generic instantiation. `N` participates in:
 
 - Hermes wire-format dispatch — the registry maps `type_code → impl` for `HermesStringify`, `HermesEqual`, etc.
 - Tag-dispatched pointers (`&tagged<TS> Trait`) — the prefix bytes carry this code.
 
 ```logos
 #[type_code = 42]
-pub eidos Decimal { coef: i128, scale: i8 }
+#[zoned] pub struct Decimal { coef: i128, scale: i8 }
 
 #[type_code = 100]
 pub struct Array<i32>;            // body-less explicit instantiation
-
-#[type_code = 7]
-pub genos Varchar { ... }
 ```
 
-`#[type_code]` is **rejected** on a template genos (`genos Foo<T> { ... }`); only fully-specialised forms or non-generic datatypes may carry it. Codes 1–127 are reserved for system use; user codes start at 128 ([memory: feat_tag_dispatch](../../README.md)).
+`#[type_code]` is **rejected** on an unspecialised generic template (`struct Foo<T> { ... }`); only fully-specialised forms (`struct Foo<i32>;`) or non-generic datatypes may carry it. Codes 1–127 are reserved for system use; user codes start at 128 ([memory: feat_tag_dispatch](../../README.md)).
 
 ## `#[zoned]`
 
-Marks a `struct` as a Hermes datatype (zone-relative layout, no heap pointers). Equivalent intent to declaring `eidos Foo { ... }`.
+Marks a `struct` as a Hermes datatype (zone-relative layout, no heap pointers). `#[zoned] struct` is the sole canonical declaration form for datatypes.
 
 ```logos
 #[zoned] pub struct AnyVal { pub raw: u32 }
@@ -127,7 +124,7 @@ Unknown `#[name]` produces **no diagnostic** today (sema silently ignores). This
 
 ## Meta blocks (`meta @{...}`)
 
-Distinct from attributes but lexically nearby: a `meta @{...}` block can appear inside a `struct`, `eidos`, `genos`, or `trait` definition (grammar `meta_block`, [logos.peg:821](../../../tools/peg_gen/grammars/logos.peg#L821)):
+Distinct from attributes but lexically nearby: a `meta @{...}` block can appear inside a `struct` or `trait` definition (grammar `meta_block`, [logos.peg:821](../../../tools/peg_gen/grammars/logos.peg#L821)):
 
 ```logos
 pub struct Foo {

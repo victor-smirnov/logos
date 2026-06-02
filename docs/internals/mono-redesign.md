@@ -195,9 +195,9 @@ fixpoint loop (mono.cpp:591-627) already interleaves
 `drain_method_worklist` + fn worklist drain +
 `instantiate_struct_templates` + `instantiate_enum_templates` in
 one convergence loop. The pre-fixpoint calls at mono.cpp:524/527
-remain as a seed for eidos/pinned-method ordering invariants —
+remain as a seed for datatype/pinned-method ordering invariants —
 removing them would require careful audit of the
-`#[type_code=N] eidos` annotation processing at mono.cpp:530+.
+`#[type_code=N]` datatype annotation processing at mono.cpp:530+.
 The cleanup is tracked but not load-bearing: the fixpoint already
 provides the "no cloned body references an undefined struct"
 invariant for the worklist phase. Skipped this session.

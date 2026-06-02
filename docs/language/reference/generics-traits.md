@@ -170,10 +170,6 @@ unsafe impl RawAccess for Foo { ... }
 
 Implementing an `unsafe trait` requires `unsafe impl`, signalling the implementor has manually upheld the trait's contract.
 
-### `genos` synonym
-
-The keyword `genos` is accepted in place of `trait` (used in the stdlib for the eidos / genos taxonomy). Semantically identical for now. See [Items → genos](items.md#genos-definitions-and-instantiations).
-
 ## Implementations
 
 ```logos

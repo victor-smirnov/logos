@@ -12,7 +12,7 @@ The reference is fact-and-link — for design rationale see the per-feature note
 
 - **[Lexical](lexical.md)** — source encoding, whitespace, identifiers, keywords, literals, operators.
 - **[Types](types.md)** — primitives, references, raw pointers, arrays / slices, tuples, function and closure types, user-defined types, special forms.
-- **[Items](items.md)** — top-level declarations: `package`, `use`, `let`, `type`, `fn`, `struct`, `enum`, `trait`, `impl`, `eidos`, `genos`, `template`.
+- **[Items](items.md)** — top-level declarations: `package`, `use`, `let`, `type`, `fn`, `struct`, `enum`, `trait`, `impl`, `genos`, `template`.
 - **[Expressions](expressions.md)** — operator precedence, atoms and postfix chains, primary expressions, control-flow as expression, metaprogramming forms.
 - **[Statements](statements.md)** — `let` bindings, assignments, control flow, `return`, `unsafe`, expression statements.
 - **[Patterns](patterns.md)** — bindings, literals, struct / enum / slice patterns, or-patterns, Hermes patterns, guards, exhaustiveness.

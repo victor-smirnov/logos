@@ -50,7 +50,7 @@ Three default visibilities cover all items:
 | `pub` | Public. Importers of the package see this item. |
 | `pub(crate)` / `pub(super)` | **Not implemented**. Logos has no sub-package privacy modifier today. |
 
-`pub` applies to: `pub fn`, `pub struct`, `pub enum`, `pub eidos`, `pub trait`, `pub genos`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
+`pub` applies to: `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub genos`, `pub use`, `pub const`, `pub type`, `pub instantiate`, `pub static fn`. Struct fields use a separate `pub` marker per field; trait methods are public-by-default within a public trait.
 
 The visibility check fires inside `find_*_by_name`:
 

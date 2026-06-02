@@ -97,6 +97,8 @@ A struct definition may contain fields and methods in the same block. Field-leve
 
 The grammar also accepts an alternative spelling with a leading `#` token (`struct #Name { ... }`) used by metaprogramming for AST templates — see [Metaprogramming](metaprog.md).
 
+A struct marked `#[zoned]` is a **Hermes datatype** (C POD layout, zone-relative offsets, no heap pointers). `#[zoned] struct` is the sole canonical form for datatypes — see [`#[zoned]`](attributes.md#zoned) and [Hermes](hermes.md).
+
 ### Methods
 
 Inside a struct (or `impl`) block, methods come in three flavours:
@@ -160,7 +162,7 @@ Modifiers:
 - **`auto`** — marker trait auto-implemented from field types (cf. `Send`, `Sync`).
 - **`unsafe`** — implementing the trait requires `unsafe impl`.
 
-The keyword `genos` is accepted as a synonym of `trait` (used in stdlib for the eidos/genos taxonomy); semantically identical for now.
+(`genos` is **not** a trait synonym — it is the form-specification declaration described in [`genos` (form specifications)](#genos-form-specifications) below.)
 
 ### Supertraits
 
@@ -185,25 +187,17 @@ Inside an `impl` block:
 
 Trait impls may be partially specialised: `impl Container<i32> for Box<i32>` is more specific than a generic blanket and the compiler dispatches accordingly.
 
-## `eidos` (datatype) declarations
+## `genos` (form specifications)
 
 ```logos
-eidos Decimal { coef: i128, scale: i8 }
-pub eidos Vec<T> { … }
+genos pmap_descend_to_n<K: ContainerOrd, V: Container, CFG>
+    requires column SUM(subtree_size) over branch.children
+{ … }
 ```
 
-`eidos` declarations introduce Hermes datatypes (C POD layout). Fields and a `meta @{...}` block are supported; method definitions live in separate `impl` blocks. The `#[zoned]` attribute on a regular `struct` is the more common spelling — `eidos` is reserved for the canonical declaration form. See [Hermes](hermes.md) and the project taxonomy notes.
+A `genos` is a **semi-formal, parametric form specification** — Logos syntax with relaxed type rules, expressing the *shape and invariants* of an algorithm or data structure as the one-per-family canonical statement of intent. It is executable through a minimal interpreter and acts as the conformance oracle for the metaprog-generated instantiations beneath it.
 
-The body-less form (`eidos Type;`) binds annotations to a generic instantiation, same as `struct Type;`.
-
-## `genos` definitions and instantiations
-
-```logos
-pub genos Varchar { ... }                  // synonym for trait
-#[type_code=N] pub genos Array<i32>;       // explicit specialisation declaration
-```
-
-`genos` is the trait-side counterpart of `eidos`. The body-less form binds metadata (e.g. `type_code`) to a logical-family specialisation; implementing eidos inherit those annotations via their `impl` blocks.
+`genos` is **not** a synonym for `trait` and **not** a datatype declaration form (datatypes use `#[zoned] struct`). See [overview: the genos layer](../overview.md) and [internals: metaprogramming](../../internals/metaprog.md#genos--algorithmic-and-structural-templates). The feature is design-stage; the parser accepts the keyword but no interpreter exists yet.
 
 ## `template <decl>`
 

@@ -67,19 +67,19 @@ Total: 159 productions classified. Lexical group has no `%rules` productions; it
 | `pub_struct_inst` / `struct_inst` | 799/802 | `struct Foo<...>;` (forward / explicit instantiation hint) |
 | `pub_enum_def` / `enum_def` | 538/547 | `enum Foo { ... }` (with optional type-code attr / payload) |
 | `variant_list` / `variant_def` / `variant_payload_list` | 556/562/559 | Enum variant syntax |
-| `pub_datatype_def` / `datatype_def` | 773/776 | `eidos Foo { ... }` (Hermes datatype, alias `KW_EIDOS`) |
-| `pub_datatype_inst` / `datatype_inst` | 782/785 | `eidos Foo<...>;` |
+| `pub_datatype_def` / `datatype_def` | 773/776 | legacy `KW_EIDOS` datatype keyword — **being removed**; canonical form is `#[zoned] struct` |
+| `pub_datatype_inst` / `datatype_inst` | 782/785 | legacy `eidos Foo<...>;` — use `struct Foo<...>;` |
 | `pub_trait_def` / `trait_def` | 597/622 | `trait Foo : Bound { ... }` |
 | `pub_trait_inst` / `trait_inst` | 791/794 | `trait Foo<...>;` |
-| `pub_genos_def` / `genos_def` | 587/592 | `genos Foo { ... }` (auto-trait flavor) |
-| `trait_kw` | 583 | `trait` / `genos` keyword dispatcher |
+| `pub_genos_def` / `genos_def` | 587/592 | `genos Foo { ... }` — computable form-specification (NOT a trait); see [overview](../language/overview.md) |
+| `trait_kw` | 583 | `trait` keyword |
 | `super_list` | 576 | `: Trait1 + Trait2` super-trait list |
 | `trait_method` | 647 | Method declaration inside trait |
 | `impl_block` | 690 | `impl Trait for Type { ... }` |
 | `impl_item` | 734 | Item inside impl (method / static) |
 | `meta_block` | 821 | `meta @{...}` block on struct/datatype/trait |
 
-**Reference**: [items.md](../language/reference/items.md). Coverage is comprehensive at the surface level. **GAP**: meta-block semantics + the relation between `genos`, `auto trait`, and ordinary `trait` deserve a dedicated section.
+**Reference**: [items.md](../language/reference/items.md). Coverage is comprehensive at the surface level. **GAP**: meta-block semantics + the relation between `auto trait` and ordinary `trait` deserve a dedicated section. (`genos` is a separate computable form-specification keyword, not a trait flavour.)
 
 **Implementation entry points**:
 - [src/compiler/sema_decl.cpp](../../src/compiler/sema_decl.cpp) — `lower_struct_def`, `lower_enum_def`, `lower_datatype_def`

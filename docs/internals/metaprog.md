@@ -159,7 +159,7 @@ This calls for a third artifact, sitting between intent and machine:
 
 A `genos` is a **semi-formal, parametric form specification**. It uses Logos syntax with relaxed type rules; expresses the *shape and invariants* of an algorithm or data structure; lives in the codebase and gets versioned; serves both human reviewers and AI sessions as the canonical statement of intent. Knuth's TAOCP plays the same role for classical algorithms — pseudocode tightly adapted to a target environment, executable enough to ground intuition, abstract enough to keep the algorithm legible.
 
-Logos already uses `genos` as the keyword for parametric datatype families. Reusing it for algorithm templates is intentional, not collision: both meanings are the same idea applied at different semantic levels — *parametric form*, classification by shared structure (Greek γένος = "kind, family"). Data-genos parametrizes over field types; algorithm-genos parametrizes over data types and operational abstractions. Future evolution may unify them syntactically once data-genos grows invariants and refinements; for now the parser disambiguates by body shape.
+The keyword `genos` (Greek γένος = "kind, family") names a *parametric form* — a family classified by shared structure. It is reserved exclusively for these computable form specifications; the legacy data-trait-family role has been migrated to `pub trait` + the `#[hermes_eidos]` annotation (see the `trait_kw` comment in [`grammars/logos.peg`](../../tools/peg_gen/grammars/logos.peg)). The `genos` keyword and its `GENOS_DEF` AST node are retained for this spec form.
 
 ```logos
 genos pmap_descend_to_n<K: ContainerOrd, V: Container, CFG>
