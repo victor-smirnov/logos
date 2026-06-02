@@ -4855,7 +4855,15 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 // TraitObject OR UnsizedDyn (the probe runs under unsized_ok_, so
                 // bare `dyn Trait` now resolves to the unsized form — both denote
                 // the same owning trait object).
-                if (inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
+                // B3 stage-2b FLIP: `Rc<dyn>` no longer collapses to an owning
+                // trait object {data,vtable}; it resolves to the Rc STRUCT
+                // {inner: *mut RcInner<dyn>} (the inner ptr becomes a fat DstRef
+                // per the custom-DST machinery) by falling through to the normal
+                // generic-struct path below. All generic methods (clone/drop/
+                // deref) then run directly on the struct — no repr-aware
+                // specials. Box/Arc<dyn> still collapse here (flip pending).
+                if (sp_kind != TypeRef::OwningKind::Rc &&
+                    inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
                               TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
                     TypeRef ti(inner);
                     std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());

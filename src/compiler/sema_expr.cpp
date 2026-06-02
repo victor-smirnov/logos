@@ -113,13 +113,32 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
     // Emit `recv.deref()` as a generic-resolvable method call (mono picks the
     // concrete impl method, exactly like an explicit `x.deref()`), then deref
     // the returned `&Target` to a Target place.
-    TypeRef ref_t = make_ref(want_mut, target);
+    //
+    // UNSIZED Target (`Rc<dyn>`/`Box<[T]>` etc.): `*rc` is an unsized place that
+    // cannot be materialised by value, so `deref()` already returns the FAT
+    // reference — `&dyn` (TraitObject) or `&[T]` (Slice). Return that directly
+    // (no further deref) so method dispatch / indexing happens on the fat ref
+    // (Rust's autoref-on-unsized). `&Target` for an unsized Target canonicalises
+    // to exactly that fat form.
+    auto tgt_kind = TypeRef(target).kind();
+    bool tgt_unsized = tgt_kind == LogosType::Kind::UnsizedDyn ||
+                       tgt_kind == LogosType::Kind::UnsizedSlice;
+    TypeRef ref_t;
+    if (tgt_kind == LogosType::Kind::UnsizedDyn)
+        ref_t = make_trait_object(std::string(TypeRef(target).trait_name()),
+                                  std::vector<TypeRef>(TypeRef(target).type_args().begin(),
+                                                       TypeRef(target).type_args().end()));
+    else if (tgt_kind == LogosType::Kind::UnsizedSlice)
+        ref_t = make_slice_type(TypeRef(target).elem(), want_mut);
+    else
+        ref_t = make_ref(want_mut, target);
     lir::EMethodCall mc;
     mc.receiver     = std::move(recv);
     mc.method       = want_mut ? "deref_mut" : "deref";
     mc.vtable_index = -1;
     mc.tag_trait    = tr;  // resolve to <Concrete>__Deref__deref if qualified
     auto call = builder().method_call_v(std::move(mc), ref_t);
+    if (tgt_unsized) return call;
     return builder().deref(std::move(call), target);
 }
 

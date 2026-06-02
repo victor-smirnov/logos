@@ -29,20 +29,20 @@ use logos.lang.option;
 // this is how reference cycles are broken. The header layout MUST match
 // ArcInner's so the compiler's Rc/Arc<dyn> unsize + drop recover `val` at one
 // uniform offset (round_up(8, align(T)) — two i32 counters).
-pub struct RcInner<T> {
+pub struct RcInner<T: ?Sized> {
     pub strong: i32,
     pub weak:   i32,
     pub val:    T,
 }
 
-pub struct Rc<T> {
+pub struct Rc<T: ?Sized> {
     inner: *mut RcInner<T>,
 }
 
 // Weak<T> — a non-owning handle to an Rc allocation. Does not keep T alive;
 // `upgrade()` returns `Some(Rc)` only while a strong reference still exists,
 // else `None`. Use to break Rc cycles (e.g. a child's back-pointer to parent).
-pub struct Weak<T> {
+pub struct Weak<T: ?Sized> {
     inner: *mut RcInner<T>,
 }
 
@@ -56,7 +56,7 @@ pub fn rc_new<T>(val: T) -> Rc<T> {
     return Rc { inner: p };
 }
 
-impl<T> Rc<T> {
+impl<T: ?Sized> Rc<T> {
     pub unsafe fn get(self: *mut Rc<T>) -> *const T {
         return &self.inner.val as *const T;
     }
@@ -129,7 +129,7 @@ impl<T> Rc<T> {
     }
 }
 
-impl<T> Weak<T> {
+impl<T: ?Sized> Weak<T> {
     // Attempt to obtain a strong Rc. Returns None if the value has been dropped
     // (no strong references remain). On success bumps the strong count.
     pub fn upgrade(&self) -> Option<Rc<T>> {
@@ -156,7 +156,7 @@ impl<T> Weak<T> {
 
 // Weak auto-Drop: releases this weak handle's count (and frees the block if it
 // was the very last reference of either kind).
-impl<T> Drop for Weak<T> {
+impl<T: ?Sized> Drop for Weak<T> {
     fn drop(self: Weak<T>) {
         unsafe {
             let p: *mut Weak<T> = &self as *const Weak<T> as *mut Weak<T>;
@@ -166,7 +166,7 @@ impl<T> Drop for Weak<T> {
 }
 
 // Weak Clone: a second non-owning handle (bumps the weak count).
-impl<T> Clone for Weak<T> {
+impl<T: ?Sized> Clone for Weak<T> {
     fn clone(&self) -> Weak<T> {
         unsafe {
             let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
@@ -181,7 +181,7 @@ impl<T> Clone for Weak<T> {
 // Auto-Drop. Compiler emits a call to `Rc__drop` whenever a Rc<T>
 // goes out of scope unmoved. At the last strong reference, T's destructor
 // runs (the inner `val` is moved out and dropped) before the block is freed.
-impl<T> Drop for Rc<T> {
+impl<T: ?Sized> Drop for Rc<T> {
     fn drop(self: Rc<T>) {
         unsafe {
             let p: *mut Rc<T> = &self as *const Rc<T> as *mut Rc<T>;
@@ -194,7 +194,7 @@ impl<T> Drop for Rc<T> {
 // second handle to the same allocation — NOT a deep copy. Mirrors clone_ref,
 // but as the standard `Clone` trait so generic `T: Clone` code and `.clone()`
 // dispatch uniformly (same surface as a future Box/Arc Clone).
-impl<T> Clone for Rc<T> {
+impl<T: ?Sized> Clone for Rc<T> {
     fn clone(&self) -> Rc<T> {
         unsafe {
             let p: *mut Rc<T> = self as *const Rc<T> as *mut Rc<T>;
@@ -207,13 +207,13 @@ impl<T> Clone for Rc<T> {
 // `rc.method()` route through these. The inner block is heap-stable for the
 // lifetime of any Rc handle, so the borrowed `&T` / `&mut T` is well-defined.
 // Standard trait surface — same as Box/Arc, dispatched uniformly.
-impl<T> Deref<T> for Rc<T> {
+impl<T: ?Sized> Deref<T> for Rc<T> {
     fn deref(&self) -> &T {
         unsafe { return &self.inner.val; }
     }
 }
 
-impl<T> DerefMut<T> for Rc<T> {
+impl<T: ?Sized> DerefMut<T> for Rc<T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { return &mut self.inner.val; }
     }
