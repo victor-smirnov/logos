@@ -3931,8 +3931,27 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                                  sd.name == TypeRef(ty).struct_name();
                     if (!match) continue;
                     for (auto& f : sd.fields) {
-                        if (f.type && (TypeRef(f.type).kind() == LogosType::Kind::Struct ||
-                                       TypeRef(f.type).kind() == LogosType::Kind::ZonedStruct)) {
+                        if (!f.type) continue;
+                        // Force field-recursion if ANY field's drop is non-trivial.
+                        // Must mirror mlir-gen's gen_drop_value / value_needs_drop
+                        // coverage, NOT just Struct/ZonedStruct: an owning fat field
+                        // (Box<dyn>/Rc<dyn> = owning TraitObject, Box<[T]>, Box<DST>)
+                        // is droppable too, and was silently dropped on the floor —
+                        // a `struct H { pin: Rc<dyn Tr> }` / `{ obj: Box<dyn Tr> }`
+                        // used as a Vec/Rc element never released its dyn payload.
+                        auto fkk = TypeRef(f.type).kind();
+                        if (fkk == LogosType::Kind::Struct ||
+                            fkk == LogosType::Kind::ZonedStruct ||
+                            fkk == LogosType::Kind::Enum ||
+                            fkk == LogosType::Kind::Tuple ||
+                            fkk == LogosType::Kind::Array ||
+                            fkk == LogosType::Kind::Closure ||
+                            (fkk == LogosType::Kind::TraitObject &&
+                             TypeRef(f.type).owning_trait_object()) ||
+                            (fkk == LogosType::Kind::Slice &&
+                             TypeRef(f.type).owning_slice()) ||
+                            (fkk == LogosType::Kind::DstRef &&
+                             TypeRef(f.type).owning_dst())) {
                             drop_fields = true;
                             break;
                         }
