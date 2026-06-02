@@ -567,6 +567,72 @@ the acceptance checklist.
 
 ---
 
+## 11b. Smart-pointer trait-object representation — the (B) fix
+
+Surfaced by the acceptance spike: `Rc<dyn T>` / `Arc<dyn T>` are normalized
+(`sema.cpp` ~4848, the `Box/Rc/Arc<dyn>` resolver) to an **owning
+trait-object value `{data = ptr-to-val, vtable}`** (16B). This is
+layout-INCOMPATIBLE with the generic `Rc<T>` struct `{inner: *mut
+RcInner<T>}` (8B), whose methods read `self.inner.strong`. Consequences:
+
+- Generic inherent methods (`clone_ref`, `strong_count`, `weak_count`,
+  `downgrade`, …) can't run on `Rc<dyn>` — they read the fat pair as
+  `{inner}` and crash. (Verified: rerouting the receiver type to a
+  reconstructed `Rc<dyn>` struct compiles but segfaults.)
+- So `.clone()` and drop are handled by **repr-aware specials**
+  (`__smartptr_dyn_clone__`, `gen_drop_owning_dyn_handle`) that locate
+  the `RcInner` header by backing up from `data` using the vtable's
+  `size`/`align` slots (vtable = `[drop, size, align, methods…]`).
+- Implicit unsize coercion `Rc<A> → Rc<dyn>` at a type-annotated `let`
+  (and fn-arg/return) compiles but does **not** perform the unsize
+  (GAP-C) → the value stays an 8B `Rc<A>` in a 16B slot → segfault. The
+  explicit `as Rc<dyn>` cast does the unsize; `lower_cast` even carries a
+  "CoerceUnsized not yet implemented" reject for the *struct*-typed
+  target shape (which doesn't fire because the target normalizes to a
+  trait-object).
+
+**Interim (committed): `clone_ref`/`clone_rc` routed through the existing
+`__smartptr_dyn_clone__` marker** (same semantics as `.clone()`). A
+scaffold ([[feedback_workaround_is_temporary_scaffold]]); (B) replaces it.
+
+### (B) — the fundamental fix
+
+Stop collapsing `Rc<dyn T>` / `Arc<dyn T>` to an owning trait-object.
+Keep them as the **struct `Rc<dyn T> = { inner: *mut RcInner<dyn T> }`**,
+where `*mut RcInner<dyn T>` is a **custom-DST fat pointer `{RcInner-base,
+vtable}`** (RcInner-base → the `RcInner` header, strong at offset 0; val
+at `offset(val)`, dispatched via the vtable). Then:
+
+- all generic inherent methods run directly (`self.inner.strong`,
+  `self.inner.val`-dispatch) — no per-method markers;
+- implicit `Rc<A> → Rc<dyn>` = a custom-DST **unsize of the `inner`
+  pointer** (thin `*mut RcInner<A>` → fat `*mut RcInner<dyn>`), at
+  cast/let/arg/return sites uniformly;
+- `__smartptr_dyn_clone__` and `gen_drop_owning_dyn_handle` become
+  **obsolete** (generic `Clone`/`Drop` for `Rc<dyn>` work);
+- reuses the custom-DST machinery that already partly works — `RcInner<dyn>`
+  as a struct-with-unsized-tail already constructs / derefs / drops.
+
+`Box<dyn>` stays an owning trait-object (it owns the value directly, no
+`RcInner`).
+
+**Staging** (each step full-suite gated):
+1. Represent `RcInner<dyn T>` as a custom-DST and `*mut RcInner<dyn T>` as
+   a fat pointer (confirm the existing DstRef/owning-dst path covers it).
+2. Change the `sema.cpp` ~4848 resolver: `Rc/Arc<dyn>` → struct
+   `Rc/Arc<custom-dst inner>`, NOT `make_trait_object`.
+3. Unsize coercion of the `inner` pointer at `as`-cast, then at the
+   implicit coercion path (let/arg/return) — closes GAP-C.
+4. Verify generic `clone_ref`/`strong_count`/`Clone`/`Drop` run directly;
+   remove the `__smartptr_dyn_clone__`/`gen_drop_owning_dyn_handle`
+   specials and the interim `clone_ref` marker; payload-trait dispatch
+   (`Resident::base`) still works via the inner fat ptr's vtable.
+5. Drop the explicit `as` from the acceptance + clone_ref tests.
+
+Risk: touches coercion, layout, drop, clone, dyn dispatch, method
+resolution + many existing `Rc<dyn>`/`Arc<dyn>` tests — a focused,
+staged effort, not a point patch.
+
 ## 12. Open questions / deferred
 
 - **`RelPtr<T>` exact shape** — distinct type, `u32`-coercible,
