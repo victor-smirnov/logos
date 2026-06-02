@@ -134,7 +134,15 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                     }
                 }
             }
-            if (sit_ptr && (sit_ptr->is_dst || inst_dst)) {
+            // Non-generic custom-DST (`*mut Foo`, Foo has a `[u8]`/`dyn` tail):
+            // struct_templates_ is generics-only, so sit_ptr is null here —
+            // consult the all-structs index so a non-generic DST pointee
+            // canonicalises to DstRef too (matches sema's PTR_TYPE resolve;
+            // prevents the field-repr divergence that left it thin Ptr).
+            auto* any_sit = find_any_struct(inner.pkg_name(), sn);
+            bool tmpl_dst = (sit_ptr && sit_ptr->is_dst) ||
+                            (any_sit && any_sit->is_dst);
+            if (tmpl_dst || inst_dst) {
                 LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
                 dn.struct_name = sn;
                 dn.pkg_name = std::string(inner.pkg_name());

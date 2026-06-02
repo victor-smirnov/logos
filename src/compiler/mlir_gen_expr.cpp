@@ -2484,7 +2484,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     // struct/enum element convention in EIndexRead).
     if (type && (TypeRef(type).kind() == LogosType::Kind::Slice ||
                  TypeRef(type).kind() == LogosType::Kind::Closure ||
-                 TypeRef(type).kind() == LogosType::Kind::Tuple))
+                 TypeRef(type).kind() == LogosType::Kind::Tuple ||
+                 TypeRef(type).kind() == LogosType::Kind::DstRef))
         return gep;
     for (auto& f : info.fields)
         if (f.name == field)

@@ -209,6 +209,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // bare alias kept as last-wins for back-compat with callers operating
     // by base name only.
     for (auto& sd : in_.structs) {
+        // Index EVERY struct (generic + non-generic) for the DstRef
+        // canonicalisation's is_dst lookup (struct_templates_ below is
+        // generics-only). Bare last-wins + pkg-qualified, mirroring below.
+        if (!sd.pkg.empty()) all_structs_[sd.pkg + "." + sd.name] = &sd;
+        all_structs_[sd.name] = &sd;
         if (!sd.type_params.empty()) {
             if (!sd.pkg.empty())
                 struct_templates_[sd.pkg + "." + sd.name] = &sd;

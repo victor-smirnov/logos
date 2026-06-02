@@ -287,6 +287,16 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
+        } else if (fv.kind() == LogosType::Kind::DstRef) {
+            // Custom-DST fat-pointer field — 16-byte {data, len-or-vtable} pair,
+            // stored INLINE by value exactly like a Slice/TraitObject field (a
+            // DstRef value elsewhere is a pointer to this 16-byte storage).
+            // Inline is REQUIRED for an owning `Rc<dyn>` = {inner: fat} — an
+            // 8-byte ptr-to-fat would dangle when the Rc moves.
+            ft = slice_llvm_type();
+            info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
+            field_types.push_back(ft);
+            continue;
         } else if (fv.kind() == LogosType::Kind::Closure) {
             // Closure field — fixed-size 16-byte {fn,env} fat pair. Stored
             // INLINE by value (like a slice); a closure value elsewhere is a

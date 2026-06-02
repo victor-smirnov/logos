@@ -168,6 +168,23 @@ private:
     StrMap<const lir::LFunction*>  templates_;
     StrMap<std::vector<const lir::LFunction*>> specs_;
     StrMap<const lir::LStructDef*> struct_templates_;
+    // ALL structs (generic templates AND non-generic), by bare + pkg-qualified
+    // name. struct_templates_ holds GENERICS ONLY, so the `*mut DstStruct`→DstRef
+    // canonicalisation in subst_type missed non-generic custom-DSTs (`*mut Foo`
+    // where Foo has a `[u8]` tail), leaving them thin Ptr while sema resolved
+    // them to DstRef — a representation divergence. This map closes it.
+    StrMap<const lir::LStructDef*> all_structs_;
+    const lir::LStructDef* find_any_struct(std::string_view pkg,
+                                           std::string_view base) const noexcept {
+        if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
+            return it->second;
+        if (!pkg.empty()) {
+            std::string q; q.reserve(pkg.size()+1+base.size());
+            q.append(pkg).append(".").append(base);
+            if (auto it = all_structs_.find(q); it != all_structs_.end()) return it->second;
+        }
+        return nullptr;
+    }
     // ── M2: centralized struct_templates_ lookup helpers ─────────────
     //
     // Today: inserts at mono.cpp:135-137 register BOTH `pkg.base` and
