@@ -1,0 +1,125 @@
+// Acceptance test for the zoned-types lifetime/erasure core (design doc §6,
+// docs/internals/zoned-types-design.md). A minimal type-erased storage model:
+//   - a type-erased per-block pin: `Rc<dyn Resident>`
+//   - a client `Handle` that pins its block and hands out a `HermesView`
+//   - handles ESCAPE into a `Vec` (lifetime NOT tied to a `&Storage` borrow)
+//   - while the client holds a handle, `Storage` cannot free that block
+//   - per-block granularity: other blocks free independently
+//   - the concrete block type (`HeapBlock`) is never named by client code
+//
+// Exercises the field-recursion drop fix (mono now drops owning-fat
+// `Rc<dyn>` fields, so `Vec<Handle>` / `Handle` release their pins) and the
+// `Vec::clear()` element-drop fix. The pin is shared with the canonical
+// `.clone()` (the Rust idiom for `Rc`). Returns 42 on full success.
+package test;
+
+use logos.mem.rc;
+use logos.mem.collections.vec;
+use logos.lang.hermes.view;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+// ── Type-erased "resident block": keeps backing bytes alive; release on Drop ──
+trait Resident {
+    fn base(&self) -> *const u8;
+    fn size(&self) -> u64;
+}
+
+// One concrete block kind. Client code never names it. Owns a heap buffer +
+// a test-instrumentation freed-counter, bumped when the memory is released.
+struct HeapBlock {
+    buf:   *mut u8,
+    len:   u64,
+    freed: *mut i64,
+}
+
+impl Resident for HeapBlock {
+    fn base(&self) -> *const u8 { return self.buf as *const u8; }
+    fn size(&self) -> u64 { return self.len; }
+}
+
+impl Drop for HeapBlock {
+    fn drop(self: HeapBlock) {
+        unsafe {
+            self.freed[0] = self.freed[0] + 1;
+            free(self.buf);
+        }
+    }
+}
+
+unsafe fn make_block(marker: u8, freed: *mut i64) -> Rc<dyn Resident> {
+    let b: *mut u8 = malloc(8);
+    b[0] = marker;
+    return rc_new(HeapBlock { buf: b, len: 8u64, freed: freed }) as Rc<dyn Resident>;
+}
+
+// ── Client-facing handle: pins its block (erased), hands out a read view ──
+struct Handle {
+    pin: Rc<dyn Resident>,
+}
+
+impl Handle {
+    fn view<'a>(self: &'a Handle) -> HermesView<'a> {
+        return HermesView { base: self.pin.base(), size: self.pin.size() };
+    }
+}
+
+// ── Minimal type-erased storage ──
+struct Storage {
+    blocks: Vec<Rc<dyn Resident>>,
+}
+
+impl Storage {
+    fn get(&self, i: i64) -> Handle {
+        return Handle { pin: self.blocks.borrow(i).clone() };   // share the pin
+    }
+    // Evict: drop Storage's own Rc for block i. Frees the memory ONLY if no
+    // client handle still pins it (strong count must reach 0).
+    fn evict(&mut self, i: i64) {
+        let dropped: Rc<dyn Resident> = self.blocks.remove(i);
+        // `dropped` drops at end of scope → strong--.
+    }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let cbuf: *mut u8 = malloc(16);
+        let pf0: *mut i64 = cbuf as *mut i64;
+        let pf1: *mut i64 = (cbuf as i64 + 8) as *mut i64;
+        pf0[0] = 0;
+        pf1[0] = 0;
+
+        let mut st: Storage = Storage { blocks: Vec::<Rc<dyn Resident>>::new() };
+        st.blocks.push(make_block(170u8, pf0));   // block 0 marker 0xAA
+        st.blocks.push(make_block(187u8, pf1));   // block 1 marker 0xBB
+
+        // Client takes a handle to block 0 and stores it in an array (escapes).
+        let mut held: Vec<Handle> = Vec::<Handle>::new();
+        held.push(st.get(0));
+
+        // Read through the held view: block 0's first byte is 0xAA.
+        let v0: HermesView = held.borrow(0).view();
+        if *v0.base != 170u8 { return 1; }
+
+        // Evict block 1 (nobody holds it) → freed immediately.
+        st.evict(1);
+        if pf1[0] != 1 { return 2; }   // per-block: B freed
+        if pf0[0] != 0 { return 3; }   // A NOT freed (still held)
+
+        // Evict block 0 from storage, but the client still holds its handle.
+        st.evict(0);
+        if pf0[0] != 0 { return 4; }   // still pinned by the held handle
+
+        // Still readable through the held view after storage evicted it.
+        let v0b: HermesView = held.borrow(0).view();
+        if *v0b.base != 170u8 { return 5; }
+
+        // Drop the client's handles → last pin gone → block 0 freed.
+        held.clear();
+        if pf0[0] != 1 { return 6; }   // now freed
+
+        free(cbuf);
+        return 42;
+    }
+}

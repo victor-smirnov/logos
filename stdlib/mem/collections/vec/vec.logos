@@ -206,8 +206,19 @@ impl<T> Vec<T> {
         }
     }
 
-    // Clear all elements — len reset to 0, capacity preserved.
+    // Clear all elements — drops each (Rust parity), len reset to 0,
+    // capacity preserved (buffer kept for reuse).
     pub fn clear(&mut self) {
+        unsafe {
+            let p: *mut T = self.ptr;
+            if p != 0 as *mut T {
+                let mut i: i64 = 0;
+                while i < self.len {
+                    let _x: T = p[i];   // move-and-drop on scope exit
+                    i = i + 1;
+                }
+            }
+        }
         self.len = 0i64;
     }
 
