@@ -617,8 +617,19 @@ at `offset(val)`, dispatched via the vtable). Then:
 `RcInner`).
 
 **Staging** (each step full-suite gated):
-1. Represent `RcInner<dyn T>` as a custom-DST and `*mut RcInner<dyn T>` as
-   a fat pointer (confirm the existing DstRef/owning-dst path covers it).
+1. **Build the custom-DST foundation** — this is where (B) bottoms out, and
+   it is the designated hardest prerequisite (B2/B3, memory
+   `project_box_unsized_customdst`). A struct with a fixed header + an
+   **unsized trait-object last field** (`struct Inner<T> { strong: i32,
+   val: T }` with `T = dyn Tr`), and a fat pointer `*mut Inner<dyn Tr> =
+   {base, vtable}` through which you can BOTH read a header field
+   (`p.strong`) AND dispatch the tail (`(&p.val as &dyn Tr).v()`).
+   **Currently segfaults** — the `as *mut Inner<dyn Tr>` cast does not
+   build a proper fat pointer (repro: `sandbox/zoned-spike/bfound_B_foundation.logos`,
+   target exit 42). Existing custom-DST support covers Box<[T]> slices and
+   the `RcInner<dyn>` *owning-trait-object* `{data=val, vtable}` path, but
+   NOT this struct-with-unsized-trait-tail + header-bearing fat pointer.
+   This step makes the repro pass; everything below depends on it.
 2. Change the `sema.cpp` ~4848 resolver: `Rc/Arc<dyn>` → struct
    `Rc/Arc<custom-dst inner>`, NOT `make_trait_object`.
 3. Unsize coercion of the `inner` pointer at `as`-cast, then at the
