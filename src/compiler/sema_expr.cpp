@@ -5865,6 +5865,38 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_raw_ptr(
     if (method_name == "sub")              return mk_arith(lir::EPtrArith::Sub);
     if (method_name == "byte_offset_from") return mk_diff(true);
     if (method_name == "offset_from")      return mk_diff(false);
+    if (method_name == "is_null") {
+        // Defer to a user-defined inherent `is_null(self: *T)` when the pointee
+        // declares one. Logos lets a `fn is_null(self: *const Struct)` be called
+        // on a `*const Struct` receiver, and the hermes stdlib uses that
+        // pervasively (AnyVal/RelPtr/Rc/Arc check their *contents*, not the
+        // pointer). Only synthesize the builtin pointer-null check when the
+        // pointee has no such method (e.g. `*mut Segment`, `*mut i64`).
+        if (TypeRef pointee = TypeRef(recv->type).pointee(); pointee) {
+            auto pk = TypeRef(pointee).kind();
+            std::string base;
+            if (pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct)
+                base = TypeRef(pointee).struct_name().to_string();
+            else if (pk == LogosType::Kind::Enum)
+                base = TypeRef(pointee).enum_name().to_string();
+            if (!base.empty() && !find_func_candidates(base + "__is_null").empty())
+                return std::nullopt;   // user-defined is_null wins
+        }
+        // Rust `<*const T>::is_null` / `<*mut T>::is_null`: SAFE (no
+        // dereference — just compares the address to null). Lower as
+        // `(recv as i64) == 0` → bool.
+        auto args = lower_call_args(node);
+        if (!args.empty()) {
+            error(std::format("pointer method 'is_null' expects 0 arguments, got {}",
+                  args.size()));
+            return error_expr();
+        }
+        auto i64ty  = prim(LogosType::Kind::I64);
+        auto boolty = prim(LogosType::Kind::Bool);
+        auto as_int = builder().cast(std::move(recv), i64ty);
+        auto zero   = builder().lit_int(0, i64ty);
+        return builder().bin_op("==", std::move(as_int), std::move(zero), boolty);
+    }
     return std::nullopt;  // other methods resolve via struct lookup below
 }
 

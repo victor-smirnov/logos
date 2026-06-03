@@ -1,0 +1,23 @@
+// Raw-pointer `.is_null()` — Rust <*const T>::is_null / <*mut T>::is_null.
+// Safe (no dereference): just compares the address to null. Works on both
+// *const and *mut, and outside `unsafe`.
+package test;
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+fn main() -> i32 {
+    // null *mut / *const, checked without `unsafe` (is_null is safe)
+    let zm: *mut i64   = 0 as *mut i64;
+    let zc: *const i64 = 0 as *const i64;
+    if !zm.is_null() { return 1; }
+    if !zc.is_null() { return 2; }
+
+    unsafe {
+        let p: *mut u8 = malloc(16);
+        if p.is_null() { return 3; }           // live allocation → not null
+        let pc: *const u8 = p as *const u8;
+        if pc.is_null() { return 4; }
+        free(p);
+    }
+    return 42;
+}
