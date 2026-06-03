@@ -1,0 +1,14 @@
+// pass — implicit unsize coercion to Rc<dyn> (B3 stage-2c, GAP-C closed). No
+// explicit `as`: at a type-annotated let AND at a call arg, `Rc<A>` coerces to
+// `Rc<dyn Sp>` (CoerceUnsized: rebuild the struct, unsize the inner field).
+package test;
+use logos.mem.rc;
+trait Sp { fn v(&self) -> i64; }
+struct A { x: i64 }
+impl Sp for A { fn v(&self) -> i64 { return self.x; } }
+fn take_rc(r: Rc<dyn Sp>) -> i64 { return r.v(); }
+fn main() -> i32 {
+    let r: Rc<dyn Sp> = rc_new(A { x: 20 });   // implicit unsize (no `as`)
+    let s: i64 = take_rc(rc_new(A { x: 22 }));      // implicit unsize at arg
+    return (r.v() + s) as i32;                    // 20 + 22 = 42
+}

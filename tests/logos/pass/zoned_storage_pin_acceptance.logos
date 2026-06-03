@@ -51,7 +51,7 @@ impl Drop for HeapBlock {
 unsafe fn make_block(marker: u8, freed: *mut i64) -> Rc<dyn Resident> {
     let b: *mut u8 = malloc(8);
     b[0] = marker;
-    return rc_new(HeapBlock { buf: b, len: 8u64, freed: freed }) as Rc<dyn Resident>;
+    return rc_new(HeapBlock { buf: b, len: 8u64, freed: freed });
 }
 
 // ── Client-facing handle: pins its block (erased), hands out a read view ──

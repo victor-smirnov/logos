@@ -408,6 +408,12 @@ private:
     // already fits `pt` or `pt` is not a trait object.
     bool coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt);
     bool coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt);
+    // CoerceUnsized for a smart-pointer/wrapper struct: `Rc<A>` → `Rc<dyn Tr>`
+    // (same struct, a field unsizes sized→DstRef/TraitObject/slice). Rebuilds
+    // `e` in place via struct_lit, coercing the changed field. Returns true iff
+    // applied. Shared by explicit `as` (lower_cast) and the implicit coercion
+    // points (arg / let / return). Single-field shape only.
+    bool try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target);
     bool try_implicit_reborrow_mut(lir::LExprPtr& arg, TypeRef pt,
                                    bool allow_downgrade = true);
 

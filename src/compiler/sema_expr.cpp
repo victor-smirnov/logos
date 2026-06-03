@@ -525,6 +525,60 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     return builder().var_ref(std::string(name), t);
 }
 
+bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
+    if (!e || !e->type || !target) return false;
+    TypeRef et(e->type);
+    if (!((TypeRef(target).kind() == LogosType::Kind::Struct ||
+           TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
+          (et.kind() == LogosType::Kind::Struct ||
+           et.kind() == LogosType::Kind::ZonedStruct) &&
+          et.struct_name() == TypeRef(target).struct_name() &&
+          !TypeRef(target).type_args().empty() &&
+          et.type_args().size() == TypeRef(target).type_args().size()))
+        return false;
+    std::string sname(TypeRef(target).struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sname);
+    if (!ssi || ssi->fields.empty()) return false;
+    SemaSubst src_s, tgt_s;
+    auto sa = et.type_args();
+    auto ta = TypeRef(target).type_args();
+    for (size_t i = 0; i < ssi->type_params.size(); ++i) {
+        if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
+        if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
+    }
+    // Only a GENUINE unsize fires here: a field whose substituted type goes from
+    // a sized/thin form to a fat unsized form (DstRef, or TraitObject/Slice the
+    // source isn't). A type-arg difference that is NOT an unsize — e.g. a
+    // lifetime-only variance diff `Foo<&'a>` vs `Foo<&'b>` — must fall through to
+    // the variance/compat machinery, NOT be rebuilt here (that broke 19 variance
+    // tests). Require EXACTLY one unsizing field and all others identical;
+    // restricted to the single-field smart-pointer shape (Rc/Arc/user).
+    if (ssi->fields.size() != 1) return false;
+    std::vector<TypeRef> sft(1), tft(1);
+    sft[0] = src_s.empty() ? TypeRef(ssi->fields[0].type)
+                           : subst_type_sema(ssi->fields[0].type, src_s);
+    tft[0] = tgt_s.empty() ? TypeRef(ssi->fields[0].type)
+                           : subst_type_sema(ssi->fields[0].type, tgt_s);
+    if (!sft[0] || !tft[0] || sft[0] == tft[0]) return false;
+    auto sk = sft[0].kind(), tk = tft[0].kind();
+    bool is_unsize =
+        tk == LogosType::Kind::DstRef ||
+        (tk == LogosType::Kind::TraitObject && sk != LogosType::Kind::TraitObject) ||
+        (tk == LogosType::Kind::Slice && sk != LogosType::Kind::Slice);
+    if (!is_unsize) return false;  // not a sized→fat unsize (e.g. lifetime diff)
+    // Single-field smart-pointer shape (Rc/Arc/user): read the field, coerce
+    // it to the target field type (the ptr→DstRef/TraitObject unsize is handled
+    // in mlir-gen's cast), repack into the target struct.
+    std::string fname0(ssi->fields[0].name);
+    auto fr = builder().field_read(std::move(e), fname0, sft[0]);
+    lir::LExprPtr fv = (sft[0] != tft[0])
+        ? builder().cast(std::move(fr), tft[0]) : std::move(fr);
+    std::vector<std::pair<std::string, lir::LExprPtr>> flds;
+    flds.emplace_back(fname0, std::move(fv));
+    e = builder().struct_lit(sname, std::move(flds), target);
+    return true;
+}
+
 lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     lir::LExprPtr inner = expr.has_key(la::VALUE)
@@ -534,64 +588,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         ? resolve_type(map_of(expr.get(la::TYPE.code)))
         : error_t();
 
-    // Struct → struct unsize coercion (Rust CoerceUnsized): same struct, type-
-    // args differ such that a field changes from a sized type to an unsized
-    // custom-DST / trait-object / slice form — e.g. `Rc<A> as Rc<dyn Tr>`
-    // unsizes the inner `*mut RcInner<A>` → fat `*mut RcInner<dyn Tr>`. Rebuild
-    // the target struct, coercing the changed field and copying the rest, so
-    // the widened field gets its metadata (vtable/len) — NOT a flat memcpy that
-    // leaves those bytes garbage (→ segfault on later dispatch). Built directly
-    // via struct_lit + the resolved target/per-field types, bypassing source-
-    // level turbofish (which mis-resolves a bare `dyn` arg as sized).
-    if (target && inner && inner->type &&
-        (TypeRef(target).kind() == LogosType::Kind::Struct ||
-         TypeRef(target).kind() == LogosType::Kind::ZonedStruct) &&
-        (TypeRef(inner->type).kind() == LogosType::Kind::Struct ||
-         TypeRef(inner->type).kind() == LogosType::Kind::ZonedStruct) &&
-        TypeRef(inner->type).struct_name() == TypeRef(target).struct_name() &&
-        !TypeRef(target).type_args().empty() &&
-        TypeRef(inner->type).type_args().size() == TypeRef(target).type_args().size()) {
-        std::string sname(TypeRef(target).struct_name());
-        auto [spkg, ssi] = find_struct_by_name(sname);
-        if (ssi && !ssi->fields.empty()) {
-            SemaSubst src_s, tgt_s;
-            auto sa = TypeRef(inner->type).type_args();
-            auto ta = TypeRef(target).type_args();
-            for (size_t i = 0; i < ssi->type_params.size(); ++i) {
-                if (i < sa.size()) src_s[ssi->type_params[i].name] = sa[i];
-                if (i < ta.size()) tgt_s[ssi->type_params[i].name] = ta[i];
-            }
-            std::vector<TypeRef> sft(ssi->fields.size()), tft(ssi->fields.size());
-            int changed = 0;
-            for (size_t i = 0; i < ssi->fields.size(); ++i) {
-                sft[i] = src_s.empty() ? TypeRef(ssi->fields[i].type)
-                                       : subst_type_sema(ssi->fields[i].type, src_s);
-                tft[i] = tgt_s.empty() ? TypeRef(ssi->fields[i].type)
-                                       : subst_type_sema(ssi->fields[i].type, tgt_s);
-                if (sft[i] != tft[i]) changed++;
-            }
-            // Only a genuine unsize (a field type actually changed) is rebuilt
-            // here; identical-arg casts fall through to the no-op below.
-            if (changed > 0 && ssi->fields.size() == 1) {
-                // Single-field smart-pointer shape (Rc/Arc/Box/user): read the
-                // field, coerce it to the target field type (the ptr→DstRef
-                // unsize is handled in mlir-gen's cast), repack into the target.
-                std::string fname0(ssi->fields[0].name);
-                auto fr = builder().field_read(std::move(inner), fname0, sft[0]);
-                lir::LExprPtr fv = (sft[0] != tft[0])
-                    ? builder().cast(std::move(fr), tft[0]) : std::move(fr);
-                std::vector<std::pair<std::string, lir::LExprPtr>> flds;
-                flds.emplace_back(fname0, std::move(fv));
-                return builder().struct_lit(sname, std::move(flds), target);
-            }
-            if (changed > 0) {
-                error(std::format(
-                    "unsizing multi-field struct `{}` (CoerceUnsized with more "
-                    "than one field) is not yet supported", sname));
-                return error_expr();
-            }
-        }
-    }
+    // Struct → struct unsize coercion (Rust CoerceUnsized): `Rc<A> as Rc<dyn
+    // Tr>` rebuilds the target struct, unsizing the changed field. Shared with
+    // the implicit coercion points via try_struct_unsize_coerce.
+    if (try_struct_unsize_coerce(inner, target)) return std::move(inner);
 
     // ── Hermes typed container casts: &[T] as <I32>[] → Hermes. ──────
     if (target && TypeRef(target).kind() == LogosType::Kind::Struct &&
@@ -3652,6 +3652,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             retype_bare_enum_arg(arg_exprs[i], pt);
             try_coerce_closure_to_fnptr(arg_exprs[i], pt);
             try_implicit_reborrow_mut(arg_exprs[i], pt);
+            try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
             widen_int_expr(arg_exprs[i], pt, builder());
             auto at = arg_exprs[i]->type;
             if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -3682,6 +3683,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                 try_coerce_array_ref_to_slice(arg_exprs[i], pt);
                 try_coerce_slice_to_array_ref(arg_exprs[i], pt);
                 try_implicit_reborrow_mut(arg_exprs[i], pt);
+                try_struct_unsize_coerce(arg_exprs[i], pt);  // Rc<A> → Rc<dyn Tr>
                 widen_int_expr(arg_exprs[i], pt, builder());
                 auto at = arg_exprs[i]->type;
                 if (TypeRef(at).kind() != LogosType::Kind::Error &&
@@ -5979,26 +5981,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         dyn_t = TypeRef(rt.pointee());
     if (!(dyn_t && dyn_t.kind() == LogosType::Kind::TraitObject)) return std::nullopt;
     auto tname = std::string(dyn_t.trait_name());
-    // Rc<dyn>/Arc<dyn>.clone() (and the inherent `clone_ref`/`clone_rc`, whose
-    // semantics are identical): a shared-ownership clone — bump the strong count
-    // + copy the fat pair, NOT a deep copy and NOT a trait-vtable method. These
-    // inherent methods of the Rc/Arc owner can't be resolved through the normal
-    // struct path because `Rc<dyn T>` is represented as an owning trait-object
-    // {data, vtable}, layout-incompatible with `Rc<T>`'s `{inner}` struct (the
-    // generic body reads `self.inner.strong` and would crash on the fat pair);
-    // route them through the same repr-aware marker as `.clone()`. Box<dyn> is
-    // excluded (Box: dyn Trait is not Clone). mlir-gen lowers the marker via the
-    // OwningKind on the result type (atomic bump for Arc).
-    if ((method_name == "clone" || method_name == "clone_ref" ||
-         method_name == "clone_rc") &&
-        (dyn_t.trait_owning_kind() == TypeRef::OwningKind::Rc ||
-         dyn_t.trait_owning_kind() == TypeRef::OwningKind::Arc)) {
-        lir::EMethodCall mc;
-        mc.receiver     = std::move(recv);
-        mc.method       = "__smartptr_dyn_clone__";
-        mc.vtable_index = -1;
-        return builder().method_call_v(std::move(mc), dyn_t);
-    }
+    // (Removed: the `__smartptr_dyn_clone__` repr-aware marker for
+    // Rc/Arc<dyn>.clone()/clone_ref/clone_rc. After the B3 stage-2b flip,
+    // `Rc<dyn>`/`Arc<dyn>` are real STRUCTS `{inner: *mut RcInner<dyn>}` — their
+    // clone methods resolve through the normal generic struct path and run the
+    // actual `self.inner.strong += 1` body (re-lowered per-instance). This
+    // branch only ever matched a Rc/Arc-OWNING TraitObject, which the resolver
+    // no longer produces.)
     // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled as
     // `$dyn$Foo__method` (Phase 1B-10 collection). Try this BEFORE vtable
     // dispatch so impls override / extend trait-method resolution.
@@ -11667,6 +11656,11 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     if (flags & CFLAG_DYN_UPCAST)       coerce_dyn_upcast(arg, pt);
     if (flags & CFLAG_ARG_TO_DYN)       coerce_arg_to_dyn(arg, pt);
     if (flags & CFLAG_IMPLICIT_REBORROW) try_implicit_reborrow_mut(arg, pt);
+    // Implicit CoerceUnsized for a smart-pointer struct arg (`Rc<A>` →
+    // `Rc<dyn Tr>`). Unconditional (not flag-gated): a no-op unless `arg` is
+    // the same wrapper struct as `pt` with a field unsizing sized→dyn — so it
+    // is safe in every arg-coercion context. Closes GAP-C for the flipped repr.
+    try_struct_unsize_coerce(arg, pt);
     if (flags & CFLAG_WIDEN_INT)        widen_int_expr(arg, pt, builder());
     // logos-core 2.4(c): unsize-to-dyn auto-trait bound enforcement.
     // types_compatible's `Struct → TraitObject` branch (sema.cpp:1727) is a
@@ -11826,6 +11820,10 @@ bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
     if (TypeRef(arg->type).kind() == LogosType::Kind::Error) return false;
     if (types_compatible(arg->type, pt)) return false;  // already fits
+    // Implicit CoerceUnsized for a smart-pointer/wrapper struct param
+    // (`Rc<A>` → `Rc<dyn Tr>`): rebuild unsizing the inner field. Mirrors the
+    // explicit `as` path; closes GAP-C for the flipped struct repr.
+    if (try_struct_unsize_coerce(arg, pt)) return true;
     // Peel a `&dyn` / `&mut dyn` param to the bare TraitObject.
     TypeRef pdyn = pt;
     auto pk = TypeRef(pt).kind();

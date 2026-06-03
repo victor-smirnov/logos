@@ -1845,6 +1845,12 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             TypeRef(rhs_type).kind() != LogosType::Kind::Error &&
             !rhs_is_expr_blob &&
             !types_compatible(rhs_type, ann)) {
+            // Implicit CoerceUnsized: `let r: Rc<dyn Tr> = rc_new(a)` rebuilds
+            // the smart-pointer struct, unsizing the inner field (no explicit
+            // `as` needed). Mirrors the arg/cast paths; closes GAP-C.
+            if (try_struct_unsize_coerce(rhs, ann)) {
+                rhs_type = rhs->type;
+            } else
             // Non-capturing closure literal → fn(...) -> T coercion.
             if (try_coerce_closure_to_fnptr(rhs, ann)) {
                 rhs_type = rhs->type;
@@ -2602,6 +2608,10 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             if (ret_type_ &&
                 LogosType::is_fn_value_kind(TypeRef(ret_type_).kind()))
                 try_coerce_closure_to_fnptr(val, ret_type_);
+            // Implicit CoerceUnsized on return: `-> Rc<dyn Tr> { return rc_new(a) }`
+            // rebuilds the smart-pointer struct, unsizing the inner field (no
+            // explicit `as`). Mirrors the let/arg paths; closes GAP-C.
+            if (ret_type_) try_struct_unsize_coerce(val, ret_type_);
             if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::ImplTrait) {
                 // Infer concrete return type from first return expression.
                 if (!impl_ret_type_inferred_ &&
