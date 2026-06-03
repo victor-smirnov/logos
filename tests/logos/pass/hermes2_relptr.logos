@@ -1,0 +1,34 @@
+// Hermes2 — RelPtr<T> self-relative reference: set/resolve round-trip + null.
+// A RelPtr stores the signed distance from its own address to the target;
+// resolving it (anchored at its own storage) must recover the target, and a
+// null RelPtr (delta == 0) must resolve to the null pointer.
+package test;
+
+use logos.lang.hermes2.relptr;
+
+struct Node { val: i64 }
+
+fn main() -> i32 {
+    let target: Node = Node { val: 1234 };
+    let mut rp: RelPtr<Node> = RelPtr { delta: 0 };
+
+    unsafe {
+        // null until set
+        if !rp.is_null() { return 1; }
+        if rp.resolve() != 0 as *const Node { return 2; }
+
+        // encode the target, then resolve it back
+        rp.set(&target as *const Node);
+        if rp.is_null() { return 3; }
+        let p: *const Node = rp.resolve();
+        if p != &target as *const Node { return 4; }
+        if p.val != 1234 { return 5; }
+
+        // clear → null again
+        rp.clear();
+        if !rp.is_null() { return 6; }
+        if rp.resolve() != 0 as *const Node { return 7; }
+    }
+
+    return 42;
+}
