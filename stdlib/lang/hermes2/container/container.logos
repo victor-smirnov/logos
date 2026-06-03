@@ -1,0 +1,53 @@
+// Logos Hermes2 stdlib — hermes2.container
+//
+// Hermes2: the owned, mutable root container (Vec/Box-like) for a never-move
+// zoned document. It owns a Holder (the never-move segment arena) and places
+// typed objects into it. A placed object NEVER moves, so a pointer to it — and
+// any self-relative RelPtr into it — stays valid for the container's lifetime;
+// growth appends a fresh segment rather than reallocating.
+//
+// This layer is monomorphic (typed) placement: `hermes2_alloc::<T>()` reserves
+// storage for a T and returns a raw pointer to it. The heterogeneous /
+// self-describing (type_code-tagged, AnyVal) layer is built on top of this
+// later, together with Array<AnyVal> and the document root.
+//
+// See docs/internals/hermes2-design.md §3-5.
+
+package logos.lang.hermes2.container;
+
+use logos.lang.hermes2.holder;
+
+// The root container: owns the segment arena by value (the container is the
+// stable root — it does not move; only never-move segments hang off it).
+pub struct Hermes2 {
+    pub holder: Holder,
+}
+
+// Create a container whose segments default to `seg_size` data bytes.
+pub unsafe fn hermes2_new(seg_size: i64) -> Hermes2 {
+    return Hermes2 { holder: holder_new(seg_size) };
+}
+
+// Free the container and all its segments en masse. Must not be used after.
+pub unsafe fn hermes2_free(h: *mut Hermes2) {
+    holder_free(&mut h.holder);
+}
+
+// Place one uninitialised `T` into a never-move segment; return a pointer to it.
+// The caller initialises the storage. The pointer is stable for the container's
+// lifetime. Returns null on OOM.
+pub unsafe fn hermes2_alloc<T>(h: *mut Hermes2) -> *mut T {
+    return holder_alloc(&mut h.holder, sizeof::<T>() as i64) as *mut T;
+}
+
+// Place `n` contiguous uninitialised `T` (array backing) in one segment; return
+// a pointer to element 0. Stable for the container's lifetime. Null on OOM.
+pub unsafe fn hermes2_alloc_n<T>(h: *mut Hermes2, n: i64) -> *mut T {
+    return holder_alloc(&mut h.holder, (sizeof::<T>() as i64) * n) as *mut T;
+}
+
+// Place `n` raw bytes (for self-describing blobs — Varchar payloads, etc.).
+// Stable for the container's lifetime. Null on OOM.
+pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
+    return holder_alloc(&mut h.holder, n);
+}
