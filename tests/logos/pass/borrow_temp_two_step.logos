@@ -1,0 +1,12 @@
+// pass — the valid form of binding a view: keep the owner in a named local so
+// it outlives the borrow (counterpart to the rejected one-liner E0716 case).
+package test;
+struct Inner { x: i64 }
+struct H { inner: Inner }
+impl H { fn view(&self) -> &Inner { return &self.inner; } }
+fn make() -> H { return H { inner: Inner { x: 42 } }; }
+fn main() -> i32 {
+    let h: H = make();
+    let v: &Inner = h.view();
+    return v.x as i32;
+}

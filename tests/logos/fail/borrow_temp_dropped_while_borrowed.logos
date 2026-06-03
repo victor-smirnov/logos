@@ -1,0 +1,17 @@
+// fail — a reference bound to a borrow into a (droppable) statement-temporary
+// must be rejected (Rust E0716). `make()` is a droppable temporary that the
+// compiler materializes (`__rtmp`) and drops at the end of the `let`; `v`
+// borrows into it and is used in the next statement → dangling / use-after-drop.
+// This is exactly the holder/view soundness case: a view must not outlive the
+// holder it borrows. Valid form: bind the owner first (see pass/borrow_temp_two_step).
+package test;
+extern fn noop(p: *const u8);
+struct Inner { x: i64 }
+struct H { inner: Inner }
+impl Drop for H { fn drop(self: H) { unsafe { noop(0 as *const u8); } } }
+impl H { fn view(&self) -> &Inner { return &self.inner; } }
+fn make() -> H { return H { inner: Inner { x: 7 } }; }
+fn main() -> i32 {
+    let v: &Inner = make().view();
+    return v.x as i32;
+}

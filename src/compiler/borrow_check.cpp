@@ -180,6 +180,14 @@ using StateMap = std::unordered_map<std::string, VarState>;
 struct RefProv {
     std::unordered_set<std::string> params;    // param names this ref may alias
     bool                            is_local = false;
+    // is_temp = the ref borrows into a *statement-scoped temporary* (a fresh
+    // value with no named storage — a call/method-call result, struct/tuple/
+    // array/enum literal, …) which drops at the end of the enclosing statement.
+    // Distinct from is_local (a named local that lives for the whole scope): a
+    // ref to a temporary is dangling the moment it ESCAPES its statement (e.g.
+    // `let v = make().view();` — Rust E0716), whereas a ref to a local is only
+    // dangling when RETURNED past the scope.
+    bool                            is_temp = false;
 };
 
 using ProvMap = std::unordered_map<std::string, RefProv>;
@@ -189,7 +197,34 @@ static RefProv merge_prov(const RefProv& a, const RefProv& b) {
     for (auto& s : a.params) r.params.insert(s);
     for (auto& s : b.params) r.params.insert(s);
     r.is_local = a.is_local || b.is_local;
+    r.is_temp  = a.is_temp  || b.is_temp;
     return r;
+}
+
+// A statement-scoped temporary value: a fresh value with no named storage. A
+// reference borrowing into one dangles once it leaves the statement. (Mirrors
+// the kind-set the AddrOfTemp case below treats as a true temporary.)
+// Names of compiler-materialized, statement-scoped temporaries. materialize_recv_ref
+// (sema_expr.cpp) hoists a fresh droppable rvalue receiver into a `__rtmp_N` local
+// that drops at the END of the enclosing statement. A reference borrowing into one
+// is statement-scoped (dangling if it escapes the statement) — exactly Rust's
+// temporary-lifetime for an auto-ref'd rvalue receiver.
+static bool is_materialized_temp_name(std::string_view n) {
+    return n.rfind("__rtmp_", 0) == 0;
+}
+
+static bool is_temporary_value_expr(lir_view::ExprRef e) {
+    if (!e) return false;
+    using EK = lir_schema::expr::Code;
+    switch (e.kind()) {
+        case EK::LitInt: case EK::LitFloat: case EK::LitBool: case EK::LitStr:
+        case EK::StructLit: case EK::TupleLit: case EK::ArrLit:
+        case EK::Call: case EK::MethodCall: case EK::ClosureCall:
+        case EK::EnumLit: case EK::EnumLitData:
+            return true;
+        default:
+            return false;
+    }
 }
 
 static void merge_provs(ProvMap& base, const ProvMap& other) {
@@ -821,6 +856,8 @@ class BorrowChecker {
             case Code::AddrOf: {
                 EAddrOfView v{e};
                 std::string name(v.var_name());
+                if (is_materialized_temp_name(name))
+                    return {{}, /*is_local=*/false, /*is_temp=*/true};
                 if (param_names_.count(name)) return {{name}, false};
                 if (states_.count(name))      return {{},     true};
                 return {};
@@ -833,19 +870,27 @@ class BorrowChecker {
                 // a long-lived var via field/deref chains, prov_of of
                 // the inner already returns that — propagate it.
                 EAddrOfTempView v{e};
+                // A borrow of a *materialized statement-temporary* (the `__rtmp_N`
+                // local that materialize_recv_ref hoists for a fresh rvalue
+                // receiver, e.g. `make().view()` → `(&__rtmp_0).view()`) is
+                // statement-scoped: __rtmp_N drops at the end of the statement, so
+                // a ref into it dangles the moment it escapes. Mark is_temp.
+                if (auto in = v.inner();
+                    in && in.kind() == Code::VarRef &&
+                    is_materialized_temp_name(EVarRefView{in}.name()))
+                    return {{}, /*is_local=*/false, /*is_temp=*/true};
                 auto inner_prov = prov_of(v.inner());
-                if (!inner_prov.params.empty() || inner_prov.is_local)
+                if (!inner_prov.params.empty() || inner_prov.is_local ||
+                    inner_prov.is_temp)
                     return inner_prov;
-                // Otherwise: rooted in a true temporary → dangling.
-                using EK = lir_schema::expr::Code;
-                auto ik = v.inner() ? v.inner().kind() : EK::LitInt;
-                if (ik == EK::LitInt || ik == EK::LitFloat ||
-                    ik == EK::LitBool || ik == EK::LitStr ||
-                    ik == EK::StructLit || ik == EK::TupleLit ||
-                    ik == EK::ArrLit || ik == EK::Call ||
-                    ik == EK::MethodCall || ik == EK::ClosureCall ||
-                    ik == EK::EnumLit || ik == EK::EnumLitData)
-                    return {{}, true};  // literal / fresh / call result → dangling
+                // A DIRECT `&<literal/struct-lit/call>` bound to a `let` is
+                // lifetime-EXTENDED in Rust (`let r = &mut 5;` keeps the temporary
+                // alive as long as `r`) → NOT dangling at the binding; mark
+                // is_local so it is caught only when RETURNED past the scope
+                // (check_return_value). This is DISTINCT from the materialized
+                // `__rtmp` case above, which is statement-scoped + NOT extended.
+                if (is_temporary_value_expr(v.inner()))
+                    return {{}, /*is_local=*/true, /*is_temp=*/false};
                 return {};  // unknown — conservative-accept
             }
             case Code::FieldRead:
@@ -871,9 +916,23 @@ class BorrowChecker {
                 });
                 return merged;
             }
+            case Code::MethodCall: {
+                // Lifetime elision: a method returning `&T` borrows its receiver
+                // (`fn view(&self) -> &T` → the output ties to `&self`). So the
+                // result's provenance IS the receiver's. Crucially, if the
+                // receiver is a *temporary* (`make().view()` — a fresh value with
+                // no named storage), the returned borrow points into that
+                // temporary, which drops at the end of the statement → is_temp.
+                // (A non-ref result is a plain owned value — no provenance.)
+                EMethodCallView v{e};
+                if (!is_ref_kind(e.type(pool))) return {};
+                RefProv rp = prov_of(v.receiver());
+                if (is_temporary_value_expr(v.receiver())) rp.is_temp = true;
+                return rp;
+            }
             default:
-                // ECall / EMethodCall / EStructLit / literals — value is caller-owned,
-                // not a borrowed reference; leave provenance empty (= unknown/safe).
+                // ECall / EStructLit / literals — value is caller-owned, not a
+                // borrowed reference; leave provenance empty (= unknown/safe).
                 return {};
         }
     }
@@ -890,10 +949,10 @@ class BorrowChecker {
 
         RefProv prov = prov_of(er);
 
-        // 1. Definitely local → always dangling.
-        if (prov.is_local) {
+        // 1. Definitely local / temporary → always dangling.
+        if (prov.is_local || prov.is_temp) {
             std::string src;
-            bool is_temp = false;
+            bool is_temp = prov.is_temp;
             if (er) {
                 using Code = lir_schema::expr::Code;
                 if (er.kind() == Code::AddrOf)
@@ -1599,9 +1658,21 @@ class BorrowChecker {
                 declare_var(name);
                 if (auto it = states_.find(name); it != states_.end())
                     it->second.is_mut_binding = v.is_mut();
-                if (is_ref_kind(t))
-                    prov_[name] = prov_of(val);
-                else if (t && !t.lifetime_args().empty() &&
+                if (is_ref_kind(t)) {
+                    RefProv vp = prov_of(val);
+                    // E0716: a `let`-bound reference outlives its statement, but
+                    // it borrows into a temporary that drops at the end of THIS
+                    // statement (`let v = make().view();`) → dangling. The owner
+                    // must be bound to a variable first (`let h = make(); let v =
+                    // h.view();`) so it lives as long as the borrow.
+                    if (vp.is_temp)
+                        report(ln,
+                            "temporary value dropped while borrowed: this "
+                            "reference borrows into a temporary that is dropped "
+                            "at the end of the statement; bind the owning value "
+                            "to a variable first so it outlives the borrow");
+                    prov_[name] = vp;
+                } else if (t && !t.lifetime_args().empty() &&
                          (t.kind() == LogosType::Kind::Struct ||
                           t.kind() == LogosType::Kind::ZonedStruct))
                     prov_[name] = prov_of(val);  // struct<'z> borrows through lifetime
