@@ -800,9 +800,6 @@ private:
     // semantics as the sized case (the block is freed separately by the caller).
     // `fat_ptr` points at the 16-byte {data,vtable} pair.
     void gen_drop_dyn_in_place(mlir::Value fat_ptr);
-    // Rc<dyn>/Arc<dyn>.clone(): bump strong (at data − round_up(4, vtable.align);
-    // atomic for Arc) and return a copy of the {data,vtable} fat pair.
-    mlir::Value gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t);
     // Codegen-side "does a value of this type own anything droppable" — mirrors
     // sema's has_droppable_fields; gates gen_drop_value recursion to avoid empty
     // GEP/loop emission for non-droppable members.

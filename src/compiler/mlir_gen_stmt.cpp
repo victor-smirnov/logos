@@ -697,60 +697,9 @@ void MLIRGenImpl::gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty) {
     builder_.setInsertionPointToStart(cont_blk);
 }
 
-mlir::Value MLIRGenImpl::gen_clone_owning_dyn(const LExpr* recv_le, TypeRef recv_t) {
-    auto recv = gen_expr(*recv_le);
-    if (!recv) return nullptr;
-    auto dyn_struct = dyn_llvm_type();
-    // Peel a &(Rc<dyn>) receiver; recover the OwningKind (Rc vs Arc).
-    TypeRef ot = recv_t;
-    if (ot && (ot.kind() == LogosType::Kind::Ref || ot.kind() == LogosType::Kind::MutRef)
-        && ot.pointee())
-        ot = ot.pointee();
-    auto kind = TypeRef(ot).trait_owning_kind();
-
-    // fat_ptr → pointer to the {data,vtable} pair (spill an SSA value).
-    mlir::Value fat_ptr = recv;
-    if (recv.getType() == dyn_struct) fat_ptr = spill_to_alloca(recv);
-    if (fat_ptr.getType() != ptr_type()) return recv;  // unexpected shape — pass through
-
-    auto i32_t = builder_.getI32Type();
-    auto i64_t = builder_.getI64Type();
-    // data = field0, vtable = field1; align = vtable[2] (ptr-encoded usize).
-    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
-        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, di));
-    llvm::SmallVector<mlir::LLVM::GEPArg> vi{int32_t(0), int32_t(1)};
-    auto vtable = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
-        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dyn_struct, fat_ptr, vi));
-    llvm::SmallVector<mlir::LLVM::GEPArg> ai{int32_t(2)};
-    auto alignp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(),
-        builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ptr_type(), vtable, ai));
-    mlir::Value align = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, alignp);
-    // inner = data − round_up(4, align) = data − ((3 + align) & ~(align - 1)).
-    auto c3  = builder_.create<mlir::arith::ConstantIntOp>(loc_, 3, 64);
-    auto cN1 = builder_.create<mlir::arith::ConstantIntOp>(loc_, -1, 64);
-    mlir::Value a3   = builder_.create<mlir::arith::AddIOp>(loc_, align, c3);
-    mlir::Value am1  = builder_.create<mlir::arith::AddIOp>(loc_, align, cN1);
-    mlir::Value mask = builder_.create<mlir::arith::XOrIOp>(loc_, am1, cN1);
-    mlir::Value off  = builder_.create<mlir::arith::AndIOp>(loc_, a3, mask);
-    mlir::Value data_i  = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, i64_t, data);
-    mlir::Value inner_i = builder_.create<mlir::arith::SubIOp>(loc_, data_i, off);
-    mlir::Value inner   = builder_.create<mlir::LLVM::IntToPtrOp>(loc_, ptr_type(), inner_i);
-
-    // Bump strong (i32 at inner, offset 0). Arc → atomic.
-    auto one32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 32);
-    if (kind == TypeRef::OwningKind::Arc) {
-        builder_.create<mlir::LLVM::AtomicRMWOp>(
-            loc_, mlir::LLVM::AtomicBinOp::add, inner, one32,
-            mlir::LLVM::AtomicOrdering::seq_cst);
-    } else {
-        auto cur = builder_.create<mlir::LLVM::LoadOp>(loc_, i32_t, inner);
-        mlir::Value inc = builder_.create<mlir::arith::AddIOp>(loc_, cur, one32);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, inc, inner);
-    }
-    // The clone IS a copy of the same fat pair (shared data + vtable).
-    return builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, fat_ptr);
-}
+// (Removed gen_clone_owning_dyn: the B3 stage-2b flip made Rc<dyn>/Arc<dyn>
+// structs whose generic clone runs directly — the __smartptr_dyn_clone__
+// repr-aware special is gone.)
 
 void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level) {
     using K = LogosType::Kind;
