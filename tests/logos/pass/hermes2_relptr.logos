@@ -15,7 +15,7 @@ fn main() -> i32 {
     unsafe {
         // null until set
         if !rp.is_null() { return 1; }
-        if rp.resolve() != 0 as *const Node { return 2; }
+        if !rp.resolve().is_null() { return 2; }
 
         // encode the target, then resolve it back
         rp.set(&target as *const Node);
@@ -27,7 +27,7 @@ fn main() -> i32 {
         // clear → null again
         rp.clear();
         if !rp.is_null() { return 6; }
-        if rp.resolve() != 0 as *const Node { return 7; }
+        if !rp.resolve().is_null() { return 7; }
     }
 
     return 42;

@@ -30,6 +30,8 @@
 
 package logos.lang.hermes2.relptr;
 
+use logos.lang.ptr;
+
 // Thin self-relative reference — 8 bytes stored in zone.
 #[zoned] pub struct RelPtr<T> {
     pub delta: i64,
@@ -39,14 +41,14 @@ impl<T> RelPtr<T> {
     // Resolve to a const pointer. Anchor = the RelPtr's own address.
     // A null RelPtr (delta == 0) resolves to the null pointer.
     pub unsafe fn resolve(self: *const RelPtr<T>) -> *const T {
-        if self.delta == 0 { return 0 as *const T; }
+        if self.delta == 0 { return null::<T>(); }
         let anchor: i64 = self as i64;
         return (anchor + self.delta) as *const T;
     }
 
     // Resolve to a mutable pointer (same anchor arithmetic).
     pub unsafe fn resolve_mut(self: *const RelPtr<T>) -> *mut T {
-        if self.delta == 0 { return 0 as *mut T; }
+        if self.delta == 0 { return null_mut::<T>(); }
         let anchor: i64 = self as i64;
         return (anchor + self.delta) as *mut T;
     }
