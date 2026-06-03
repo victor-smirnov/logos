@@ -18,6 +18,20 @@ This document is the canonical statement of the model. It supersedes
 the ad-hoc lifetime machinery in `stdlib/lang/hermes/{own,zone,mem_holder}`
 (those are scaffold — see §9).
 
+> **Superseded in part by [Hermes2](hermes2-design.md) (2026-06-03).**
+> Hermes2 is the target architecture, built in parts in parallel with the
+> current Hermes (which then retires wholesale). It removes *relocation*
+> entirely: objects never move in place (growth appends segments,
+> compaction copies to a fresh container), references become
+> **self-relative `i64`** (no base threaded anywhere), and the only
+> run-time guarantee left is **liveness of immutable data** via a coarse
+> holder-level `Rc<dyn Resident>`. This **replaces** §2 (relocation
+> model), §4.1 (reference forms — `RelPtr` flips base-relative → self-
+> relative), and reframes §5/§6 (residency = snapshot liveness, not
+> anti-relocation insurance). The borrow-foundation thesis (§3), the
+> `(B)` smart-pointer fix (§11b, landed), and the type roster (§8) carry
+> over unchanged.
+
 ---
 
 ## 1. Three levels: Zone / PackedAllocator / Buffer
