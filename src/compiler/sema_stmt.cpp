@@ -246,8 +246,12 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>> hoisted;
     auto* saved_hoist = cur_stmt_temp_hoist_;
     cur_stmt_temp_hoist_ = &hoisted;
+    auto saved_ret_bind = std::move(pending_ret_bind_);
+    pending_ret_bind_.reset();
     lir::LStmt s = lower_stmt_inner(stmt);
     cur_stmt_temp_hoist_ = saved_hoist;
+    auto ret_bind = std::move(pending_ret_bind_);
+    pending_ret_bind_ = std::move(saved_ret_bind);
     if (hoisted.empty()) return s;
     // Wrap: `{ let __t0 = v0; …; <stmt>; drop __tN; … drop __t0; }`. The hoisted
     // temporaries are bound to fresh locals, the statement runs (borrowing them),
@@ -267,9 +271,24 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
             drops.push_back(std::move(*d));
     }
-    blk->stmts.push_back(std::move(s));
-    for (auto it = drops.rbegin(); it != drops.rend(); ++it)
-        blk->stmts.push_back(std::move(*it));
+    if (ret_bind) {
+        // `return <val>` whose value hoisted temps: bind the value (computed
+        // while the temps live), drop the temps, THEN return — so the drops
+        // precede the terminator instead of being dead code past it.
+        lir::SLet rb;
+        rb.name = std::get<0>(*ret_bind);
+        rb.type = std::get<1>(*ret_bind);
+        rb.is_mut = false;
+        rb.value = std::get<2>(*ret_bind);
+        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(rb)));
+        for (auto it = drops.rbegin(); it != drops.rend(); ++it)
+            blk->stmts.push_back(std::move(*it));
+        blk->stmts.push_back(std::move(s));   // `return __rv` — terminator last
+    } else {
+        blk->stmts.push_back(std::move(s));
+        for (auto it = drops.rbegin(); it != drops.rend(); ++it)
+            blk->stmts.push_back(std::move(*it));
+    }
     lir::SBlock sb; sb.body = std::move(blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
@@ -2756,6 +2775,19 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                 }
             };
             if (val) mark_moved_in_expr(expr_ref_of(*val));
+            // If lowering the value hoisted statement-temporaries (a droppable
+            // rvalue receiver `make().get()`), the temps must drop BEFORE the
+            // return transfers control. lower_stmt emits drops AFTER the wrapped
+            // statement, which for a `return` is dead code → the temp leaks.
+            // Pre-bind the value to a synthetic `__rv` local; lower_stmt then
+            // emits `let __t…; let __rv = <val>; drop __t…; return __rv;` so the
+            // value is computed while the temps live, dropped before the return.
+            if (val && cur_stmt_temp_hoist_ && !cur_stmt_temp_hoist_->empty()) {
+                std::string rv = std::format("__rv_{}", destruct_counter_++);
+                TypeRef rvt = val->type;
+                pending_ret_bind_ = std::make_tuple(rv, rvt, val);
+                return builder().stmt_return(builder().var_ref(rv, rvt), node_line_);
+            }
             return builder().stmt_return(std::move(val), node_line_);
         }
     }

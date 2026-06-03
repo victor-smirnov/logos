@@ -1,0 +1,12 @@
+// A droppable rvalue method receiver in RETURN position (`return make().get()`)
+// must drop exactly once — before control leaves. The temp-drop must precede
+// the `return` terminator (was emitted after it = dead code → leak).
+package test;
+extern fn puts(s: *const u8) -> i32;
+struct H { x: i64 }
+impl Drop for H { fn drop(self: H) { unsafe { puts("drop\0".as_ptr()); } } }
+impl H { fn get(&self) -> i64 { return self.x; } }
+fn make() -> H { return H { x: 42 }; }
+fn main() -> i32 {
+    return make().get() as i32;
+}

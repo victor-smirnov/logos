@@ -3581,6 +3581,12 @@ private:
     // statement context (or nested expr already inside one). Save/restore across
     // lower_stmt recursion.
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>>* cur_stmt_temp_hoist_ = nullptr;
+    // Set by lower_return when its value lowering hoisted statement-temporaries:
+    // the value must be pre-bound to this local so lower_stmt can emit
+    // `let __t…; let __rv = <value>; drop __t…; return __rv;` — the temp drops
+    // must run BEFORE the `return` terminator, else they are dead code past it
+    // and the temporaries leak. {name, type, value-expr}. Reset each lower_stmt.
+    std::optional<std::tuple<std::string, TypeRef, lir::LExprPtr>> pending_ret_bind_;
     bool is_hoistable_temp_rvalue(const lir::LExpr& e);
     // Auto-ref a method receiver to `&self`/`&mut self`. When `recv` is a fresh
     // DROPPABLE rvalue and a statement temp-scope is active, hoist it to a named

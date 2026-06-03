@@ -8241,6 +8241,19 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     auto field_name = str_of(node.get(la::FIELD.code));
     if (field_name.empty()) field_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
+    // A DROPPABLE fresh rvalue base (`make().x`) must live to the end of the
+    // statement then drop — otherwise the temporary leaks (its Drop never runs).
+    // Hoist it into the statement temp-scope as a named local and read the field
+    // from that local (mirrors materialize_recv_ref for method receivers; the
+    // block's scope-exit drop runs the destructor). Only a fresh owned rvalue of
+    // a move type — a place / borrow base is left untouched.
+    if (cur_stmt_temp_hoist_ && recv && recv->type &&
+        is_move_type(recv->type) && is_hoistable_temp_rvalue(*recv)) {
+        std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+        TypeRef rt = recv->type;
+        cur_stmt_temp_hoist_->push_back({nm, rt, recv});
+        recv = builder().var_ref(nm, rt);
+    }
     TypeRef recv_base_t = recv->type;
     // Auto-deref field access: a receiver whose own type lacks `field_name`
     // but implements Deref derefs to its Target — `b.v` ≡ `(*b).v`. Generalizes
