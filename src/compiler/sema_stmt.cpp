@@ -6535,6 +6535,13 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
             return false;
         }
         if (k == LogosType::Kind::MutRef) return true;  // `&mut T` — writable
+        if (k == LogosType::Kind::DstRef) {  // `&mut DstStruct` writable; `&DstStruct` not
+            if (!TypeRef(t).mut_ptr()) {
+                error(std::format("assignment through a shared reference (variable '{}' is `&DstStruct`)", name));
+                return false;
+            }
+            return true;
+        }
         if (k == LogosType::Kind::Ptr) {  // raw-pointer root (auto-deref place)
             if (!TypeRef(t).mut_ptr()) {
                 error(std::format("assignment through a `*const` pointer (variable '{}')", name));

@@ -1,0 +1,5 @@
+// A write through a shared `&DstStruct` must be rejected (only `&mut` writes).
+package test;
+struct Seg { used: i64, data: [u8] }
+unsafe fn wr(s: &Seg) { s.used = 9; }
+unsafe fn main() -> i32 { return 0; }

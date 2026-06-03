@@ -1,0 +1,28 @@
+// Custom-DST WRITE through `&mut DstStruct`: prefix-field write (s.used) and
+// tail write (s.data[i]) — the foundation the real zoned objects (HermesString,
+// Array) build on. A `&mut Foo` for a custom-DST Foo is a fat DstRef; writing
+// through it must be allowed (it carries its own mutability), exactly like
+// `&mut Sized`.
+package test;
+extern fn malloc(size: i64) -> *mut u8;
+
+struct Seg { used: i64, data: [u8] }
+
+unsafe fn main() -> i32 {
+    let cap: i64 = 8;
+    let raw: *mut u8 = malloc(sizeof::<Seg>() as i64 + cap);
+    let s: &mut Seg = dst_from_raw_parts_mut::<Seg>(raw, cap);
+
+    s.used = 5;                                   // prefix-field write
+    let mut i: i64 = 0;
+    while i < cap { s.data[i] = (i + 1) as u8; i = i + 1; }   // tail write
+
+    if s.used != 5 { return 1; }
+    let t: &[u8] = s.data;
+    if t.len() != cap { return 2; }
+    let mut sum: i64 = 0;
+    i = 0;
+    while i < cap { sum = sum + s.data[i] as i64; i = i + 1; }
+    if sum != 36 { return 3; }                    // 1+2+...+8
+    return 42;
+}
