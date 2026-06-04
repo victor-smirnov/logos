@@ -55,14 +55,22 @@ entirely (there is no relocation).
 
 ---
 
-## 2. References: self-relative `i64`
+## 2. References: self-relative `i64` (compiler-derived, not an explicit type)
 
-A zoned reference (`RelPtr<T>`) stores the **signed byte distance from
-its own storage address to the target**, not an offset from a zone base:
+A zoned reference stores the **signed byte distance from its own storage
+address to the target**, not an offset from a zone base. This is **not a
+user-written `RelPtr<T>`** (that explicit type was removed 2026-06-04) —
+it is the **compiler's storage representation** for an ordinary pointer
+field inside a `#[zoned2]` struct, derived from context and converted
+transparently. The full model (typed `zoned T`, tagged/erased refs,
+`ZonedAny`, niches) and the codegen plumbing live in
+[ref-repr-design.md](ref-repr-design.md) §6; this section states the
+storage mechanics it rests on.
 
 ```
-RelPtr<T> { delta: i64 }        // in-zone storage: 8 bytes
-resolve(p: &RelPtr<T>) -> *T  =  (p as *const u8).offset(p.delta)
+storage:  i64 delta                 // 8 bytes in the zoned slot
+read:     *T = (&field) + delta     // materialize: relative → absolute
+write:    delta = target − (&field) // lower: absolute → relative
 ```
 
 Consequences:
@@ -76,9 +84,11 @@ Consequences:
   resolved later. The compiler resolves it at the field-access site,
   producing an ordinary absolute `*T` — which, because nothing moves, is
   then valid for the lifetime of the target's container.
-- **`delta == 0` is the null sentinel** (a pointer to itself is
-  meaningless for `T ≠ RelPtr`), reserved so `RelPtr<T>` is nullable
-  without a separate flag.
+- **Niche, not just a null sentinel.** Zoned objects are ≥2-aligned, so a
+  pointer delta's low bit is always 0; a *reference* (non-null) adds the
+  null niche. These invalid bit-patterns feed enum niche-packing
+  (`Option<zoned T>`, and `ZonedAny`'s `Ref|Pod` discriminant) — see
+  ref-repr §6-7.
 - **Position-independent / serializable.** Self-relative deltas are
   internal to the blob; the whole segment set can be written to disk and
   mapped elsewhere with deltas intact.
@@ -87,7 +97,8 @@ Consequences:
 
 | Form | What it is | Carries | Used for |
 |---|---|---|---|
-| `RelPtr<T>` | in-zone stored reference, `i64` self-relative | nothing (the delta is the whole thing) | a zone object referencing another (field, array element) |
+| zoned pointer field | in-zone stored reference, `i64` self-relative (compiler-derived, ref-repr §6) | nothing (the delta is the whole thing) | a zone object referencing another (field, array element) |
+| `ZonedAny` | `enum { Ref(*zoned) \| Pod }` (≈ AnyVal), niche-packed | one 8-byte word | a heterogeneous slot / client-facing value |
 | **read view** | resolved absolute `*const T` (thin) | nothing — it's a plain pointer | reading inside a scope where the holder is known live |
 | **mut receiver** | the object + an allocator capability | `(self_ptr, allocator)` — **no base** | a method that may `grow` |
 | `SuperRc<T>` / holder | residency-retaining owning handle | `Rc<dyn Resident>` + loc | a reference that **escapes** the holder's scope (§4) |

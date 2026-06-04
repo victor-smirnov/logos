@@ -1,13 +1,13 @@
-// Hermes2 — root container + typed placement. Demonstrates the payoff: a
-// self-relative RelPtr between two placed objects keeps resolving correctly
-// even when they land in DIFFERENT never-move segments (growth appended a
-// segment; nothing moved).
+// Hermes2 — root container + typed placement. Demonstrates never-move: a plain
+// cross-object pointer keeps resolving even when the objects land in DIFFERENT
+// never-move segments (growth appended a segment; nothing moved). (Self-relative
+// zoned pointers are compiler-derived for #[zoned2] fields — see
+// ref-repr-design.md §6 — and are not exercised here; this is the raw-pointer base.)
 package test;
 
 use logos.lang.hermes2.container;
-use logos.lang.hermes2.relptr;
 
-struct Node { val: i64, link: RelPtr<Node> }
+struct Node { val: i64, link: *mut Node }
 
 fn main() -> i32 {
     unsafe {
@@ -17,34 +17,27 @@ fn main() -> i32 {
         let a: *mut Node = hermes2_alloc::<Node>(&mut hh);
         let b: *mut Node = hermes2_alloc::<Node>(&mut hh);
         let c: *mut Node = hermes2_alloc::<Node>(&mut hh);   // forces a new segment
-        a.val = 1; a.link.clear();
-        b.val = 2; b.link.clear();
-        c.val = 3; c.link.clear();
+        a.val = 1; a.link = 0 as *mut Node;
+        b.val = 2; b.link = 0 as *mut Node;
+        c.val = 3; c.link = 0 as *mut Node;
 
-        // a and c are in different segments — link a -> c with a self-relative
-        // RelPtr, then resolve it back across the segment boundary.
-        a.link.set(c as *const Node);
-        let r: *const Node = a.link.resolve();
-        if r != c as *const Node { return 1; }
+        // a and c are in different segments — link a -> c, resolve across the boundary
+        a.link = c;
+        let r: *mut Node = a.link;
+        if r != c { return 1; }
         if r.val != 3 { return 2; }
 
-        // never-move: a/b handed out before the append are still valid.
+        // never-move: a/b handed out before the append are still valid
         if a.val != 1 { return 3; }
         if b.val != 2 { return 4; }
 
-        // typed array placement: 4 contiguous i64.
+        // typed array placement: 4 contiguous i64
         let arr: *mut i64 = hermes2_alloc_n::<i64>(&mut hh, 4);
         let mut i: i64 = 0;
-        while i < 4 {
-            *arr.add(i) = (i + 1) * 10;
-            i = i + 1;
-        }
+        while i < 4 { *arr.add(i) = (i + 1) * 10; i = i + 1; }
         let mut sum: i64 = 0;
         i = 0;
-        while i < 4 {
-            sum = sum + *arr.add(i);
-            i = i + 1;
-        }
+        while i < 4 { sum = sum + *arr.add(i); i = i + 1; }
         if sum != 100 { return 5; }    // 10+20+30+40
 
         hermes2_free(&mut hh);

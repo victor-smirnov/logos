@@ -43,10 +43,13 @@ Contrast with Rust, which uses **one** form (fat-by-value) for both
 storage and compute — simple, but stores metadata redundantly in every
 slot and is non-relocatable. Logos puts **Rust-conformance at the compute
 layer** (code sees Rust-shaped fat pointers) and treats **storage as a
-compaction** with explicit conversion. `RelPtr<T>` (thin self-relative
-offset in storage, fat pointer in compute, metadata from the in-band
-object header) is the first non-trivial instance — not a one-off
-divergence, but a point in this general design space.
+compaction** with explicit conversion. The zoned reference family (§6) is
+the first non-trivial instance: a pointer field inside a `#[zoned2]`
+struct is a thin self-relative offset in storage, an absolute pointer in
+compute, with metadata recovered (where needed) from the in-band object
+header. (The explicit `RelPtr<T>` type was removed 2026-06-04 — the
+compiler derives relativity from the zoned context; reintroduce only if a
+first-class relative-pointer value is ever needed.)
 
 ---
 
@@ -74,6 +77,12 @@ struct RefRepr {
   mlir::Value meta(mlir::Value value);        // metadata half (len / vtable / none)
   mlir::Value is_null(mlir::Value value);     // data == 0
   mlir::Value construct(mlir::Value data, mlir::Value meta, ConvCtx); // from_raw_parts
+
+  // NICHES — invalid storage bit-patterns the enum-layout may use to pack a
+  // discriminant for free (e.g. a zoned pointer's low bit is always 0 since
+  // zoned objects are ≥2-aligned; a zoned *reference* is additionally non-null).
+  // `ZonedAny = enum { Ref(zoned) | Pod }` and `Option<zoned T>` rely on this.
+  NicheSet niches();
 };
 
 // Conversion context — what materialize/lower need beyond the slot address.
@@ -122,8 +131,8 @@ A concrete `RefRepr` = (pointee-shape × storage-strategy × meta-recovery):
 | `&[T]` | FatLen | ByValue | in value | 16B / 16B |
 | `&dyn Tr` | FatVtable | ByValue | in value | 16B / 16B |
 | `&T` (`Sized`) | Thin | ByValue | — | 8B / 8B |
-| `RelPtr<HermesString>` | FatCustomDst | RelOffset(i64, self) | InBandHeader | **8B / 16B** |
-| `RelPtr<SizedT>` | Thin | RelOffset(i64, self) | — | 8B / 8B |
+| zoned `&HermesString` (in `#[zoned2]`) | FatCustomDst | RelOffset(i64, self) | InBandHeader | **8B / 16B** |
+| zoned `&SizedT` (in `#[zoned2]`) | Thin | RelOffset(i64, self) | — | 8B / 8B |
 
 **Extensibility (the payoff):**
 - *Wider than 16B* → a new pointee-shape (`Wide`, multi-word value);
@@ -176,11 +185,78 @@ reasons, not representation.)
   descriptor.
 - **Phase 3 — fix DstRef** (now localized to its descriptor's
   `materialize`/`lower`): consistent storage↔compute conversion. The
-  self-referential custom-DST (`next: *mut Self`) closes here, in **one
-  place**, not across the compiler.
-- **Phase 4 — add `RelPtr<T>` as a descriptor** (the first storage/compute
-  specialization): hermes2 `RelPtr` becomes a registry entry, not
-  hand-rolled stdlib resolve. Validates the abstraction end-to-end.
+  self-referential heap custom-DST (`Segment { next: *mut Segment, … }`)
+  closes here, in **one place**, not across the compiler. (Heap DSTs use
+  the Rust-fat repr — distinct from the zoned reprs of §6.)
+- **Phase 3.5 — enum niche optimization** (new compiler feature, §7):
+  consume `RefRepr::niches()` in the enum-layout so a discriminant packs
+  into invalid bit-patterns. Prerequisite for `ZonedAny` and
+  `Option<zoned T>`.
+- **Phase 4 — add the zoned reference reprs** (§6, the first real
+  storage/compute specializations): typed `zoned T` (untagged), erased
+  tagged zoned ptr, and `ZonedAny`. hermes2 zoned pointer *fields* become
+  auto-relative via these reprs — no `RelPtr<T>`, no hand-rolled resolve.
+  Validates the abstraction end-to-end.
 
-After Phases 0-2, Phase 3/4 and every future pointer kind are point
-changes in the registrar — the success criterion.
+After Phases 0-2, Phase 3/3.5/4 and every future pointer kind are point
+changes in the registrar (+ the one-time niche feature) — the success
+criterion.
+
+---
+
+## 6. The zoned reference model (the first real client)
+
+Zoned objects split into **tagged** and **untagged**, and you pay for a
+tag only where dynamic dispatch is actually needed (heterogeneous data) —
+never for container internals whose types are known.
+
+- **untagged → a parameterized reference, no tag.** A pointer to a known
+  type. In a `#[zoned2]` struct it stores as a **self-relative `i64`
+  offset**; in compute it is an **absolute pointer**, converted
+  transparently on read/write (`materialize`/`lower`). Two flavors mirror
+  Rust's raw/ref split: `*zoned T` (nullable; niche = low-bit-0 from ≥2
+  alignment) and `&zoned T` (non-null; niches = low-bit-0 **and** non-null).
+- **tagged → a type-erased reference + tag dispatch.** Until the tag is
+  read the referent is opaque (`Object`/`Variant`/`Union`); the canonical
+  op is *read tag → narrow to a typed compute form → process* (a built-in
+  match the compiler materializes per branch — the general case of which
+  in-band metadata recovery is the static, single-branch instance).
+- **`ZonedAny = enum { Ref(*zoned) | Pod(embedded) }`** — the AnyVal,
+  modeled as an ordinary **niche-packed enum** (discriminant in the
+  pointer's low-bit niche; `Ref` = even word = self-relative offset, `Pod`
+  = low-bit-1 = inline tagged value à la today's AnyVal). In zoned storage
+  it is one 8-byte word; copied into compute, the `Ref` arm's pointer
+  becomes absolute. The embedded-POD encoding reuses AnyVal's
+  (i56/u56/bool/…); short-string-inline (≤6B) is deferred to its own
+  design session.
+
+**Ordinary typed pointer fields** in a `#[zoned2]` struct are the untagged
+case: relative in storage, absolute in compute, no tag. **All** pointer
+fields of a `#[zoned2]` struct auto-convert (not every struct can be
+`#[zoned2]`, so not every pointer needs converting). A `#[zoned2]` struct
+**cannot be stack-allocated** (sema constraint — self-relative offsets are
+pointless/fragile off-zone). `#[zoned2]` is a **temporary** attribute
+distinct from hermes1's `#[zoned]` (explicit `RelPtr`) so the compiler
+doesn't conflate the two storage models during the migration; merged once
+hermes1 retires.
+
+This whole model is just a population of the `RefRepr` registry: typed
+`zoned T`, erased-tagged, and `ZonedAny` are descriptors; their niches
+feed the enum-layout (§7); the relative↔absolute conversion is their
+`materialize`/`lower`.
+
+---
+
+## 7. Prerequisite: enum niche optimization (new)
+
+Logos enums today are value-repr `{disc, payload}` with **no niche
+optimization** — a discriminant always costs its own bits. The zoned
+model needs niche-packing: `ZonedAny`'s `Ref|Pod` discriminant must live
+in the pointer's low-bit, and `Option<zoned T>` must use `null` as `None`.
+So this is a **new compiler feature, built as part of the Hermes2 plan**
+(Phase 3.5): the enum-layout queries `RefRepr::niches()` (invalid storage
+bit-patterns) and, when a payload field offers a niche, encodes the
+discriminant there instead of a separate tag — exactly Rust's
+`Option<&T>` / `NonNull` niche optimization. Scope: at minimum low-bit and
+null-pointer niches; general niche-packing (enum-of-enums, range niches)
+can follow.
