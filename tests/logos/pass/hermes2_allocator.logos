@@ -1,23 +1,23 @@
-// Hermes2 — never-move segment Holder: bump-alloc, append-on-full, and the
+// Hermes2 — never-move segment Allocator: bump-alloc, append-on-full, and the
 // invariant that growth (a new segment) NEVER invalidates earlier pointers.
 package test;
 
-use logos.lang.hermes2.holder;
+use logos.lang.hermes2.allocator;
 
 fn main() -> i32 {
     unsafe {
         // small segments (32 data bytes) so a third 8-byte alloc forces append
-        let mut h: Holder = holder_new(32);
+        let mut h: Allocator = allocator_new(32);
 
-        let p0: *mut i64 = holder_alloc(&mut h, 8) as *mut i64;
+        let p0: *mut i64 = allocator_alloc(&mut h, 8) as *mut i64;
         *p0 = 100;
-        let p1: *mut i64 = holder_alloc(&mut h, 8) as *mut i64;
+        let p1: *mut i64 = allocator_alloc(&mut h, 8) as *mut i64;
         *p1 = 200;
 
         let seg_after_two: *mut Segment = h.current;
 
         // 32 bytes can't fit (used is 16) — forces a fresh segment
-        let big: *mut i64 = holder_alloc(&mut h, 32) as *mut i64;
+        let big: *mut i64 = allocator_alloc(&mut h, 32) as *mut i64;
         *big = 300;
 
         // an append must have happened
@@ -33,7 +33,7 @@ fn main() -> i32 {
         if *p0 != 111 { return 5; }
         if *p1 != 200 { return 6; }
 
-        holder_free(&mut h);
+        allocator_free(&mut h);
     }
     return 42;
 }

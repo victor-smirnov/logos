@@ -1,20 +1,24 @@
-// Logos Hermes2 stdlib — hermes2.holder
+// Logos Hermes2 stdlib — hermes2.allocator
 //
-// Holder: the never-move segment arena that owns a Hermes2 container's bytes.
+// Allocator: the never-move segment arena that owns a Hermes2 container's bytes.
 //
 // Hermes2 never relocates live data. Growth does NOT realloc/move: when the
 // current segment is full, a fresh segment is malloc'd and APPENDED. Existing
 // segments — and every object in them — stay exactly where they are, so a
-// resolved pointer (and every self-relative RelPtr) remains valid for the
-// holder's lifetime. Segments are freed EN MASSE when the holder drops.
+// resolved pointer (and every self-relative zoned reference) remains valid for
+// the allocator's lifetime. Segments are freed EN MASSE when the allocator drops.
 //
 // Segment plumbing (the `next` links, the head/current cursor) uses ABSOLUTE
 // pointers: segments never move, so absolute pointers between them are stable.
-// Object references stored in the data live as self-relative RelPtr (relptr.logos).
+// Object references stored in the data are self-relative (compiler-derived for
+// #[zoned2] fields — see docs/internals/ref-repr-design.md §6).
+//
+// (Renamed from `Holder` 2026-06-04: "Allocator" is the accurate name for the
+// segment arena, and frees "holder" for the residency root of hermes2 §5-6.)
 //
 // See docs/internals/hermes2-design.md §3.
 
-package logos.lang.hermes2.holder;
+package logos.lang.hermes2.allocator;
 
 use logos.lang.panic;
 use logos.lang.ptr;
@@ -48,45 +52,45 @@ unsafe fn segment_make(cap: i64) -> *mut Segment {
     return seg;
 }
 
-// Holder — owns a singly-linked list of never-moved segments. Bump-allocates
+// Allocator — owns a singly-linked list of never-moved segments. Bump-allocates
 // within `current`, appends a new segment when full, frees all on drop.
-pub struct Holder {
+pub struct Allocator {
     pub head:     *mut Segment,   // first segment (free-en-masse walk start)
     pub current:  *mut Segment,   // segment we bump into
     pub seg_size: i64,            // default capacity for appended segments
 }
 
-// Create a holder with an initial segment of `seg_size` data bytes.
-// On OOM the returned holder has a null head (holder_alloc then returns null).
-pub unsafe fn holder_new(seg_size: i64) -> Holder {
+// Create an allocator with an initial segment of `seg_size` data bytes.
+// On OOM the returned allocator has a null head (allocator_alloc then returns null).
+pub unsafe fn allocator_new(seg_size: i64) -> Allocator {
     let seg: *mut Segment = segment_make(seg_size);
-    return Holder { head: seg, current: seg, seg_size: seg_size };
+    return Allocator { head: seg, current: seg, seg_size: seg_size };
 }
 
 // Append a fresh segment with at least `min_cap` data bytes after `current`,
 // make it current. Returns the new segment, or null on OOM.
-unsafe fn holder_append(h: *mut Holder, min_cap: i64) -> *mut Segment {
-    let cap: i64 = if h.seg_size >= min_cap { h.seg_size } else { min_cap };
+unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
+    let cap: i64 = if a.seg_size >= min_cap { a.seg_size } else { min_cap };
     let seg: *mut Segment = segment_make(cap);
     if seg.is_null() { return null_mut::<Segment>(); }
-    // Reach invariant: all segments of one container must be within signed
+    // Reach invariant: all segments of one allocator must be within signed
     // i64 self-relative reach. A distance >= 2^63 overflows the i64 delta and
     // wraps negative — detect that. Cannot happen on a real 64-bit VA
     // (≤ 2^47 / ~2^56 ≪ 2^63), so this is a defensive guard (hermes2 §3).
-    let a: i64 = seg as i64;
-    let hd: i64 = h.head as i64;
-    let d: i64 = if a >= hd { a - hd } else { hd - a };
+    let na: i64 = seg as i64;
+    let hd: i64 = a.head as i64;
+    let d: i64 = if na >= hd { na - hd } else { hd - na };
     if d < 0 { panic("hermes2: segment out of i64 self-relative reach"); }
-    h.current.next = seg;
-    h.current = seg;
+    a.current.next = seg;
+    a.current = seg;
     return seg;
 }
 
-// Bump-allocate `size` bytes (8-byte aligned) from the holder, appending a new
+// Bump-allocate `size` bytes (8-byte aligned) from the allocator, appending a new
 // segment if the current one is full. Returns a pointer into a never-moved
-// segment (stable for the holder's lifetime), or null on OOM.
-pub unsafe fn holder_alloc(h: *mut Holder, size: i64) -> *mut u8 {
-    let seg: *mut Segment = h.current;
+// segment (stable for the allocator's lifetime), or null on OOM.
+pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64) -> *mut u8 {
+    let seg: *mut Segment = a.current;
     let aligned: i64 = (seg.used + 7) / 8 * 8;
     if aligned + size <= seg.cap {
         let p: *mut u8 = (seg_data(seg) + aligned) as *mut u8;
@@ -95,21 +99,21 @@ pub unsafe fn holder_alloc(h: *mut Holder, size: i64) -> *mut u8 {
     }
     // Doesn't fit — append a new segment sized to hold it. Its data region
     // starts 8-aligned with used == 0, so allocate from offset 0.
-    let ns: *mut Segment = holder_append(h, size);
+    let ns: *mut Segment = allocator_append(a, size);
     if ns.is_null() { return null_mut::<u8>(); }
     let p: *mut u8 = seg_data(ns) as *mut u8;
     ns.used = size;
     return p;
 }
 
-// Free all segments en masse. The holder must not be used afterwards.
-pub unsafe fn holder_free(h: *mut Holder) {
-    let mut seg: *mut Segment = h.head;
+// Free all segments en masse. The allocator must not be used afterwards.
+pub unsafe fn allocator_free(a: *mut Allocator) {
+    let mut seg: *mut Segment = a.head;
     while !seg.is_null() {
         let nxt: *mut Segment = seg.next;
         free(seg as *mut u8);
         seg = nxt;
     }
-    h.head    = null_mut::<Segment>();
-    h.current = null_mut::<Segment>();
+    a.head    = null_mut::<Segment>();
+    a.current = null_mut::<Segment>();
 }
