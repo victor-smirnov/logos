@@ -499,6 +499,64 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     }
 }
 
+// ── RefRepr registry (Phase 0 scaffold — dead code, not yet routed) ──────────
+// Each method reproduces the CURRENT per-kind behavior, consolidated in one
+// place. Phase 1+ migrate the scattered codegen sites to dispatch through these.
+// See docs/internals/ref-repr-design.md.
+
+MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
+    if (!t) return RefReprKind::NotARef;
+    using K = LogosType::Kind;
+    switch (TypeRef(t).kind()) {
+        // A raw/safe pointer is thin even when its pointee is unsized at the
+        // type level (e.g. `*const dyn` collapses to a TraitObject elsewhere);
+        // classification is by the OUTER kind, matching today's field layout
+        // (a Ptr-to-TraitObject field is an 8B thin slot; a bare TraitObject
+        // field is the 16B inline fat pair).
+        case K::Ptr: case K::Ref: case K::MutRef:
+        case K::FnPtr: case K::FnItem:           return RefReprKind::ThinPtr;
+        case K::Slice: case K::UnsizedSlice:     return RefReprKind::FatSlice;
+        case K::TraitObject: case K::UnsizedDyn: return RefReprKind::FatDyn;
+        case K::Closure:                         return RefReprKind::FatClosure;
+        case K::DstRef:                          return RefReprKind::FatCustomDst;
+        default:                                 return RefReprKind::NotARef;
+    }
+}
+
+mlir::Type MLIRGenImpl::repr_value_type(RefReprKind k) {
+    // Current model: every reference value is a thin pointer (logos_to_mlir
+    // returns ptr_type() for all reference kinds). The fat {data,meta} pair
+    // lives in storage; the value is a pointer to it.
+    if (k == RefReprKind::NotARef) return nullptr;
+    return ptr_type();
+}
+
+mlir::Type MLIRGenImpl::repr_storage_type(RefReprKind k) {
+    // The in-field/in-element slot type (mirrors register_struct's field branch).
+    switch (k) {
+        case RefReprKind::ThinPtr:      return ptr_type();
+        case RefReprKind::FatSlice:     return slice_llvm_type();
+        case RefReprKind::FatDyn:       return dyn_llvm_type();
+        case RefReprKind::FatClosure:   return closure_llvm_type();
+        case RefReprKind::FatCustomDst: return slice_llvm_type();
+        case RefReprKind::NotARef:      return nullptr;
+    }
+    return nullptr;
+}
+
+MLIRGenImpl::Layout MLIRGenImpl::repr_storage_layout(RefReprKind k) {
+    // Mirrors layout_of: thin pointer {8,8}; fat pair {16,8}.
+    switch (k) {
+        case RefReprKind::ThinPtr:      return {8, 8};
+        case RefReprKind::FatSlice:
+        case RefReprKind::FatDyn:
+        case RefReprKind::FatClosure:
+        case RefReprKind::FatCustomDst: return {16, 8};
+        case RefReprKind::NotARef:      return {0, 1};
+    }
+    return {0, 1};
+}
+
 mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
         const TaggedEnumInfo::VariantPayload& vp) {
     llvm::SmallVector<mlir::Type> ft;

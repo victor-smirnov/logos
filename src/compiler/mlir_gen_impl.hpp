@@ -602,6 +602,30 @@ private:
     // both the enum's payload_bytes and payload_align derive from this.
     Layout variant_payload_layout(const LVariant& v);
 
+    // ── RefRepr — reference-representation registry (Phase 0 scaffold) ────────
+    // Consolidates the ~50 per-kind switches that hardcode how a reference-like
+    // type is laid out (storage) and manipulated (compute). Phase 0 reproduces
+    // CURRENT behavior and is NOT YET ROUTED into the codegen sites (dead code);
+    // later phases migrate the sites to dispatch through these descriptors.
+    // See docs/internals/ref-repr-design.md.
+    enum class RefReprKind {
+        NotARef,        // not a reference-like type
+        ThinPtr,        // *T / &T / &mut T / fn-ptr — 8B thin pointer
+        FatSlice,       // &[T] (Slice) — {data,len} 16B
+        FatDyn,         // &dyn / TraitObject — {data,vtable} 16B
+        FatClosure,     // closure — {fn,env} 16B
+        FatCustomDst,   // &CustomDst (DstRef) — {data,meta} 16B
+    };
+    // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
+    RefReprKind ref_repr_of(TypeRef t);
+    // Compute representation (the SSA value type). Today uniformly a thin pointer
+    // (the fat pair lives in storage; the value is a pointer to it).
+    mlir::Type  repr_value_type(RefReprKind k);
+    // Storage representation (the in-field / in-element slot LLVM type).
+    mlir::Type  repr_storage_type(RefReprKind k);
+    // Storage {size, align}.
+    Layout      repr_storage_layout(RefReprKind k);
+
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen) {
