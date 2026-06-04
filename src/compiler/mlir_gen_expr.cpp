@@ -1065,13 +1065,16 @@ mlir::Type MLIRGenImpl::place_slot_type(TypeRef t) {
     // Fat-pointer elements are stored INLINE by value (mirrors the struct-field
     // convention): a bare `&dyn`/`*dyn`/`dyn` (TraitObject) slot is the 16-byte
     // {data,vtable} pair, a closure the 16-byte {fn,env}, a slice the 16-byte
-    // {ptr,len}. logos_to_mlir collapses all of these to an 8-byte `ptr` (the
-    // by-pointer value ABI), so as an array/Vec ELEMENT stride that would be
-    // half the real footprint — adjacent elements would overlap. Use the full
-    // inline type so the place stride matches the field layout everywhere.
-    if (k == LogosType::Kind::TraitObject) return dyn_llvm_type();
-    if (k == LogosType::Kind::Closure)     return closure_llvm_type();
-    if (k == LogosType::Kind::Slice)       return slice_llvm_type();
+    // {ptr,len}, a custom-DST ref (`&Wrap<[u8]>`) the 16-byte {ptr,len}.
+    // logos_to_mlir collapses all of these to an 8-byte `ptr` (the by-pointer
+    // value ABI), so as an array/Vec ELEMENT stride that would be half the real
+    // footprint — adjacent elements would overlap. RefRepr (Phase 1): the slot
+    // type IS the storage type of the reference's repr — a thin ptr stays 8B,
+    // every fat kind is its 16B pair. (A self_describing DST is a thin Ptr here,
+    // not a DstRef, so it correctly takes the 8B path.) This also fixes a latent
+    // gap: a bare DstRef element previously fell through to the 8B ptr below.
+    if (auto rk = ref_repr_of(t); rk != RefReprKind::NotARef)
+        return repr_storage_type(rk);
     auto m = logos_to_mlir(t);
     return m ? m : builder_.getI32Type();
 }
@@ -4747,16 +4750,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
             return elem_ptr;
         }
     }
-    // Fat-pointer element (`&[&dyn]`/`&[closure]`/`&[str]`): the slot is a 16-byte
-    // {data,vtable}/{fn,env}/{ptr,len} pair stored INLINE — stride by the pair
-    // footprint and return the slot ADDRESS (a fat value IS a pointer to its
-    // storage), NOT an 8-byte load of the first half. Mirrors the struct branch.
-    if (TypeRef rt(type); rt && (rt.kind() == LogosType::Kind::TraitObject ||
-                                  rt.kind() == LogosType::Kind::Closure ||
-                                  rt.kind() == LogosType::Kind::Slice)) {
-        llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
-        return builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), place_slot_type(rt), data_ptr, di);
+    // Fat-pointer element (`&[&dyn]`/`&[closure]`/`&[str]`/`&[&Wrap<[u8]>]`): the
+    // slot is a 16-byte {data,vtable}/{fn,env}/{ptr,len} pair stored INLINE —
+    // stride by the pair footprint and return the slot ADDRESS (a fat value IS a
+    // pointer to its storage), NOT an 8-byte load of the first half. Mirrors the
+    // struct branch. RefRepr (Phase 1): "is this element a fat reference?" =
+    // ref_repr_of is a Fat* kind (thin ptr/ref elements load below, as before).
+    if (TypeRef rt(type); rt) {
+        auto rk = ref_repr_of(rt);
+        if (rk != RefReprKind::NotARef && rk != RefReprKind::ThinPtr) {
+            llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
+            return builder_.create<mlir::LLVM::GEPOp>(
+                loc_, ptr_type(), place_slot_type(rt), data_ptr, di);
+        }
     }
     llvm::SmallVector<mlir::LLVM::GEPArg> di{gep_idx};
     auto elem_ptr = builder_.create<mlir::LLVM::GEPOp>(

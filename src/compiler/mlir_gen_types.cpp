@@ -589,15 +589,15 @@ mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
                     t = sit->second.llvm_type;
             } else if (k == LogosType::Kind::Tuple) {
                 if (auto tt = tuple_llvm_type(lt)) t = tt;
-            } else if (k == LogosType::Kind::TraitObject) {
-                // `&dyn`/`dyn`/`Box<dyn>` payload — store the 16-byte {data,vtable}
-                // fat pair INLINE (uniform fat model), not a collapsed 8-byte ptr,
-                // so it lives in the enum value (no heap handle, no leak).
-                t = dyn_llvm_type();
-            } else if (k == LogosType::Kind::Slice) {
-                t = slice_llvm_type();
-            } else if (k == LogosType::Kind::Closure) {
-                t = closure_llvm_type();
+            } else if (auto rk = ref_repr_of(lt); rk != RefReprKind::NotARef &&
+                                                  rk != RefReprKind::ThinPtr) {
+                // A fat reference payload (`&dyn`/`dyn`/`Box<dyn>`, slice, closure,
+                // custom-DST ref) is stored INLINE as its 16-byte fat pair
+                // (uniform fat model), not a collapsed 8-byte ptr, so it lives in
+                // the enum value (no heap handle, no leak). RefRepr (Phase 1): the
+                // payload slot IS the reference's storage type. Thin refs (ptr/
+                // ref/fn) keep the by-value ptr from `t` above — excluded here.
+                t = repr_storage_type(rk);
             } else if (k == LogosType::Kind::Enum) {
                 // Inline nested enum: embed its full {disc,payload} footprint
                 // (enum value-repr) so a nested enum payload field occupies its
