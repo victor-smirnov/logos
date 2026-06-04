@@ -4657,26 +4657,19 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFnPtrCallView v, TypeRef type)
 // Slice helpers
 // ---------------------------------------------------------------------------
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {
-    auto* base_l = lexpr_of(v.base());
-    auto* len_l  = lexpr_of(v.len());
-    if (!base_l || !len_l) return nullptr;
-    auto base = gen_expr(*base_l);
-    auto meta = gen_expr(*len_l);
-    if (!base || !meta) return nullptr;
-    // A `dyn`-tail custom-DST projection builds a TraitObject {data,vtable}
-    // through this same 2-slot fat-pair node — the metadata slot carries the
-    // vtable pointer (not a length). Use the {ptr,ptr} dyn layout and store the
-    // metadata as a pointer (the source is the vtable bits loaded as i64 from
-    // the parent fat pointer's field 1 — reinterpret via inttoptr).
-    bool is_dyn = type && TypeRef(type).kind() == LogosType::Kind::TraitObject;
+// RefRepr op: build a reference value from its data + metadata halves
+// (from_raw_parts). FatDyn spills a {data,vtable} pair; FatSlice/FatCustomDst a
+// {data,len} pair; thin returns the data pointer. Mirrors the old slice_lit.
+mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::Value meta) {
+    if (k == RefReprKind::ThinPtr || k == RefReprKind::NotARef) return data;
+    bool is_dyn = (k == RefReprKind::FatDyn);
     auto stype = is_dyn ? dyn_llvm_type() : slice_llvm_type();
     auto alloca = create_entry_alloca(stype);
-    // Store ptr at field 0
+    // field 0 = data ptr
     llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
     auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, pi);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, base, pp);
-    // Store the metadata at field 1: len (i64) for a slice, vtable (ptr) for dyn.
+    builder_.create<mlir::LLVM::StoreOp>(loc_, data, pp);
+    // field 1 = metadata: vtable (ptr) for dyn, length (i64) otherwise.
     llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
     auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, alloca, li);
     if (is_dyn) {
@@ -4690,6 +4683,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) 
         builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
     }
     return alloca;
+}
+
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {
+    auto* base_l = lexpr_of(v.base());
+    auto* len_l  = lexpr_of(v.len());
+    if (!base_l || !len_l) return nullptr;
+    auto base = gen_expr(*base_l);
+    auto meta = gen_expr(*len_l);
+    if (!base || !meta) return nullptr;
+    // A `dyn`-tail projection builds a {data,vtable} fat pair through this same
+    // node (metadata = vtable ptr, not a length); everything else builds the
+    // {data,len} slice shape. Preserve that discriminator exactly.
+    bool is_dyn = type && TypeRef(type).kind() == LogosType::Kind::TraitObject;
+    return repr_construct(is_dyn ? RefReprKind::FatDyn : RefReprKind::FatSlice,
+                          base, meta);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type) {

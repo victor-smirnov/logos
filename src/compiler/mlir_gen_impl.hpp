@@ -631,6 +631,11 @@ private:
     // slice_ptr / slice_len).
     mlir::Value repr_data(RefReprKind k, mlir::Value v);
     mlir::Value repr_meta(RefReprKind k, mlir::Value v);
+    // Construct a reference value from its data + metadata halves (from_raw_parts).
+    // Thin: the value IS the data pointer. Fat: spill a {data, meta} pair to an
+    // alloca and return its address (meta stored as vtable-ptr for FatDyn, else
+    // an i64 length). Mirrors slice_lit.
+    mlir::Value repr_construct(RefReprKind k, mlir::Value data, mlir::Value meta);
 
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
