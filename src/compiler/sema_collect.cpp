@@ -1406,6 +1406,17 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.no_auto_drop = true;
                                 break;
                             }
+                        // `#[self_describing]`: mark a custom-DST as thin-
+                        // referenced (raw `*mut/*const T` → thin pointer, meta
+                        // recovered in-band at deref). ref-repr §6.
+                        for (auto& ann : pending_annots)
+                            if (str_of(ann.get(la::NAME.code)) == "self_describing") {
+                                auto skey = sema_key(cur_package_, sname);
+                                auto sit = structs_.find(skey);
+                                if (sit == structs_.end()) sit = structs_.find(sname);
+                                if (sit != structs_.end()) sit->second.self_describing = true;
+                                break;
+                            }
                         // `#[repr(...)]` minimal (logos-core 1.5). For struct
                         // items only `transparent` is recognised so far — sets
                         // the struct's `repr_transparent` flag (single-field

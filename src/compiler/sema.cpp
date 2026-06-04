@@ -5090,11 +5090,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (inner && is_effective_dst(inner)) {
             std::string sn(inner.struct_name());
             std::string spkg(inner.pkg_name());
+            auto [pfound, ssi] = find_struct_by_name(sn);
             if (spkg.empty()) {
-                auto [p, ssi] = find_struct_by_name(sn);
-                if (ssi) spkg = p;
+                if (ssi) spkg = pfound;
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
             }
+            // A RAW pointer (`*mut/*const`) to a SELF-DESCRIBING DST stays THIN
+            // (8B): its tail length/metadata is recoverable in-band at deref, so
+            // the pointer need not carry it. (A non-self-describing DST — bare
+            // `[T]` tail, e.g. Wrap<[u8]> — keeps a fat DstRef carrying the len;
+            // and `&/&mut/Box<T>` stay DstRef regardless.) ref-repr §6.
+            if (ssi && ssi->self_describing)
+                return make_ptr(mut, inner);
             std::vector<TypeRef> targs = inner.type_args();
             return make_dst_ref(sn, spkg, mut, std::move(targs));
         }

@@ -1205,6 +1205,13 @@ private:
             return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
                    bit(AttrTarget::Enum)   | bit(AttrTarget::Trait);
         if (name == "zoned")           return bit(AttrTarget::Struct);
+        // A custom-DST (`[T]` tail) marked self-describing: its tail length /
+        // metadata is recoverable from its own bytes (a prefix field / header),
+        // so a RAW pointer to it (`*mut/*const T`) is THIN (8B) and the fat
+        // metadata is recovered in-band at deref — vs a non-self-describing DST
+        // (bare `[T]` tail, e.g. Wrap<[u8]>) whose raw pointer must stay a fat
+        // DstRef carrying the length. See docs/internals/ref-repr-design.md §6.
+        if (name == "self_describing") return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
@@ -1974,6 +1981,11 @@ private:
                             // `Box`. Construction goes through unsafe raw-
                             // parts assembly (no by-value).
                             bool is_dst = false;
+                            // `#[self_describing]`: a custom-DST whose tail
+                            // length/metadata is recoverable in-band, so raw
+                            // `*mut/*const T` is a THIN pointer (meta recovered
+                            // at deref) rather than a fat DstRef. (ref-repr §6)
+                            bool self_describing = false;
                             // logos-core §6.1: this type was declared as `union NAME { … }`
                             // rather than `struct`. Layout is max-of-fields aligned to
                             // max-alignment (vs struct's sum-of-fields); every field READ
