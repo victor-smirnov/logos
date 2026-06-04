@@ -2593,6 +2593,22 @@ private:
     std::pair<std::string, SemaStructInfo*> find_struct_by_name(std::string_view name) {
         return lookup_qualified_<true>(structs_, name);
     }
+    // Pub-check-FREE struct lookup, for internal representation decisions (e.g.
+    // the #[self_describing] flag) that may be consulted from a FOREIGN
+    // package's monomorphisation/substitution context. The pub-checking
+    // find_struct_by_name would emit a spurious "X is private" diagnostic when
+    // such a query lands on a non-pub struct (e.g. ArcInner in logos.mem.sync)
+    // — visibility is irrelevant to a layout/repr question. Prefers the
+    // package-qualified key; falls back to the bare legacy slot.
+    SemaStructInfo* find_struct_repr_(std::string_view pkg, std::string_view name) {
+        if (!pkg.empty()) {
+            auto it = structs_.find(sema_key(pkg, name));
+            if (it != structs_.end()) return &it->second;
+        }
+        auto it = structs_.find(std::string(name));
+        if (it != structs_.end()) return &it->second;
+        return nullptr;
+    }
     std::pair<std::string, SemaStructInfo*> find_datatype_by_name(std::string_view name) {
         return lookup_qualified_<true>(datatypes_, name);
     }

@@ -1013,6 +1013,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
     sd.is_dst = sinfo->is_dst;
+    // Hermes2 / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
+    // canonicalisation in mono_subst can keep `*Self` thin for this struct.
+    sd.self_describing = sinfo->self_describing;
     // §6.1: propagate union flag so mlir-gen's layout path can branch
     // to max-of-fields aligned to max-alignment.
     sd.is_union = sinfo->is_union;

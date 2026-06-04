@@ -142,6 +142,18 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             auto* any_sit = find_any_struct(inner.pkg_name(), sn);
             bool tmpl_dst = (sit_ptr && sit_ptr->is_dst) ||
                             (any_sit && any_sit->is_dst);
+            // Hermes2 / RefRepr: a `#[self_describing]` DST recovers its tail
+            // length from an in-band prefix field, so a RAW `*const/*mut Self`
+            // stays THIN (kind=Ptr, 8B) — do NOT canonicalise to fat DstRef.
+            // `&Self` / `&mut Self` keep the fat repr (no in-band len contract),
+            // so the skip is gated on the pointer being a raw Ptr.
+            bool self_desc = (sit_ptr && sit_ptr->self_describing) ||
+                             (any_sit && any_sit->self_describing);
+            if (self_desc && tv.kind() == LogosType::Kind::Ptr) {
+                if (inner == tv.pointee()) return tv;
+                LogosTypeBuilder nt = tv.to_builder(); nt.pointee = inner;
+                return out_.type_pool.alloc(nt);
+            }
             if (tmpl_dst || inst_dst) {
                 LogosTypeBuilder dn; dn.kind = LogosType::Kind::DstRef;
                 dn.struct_name = sn;

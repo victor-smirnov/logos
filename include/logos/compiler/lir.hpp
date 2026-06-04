@@ -841,6 +841,15 @@ struct LStructDef {
     // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
     // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
     bool                     is_dst        = false;
+    // Hermes2 / RefRepr: `#[self_describing]` — this DST struct recovers its
+    // tail length from an in-band prefix field (e.g. Segment's `cap`), so a
+    // `*const Self` / `*mut Self` raw pointer stays THIN (8B, kind=Ptr) rather
+    // than fattening to a 16B DstRef. `&Self` / `&mut Self` / `Box<Self>` keep
+    // the fat DstRef repr (they don't carry the in-band length contract). The
+    // marker dissolves the self-referential-DST-pointer bug without regressing
+    // Rc/Arc<dyn> (those use the fat DstRef path). Consulted at the Ptr→DstRef
+    // canonicalisation in mono_subst + sema resolve_type.
+    bool                     self_describing = false;
     // logos-core §6.1: this type was declared as `union NAME { … }`.
     // Layout is max-of-fields aligned to max-alignment (vs struct's
     // sum-of-fields); only one field is "active" at a time. Field-

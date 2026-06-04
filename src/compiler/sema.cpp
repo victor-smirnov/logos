@@ -3935,7 +3935,9 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             std::vector<TypeRef> args_vec = inner.type_args();
             return make_trait_object(inner.trait_name(), std::move(args_vec));
         }
-        // Phase 1B-14/15: `*const DstStruct` / `*mut DstStruct` → DstRef.
+        // Phase 1B-14/15: `*const DstStruct` / `*mut DstStruct` → DstRef —
+        // UNLESS the DST is #[self_describing], in which case a raw pointer
+        // stays THIN (8B, meta recovered in-band at deref). ref-repr §6.
         if (inner && is_effective_dst(inner)) {
             std::string sn(inner.struct_name());
             std::string spkg(inner.pkg_name());
@@ -3943,6 +3945,16 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 auto [p, ssi] = find_struct_by_name(sn);
                 if (ssi) spkg = p;
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
+            }
+            // A RAW `*const/*mut` to a #[self_describing] DST stays THIN (8B);
+            // the tail length is recoverable in-band at deref. Consulted via a
+            // pub-check-FREE lookup: this runs in the substituting (caller's)
+            // package context, where the DST struct is often private (e.g.
+            // ArcInner) — a visibility error here would be spurious. ref-repr §6.
+            SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
+            if (rssi && rssi->self_describing) {
+                if (inner == t.pointee()) return t;
+                return make_ptr(t.mut_ptr(), inner);
             }
             std::vector<TypeRef> args_vec = inner.type_args();
             return make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec));
@@ -5090,17 +5102,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (inner && is_effective_dst(inner)) {
             std::string sn(inner.struct_name());
             std::string spkg(inner.pkg_name());
-            auto [pfound, ssi] = find_struct_by_name(sn);
             if (spkg.empty()) {
-                if (ssi) spkg = pfound;
+                auto [p, ssi] = find_struct_by_name(sn);
+                if (ssi) spkg = p;
                 else { auto [pd, dsi] = find_datatype_by_name(sn); if (dsi) spkg = pd; }
             }
             // A RAW pointer (`*mut/*const`) to a SELF-DESCRIBING DST stays THIN
             // (8B): its tail length/metadata is recoverable in-band at deref, so
             // the pointer need not carry it. (A non-self-describing DST — bare
             // `[T]` tail, e.g. Wrap<[u8]> — keeps a fat DstRef carrying the len;
-            // and `&/&mut/Box<T>` stay DstRef regardless.) ref-repr §6.
-            if (ssi && ssi->self_describing)
+            // and `&/&mut/Box<T>` stay DstRef regardless.) Pub-check-FREE lookup:
+            // resolving a foreign DST pointer must not emit a visibility error.
+            // ref-repr §6.
+            SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
+            if (rssi && rssi->self_describing)
                 return make_ptr(mut, inner);
             std::vector<TypeRef> targs = inner.type_args();
             return make_dst_ref(sn, spkg, mut, std::move(targs));
