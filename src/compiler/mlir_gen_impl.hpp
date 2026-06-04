@@ -625,6 +625,12 @@ private:
     mlir::Type  repr_storage_type(RefReprKind k);
     // Storage {size, align}.
     Layout      repr_storage_layout(RefReprKind k);
+    // Extract the data / metadata half of a reference value (compute form).
+    // Thin: data = the value itself, no metadata (meta returns null). Fat: load
+    // field 0 / field 1 of the {data, meta} pair the value points at (mirrors
+    // slice_ptr / slice_len).
+    mlir::Value repr_data(RefReprKind k, mlir::Value v);
+    mlir::Value repr_meta(RefReprKind k, mlir::Value v);
 
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,

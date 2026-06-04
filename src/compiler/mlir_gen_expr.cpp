@@ -4756,16 +4756,35 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type
     return builder_.create<mlir::LLVM::LoadOp>(loc_, elem_type, elem_ptr);
 }
 
+// RefRepr op: extract the DATA half of a reference value. Thin → the value is
+// the data pointer (identity). Fat → load field 0 of the {data,meta} pair the
+// value points at (field 0 is a ptr at offset 0 for every fat repr).
+mlir::Value MLIRGenImpl::repr_data(RefReprKind k, mlir::Value v) {
+    if (k == RefReprKind::ThinPtr || k == RefReprKind::NotARef) return v;
+    auto stype = slice_llvm_type();
+    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
+    auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, v, pi);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+}
+
+// RefRepr op: extract the METADATA half (len / vtable). Thin → none (null).
+// Fat → load field 1 of the {data,meta} pair (returned as i64, matching the
+// slice-len extraction; a vtable consumer casts the ptr-sized value).
+mlir::Value MLIRGenImpl::repr_meta(RefReprKind k, mlir::Value v) {
+    if (k == RefReprKind::ThinPtr || k == RefReprKind::NotARef) return nullptr;
+    auto stype = slice_llvm_type();
+    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
+    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, v, li);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLenView v, TypeRef) {
     auto* sl = lexpr_of(v.slice());
     if (!sl) return nullptr;
     auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
-    auto stype = slice_llvm_type();
-    // Load len from field 1
-    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
-    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, li);
-    return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+    // RefRepr (Phase 1): len = the metadata half of the fat receiver.
+    return repr_meta(ref_repr_of(sl->type), slice);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESlicePtrView v, TypeRef) {
@@ -4773,11 +4792,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESlicePtrView v, TypeRef) {
     if (!sl) return nullptr;
     auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
-    auto stype = slice_llvm_type();
-    // Load ptr from field 0
-    llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(0)};
-    auto pp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), stype, slice, pi);
-    return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), pp);
+    // RefRepr (Phase 1): data ptr = the data half of the fat receiver.
+    return repr_data(ref_repr_of(sl->type), slice);
 }
 
 // ---------------------------------------------------------------------------
