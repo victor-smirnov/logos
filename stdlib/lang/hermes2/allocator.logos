@@ -27,12 +27,21 @@ extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
 // A never-moved chunk: an inline header followed immediately by `cap` data
-// bytes (one malloc per segment). `sizeof::<Segment>()` is a multiple of 8, so
-// the data region starts 8-byte aligned.
+// bytes (one malloc per segment). This is a real custom-DST — `data: [u8]` is
+// an inline flexible-array tail — marked `#[self_describing]` so a raw
+// `*mut Segment` stays THIN (8B): the tail length is recoverable in-band (it
+// is `cap`), so the pointer need not carry it, and the self-referential `next`
+// link is a plain thin pointer (no fat-DstRef self-reference). Without the
+// marker the `[u8]` tail would fatten `*mut Segment` to 16B and break the
+// thin-pointer plumbing below. `sizeof::<Segment>()` is the HEADER size (the
+// tail offset, a multiple of 8), so the data region starts 8-byte aligned.
+// See docs/internals/ref-repr-design.md §6 + hermes2-design.md §3.
+#[self_describing]
 pub struct Segment {
     pub next: *mut Segment,   // next segment (absolute — stable, never moves)
-    pub cap:  i64,            // data capacity in bytes (excludes this header)
+    pub cap:  i64,            // data capacity in bytes (excludes this header) = data.len()
     pub used: i64,            // bump cursor within the data region
+    pub data: [u8],           // inline data region (flexible-array tail)
 }
 
 // Absolute address of a segment's data region (just past the inline header).

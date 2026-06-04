@@ -188,6 +188,27 @@ reasons, not representation.)
   self-referential heap custom-DST (`Segment { next: *mut Segment, … }`)
   closes here, in **one place**, not across the compiler. (Heap DSTs use
   the Rust-fat repr — distinct from the zoned reprs of §6.)
+  - **`#[self_describing]` landed (2026-06-04, c4183d47 + Segment
+    conversion).** The self-ref-DST bug closed via a DST *split*: a
+    struct whose tail length is recoverable from an in-band prefix field
+    (e.g. `Segment.cap`) is marked `#[self_describing]`, and a RAW
+    `*const/*mut Self` to it stays **THIN** (8B, kind=Ptr) instead of
+    fattening to a 16B DstRef — so the self-referential `next` link is a
+    plain thin pointer, no fat self-reference. `&Self`/`&mut Self`/
+    `Box<Self>` keep the fat DstRef (no in-band-length contract).
+    Implemented at the Ptr→DstRef canonicalisation in *both* sema
+    (`resolve_type` + `subst_type_sema`, pub-check-free flag lookup) and
+    mono (`mono_subst`, gated on `tv.kind()==Ptr`); the flag rides
+    `LStructDef.self_describing` through clone + the `.hm0` boundary
+    (re-collected from the attribute on stdlib recompile). stdlib
+    `Segment` is now a real `[u8]`-tail DST. Prefix-field read/write +
+    self-ref chain through the thin pointer all work; Rc/Arc&lt;dyn&gt;
+    keep the fat path. **Open:** typed tail access (`&seg.data` as a
+    bounded `[u8]`) mistypes today (the allocator uses raw byte
+    arithmetic + `cap`, so doesn't need it); and `sizeof::<Segment>()`
+    returns the *header* size (tail offset) for an unsized DST — a Logos
+    divergence (Rust `size_of` requires `Sized`), convenient here but the
+    Rust-faithful query is `offset_of!`. Both are follow-ups, not blockers.
 - **Phase 3.5 — enum niche optimization** (new compiler feature, §7):
   consume `RefRepr::niches()` in the enum-layout so a discriminant packs
   into invalid bit-patterns. Prerequisite for `ZonedAny` and
