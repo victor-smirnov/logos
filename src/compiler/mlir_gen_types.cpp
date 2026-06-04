@@ -571,6 +571,23 @@ MLIRGenImpl::Layout MLIRGenImpl::repr_storage_layout(RefReprKind k) {
     return {0, 1};
 }
 
+mlir::Type MLIRGenImpl::repr_return_type(RefReprKind k) {
+    // The by-VALUE return ABI. dyn/slice are materialized as their 16B storage
+    // pair in the caller's frame (return-by-value leak fix); closure/custom-DST
+    // are returned as the 8B value pointer (their fat storage is not return-
+    // materialized — matches the pre-RefRepr behavior where these fell through
+    // to logos_to_mlir = ptr). Thin → 8B value.
+    switch (k) {
+        case RefReprKind::FatDyn:
+        case RefReprKind::FatSlice:     return repr_storage_type(k);  // 16B by value
+        case RefReprKind::FatClosure:
+        case RefReprKind::FatCustomDst:
+        case RefReprKind::ThinPtr:      return repr_value_type(k);    // 8B ptr value
+        case RefReprKind::NotARef:      return nullptr;
+    }
+    return nullptr;
+}
+
 mlir::LLVM::LLVMStructType MLIRGenImpl::variant_payload_struct(
         const TaggedEnumInfo::VariantPayload& vp) {
     llvm::SmallVector<mlir::Type> ft;

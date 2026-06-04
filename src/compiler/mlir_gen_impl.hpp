@@ -625,6 +625,14 @@ private:
     mlir::Type  repr_storage_type(RefReprKind k);
     // Storage {size, align}.
     Layout      repr_storage_layout(RefReprKind k);
+    // By-VALUE return ABI of a reference. A separate axis from storage_type:
+    // dyn/slice fat pairs are returned by value as their 16B storage (the
+    // A3/A4 slice/dyn-return-by-value leak fix — a ptr-to-local would dangle),
+    // whereas closures and custom-DST refs are returned as their 8B by-pointer
+    // value (storage owned by the callee escape path / caller slot, not
+    // materialized in the return). Thin refs return their 8B value. NotARef →
+    // nullptr (caller falls through to logos_to_mlir for non-reference returns).
+    mlir::Type  repr_return_type(RefReprKind k);
     // Extract the data / metadata half of a reference value (compute form).
     // Thin: data = the value itself, no metadata (meta returns null). Fat: load
     // field 0 / field 1 of the {data, meta} pair the value points at (mirrors

@@ -78,12 +78,12 @@ mlir::Type MLIRGenImpl::fn_call_ret_llvm_type(TypeRef ret_type) {
         if (te) return te->llvm_type;
         return builder_.getI32Type();
     }
-    // Trait-object value-fat-pair: returned by value as the 16-byte struct.
-    // Only a bare `dyn`/`&dyn`/`&mut dyn` (single TraitObject node) is by-value.
-    if (rv.kind() == LogosType::Kind::TraitObject) return dyn_llvm_type();
-    // Slice/str fat-pair: returned BY VALUE as the 16-byte {ptr,len} struct
-    // (slice-return-by-value, A3/A4 leak fix). Mirrors TraitObject above.
-    if (rv.kind() == LogosType::Kind::Slice) return slice_llvm_type();
+    // RefRepr (Phase 2): a reference's by-value return ABI comes from the
+    // descriptor — dyn/slice return their 16B fat pair by value (A3/A4 leak
+    // fix), closure/custom-DST/thin return their 8B value pointer. NotARef →
+    // fall through to logos_to_mlir for non-reference returns.
+    if (auto rk = ref_repr_of(rv); rk != RefReprKind::NotARef)
+        return repr_return_type(rk);
     return logos_to_mlir(ret_type);
 }
 
@@ -131,19 +131,14 @@ mlir::FunctionType MLIRGenImpl::make_fn_type(const LFunction& fn) {
                 // C-style (non-payload) enum — return i32.
                 ret_types.push_back(builder_.getI32Type());
             }
+        } else if (auto rk = ref_repr_of(rv); rk != RefReprKind::NotARef) {
+            // RefRepr (Phase 2): the reference's by-value return ABI from the
+            // descriptor (dyn/slice → 16B fat by value; closure/custom-DST/thin
+            // → 8B value ptr) — mirrors fn_call_ret_llvm_type.
+            ret_types.push_back(repr_return_type(rk));
         } else {
-            // Bare `dyn`/`&dyn`/`&mut dyn` returns are by-value 16-byte fat
-            // pairs. `Ref<TraitObject>` (`&T`,T=&dyn) and raw `*dyn` stay thin.
-            if (rv.kind() == LogosType::Kind::TraitObject) {
-                ret_types.push_back(dyn_llvm_type());
-            } else if (rv.kind() == LogosType::Kind::Slice) {
-                // Slice/str fat-pair returned BY VALUE (16-byte {ptr,len}),
-                // mirroring TraitObject — slice-return-by-value A3/A4 leak fix.
-                ret_types.push_back(slice_llvm_type());
-            } else {
-                auto rt = logos_to_mlir(fn.ret_type);
-                if (rt) ret_types.push_back(rt);
-            }
+            auto rt = logos_to_mlir(fn.ret_type);
+            if (rt) ret_types.push_back(rt);
         }
     }
     return builder_.getFunctionType(param_types, ret_types);

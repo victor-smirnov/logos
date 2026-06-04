@@ -4695,12 +4695,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) 
     auto base = gen_expr(*base_l);
     auto meta = gen_expr(*len_l);
     if (!base || !meta) return nullptr;
-    // A `dyn`-tail projection builds a {data,vtable} fat pair through this same
-    // node (metadata = vtable ptr, not a length); everything else builds the
-    // {data,len} slice shape. Preserve that discriminator exactly.
-    bool is_dyn = type && TypeRef(type).kind() == LogosType::Kind::TraitObject;
-    return repr_construct(is_dyn ? RefReprKind::FatDyn : RefReprKind::FatSlice,
-                          base, meta);
+    // RefRepr (Phase 1): build the fat pair for the result reference's repr —
+    // a `dyn`-tail projection (FatDyn) stores {data,vtable}, a slice/custom-DST
+    // (FatSlice/FatCustomDst) stores {data,len}. repr_construct treats
+    // FatCustomDst like FatSlice (len metadata). Default to FatSlice when the
+    // type is absent/non-ref (slice_lit always builds the {data,len} shape).
+    auto rk = ref_repr_of(type);
+    if (rk == RefReprKind::NotARef || rk == RefReprKind::ThinPtr)
+        rk = RefReprKind::FatSlice;
+    return repr_construct(rk, base, meta);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceIndexView v, TypeRef type) {
