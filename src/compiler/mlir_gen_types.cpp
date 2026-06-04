@@ -30,6 +30,12 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
         return t;
     };
     if (is_anyval(tv)) return cache_ret(builder_.getI32Type());
+    // RefRepr (Phase 1): reference-like kinds get their VALUE (SSA) type from the
+    // repr registry — uniformly a thin pointer today (the fat {data,meta} pair
+    // lives in storage; the value is a pointer to it). Behavior-identical to the
+    // per-kind `ptr_type()` cases below.
+    if (auto rk = ref_repr_of(tv); rk != RefReprKind::NotARef)
+        return cache_ret(repr_value_type(rk));
     switch (tv.kind()) {
     case LogosType::Kind::Void:   return nullptr;
     // The never type yields no value — a diverging expression emits its own
@@ -247,7 +253,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // Bare `&dyn Trait` field — sema may flatten `&dyn Trait` to a single
             // TraitObject node (no Ref wrapper). Value-fat-pair model: stored
             // INLINE as a 16-byte {data,vtable} pair (mirrors a slice field).
-            ft = dyn_llvm_type();
+            ft = repr_storage_type(ref_repr_of(fv));  // = dyn_llvm_type() (RefRepr Phase 1)
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {},
                                    std::string(fv.trait_name()),
                                    /*is_pointer=*/false});
@@ -283,7 +289,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // Slice field — fixed-size 16-byte fat pointer {data,len} (like Rust
             // `&[T]`). Stored INLINE by value, mirroring the TraitObject branch
             // above (and a slice value elsewhere is a pointer to this storage).
-            ft = slice_llvm_type();
+            ft = repr_storage_type(ref_repr_of(fv));  // = slice_llvm_type() (RefRepr Phase 1)
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
@@ -293,7 +299,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // DstRef value elsewhere is a pointer to this 16-byte storage).
             // Inline is REQUIRED for an owning `Rc<dyn>` = {inner: fat} — an
             // 8-byte ptr-to-fat would dangle when the Rc moves.
-            ft = slice_llvm_type();
+            ft = repr_storage_type(ref_repr_of(fv));  // = slice_llvm_type() (RefRepr Phase 1)
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
@@ -301,7 +307,7 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
             // Closure field — fixed-size 16-byte {fn,env} fat pair. Stored
             // INLINE by value (like a slice); a closure value elsewhere is a
             // pointer to this storage.
-            ft = closure_llvm_type();
+            ft = repr_storage_type(ref_repr_of(fv));  // = closure_llvm_type() (RefRepr Phase 1)
             info.fields.push_back({f.name, ft, uint32_t(info.fields.size()), {}, {}, false});
             field_types.push_back(ft);
             continue;
