@@ -419,6 +419,12 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
     if (!t) return {8, 8};
     TypeRef tv{t};
     if (is_anyval(tv)) return {4, 4};  // AnyVal is lowered as i32 everywhere
+    // RefRepr (Phase 1): reference-like kinds get their {size,align} from the
+    // repr registry. Behavior-identical to the per-kind cases below (thin {8,8},
+    // fat {16,8}); the duplicate cases stay as a cross-check until all storage
+    // sites are migrated.
+    if (auto rk = ref_repr_of(tv); rk != RefReprKind::NotARef)
+        return repr_storage_layout(rk);
     switch (tv.kind()) {
     case K::Void: case K::Never:                return {0, 1};  // zero-size
     case K::Bool: case K::I8: case K::U8:       return {1, 1};
@@ -515,10 +521,12 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         // field is the 16B inline fat pair).
         case K::Ptr: case K::Ref: case K::MutRef:
         case K::FnPtr: case K::FnItem:           return RefReprKind::ThinPtr;
-        case K::Slice: case K::UnsizedSlice:     return RefReprKind::FatSlice;
-        case K::TraitObject: case K::UnsizedDyn: return RefReprKind::FatDyn;
+        case K::Slice:                           return RefReprKind::FatSlice;
+        case K::TraitObject:                     return RefReprKind::FatDyn;
         case K::Closure:                         return RefReprKind::FatClosure;
         case K::DstRef:                          return RefReprKind::FatCustomDst;
+        // UnsizedSlice (`[T]`) / UnsizedDyn (`dyn`) are unsized POINTEES, not
+        // references — they have no by-value footprint ({0,1}); not RefReprs.
         default:                                 return RefReprKind::NotARef;
     }
 }
