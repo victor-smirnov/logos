@@ -669,6 +669,20 @@ private:
     // checks the last field's kind (Slice / UnsizedSlice).
     bool dstref_has_slice_tail(TypeRef t);
 
+    // Enum representation access — the SINGLE chokepoint for the tagged-enum
+    // memory layout, so niche-packing (Phase 3.5) becomes a localized change
+    // rather than an edit across every construct/match/drop site. Today every
+    // tagged enum is `{ i32 disc @field0, payload @field1 }` and these just GEP
+    // those fields; a niche-packed enum will instead encode/decode the
+    // discriminant in an invalid bit-pattern of the payload here.
+    //   enum_payload_ptr — address of the payload area for `enum_addr`.
+    //   enum_store_disc  — write the discriminant for variant `disc`.
+    //   enum_load_disc   — read the discriminant as an i32 value.
+    mlir::Value enum_payload_ptr(mlir::Value enum_addr, const TaggedEnumInfo& info);
+    void        enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& info,
+                                int64_t disc);
+    mlir::Value enum_load_disc(mlir::Value enum_addr, const TaggedEnumInfo& info);
+
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen) {

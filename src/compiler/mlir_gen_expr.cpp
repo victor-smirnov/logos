@@ -412,11 +412,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitView v, TypeRef type) {
         // are already rejected by check_recursive_value_types, so this is safe.
         auto store = create_entry_alloca(te->llvm_type);
         if (!store) return nullptr;
-        llvm::SmallVector<mlir::LLVM::GEPArg> idx{int32_t(0), int32_t(0)};
-        auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, store, idx);
-        auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
+        enum_store_disc(store, *te, disc);
         return store;
     }
     // C-style enum: just the discriminant, sized per backing type.
@@ -441,18 +437,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     // embedded inline into a parent aggregate by memcpy.
     auto alloca = create_entry_alloca(info.llvm_type);
     if (!alloca) return nullptr;
-    // Store discriminant at field 0
-    llvm::SmallVector<mlir::LLVM::GEPArg> disc_idx{int32_t(0), int32_t(0)};
-    auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(
-        loc_, ptr_type(), info.llvm_type, alloca, disc_idx);
-    auto disc_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, disc_ptr);
-    // Store payload into field 1 (the [N x i8] area), bitcasted
+    // Store discriminant (Phase 3.5: via the representation chokepoint).
+    enum_store_disc(alloca, info, disc);
+    // Store payload into the payload area, bitcasted.
     if (!payload.empty()) {
-        // GEP to the payload area (field index 1)
-        llvm::SmallVector<mlir::LLVM::GEPArg> pay_idx{int32_t(0), int32_t(1)};
-        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), info.llvm_type, alloca, pay_idx);
+        auto pay_ptr = enum_payload_ptr(alloca, info);
         // Find the variant's field types
         const TaggedEnumInfo::VariantPayload* vp = nullptr;
         for (auto& vi : info.variants)
@@ -4695,6 +4684,29 @@ mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::V
         builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
     }
     return alloca;
+}
+
+// Enum representation access (Phase 3.5 chokepoint). Today: `{i32 disc, payload}`.
+mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
+                                          const TaggedEnumInfo& info) {
+    llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(1)};
+    return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
+                                              enum_addr, i);
+}
+void MLIRGenImpl::enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& info,
+                                  int64_t disc) {
+    llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
+    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
+                                                 enum_addr, i);
+    auto dv = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, dv, dp);
+}
+mlir::Value MLIRGenImpl::enum_load_disc(mlir::Value enum_addr,
+                                        const TaggedEnumInfo& info) {
+    llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
+    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
+                                                 enum_addr, i);
+    return builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
 }
 
 // True iff a DstRef's pointee struct has a literal `[T]` slice tail (genuinely
