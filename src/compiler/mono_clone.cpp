@@ -2812,6 +2812,50 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             break;
                                         }
                                     }
+                                    // Gap A: a multi-param trait `Trait<A> for Self`
+                                    // can have several impls for the SAME Self
+                                    // differing only in A (Sum<i32> / Sum<&i32> for
+                                    // i32), mangled `<Self>__<m>__[fg]__<A-sig>`. The
+                                    // bare retargeted callee `<Self>__<m>` resolves
+                                    // downstream to the FIRST such impl, so a `&T`
+                                    // arg wrongly dispatches to the `T` impl. When
+                                    // several impls match, disambiguate by the (now-
+                                    // concrete) ARGUMENT-type mangling and emit that
+                                    // specific symbol. Only overrides the multi-impl
+                                    // case (single-impl dispatch is unaffected).
+                                    std::string want_sig;
+                                    for (auto& a : nc.args) {
+                                        if (a && a->type) {
+                                            if (!want_sig.empty()) want_sig += "__";
+                                            want_sig += mangle_type(TypeRef(a->type));
+                                        }
+                                    }
+                                    if (!want_sig.empty()) {
+                                        std::string base_pfx =
+                                            struct_base + "__" + method_name + "__";
+                                        std::string exact_key;
+                                        int n_match = 0;
+                                        auto consider = [&](std::string_view full) {
+                                            auto dot = full.rfind('.');
+                                            std::string_view bare =
+                                                (dot == std::string_view::npos)
+                                                    ? full : full.substr(dot + 1);
+                                            if (bare.rfind(base_pfx, 0) != 0) return;
+                                            std::string_view rest =
+                                                bare.substr(base_pfx.size());
+                                            if (rest.rfind("f__", 0) != 0 &&
+                                                rest.rfind("g__", 0) != 0) return;
+                                            ++n_match;
+                                            if (std::string(rest.substr(3)) == want_sig)
+                                                exact_key = std::string(full);
+                                        };
+                                        for (auto& [kn, fp] : templates_) { (void)fp; consider(kn); }
+                                        for (auto& [kn, v] : specs_) { (void)v; consider(kn); }
+                                        for (auto& f : in_.functions)  if (f) consider(f->name);
+                                        for (auto& f : out_.functions) if (f) consider(f->name);
+                                        if (n_match > 1 && !exact_key.empty())
+                                            nc.callee = exact_key;
+                                    }
                                 }
                                 if (tmpl) {
                                     {

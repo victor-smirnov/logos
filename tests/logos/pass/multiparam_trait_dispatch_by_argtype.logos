@@ -1,0 +1,23 @@
+package x;
+
+trait Conv<A> {
+    fn conv(x: A) -> Self;
+}
+impl Conv<i32> for i64 {
+    fn conv(x: i32) -> i64 { return x as i64; }
+}
+impl Conv<&i32> for i64 {
+    fn conv(x: &i32) -> i64 { return (*x as i64) + 100i64; }
+}
+
+// Indirect dispatch: S::conv selected by A bound from the generic context.
+fn doit<A, S: Conv<A>>(x: A) -> S {
+    return S::conv(x);
+}
+
+fn main() -> i32 {
+    let a: i32 = 5i32;
+    let r1: i64 = doit::<i32, i64>(a);    // Conv<i32>  -> 5
+    let r2: i64 = doit::<&i32, i64>(&a);  // Conv<&i32> -> 105
+    return (r1 + r2) as i32;              // 110
+}
