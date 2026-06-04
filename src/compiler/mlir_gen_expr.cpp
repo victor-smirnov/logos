@@ -4697,6 +4697,18 @@ mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::V
     return alloca;
 }
 
+// True iff a DstRef's pointee struct has a literal `[T]` slice tail (genuinely
+// 16-byte fat). A dyn-tail / TypeVar-tail DstRef is physically thin. See header.
+bool MLIRGenImpl::dstref_has_slice_tail(TypeRef t) {
+    if (!t || TypeRef(t).kind() != LogosType::Kind::DstRef) return false;
+    std::string nm(TypeRef(t).struct_name());
+    auto it = all_struct_defs_.find(nm);
+    if (it == all_struct_defs_.end() || !it->second || it->second->fields.empty())
+        return false;
+    auto lk = TypeRef(it->second->fields.back().type).kind();
+    return lk == LogosType::Kind::Slice || lk == LogosType::Kind::UnsizedSlice;
+}
+
 // RefRepr op: storage slot -> compute value. See header for the convention.
 mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
     if (k == RefReprKind::NotARef) return slot;

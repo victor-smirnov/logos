@@ -1,0 +1,14 @@
+package x;
+struct Foo { a: i64, tail: [u8] }
+struct Holder<'a> { r: &'a Foo, k: i64 }
+
+unsafe fn main() -> i32 {
+    let b1: [u8; 12] = [7u8,0u8,0u8,0u8, 0u8,0u8,0u8,0u8, 1u8,2u8,3u8,4u8];
+    let b2: [u8; 10] = [50u8,0u8,0u8,0u8, 0u8,0u8,0u8,0u8, 9u8,8u8];
+    let f1: &Foo = dst_from_raw_parts::<Foo>(&b1 as *const [u8] as *const u8, 4 as i64);
+    let f2: &Foo = dst_from_raw_parts::<Foo>(&b2 as *const [u8] as *const u8, 2 as i64);
+    let mut h: Holder = Holder { r: f1, k: 99 };
+    h.r = f2;                         // DstRef field REASSIGN (place-write)
+    let s: &[u8] = h.r.tail;
+    return (h.r.a + s.len()) as i32;  // 50 + 2 = 52
+}

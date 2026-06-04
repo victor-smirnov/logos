@@ -1109,15 +1109,36 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     // corrupts neighbours (the b167/b168 dyn regressions).
     bool dst_is_fat_dyn = pointee_t &&
         TypeRef(pointee_t).kind() == LogosType::Kind::TraitObject;
+    // A custom-DST ref (`&Foo`/`&mut Foo`, Foo has a `[T]` tail) is a 16-byte
+    // {data,len} fat slot when the DESTINATION place pointee is itself a bare
+    // DstRef field — reassigning it (`h.r = other`) must copy all 16 bytes, else
+    // only the 8-byte data ptr lands and `len` stays stale (a garbage tail
+    // length on the next read). Gated on the dest like dst_is_fat_dyn: a thin
+    // self_describing `*mut Self` is a Ptr (not DstRef) and never reaches here.
+    // A custom-DST ref is genuinely a 16-byte {data,len} fat slot ONLY when its
+    // pointee has a literal `[T]` slice tail (the len is carried inline) — e.g.
+    // `&Foo`, Foo = {a, [u8]}. A `dyn`-tail DST ref (`&RcInner<dyn>`, the tail
+    // type-param bound to `dyn`) is physically THIN: the vtable lives in the
+    // heap object and is recovered there, so the ref is an 8-byte handle (this
+    // is why sizeof(Rc<dyn>) == 8). memcpy-16 of such a handle reads OOB past
+    // its 8-byte source → SIGSEGV (the rc_arc_dyn crash). Gate on the slice tail,
+    // mirroring the dyn-tail/escape exclusion that dst_is_fat_dyn applies to a
+    // bare TraitObject place.
+    bool dst_is_fat_dst = pointee_t &&
+        TypeRef(pointee_t).kind() == LogosType::Kind::DstRef &&
+        dstref_has_slice_tail(pointee_t);
     if (val.getType() == ptr_type() && val_le->type &&
         (TypeRef(val_le->type).kind() == LogosType::Kind::Closure ||
          TypeRef(val_le->type).kind() == LogosType::Kind::Slice ||
          (TypeRef(val_le->type).kind() == LogosType::Kind::TraitObject &&
-          dst_is_fat_dyn))) {
+          dst_is_fat_dyn) ||
+         (TypeRef(val_le->type).kind() == LogosType::Kind::DstRef &&
+          dst_is_fat_dst))) {
         // RefRepr (Phase 3): the compute->storage conversion for a fat reference
-        // value is repr_lower (memcpy the 16-byte pair). The TraitObject case
-        // stays gated on the destination being a bare fat-dyn slot (a Box<dyn>/
-        // escape handle is an 8-byte thin slot — the b167/b168 regression).
+        // value is repr_lower (memcpy the 16-byte pair). The TraitObject /
+        // custom-DST cases stay gated on the destination being a bare fat slot
+        // (a Box<dyn>/escape handle is an 8-byte thin slot — the b167/b168
+        // regression; likewise a thin self_describing `*mut Self`).
         repr_lower(ref_repr_of(val_le->type), val, ptr);
         return;
     }

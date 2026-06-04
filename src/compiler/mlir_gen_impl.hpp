@@ -660,6 +660,15 @@ private:
     mlir::Value repr_materialize(RefReprKind k, mlir::Value slot);
     void        repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot);
 
+    // True iff `t` is a DstRef whose pointee struct has a literal `[T]` slice
+    // tail — i.e. a GENUINELY 16-byte {data,len} fat ref (the len is carried
+    // inline). A `dyn`-tail DstRef (`&RcInner<dyn>`) is physically thin (8-byte;
+    // the vtable lives in the heap object) and returns false. Discriminates the
+    // 16B-fat custom-DST ref from the thin dyn-tail/escape handle at the
+    // store/copy sites. Looks the pointee struct up in all_struct_defs_ and
+    // checks the last field's kind (Slice / UnsizedSlice).
+    bool dstref_has_slice_tail(TypeRef t);
+
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen) {
