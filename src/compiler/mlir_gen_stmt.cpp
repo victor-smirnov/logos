@@ -1335,10 +1335,7 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                     builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
                 } else {
                     // Plain i32 discriminant (e.g. Option::None with no type_args).
-                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                    auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), te->llvm_type, alloca, di);
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+                    enum_store_disc_value(alloca, *te, val);  // Phase 3.5 chokepoint
                 }
                 val = alloca;
             }
@@ -1699,10 +1696,7 @@ void MLIRGenImpl::gen_assign(lir_view::SAssignView v) {
         } else if (te && te->llvm_type) {
             // A tagged enum reassigned a bare i32 disc (e.g. `o = None` with no
             // type_args inferred): write only the disc word of the storage.
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-            auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), te->llvm_type, it->second, di);
-            builder_.create<mlir::LLVM::StoreOp>(loc_, val, dp);
+            enum_store_disc_value(it->second, *te, val);  // Phase 3.5 chokepoint
         } else {
             // C-like enum (i32 disc): the slot IS the i32.
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, it->second);
@@ -4788,11 +4782,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
             } else {
                 scrut_ptr = scrut_val;
             }
-            // Load discriminant (field 0)
-            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-            auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
-            disc_val = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+            // Load discriminant (Phase 3.5 chokepoint).
+            disc_val = enum_load_disc(scrut_ptr, *te_info);
         }
         // A C-like (all-nullary) enum has no TaggedEnumInfo and is passed as a
         // bare i32 — the value IS the discriminant. Without this, disc_val

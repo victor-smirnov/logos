@@ -681,6 +681,12 @@ private:
     mlir::Value enum_payload_ptr(mlir::Value enum_addr, const TaggedEnumInfo& info);
     void        enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& info,
                                 int64_t disc);
+    // Store a RUNTIME discriminant value (not a compile-time constant) — used by
+    // the "untyped None reassign" paths where the disc is an i32 SSA value. For
+    // a niche-packed enum this has no statically-known variant, so it is only
+    // valid on a non-niche `{disc,payload}` enum (asserted there).
+    void        enum_store_disc_value(mlir::Value enum_addr, const TaggedEnumInfo& info,
+                                      mlir::Value disc_val);
     mlir::Value enum_load_disc(mlir::Value enum_addr, const TaggedEnumInfo& info);
 
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.

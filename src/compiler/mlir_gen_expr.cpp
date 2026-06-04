@@ -3524,10 +3524,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                     scrut = tmp;
                 }
                 scrut_ptr = scrut;
-                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                auto dp = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, di);
-                scrut = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), dp);
+                scrut = enum_load_disc(scrut_ptr, *te_info);  // Phase 3.5 chokepoint
             } else if (via_ref) {
                 // G165-1: a FIELDLESS / C-like enum has no TaggedEnumInfo — its
                 // by-value form is a plain i32 discriminant (not a heap ptr), so
@@ -3565,9 +3562,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 [&](TypeRef t){ pvd_binding_types.push_back(t); });
             int64_t pvd_disc = pvd.disc();
             if (te_info && scrut_ptr) {
-                llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-                auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
-                    loc_, ptr_type(), te_info->llvm_type, scrut_ptr, pi);
+                auto pay_ptr = enum_payload_ptr(scrut_ptr, *te_info);  // Phase 3.5
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
                 for (auto& v : te_info->variants)
                     if (v.disc == pvd_disc) { vp = &v; break; }
@@ -4701,6 +4696,14 @@ void MLIRGenImpl::enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& i
     auto dv = builder_.create<mlir::arith::ConstantIntOp>(loc_, disc, 32);
     builder_.create<mlir::LLVM::StoreOp>(loc_, dv, dp);
 }
+void MLIRGenImpl::enum_store_disc_value(mlir::Value enum_addr,
+                                        const TaggedEnumInfo& info,
+                                        mlir::Value disc_val) {
+    llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
+    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
+                                                 enum_addr, i);
+    builder_.create<mlir::LLVM::StoreOp>(loc_, disc_val, dp);
+}
 mlir::Value MLIRGenImpl::enum_load_disc(mlir::Value enum_addr,
                                         const TaggedEnumInfo& info) {
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
@@ -5161,10 +5164,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         return nullptr;
     }
 
-    // Load discriminant at offset (0,0)
-    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-    auto disc_ptr = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), te->llvm_type, inner_ptr, di);
-    auto disc     = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI32Type(), disc_ptr);
+    // Load discriminant (Phase 3.5 chokepoint).
+    auto disc     = enum_load_disc(inner_ptr, *te);
     auto ok_cst   = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.ok_disc(), 32);
     auto is_ok    = builder_.create<mlir::arith::CmpIOp>(
                         loc_, mlir::arith::CmpIPredicate::eq, disc, ok_cst);
@@ -5190,9 +5191,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         int32_t ok_d = v.ok_disc();
         for (auto& vp : te->variants) if (vp.disc == ok_d) { ok_vp = &vp; break; }
 
-        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, inner_ptr, pi);
+        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5
         if (ok_vp && !ok_vp->field_types.empty()) {
             auto ps  = mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ok_vp->field_types);
             llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
@@ -5225,17 +5224,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         int32_t err_d = v.err_disc();
         for (auto& vp : te->variants) if (vp.disc == err_d) { err_vp = &vp; break; }
 
-        llvm::SmallVector<mlir::LLVM::GEPArg> pi{int32_t(0), int32_t(1)};
-        auto pay_ptr = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, inner_ptr, pi);
+        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5
 
         auto ret_alloca = create_entry_alloca(te->llvm_type);
-        // Store err discriminant
-        llvm::SmallVector<mlir::LLVM::GEPArg> di2{int32_t(0), int32_t(0)};
-        auto rdp = builder_.create<mlir::LLVM::GEPOp>(
-            loc_, ptr_type(), te->llvm_type, ret_alloca, di2);
-        auto edc = builder_.create<mlir::arith::ConstantIntOp>(loc_, v.err_disc(), 32);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, edc, rdp);
+        enum_store_disc(ret_alloca, *te, v.err_disc());
         // Copy E payload if it exists
         if (err_vp && !err_vp->field_types.empty()) {
             auto src_ps = mlir::LLVM::LLVMStructType::getLiteral(
@@ -5244,9 +5236,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
             auto src_fp  = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), src_ps, pay_ptr, fi);
             auto err_val = builder_.create<mlir::LLVM::LoadOp>(
                 loc_, err_vp->field_types[0], src_fp);
-            llvm::SmallVector<mlir::LLVM::GEPArg> rpi{int32_t(0), int32_t(1)};
-            auto rpp = builder_.create<mlir::LLVM::GEPOp>(
-                loc_, ptr_type(), te->llvm_type, ret_alloca, rpi);
+            auto rpp = enum_payload_ptr(ret_alloca, *te);  // Phase 3.5
             auto dst_ps = mlir::LLVM::LLVMStructType::getLiteral(
                 builder_.getContext(), err_vp->field_types);
             auto dst_fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), dst_ps, rpp, fi);
