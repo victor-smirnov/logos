@@ -2479,15 +2479,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     auto& info = struct_types_[sname];
     auto gep   = gep_field(ptr, info, field);
     if (!gep) return nullptr;
-    // A Slice/Closure field is stored INLINE as a 16-byte fat pair, but the
-    // value convention elsewhere is a POINTER to that storage — return the
-    // field address rather than loading the pair by value (mirrors the inline
-    // struct/enum element convention in EIndexRead).
-    if (type && (TypeRef(type).kind() == LogosType::Kind::Slice ||
-                 TypeRef(type).kind() == LogosType::Kind::Closure ||
-                 TypeRef(type).kind() == LogosType::Kind::Tuple ||
-                 TypeRef(type).kind() == LogosType::Kind::DstRef))
-        return gep;
+    // A Slice/Closure/custom-DST-ref field is stored INLINE as a 16-byte fat
+    // pair, but the value convention elsewhere is a POINTER to that storage —
+    // return the field address rather than loading the pair by value (mirrors
+    // the inline struct/enum element convention in EIndexRead). RefRepr (Phase
+    // 3): the storage->compute conversion for the always-16B-fat subset is
+    // repr_materialize (returns the slot today; a future zoned-ref field would
+    // convert its self-relative offset to an absolute ptr right here). A Tuple
+    // is aggregate-inline (same slot convention, not a ref). TraitObject is
+    // EXCLUDED — a dyn field read carries a by-value 16B aggregate (the load
+    // branch below), a context-dependent dyn convention kept off this path.
+    if (TypeRef rt(type); rt) {
+        auto rk = ref_repr_of(rt);
+        if (rk == RefReprKind::FatSlice || rk == RefReprKind::FatClosure ||
+            rk == RefReprKind::FatCustomDst)
+            return repr_materialize(rk, gep);
+        if (rt.kind() == LogosType::Kind::Tuple)
+            return gep;
+    }
     for (auto& f : info.fields)
         if (f.name == field)
             return builder_.create<mlir::LLVM::LoadOp>(loc_, f.type, gep);
@@ -4686,6 +4695,27 @@ mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::V
         builder_.create<mlir::LLVM::StoreOp>(loc_, len64, lp);
     }
     return alloca;
+}
+
+// RefRepr op: storage slot -> compute value. See header for the convention.
+mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
+    if (k == RefReprKind::NotARef) return slot;
+    if (k == RefReprKind::ThinPtr)
+        return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+    // Fat (always-16B pair): the value is the storage address.
+    return slot;
+}
+
+// RefRepr op: compute value -> storage slot. See header for the convention.
+void MLIRGenImpl::repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot) {
+    if (k == RefReprKind::ThinPtr || k == RefReprKind::NotARef) {
+        builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+        return;
+    }
+    // Fat: copy the 16-byte {data, meta} pair (val points at the source pair).
+    auto sz = builder_.create<mlir::LLVM::ConstantOp>(
+        loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
+    builder_.create<mlir::LLVM::MemcpyOp>(loc_, slot, val, sz, /*isVolatile=*/false);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {

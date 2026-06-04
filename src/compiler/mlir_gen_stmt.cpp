@@ -1114,9 +1114,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
          TypeRef(val_le->type).kind() == LogosType::Kind::Slice ||
          (TypeRef(val_le->type).kind() == LogosType::Kind::TraitObject &&
           dst_is_fat_dyn))) {
-        auto sz = builder_.create<mlir::LLVM::ConstantOp>(
-            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
-        builder_.create<mlir::LLVM::MemcpyOp>(loc_, ptr, val, sz, /*isVolatile=*/false);
+        // RefRepr (Phase 3): the compute->storage conversion for a fat reference
+        // value is repr_lower (memcpy the 16-byte pair). The TraitObject case
+        // stays gated on the destination being a bare fat-dyn slot (a Box<dyn>/
+        // escape handle is an 8-byte thin slot — the b167/b168 regression).
+        repr_lower(ref_repr_of(val_le->type), val, ptr);
         return;
     }
     // Enum value-repr: a `*p = enum_val` write where p is `&mut Enum` /

@@ -645,6 +645,21 @@ private:
     // an i64 length). Mirrors slice_lit.
     mlir::Value repr_construct(RefReprKind k, mlir::Value data, mlir::Value meta);
 
+    // STORAGE <-> COMPUTE conversion — the heart of the storage/compute split,
+    // made first-class so a future repr (a self-relative `zoned T`, whose
+    // conversion is offset±anchor, not identity) plugs in as just a new pair of
+    // these. Today every repr's conversion is trivial:
+    //   materialize(slot)  — storage slot  -> compute value. Thin: load the 8B
+    //     ptr. Fat (always-16B pair): the value IS the storage address (the
+    //     by-pointer fat value convention) -> return slot. NOTE: FatDyn shares
+    //     the 16B form but some sites carry a dyn value as a by-value aggregate
+    //     instead of a slot address; those sites keep their own handling and do
+    //     NOT route here (the dyn value-convention is context-dependent).
+    //   lower(val, slot)   — compute value -> storage slot. Thin: store the 8B
+    //     ptr. Fat: memcpy the 16B pair (val is a ptr to the source pair).
+    mlir::Value repr_materialize(RefReprKind k, mlir::Value slot);
+    void        repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot);
+
     // Byte size (= layout_of(t).size). Thin wrapper kept for existing callers.
     uint64_t logos_abi_byte_size(TypeRef t,
                                   std::unordered_set<std::string>& seen) {
