@@ -2758,6 +2758,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 // key is `[pkg.]Struct`. For primitive receivers
                                 // (i32 / i64 / etc.), the impl block registers
                                 // methods under the bare type name (`i32`).
+                                // Gap A': set when associated-type projection picks a
+                                // specific trait-qualified candidate `<Self>__<Trait>
+                                // $G..$<A>__<m>`; overrides the inference block's bare
+                                // callee base so the right impl gets instantiated.
+                                std::string gapA_prime_base;
                                 std::string struct_base;
                                 std::string struct_pkg;
                                 if (TypeRef(t).kind() == LogosType::Kind::Struct) {
@@ -2810,6 +2815,119 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             kn.find(p_dot) != std::string::npos) {
                                             tmpl = fp;
                                             break;
+                                        }
+                                    }
+                                    // Gap A': dispatch `S::method(args)` to a multi-param
+                                    // trait `Trait<A> for Self` whose discriminator A is
+                                    // NOT a method parameter but an ASSOCIATED type of an
+                                    // argument (the `Sum<A>::sum<I:Iterator<A>>` shape — A
+                                    // is the iterator's Item). The bare `<Self>__<m>`
+                                    // matched none above; the candidates are trait-
+                                    // qualified `<Self>__<Trait>$G..$<A>__<m>`. The
+                                    // method-tparam bound is stripped from the mono
+                                    // template, but A is recoverable by ASSOCIATED-TYPE
+                                    // PROJECTION: for each argument type, find the impls
+                                    // whose target unifies with it, substitute the impl's
+                                    // type-params, and mangle its trait_type_args — the
+                                    // set of trait-arg tokens the arg "carries". Pick the
+                                    // unique candidate whose `$G..$<A>` token an arg
+                                    // carries. General mechanism (Rust's `<C as T>::A`),
+                                    // not string-mangling of impl symbols (single impls
+                                    // strip the qualifier).
+                                    if (!tmpl) {
+                                        std::string sp  = struct_base + "__";
+                                        std::string mid = "__" + method_name + "__";
+                                        // STEP 1 (cheap, no substitution): scan the trait-
+                                        // qualified candidates `<Self>__<Trait>$G..__<m>`.
+                                        // Only the genuinely-AMBIGUOUS case (>1 distinct
+                                        // trait-arg token) needs the projection below — this
+                                        // keeps the common single-impl path untouched.
+                                        struct Cand { std::string gtok, key; const lir::LFunction* fp; };
+                                        std::vector<Cand> cands;
+                                        std::set<std::string> cand_gtoks;
+                                        auto consider = [&](std::string_view full, const lir::LFunction* fp) {
+                                            auto dot = full.rfind('.');
+                                            std::string_view bare =
+                                                (dot==std::string_view::npos)?full:full.substr(dot+1);
+                                            if (bare.rfind(sp,0)!=0) return;
+                                            auto mp = bare.find(mid);
+                                            if (mp==std::string_view::npos) return;
+                                            auto after = bare.substr(mp+mid.size());
+                                            if (after.rfind("f__",0)!=0 && after.rfind("g__",0)!=0) return;
+                                            std::string_view qual = bare.substr(sp.size(), mp-sp.size());
+                                            auto gp = qual.find("$G");
+                                            if (gp==std::string_view::npos) return;
+                                            std::string gtok(qual.substr(gp));
+                                            cand_gtoks.insert(gtok);
+                                            cands.push_back({gtok, std::string(full), fp});
+                                        };
+                                        for (auto& [kn,fp]:templates_) consider(kn, fp);
+                                        for (auto& f:in_.functions)  if (f) consider(f->name, f.get());
+                                        for (auto& f:out_.functions) if (f) consider(f->name, f.get());
+                                        if (cand_gtoks.size() > 1) {
+                                            // STEP 2: ASSOCIATED-TYPE PROJECTION — the set of
+                                            // trait-arg tokens the args carry. For each arg
+                                            // type, find impls whose target unifies with it,
+                                            // substitute the impl's type-params, mangle its
+                                            // trait_type_args (byte-identical to mono.cpp's
+                                            // assoc-impl indexing). General mechanism (Rust's
+                                            // `<C as T>::A`). subst_type's needed-type side
+                                            // effects are harmless here (the substituted types
+                                            // are already needed by the real dispatch).
+                                            auto mangle_args = [&](const std::vector<TypeRef>& as,
+                                                                   const SubstMap& sm) -> std::string {
+                                                if (as.empty()) return {};
+                                                std::string r = "$G" + std::to_string(as.size());
+                                                for (auto a : as) {
+                                                    r += "$";
+                                                    TypeRef sa = a ? subst_type(a, sm) : TypeRef{};
+                                                    std::string ts = sa ? std::string(type_str(sa)) : std::string("?");
+                                                    for (char& c : ts)
+                                                        if (!(std::isalnum((unsigned char)c) || c=='_')) c='_';
+                                                    r += ts;
+                                                }
+                                                return r;
+                                            };
+                                            std::set<std::string> arg_tokens;
+                                            for (auto& a : nc.args) {
+                                                if (!a || !a->type) continue;
+                                                TypeRef at(a->type);
+                                                for (auto& impl : out_.impls) {
+                                                    if (impl.is_blanket || impl.trait_type_args.empty())
+                                                        continue;
+                                                    SubstMap sm;
+                                                    if (impl.target_typeref) {
+                                                        if (!unify_impl_target(at, impl.target_typeref, sm))
+                                                            continue;
+                                                    } else {
+                                                        std::string an;
+                                                        auto k2 = at.kind();
+                                                        if (k2==LogosType::Kind::Struct ||
+                                                            k2==LogosType::Kind::ZonedStruct)
+                                                            an = concrete_struct_name(at);
+                                                        else if (k2==LogosType::Kind::Enum)
+                                                            an = std::string(at.enum_name());
+                                                        else an = type_str(at);
+                                                        if (an != impl.target_type) continue;
+                                                    }
+                                                    arg_tokens.insert(mangle_args(impl.trait_type_args, sm));
+                                                }
+                                            }
+                                            // STEP 3: pick the unique candidate whose token an
+                                            // arg carries.
+                                            std::set<std::string> ok_gtoks;
+                                            std::string picked_key; const lir::LFunction* picked_fp = nullptr;
+                                            for (auto& c : cands)
+                                                if (arg_tokens.count(c.gtok)) {
+                                                    ok_gtoks.insert(c.gtok);
+                                                    picked_key = c.key; picked_fp = c.fp;
+                                                }
+                                            if (ok_gtoks.size() == 1 && picked_fp) {
+                                                tmpl = picked_fp;
+                                                auto mm = picked_key.find(mid);
+                                                gapA_prime_base = picked_key.substr(
+                                                    0, mm + mid.size() + 1);  // +1 keeps g/f
+                                            }
                                         }
                                     }
                                     // Gap A: a multi-param trait `Trait<A> for Self`
@@ -2968,10 +3086,17 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                                         full.push_back(a);
                                                     nc.type_args = std::move(full);
                                                     std::string callee_base;
-                                                    if (!new_pkg.empty())
-                                                        callee_base = new_pkg + ".";
-                                                    callee_base += struct_base
-                                                                 + "__" + method_name;
+                                                    if (!gapA_prime_base.empty()) {
+                                                        // Gap A': trait-qualified base
+                                                        // (already pkg-qualified) replaces
+                                                        // the bare `<Self>__<m>`.
+                                                        callee_base = gapA_prime_base;
+                                                    } else {
+                                                        if (!new_pkg.empty())
+                                                            callee_base = new_pkg + ".";
+                                                        callee_base += struct_base
+                                                                     + "__" + method_name;
+                                                    }
                                                     nc.callee = callee_base;
                                                 }
                                             }

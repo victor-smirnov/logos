@@ -1,0 +1,34 @@
+package x;
+
+// "Iterator<Item>" analog
+trait Producer<Item> {
+    fn produce(self: &Self) -> Item;
+}
+
+// A concrete producer whose Item is &i32 (mirrors VecIter: Iterator<&i32>)
+struct RefProd { v: i32 }
+impl Producer<&i32> for RefProd {
+    fn produce(self: &RefProd) -> &i32 { return &self.v; }
+}
+
+// "Sum<A>" analog: two impls for the SAME Self (i64) differing in A.
+trait Collect<A> {
+    fn collect<P: Producer<A>>(p: P) -> Self;
+}
+impl Collect<i32> for i64 {
+    fn collect<P: Producer<i32>>(p: P) -> i64 { return 1i64; }
+}
+impl Collect<&i32> for i64 {
+    fn collect<P: Producer<&i32>>(p: P) -> i64 { return 2i64; }   // want this for RefProd
+}
+
+// "Iterator::sum" analog: generic method calling the trait-static dispatch.
+fn run<A, P: Producer<A>, S: Collect<A>>(p: P) -> S {
+    return S::collect(p);
+}
+
+fn main() -> i32 {
+    let rp: RefProd = RefProd { v: 7 };
+    let r: i64 = run::<&i32, RefProd, i64>(rp);   // P=RefProd (Producer<&i32>) -> A=&i32 -> Collect<&i32> -> 2
+    return r as i32;   // want 2
+}
