@@ -10823,6 +10823,29 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     mfi->symbol_name.empty() ? msym : mfi->symbol_name, fn_type);
             }
         }
+        // `Z::method::<T..>(args)` — Z a type-param bound by a trait declaring a
+        // static `method`. The grammar parses this identically to a generic
+        // enum-variant construction; disambiguate when NAME is a bound type-param.
+        if (current_type_bounds_.count(cname_str)) {
+            std::vector<lir::LExprPtr> sargs;
+            if (node.has_key(la::ARGS)) {
+                AnyVal aav = node.get(la::ARGS.code);
+                auto run = [&](auto items) {
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        sargs.push_back(lower_expr(map_of(items.get(i))));
+                };
+                if (!aav.is_null()) {
+                    if (aav.is_pointer()) {
+                        auto mm = map_of(aav);
+                        if (mm.has_key(la::ITEMS)) run(arr_of(mm.get(la::ITEMS.code)));
+                        else                       run(arr_of(aav));
+                    } else run(arr_of(aav));
+                }
+            }
+            if (auto c = lower_typaram_static_method(cname_str, mname_str,
+                            collect_type_args(node), std::move(sargs)))
+                return c;
+        }
         error(std::format("unknown enum '{}'", ename));
         return error_expr();
     }
@@ -11971,6 +11994,76 @@ bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!ref_arg_satisfies_dyn(arg->type, pdyn)) return false;
     arg = builder().cast(std::move(arg), pt);
     return true;
+}
+
+lir::LExprPtr SemaChecker::lower_typaram_static_method(
+        const std::string& cname, const std::string& mname,
+        std::vector<TypeRef> explicit_targs,
+        std::vector<lir::LExprPtr> arg_exprs) {
+    auto bit = current_type_bounds_.find(cname);
+    if (bit == current_type_bounds_.end()) return nullptr;
+    // Walk the type-param's bounds (+ supertraits) for a STATIC method `mname`
+    // (first param isn't `Self`).
+    const SemaTraitMethodInfo* m = nullptr;
+    logos::compiler::StrSet seen;
+    std::function<void(const std::string&)> walk = [&](const std::string& tn) {
+        if (m || !seen.insert(tn).second) return;
+        auto it = find_trait_iter_scoped(tn);
+        if (it == traits_.end()) return;
+        for (auto& mm : it->second.methods) {
+            if (mm.name != mname) continue;
+            bool is_static = mm.param_types.empty() ||
+                !(mm.param_types[0] &&
+                  TypeRef(mm.param_types[0]).kind() == LogosType::Kind::TypeVar &&
+                  TypeRef(mm.param_types[0]).type_var_name() == "Self");
+            if (is_static) { m = &mm; return; }
+        }
+        for (auto& s : it->second.supertraits) walk(s.trait_name);
+    };
+    for (auto& b : bit->second) { walk(b.trait_name); if (m) break; }
+    if (!m) return nullptr;
+    if (m->is_unsafe && !inside_unsafe_)
+        error(std::format("call to unsafe method '{}' requires unsafe context", mname));
+    // Self → the type-param; method's own type-params → explicit turbofish, else
+    // inferred by unifying the declared param types against the arg types.
+    SemaSubst subst;
+    subst["Self"] = current_type_params_.count(cname)
+        ? current_type_params_[cname] : make_typevar(cname);
+    std::vector<TypeRef> method_targs;
+    if (!explicit_targs.empty()) {
+        for (size_t i = 0; i < m->type_params.size() && i < explicit_targs.size(); ++i)
+            subst[m->type_params[i].name] = explicit_targs[i];
+        method_targs = std::move(explicit_targs);
+    } else if (!m->type_params.empty()) {
+        logos::compiler::StrMap<TypeRef> binds;
+        for (size_t j = 0; j < m->param_types.size() && j < arg_exprs.size(); ++j)
+            if (m->param_types[j] && arg_exprs[j] && arg_exprs[j]->type)
+                unify_types(m->param_types[j], arg_exprs[j]->type, binds);
+        // Only substitute/pass when EVERY method type-param is arg-inferable;
+        // else leave empty (trait-arg-disambiguated dispatch — Gap A' — untouched).
+        bool all_bound = true;
+        for (auto& tp : m->type_params)
+            if (!binds.count(tp.name)) { all_bound = false; break; }
+        if (all_bound)
+            for (auto& tp : m->type_params) {
+                subst[tp.name] = binds[tp.name];
+                method_targs.push_back(binds[tp.name]);
+            }
+    }
+    if (arg_exprs.size() != m->param_types.size())
+        error(std::format("method call '{}::{}': expected {} args, got {}",
+              cname, mname, m->param_types.size(), arg_exprs.size()));
+    TypeRef ret_t = m->ret_type ? subst_type_sema(m->ret_type, subst) : void_t();
+    const SemaFuncInfo* mfi = nullptr;
+    {
+        auto cands = find_func_candidates(cname + "__" + mname);
+        if (cands.size() == 1) mfi = cands[0];
+        else for (auto* c : cands)
+            if (c && c->param_types.size() == m->param_types.size()) { mfi = c; break; }
+    }
+    return builder().call(mfi && !mfi->symbol_name.empty() ? mfi->symbol_name
+                                                           : cname + "__" + mname,
+                          std::move(method_targs), std::move(arg_exprs), ret_t);
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {

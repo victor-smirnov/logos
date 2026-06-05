@@ -1,0 +1,33 @@
+// Generic associated FN called through a bound type-param with a METHOD turbofish:
+// `Z::m::<T>(args)`. Previously failed "unknown enum 'Z'" — the grammar parses it
+// identically to a generic enum-variant construction (`Enum::Variant::<T>(args)`),
+// so it routed to enum resolution. Now disambiguated when NAME is a bound
+// type-param → trait-static dispatch (mono retargets `Z__m` → `Concrete__m`).
+// This is the critical path to the typed `Z::Ptr<T>` zone-as-parameter design.
+package typaram_generic_static_method;
+
+trait Zone {
+    unsafe fn nullp<T>() -> *mut T;              // T return-only → needs turbofish
+    unsafe fn echo<T>(x: *mut T, n: i64) -> *mut T;
+}
+struct Heap { }
+impl Zone for Heap {
+    unsafe fn nullp<T>() -> *mut T { return 0i64 as *mut T; }
+    unsafe fn echo<T>(x: *mut T, n: i64) -> *mut T { return x; }
+}
+
+unsafe fn via_turbofish<Z: Zone>(x: *mut i64) -> i64 {
+    let n: *mut i64 = Z::nullp::<i64>();          // turbofish, return-only T
+    let e: *mut i64 = Z::echo::<i64>(x, 5i64);    // turbofish, T + value args
+    if !(n == (0i64 as *mut i64)) { return -1i64; }
+    return *e;                                     // return type *mut i64 (T substituted)
+}
+
+fn main() -> i32 {
+    unsafe {
+        let v: i64 = 99i64;
+        let r: i64 = via_turbofish::<Heap>(&v as *const i64 as *mut i64);
+        if r != 99i64 { return 1i32; }
+        return 0i32;
+    }
+}

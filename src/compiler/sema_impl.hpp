@@ -3370,6 +3370,15 @@ private:
     lir::LExprPtr lower_enum_lit_data_from_static(
             hermes::TinyMapView node, std::string_view ename, std::string_view vname);
     lir::LExprPtr lower_static_call(hermes::TinyMapView node);
+    // Trait-static method dispatch through a bound type-param: `Z::m(args)` /
+    // `Z::m::<T..>(args)` where Z: SomeTrait declares static `m`. Substitutes
+    // Self→Z and the method's OWN type-params (explicit turbofish, else inferred
+    // from arg types) into the return type + passes them as call type-args (so
+    // mono instantiates `<Concrete>__m::<..>`). nullptr if Z isn't such a param.
+    lir::LExprPtr lower_typaram_static_method(
+        const std::string& cname, const std::string& mname,
+        std::vector<TypeRef> explicit_targs,
+        std::vector<lir::LExprPtr> arg_exprs);
     lir::LExprPtr lower_metacall   (hermes::TinyMapView node);
     // Function-style macro `name!(args)` / `name![args]` (slice 1 of
     // fn-macros). Resolves CALLEE against #[fn_macro] fns; ARGs are
