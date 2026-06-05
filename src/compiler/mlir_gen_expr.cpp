@@ -4791,7 +4791,13 @@ void MLIRGenImpl::repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot) {
 mlir::Value MLIRGenImpl::materialize_self_describing_ref(mlir::Value thin_ptr,
                                                          TypeRef dstref_t) {
     if (!thin_ptr || !dstref_t) return thin_ptr;
-    std::string sname(TypeRef(dstref_t).struct_name());
+    // Concrete (type-arg-mangled) struct name so a GENERIC self-describing DST
+    // resolves to its monomorphised `Foo$G1$i64__dst_len` instance, not the bare
+    // `Foo__dst_len` (which only exists for non-generic structs).
+    auto targs = TypeRef(dstref_t).type_args();
+    std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string sname = concrete_struct_name_raw(
+        std::string(TypeRef(dstref_t).struct_name()), targ_vec);
     auto sym = resolve_method_symbol(sname, "dst_len");
     auto parent_mod = builder_.getBlock()->getParent()
                           ->getParentOfType<mlir::ModuleOp>();

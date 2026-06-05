@@ -1,0 +1,36 @@
+// Generic #[self_describing] DST: `GBlock<T>` with a typed [T] tail. The
+// compiler-emitted dst_len call (materializing a fat `&GBlock<i64>` from a thin
+// ptr) resolves to the MONOMORPHISED `GBlock$G1$i64__dst_len` instance (not the
+// bare name). Also exercises the mut-aware tail view (`&mut`-receiver →
+// `&mut [T]` slice binding). ref-repr §6.
+package self_describing_dst_generic;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+#[self_describing]
+struct GBlock<T> { count: i64, tail: [T] }
+
+impl<T> SelfDescribing for GBlock<T> {
+    fn dst_len(self: *const GBlock<T>) -> i64 { return unsafe { (*self).count }; }
+}
+
+unsafe fn main() -> i32 {
+    let n: i64 = 3i64;
+    let raw: *mut u8 = malloc(8i64 + n * 8i64);
+    let b: *mut GBlock<i64> = raw as *mut GBlock<i64>;
+    (*b).count = n;
+
+    // mut-aware tail view: a `&mut GBlock<i64>` receiver yields `&mut [i64]`.
+    let sm: &mut GBlock<i64> = &mut *b;
+    let mut t: &mut [i64] = sm.tail;
+    t[0] = 10i64; t[1] = 20i64; t[2] = 12i64;
+
+    let s: &GBlock<i64> = &*b;
+    if s.count != 3i64 { return 1i32; }
+    if s.tail.len() != 3i64 { return 2i32; }
+    let sum: i64 = s.tail[0] + s.tail[1] + s.tail[2];
+    free(raw);
+    if sum != 42i64 { return 3i32; }
+    return 0i32;
+}

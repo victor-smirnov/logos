@@ -8431,8 +8431,12 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
             // Cast u8-ptr → elem-ptr (slice_lit expects element-typed ptr).
             auto tail_ptr_elem = builder().cast(std::move(tail_ptr),
                                                 make_ptr(false, tail_elem_t));
+            // Slice mutability follows the receiver: `(&mut Foo).tail` is a
+            // `&mut [T]` view, `(&Foo).tail` is `&[T]`. Lets `let t: &mut [T] =
+            // foo.tail; t[i] = …` write through (the DstRef's mut flag).
+            bool tail_mut = TypeRef(recv_base_t).mut_ptr();
             return builder().slice_lit(std::move(tail_ptr_elem), std::move(len),
-                                       make_slice_type(tail_elem_t));
+                                       make_slice_type(tail_elem_t, tail_mut));
         }
         // Non-tail (prefix) field. A generic DST instance (`Inner<dyn Tr>`) has
         // NO concrete struct layout to GEP — the tail is unsized, so the
