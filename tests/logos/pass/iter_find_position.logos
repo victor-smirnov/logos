@@ -22,28 +22,28 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
         // .find — first even
-        let mut it1 = iter_over_slice::<i32>(&arr);
+        let mut it1 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
         match it1.find(is_even) {
             Option::Some(v) => { if v != 2i32 { return 1i32; } }
             Option::None    => { return 2i32; }
         }
 
         // .find — predicate never matches → None
-        let mut it2 = iter_over_slice::<i32>(&arr);
+        let mut it2 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
         match it2.find(gt100) {
             Option::Some(_) => { return 3i32; }
             Option::None    => { }
         }
 
         // .position — index of first even
-        let mut it3 = iter_over_slice::<i32>(&arr);
+        let mut it3 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
         match it3.position(is_even) {
             Option::Some(idx) => { if idx != 1i64 { return 4i32; } }
             Option::None      => { return 5i32; }
         }
 
         // .position — never matches → None
-        let mut it4 = iter_over_slice::<i32>(&arr);
+        let mut it4 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(&arr));
         match it4.position(gt100) {
             Option::Some(_) => { return 6i32; }
             Option::None    => { }

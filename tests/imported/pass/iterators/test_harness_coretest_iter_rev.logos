@@ -3,7 +3,7 @@
 // Tests ported: test_rev, test_iterator_rev_nth
 //
 // Modifications:
-// - `xs.iter()` (slice ref-yielding iterator) → `iter_over_slice(&xs)`
+// - `xs.iter()` (slice ref-yielding iterator) → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs))`
 //   (Logos's slice iter yields T by value, not &T; no `.cloned()` needed).
 // - `isize` element type → `i32`.
 // - `Vec<isize>` → `Vec<i32>` + comparison with .ptr[i] instead of
@@ -30,7 +30,7 @@ use logos.mem.collections.vec;
 fn test_rev() {
     let xs: [i32; 8] = [2i32, 4i32, 6i32, 8i32, 10i32, 12i32, 14i32, 16i32];
     unsafe {
-        let mut it = iter_over_slice(&xs);
+        let mut it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs));
         it.next();
         it.next();
         let got: Vec<i32> = it.rev().collect::<Vec<i32>>();
@@ -50,7 +50,7 @@ fn test_iterator_rev_nth() {
     unsafe {
         let mut i: i32 = 0i32;
         while (i as i64) < 5i64 {
-            let mut it = iter_over_slice(&v).rev();
+            let mut it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).rev();
             let got = it.nth(i as i64);
             match got {
                 Option::Some(x) => { assert_eq!(x, v[4i32 - i]); }
@@ -59,7 +59,7 @@ fn test_iterator_rev_nth() {
             i = i + 1i32;
         }
         // .nth(len) on a length-5 reversed iter is None.
-        let mut it2 = iter_over_slice(&v).rev();
+        let mut it2 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).rev();
         let past = it2.nth(5i64);
         match past {
             Option::Some(_) => { assert_eq!(true, false); }

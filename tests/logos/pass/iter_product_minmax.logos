@@ -12,15 +12,15 @@ fn main() -> i32 {
     let arr: [i32; 4] = [3i32, 1i32, 4i32, 1i32];
     unsafe {
         // product = 12
-        let p: i32 = iter_product_i32(iter_over_slice(&arr));
+        let p: i32 = iter_product_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)));
         if p != 12i32 { return 1i32; }
         // max via min/max_by
-        let mx: Option<i32> = iter_max_by(iter_over_slice(&arr), cmp_i32);
+        let mx: Option<i32> = iter_max_by(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)), cmp_i32);
         match mx {
             Option::Some(v) => { if v != 4i32 { return 2i32; } }
             Option::None    => { return 3i32; }
         }
-        let mn: Option<i32> = iter_min_by(iter_over_slice(&arr), cmp_i32);
+        let mn: Option<i32> = iter_min_by(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)), cmp_i32);
         match mn {
             Option::Some(v) => { if v != 1i32 { return 4i32; } }
             Option::None    => { return 5i32; }

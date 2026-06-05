@@ -877,6 +877,46 @@ pub fn iter_rev<I: DoubleEndedIterator<T>, T>(iter: I) -> RevIter<I, T> {
     return RevIter { inner: iter, _t_marker: 0i32 };
 }
 
+// ── CopiedIter<I, T> — `Iterator<&T>` → `Iterator<T>` (Rust's `.copied()`) ────
+//
+// The by-ref bridge: a borrowing iterator (`SliceIter`/`VecIter`/map+set
+// `keys()`/`values()`, etc. yield `&T`) is copied element-by-element into an
+// owning `Iterator<T>`, so it can feed by-value sinks (`iter_collect_vec`,
+// `iter_sum_i32`, `FromIterator<T>`, …). A free fn (not a method) — a generic
+// adapter method over `&T` doesn't monomorphise (baghunt_iter_method_generic_mono).
+// `T` should be `Copy`; the tests use primitives. Previously deferred (it was a
+// degenerate no-op while iterators were by-value; now real).
+pub struct CopiedIter<I, T> {
+    pub inner: I,
+    pub _t_marker: i32,
+}
+
+impl<I: Iterator<&T>, T> Iterator<T> for CopiedIter<I, T> {
+    fn next(self: &mut CopiedIter<I, T>) -> Option<T> {
+        match self.inner.next() {
+            Option::Some(r) => { return Option::Some(*r); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<I: DoubleEndedIterator<&T>, T> DoubleEndedIterator<T> for CopiedIter<I, T> {
+    fn next_back(self: &mut CopiedIter<I, T>) -> Option<T> {
+        match self.inner.next_back() {
+            Option::Some(r) => { return Option::Some(*r); }
+            Option::None    => { return Option::None; }
+        }
+    }
+}
+
+impl<I: ExactSizeIterator<&T>, T> ExactSizeIterator<T> for CopiedIter<I, T> {
+    fn len(&self) -> i64 { return self.inner.len(); }
+}
+
+pub fn iter_copied<I: Iterator<&T>, T>(iter: I) -> CopiedIter<I, T> {
+    return CopiedIter { inner: iter, _t_marker: 0i32 };
+}
+
 // ── MapIter<I, T, R, F> — lazy map ──────────────────────────────────────────
 //
 // Carries the mapper type F as an explicit parameter so capturing
@@ -2098,24 +2138,26 @@ pub struct SliceIter<T> {
     back_idx: i64,
 }
 
-impl<T> Iterator<T> for SliceIter<T> {
-    fn next(self: &mut SliceIter<T>) -> Option<T> {
+// Yields `&T` (Rust-conformant: `[T]::iter()` borrows). A slice is borrowed
+// storage, so there is no owning `into_iter` — the only form is by-ref.
+impl<T> Iterator<&T> for SliceIter<T> {
+    fn next(self: &mut SliceIter<T>) -> Option<&T> {
         unsafe {
             if self.idx >= self.back_idx { return Option::None; }
-            let val: T = self.data[self.idx];
+            let r: &T = &self.data[self.idx];
             self.idx = self.idx + 1 as i64;
-            return Option::Some(val);
+            return Option::Some(r);
         }
     }
 }
 
-impl<T> DoubleEndedIterator<T> for SliceIter<T> {
-    fn next_back(self: &mut SliceIter<T>) -> Option<T> {
+impl<T> DoubleEndedIterator<&T> for SliceIter<T> {
+    fn next_back(self: &mut SliceIter<T>) -> Option<&T> {
         unsafe {
             if self.idx >= self.back_idx { return Option::None; }
             self.back_idx = self.back_idx - 1 as i64;
-            let val: T = self.data[self.back_idx];
-            return Option::Some(val);
+            let r: &T = &self.data[self.back_idx];
+            return Option::Some(r);
         }
     }
 }
@@ -2126,7 +2168,7 @@ pub unsafe fn iter_over_slice<T>(s: &[T]) -> SliceIter<T> {
     return SliceIter { data: p, len: n, idx: 0 as i64, back_idx: n };
 }
 
-impl<T> ExactSizeIterator<T> for SliceIter<T> {
+impl<T> ExactSizeIterator<&T> for SliceIter<T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 

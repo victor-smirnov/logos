@@ -3,7 +3,7 @@
 //   (test_iterator_len)
 //
 // Modifications:
-// - `v.iter().count()` → `iter_over_slice(&v).count()`. Faithful
+// - `v.iter().count()` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).count()`. Faithful
 //   shape — `.count()` is a trait-default method.
 // - Slice prefixes `v[..N]` modeled via iter_take to bound the
 //   length (Logos doesn't have Rust's range-indexed slicing surface
@@ -23,15 +23,15 @@ fn test_iterator_len() {
     let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
     unsafe {
         // Full iter count.
-        assert_eq!(iter_over_slice(&v).count(), 11i64);
+        assert_eq!(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).count(), 11i64);
         // Prefix-of-4 count.
-        let n4: i64 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32).count();
+        let n4: i64 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 4i64, 0i32).count();
         assert_eq!(n4, 4i64);
         // Prefix-of-10 count.
-        let n10: i64 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 10i64, 0i32).count();
+        let n10: i64 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 10i64, 0i32).count();
         assert_eq!(n10, 10i64);
         // Empty count.
-        let n0: i64 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32).count();
+        let n0: i64 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 0i64, 0i32).count();
         assert_eq!(n0, 0i64);
     }
 }

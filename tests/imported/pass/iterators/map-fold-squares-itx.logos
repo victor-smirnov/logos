@@ -5,8 +5,8 @@ use logos.lang.iter;
 fn main() -> i32 {
     let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     unsafe {
-        let it = iter_map::<SliceIter<i32>, i32, i32, |i32| -> i32>(iter_over_slice(&xs), |x: i32| -> i32 { return x * x; });
-        let s: i32 = iter_fold::<MapIter<SliceIter<i32>, i32, i32, |i32| -> i32>, i32, i32, |i32, i32| -> i32>(
+        let it = iter_map::<CopiedIter<SliceIter<i32>, i32>, i32, i32, |i32| -> i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), |x: i32| -> i32 { return x * x; });
+        let s: i32 = iter_fold::<MapIter<CopiedIter<SliceIter<i32>, i32>, i32, i32, |i32| -> i32>, i32, i32, |i32, i32| -> i32>(
             it, 0i32, |a: i32, x: i32| -> i32 { return a + x; });
         if s != 30i32 { return 1i32; }
     }

@@ -54,7 +54,7 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
         is_move_type(recv->type) && is_hoistable_temp_rvalue(*recv)) {
         std::string nm = std::format("__rtmp_{}", destruct_counter_++);
         TypeRef rt = recv->type;
-        cur_stmt_temp_hoist_->push_back({nm, rt, std::move(recv)});
+        cur_stmt_temp_hoist_->push_back({nm, rt, std::move(recv), is_mut});
         recv = builder().var_ref(nm, rt);
     }
     return builder().addr_of_temp(std::move(recv), is_mut, ref_type);
@@ -8287,7 +8287,7 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         is_move_type(recv->type) && is_hoistable_temp_rvalue(*recv)) {
         std::string nm = std::format("__rtmp_{}", destruct_counter_++);
         TypeRef rt = recv->type;
-        cur_stmt_temp_hoist_->push_back({nm, rt, recv});
+        cur_stmt_temp_hoist_->push_back({nm, rt, recv, false});  // field recv = &self
         recv = builder().var_ref(nm, rt);
     }
     TypeRef recv_base_t = recv->type;

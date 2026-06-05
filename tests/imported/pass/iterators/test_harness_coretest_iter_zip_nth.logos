@@ -24,8 +24,8 @@ fn test_zip_nth() {
     let ys: [i32; 3] = [10i32, 11i32, 12i32];
     unsafe {
         // .nth(0): first pair is (0, 10).
-        let it0 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let it0 = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it0.nth(0i64) {
             Option::Some(p) => {
                 assert_eq!(p.first,  0i32);
@@ -34,8 +34,8 @@ fn test_zip_nth() {
             Option::None    => { assert_eq!(true, false); }
         }
         // Fresh iter, .nth(1): pair at index 1 is (1, 11).
-        let it1 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let it1 = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it1.nth(1i64) {
             Option::Some(p) => {
                 assert_eq!(p.first,  1i32);
@@ -44,8 +44,8 @@ fn test_zip_nth() {
             Option::None    => { assert_eq!(true, false); }
         }
         // .nth(2): pair at index 2 is (2, 12).
-        let it2 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let it2 = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it2.nth(2i64) {
             Option::Some(p) => {
                 assert_eq!(p.first,  2i32);
@@ -54,8 +54,8 @@ fn test_zip_nth() {
             Option::None    => { assert_eq!(true, false); }
         }
         // .nth(3) past the shorter (ys = length 3) iter → None.
-        let it3 = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let it3 = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it3.nth(3i64) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }

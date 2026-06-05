@@ -3,7 +3,7 @@
 //   (test_iterator_skip front-only subset)
 //
 // Modifications:
-// - `xs.iter().skip(N)` → `iter_skip::<…>(iter_over_slice(&xs), N, zero)`.
+// - `xs.iter().skip(N)` → `iter_skip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), N, zero)`.
 // - `it.len()` (ExactSizeIterator) assertions dropped — not impl'd.
 // - DoubleEnded variants deferred — SkipIter has no DEI yet.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
@@ -21,7 +21,7 @@ fn test_iterator_skip() {
     let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
     let ys: [i32; 7]  = [13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
     unsafe {
-        let mut it = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 5i64, 0i32);
+        let mut it = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 5i64, 0i32);
         let mut i: i32 = 0i32;
         loop {
             match it.next() {

@@ -20,7 +20,7 @@ use logos.lang.option;
 fn test_iterator_take_short() {
     let xs: [i32; 4] = [0i32, 1i32, 2i32, 3i32];
     unsafe {
-        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 5i64, 0i32);
+        let mut it = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 5i64, 0i32);
         let mut i: i32 = 0i32;
         loop {
             match it.next() {

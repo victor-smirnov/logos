@@ -4,8 +4,8 @@
 //   `.nth` on `ZipPair` tuple shape which isn't on the surface yet).
 //
 // Modifications:
-// - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_over_slice(&xs),
-//   iter_over_slice(&ys), zt, zu)`. Logos's ZipIter yields a
+// - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
+//   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), zt, zu)`. Logos's ZipIter yields a
 //   `ZipPair<T, U>` struct, not `(T, U)`; destructure via `.first`
 //   / `.second` fields.
 // - Stops at the shorter iter (Rust semantics).
@@ -26,8 +26,8 @@ fn test_iterator_zip() {
     let want_first:  [i32; 3] = [0i32, 1i32, 2i32];
     let want_second: [i32; 3] = [10i32, 11i32, 12i32];
     unsafe {
-        let mut it = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let mut it = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         let mut i: i32 = 0i32;
         loop {
             match it.next() {

@@ -13,7 +13,7 @@
 // - SL-sl-05: FromIterator<A> trait + impl FromIterator<T> for Vec<T>.
 // - CP-cm-14: method-tparam inference for trait-static dispatch via
 //   tparam receiver (`.collect::<Vec<i32>>()` desugars to
-//   `Vec::<i32>::from_iter::<I=SliceIter<i32>>(self)` at mono time).
+//   `Vec::<i32>::from_iter::<I=CopiedIter<SliceIter<i32>, i32>>(self)` at mono time).
 
 package test_iter_collect;
 
@@ -28,7 +28,7 @@ use logos.mem.collections.vec;
 fn test_collect_identity() {
     let xs: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
     unsafe {
-        let v: Vec<i32> = iter_over_slice(&xs).collect::<Vec<i32>>();
+        let v: Vec<i32> = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)).collect::<Vec<i32>>();
         assert_eq!(v.len, 5i64);
         let mut i: i64 = 0i64;
         while i < v.len {
@@ -43,8 +43,8 @@ fn test_collect_after_filter() {
     let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
     unsafe {
         // `iter.filter(|x| x % 2 == 0)` — keep even numbers only.
-        let v: Vec<i32> = iter_filter::<SliceIter<i32>, i32>(
-            iter_over_slice(&xs),
+        let v: Vec<i32> = iter_filter::<CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
             |x: i32| -> bool { return (x % 2i32) == 0i32; }
         ).collect::<Vec<i32>>();
         assert_eq!(v.len, 3i64);
@@ -58,7 +58,7 @@ fn test_collect_after_filter() {
 fn test_collect_after_rev() {
     let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     unsafe {
-        let v: Vec<i32> = iter_over_slice(&xs).rev().collect::<Vec<i32>>();
+        let v: Vec<i32> = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)).rev().collect::<Vec<i32>>();
         assert_eq!(v.len, 4i64);
         assert_eq!(v.ptr[0i64], 4i32);
         assert_eq!(v.ptr[1i64], 3i32);

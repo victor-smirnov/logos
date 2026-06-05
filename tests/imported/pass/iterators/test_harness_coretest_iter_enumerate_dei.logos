@@ -25,7 +25,7 @@ use logos.lang.option;
 fn test_double_ended_enumerate() {
     let xs: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
     unsafe {
-        let mut it = iter_enumerate::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+        let mut it = iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
         match it.next() {
             Option::Some(p) => { assert_eq!(p.idx, 0i64); assert_eq!(p.val, 1i32); }
             Option::None => { assert_eq!(true, false); }

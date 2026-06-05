@@ -17,8 +17,8 @@ unsafe fn main() -> i32 {
     if pair.right_len != 3 as i64 { return 2; }
     let left_slice  = slice_from_raw::<i32>(pair.left_ptr, pair.left_len);
     let right_slice = slice_from_raw::<i32>(pair.right_ptr, pair.right_len);
-    let lsum = iter_sum_i32(iter_over_slice::<i32>(left_slice));
-    let rsum = iter_sum_i32(iter_over_slice::<i32>(right_slice));
+    let lsum = iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(left_slice)));
+    let rsum = iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(right_slice)));
     if lsum != 6 { return 3; }       // 1+2+3
     if rsum != 15 { return 4; }      // 4+5+6
 
@@ -26,7 +26,7 @@ unsafe fn main() -> i32 {
     let mut chunks_it = slice_chunks::<i32>(s, 2);
     let chunk1 = chunks_it.next();
     match chunk1 {
-        Option::Some(c) => { if iter_sum_i32(iter_over_slice::<i32>(c)) != 3 { return 5; } }
+        Option::Some(c) => { if iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(c))) != 3 { return 5; } }
         Option::None => { return 6; }
     }
 
@@ -34,12 +34,12 @@ unsafe fn main() -> i32 {
     let mut wins_it = slice_windows::<i32>(s, 3);
     let w1 = wins_it.next();
     match w1 {
-        Option::Some(w) => { if iter_sum_i32(iter_over_slice::<i32>(w)) != 6 { return 7; } }
+        Option::Some(w) => { if iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(w))) != 6 { return 7; } }
         Option::None => { return 8; }
     }
     let w2 = wins_it.next();
     match w2 {
-        Option::Some(w) => { if iter_sum_i32(iter_over_slice::<i32>(w)) != 9 { return 9; } }  // 2+3+4
+        Option::Some(w) => { if iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(w))) != 9 { return 9; } }  // 2+3+4
         Option::None => { return 10; }
     }
 

@@ -20,9 +20,9 @@ fn test_iterator_peekable_count() {
     let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
     let ys: [i32; 1] = [10i32];
     unsafe {
-        let n6: i64 = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32).count();
+        let n6: i64 = iter_peekable::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32).count();
         assert_eq!(n6, 6i64);
-        let n1: i64 = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&ys), 0i32).count();
+        let n1: i64 = iter_peekable::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32).count();
         assert_eq!(n1, 1i64);
     }
 }

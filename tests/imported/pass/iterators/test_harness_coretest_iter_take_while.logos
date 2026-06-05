@@ -22,7 +22,7 @@ fn test_iterator_take_while() {
     let xs: [i32; 10] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32];
     let ys: [i32; 6]  = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32];
     unsafe {
-        let mut it = iter_take_while::<SliceIter<i32>, i32>(iter_over_slice(&xs), lt15, 0i32);
+        let mut it = iter_take_while::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), lt15, 0i32);
         let mut i: i32 = 0i32;
         loop {
             match it.next() {

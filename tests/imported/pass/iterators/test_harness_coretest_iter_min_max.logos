@@ -30,19 +30,19 @@ fn cmp_i32(a: i32, b: i32) -> i32 {
 fn test_iterator_max() {
     let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
     unsafe {
-        let it = iter_over_slice(&v);
+        let it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v));
         match it.max_by(cmp_i32) {
             Option::Some(x) => { assert_eq!(x, 10i32); }
             Option::None    => { assert_eq!(true, false); }
         }
         // Prefix [0..4] → max == 3.
-        let it_pre = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32);
+        let it_pre = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 4i64, 0i32);
         match it_pre.max_by(cmp_i32) {
             Option::Some(x) => { assert_eq!(x, 3i32); }
             Option::None    => { assert_eq!(true, false); }
         }
         // Empty iter → None.
-        let it_empty = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        let it_empty = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 0i64, 0i32);
         match it_empty.max_by(cmp_i32) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
@@ -54,13 +54,13 @@ fn test_iterator_max() {
 fn test_iterator_min() {
     let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
     unsafe {
-        let it = iter_over_slice(&v);
+        let it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v));
         match it.min_by(cmp_i32) {
             Option::Some(x) => { assert_eq!(x, 0i32); }
             Option::None    => { assert_eq!(true, false); }
         }
         // Empty iter → None.
-        let it_empty = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
+        let it_empty = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 0i64, 0i32);
         match it_empty.min_by(cmp_i32) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }

@@ -18,12 +18,12 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
         // .filter + .count chain.
-        let it1 = iter_over_slice(&arr);
+        let it1 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr));
         let evens: i64 = it1.filter(is_even).count();
         if evens != 2i64 { return 1i32; }
 
         // .count() on bare iterator.
-        let it2 = iter_over_slice(&arr);
+        let it2 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr));
         let total: i64 = it2.count();
         if total != 5i64 { return 2i32; }
     }

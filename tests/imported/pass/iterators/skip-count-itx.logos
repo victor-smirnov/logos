@@ -5,7 +5,7 @@ use logos.lang.iter;
 fn main() -> i32 {
     let xs: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
     unsafe {
-        let n: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 2i64, 0i32).count();
+        let n: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 2i64, 0i32).count();
         if n != 3i64 { return 1i32; }
     }
     return 0i32;

@@ -10,7 +10,7 @@ fn main() -> i32 {
     let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     unsafe {
         // Bare `|x|` — sema infers x: i32 from filter's fn(Item) -> bool.
-        let it = iter_over_slice(&arr).filter(|x| { x > 2i32 });
+        let it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).filter(|x| { x > 2i32 });
         let cnt: i64 = it.count();
         if cnt != 2i64 { return 1i32; }
     }

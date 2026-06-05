@@ -3,8 +3,8 @@
 //   (test_iterator_enumerate subset)
 //
 // Modifications:
-// - `xs.iter().enumerate()` → `iter_enumerate::<SliceIter<i32>, i32>(
-//   iter_over_slice(&xs))`. Logos's EnumIter yields `EnumPair<T>`
+// - `xs.iter().enumerate()` → `iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(
+//   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)))`. Logos's EnumIter yields `EnumPair<T>`
 //   (struct), not a `(usize, T)` tuple — destructure via `.idx` /
 //   `.val` fields. Same observable behaviour.
 // - `for (i, &x) in ...` Rust tuple-destructure for-loop replaced
@@ -26,7 +26,7 @@ fn test_iterator_enumerate() {
     // xs[i] == i for i in 0..6, so the pair's idx and val must agree.
     let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
-        let mut it = iter_enumerate::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+        let mut it = iter_enumerate::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
         loop {
             match it.next() {
                 Option::None    => { break; }

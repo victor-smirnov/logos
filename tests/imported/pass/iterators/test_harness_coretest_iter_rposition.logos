@@ -3,8 +3,8 @@
 //   (test_rposition, test_rev_rposition)
 //
 // Modifications:
-// - `v.iter().rposition(f)` → `iter_rposition::<SliceIter<i32>,
-//   i32>(iter_over_slice(&v), f)`. Free fn rather than trait-default
+// - `v.iter().rposition(f)` → `iter_rposition::<CopiedIter<SliceIter<i32>, i32>,
+//   i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), f)`. Free fn rather than trait-default
 //   method because trait-default with a method-level supertrait
 //   bound on Self isn't reliably dispatching yet.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
@@ -32,7 +32,7 @@ fn test_rposition_first_hit() {
     let v: [i32; 5] = [1i32, 3i32, 3i32, 4i32, 3i32];
     unsafe {
         // Last 3 is at index 4.
-        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_3) {
+        match iter_rposition::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), eq_3) {
             Option::Some(i) => { assert_eq!(i, 4i64); }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -44,12 +44,12 @@ fn test_rposition_no_match() {
     let v: [i32; 5] = [1i32, 3i32, 3i32, 4i32, 3i32];
     unsafe {
         // 5 isn't present.
-        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_5) {
+        match iter_rposition::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), eq_5) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
         }
         // 99 also not present.
-        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_99) {
+        match iter_rposition::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), eq_99) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
         }
@@ -61,7 +61,7 @@ fn test_rposition_index_zero() {
     let v: [i32; 5] = [5i32, 3i32, 3i32, 4i32, 3i32];
     unsafe {
         // 5 is at index 0 — rposition walks back, finds it last.
-        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), eq_5) {
+        match iter_rposition::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), eq_5) {
             Option::Some(i) => { assert_eq!(i, 0i64); }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -74,7 +74,7 @@ fn test_rposition_even() {
     let v: [i32; 5] = [1i32, 3i32, 4i32, 7i32, 6i32];
     unsafe {
         // Last even is 6 at index 4.
-        match iter_rposition::<SliceIter<i32>, i32>(iter_over_slice(&v), is_even) {
+        match iter_rposition::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), is_even) {
             Option::Some(i) => { assert_eq!(i, 4i64); }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -86,8 +86,8 @@ fn test_rposition_empty() {
     let v: [i32; 1] = [0i32];
     unsafe {
         // Empty slice via take(0).
-        let empty_it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32);
-        match iter_rposition::<TakeIter<SliceIter<i32>, i32>, i32>(empty_it, eq_3) {
+        let empty_it = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 0i64, 0i32);
+        match iter_rposition::<TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, i32>(empty_it, eq_3) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
         }

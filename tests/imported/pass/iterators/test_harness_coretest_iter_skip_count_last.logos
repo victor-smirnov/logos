@@ -18,18 +18,18 @@ use logos.lang.option;
 fn test_iterator_skip_count() {
     let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
     unsafe {
-        let n0: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs),  0i64, 0i32).count();
+        let n0: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),  0i64, 0i32).count();
         assert_eq!(n0, 12i64);
-        let n1: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs),  1i64, 0i32).count();
+        let n1: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),  1i64, 0i32).count();
         assert_eq!(n1, 11i64);
-        let n5: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs),  5i64, 0i32).count();
+        let n5: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),  5i64, 0i32).count();
         assert_eq!(n5, 7i64);
-        let n11: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 11i64, 0i32).count();
+        let n11: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 11i64, 0i32).count();
         assert_eq!(n11, 1i64);
-        let n12: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 12i64, 0i32).count();
+        let n12: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 12i64, 0i32).count();
         assert_eq!(n12, 0i64);
         // Skipping past the end clamps to empty.
-        let n100: i64 = iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 100i64, 0i32).count();
+        let n100: i64 = iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 100i64, 0i32).count();
         assert_eq!(n100, 0i64);
     }
 }
@@ -39,21 +39,21 @@ fn test_iterator_skip_last() {
     let xs: [i32; 12] = [0i32, 1i32, 2i32, 3i32, 5i32, 13i32, 15i32, 16i32, 17i32, 19i32, 20i32, 30i32];
     unsafe {
         // Skip 0 / 1: still ends with 30.
-        match iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i64, 0i32).last() {
+        match iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i64, 0i32).last() {
             Option::Some(v) => { assert_eq!(v, 30i32); }
             Option::None    => { assert_eq!(true, false); }
         }
-        match iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 1i64, 0i32).last() {
+        match iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 1i64, 0i32).last() {
             Option::Some(v) => { assert_eq!(v, 30i32); }
             Option::None    => { assert_eq!(true, false); }
         }
         // Skip 11: only [30] remains.
-        match iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 11i64, 0i32).last() {
+        match iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 11i64, 0i32).last() {
             Option::Some(v) => { assert_eq!(v, 30i32); }
             Option::None    => { assert_eq!(true, false); }
         }
         // Skip 12: empty → None.
-        match iter_skip::<SliceIter<i32>, i32>(iter_over_slice(&xs), 12i64, 0i32).last() {
+        match iter_skip::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 12i64, 0i32).last() {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
         }

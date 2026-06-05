@@ -9,7 +9,7 @@
 //
 // Modifications:
 // - Method form `xs.iter().lt(ys.iter())` → free fn
-//   `iter_lt::<SliceIter<i32>, SliceIter<i32>, i32>(a, b)`.
+//   `iter_lt::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(a, b)`.
 // - Empty-slice cases preserved via `iter_take(..., 0)` since
 //   `[i32; 0]` literal triggers a warn.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
@@ -31,21 +31,21 @@ fn test_iter_cmp_equal() {
     let xs: [i32; 3] = [1i32, 2i32, 3i32];
     let ys: [i32; 3] = [1i32, 2i32, 3i32];
     unsafe {
-        match iter_cmp::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)) {
+        match iter_cmp::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))) {
             Ordering::Equal => { }
             _               => { assert_eq!(true, false); }
         }
-        assert_eq!(iter_lt::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), false);
-        assert_eq!(iter_le::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), true);
-        assert_eq!(iter_gt::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), false);
-        assert_eq!(iter_ge::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), true);
-        assert_eq!(iter_ne::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), false);
+        assert_eq!(iter_lt::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), false);
+        assert_eq!(iter_le::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), true);
+        assert_eq!(iter_gt::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), false);
+        assert_eq!(iter_ge::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), true);
+        assert_eq!(iter_ne::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), false);
     }
 }
 
@@ -55,15 +55,15 @@ fn test_iter_cmp_lex_greater() {
     let xs: [i32; 3] = [1i32, 2i32, 3i32];
     let ys: [i32; 3] = [1i32, 2i32, 0i32];
     unsafe {
-        match iter_cmp::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)) {
+        match iter_cmp::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))) {
             Ordering::Greater => { }
             _                 => { assert_eq!(true, false); }
         }
-        assert_eq!(iter_lt::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), false);
-        assert_eq!(iter_gt::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)), true);
+        assert_eq!(iter_lt::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), false);
+        assert_eq!(iter_gt::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))), true);
     }
 }
 
@@ -72,8 +72,8 @@ fn test_iter_cmp_lex_less() {
     let xs: [i32; 3] = [1i32, 2i32, 0i32];
     let ys: [i32; 3] = [1i32, 2i32, 3i32];
     unsafe {
-        match iter_cmp::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)) {
+        match iter_cmp::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))) {
             Ordering::Less => { }
             _              => { assert_eq!(true, false); }
         }
@@ -86,13 +86,13 @@ fn test_iter_cmp_length() {
     let xs: [i32; 2] = [1i32, 2i32];
     let ys: [i32; 3] = [1i32, 2i32, 3i32];
     unsafe {
-        match iter_cmp::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys)) {
+        match iter_cmp::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys))) {
             Ordering::Less => { }
             _              => { assert_eq!(true, false); }
         }
-        match iter_cmp::<SliceIter<i32>, SliceIter<i32>, i32>(
-            iter_over_slice(&ys), iter_over_slice(&xs)) {
+        match iter_cmp::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs))) {
             Ordering::Greater => { }
             _                 => { assert_eq!(true, false); }
         }
@@ -103,16 +103,16 @@ fn test_iter_cmp_length() {
 fn test_iter_cmp_empty_vs_nonempty() {
     let xs: [i32; 3] = [1i32, 2i32, 3i32];
     unsafe {
-        let empty1 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i64, 0i32);
-        let empty2 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i64, 0i32);
-        match iter_cmp::<TakeIter<SliceIter<i32>, i32>, TakeIter<SliceIter<i32>, i32>, i32>(
+        let empty1 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i64, 0i32);
+        let empty2 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i64, 0i32);
+        match iter_cmp::<TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, i32>(
             empty1, empty2) {
             Ordering::Equal => { }
             _               => { assert_eq!(true, false); }
         }
-        let empty3 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i64, 0i32);
-        match iter_cmp::<TakeIter<SliceIter<i32>, i32>, SliceIter<i32>, i32>(
-            empty3, iter_over_slice(&xs)) {
+        let empty3 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i64, 0i32);
+        match iter_cmp::<TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32>(
+            empty3, iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs))) {
             Ordering::Less => { }
             _              => { assert_eq!(true, false); }
         }

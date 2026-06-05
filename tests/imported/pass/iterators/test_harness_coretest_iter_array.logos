@@ -3,7 +3,7 @@
 //   (iterator_collect, iterator_rev_collect)
 //
 // Modifications:
-// - `IntoIterator::into_iter(arr.clone())` → `iter_over_slice(&arr)`.
+// - `IntoIterator::into_iter(arr.clone())` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr))`.
 //   Logos doesn't blanket-derive Clone for fixed arrays, and the
 //   slice iter is the canonical entry into the iter pipeline.
 // - `.collect()` resolves via CP-cm-14 to `Vec<i32>::from_iter<…>`.
@@ -24,7 +24,7 @@ use logos.mem.collections.vec;
 fn iterator_collect() {
     let arr: [i32; 5] = [0i32, 1i32, 2i32, 5i32, 9i32];
     unsafe {
-        let v: Vec<i32> = iter_over_slice(&arr).collect::<Vec<i32>>();
+        let v: Vec<i32> = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).collect::<Vec<i32>>();
         assert_eq!(v.len, 5i64);
         let mut i: i32 = 0i32;
         while (i as i64) < v.len {
@@ -39,7 +39,7 @@ fn iterator_rev_collect() {
     let arr: [i32; 5] = [0i32, 1i32, 2i32, 5i32, 9i32];
     let want: [i32; 5] = [9i32, 5i32, 2i32, 1i32, 0i32];
     unsafe {
-        let v: Vec<i32> = iter_over_slice(&arr).rev().collect::<Vec<i32>>();
+        let v: Vec<i32> = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).rev().collect::<Vec<i32>>();
         assert_eq!(v.len, 5i64);
         let mut i: i32 = 0i32;
         while (i as i64) < v.len {

@@ -19,7 +19,7 @@ fn main() -> i32 {
     let v: [i32; 6] = [1i32, 2i32, 3i32, 4i32, 5i32, 6i32];
     let mut total: i32 = 0i32;
     unsafe {
-        let it = iter_filter(iter_over_slice(&v), is_even);
+        let it = iter_filter(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), is_even);
         total = iter_fold(it, 0i32, add);
     }
     if total != 12i32 { return 1i32; }

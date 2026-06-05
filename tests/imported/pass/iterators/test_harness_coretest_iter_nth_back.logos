@@ -4,10 +4,10 @@
 //    the forward iter — same observable behaviour).
 //
 // Modifications:
-// - `v.iter().rev().nth_back(i)` simplified to `iter_over_slice(&v)
+// - `v.iter().rev().nth_back(i)` simplified to `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v))
 //   .nth_back(i)` since `.rev()` would just swap which end nth_back
 //   pulls from. Both forms exercise the new trait-default.
-// - `iter_over_slice(&v).rev().nth_back(i)` form also kept (cross-
+// - `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).rev().nth_back(i)` form also kept (cross-
 //   check).
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 
@@ -24,7 +24,7 @@ fn test_iterator_nth_back_basic() {
     let v: [i32; 5] = [0i32, 1i32, 2i32, 3i32, 4i32];
     unsafe {
         // nth_back(0) yields the last item.
-        let mut it = iter_over_slice(&v);
+        let mut it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v));
         match it.nth_back(0i64) {
             Option::Some(x) => { assert_eq!(x, 4i32); }
             Option::None    => { assert_eq!(true, false); }
@@ -32,7 +32,7 @@ fn test_iterator_nth_back_basic() {
         // nth_back(i) yields v[len-1-i] for i in [0, len).
         let mut i: i32 = 0i32;
         while (i as i64) < 5i64 {
-            let mut it_i = iter_over_slice(&v);
+            let mut it_i = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v));
             match it_i.nth_back(i as i64) {
                 Option::Some(x) => { assert_eq!(x, v[4i32 - i]); }
                 Option::None    => { assert_eq!(true, false); }
@@ -40,7 +40,7 @@ fn test_iterator_nth_back_basic() {
             i = i + 1i32;
         }
         // nth_back(len) is None (past start).
-        let mut it_past = iter_over_slice(&v);
+        let mut it_past = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v));
         match it_past.nth_back(5i64) {
             Option::Some(_) => { assert_eq!(true, false); }
             Option::None    => { }
@@ -55,7 +55,7 @@ fn test_iterator_rev_nth_back() {
     unsafe {
         let mut i: i32 = 0i32;
         while (i as i64) < 5i64 {
-            let mut it = iter_over_slice(&v).rev();
+            let mut it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).rev();
             match it.nth_back(i as i64) {
                 Option::Some(x) => { assert_eq!(x, v[i]); }
                 Option::None    => { assert_eq!(true, false); }

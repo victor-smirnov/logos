@@ -3,7 +3,7 @@
 //   (test_max_by, test_min_by)
 //
 // Modifications:
-// - `xs.iter().max_by(|x, y| ...)` → `iter_over_slice(&xs).max_by(cmp)`
+// - `xs.iter().max_by(|x, y| ...)` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)).max_by(cmp)`
 //   where `cmp: fn(i32, i32) -> i32`. Logos's `.max_by` returns the
 //   raw i32 verdict (neg/zero/pos) instead of an `Ordering` enum to
 //   avoid forcing std.lang.ord on every implementor's pkg.
@@ -36,7 +36,7 @@ fn cmp_abs(x: i32, y: i32) -> i32 {
 fn test_max_by() {
     let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
     unsafe {
-        match iter_over_slice(&xs).max_by(cmp_abs) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)).max_by(cmp_abs) {
             Option::Some(x) => { assert_eq!(x, -10i32); }
             Option::None    => { assert_eq!(true, false); }
         }
@@ -47,7 +47,7 @@ fn test_max_by() {
 fn test_min_by() {
     let xs: [i32; 5] = [-3i32, 0i32, 1i32, 5i32, -10i32];
     unsafe {
-        match iter_over_slice(&xs).min_by(cmp_abs) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)).min_by(cmp_abs) {
             Option::Some(x) => { assert_eq!(x, 0i32); }
             Option::None    => { assert_eq!(true, false); }
         }

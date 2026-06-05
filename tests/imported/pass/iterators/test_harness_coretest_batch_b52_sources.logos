@@ -110,7 +110,7 @@ fn test_repeat_take_collect() {
 fn test_peekable_dei_basic() {
     let xs: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
-        let mut it = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+        let mut it = iter_peekable::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
         // next_back from a fresh peekable just delegates.
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 5i32); } Option::None => { assert_eq!(true, false); } }
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 4i32); } Option::None => { assert_eq!(true, false); } }

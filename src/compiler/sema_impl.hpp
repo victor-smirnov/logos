@@ -3620,7 +3620,11 @@ private:
     // emission — reuses the normal scope-drop machinery). nullptr ⇒ not in a
     // statement context (or nested expr already inside one). Save/restore across
     // lower_stmt recursion.
-    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>>* cur_stmt_temp_hoist_ = nullptr;
+    // (name, type, value, is_mut) — is_mut=true when the hoisted receiver temp
+    // is auto-ref'd `&mut self` (so the emitted `let` must be `let mut`, else a
+    // `&mut self` method call on a temporary — `iter_copied(..).find(..)` —
+    // fails borrow-check: "cannot borrow '__rtmp' as mutable").
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>>* cur_stmt_temp_hoist_ = nullptr;
     // Set by lower_return when its value lowering hoisted statement-temporaries:
     // the value must be pre-bound to this local so lower_stmt can emit
     // `let __t…; let __rv = <value>; drop __t…; return __rv;` — the temp drops

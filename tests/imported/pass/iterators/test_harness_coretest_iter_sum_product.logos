@@ -3,7 +3,7 @@
 //   (test_iterator_sum + analogous product tests)
 //
 // Modifications:
-// - `v.iter().cloned().sum::<i32>()` → `iter_over_slice(&v).sum::<i32>()`
+// - `v.iter().cloned().sum::<i32>()` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).sum::<i32>()`
 //   (Logos slice iter yields T by value; no `.cloned()` needed).
 // - `(0..N)` open-range constructed via `range_i32(0, N)`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
@@ -30,13 +30,13 @@ use logos.lang.option;
 fn test_iterator_sum_i32() {
     let v: [i32; 11] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32];
     unsafe {
-        let s_full: i32 = iter_over_slice(&v).sum::<i32>();
+        let s_full: i32 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).sum::<i32>();
         assert_eq!(s_full, 55i32);
         // Prefix-of-4: 0+1+2+3 = 6.
-        let s_pre: i32 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 4i64, 0i32).sum::<i32>();
+        let s_pre: i32 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 4i64, 0i32).sum::<i32>();
         assert_eq!(s_pre, 6i32);
         // Empty.
-        let s_empty: i32 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&v), 0i64, 0i32).sum::<i32>();
+        let s_empty: i32 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)), 0i64, 0i32).sum::<i32>();
         assert_eq!(s_empty, 0i32);
     }
 }
@@ -45,7 +45,7 @@ fn test_iterator_sum_i32() {
 fn test_iterator_sum_i64() {
     let v: [i64; 5] = [10i64, 20i64, 30i64, 40i64, 50i64];
     unsafe {
-        let s: i64 = iter_over_slice(&v).sum::<i64>();
+        let s: i64 = iter_copied::<SliceIter<i64>, i64>(iter_over_slice(&v)).sum::<i64>();
         assert_eq!(s, 150i64);
     }
 }
@@ -62,7 +62,7 @@ fn test_iterator_sum_range() {
 fn test_iterator_product_i32() {
     let v: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
-        let p: i32 = iter_over_slice(&v).product::<i32>();
+        let p: i32 = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&v)).product::<i32>();
         assert_eq!(p, 120i32);
     }
 }

@@ -133,15 +133,15 @@ fn test_chunks_contents() {
     let s: &[i32] = &arr;
     let mut it = slice_chunks::<i32>(s, 2);
     match it.next() {
-        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 3i32); } }
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(c))) == 3i32); } }
         Option::None    => { panic("chunks: missing chunk 1"); }
     }
     match it.next() {
-        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 7i32); } }
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(c))) == 7i32); } }
         Option::None    => { panic("chunks: missing chunk 2"); }
     }
     match it.next() {
-        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(c)) == 11i32); } }
+        Option::Some(c) => { unsafe { assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(c))) == 11i32); } }
         Option::None    => { panic("chunks: missing chunk 3"); }
     }
     match it.next() {
@@ -157,11 +157,11 @@ fn test_windows_contents() {
     let s: &[i32] = &arr;
     let mut it = slice_windows::<i32>(s, 3);
     match it.next() {
-        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(w)) == 6i32); } }
+        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(w))) == 6i32); } }
         Option::None    => { panic("windows: missing window 1"); }
     }
     match it.next() {
-        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_over_slice::<i32>(w)) == 9i32); } }
+        Option::Some(w) => { unsafe { assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(w))) == 9i32); } }
         Option::None    => { panic("windows: missing window 2"); }
     }
 }
@@ -177,8 +177,8 @@ fn test_split_at() {
     unsafe {
         let left  = slice_from_raw::<i32>(pair.left_ptr, pair.left_len);
         let right = slice_from_raw::<i32>(pair.right_ptr, pair.right_len);
-        assert!(iter_sum_i32(iter_over_slice::<i32>(left)) == 6i32);   // 1+2+3
-        assert!(iter_sum_i32(iter_over_slice::<i32>(right)) == 15i32);  // 4+5+6
+        assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(left))) == 6i32);   // 1+2+3
+        assert!(iter_sum_i32(iter_copied::<SliceIter<i32>, i32>(iter_over_slice::<i32>(right))) == 15i32);  // 4+5+6
     }
 
     // Clamp: mid past the end yields the whole slice on the left.

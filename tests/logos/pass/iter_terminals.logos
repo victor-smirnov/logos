@@ -21,15 +21,15 @@ fn is_neg(x: i32) -> bool { return x < 0i32; }
 fn main() -> i32 {
     let arr: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     unsafe {
-        if !iter_over_slice(&arr).any(is_pos) { return 1i32; }
-        if iter_over_slice(&arr).any(is_neg)  { return 2i32; }
-        if !iter_over_slice(&arr).all(is_pos) { return 3i32; }
+        if !iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).any(is_pos) { return 1i32; }
+        if iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).any(is_neg)  { return 2i32; }
+        if !iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).all(is_pos) { return 3i32; }
 
-        match iter_over_slice(&arr).nth(2i64) {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).nth(2i64) {
             Some(v) => { if v != 3i32 { return 4i32; } }
             None    => { return 5i32; }
         }
-        match iter_over_slice(&arr).last() {
+        match iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&arr)).last() {
             Some(v) => { if v != 4i32 { return 6i32; } }
             None    => { return 7i32; }
         }

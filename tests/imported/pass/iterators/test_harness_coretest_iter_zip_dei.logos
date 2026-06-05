@@ -2,8 +2,8 @@
 // Original path: library/coretests/tests/iter/adapters/zip.rs (DEI subset)
 //
 // Modifications:
-// - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_over_slice(&xs),
-//   iter_over_slice(&ys), zt, zu)`. Pairs are `ZipPair<T, U>`
+// - `xs.iter().zip(&ys)` → `iter_zip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)),
+//   iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), zt, zu)`. Pairs are `ZipPair<T, U>`
 //   structs (`.first` / `.second` fields), not `(T, U)` tuples.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
@@ -27,8 +27,8 @@ fn test_double_ended_zip_balanced() {
     let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     let ys: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
     unsafe {
-        let mut it = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let mut it = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         match it.next_back() {
             Option::Some(p) => { assert_eq!(p.first, 4i32); assert_eq!(p.second, 40i32); }
             Option::None => { assert_eq!(true, false); }
@@ -58,8 +58,8 @@ fn test_double_ended_zip_left_longer() {
     let xs: [i32; 5] = [0i32, 1i32, 2i32, 4i32, 5i32];
     let ys: [i32; 3] = [10i32, 11i32, 12i32];
     unsafe {
-        let mut it = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let mut it = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         // Back yields (2,12), (1,11), (0,10).
         match it.next_back() {
             Option::Some(p) => { assert_eq!(p.first, 2i32); assert_eq!(p.second, 12i32); }
@@ -85,8 +85,8 @@ fn test_zip_len_smoke() {
     let xs: [i32; 5] = [0i32, 1i32, 2i32, 4i32, 5i32];
     let ys: [i32; 3] = [10i32, 11i32, 12i32];
     unsafe {
-        let mut it = iter_zip::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), 0i32, 0i32);
+        let mut it = iter_zip::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 0i32, 0i32);
         // Length is min of inner.lens.
         assert_eq!(it.len(), 3i64);
         it.next();

@@ -243,7 +243,7 @@ bool SemaChecker::is_hoistable_temp_rvalue(const lir::LExpr& e) {
 lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
     // Install a temporary-scope collector for this statement (save/restore across
     // the recursion below — LABELED_LOOP and loop bodies re-enter lower_stmt).
-    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr>> hoisted;
+    std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>> hoisted;
     auto* saved_hoist = cur_stmt_temp_hoist_;
     cur_stmt_temp_hoist_ = &hoisted;
     auto saved_ret_bind = std::move(pending_ret_bind_);
@@ -265,7 +265,7 @@ lir::LStmt SemaChecker::lower_stmt(TinyMapView stmt) {
         std::string nm = std::move(std::get<0>(h));
         TypeRef ty = std::get<1>(h);
         lir::SLet sl;
-        sl.name = nm; sl.type = ty; sl.is_mut = false;
+        sl.name = nm; sl.type = ty; sl.is_mut = std::get<3>(h);
         sl.value = std::move(std::get<2>(h));
         blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
         if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))

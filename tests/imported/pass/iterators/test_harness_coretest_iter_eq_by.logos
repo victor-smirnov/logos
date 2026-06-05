@@ -4,7 +4,7 @@
 //
 // Modifications:
 // - Closure `|x, y| x * x == y` lowered to a named fn-ptr.
-// - `xs.iter().copied()` → `iter_over_slice(&xs)` (Logos's slice
+// - `xs.iter().copied()` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs))` (Logos's slice
 //   iter already yields T by value).
 // - Method form `xs.eq_by(ys, f)` → free fn `iter_eq_by`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
@@ -28,15 +28,15 @@ fn test_eq_by_same_length() {
     let xs: [i32; 4] = [1i32, 2i32, 3i32, 4i32];
     let ys: [i32; 4] = [1i32, 4i32, 9i32, 16i32];
     unsafe {
-        assert_eq!(iter_eq_by::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&ys), square_eq), true);
+        assert_eq!(iter_eq_by::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), square_eq), true);
         // ys.eq_by(xs, f): f(y, x) = y*y == x? 1=1 yes, 16=2 no.
-        assert_eq!(iter_eq_by::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&ys), iter_over_slice(&xs), square_eq), false);
+        assert_eq!(iter_eq_by::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), square_eq), false);
         // xs.eq_by(xs, f): f(x, x) = x*x == x? Only true for 0,1.
         // 1*1 == 1 yes, but 2*2 == 2 → false.
-        assert_eq!(iter_eq_by::<SliceIter<i32>, SliceIter<i32>, i32, i32>(
-            iter_over_slice(&xs), iter_over_slice(&xs), square_eq), false);
+        assert_eq!(iter_eq_by::<CopiedIter<SliceIter<i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), square_eq), false);
     }
 }
 
@@ -46,13 +46,13 @@ fn test_eq_by_different_length() {
     let ys: [i32; 4] = [1i32, 4i32, 9i32, 16i32];
     unsafe {
         // xs.take(3).eq_by(ys, f) — different lengths.
-        let xs_short = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 3i64, 0i32);
-        assert_eq!(iter_eq_by::<TakeIter<SliceIter<i32>, i32>, SliceIter<i32>, i32, i32>(
-            xs_short, iter_over_slice(&ys), square_eq), false);
+        let xs_short = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 3i64, 0i32);
+        assert_eq!(iter_eq_by::<TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, CopiedIter<SliceIter<i32>, i32>, i32, i32>(
+            xs_short, iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), square_eq), false);
         // xs.eq_by(ys.take(3), f) — different lengths.
-        let ys_short = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&ys), 3i64, 0i32);
-        assert_eq!(iter_eq_by::<SliceIter<i32>, TakeIter<SliceIter<i32>, i32>, i32, i32>(
-            iter_over_slice(&xs), ys_short, square_eq), false);
+        let ys_short = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 3i64, 0i32);
+        assert_eq!(iter_eq_by::<CopiedIter<SliceIter<i32>, i32>, TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, i32, i32>(
+            iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), ys_short, square_eq), false);
     }
 }
 
@@ -62,9 +62,9 @@ fn test_eq_by_both_short() {
     let ys: [i32; 4] = [1i32, 4i32, 9i32, 16i32];
     unsafe {
         // Both take(3) — equal lengths, square_eq holds for first 3.
-        let xs3 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 3i64, 0i32);
-        let ys3 = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&ys), 3i64, 0i32);
-        assert_eq!(iter_eq_by::<TakeIter<SliceIter<i32>, i32>, TakeIter<SliceIter<i32>, i32>, i32, i32>(
+        let xs3 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 3i64, 0i32);
+        let ys3 = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&ys)), 3i64, 0i32);
+        assert_eq!(iter_eq_by::<TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, TakeIter<CopiedIter<SliceIter<i32>, i32>, i32>, i32, i32>(
             xs3, ys3, square_eq), true);
     }
 }

@@ -35,7 +35,7 @@ fn test_double_ended_take() {
     // with the take cap, then pulls next_back from the inner).
     let xs: [i32; 5] = [1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
-        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 3i64, 0i32);
+        let mut it = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 3i64, 0i32);
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 3i32); } Option::None => { assert_eq!(true, false); } }
         match it.next_back() { Option::Some(v) => { assert_eq!(v, 2i32); } Option::None => { assert_eq!(true, false); } }
         match it.next()      { Option::Some(v) => { assert_eq!(v, 1i32); } Option::None => { assert_eq!(true, false); } }
@@ -47,7 +47,7 @@ fn test_double_ended_take() {
 fn test_iterator_take_len_smoke() {
     let xs: [i32; 6] = [10i32, 20i32, 30i32, 40i32, 50i32, 60i32];
     unsafe {
-        let mut it = iter_take::<SliceIter<i32>, i32>(iter_over_slice(&xs), 4i64, 0i32);
+        let mut it = iter_take::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 4i64, 0i32);
         assert_eq!(it.len(), 4i64);
         it.next();
         assert_eq!(it.len(), 3i64);
@@ -60,7 +60,7 @@ fn test_iterator_take_len_smoke() {
 fn test_slice_iter_len() {
     let xs: [i32; 5] = [10i32, 20i32, 30i32, 40i32, 50i32];
     unsafe {
-        let mut it = iter_over_slice(&xs);
+        let mut it = iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs));
         assert_eq!(it.len(), 5i64);
         it.next();
         assert_eq!(it.len(), 4i64);

@@ -3,7 +3,7 @@
 //   (test_iterator_peekable — front-only subset)
 //
 // Modifications:
-// - `xs.iter().cloned()` → `iter_over_slice(&xs)` (Logos's slice iter
+// - `xs.iter().cloned()` → `iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs))` (Logos's slice iter
 //   yields T by value, no `.cloned()` adapter needed for primitives).
 // - PeekableIter's `peek` is `unsafe` in Logos because it returns a
 //   `&T` into the iterator's storage; whole body wrapped in `unsafe`.
@@ -25,7 +25,7 @@ use logos.lang.option;
 fn test_iterator_peekable_front() {
     let xs: [i32; 6] = [0i32, 1i32, 2i32, 3i32, 4i32, 5i32];
     unsafe {
-        let mut it = iter_peekable::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
+        let mut it = iter_peekable::<CopiedIter<SliceIter<i32>, i32>, i32>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), 0i32);
 
         match it.peek() {
             Option::Some(r) => { assert_eq!(*r, 0i32); }
