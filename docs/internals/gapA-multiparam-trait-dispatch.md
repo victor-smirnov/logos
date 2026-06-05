@@ -69,3 +69,29 @@ arg, or (b) resolve the arg's impl of the bound-trait, read its arg to get `A`,
 and select the matching `$G1$<A>` candidate + drive its instantiation (the
 inference block rebuilds a BARE `<Self>__<m>` base, so the trait-qualified base
 must be threaded through). Substantial mono trait-engine work.
+
+## Gap A′ — attempt + deeper wall (2026-06-04)
+
+Tried: at the trait-static dispatch, find the trait-qualified candidates
+`<Self>__<Trait>$G1$<A>__<m>` and pick the one whose `$G1$<A>` token the
+ARGUMENT type implements — recovering "arg implements Trait<A>" from impl
+symbol names (`<Arg>__<Trait>$G1$<A>__*`).
+
+**Wall:** single-impl methods are mangled WITHOUT the trait qualifier
+(`RefProd__produce__f__ref_RefProd`, not `RefProd__Producer$G1$_i32__produce`)
+— the `$G1$<A>` qualifier is only added to DISAMBIGUATE multiple colliding
+impls (the `tag_trait` path). So for the typical case (the iterator / producer
+has ONE impl of the bound trait), the discriminating trait-arg (the iterator's
+`Item` = `&i32`) is NOT in any symbol name. And `LFunction` carries no
+impl-trait/trait-args field. So Gap A′ cannot be solved by string matching.
+
+**What it actually needs:** ASSOCIATED-TYPE / arg-aware-trait-impl resolution
+— "given arg type C and the bound trait T (from the candidate's stripped
+method-tparam bound), what is C's `T::Item` (or the trait-arg of C's impl of
+T)?" Then match the candidate whose `$G1$<A>` == mangle(that). This requires
+either (a) an impl registry recording `(type, trait) -> trait-args / assoc
+types`, or (b) resolving the arg's bound-trait method (`next`/`produce`) return
+type and unwrapping it. Both are real mono trait-engine additions. The method-
+tparam bound itself is ALSO stripped from the mono template (`type_params[P]`
+has empty `bounds`), so even the bound trait name must be recovered (from the
+source fn pre-mono, or threaded through). Substantial; deferred.
