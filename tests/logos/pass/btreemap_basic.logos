@@ -51,10 +51,10 @@ fn main() -> i32 {
         // ── iteration in sorted key order ───────────────────────────────────
         let mut it = m.iter();
         // expected order: 10, 20, 40, 50
-        match it.next() { Option::Some(p) => { if p.first != 10 { return 17; } } Option::None => { return 18; } }
-        match it.next() { Option::Some(p) => { if p.first != 20 { return 19; } } Option::None => { return 20; } }
-        match it.next() { Option::Some(p) => { if p.first != 40 { return 21; } } Option::None => { return 22; } }
-        match it.next() { Option::Some(p) => { if p.first != 50 { return 23; } } Option::None => { return 24; } }
+        match it.next() { Option::Some(p) => { if *p.first != 10 { return 17; } } Option::None => { return 18; } }
+        match it.next() { Option::Some(p) => { if *p.first != 20 { return 19; } } Option::None => { return 20; } }
+        match it.next() { Option::Some(p) => { if *p.first != 40 { return 21; } } Option::None => { return 22; } }
+        match it.next() { Option::Some(p) => { if *p.first != 50 { return 23; } } Option::None => { return 24; } }
         match it.next() { Option::None => { } Option::Some(_) => { return 25; } }
 
         // ── resize: insert 30 elements in reverse order ─────────────────────
@@ -72,9 +72,9 @@ fn main() -> i32 {
             match it2.next() {
                 Option::None    => { break; }
                 Option::Some(p) => {
-                    if p.first <= prev { return 27; }
-                    if p.second != p.first * 10 { return 28; }
-                    prev = p.first;
+                    if *p.first <= prev { return 27; }
+                    if *p.second != *p.first * 10 { return 28; }
+                    prev = *p.first;
                 }
             }
         }

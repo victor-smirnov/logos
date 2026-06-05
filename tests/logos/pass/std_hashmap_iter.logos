@@ -22,7 +22,7 @@ fn main() -> i32 {
         loop {
             match ks.next() {
                 Option::None    => { break; }
-                Option::Some(k) => { ksum = ksum + k; }
+                Option::Some(k) => { ksum = ksum + *k; }
             }
         }
         if ksum != 45 { return 1; }
@@ -33,7 +33,7 @@ fn main() -> i32 {
         loop {
             match vs.next() {
                 Option::None    => { break; }
-                Option::Some(v) => { vsum = vsum + v; }
+                Option::Some(v) => { vsum = vsum + *v; }
             }
         }
         if vsum != 4500 { return 2; }
@@ -45,7 +45,7 @@ fn main() -> i32 {
             match it.next() {
                 Option::None     => { break; }
                 Option::Some(zp) => {
-                    if zp.second != zp.first * 100 { return 3; }
+                    if *zp.second != *zp.first * 100 { return 3; }
                     n = n + 1;
                 }
             }

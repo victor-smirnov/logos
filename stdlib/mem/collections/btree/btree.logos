@@ -161,12 +161,15 @@ pub struct BTreeMapIter<K, V> {
     idx:  i64,
 }
 
-impl<K: Ord, V> Iterator<ZipPair<K, V>> for BTreeMapIter<K, V> {
-    fn next(self: &mut BTreeMapIter<K, V>) -> Option<ZipPair<K, V>> {
+// Yields `(&K, &V)` (Rust-conformant: `BTreeMap::iter()` borrows entries). The
+// keys/vals parallel arrays are stable during iteration, so `next()` returns
+// references into them rather than copying.
+impl<K: Ord, V> Iterator<ZipPair<&K, &V>> for BTreeMapIter<K, V> {
+    fn next(self: &mut BTreeMapIter<K, V>) -> Option<ZipPair<&K, &V>> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
-            let k: K = self.keys[self.idx];
-            let v: V = self.vals[self.idx];
+            let k: &K = &self.keys[self.idx];
+            let v: &V = &self.vals[self.idx];
             self.idx = self.idx + 1 as i64;
             return Option::Some(ZipPair { first: k, second: v });
         }

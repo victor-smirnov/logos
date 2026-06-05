@@ -193,15 +193,18 @@ pub struct HashMapIter<K, V> {
     idx:     i64,
 }
 
-impl<K: Hash + Eq, V> Iterator<ZipPair<K, V>> for HashMapIter<K, V> {
-    fn next(self: &mut HashMapIter<K, V>) -> Option<ZipPair<K, V>> {
+// Yields `(&K, &V)` (Rust-conformant: `HashMap::iter()` borrows). The entries
+// array is stable during iteration (resize only on insert), so `next()` returns
+// references into the occupied slot rather than copying.
+impl<K: Hash + Eq, V> Iterator<ZipPair<&K, &V>> for HashMapIter<K, V> {
+    fn next(self: &mut HashMapIter<K, V>) -> Option<ZipPair<&K, &V>> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(ZipPair { first: e.key, second: e.val });
+                    return Option::Some(ZipPair { first: &e.key, second: &e.val });
                 }
             }
             return Option::None;
@@ -216,15 +219,15 @@ pub struct HashMapKeys<K, V> {
     idx:     i64,
 }
 
-impl<K: Hash + Eq, V> Iterator<K> for HashMapKeys<K, V> {
-    fn next(self: &mut HashMapKeys<K, V>) -> Option<K> {
+impl<K: Hash + Eq, V> Iterator<&K> for HashMapKeys<K, V> {
+    fn next(self: &mut HashMapKeys<K, V>) -> Option<&K> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(e.key);
+                    return Option::Some(&e.key);
                 }
             }
             return Option::None;
@@ -239,15 +242,15 @@ pub struct HashMapValues<K, V> {
     idx:     i64,
 }
 
-impl<K: Hash + Eq, V> Iterator<V> for HashMapValues<K, V> {
-    fn next(self: &mut HashMapValues<K, V>) -> Option<V> {
+impl<K: Hash + Eq, V> Iterator<&V> for HashMapValues<K, V> {
+    fn next(self: &mut HashMapValues<K, V>) -> Option<&V> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
                 self.idx = self.idx + 1 as i64;
                 if self.states[i] == SLOT_OCCUPIED {
                     let e: *const Entry<K, V> = &self.entries[i];
-                    return Option::Some(e.val);
+                    return Option::Some(&e.val);
                 }
             }
             return Option::None;

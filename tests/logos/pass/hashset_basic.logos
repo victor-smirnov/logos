@@ -58,7 +58,7 @@ fn main() -> i32 {
         loop {
             match it.next() {
                 Option::None    => { break; }
-                Option::Some(k) => { total = total + k; }
+                Option::Some(k) => { total = total + *k; }
             }
         }
         if total != 190 { return 20; }   // 0+1+...+19 = 190

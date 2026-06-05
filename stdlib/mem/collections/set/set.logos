@@ -61,8 +61,10 @@ pub struct HashSetIter<K> {
     inner: HashMapKeys<K, u8>,
 }
 
-impl<K: Hash + Eq> Iterator<K> for HashSetIter<K> {
-    fn next(self: &mut HashSetIter<K>) -> Option<K> {
+// Yields `&K` (Rust-conformant: `HashSet::iter()` borrows) — follows the
+// underlying `HashMapKeys` which now yields `&K`.
+impl<K: Hash + Eq> Iterator<&K> for HashSetIter<K> {
+    fn next(self: &mut HashSetIter<K>) -> Option<&K> {
         return self.inner.next();
     }
 }
