@@ -139,7 +139,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             uint64_t count = (pb + pa - 1) / pa;  // round up to whole elements
             auto elem = builder_.getIntegerType((unsigned)(pa * 8));
             auto payload = mlir::LLVM::LLVMArrayType::get(elem, count);
-            (void)info.llvm_type.setBody({i32, payload}, false);
+            // Phase 3.5: a niche-packed enum has NO disc word — its body is just
+            // the payload (the niche-bearing pointer), so it is pointer-sized.
+            if (info.niche.packed)
+                (void)info.llvm_type.setBody({payload}, false);
+            else
+                (void)info.llvm_type.setBody({i32, payload}, false);
         }
     }
     pt.tick("pass0 register types");

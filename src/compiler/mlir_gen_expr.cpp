@@ -4681,15 +4681,29 @@ mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::V
     return alloca;
 }
 
-// Enum representation access (Phase 3.5 chokepoint). Today: `{i32 disc, payload}`.
+// Enum representation access (Phase 3.5 chokepoint). Tagged: `{i32 disc,
+// payload}`. Niche-packed (Option<&T>-shape): no disc word — the payload (a
+// non-null pointer) starts at offset 0 and null encodes the `none` variant.
 mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
                                           const TaggedEnumInfo& info) {
+    // Niche-packed: the payload IS the enum storage (offset 0).
+    if (info.niche.packed) return enum_addr;
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(1)};
     return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
                                               enum_addr, i);
 }
 void MLIRGenImpl::enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& info,
                                   int64_t disc) {
+    if (info.niche.packed) {
+        // The `none` variant writes the niche value (null) at offset 0; the
+        // data (`some`) variant writes nothing here — its payload store places
+        // the non-null pointer, which IS the discriminant.
+        if (disc == info.niche.none_disc) {
+            auto nullp = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, nullp, enum_addr);
+        }
+        return;
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
                                                  enum_addr, i);
@@ -4699,6 +4713,13 @@ void MLIRGenImpl::enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& i
 void MLIRGenImpl::enum_store_disc_value(mlir::Value enum_addr,
                                         const TaggedEnumInfo& info,
                                         mlir::Value disc_val) {
+    if (info.niche.packed) {
+        // Untyped-None reassign on a niche enum: the only nullary variant is
+        // `none`, so encode it as the niche value (null) at offset 0.
+        auto nullp = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, nullp, enum_addr);
+        return;
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
                                                  enum_addr, i);
@@ -4706,6 +4727,18 @@ void MLIRGenImpl::enum_store_disc_value(mlir::Value enum_addr,
 }
 mlir::Value MLIRGenImpl::enum_load_disc(mlir::Value enum_addr,
                                         const TaggedEnumInfo& info) {
+    if (info.niche.packed) {
+        // Decode: load the niche pointer; null → none_disc, non-null → some_disc.
+        auto p = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_addr);
+        auto nullp = builder_.create<mlir::LLVM::ZeroOp>(loc_, ptr_type());
+        auto is_none = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::eq, p, nullp);
+        auto none_c = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, info.niche.none_disc, 32);
+        auto some_c = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, info.niche.some_disc, 32);
+        return builder_.create<mlir::LLVM::SelectOp>(loc_, is_none, none_c, some_c);
+    }
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(0)};
     auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
                                                  enum_addr, i);

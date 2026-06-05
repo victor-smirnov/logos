@@ -11392,6 +11392,23 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                            TypeRef(hta).pointee() == sit->second) {
                     // Hint says &T, inferred says T — prefer hint.
                     sit->second = hta;
+                } else if (TypeRef(hta).kind() == LogosType::Kind::Ptr &&
+                           (TypeRef(sit->second).kind() == LogosType::Kind::Ref ||
+                            TypeRef(sit->second).kind() == LogosType::Kind::MutRef ||
+                            TypeRef(sit->second).kind() == LogosType::Kind::Ptr) &&
+                           TypeRef(hta).pointee() &&
+                           TypeRef(sit->second).pointee() &&
+                           TypeRef(TypeRef(hta).pointee()) ==
+                               TypeRef(TypeRef(sit->second).pointee())) {
+                    // Hint says `*const/*mut T`, inferred says `&T`/`&mut T`/`*T`
+                    // over the SAME pointee — prefer the annotated raw pointer
+                    // (Rust ref→ptr coercion at the payload). Critical with enum
+                    // niches: inferring `&T` would build the niche `Option<&T>`
+                    // (8B) while the annotation is the tagged `Option<*const T>`
+                    // (16B) — incompatible repr, and the let-store would drop the
+                    // payload (variance-option-ref-intersection). Both values are
+                    // 8B pointers, so the payload store is a no-op bitcast.
+                    sit->second = hta;
                 }
             }
         }

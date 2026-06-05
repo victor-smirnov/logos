@@ -75,6 +75,20 @@ struct TaggedEnumInfo {
         std::vector<TypeRef>  logos_types;   // parallel: original LogosType per field
     };
     std::vector<VariantPayload> variants;
+
+    // Phase 3.5 niche optimization. When `packed`, the enum has NO separate
+    // discriminant: it is laid out as just its payload (`llvm_type` is the
+    // niche field), and the discriminant is encoded in an invalid bit-pattern
+    // of that field. MVP = the null-pointer niche for an `Option`-shape enum
+    // (2 variants: one fieldless = `none_disc`, one single non-null pointer
+    // field = `some_disc`); the niche value is null (0) at offset 0, so
+    // sizeof(Option<&T>) == sizeof(&T) == 8, matching Rust.
+    struct Niche {
+        bool    packed    = false;
+        int64_t none_disc = 0;   // variant encoded by the niche value (null)
+        int64_t some_disc = 0;   // data variant (the non-null pointer)
+    };
+    Niche niche;
 };
 
 // ---------------------------------------------------------------------------

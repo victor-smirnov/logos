@@ -1,0 +1,30 @@
+// Phase 3.5 — null-pointer niche for `Option<&T>` / `Option<&mut T>`.
+// A 2-variant enum {fieldless None, single non-null &T Some} packs into the
+// pointer itself (null = None), so sizeof(Option<&T>) == sizeof(&T) == 8,
+// matching Rust. Verifies layout + Some/None construct + match + niche read.
+package enum_niche_option_ref;
+
+fn main() -> i32 {
+    // ── layout: niche-packed Option<&T> is pointer-sized (8B) ───────────────
+    if sizeof::<Option<&i32>>() != 8i64 { return 1i32; }
+    if sizeof::<Option<&i64>>() != 8i64 { return 2i32; }
+    // A raw-pointer payload is nullable → NOT niche-eligible → stays tagged 16B.
+    if sizeof::<Option<*const i64>>() != 16i64 { return 3i32; }
+
+    // ── Some(&x) round-trips through the niche ──────────────────────────────
+    let x: i32 = 42i32;
+    let some: Option<&i32> = Option::Some(&x);
+    let sv: i32 = match some { Option::Some(p) => *p, Option::None => -1i32 };
+    if sv != 42i32 { return 4i32; }
+
+    // ── None encodes as the null niche ──────────────────────────────────────
+    let none: Option<&i32> = Option::None;
+    let nv: i32 = match none { Option::Some(_) => 99i32, Option::None => 7i32 };
+    if nv != 7i32 { return 5i32; }
+
+    // ── is_none / is_some over the niche ────────────────────────────────────
+    if !none.is_none() { return 6i32; }
+    if !some.is_some() { return 7i32; }
+
+    return 0i32;
+}

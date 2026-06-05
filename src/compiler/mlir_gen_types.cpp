@@ -498,6 +498,9 @@ MLIRGenImpl::Layout MLIRGenImpl::layout_of(TypeRef t,
         // instantiation so nested generics (Option<Option<i64>>) size their
         // full inline footprint.
         if (auto* te = resolve_tagged_enum(std::string(tv.enum_name()), t)) {
+            // Phase 3.5: a niche-packed enum is just its payload (no disc word).
+            if (te->niche.packed)
+                return { te->payload_bytes, te->payload_align };
             LayoutAgg agg;
             agg.push({4, 4});                                   // discriminant
             agg.push({te->payload_bytes, te->payload_align});   // aligned payload
@@ -679,6 +682,28 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     }
     info.payload_bytes = max_bytes;
     info.payload_align = max_align;
+    // Phase 3.5 — null-pointer niche eligibility (Option<&T>-shape): exactly two
+    // variants, one fieldless (the niche/`none` variant) and one with a single
+    // non-null pointer field (`&T`/`&mut T`). The discriminant is then encoded
+    // as null vs non-null in that pointer — no separate disc word, so the enum
+    // is pointer-sized (sizeof(Option<&T>) == 8). Only `&`/`&mut` are
+    // guaranteed-non-null today; Box/Rc/NonZero niches can follow.
+    if (info.variants.size() == 2) {
+        const TaggedEnumInfo::VariantPayload* none_v = nullptr;
+        const TaggedEnumInfo::VariantPayload* some_v = nullptr;
+        for (auto& vp : info.variants) {
+            if (vp.field_types.empty()) none_v = &vp;
+            else if (vp.logos_types.size() == 1) some_v = &vp;
+        }
+        if (none_v && some_v) {
+            auto k = TypeRef(some_v->logos_types[0]).kind();
+            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                info.niche.packed    = true;
+                info.niche.none_disc = none_v->disc;
+                info.niche.some_disc = some_v->disc;
+            }
+        }
+    }
     auto enum_type = mlir::LLVM::LLVMStructType::getIdentified(
         builder_.getContext(), "enum." + ed.name);
     // NOTE: the body (payload byte-array size) is NOT set here — a nested enum
