@@ -1111,6 +1111,26 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     };
                 if (reaches(std::string(cv.trait_name()))) continue;
             }
+            // `impl Trait for &T` / `&mut T` — a reference Self type. collect_impl
+            // registers these under `$ref_`/`$mut_ref_` mangled keys (symbol-safe:
+            // no `&` for struct pointees), but the primary key1 above used the raw
+            // type_str (`&i32`). Recompute the SAME mangling so a `T: Trait` bound
+            // with T = `&Concrete` is satisfied. General — covers every
+            // `impl Trait for &ConcreteType` (e.g. `Ord for &i32`, the by-ref
+            // iterator `.max()`/`.min()` path), mirroring collect_impl's target
+            // mangling (struct pointee → `$ref_<Name>`; else → `$ref_<type_str>`).
+            if (cv.kind() == LogosType::Kind::Ref ||
+                cv.kind() == LogosType::Kind::MutRef) {
+                std::string pfx = (cv.kind() == LogosType::Kind::MutRef)
+                                      ? "$mut_ref_" : "$ref_";
+                TypeRef pt = cv.pointee();
+                std::string mangled =
+                    (pt && (TypeRef(pt).kind() == LogosType::Kind::Struct ||
+                            TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
+                        ? pfx + concrete_struct_name(pt)
+                        : pfx + concrete_str;
+                if (impls_.count(bound.trait_name + "::" + mangled)) continue;
+            }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'",
                   target_name, concrete_str, bound.trait_name, tp.name));
         }

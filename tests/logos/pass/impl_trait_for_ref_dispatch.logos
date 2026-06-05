@@ -1,0 +1,14 @@
+package x;
+
+trait Show { fn val(self: &Self) -> i32; }
+impl Show for &i32 { fn val(self: &&i32) -> i32 { return **self; } }
+
+// bound T: Show with T=&i32 (sema ref-bound-check) + method dispatch x.val()
+// (mono EMethodCall ref path).
+fn show_method<T: Show>(x: T) -> i32 { return x.val(); }
+
+fn main() -> i32 {
+    let a: i32 = 7i32;
+    let r: &i32 = &a;
+    return show_method::<&i32>(r);  // want 7
+}

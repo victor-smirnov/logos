@@ -2726,6 +2726,22 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 cname += "__";
                                 cname += mangle_type(a);
                             }
+                        } else if (TypeRef(t).kind() == LogosType::Kind::Ref ||
+                                   TypeRef(t).kind() == LogosType::Kind::MutRef) {
+                            // Trait-static dispatch through a `&T`/`&mut T` tparam
+                            // receiver (e.g. `T::cmp` with T=&i32 in iter_max). The
+                            // impl `impl Trait for &T` registers under collect_impl's
+                            // `$ref_`/`$mut_ref_` mangling (NOT the raw `&i32`
+                            // type_str), so mirror it: struct pointee → `$ref_<Name>`,
+                            // else → `$ref_<type_str>`. Matches the EMethodCall
+                            // receiver path + the sema bound-check key.
+                            std::string pfx = (TypeRef(t).kind() == LogosType::Kind::MutRef)
+                                                  ? "$mut_ref_" : "$ref_";
+                            TypeRef pt = TypeRef(t).pointee();
+                            cname = (pt && (TypeRef(pt).kind() == LogosType::Kind::Struct ||
+                                            TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
+                                        ? pfx + concrete_struct_name(pt)
+                                        : pfx + std::string(type_str(t));
                         } else
                             cname = type_str(t);
                         if (cname == "&[u8]") cname = "str";
@@ -3365,12 +3381,13 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // with `where &T: Trait` after T=Concrete. The peel above set
                 // cname=<C>; if the plain `<C>__m` doesn't exist but the
                 // ref-impl symbol does, key on it instead.
+                // (Pointee kind unrestricted — `impl Trait for &i32` etc. are
+                // valid too; the sym_exists guard below only switches to the
+                // ref-impl symbol when it actually exists, so a plain `&Struct`
+                // method call without a ref-impl is unaffected.)
                 if (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
                            TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
-                    TypeRef(rt).pointee() &&
-                    (TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Struct ||
-                     TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::ZonedStruct ||
-                     TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Enum)) {
+                    TypeRef(rt).pointee()) {
                     auto sym_exists = [&](const std::string& fb) -> bool {
                         if (templates_.count(fb) || specs_.count(fb)) return true;
                         for (auto& f : in_.functions)
