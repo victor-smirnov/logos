@@ -1284,6 +1284,7 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     case la::HERMES_CAP_EXPR:
         error("$-capture is not valid as a standalone expression");
         return error_expr();
+    case la::OFFSET_OF:   return lower_offset_of(expr);
     case la::ENUM_LIT:    return lower_enum_lit(expr);
     case la::ENUM_LIT_DATA: return lower_enum_lit_data(expr);
     case la::IF:          return lower_if_expr(expr);
@@ -16381,6 +16382,67 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
 //
 // On any validation failure we diag and return error_expr() so the rest
 // of sema keeps moving.
+// offset_of!(Type, field) — compile-time byte offset of `field` within `Type`
+// (Rust's `core::mem::offset_of!`). Walks the struct's ABI layout (same aligned
+// prefix-sum the DstRef tail-offset + sizeof use, so the result matches codegen)
+// to the named field. Replaces the sizeof-of-unsized=header divergence as the
+// Rust-faithful way to get a (self-describing) DST's tail offset.
+lir::LExprPtr SemaChecker::lower_offset_of(TinyMapView node) {
+    if (!node.has_key(la::TYPE) || !node.has_key(la::NAME)) {
+        error("offset_of!: expected `offset_of!(Type, field)`");
+        return error_expr();
+    }
+    TypeRef ty = resolve_type(map_of(node.get(la::TYPE.code)));
+    std::string field(str_of(node.get(la::NAME.code)));
+    if (!ty || (TypeRef(ty).kind() != LogosType::Kind::Struct &&
+                TypeRef(ty).kind() != LogosType::Kind::ZonedStruct)) {
+        error(std::format("offset_of!: `{}` is not a struct type",
+                          ty ? type_str(ty) : "?"));
+        return error_expr();
+    }
+    std::string sn(TypeRef(ty).struct_name());
+    auto [spkg, ssi] = find_struct_by_name(sn);
+    if (!ssi) {
+        error(std::format("offset_of!: unknown struct `{}`", sn));
+        return error_expr();
+    }
+    // Substitute the type's args into field types (generic `GBlock<i32>`), so
+    // sizes/alignments match the concrete instantiation's layout.
+    SemaSubst subst;
+    if (!ssi->type_params.empty()) {
+        auto args = TypeRef(ty).type_args();
+        for (size_t i = 0; i < ssi->type_params.size() && i < args.size(); ++i)
+            subst[ssi->type_params[i].name] = args[i];
+    }
+    uint64_t off = 0;
+    for (auto& f : ssi->fields) {
+        TypeRef ft = subst.empty() ? TypeRef(f.type) : subst_type_sema(f.type, subst);
+        logos::compiler::StrSet seen;
+        uint64_t esz = sema_abi_byte_size(ft, seen);
+        // Alignment: a `[T]` tail aligns to sizeof(T); a `dyn` tail to the
+        // pointer width (8); otherwise min(size,8). (Unsized tails report
+        // size 0, so the size-based heuristic would wrongly give align 1 —
+        // mirror the DstRef tail-offset walk.)
+        uint64_t align;
+        auto fk = TypeRef(ft).kind();
+        if (fk == LogosType::Kind::UnsizedSlice) {
+            logos::compiler::StrSet es; uint64_t elsz = sema_abi_byte_size(TypeRef(ft).elem(), es);
+            align = std::min(elsz ? elsz : (uint64_t)1, (uint64_t)8);
+        } else if (fk == LogosType::Kind::UnsizedDyn) {
+            align = 8;
+        } else {
+            align = std::min(esz ? esz : (uint64_t)1, (uint64_t)8);
+        }
+        if (align > 1) off = (off + align - 1) & ~(align - 1);
+        if (f.name == field)
+            return builder().lit_int(static_cast<int64_t>(off),
+                                     prim(LogosType::Kind::I64));
+        off += esz;
+    }
+    error(std::format("offset_of!: struct `{}` has no field `{}`", sn, field));
+    return error_expr();
+}
+
 lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     using logos::hermes::AnyVal;
     using logos::hermes::HermesAccess;

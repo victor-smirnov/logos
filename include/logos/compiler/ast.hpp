@@ -264,6 +264,7 @@ inline constexpr Code PAT_HERMES_MAP_ENTRY {"PAT_HERMES_MAP_ENTRY", 188}; // KEY
 inline constexpr Code PAT_HERMES_TYPED_ARR {"PAT_HERMES_TYPED_ARR", 189}; // @<T>[..]; TYPE
 inline constexpr Code PAT_HERMES_TYPED_MAP {"PAT_HERMES_TYPED_MAP", 190}; // @<K,V>{..}; TYPE, RET_TYPE?
 inline constexpr Code TYPEOF_TYPE          {"TYPEOF_TYPE",         191}; // typeof(expr) type-position — compile-time type of expr; VALUE(7) = expr
+inline constexpr Code OFFSET_OF            {"OFFSET_OF",           255}; // offset_of!(Type, field) — compile-time byte offset; TYPE = type_ref, NAME = field ident
 inline constexpr Code ANNOT_KV             {"ANNOT_KV",            192}; // named annotation arg: #[A(key=lit)]; NAME(1)=key, VALUE(7)=literal node
 inline constexpr Code ANNOT_POS            {"ANNOT_POS",           193}; // positional annotation arg: #[A(lit)]; VALUE(7)=literal node
 inline constexpr Code ANNOT_ARR            {"ANNOT_ARR",           194}; // annotation array literal [lit,...]; ITEMS(2)=sub-literal nodes

@@ -1,0 +1,23 @@
+// offset_of!(Type, field) — Rust-faithful compile-time byte offset (core::mem::
+// offset_of!). Covers a plain struct (alignment padding), a #[self_describing]
+// DST's tail (the Rust-faithful replacement for sizeof-of-unsized=header), and
+// a generic struct instantiation.
+package offset_of_basic;
+
+struct P { a: i32, b: i64, c: u8 }       // a@0, b@8 (pad), c@16
+#[self_describing]
+struct Block { count: i64, code: i32, tail: [i64] }  // count@0, code@8, tail@16
+struct GB<T> { hdr: i64, val: T }
+
+fn main() -> i32 {
+    if offset_of!(P, a) != 0i64  { return 1i32; }
+    if offset_of!(P, b) != 8i64  { return 2i32; }
+    if offset_of!(P, c) != 16i64 { return 3i32; }
+    if offset_of!(Block, count) != 0i64  { return 4i32; }
+    if offset_of!(Block, code)  != 8i64  { return 5i32; }
+    if offset_of!(Block, tail)  != 16i64 { return 6i32; }   // header size = tail offset
+    if offset_of!(GB<i64>, hdr) != 0i64  { return 7i32; }
+    if offset_of!(GB<i64>, val) != 8i64  { return 8i32; }
+    if offset_of!(GB<i32>, val) != 8i64  { return 9i32; }   // i32 val still @8 (i64 hdr)
+    return 0i32;
+}

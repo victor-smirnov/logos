@@ -3218,6 +3218,7 @@ private:
     // ── lower_expr ───────────────────────────────────────────────
 
     lir::LExprPtr lower_expr(hermes::TinyMapView expr);
+    lir::LExprPtr lower_offset_of(hermes::TinyMapView node);  // offset_of!(Type, field)
     lir::LExprPtr lower_binop(hermes::TinyMapView node);
     lir::LExprPtr lower_unary(hermes::TinyMapView node);
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
