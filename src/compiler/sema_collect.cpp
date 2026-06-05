@@ -753,6 +753,18 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
     bool has_variadic = type_params.back().is_variadic;
     size_t non_variadic_count = type_params.size() - (has_variadic ? 1 : 0);
 
+    // Map THIS call's type-params to their concrete args. A parametrized bound
+    // `I: Iterator<T>` whose type-arg is ANOTHER of the fn's type-params (`T`)
+    // must be checked against T's actual value (e.g. turbofish `T=i32`), not
+    // the bare TypeVar — else it defers to mono where a layout mismatch
+    // silently miscompiles (`iter_take::<SliceIter<i32>, i32>`: SliceIter impls
+    // Iterator<&i32>, body wants Iterator<i32> → niche/tagged Option mismatch →
+    // runtime infinite loop). Substituting closes the deferral so the mismatch
+    // is a compile error here.
+    SemaSubst call_subst;
+    for (size_t j = 0; j < type_params.size() && j < args.size(); ++j)
+        if (args[j]) call_subst[type_params[j].name] = args[j];
+
     for (size_t i = 0; i < args.size(); ++i) {
         if (i >= type_params.size() && !has_variadic) break;
 
@@ -873,7 +885,16 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // (direct, generic-struct, tuple, alias) must NOT accept — only a
             // blanket can. Empty bound.type_args = no constraint (true). Closes
             // the hole where `I: Iterator<i32>` was satisfied by `Iterator<&i32>`.
-            bool type_args_ok = bound.type_args.empty();
+            // Substitute the call's type-params into the bound's type-args so a
+            // bound `Iterator<T>` is checked against T's CONCRETE value (e.g.
+            // turbofish `T=i32`) rather than the bare TypeVar. Without this the
+            // mtv-defer below would punt to mono and miscompile.
+            std::vector<TypeRef> bound_targs;
+            bound_targs.reserve(bound.type_args.size());
+            for (auto& ta : bound.type_args)
+                bound_targs.push_back(ta ? subst_type_sema(TypeRef(ta), call_subst)
+                                         : TypeRef(ta));
+            bool type_args_ok = bound_targs.empty();
             if (!type_args_ok) {
                 std::function<bool(TypeRef)> mtv = [&](TypeRef t) -> bool {
                     if (!t) return false;
@@ -885,13 +906,13 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                     return false;
                 };
                 auto matches = [&](const SemaImplInfo& info) -> bool {
-                    if (info.trait_type_args.size() < bound.type_args.size())
+                    if (info.trait_type_args.size() < bound_targs.size())
                         return false;
                     SemaSubst sub;
                     if (info.target_typeref)
                         unify_types(info.target_typeref, concrete, sub);
-                    for (size_t k = 0; k < bound.type_args.size(); ++k) {
-                        TypeRef ba = bound.type_args[k];
+                    for (size_t k = 0; k < bound_targs.size(); ++k) {
+                        TypeRef ba = bound_targs[k];
                         TypeRef ia = info.trait_type_args[k];
                         if (ia) ia = subst_type_sema(ia, sub);
                         if (!ba || !ia) continue;

@@ -1,13 +1,13 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
-// Feature: iter_enumerate yielding ZipPair<index, value>; fold to sum indices.
+// Feature: iter_enumerate yielding EnumPair<idx, value>; fold to sum indices.
 package enumerate_fold_itx;
 use logos.lang.iter;
 fn main() -> i32 {
     let xs: [i32; 4] = [10i32, 20i32, 30i32, 40i32];
     unsafe {
         let it = iter_enumerate::<SliceIter<i32>, i32>(iter_over_slice(&xs), 0i32);
-        let s: i64 = iter_fold::<EnumIter<SliceIter<i32>, i32>, ZipPair<i64, i32>, i64, |i64, ZipPair<i64, i32>| -> i64>(
-            it, 0i64, |a: i64, p: ZipPair<i64, i32>| -> i64 { return a + p.first; });
+        let s: i64 = iter_fold::<EnumIter<SliceIter<i32>, i32>, EnumPair<i32>, i64, |i64, EnumPair<i32>| -> i64>(
+            it, 0i64, |a: i64, p: EnumPair<i32>| -> i64 { return a + p.idx; });
         if s != 6i64 { return 1i32; }
     }
     return 0i32;
