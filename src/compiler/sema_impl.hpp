@@ -2419,6 +2419,13 @@ private:
     logos::compiler::StrMap<SemaTraitInfo>    traits_;
     // "TraitName::TypeName" → impl info
     logos::compiler::StrMap<SemaImplInfo>     impls_;
+    // Same key, but ALL impls (impls_ is single-valued / last-wins, so two
+    // `Trait<A>` impls of one Self — `From<i32>` AND `From<i16>` for `i64`, or
+    // `Iterator<i32>` vs the generic `Iterator<&T> for VecIter<T>` — collide).
+    // Used by check_type_bounds to verify a parametrized bound `T: Trait<Args>`
+    // against the impls' actual trait-args (single-valued impls_ can't, which
+    // let `I: Iterator<i32>` be satisfied by an `Iterator<&i32>` impl).
+    logos::compiler::StrMap<std::vector<SemaImplInfo>> impls_all_;
     // Coherence-only set keyed by `Trait[arg1,arg2,...]::Target`. impls_ stays
     // bare (so existing bound-check / has_impl / find_impl callers without
     // trait_args still hit a registered impl); duplicate-detection uses this
@@ -4170,6 +4177,7 @@ public:
     StrMap<SemaChecker::GenericConstEntry> generic_consts;
     StrMap<SemaChecker::SemaTraitInfo>    traits;
     StrMap<SemaChecker::SemaImplInfo>     impls;
+    StrMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;
     StrMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
     StrMap<SemaChecker::AssocConstEntry>  assoc_const_impls;

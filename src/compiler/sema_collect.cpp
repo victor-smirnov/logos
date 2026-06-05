@@ -862,6 +862,69 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             }
             auto key1 = bound.trait_name + "::" + concrete_str;
             auto key2 = unwrapped_name.empty() ? "" : bound.trait_name + "::" + unwrapped_name;
+            // Parametrized bound `T: Trait<Args>`: the impls_ registry is keyed
+            // `Trait::Self` and SINGLE-valued, so a Self-name hit proves only that
+            // SOME `Trait` impl exists — NOT one with the right type-args (a type
+            // can impl `From<i32>` AND `From<i16>`, or `Iterator<&T>` where the
+            // bound wants `Iterator<i32>`). `type_args_ok` = does ANY impl for
+            // this Self (enumerated via the multi-valued impls_all_) match the
+            // bound's type-args, after substituting the impl's params from the
+            // concrete Self? When false, the name-keyed acceptance paths below
+            // (direct, generic-struct, tuple, alias) must NOT accept — only a
+            // blanket can. Empty bound.type_args = no constraint (true). Closes
+            // the hole where `I: Iterator<i32>` was satisfied by `Iterator<&i32>`.
+            bool type_args_ok = bound.type_args.empty();
+            if (!type_args_ok) {
+                std::function<bool(TypeRef)> mtv = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    if (t.kind() == LogosType::Kind::TypeVar) return true;
+                    if (t.pointee() && mtv(t.pointee())) return true;
+                    if (t.elem() && mtv(t.elem()))       return true;
+                    for (auto a : t.type_args())   if (mtv(a)) return true;
+                    for (auto e : t.tuple_elems()) if (mtv(e)) return true;
+                    return false;
+                };
+                auto matches = [&](const SemaImplInfo& info) -> bool {
+                    if (info.trait_type_args.size() < bound.type_args.size())
+                        return false;
+                    SemaSubst sub;
+                    if (info.target_typeref)
+                        unify_types(info.target_typeref, concrete, sub);
+                    for (size_t k = 0; k < bound.type_args.size(); ++k) {
+                        TypeRef ba = bound.type_args[k];
+                        TypeRef ia = info.trait_type_args[k];
+                        if (ia) ia = subst_type_sema(ia, sub);
+                        if (!ba || !ia) continue;
+                        // Either side still abstract → undecidable here; defer
+                        // (mono re-checks the concrete instantiation).
+                        if (mtv(ba) || mtv(ia)) continue;
+                        if (!types_equal(ba, ia)) return false;
+                    }
+                    return true;
+                };
+                // Enumerate under key1/key2 (concrete + unwrapped names) AND the
+                // BARE struct/enum name — a generic impl `impl<T> Trait<…> for
+                // Foo<T>` registers under `Trait::Foo` (bare), not the mangled
+                // `Trait::Foo$G1$i32`, so the generic-struct acceptance path keys
+                // on the bare name; mirror that here.
+                std::string key_bare;
+                if (cv.kind() == LogosType::Kind::Struct ||
+                    cv.kind() == LogosType::Kind::ZonedStruct) {
+                    if (!cv.struct_name().empty())
+                        key_bare = bound.trait_name + "::" + std::string(cv.struct_name());
+                } else if (cv.kind() == LogosType::Kind::Enum) {
+                    if (!cv.enum_name().empty())
+                        key_bare = bound.trait_name + "::" + std::string(cv.enum_name());
+                }
+                for (auto* kp : {&key1, &key2, &key_bare}) {
+                    if (kp->empty()) continue;
+                    auto it = impls_all_.find(*kp);
+                    if (it == impls_all_.end()) continue;
+                    for (auto& info : it->second)
+                        if (matches(info)) { type_args_ok = true; break; }
+                    if (type_args_ok) break;
+                }
+            }
             // B62/B63: region check — bound's universally-quantified lifetimes
             // must satisfy two properties when matched against an impl's
             // trait-arg lifetimes:
@@ -986,7 +1049,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         }
                     }
                 }
-                if (found) {
+                if (found && type_args_ok) {
                     if (region_ok(*found)) continue;
                     std::string binders_str;
                     if (!bound.hrtb_binders.empty()) {
@@ -1044,7 +1107,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                  cv.kind() == LogosType::Kind::ZonedStruct) &&
                 !cv.struct_name().empty()) {
                 auto key3 = bound.trait_name + "::" + std::string(cv.struct_name());
-                if (impls_.count(key3)) continue;
+                if (type_args_ok && impls_.count(key3)) continue;
             }
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the
@@ -1054,7 +1117,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             // generic-struct impls — at monomorphisation time.
             // Variadic form `impl<A...> Trait for (A...)` registers under
             // `$tuple$variadic` — accept any tuple arity.
-            if (cv.kind() == LogosType::Kind::Tuple) {
+            if (cv.kind() == LogosType::Kind::Tuple && type_args_ok) {
                 auto key_variadic = bound.trait_name + "::$tuple$variadic";
                 if (impls_.count(key_variadic)) continue;
                 size_t arity = cv.tuple_elems().size();
@@ -3514,6 +3577,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             if (!cur_from_binary_) user_coherence_keys_.insert(coh_key);
         }
         impls_[key] = info;
+        impls_all_[key].push_back(info);   // ALL impls (impls_ is last-wins)
         if (!cur_from_binary_) user_impl_keys_.insert(key);
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
@@ -3524,6 +3588,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                trait_type_args, trait_lt_args, impl_lt_params,
                                impl_lt_outlives, impl_doc};
             impls_[trait_name + "::&[u8]"] = alias;
+            impls_all_[trait_name + "::&[u8]"].push_back(std::move(alias));
         }
     }
 }

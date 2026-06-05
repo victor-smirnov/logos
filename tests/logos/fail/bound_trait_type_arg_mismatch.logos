@@ -1,0 +1,11 @@
+// A parametrized bound `X: Tr<i64>` must NOT be satisfied by an `impl Tr<i32>`
+// — the trait type-arg is part of the obligation. (Was a soundness hole: the
+// single-valued impls_ registry keyed only on Trait::Self, so a Self-name hit
+// accepted regardless of the trait's type-args, letting `Iterator<i32>` be
+// satisfied by `Iterator<&i32>`.)
+package bound_trait_type_arg_mismatch;
+trait Tr<A> { fn get(self: &Self) -> i32; }
+struct S {}
+impl Tr<i32> for S { fn get(self: &S) -> i32 { return 1i32; } }
+fn need<X: Tr<i64>>(x: X) -> i32 { return x.get(); }
+fn main() -> i32 { let s: S = S{}; return need::<S>(s); }
