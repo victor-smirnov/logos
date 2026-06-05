@@ -1,0 +1,31 @@
+// Typed inline-tail access through a THIN #[self_describing] DST pointer:
+// `p.tail[i]` (read+write), `p.tail.len()`, iteration. The thin pointer carries
+// no length, so the synthesized `&[T]` tail slice recovers it via the
+// SelfDescribing::dst_len method (vs the fat &DstRef path which reads the
+// fat-pair len). Previously failed: "index read: receiver is not array/slice/
+// pointer (got [u8])".
+package self_describing_tail_typed_access;
+use logos.lang.ptr;
+extern fn malloc(size: i64) -> *mut u8;
+
+#[self_describing]
+struct Buf { count: i64, data: [i32] }      // i32 tail (non-u8: exercises elem stride + align)
+impl SelfDescribing for Buf {
+    fn dst_len(self: *const Buf) -> i64 { return unsafe { (*self).count }; }
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mem: *mut u8 = malloc((sizeof::<Buf>() as i64) + 3i64 * (sizeof::<i32>() as i64));
+        let p: *mut Buf = mem as *mut Buf;
+        p.count = 3i64;
+        p.data[0] = 100i32; p.data[1] = 200i32; p.data[2] = 300i32;   // typed write
+        if p.data.len() != 3i64 { return 1i32; }                      // len via dst_len
+        let mut sum: i32 = 0i32;
+        let mut i: i64 = 0i64;
+        while i < p.data.len() { sum = sum + p.data[i]; i = i + 1i64; } // typed read
+        if sum != 600i32 { return 2i32; }
+        if p.data[2] != 300i32 { return 3i32; }
+        return 0i32;
+    }
+}

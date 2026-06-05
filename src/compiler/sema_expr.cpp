@@ -8311,6 +8311,72 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
     if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::Ptr) {
         if (!inside_unsafe_)
             error("field read through raw pointer requires unsafe context");
+        // #[self_describing] DST tail access through a THIN raw pointer:
+        // `p.tail` → `Slice { (p as *u8)+prefix, dst_len(p) }`. The fat DstRef
+        // path (below) recovers the tail length from the fat-pair's len half; a
+        // thin self-describing `*const/*mut Self` has no len in the pointer, so
+        // it recovers it by CALLING the SelfDescribing::dst_len method. This makes
+        // `p.tail[i]` / `for x in p.tail` work on a thin DST pointer (the allocator
+        // uses raw byte arithmetic instead; this is the ergonomic typed surface).
+        TypeRef sd_pointee = TypeRef(recv_base_t).pointee();
+        if (sd_pointee && (TypeRef(sd_pointee).kind() == LogosType::Kind::Struct ||
+                           TypeRef(sd_pointee).kind() == LogosType::Kind::ZonedStruct)) {
+            std::string psn(TypeRef(sd_pointee).struct_name());
+            auto [ppkg, pssi] = find_struct_by_name(psn);
+            if (!pssi) { auto [dp, ds] = find_datatype_by_name(psn); pssi = ds; }
+            if (pssi && pssi->self_describing && !pssi->fields.empty() &&
+                pssi->fields.back().name == field_name) {
+                SemaSubst sub;
+                if (!pssi->type_params.empty() && !TypeRef(sd_pointee).type_args().empty()) {
+                    auto& tps = pssi->type_params; auto ta = TypeRef(sd_pointee).type_args();
+                    for (size_t j = 0; j < tps.size() && j < ta.size(); ++j)
+                        sub[tps[j].name] = ta[j];
+                }
+                TypeRef post_tail = sub.empty() ? TypeRef(pssi->fields.back().type)
+                                                : subst_type_sema(pssi->fields.back().type, sub);
+                if (post_tail && TypeRef(post_tail).kind() == LogosType::Kind::UnsizedSlice) {
+                    TypeRef elem = TypeRef(post_tail).elem();
+                    // Prefix-size walk (identical to the DstRef tail path → matches codegen).
+                    uint64_t off = 0;
+                    for (size_t i = 0; i + 1 < pssi->fields.size(); ++i) {
+                        TypeRef ft = sub.empty() ? TypeRef(pssi->fields[i].type)
+                                                 : subst_type_sema(pssi->fields[i].type, sub);
+                        logos::compiler::StrSet seen;
+                        uint64_t esz = sema_abi_byte_size(ft, seen);
+                        uint64_t align = std::min(esz, (uint64_t)8);
+                        if (align > 1) off = (off + align - 1) & ~(align - 1);
+                        off += esz;
+                    }
+                    uint64_t tail_align;
+                    { logos::compiler::StrSet seen;
+                      uint64_t es = sema_abi_byte_size(elem, seen);
+                      tail_align = std::min(es ? es : (uint64_t)1, (uint64_t)8); }
+                    if (tail_align > 1) off = (off + tail_align - 1) & ~(tail_align - 1);
+                    std::string cname = concrete_struct_name(sd_pointee);
+                    TypeRef self_cptr = make_ptr(false, sd_pointee);
+                    auto* fit = find_func_by_base_and_signature(cname + "__dst_len", {self_cptr}, false);
+                    if (!fit) fit = find_func_by_base_and_signature(psn + "__dst_len", {self_cptr}, false);
+                    if (fit) {
+                        auto recv_u8  = builder().cast(recv, make_ptr(false, u8_t()));
+                        auto off_lit  = builder().lit_int(static_cast<int64_t>(off),
+                                                          prim(LogosType::Kind::I64));
+                        auto tail_ptr = builder().ptr_arith(lir::EPtrArith::Op::ByteAdd,
+                                                            std::move(recv_u8), std::move(off_lit),
+                                                            make_ptr(false, u8_t()));
+                        auto tail_ptr_elem = builder().cast(std::move(tail_ptr),
+                                                            make_ptr(false, elem));
+                        std::vector<lir::LExprPtr> dargs;
+                        dargs.push_back(builder().cast(recv, make_ptr(false, sd_pointee)));
+                        auto len = builder().call(
+                            fit->symbol_name.empty() ? (cname + "__dst_len") : fit->symbol_name,
+                            {}, std::move(dargs), prim(LogosType::Kind::I64));
+                        bool tail_mut = TypeRef(recv_base_t).mut_ptr();
+                        return builder().slice_lit(std::move(tail_ptr_elem), std::move(len),
+                                                   make_slice_type(elem, tail_mut));
+                    }
+                }
+            }
+        }
         recv_base_t = TypeRef(recv_base_t).pointee();
     } else if (recv_base_t && is_ref_like(TypeRef(recv_base_t).kind())) {
         recv_base_t = TypeRef(recv_base_t).pointee();
