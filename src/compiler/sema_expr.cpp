@@ -12005,6 +12005,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     // Walk the type-param's bounds (+ supertraits) for a STATIC method `mname`
     // (first param isn't `Self`).
     const SemaTraitMethodInfo* m = nullptr;
+    bool prov_trait_has_targs = false;
     logos::compiler::StrSet seen;
     std::function<void(const std::string&)> walk = [&](const std::string& tn) {
         if (m || !seen.insert(tn).second) return;
@@ -12016,54 +12017,43 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
                 !(mm.param_types[0] &&
                   TypeRef(mm.param_types[0]).kind() == LogosType::Kind::TypeVar &&
                   TypeRef(mm.param_types[0]).type_var_name() == "Self");
-            if (is_static) { m = &mm; return; }
+            if (is_static) {
+                m = &mm;
+                prov_trait_has_targs = !it->second.type_params.empty();
+                return;
+            }
         }
         for (auto& s : it->second.supertraits) walk(s.trait_name);
     };
     for (auto& b : bit->second) { walk(b.trait_name); if (m) break; }
     if (!m) return nullptr;
-    if (m->is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe method '{}' requires unsafe context", mname));
-    // Self → the type-param; method's own type-params → explicit turbofish, else
-    // inferred by unifying the declared param types against the arg types.
-    SemaSubst subst;
-    subst["Self"] = current_type_params_.count(cname)
+    // Multi-param-trait static dispatch (`S: Collect<A>` / `Sum<Item>`, trait WITH
+    // type-args) is disambiguated by mono via the arg-type suffix and needs the
+    // type-args left EMPTY at sema — passing the method's own type-args here
+    // breaks that retarget (Gap A'). Defer those to the caller's old path; the
+    // general resolver handles only single-dispatch traits (Self-keyed, no trait
+    // type-args — e.g. `Zone`).
+    if (prov_trait_has_targs) return nullptr;
+    // GENERALIZATION: synthesize a SemaFuncInfo from the trait method (Self → the
+    // type-param Z), then route through the SAME resolver every other generic call
+    // uses — finish_generic_call. It does turbofish + arg-inference + return-hint
+    // inference + fn-family-bound propagation uniformly, then emits a call to the
+    // abstract `Z__method` symbol (passthrough, no re-mangling) that mono retargets
+    // to `Concrete__method::<..>`. Replaces the hand-rolled partial handling.
+    SemaSubst self_subst;
+    self_subst["Self"] = current_type_params_.count(cname)
         ? current_type_params_[cname] : make_typevar(cname);
-    std::vector<TypeRef> method_targs;
-    if (!explicit_targs.empty()) {
-        for (size_t i = 0; i < m->type_params.size() && i < explicit_targs.size(); ++i)
-            subst[m->type_params[i].name] = explicit_targs[i];
-        method_targs = std::move(explicit_targs);
-    } else if (!m->type_params.empty()) {
-        logos::compiler::StrMap<TypeRef> binds;
-        for (size_t j = 0; j < m->param_types.size() && j < arg_exprs.size(); ++j)
-            if (m->param_types[j] && arg_exprs[j] && arg_exprs[j]->type)
-                unify_types(m->param_types[j], arg_exprs[j]->type, binds);
-        // Only substitute/pass when EVERY method type-param is arg-inferable;
-        // else leave empty (trait-arg-disambiguated dispatch — Gap A' — untouched).
-        bool all_bound = true;
-        for (auto& tp : m->type_params)
-            if (!binds.count(tp.name)) { all_bound = false; break; }
-        if (all_bound)
-            for (auto& tp : m->type_params) {
-                subst[tp.name] = binds[tp.name];
-                method_targs.push_back(binds[tp.name]);
-            }
-    }
-    if (arg_exprs.size() != m->param_types.size())
-        error(std::format("method call '{}::{}': expected {} args, got {}",
-              cname, mname, m->param_types.size(), arg_exprs.size()));
-    TypeRef ret_t = m->ret_type ? subst_type_sema(m->ret_type, subst) : void_t();
-    const SemaFuncInfo* mfi = nullptr;
-    {
-        auto cands = find_func_candidates(cname + "__" + mname);
-        if (cands.size() == 1) mfi = cands[0];
-        else for (auto* c : cands)
-            if (c && c->param_types.size() == m->param_types.size()) { mfi = c; break; }
-    }
-    return builder().call(mfi && !mfi->symbol_name.empty() ? mfi->symbol_name
-                                                           : cname + "__" + mname,
-                          std::move(method_targs), std::move(arg_exprs), ret_t);
+    SemaFuncInfo synth;
+    synth.type_params = m->type_params;
+    synth.param_types.reserve(m->param_types.size());
+    for (auto& pt : m->param_types)
+        synth.param_types.push_back(pt ? subst_type_sema(pt, self_subst) : pt);
+    synth.ret_type = m->ret_type ? subst_type_sema(m->ret_type, self_subst) : void_t();
+    synth.is_unsafe = m->is_unsafe;
+    synth.impl_target_pattern = nullptr;
+    synth.body_always_diverges = false;
+    return finish_generic_call(cname + "__" + mname, synth,
+                               std::move(explicit_targs), std::move(arg_exprs));
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
@@ -12370,31 +12360,33 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                           (TypeRef(m.param_types[0]).kind() == LogosType::Kind::TypeVar &&
                            TypeRef(m.param_types[0]).type_var_name() == "Self"));
                     if (!is_static) continue;
+                    // Try the generalized helper (single-dispatch traits → the full
+                    // finish_generic_call resolver: turbofish / arg-infer / return-
+                    // hint). It returns null for a multi-param trait (`Sum<Item>`),
+                    // BEFORE consuming the args, so the copied arg vector is safe and
+                    // the Gap-A' fallback below uses the untouched originals.
+                    if (auto c = lower_typaram_static_method(
+                            cname_str, mname_str, collect_type_args(node),
+                            std::vector<lir::LExprPtr>(arg_exprs)))
+                        return c;
+                    // Gap-A' multi-param-trait dispatch: emit `{}` type-args; mono
+                    // does the arg-suffix retarget (`S__collect` → the concrete
+                    // impl). Self → the type-param so `Self::X` stays an AssocType.
                     if (m.is_unsafe && !inside_unsafe_)
                         error(std::format("call to unsafe method '{}' requires unsafe context", mname_str));
-                    // Substitute Self → TypeVar(DT) in return type so that
-                    // Self::Storage becomes AssocType with base = TypeVar(DT).
                     SemaSubst self_subst;
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
                     TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
                     const SemaFuncInfo* mfi = nullptr;
                     {
-                        auto base = cname_str + "__" + mname_str;
-                        auto cands = find_func_candidates(base);
-                        if (cands.size() == 1) {
-                            mfi = cands[0];
-                        } else if (!cands.empty()) {
-                            for (auto* cand : cands) {
-                                if (!cand) continue;
-                                if (cand->param_types.size() == m.param_types.size()) {
-                                    mfi = cand;
-                                    break;
-                                }
-                            }
-                        }
+                        auto cands = find_func_candidates(cname_str + "__" + mname_str);
+                        if (cands.size() == 1) mfi = cands[0];
+                        else if (!cands.empty())
+                            for (auto* cand : cands)
+                                if (cand && cand->param_types.size() == m.param_types.size())
+                                    { mfi = cand; break; }
                     }
-                    // Arg-count check.
                     if (arg_exprs.size() != m.param_types.size())
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, m.param_types.size(), arg_exprs.size()));

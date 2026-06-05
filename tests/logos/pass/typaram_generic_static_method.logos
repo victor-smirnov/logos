@@ -1,33 +1,41 @@
-// Generic associated FN called through a bound type-param with a METHOD turbofish:
-// `Z::m::<T>(args)`. Previously failed "unknown enum 'Z'" — the grammar parses it
-// identically to a generic enum-variant construction (`Enum::Variant::<T>(args)`),
-// so it routed to enum resolution. Now disambiguated when NAME is a bound
-// type-param → trait-static dispatch (mono retargets `Z__m` → `Concrete__m`).
-// This is the critical path to the typed `Z::Ptr<T>` zone-as-parameter design.
+// Generic associated FN called through a bound type-param, BOTH forms:
+//   `Z::m::<T>(args)` (method turbofish) and `Z::m(args)` (T inferred from arg).
+// Previously: turbofish → "unknown enum 'Z'" (parsed as a generic enum-variant);
+// inferable → return type-param left unsubstituted ("*mut T" vs "*mut i64").
+// Now both route through the GENERAL resolver finish_generic_call (synthesized
+// fi from the trait method, Self→Z) — turbofish + arg-inference + return-hint.
+// Single-dispatch traits only; multi-param traits (Sum<Item>) keep the Gap-A'
+// mono-arg-suffix path. Critical path to the typed `Z::Ptr<T>` zone design.
 package typaram_generic_static_method;
 
 trait Zone {
-    unsafe fn nullp<T>() -> *mut T;              // T return-only → needs turbofish
-    unsafe fn echo<T>(x: *mut T, n: i64) -> *mut T;
+    unsafe fn id<T>(x: *mut T) -> *mut T;        // T inferable from arg
+    unsafe fn first<T>(x: *mut T, y: *mut T) -> *mut T;
+    unsafe fn nullp<T>() -> *mut T;              // T return-only → turbofish
 }
 struct Heap { }
 impl Zone for Heap {
+    unsafe fn id<T>(x: *mut T) -> *mut T { return x; }
+    unsafe fn first<T>(x: *mut T, y: *mut T) -> *mut T { return x; }
     unsafe fn nullp<T>() -> *mut T { return 0i64 as *mut T; }
-    unsafe fn echo<T>(x: *mut T, n: i64) -> *mut T { return x; }
 }
 
-unsafe fn via_turbofish<Z: Zone>(x: *mut i64) -> i64 {
-    let n: *mut i64 = Z::nullp::<i64>();          // turbofish, return-only T
-    let e: *mut i64 = Z::echo::<i64>(x, 5i64);    // turbofish, T + value args
-    if !(n == (0i64 as *mut i64)) { return -1i64; }
-    return *e;                                     // return type *mut i64 (T substituted)
+unsafe fn via_infer<Z: Zone>(x: *mut i64, y: *mut i64) -> *mut i64 {
+    return Z::first(Z::id(x), y);                // nested, T inferred from args
+}
+unsafe fn via_turbofish<Z: Zone>() -> *mut i64 {
+    return Z::nullp::<i64>();                     // turbofish, return-only T
 }
 
 fn main() -> i32 {
     unsafe {
-        let v: i64 = 99i64;
-        let r: i64 = via_turbofish::<Heap>(&v as *const i64 as *mut i64);
-        if r != 99i64 { return 1i32; }
+        let a: i64 = 11i64;
+        let b: i64 = 22i64;
+        let r: *mut i64 = via_infer::<Heap>(&a as *const i64 as *mut i64,
+                                            &b as *const i64 as *mut i64);
+        if (*r) != 11i64 { return 1i32; }
+        let n: *mut i64 = via_turbofish::<Heap>();
+        if n != (0i64 as *mut i64) { return 2i32; }
         return 0i32;
     }
 }
