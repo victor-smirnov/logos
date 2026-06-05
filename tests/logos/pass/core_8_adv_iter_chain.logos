@@ -7,7 +7,7 @@ fn main() -> i32 {
     let cc: i64 = a.iter().chain::<VecIter<i32>>(b.iter()).count();
     if cc != 5i64 { return 1i32; }
     let s: i32 = a.iter().chain::<VecIter<i32>>(b.iter())
-        .fold::<i32, fn(i32,i32)->i32>(0i32, |x, y| x + y);
+        .fold::<i32, fn(i32,&i32)->i32>(0i32, |x, y| x + *y);
     if s != 36i32 { return 2i32; }
     return 0i32;
 }

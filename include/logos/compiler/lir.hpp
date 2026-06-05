@@ -779,6 +779,16 @@ struct LFunction {
     // inside a Vec<…> in the target). Null for non-impl fns + for impls
     // whose target pattern is a bare enum (positional binding suffices).
     TypeRef                       impl_target_pattern = nullptr;
+    // §8.5: per-method where-bounds whose SUBJECT is an arbitrary type
+    // EXPRESSION (not just a bare type-param), expressed in the impl's
+    // generic terms. E.g. `fn max() where Item: Ord` on
+    // `impl<T> Iterator<&T> for VecIter<T>` records `{&T, "Ord"}`. Mono
+    // substitutes the subject with the clone's concrete args and checks
+    // satisfaction — gating default-method synthesis when sema can't
+    // (the trait-arg still mentions a TypeVar). Generalises the bare-
+    // type-param `impl_type_params[].bounds` gate to compound subjects
+    // like `&T` / `[T;0]` / `EnumPair<T>`.
+    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
     // Outer doc-comment (`/// ...`) lines joined with '\n', leading `/// ` (or
     // `///`) stripped from each. Empty when the fn has no doc-comment.
     std::string                   doc;

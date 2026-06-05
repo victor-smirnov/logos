@@ -4,7 +4,7 @@ fn main() -> i32 {
     v.push(10i32); v.push(20i32); v.push(30i32); v.push(40i32); v.push(50i32);
     let n: i64 = v.iter().skip(2i64).count();
     if n != 3i64 { return 1i32; }
-    let s: i32 = v.iter().skip(2i64).fold::<i32, fn(i32,i32)->i32>(0i32, |a, b| a + b);
+    let s: i32 = v.iter().skip(2i64).fold::<i32, fn(i32,&i32)->i32>(0i32, |a, b| a + *b);
     if s != 120i32 { return 2i32; }
     return 0i32;
 }

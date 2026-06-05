@@ -1906,6 +1906,29 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // default template and let mono error if needed.
                     bool gate_skip = false;
                     if (!ib.is_blanket && !m.where_param_bounds.empty()) {
+                        // A trait-arg that still mentions a TypeVar anywhere
+                        // (`&T`, `Option<T>`, `(T,U)`, …) is NOT decidable at
+                        // sema — the concrete is only known after mono
+                        // substitutes the impl's params. Defer such gates to
+                        // mono (which re-checks via `method_bound_ok`). The
+                        // old shallow `kind()==TypeVar` test only deferred a
+                        // bare top-level `T`, so `impl<T> Iterator<&T> for
+                        // VecIter<T>` wrongly computed `&T: Ord` (always
+                        // false) and SKIPPED synthesising `max`/`min` for
+                        // every by-ref iterator. Recurse like mono's
+                        // `contains_typevar`.
+                        std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
+                            if (!t) return false;
+                            if (t.kind() == LogosType::Kind::TypeVar) return true;
+                            if (t.kind() == LogosType::Kind::Error)   return true;
+                            if (t.pointee() && mentions_tv(t.pointee())) return true;
+                            if (t.elem()    && mentions_tv(t.elem()))    return true;
+                            for (auto a : t.type_args())    if (mentions_tv(a)) return true;
+                            for (auto e : t.tuple_elems())  if (mentions_tv(e)) return true;
+                            for (auto p : t.closure_params())if (mentions_tv(p)) return true;
+                            if (t.closure_ret() && mentions_tv(t.closure_ret())) return true;
+                            return false;
+                        };
                         for (auto& wb : m.where_param_bounds) {
                             // Find the trait-param index by name.
                             size_t pidx = SIZE_MAX;
@@ -1918,9 +1941,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             TypeRef concrete = impl_trait_args[pidx];
                             if (!concrete) continue;
                             TypeRef cv{concrete};
-                            // TypeVar / unresolved: defer to mono.
-                            if (cv.kind() == LogosType::Kind::TypeVar) continue;
-                            if (cv.kind() == LogosType::Kind::Error) continue;
+                            // Not fully concrete (any nested TypeVar/Error):
+                            // defer to mono.
+                            if (mentions_tv(cv)) continue;
                             std::string cstr = type_str(concrete);
                             logos::compiler::StrSet seen;
                             if (!sema_has_impl_recursive(wb.trait_name, cstr, /*alt=*/"", seen)) {
@@ -1971,6 +1994,31 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     auto fn = lower_fn(map_of(m.default_ast), lower_target);
                     holder_ = saved_holder;
                     fn.is_pub = true;  // default trait method inherits trait visibility
+                    // §8.5: carry every per-method where-bound as a
+                    // type-EXPRESSION bound, expressed in the impl's
+                    // generic terms (the trait-arg `impl_trait_args[pidx]`,
+                    // e.g. `&T` for `impl<T> Iterator<&T> for VecIter<T>`).
+                    // Mono substitutes the subject with the clone's concrete
+                    // args and re-gates via `method_bound_ok`. This is the
+                    // real gate for compound-Item iterators: sema can only
+                    // decide bare-concrete Items, so non-Ord ones
+                    // (EnumPair<T>, [T;0], &[T]) are deferred here and
+                    // rejected at mono — without it, deferral would
+                    // synthesise `max`/`min` for every iterator and the
+                    // `iter_max` body would fail to typecheck.
+                    if (!ib.is_blanket) {
+                        for (auto& wb : m.where_param_bounds) {
+                            size_t pidx = SIZE_MAX;
+                            for (size_t pi = 0; pi < tit->second.type_params.size(); ++pi)
+                                if (tit->second.type_params[pi].name == wb.param_name) {
+                                    pidx = pi; break;
+                                }
+                            if (pidx == SIZE_MAX || pidx >= impl_trait_args.size()) continue;
+                            TypeRef subj = impl_trait_args[pidx];
+                            if (!subj) continue;
+                            fn.where_type_bounds.emplace_back(subj, wb.trait_name);
+                        }
+                    }
                     // Generic impl: the default method must travel as a struct-
                     // template method so mono clones it per concrete struct
                     // instantiation. Otherwise the bare-name template ends up as

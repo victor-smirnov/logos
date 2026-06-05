@@ -618,6 +618,17 @@ private:
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
+
+    // `ref v` / `ref mut v` pattern-binding classifier — single source for the
+    // (formerly three) enum-payload binding loops. Given the SEMA-assigned
+    // binding type (payload wrapped in N Ref layers) and the payload's own
+    // type, returns true when the binding should bind the slot ADDRESS (a
+    // borrow), and sets `added_depth` = indirection layers ADDED by `ref` on
+    // top of the payload's own THIN-ref layers. Fat-ref payloads
+    // (`&dyn`/`&[T]`/`&str`/closure) return false so their dedicated inline-
+    // fat handlers own the 16-byte layout. See mlir_gen_stmt.cpp.
+    bool ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
+                       int& added_depth);
     // Compute representation (the SSA value type). Today uniformly a thin pointer
     // (the fat pair lives in storage; the value is a pointer to it).
     mlir::Type  repr_value_type(RefReprKind k);

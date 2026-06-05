@@ -229,11 +229,11 @@ impl<T> Vec<T> {
         unsafe { return slice_from_raw::<T>(self.ptr as *const T, self.len); }
     }
 
-    // Return a read-only iterator over elements.
+    // Return a read-only iterator yielding &T (Rust parity: `.iter()` borrows).
     pub fn iter(&self) -> VecIter<T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
-            idx: 0i64, back_idx: self.len, owns_buf: false,
+            idx: 0i64, back_idx: self.len,
         };
     }
 
@@ -255,24 +255,61 @@ impl<T> IndexMut<i64, T> for Vec<T> {
 
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
 
+// Borrowing iterator (`Vec::iter()` / `for x in &v`): yields `&T`, owns
+// nothing, Drop is a no-op. Mirrors Rust's `slice::Iter`.
 pub struct VecIter<T> {
     data: *const T,
     len:  i64,
     idx:  i64,
     back_idx: i64,
-    // Ownership marker. true when this iter owns `data` (constructed by
-    // `Vec::into_iter` consuming Self) — Drop will dealloc the buffer.
-    // false when borrowing into another Vec's storage (`&Vec::into_iter`,
-    // `Vec::iter()`) — Drop is a no-op.
-    owns_buf: bool,
 }
 
-impl<T> Iterator<T> for VecIter<T> {
-    fn next(self: &mut VecIter<T>) -> Option<T> {
+impl<T> Iterator<&T> for VecIter<T> {
+    fn next(self: &mut VecIter<T>) -> Option<&T> {
         if self.idx >= self.back_idx {
             return Option::None;
         }
+        unsafe {
+            let r: &T = &self.data[self.idx];
+            self.idx = self.idx + 1;
+            return Option::Some(r);
+        }
+    }
+}
 
+impl<T> DoubleEndedIterator<&T> for VecIter<T> {
+    fn next_back(self: &mut VecIter<T>) -> Option<&T> {
+        if self.idx >= self.back_idx {
+            return Option::None;
+        }
+        unsafe {
+            self.back_idx = self.back_idx - 1;
+            let r: &T = &self.data[self.back_idx];
+            return Option::Some(r);
+        }
+    }
+}
+
+impl<T> ExactSizeIterator<&T> for VecIter<T> {
+    fn len(&self) -> i64 { return self.back_idx - self.idx; }
+}
+
+// ── VecIntoIter<T> — owning iterator (`Vec::into_iter` / `for x in v`) ─────────
+// Yields `T` by value and OWNS the buffer: Drop walks un-yielded elements
+// (firing T's Drop on each, mirroring Vec::drop) and deallocates. Mirrors
+// Rust's `vec::IntoIter`.
+pub struct VecIntoIter<T> {
+    data: *const T,
+    len:  i64,
+    idx:  i64,
+    back_idx: i64,
+}
+
+impl<T> Iterator<T> for VecIntoIter<T> {
+    fn next(self: &mut VecIntoIter<T>) -> Option<T> {
+        if self.idx >= self.back_idx {
+            return Option::None;
+        }
         unsafe {
             let val: T = self.data[self.idx];
             self.idx = self.idx + 1;
@@ -281,8 +318,8 @@ impl<T> Iterator<T> for VecIter<T> {
     }
 }
 
-impl<T> DoubleEndedIterator<T> for VecIter<T> {
-    fn next_back(self: &mut VecIter<T>) -> Option<T> {
+impl<T> DoubleEndedIterator<T> for VecIntoIter<T> {
+    fn next_back(self: &mut VecIntoIter<T>) -> Option<T> {
         if self.idx >= self.back_idx {
             return Option::None;
         }
@@ -294,18 +331,12 @@ impl<T> DoubleEndedIterator<T> for VecIter<T> {
     }
 }
 
-impl<T> ExactSizeIterator<T> for VecIter<T> {
+impl<T> ExactSizeIterator<T> for VecIntoIter<T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
-// VecIter owns the buffer when constructed by `Vec::into_iter`
-// (consuming form). Drop walks un-yielded elements (firing T's Drop on
-// each, mirroring Vec::drop) and deallocates. Borrowing iters (built by
-// `Vec::iter` or `&Vec::into_iter`) carry `owns_buf=false` and Drop
-// no-ops.
-impl<T> Drop for VecIter<T> {
-    fn drop(self: VecIter<T>) {
-        if !self.owns_buf { return; }
+impl<T> Drop for VecIntoIter<T> {
+    fn drop(self: VecIntoIter<T>) {
         unsafe {
             let p: *mut T = self.data as *mut T;
             if p != 0 as *mut T {
@@ -343,16 +374,17 @@ impl<T> Iterator<&mut T> for VecIterMut<T> {
 
 // ── IntoIterator impls ────────────────────────────────────────────────────────
 
+// `for x in v` — consumes the Vec, yields T by value (Rust parity).
 impl<T> IntoIterator<T> for Vec<T> {
-    type Iter = VecIter<T>;
-    fn into_iter(self: Vec<T>) -> VecIter<T> {
-        // Transfer buffer ownership to the iterator (owns_buf=true): the
-        // iterator's Drop frees the heap. Suppress self's auto-Drop by
-        // zeroing self.ptr through unsafe pointer aliasing — Vec::drop's
-        // null-ptr guard then no-ops, avoiding a double-free.
-        let it: VecIter<T> = VecIter {
+    type Iter = VecIntoIter<T>;
+    fn into_iter(self: Vec<T>) -> VecIntoIter<T> {
+        // Transfer buffer ownership to the iterator: its Drop frees the heap.
+        // Suppress self's auto-Drop by zeroing self.ptr through unsafe pointer
+        // aliasing — Vec::drop's null-ptr guard then no-ops, avoiding a
+        // double-free.
+        let it: VecIntoIter<T> = VecIntoIter {
             data: self.ptr as *const T, len: self.len,
-            idx: 0i64, back_idx: self.len, owns_buf: true,
+            idx: 0i64, back_idx: self.len,
         };
         unsafe {
             let pp: *mut *mut T = (&self.ptr) as *const *mut T as *mut *mut T;
@@ -362,12 +394,13 @@ impl<T> IntoIterator<T> for Vec<T> {
     }
 }
 
-impl<T> IntoIterator<T> for &Vec<T> {
+// `for x in &v` — borrows, yields &T by reference (Rust parity).
+impl<T> IntoIterator<&T> for &Vec<T> {
     type Iter = VecIter<T>;
     fn into_iter(self: &Vec<T>) -> VecIter<T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
-            idx: 0i64, back_idx: self.len, owns_buf: false,
+            idx: 0i64, back_idx: self.len,
         };
     }
 }

@@ -10,6 +10,45 @@ namespace logos::compiler {
 using namespace lir;
 
 // ---------------------------------------------------------------------------
+// `ref v` pattern-binding classifier — single source for all enum-payload
+// binding loops (was three drifting copies; the `!payload_is_ref` copy
+// mis-bound `ref v` over a thin-ref payload `&i32`, LOADing the payload
+// (`&i32`) instead of its slot address (`&&i32`) → `**v` SIGSEGV in
+// Option::as_ref / peekable over `&T`).
+// ---------------------------------------------------------------------------
+bool MLIRGenImpl::ref_bind_kind(TypeRef binding_type, TypeRef payload_type,
+                                int& added_depth) {
+    added_depth = 0;
+    if (!binding_type) return false;
+    // `ref v` makes sema wrap the payload in one extra Ref → count the
+    // binding type's ref layers.
+    int binding_depth = 0;
+    for (TypeRef w = binding_type;
+         w && (w.kind() == LogosType::Kind::Ref ||
+               w.kind() == LogosType::Kind::MutRef) && w.pointee();
+         w = w.pointee())
+        ++binding_depth;
+    if (binding_depth == 0) return false;
+    bool payload_is_ref = payload_type &&
+        (payload_type.kind() == LogosType::Kind::Ref ||
+         payload_type.kind() == LogosType::Kind::MutRef);
+    // A thin-ref payload folds its OWN `&` into the binding type (`ref v`
+    // over `&i32` ⇒ `&&i32`); subtract those layers so only the indirection
+    // ADDED by `ref` remains. Fat-ref payloads contribute 0 here and are
+    // handed back to the dedicated inline-fat handlers (return false).
+    int payload_thin_layers = 0;
+    for (TypeRef w = payload_type;
+         w && (w.kind() == LogosType::Kind::Ref ||
+               w.kind() == LogosType::Kind::MutRef) && w.pointee() &&
+         ref_repr_of(w) == RefReprKind::ThinPtr;
+         w = w.pointee())
+        ++payload_thin_layers;
+    bool payload_fat_ref = payload_is_ref && payload_thin_layers == 0;
+    added_depth = binding_depth - payload_thin_layers;
+    return added_depth > 0 && !payload_fat_ref;
+}
+
+// ---------------------------------------------------------------------------
 // Enum payload binding (shared by stmt + expr match, for tuple-element enums)
 // ---------------------------------------------------------------------------
 
@@ -54,19 +93,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         int ref_bind_depth = 0;
         bool is_ref_bind = false;
         if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
-            TypeRef walk(pvd_binding_types[bi]);
-            while (walk &&
-                   (walk.kind() == LogosType::Kind::Ref ||
-                    walk.kind() == LogosType::Kind::MutRef) &&
-                   walk.pointee()) {
-                ++ref_bind_depth;
-                walk = walk.pointee();
-            }
-            auto pt = lt ? TypeRef(lt) : TypeRef{};
-            bool payload_is_ref = pt &&
-                (pt.kind() == LogosType::Kind::Ref ||
-                 pt.kind() == LogosType::Kind::MutRef);
-            if (ref_bind_depth > 0 && !payload_is_ref) is_ref_bind = true;
+            is_ref_bind = ref_bind_kind(TypeRef(pvd_binding_types[bi]),
+                                        lt ? TypeRef(lt) : TypeRef{},
+                                        ref_bind_depth);
         }
         if (is_ref_bind) {
             // G151-1: `ref l` of a STRUCT-typed payload field binds `l : &Struct`.
@@ -3716,16 +3745,13 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         // binding — sema wraps with Ref/MutRef. Bind to
                         // the GEP address directly.
                         bool is_ref_bind = false;
-                        if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
-                            auto ot = TypeRef(pvd_binding_types[bi]);
-                            auto pt = bi < vp->logos_types.size()
+                        {
+                            int rbd = 0;
+                            TypeRef pt = bi < vp->logos_types.size()
                                 ? TypeRef(vp->logos_types[bi]) : TypeRef{};
-                            bool pvd_is_ref = ot.kind() == LogosType::Kind::Ref ||
-                                              ot.kind() == LogosType::Kind::MutRef;
-                            bool payload_is_ref = pt &&
-                                (pt.kind() == LogosType::Kind::Ref ||
-                                 pt.kind() == LogosType::Kind::MutRef);
-                            if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
+                            if (bi < pvd_binding_types.size() && pvd_binding_types[bi])
+                                is_ref_bind = ref_bind_kind(
+                                    TypeRef(pvd_binding_types[bi]), pt, rbd);
                         }
                         if (is_ref_bind) {
                             // G151-1: `ref l` of a STRUCT payload binds `l : &Struct`
@@ -4925,16 +4951,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
                         auto fp = builder_.create<mlir::LLVM::GEPOp>(
                             loc_, ptr_type(), pay_struct, pay_ptr, fi);
                         bool is_ref_bind = false;
-                        if (bi < pvd_binding_types.size() && pvd_binding_types[bi]) {
-                            auto ot = TypeRef(pvd_binding_types[bi]);
-                            auto pt = bi < vp->logos_types.size()
+                        {
+                            int rbd = 0;
+                            TypeRef pt = bi < vp->logos_types.size()
                                 ? TypeRef(vp->logos_types[bi]) : TypeRef{};
-                            bool pvd_is_ref = ot.kind() == LogosType::Kind::Ref ||
-                                              ot.kind() == LogosType::Kind::MutRef;
-                            bool payload_is_ref = pt &&
-                                (pt.kind() == LogosType::Kind::Ref ||
-                                 pt.kind() == LogosType::Kind::MutRef);
-                            if (pvd_is_ref && !payload_is_ref) is_ref_bind = true;
+                            if (bi < pvd_binding_types.size() && pvd_binding_types[bi])
+                                is_ref_bind = ref_bind_kind(
+                                    TypeRef(pvd_binding_types[bi]), pt, rbd);
                         }
                         if (is_ref_bind) {
                             auto alloca = create_entry_alloca(ptr_type());

@@ -89,6 +89,58 @@ impl Product<i64> for i64 {
     }
 }
 
+impl Sum<&i32> for i32 {
+    fn sum<I: Iterator<&i32>>(iter: I) -> i32 {
+        let mut it: I = iter;
+        let mut acc: i32 = 0i32;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc + *v; }
+            }
+        }
+    }
+}
+
+impl Sum<&i64> for i64 {
+    fn sum<I: Iterator<&i64>>(iter: I) -> i64 {
+        let mut it: I = iter;
+        let mut acc: i64 = 0 as i64;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc + *v; }
+            }
+        }
+    }
+}
+
+impl Product<&i32> for i32 {
+    fn product<I: Iterator<&i32>>(iter: I) -> i32 {
+        let mut it: I = iter;
+        let mut acc: i32 = 1i32;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc * *v; }
+            }
+        }
+    }
+}
+
+impl Product<&i64> for i64 {
+    fn product<I: Iterator<&i64>>(iter: I) -> i64 {
+        let mut it: I = iter;
+        let mut acc: i64 = 1 as i64;
+        loop {
+            match it.next() {
+                Option::None    => { return acc; }
+                Option::Some(v) => { acc = acc * *v; }
+            }
+        }
+    }
+}
+
 
 // ── Core trait ───────────────────────────────────────────────────────────────
 

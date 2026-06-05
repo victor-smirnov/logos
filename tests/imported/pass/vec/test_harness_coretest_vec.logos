@@ -103,7 +103,8 @@ fn test_iter_and_contains() {
     unsafe {
         let mut v: Vec<i32> = vec_new::<i32>();
         v.push(1i32); v.push(2i32); v.push(4i32); v.push(5i32);
-        assert!(iter_sum_i32(v.iter()) == 12i32);
+        // `iter()` yields `&i32`; sum by value via `Sum<&i32> for i32`.
+        assert!(v.iter().sum::<i32>() == 12i32);
         assert!(vec_contains::<i32>(&v, &4i32));
         assert!(!vec_contains::<i32>(&v, &3i32));
     }

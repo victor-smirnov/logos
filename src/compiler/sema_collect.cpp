@@ -713,6 +713,20 @@ bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
         std::string ka = trait_name + "::" + concrete_alt;
         if (impls_.count(ka)) return true;
     }
+    // Reference Self: `impl Trait for &T` / `&mut T` registers under collect_impl's
+    // `$ref_`/`$mut_ref_` mangling, but `concrete` here is the raw type_str
+    // (`&i32` / `&mut Foo`). Try both forms — primitive pointee keeps the full
+    // string (`$ref_&i32`), struct pointee uses the bare name (`$ref_Foo`). This
+    // is the SHARED satisfaction primitive (default-method where-gate, blanket
+    // recursion, etc.), so every site that asks "does `&T` impl Trait" benefits.
+    for (auto& pfx : {std::string("&mut "), std::string("&")}) {
+        if (concrete.rfind(pfx, 0) != 0) continue;
+        std::string mpfx = (pfx == "&mut ") ? "$mut_ref_" : "$ref_";
+        if (impls_.count(trait_name + "::" + mpfx + concrete)) return true;
+        if (impls_.count(trait_name + "::" + mpfx + concrete.substr(pfx.size())))
+            return true;
+        break;
+    }
     for (auto& bi : blanket_impls_) {
         if (bi.trait_name != trait_name) continue;
         if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
@@ -750,7 +764,33 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         if (!concrete) continue;
         TypeRef cv{concrete};
         if (cv.kind() == LogosType::Kind::Error) continue;
-        if (cv.kind() == LogosType::Kind::TypeVar) continue; // defer until mono
+        // A type-expression that still MENTIONS a TypeVar anywhere (`&T`,
+        // `[T;0]`, `&[T]`, `EnumPair<T>`, `(T,U)`, …) is not decidable here:
+        // its trait-satisfaction depends on what the TypeVar becomes after
+        // monomorphisation. Defer to mono — where the per-method
+        // `where_type_bounds` gate (and impl-type-param bounds) re-check the
+        // SUBSTITUTED form. The old test only deferred a *bare* top-level
+        // TypeVar, so a default-method body like `fn max() where Item: Ord`
+        // synthesised for `impl<T> Iterator<&T> for VecIter<T>` couldn't
+        // assume `&T: Ord` and wrongly errored at the `iter_max::<_,&T>`
+        // call. Generalises the assume-the-where-clause mechanism from bare
+        // `T` to any TypeVar-bearing subject. (Struct/enum kinds also fell
+        // through to error when the generic itself had no impl, e.g.
+        // `EnumPair<T>: Ord` — same class, same cure.)
+        {
+            std::function<bool(TypeRef)> mentions_tv = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (t.kind() == LogosType::Kind::TypeVar) return true;
+                if (t.pointee() && mentions_tv(t.pointee())) return true;
+                if (t.elem()    && mentions_tv(t.elem()))    return true;
+                for (auto a : t.type_args())     if (mentions_tv(a)) return true;
+                for (auto e : t.tuple_elems())   if (mentions_tv(e)) return true;
+                for (auto p : t.closure_params())if (mentions_tv(p)) return true;
+                if (t.closure_ret() && mentions_tv(t.closure_ret())) return true;
+                return false;
+            };
+            if (mentions_tv(cv)) continue;   // defer until mono
+        }
         if (cv.kind() == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
         if (cv.kind() == LogosType::Kind::CfgSlotType) continue; // deferred — concrete type known after CFG substitution
 

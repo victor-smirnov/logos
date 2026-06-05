@@ -22,8 +22,8 @@ fn main() -> i32 {
     v.push(10i32);
     v.push(20i32);
     v.push(30i32);
-    let mut it: VecIter<i32> = v.into_iter();
-    // Pull all three through .next(), then VecIter's Drop deallocs.
+    let mut it: VecIntoIter<i32> = v.into_iter();
+    // Pull all three through .next(), then VecIntoIter's Drop deallocs.
     let mut sum: i32 = 0i32;
     loop {
         match it.next() {

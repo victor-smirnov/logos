@@ -54,9 +54,8 @@ fn main() -> i32 {
         if v.get(2) != 4 { return 20; }
         if v.get(3) != 5 { return 21; }
 
-        // ── iter (use iter_sum_i32) ─────────────────────────────────────────
-        let it = v.iter();
-        let s: i32 = iter_sum_i32(it);
+        // ── iter().sum() — `iter()` yields `&i32`, summed via `Sum<&i32>` ───
+        let s: i32 = v.iter().sum::<i32>();
         if s != 12 { return 22; }   // 1+2+4+5
 
         // ── vec_contains ───────────────────────────────────────────────────

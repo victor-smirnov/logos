@@ -758,6 +758,10 @@ private:
                                  const std::string& concrete_name,
                                  StrSet& seen);
 
+    // Structure-aware `$ref_`/`$mut_ref_` impl key for a reference target
+    // (`impl Trait for &T`). "" for non-ref types. See definition.
+    std::string ref_target_key(TypeRef t);
+
     // Stronger sibling of mono_has_impl_recursive that takes a full
     // TypeRef instead of a stripped name. For a blanket impl
     // `impl<T: Foo> Bar for Vec<T>`, mono_has_impl_recursive on

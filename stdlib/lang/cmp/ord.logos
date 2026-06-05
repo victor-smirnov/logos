@@ -75,6 +75,11 @@ impl Ord for i8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other {
 impl Ord for i16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for i32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for i64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+// By-reference Ord (Rust parity: `impl<T: Ord> Ord for &T`). Lets `&i32`/`&i64`
+// elements from a by-ref iterator (`v.iter().max()`) be compared — deref twice
+// (self/other are `&&T`).
+impl Ord for &i32 { fn cmp(&self, other: &&i32) -> Ordering { if **self < **other { return Ordering::Less; } if **self > **other { return Ordering::Greater; } return Ordering::Equal; } }
+impl Ord for &i64 { fn cmp(&self, other: &&i64) -> Ordering { if **self < **other { return Ordering::Less; } if **self > **other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for u8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for u16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
 impl Ord for u32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }

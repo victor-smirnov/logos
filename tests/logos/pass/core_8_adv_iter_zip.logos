@@ -4,9 +4,9 @@ fn main() -> i32 {
     a.push(1i32); a.push(2i32); a.push(3i32);
     let mut b: Vec<i32> = Vec::<i32>::new();
     b.push(10i32); b.push(20i32); b.push(30i32);
-    let dot: i32 = a.iter().zip::<VecIter<i32>, i32>(b.iter())
-        .fold::<i32, fn(i32, ZipPair<i32, i32>) -> i32>(
-            0i32, |acc, p| acc + p.first * p.second);
+    let dot: i32 = a.iter().zip::<VecIter<i32>, &i32>(b.iter())
+        .fold::<i32, fn(i32, ZipPair<&i32, &i32>) -> i32>(
+            0i32, |acc, p| acc + *p.first * *p.second);
     if dot != 140i32 { return 1i32; }
     return 0i32;
 }

@@ -2858,10 +2858,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                         // Only the genuinely-AMBIGUOUS case (>1 distinct
                                         // trait-arg token) needs the projection below — this
                                         // keeps the common single-impl path untouched.
-                                        struct Cand { std::string gtok, key; const lir::LFunction* fp; };
+                                        struct Cand { std::string gtok, key; const lir::LFunction* fp; bool is_tmpl; };
                                         std::vector<Cand> cands;
                                         std::set<std::string> cand_gtoks;
-                                        auto consider = [&](std::string_view full, const lir::LFunction* fp) {
+                                        auto consider = [&](std::string_view full, const lir::LFunction* fp,
+                                                            bool is_tmpl) {
                                             auto dot = full.rfind('.');
                                             std::string_view bare =
                                                 (dot==std::string_view::npos)?full:full.substr(dot+1);
@@ -2875,11 +2876,19 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             if (gp==std::string_view::npos) return;
                                             std::string gtok(qual.substr(gp));
                                             cand_gtoks.insert(gtok);
-                                            cands.push_back({gtok, std::string(full), fp});
+                                            cands.push_back({gtok, std::string(full), fp, is_tmpl});
                                         };
-                                        for (auto& [kn,fp]:templates_) consider(kn, fp);
-                                        for (auto& f:in_.functions)  if (f) consider(f->name, f.get());
-                                        for (auto& f:out_.functions) if (f) consider(f->name, f.get());
+                                        // templates_ holds the generic TEMPLATES (re-instantiable);
+                                        // in_/out_.functions also carry already-monomorphised SPECS
+                                        // (`…__sum__g__TakeIter$…`). A spec shares the template's
+                                        // gtok but has no method type-params, so if STEP 3 picks
+                                        // it the inference block below is skipped and the callee
+                                        // stays bare (`i32__sum`). Tag the source so STEP 3 can
+                                        // prefer the template. (Bug: SliceIter.sum mis-dispatched
+                                        // only when a sibling TakeIter.sum spec already existed.)
+                                        for (auto& [kn,fp]:templates_) consider(kn, fp, /*is_tmpl=*/true);
+                                        for (auto& f:in_.functions)  if (f) consider(f->name, f.get(), false);
+                                        for (auto& f:out_.functions) if (f) consider(f->name, f.get(), false);
                                         if (cand_gtoks.size() > 1) {
                                             // STEP 2: ASSOCIATED-TYPE PROJECTION — the set of
                                             // trait-arg tokens the args carry. For each arg
@@ -2933,10 +2942,19 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                             // arg carries.
                                             std::set<std::string> ok_gtoks;
                                             std::string picked_key; const lir::LFunction* picked_fp = nullptr;
+                                            bool picked_tmpl = false;
                                             for (auto& c : cands)
                                                 if (arg_tokens.count(c.gtok)) {
                                                     ok_gtoks.insert(c.gtok);
-                                                    picked_key = c.key; picked_fp = c.fp;
+                                                    // Prefer the re-instantiable TEMPLATE over an
+                                                    // already-monomorphised spec sharing the gtok —
+                                                    // only the template carries the method type-
+                                                    // params the inference block needs (else the
+                                                    // callee is left bare).
+                                                    if (!picked_fp || (c.is_tmpl && !picked_tmpl)) {
+                                                        picked_key = c.key; picked_fp = c.fp;
+                                                        picked_tmpl = c.is_tmpl;
+                                                    }
                                                 }
                                             if (ok_gtoks.size() == 1 && picked_fp) {
                                                 tmpl = picked_fp;
@@ -4587,6 +4605,25 @@ bool Mono::mono_has_impl_recursive(const std::string& trait_name,
     return trait_engine_.satisfies(trait_name, concrete_name);
 }
 
+// `impl Trait for &T` / `&mut T` registers under collect_impl's
+// `$ref_`/`$mut_ref_` mangling, which is STRUCTURE-aware (struct pointee →
+// `$ref_<Name>`; any other pointee → `$ref_<type_str(whole-ref)>`, keeping
+// the `&`). We must mirror that from the TypeRef — string-munging the raw
+// `type_str` (`&&i32`) is unsound: stripping one `&` collides `&&i32` onto
+// `&i32`'s key. Returns "" for non-ref types.
+std::string Mono::ref_target_key(TypeRef t) {
+    TypeRef ct{t};
+    if (ct.kind() != LogosType::Kind::Ref &&
+        ct.kind() != LogosType::Kind::MutRef)
+        return {};
+    std::string pfx = (ct.kind() == LogosType::Kind::MutRef) ? "$mut_ref_" : "$ref_";
+    TypeRef pt = ct.pointee();
+    if (pt && (TypeRef(pt).kind() == LogosType::Kind::Struct ||
+               TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
+        return pfx + concrete_struct_name(pt);
+    return pfx + type_str(ct);
+}
+
 // See header comment. Steps:
 //   1) Quick reject via mono_has_impl_recursive on the stripped
 //      concrete name. If no impl at all matches, false.
@@ -4612,6 +4649,14 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
         cname = concrete_struct_name(ct);
     } else if (ct.kind() == LogosType::Kind::Enum) {
         cname = std::string(ct.enum_name());
+    } else if (ct.kind() == LogosType::Kind::Ref ||
+               ct.kind() == LogosType::Kind::MutRef) {
+        // Reference target: look up under the structure-aware `$ref_` key
+        // (`impl Ord for &i32` → `$ref_&i32`, `impl Ord for &Foo` →
+        // `$ref_Foo`). Mirrors collect_impl; distinguishes `&&i32` from
+        // `&i32` (the by-ref-iterator `&Item: Ord` gate, e.g. peekable's
+        // `as_ref()` yielding `&&i32`, must NOT match `&i32`'s impl).
+        cname = ref_target_key(ct);
     } else {
         cname = type_str(ct);
     }
@@ -4684,6 +4729,21 @@ bool Mono::mono_concrete_satisfies_bound(const std::string& trait_name,
 }
 
 bool Mono::method_bound_ok(const lir::LFunction& m, const SubstMap& s) {
+    // §8.5: type-EXPRESSION where-bounds (`fn max() where Item: Ord` on
+    // `impl<T> Iterator<&T> for VecIter<T>` → subject `&T`). Substitute the
+    // subject with this clone's args and check satisfaction. This is the
+    // gate sema deferred for compound Items: it admits `&i32: Ord` (VecIter)
+    // and rejects `EnumPair<i32>: Ord` / `[i32;0]: Ord` (EnumIter /
+    // ArrayChunksIter) so their `max`/`min` are never synthesised.
+    for (auto& wb : m.where_type_bounds) {
+        TypeRef subj = subst_type(wb.first, s);
+        if (!subj) continue;
+        // Still-abstract after subst (nested call where the impl param is
+        // itself a TypeVar): defer — an outer mono pass resolves it.
+        if (contains_typevar(subj)) continue;
+        StrSet seen;
+        if (!mono_concrete_satisfies_bound(wb.second, subj, seen)) return false;
+    }
     for (auto& itp : m.impl_type_params) {
         if (itp.bounds.empty()) continue;
         auto sit = s.find(itp.name);
