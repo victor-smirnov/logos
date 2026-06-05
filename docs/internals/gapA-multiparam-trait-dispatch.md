@@ -41,3 +41,31 @@ When >1 template matches `<Self>__<method>__g__`, disambiguate by the call's
 ARGUMENT-type mangling (or the bound trait type-arg A): pick the candidate whose
 `__g__<suffix>` matches the arg/trait-arg mangle. Bounded regression risk — only
 the (already arbitrary) multi-match case changes. Single-match unaffected.
+
+---
+
+# Gap A′ — disambiguation by a bound trait-ARG (deeper; OPEN)
+
+When the multi-param trait's method does NOT take `A` as a parameter, but `A`
+is determined by a SECOND trait bound on a param (the `Sum<A>::sum<I:
+Iterator<A>>(iter: I)` shape — `A` = the iterator's `Item`), the Gap-A
+arg-type-string fix does not apply. The candidate symbols are TRAIT-QUALIFIED:
+`i32__Sum$G1$i32__sum__g__I` vs `i32__Sum$G1$_i32__sum__g__I` (`_i32` = ref).
+`A` lives in `$G1$<A>` and is NOT in the subst map (only `s[S]=i32`, `s[T]=i32`).
+
+Minimal repro: docs/internals/gapA-prime-repro.logos (`Producer<Item>` +
+`Collect<A>::collect<P: Producer<A>>` with `Collect<i32>`/`Collect<&i32>` for
+i64; `run<A,P,S>` does `S::collect(p)`). Symptom: `'i64__collect' does not
+reference a valid function`.
+
+ROOT (confirmed): mono's trait-satisfaction registry is **trait-NAME-only** —
+`concrete_impls_` is a `StrSet`, and `mono_has_impl_recursive` /
+`method_bound_ok` check `"Producer"` without the trait-arg. So they cannot
+tell `RefProd: Producer<&i32>` from `RefProd: Producer<i32>` → both candidate
+bounds "pass" → no disambiguation. FIX = make trait satisfaction ARG-AWARE:
+record/lookup `(trait, type) -> trait-args`, then either (a) pick the candidate
+whose method-tparam bound `P: Trait<A>` the concrete arg satisfies WITH the
+arg, or (b) resolve the arg's impl of the bound-trait, read its arg to get `A`,
+and select the matching `$G1$<A>` candidate + drive its instantiation (the
+inference block rebuilds a BARE `<Self>__<m>` base, so the trait-qualified base
+must be threaded through). Substantial mono trait-engine work.
