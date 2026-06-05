@@ -1,0 +1,12 @@
+// A #[self_describing] DST borrowed as a fat `&Foo` (which materializes the tail
+// length via dst_len) MUST `impl SelfDescribing`. Omitting it is an error — the
+// length would otherwise silently read 0.
+package self_describing_no_impl;
+extern fn malloc(n: i64) -> *mut u8;
+#[self_describing]
+struct NoImpl { count: i64, tail: [i64] }
+unsafe fn main() -> i32 {
+    let b: *mut NoImpl = malloc(16i64) as *mut NoImpl;
+    let s: &NoImpl = &*b;
+    return s.count as i32;
+}

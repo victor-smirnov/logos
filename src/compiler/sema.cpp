@@ -3483,6 +3483,16 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     // raw-ptr thin-decision sites.
     SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
     if (!rssi || !rssi->self_describing) return nullptr;
+    // Contract: materializing a fat `&Foo` from a thin pointer recovers the tail
+    // length by calling `dst_len`, so a #[self_describing] DST borrowed this way
+    // MUST `impl SelfDescribing`. Without it the length would silently read 0.
+    // (A self-describing DST used only through raw `*mut`/byte arithmetic — the
+    // Segment pattern — never reaches here, so it is not forced to impl it.)
+    if (!impls_.count("SelfDescribing::" + sn))
+        error(std::format(
+            "#[self_describing] struct '{0}' is borrowed as a fat reference "
+            "(`&{0}`) but does not implement `SelfDescribing` — its "
+            "`dst_len` is required to recover the tail length", sn));
     std::vector<TypeRef> targs = p.type_args();
     return make_dst_ref(sn, spkg, is_mut, std::move(targs));
 }
