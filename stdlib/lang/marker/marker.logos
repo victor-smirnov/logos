@@ -43,3 +43,20 @@ pub struct PhantomData<T> {}
 // returns (e.g. `fn abort() -> Never { panic("..."); ... }`). Mirrors
 // the role of `core::convert::Infallible` in stable Rust.
 pub enum Never {}
+
+// SelfDescribing — a custom-DST (`struct Foo { hdr…, tail: [T] }`) whose tail
+// length is recoverable from its own in-band header. Marking the struct
+// `#[self_describing]` makes ALL reference forms (`*Foo`, `&Foo`, `&mut Foo`)
+// a THIN raw pointer (the length is NOT carried out-of-band in a fat pointer).
+// When the compiler needs the tail length — materializing a fat `&Foo` from a
+// thin pointer (`&*p`), building a `foo.tail` → `&[T]`/`&mut [T]` view, or
+// bound-checking `foo.tail[i]` — it calls `dst_len`. The receiver is the THIN
+// `*const Self` (not `&Self`): the method reads only sized PREFIX fields, so the
+// thin pointer suffices and avoids the chicken-and-egg of needing a fat
+// reference (which carries the length) in order to recover the length. Returns
+// the tail's ELEMENT count (not byte size). Stronger than stable Rust, whose
+// only thin custom DST (`extern type`) is opaque-sized; mirrors the
+// Hermes/zoned self-describing model (ref-repr §6, zoned-types §4).
+pub trait SelfDescribing {
+    fn dst_len(self: *const Self) -> i64;
+}

@@ -633,6 +633,12 @@ private:
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
 
+    // Materialize a fat `DstRef` ({data,len}) for a #[self_describing] custom-DST
+    // from a THIN pointer to it: recover the tail length by calling the struct's
+    // `dst_len(*const Self)` with `thin_ptr`, then build the {data,len} pair.
+    // `dstref_t` is the DstRef result type (carries the struct name). ref-repr §6.
+    mlir::Value materialize_self_describing_ref(mlir::Value thin_ptr, TypeRef dstref_t);
+
     // `ref v` / `ref mut v` pattern-binding classifier — single source for the
     // (formerly three) enum-payload binding loops. Given the SEMA-assigned
     // binding type (payload wrapped in N Ref layers) and the payload's own

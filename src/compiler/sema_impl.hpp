@@ -725,6 +725,11 @@ private:
     // DstRef canonicalisation at REF/PTR resolve time and for the
     // dst_from_raw_parts intrinsic check.
     bool is_effective_dst(TypeRef t);
+    // If `pointee` is a #[self_describing] custom-DST struct, return the fat
+    // `DstRef` type for a `&`/`&mut` borrow of it (so `&*thin_ptr` types the
+    // same as the `&Foo` annotation does via resolve_type); else null. The fat
+    // len is materialized at codegen by calling `dst_len`. ref-repr §6.
+    TypeRef self_describing_dst_ref(TypeRef pointee, bool is_mut);
     // Owning kind of the trait object (Borrow / Box / Rc / Arc). All four share
     // the fat-pair {data,vtable} layout and dispatch, but the owning kinds
     // differ in release semantics. The kind rides in the otherwise-unused

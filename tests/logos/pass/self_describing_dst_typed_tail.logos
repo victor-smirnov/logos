@@ -1,0 +1,43 @@
+// #[self_describing] custom-DST with a TYPED [i64] tail. The struct's
+// SelfDescribing::dst_len recovers the tail element count from the in-band
+// header (`count`), so the compiler can materialize a fat `&Block` from a thin
+// `*mut Block` (`&*b`), read prefix fields, and access the typed tail as a
+// slice (index r/w + `.len()`) — without carrying the length out-of-band in a
+// fat pointer. ref-repr §6 / zoned-types §4 (PackedAllocator typed blocks).
+package self_describing_dst_typed_tail;
+
+extern fn malloc(n: i64) -> *mut u8;
+extern fn free(p: *mut u8);
+
+#[self_describing]
+struct Block {
+    count: i64,        // in-band tail element count
+    tail: [i64],       // flexible-array tail
+}
+
+impl SelfDescribing for Block {
+    fn dst_len(self: *const Block) -> i64 { return unsafe { (*self).count }; }
+}
+
+unsafe fn main() -> i32 {
+    let n: i64 = 3i64;
+    let raw: *mut u8 = malloc(8i64 + n * 8i64);     // header(8) + 3·i64
+    let b: *mut Block = raw as *mut Block;           // thin self-describing ptr
+    (*b).count = n;
+
+    // typed tail index-write through a materialized fat &mut Block
+    let sm: &mut Block = &mut *b;
+    sm.tail[0] = 10i64;
+    sm.tail[1] = 20i64;
+    sm.tail[2] = 12i64;
+
+    // prefix read + typed tail index-read + length via dst_len
+    let s: &Block = &*b;
+    if s.count != 3i64 { return 1i32; }
+    if s.tail.len() != 3i64 { return 2i32; }
+    let sum: i64 = s.tail[0] + s.tail[1] + s.tail[2];
+
+    free(raw);
+    if sum != 42i64 { return 3i32; }
+    return 0i32;
+}

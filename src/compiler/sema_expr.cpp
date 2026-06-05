@@ -941,6 +941,8 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
                 TypeRef pointee_t = TypeRef(op_t).pointee();
                 auto deref = builder().deref(std::move(operand), pointee_t);
+                if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/true))
+                    return builder().addr_of_temp(std::move(deref), true, rdt);
                 return builder().addr_of_temp(std::move(deref), true, make_ref(true, pointee_t));
             }
             return builder().addr_of_temp(std::move(operand), true, make_ref(true, op_t));
@@ -2221,6 +2223,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
                 TypeRef pointee_t = TypeRef(op_t).pointee();
                 auto deref = builder().deref(std::move(operand), pointee_t);
+                if (TypeRef rdt = self_describing_dst_ref(pointee_t, /*is_mut=*/false))
+                    return builder().addr_of_temp(std::move(deref), false, rdt);
                 return builder().addr_of_temp(std::move(deref), false, make_ref(false, pointee_t));
             }
             return builder().addr_of_temp(std::move(operand), false, make_ref(false, op_t));

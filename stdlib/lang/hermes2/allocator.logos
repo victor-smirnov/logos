@@ -44,6 +44,14 @@ pub struct Segment {
     pub data: [u8],           // inline data region (flexible-array tail)
 }
 
+// The `[u8]` tail length is `cap` (byte capacity == element count for u8). Lets
+// the compiler materialize a fat `&Segment` / `segment.data` slice view on
+// demand; the allocator bump-allocates via raw byte arithmetic and never needs
+// it, but the contract makes the in-band length recovery explicit.
+impl SelfDescribing for Segment {
+    fn dst_len(self: *const Segment) -> i64 { return unsafe { (*self).cap }; }
+}
+
 // Absolute address of a segment's data region (just past the inline header).
 unsafe fn seg_data(seg: *mut Segment) -> i64 {
     return (seg as i64) + (sizeof::<Segment>() as i64);

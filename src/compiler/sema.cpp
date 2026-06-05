@@ -3466,6 +3466,27 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     return sk == LogosType::Kind::UnsizedSlice || sk == LogosType::Kind::UnsizedDyn;
 }
 
+TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
+    if (!pointee) return nullptr;
+    TypeRef p{pointee};
+    if (p.kind() != LogosType::Kind::Struct &&
+        p.kind() != LogosType::Kind::ZonedStruct)
+        return nullptr;
+    if (!is_effective_dst(pointee)) return nullptr;
+    std::string sn(p.struct_name());
+    std::string spkg(p.pkg_name());
+    if (spkg.empty()) {
+        auto [pk, ssi] = find_struct_by_name(sn);
+        if (ssi) spkg = pk;
+    }
+    // pub-check-FREE lookup (the DST may be foreign-private) — mirrors the
+    // raw-ptr thin-decision sites.
+    SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
+    if (!rssi || !rssi->self_describing) return nullptr;
+    std::vector<TypeRef> targs = p.type_args();
+    return make_dst_ref(sn, spkg, is_mut, std::move(targs));
+}
+
 uint64_t SemaChecker::sema_abi_byte_size(TypeRef t, logos::compiler::StrSet& seen) {
     using K = LogosType::Kind;
     if (!t) return 8;

@@ -1287,7 +1287,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
     return it->second;
 }
 
-mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
+mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef result_t) {
     namespace ec = lir_schema::expr;
     auto inner_ref = v.inner();
     auto* inner_le = lexpr_of(inner_ref);
@@ -1329,8 +1329,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef) {
             if (dt && (TypeRef(dt).kind() == LogosType::Kind::Ptr ||
                        TypeRef(dt).kind() == LogosType::Kind::MutRef ||
                        TypeRef(dt).kind() == LogosType::Kind::Ref)) {
-                if (auto* op_le = lexpr_of(deref_op))
-                    return gen_expr(*op_le);
+                if (auto* op_le = lexpr_of(deref_op)) {
+                    auto thin = gen_expr(*op_le);
+                    // `&*p` of a thin pointer to a #[self_describing] DST yields a
+                    // FAT &DST (DstRef): materialize {data=p, len=dst_len(p)} so
+                    // the existing fat field/tail-access machinery works. (A
+                    // non-self-describing DST ptr is already a fat DstRef, not a
+                    // thin Ptr/Ref, so it never reaches here.)
+                    if (result_t &&
+                        TypeRef(result_t).kind() == LogosType::Kind::DstRef && thin)
+                        return materialize_self_describing_ref(thin, result_t);
+                    return thin;
+                }
             }
         }
     }
@@ -4776,6 +4786,30 @@ void MLIRGenImpl::repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot) {
     auto sz = builder_.create<mlir::LLVM::ConstantOp>(
         loc_, builder_.getI64Type(), builder_.getI64IntegerAttr(16));
     builder_.create<mlir::LLVM::MemcpyOp>(loc_, slot, val, sz, /*isVolatile=*/false);
+}
+
+mlir::Value MLIRGenImpl::materialize_self_describing_ref(mlir::Value thin_ptr,
+                                                         TypeRef dstref_t) {
+    if (!thin_ptr || !dstref_t) return thin_ptr;
+    std::string sname(TypeRef(dstref_t).struct_name());
+    auto sym = resolve_method_symbol(sname, "dst_len");
+    auto parent_mod = builder_.getBlock()->getParent()
+                          ->getParentOfType<mlir::ModuleOp>();
+    mlir::Value len;
+    if (parent_mod) {
+        if (auto fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(sym)) {
+            auto call = builder_.create<mlir::func::CallOp>(
+                loc_, fn, mlir::ValueRange{thin_ptr});
+            if (call.getNumResults() == 1) len = call.getResult(0);
+        }
+    }
+    // No SelfDescribing impl found (sema enforces one for #[self_describing]
+    // structs, so this is a defensive 0-length fallback only).
+    if (!len)
+        len = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+    if (len.getType() != builder_.getI64Type())
+        len = coerce_numeric(len, builder_.getI64Type());
+    return repr_construct(RefReprKind::FatCustomDst, thin_ptr, len);
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {
