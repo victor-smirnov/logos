@@ -1778,9 +1778,65 @@ private:
     // first-level field name and passes to SDrop.moved_fields so the
     // mlir-gen field-drop loop skips that field. No-op if not a move type
     // or not a recognised l-value chain.
+    // Zone Step 4 (pin): does `t` INLINE-contain a `#[rel_ptr]` self-relative
+    // field — transitively through struct / tuple / array fields, but NOT through
+    // a pointer or reference? Such a value is anchored to its own address (the
+    // stored offset is `target − &field`), so moving it BY VALUE (a memcpy of its
+    // storage) carries the offset to a new location where the anchor is wrong.
+    // NB: a `#[rel_ptr]` type itself returns FALSE here — only a struct CONTAINING
+    // one as an inline field counts. Reading such a field materialises to an
+    // absolute pointer (its declared type IS the rel_ptr struct, whose own field
+    // is a plain i64), so a field-read is correctly NOT flagged as a storage move.
+    bool contains_rel_ptr_field(TypeRef t, int depth = 0) {
+        using K = LogosType::Kind;
+        if (!t || depth > 16) return false;
+        auto k = TypeRef(t).kind();
+        if (k == K::Tuple) {
+            for (auto e : TypeRef(t).tuple_elems())
+                if (contains_rel_ptr_field(e, depth + 1)) return true;
+            return false;
+        }
+        if (k == K::Array) return contains_rel_ptr_field(TypeRef(t).elem(), depth + 1);
+        if (k == K::Struct || k == K::ZonedStruct) {
+            auto [pkg, ssi] = find_struct_by_name(TypeRef(t).struct_name());
+            if (!ssi) return false;
+            for (auto& f : ssi->fields) {
+                TypeRef ft = f.type;
+                auto fk = TypeRef(ft).kind();
+                if (fk == K::Struct || fk == K::ZonedStruct) {
+                    auto [fp, fssi] = find_struct_by_name(TypeRef(ft).struct_name());
+                    if (fssi && fssi->rel_ptr) return true;                 // direct rel_ptr field
+                    if (contains_rel_ptr_field(ft, depth + 1)) return true; // nested inline
+                } else if (fk == K::Tuple || fk == K::Array) {
+                    if (contains_rel_ptr_field(ft, depth + 1)) return true;
+                }
+                // pointer / reference fields are NOT followed — only inline storage.
+            }
+            return false;
+        }
+        return false;
+    }
+
     void mark_moved_expr(lir_view::ExprRef er) {
         if (!er) return;
         using C = lir_schema::expr::Code;
+        // Zone Step 4 (pin): reject moving — by value — a PLACE whose type inline-
+        // contains a `#[rel_ptr]` self-relative field. Borrows, in-place writes,
+        // and method autoref never reach mark_moved_expr; a read of the rel_ptr
+        // field itself materialises to an absolute pointer (see above) — so only
+        // a genuine by-value move of the anchored aggregate trips this.
+        if (er.kind() == C::VarRef || er.kind() == C::FieldRead ||
+            er.kind() == C::TupleIndex || er.kind() == C::IndexRead) {
+            auto mt = er.type(cur_prog_->type_pool.impl());
+            if (mt && contains_rel_ptr_field(mt)) {
+                error(std::format(
+                    "cannot move a value of type `{}` by value: it inlines a "
+                    "self-relative `#[rel_ptr]` field anchored to its address — "
+                    "use it in place (through `&`, `&mut`, or `*mut`)",
+                    type_str(mt)));
+                return;
+            }
+        }
         if (er.kind() == C::VarRef) {
             std::string nm(lir_view::EVarRefView{er}.name());
             if (is_move_type(er.type(cur_prog_->type_pool.impl())) ||

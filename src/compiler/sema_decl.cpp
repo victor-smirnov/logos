@@ -467,6 +467,20 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 "Return DataRef<{}> instead.", dn, dn));
         }
     }
+    // Zone Step 4 (pin): a `#[rel_ptr]`-containing type may never cross a function
+    // boundary BY VALUE — a by-value parameter is a callee stack slot, and a
+    // by-value return materialises the anchored value in a register / caller
+    // temporary; both invalidate the self-relative anchor (offset = target−&field).
+    // Pass / return a pointer instead (`*mut T` / `&T`), which lives in the zone's
+    // segment and is NOT flagged by contains_rel_ptr_field (it follows only inline
+    // storage). Mirrors the DataNode "cannot be returned by value" rule above.
+    if (fn.ret_type && contains_rel_ptr_field(fn.ret_type))
+        error(std::format(
+            "return type `{}` inlines a self-relative `#[rel_ptr]` field — it "
+            "cannot be returned by value; return a pointer (`*mut {}` / `&{}`) "
+            "into its zone's segment instead",
+            type_str(fn.ret_type), type_str(fn.ret_type), type_str(fn.ret_type)));
+    // (param check is below, once fn.params is populated)
     // Reset impl-trait inference state for this function.
     if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait)
         impl_ret_type_inferred_ = nullptr;
@@ -716,6 +730,17 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     check_unique_names(fn.params,
                        [](auto& p) -> std::string_view { return p.name; },
                        "parameter", "fn " + mangled);
+    // Zone Step 4 (pin): no by-value `#[rel_ptr]`-containing parameter — a callee
+    // by-value param is a stack slot, invalidating the self-relative anchor. Take
+    // a pointer (`*mut T` / `&T`) instead. (Return-type counterpart is in lower_fn
+    // above; pointers are not flagged by contains_rel_ptr_field.)
+    for (auto& p : fn.params)
+        if (p.type && contains_rel_ptr_field(p.type))
+            error(std::format(
+                "parameter `{}` of type `{}` inlines a self-relative `#[rel_ptr]` "
+                "field — it cannot be passed by value; take a pointer (`*mut {}` / "
+                "`&{}`) instead",
+                std::string(p.name), type_str(p.type), type_str(p.type), type_str(p.type)));
 
     // B65: outlives bounds — capture explicit + implied + where-clause +
     // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-

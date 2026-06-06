@@ -1,0 +1,16 @@
+// Zone Step 4 (pin): a struct that INLINE-contains a `#[rel_ptr]` self-relative
+// field is anchored to its own address (the stored offset is `target − &field`),
+// so it may live ONLY inside its zone's segment, reached through a pointer —
+// never as a by-value value. A `let` would place it in a stack slot (ephemeral
+// and freely relocatable) where the self-relative anchor is invalid. It is built
+// by allocating raw storage (an arena / `[u8; N]` buffer — the SEGMENT itself may
+// sit on the stack) and writing fields in place through a `*mut Node`. By-value
+// parameters and returns are rejected likewise (see /tmp checks); here the
+// stack-creation `let` is the canonical rejection.
+package pin_rel_ptr_move;
+#[rel_ptr] struct RP<T> { _o: i64 }
+struct Node { next: RP<i64>, tag: i64 }
+fn main() -> i32 {
+    let a: Node = Node { next: RP::<i64> { _o: 0i64 }, tag: 7i64 };  // ERROR: by-value on the stack
+    return a.tag as i32;
+}
