@@ -3470,15 +3470,32 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
 
 bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
     auto one = [&](TypeRef rp, TypeRef pt) -> bool {
-        if (!rp || TypeRef(rp).kind() != LogosType::Kind::Struct) return false;
-        auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(rp).struct_name()));
-        if (!ssi || !ssi->rel_ptr) return false;
-        auto ta = TypeRef(rp).type_args();
-        if (ta.empty()) return false;
-        auto k = TypeRef(pt).kind();
-        if (k != LogosType::Kind::Ptr && k != LogosType::Kind::Ref &&
-            k != LogosType::Kind::MutRef) return false;
-        return TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), ta[0]);
+        if (!rp || !pt) return false;
+        auto pk = TypeRef(pt).kind();
+        if ((pk != LogosType::Kind::Ptr && pk != LogosType::Kind::Ref &&
+             pk != LogosType::Kind::MutRef) || !TypeRef(pt).pointee())
+            return false;
+        TypeRef pointee = TypeRef(pt).pointee();
+        // (a) Concrete #[rel_ptr] struct `RP<U>` ↔ `*U` (post-mono / non-generic).
+        if (TypeRef(rp).kind() == LogosType::Kind::Struct) {
+            auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(rp).struct_name()));
+            if (!ssi || !ssi->rel_ptr) return false;
+            auto ta = TypeRef(rp).type_args();
+            return !ta.empty() && types_equal(pointee, ta[0]);
+        }
+        // (b) Abstract GAT projection `Z::Ptr<U>` (assoc base = a generic
+        // type-param) ↔ `*U`: the zone's pointer form. Accept generically; mono
+        // resolves `Z::Ptr` to `*U` (Heap) or a #[rel_ptr] struct (Hermes) and the
+        // field read/write does materialize/lower. Gated on the GAT arg matching
+        // the pointee so this is the zone-pointer shape, not an arbitrary assoc.
+        if (TypeRef(rp).kind() == LogosType::Kind::AssocType) {
+            TypeRef base = TypeRef(rp).assoc_base();
+            if (base && TypeRef(base).kind() == LogosType::Kind::TypeVar) {
+                auto ga = TypeRef(rp).gat_args();   // `Z::Ptr<U>` GAT args, not type_args
+                return !ga.empty() && types_equal(pointee, ga[0]);
+            }
+        }
+        return false;
     };
     return one(a, b) || one(b, a);
 }
