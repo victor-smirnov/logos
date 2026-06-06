@@ -3481,7 +3481,13 @@ bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
             auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(rp).struct_name()));
             if (!ssi || !ssi->rel_ptr) return false;
             auto ta = TypeRef(rp).type_args();
-            return !ta.empty() && types_equal(pointee, ta[0]);
+            // Type-erased rel_ptr (NO type arg) — an `any_object_ptr` into a
+            // type-tagged object — coerces to a thin `u8` pointer (`*const u8` /
+            // `*mut u8`), the raw form the Hermes tag dispatcher reads (it
+            // recovers the real type from the object's vlen tag). We never
+            // silently type it to `*T`; the user casts `*u8 as *T` explicitly.
+            if (ta.empty()) return TypeRef(pointee).kind() == LogosType::Kind::U8;
+            return types_equal(pointee, ta[0]);
         }
         // (b) Abstract GAT projection `Z::Ptr<U>` (assoc base = a generic
         // type-param) ↔ `*U`: the zone's pointer form. Accept generically; mono
