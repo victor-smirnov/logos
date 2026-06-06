@@ -1,7 +1,6 @@
-// Hermes2 — ZArray (object-oriented) holding inline Pod + a Ref to a TAGGED
-// non-array object, with growth (cap 2, 4 pushes) across tiny 48B segments. The
+// Hermes2 — direct &mut ZArrayAny reference holding inline Pod + a Ref to a TAGGED
+// non-array object, with growth (cap 2 → 4 pushes) across tiny 48B segments. The
 // Ref survives the re-anchoring grow and dispatches through Hermes2TagSystem.
-// (Array ops are safe; the raw tagged-object construction + dispatch are unsafe.)
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
@@ -20,13 +19,14 @@ unsafe fn dispatch(za: ZonedAny) -> i64 {
 }
 
 fn main() -> i32 {
-    let mut h: Hermes2 = hermes2_new(48i64);
-    let mut arr: ZArray = h.array(2i64);
+    let h: Hermes2 = hermes2_new(48i64);
+    let arr: &mut ZArrayAny = h.array(2i64);
     arr.push(ZonedAny::from(1i64));
     arr.push(ZonedAny::from(2i64));
     unsafe {
-        // a tagged Pair object in the arena + a Ref element to it
-        let pobj: *mut u8 = hermes2_alloc_bytes(&mut h as *mut Hermes2, 8i64 + 16i64);
+        // a tagged Pair object in the arena (raw) + a Ref element to it
+        let hraw: *mut Hermes2 = &h as *const Hermes2 as *mut Hermes2;
+        let pobj: *mut u8 = hermes2_alloc_bytes(hraw, 8i64 + 16i64);
         let pair_at: *mut u8 = pobj.byte_add(8i64);
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
@@ -39,7 +39,7 @@ fn main() -> i32 {
         let e3: ZonedAny = arr.get(3i64);
         if e0.as_i56() != 1i64 { return 2; }
         if !e2.is_ref() { return 3; }
-        if dispatch(e2) != 42i64 { return 4; }   // Ref survived grow + dispatch
+        if dispatch(e2) != 42i64 { return 4; }
         if e3.as_i56() != 99i64 { return 5; }
     }
     return 0;

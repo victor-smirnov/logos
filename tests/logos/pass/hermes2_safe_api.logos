@@ -1,18 +1,19 @@
-// Hermes2 — object-oriented type-safe surface: a ZArray handle is used like a Vec
-// (a.push(v)/a.get(i)/a.len()), the container is NOT threaded through each call
-// (the array grows via its own stored allocator), and typed ZonedAny::from(i56)/
-// from(bool) carry no manual type code. FULLY safe: zero `unsafe`/raw pointer.
+// Hermes2 — direct-reference surface (no handle/view wrapper): the client holds a
+// `&mut ZArrayAny` to an array living in the never-move arena, used like a Vec
+// (a.push/a.get/a.len). Allocation is interior-mutability (`h.array(&h)`,
+// bumpalo-style), so two arrays coexist. Typed ZonedAny::from(i56)/from(bool).
+// FULLY safe: zero `unsafe`/raw pointer in user code.
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 fn main() -> i32 {
-    let mut h: Hermes2 = hermes2_new(48i64);
-    let mut nested: ZArray = h.array(2i64);
+    let h: Hermes2 = hermes2_new(48i64);
+    let nested: &mut ZArrayAny = h.array(2i64);
     nested.push(ZonedAny::from(1i64));
     nested.push(ZonedAny::from(2i64));
     nested.push(ZonedAny::from(3i64));
-    let mut root: ZArray = h.array(2i64);
+    let root: &mut ZArrayAny = h.array(2i64);
     root.push(ZonedAny::from(10i64));
     root.push(ZonedAny::from(20i64));
     root.push(ZonedAny::from(true));

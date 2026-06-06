@@ -83,31 +83,41 @@ unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
     return za_materialize(buf.add(i));
 }
 
-// ── Object-oriented type-safe surface (no `unsafe`/raw pointer in user code) ────
+// ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────
 //
-// `ZArray` is a lightweight (Copy) handle to an array living in the container. It
-// is created from the container, then used like a `Vec`: `a.push(v)`, `a.get(i)`,
-// `a.len()` — the container is NOT threaded through each call (the array grows via
-// its own stored allocator back-pointer). Nesting: `parent.push(ZonedAny::from(child))`
-// and read back with `ZArray::from(parent.get(i))`.
-pub struct ZArray { hdr: *mut ZArrayAny }
-
+// Client code holds a DIRECT reference to an array — `&ZArrayAny` / `&mut
+// ZArrayAny`. Arrays live in the never-move arena, so the reference is stable for
+// the container's lifetime. Allocation is interior-mutability (`array(&self)`,
+// bumpalo-style): the `&self` lets MANY references into the container coexist with
+// FURTHER allocation — sound precisely because never-move (nothing a reference
+// points at ever moves). Used like a `Vec`: `a.push(v)`, `a.get(i)`, `a.len()`.
+// Nesting: `parent.push(ZonedAny::from(child))`; read back `c.array_of(ref)`.
+// (The residency `holder` for ESCAPING references, and the enforced borrow-tie
+// ref ≤ holder + mutation-exclusivity, are the next steps of this model.)
 impl Hermes2 {
-    // Create an empty array (capacity `cap`) in this container.
-    pub fn array(self: &mut Hermes2, cap: i64) -> ZArray {
-        return ZArray { hdr: unsafe { zarray_new(self as *mut Hermes2, cap) } };
+    // Create an empty array; returns a fresh `&mut` to it. `&self` allocation
+    // (interior-mut): the returned `&mut` is to brand-new never-move storage, so
+    // multiple `array(&self)` calls coexist (each &mut is a distinct object).
+    pub fn array<'a>(self: &'a Hermes2, cap: i64) -> &'a mut ZArrayAny {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return &mut *zarray_new(h, cap);
+        }
+    }
+    // Resolve a Ref element back to the array it points at, tied to THIS container
+    // (the returned `&ZArrayAny` may not outlive the container).
+    pub fn array_of<'a>(self: &'a Hermes2, e: ZonedAny) -> &'a ZArrayAny {
+        return unsafe { &*(e.resolve() as *const ZArrayAny) };
     }
 }
 
-impl ZArray {
-    pub fn push(self: &mut ZArray, v: ZonedAny) { unsafe { zarray_push(self.hdr, v); } }
-    pub fn get(self: &ZArray, i: i64) -> ZonedAny { return unsafe { zarray_get(self.hdr as *const ZArrayAny, i) }; }
-    pub fn len(self: &ZArray) -> i64 { return unsafe { zarray_len(self.hdr as *const ZArrayAny) }; }
-    // Reconstruct a handle from a Ref element (a nested array read back).
-    pub fn from(e: ZonedAny) -> ZArray { return ZArray { hdr: e.resolve() as *mut ZArrayAny }; }
+impl ZArrayAny {
+    pub fn push(self: &mut ZArrayAny, v: ZonedAny) { unsafe { zarray_push(self as *mut ZArrayAny, v); } }
+    pub fn get(self: &ZArrayAny, i: i64) -> ZonedAny { return unsafe { zarray_get(self as *const ZArrayAny, i) }; }
+    pub fn len(self: &ZArrayAny) -> i64 { return unsafe { zarray_len(self as *const ZArrayAny) }; }
 }
 
 impl ZonedAny {
     // A nested array as a heterogeneous value (Ref to the child's header).
-    pub fn from(a: ZArray) -> ZonedAny { return ZonedAny::ref_to(a.hdr as *const u8); }
+    pub fn from(a: &ZArrayAny) -> ZonedAny { return ZonedAny::ref_to(a as *const ZArrayAny as *const u8); }
 }
