@@ -1,0 +1,50 @@
+// Hermes2 Phase 3 — Array<ZonedAny> (ZArrayAny): heterogeneous zoned array.
+// Holds inline Pod primitives AND a Ref to a tagged object; pushes force grows
+// (cap 2) across tiny (48B) segments. The grow re-anchors each self-relative
+// slot via materialize→lower (copy-through-absolute), so the Ref still resolves
+// and dispatches through Hermes2TagSystem after the buffer moved. Container RAII.
+package test;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes.datatag;       // write_tag, type_code_of
+use logos.mem.hermes.tag_system;     // Hermes2TagSystem
+use logos.lang.ptr;
+
+#[tag_dispatch(Hermes2TagSystem)] trait Sum2 { unsafe fn s(self: *const Self) -> i64; }
+#[type_code=161] #[zoned] struct Pair { a: i64, b: i64 }
+impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
+
+unsafe fn dispatch(za: ZonedAny) -> i64 {
+    let o: *const u8 = (&za as *const ZonedAny).resolve();
+    let t: &tagged<Hermes2TagSystem> Sum2 = o;
+    return t.s();
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut h: Hermes2 = hermes2_new(48i64);
+        let arr: *mut ZArrayAny = zarray_new(&mut h, 2i64);
+        // push 3 Pod ints
+        zarray_push(arr, &mut h, ZonedAny::pod(1i64, 7u8));
+        zarray_push(arr, &mut h, ZonedAny::pod(2i64, 7u8));
+        // a tagged Pair object in the arena + a Ref element to it
+        let pobj: *mut u8 = hermes2_alloc_bytes(&mut h, 8i64 + 16i64);
+        let pair_at: *mut u8 = pobj.byte_add(8i64);
+        write_tag(pair_at, type_code_of::<Pair>());
+        let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
+        zarray_push(arr, &mut h, ZonedAny::ref_to(pair_at as *const u8));  // forces grow too
+        zarray_push(arr, &mut h, ZonedAny::pod(99i64, 7u8));
+
+        if zarray_len(arr as *const ZArrayAny) != 4i64 { return 1; }
+        // element 0,1,3 are Pod; element 2 is a Ref → dispatch
+        let e0: ZonedAny = zarray_get(arr as *const ZArrayAny, 0i64);
+        let e2: ZonedAny = zarray_get(arr as *const ZArrayAny, 2i64);
+        let e3: ZonedAny = zarray_get(arr as *const ZArrayAny, 3i64);
+        if (&e0 as *const ZonedAny).as_i56() != 1i64 { return 2; }
+        if !(&e2 as *const ZonedAny).is_ref() { return 3; }
+        if dispatch(e2) != 42i64 { return 4; }       // Ref survived grow + re-anchor + dispatch
+        if (&e3 as *const ZonedAny).as_i56() != 99i64 { return 5; }
+        return 0;
+    }
+}

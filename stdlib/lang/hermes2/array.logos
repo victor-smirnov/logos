@@ -1,0 +1,75 @@
+// Logos Hermes2 stdlib — hermes2.array
+//
+// ZArrayAny — a heterogeneous zoned array of ZonedAny. Elements live AT-REST as
+// `ZonedAnyRel` slots in a never-move arena buffer; the header is `#[pinned]`
+// (in-arena, accessed via `*mut`, never moved). `data` is a self-relative delta
+// from the header to the element buffer — header and buffer may sit in DIFFERENT
+// never-move segments, and the delta stays valid (nothing moves).
+//
+// Growth APPENDS a fresh 2× buffer and re-points `data`; the old buffer is left
+// untouched (dead until the container drops — design §3, no per-object reclaim).
+// The grow-copy is NOT a memcpy: the at-rest slots are self-relative (anchored to
+// their slot address), so each is COPIED through the absolute intermediate —
+// `za_materialize` (old slot → absolute value) then `za_lower` (→ new slot,
+// re-anchored). This is the canonical "copy a self-relative ref via absolute".
+//
+// (Functional core — raw `unsafe` mechanics; the type-safe surface wraps it.)
+
+package logos.lang.hermes2.array;
+
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.ptr;
+
+#[pinned]
+pub struct ZArrayAny {
+    pub len:  i64,
+    pub cap:  i64,
+    pub data: i64,   // self-relative: element buffer = (header addr) + data
+}
+
+// Absolute element buffer (header + delta). Valid for the container's lifetime.
+unsafe fn za_buf(a: *const ZArrayAny) -> *mut ZonedAnyRel {
+    return ((a as i64) + a.data) as *mut ZonedAnyRel;
+}
+
+// Create an empty array with capacity `cap` in the container `h`. Returns the
+// in-arena (pinned) header — stable for the container's lifetime.
+pub unsafe fn zarray_new(h: *mut Hermes2, cap: i64) -> *mut ZArrayAny {
+    let hdr: *mut ZArrayAny    = hermes2_alloc::<ZArrayAny>(h);
+    let buf: *mut ZonedAnyRel  = hermes2_alloc_n::<ZonedAnyRel>(h, cap);
+    hdr.len  = 0i64;
+    hdr.cap  = cap;
+    hdr.data = (buf as i64) - (hdr as i64);
+    return hdr;
+}
+
+pub unsafe fn zarray_len(a: *const ZArrayAny) -> i64 { return a.len; }
+
+// Append `v`. On overflow, allocate a fresh 2× buffer and re-point `data`,
+// copying each existing slot through the absolute intermediate (re-anchoring).
+pub unsafe fn zarray_push(a: *mut ZArrayAny, h: *mut Hermes2, v: ZonedAny) {
+    if a.len >= a.cap {
+        let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
+        let nbuf: *mut ZonedAnyRel = hermes2_alloc_n::<ZonedAnyRel>(h, newcap);
+        let obuf: *mut ZonedAnyRel = za_buf(a);
+        let mut i: i64 = 0i64;
+        while i < a.len {
+            // re-anchor: materialise from the OLD slot, lower into the NEW slot.
+            let val: ZonedAny = za_materialize(obuf.add(i) as *const ZonedAnyRel);
+            za_lower(val, nbuf.add(i));
+            i = i + 1i64;
+        }
+        a.data = (nbuf as i64) - (a as i64);
+        a.cap  = newcap;
+    }
+    let buf: *mut ZonedAnyRel = za_buf(a);
+    za_lower(v, buf.add(a.len));
+    a.len = a.len + 1i64;
+}
+
+// Read element `i` as a movable absolute ZonedAny (materialised from its slot).
+pub unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
+    let buf: *mut ZonedAnyRel = za_buf(a);
+    return za_materialize(buf.add(i) as *const ZonedAnyRel);
+}
