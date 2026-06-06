@@ -1,7 +1,7 @@
 // Hermes2 — polished type-safe surface (API polish 1-3): container-method array
 // ops (h.arr_new/arr_push/arr_get/arr_len, growth rooted in &mut self) + overloaded
-// typed ZonedAny::from(i64)/from(bool) — NO unsafe / raw pointer in placement or
-// array code. (ZonedAny value inspection still uses *const accessors — a review point.)
+// typed ZonedAny::from(i64)/from(bool) — fully safe: NO unsafe / raw pointer in
+// array code, AND ZonedAny value inspection (is_i64/as_i64) is safe &self.
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
@@ -21,7 +21,7 @@ fn main() -> i32 {
     let mut i: i64 = 0i64;
     while i < h.arr_len(root) {
         let e: ZonedAny = h.arr_get(root, i);
-        unsafe { if (&e as *const ZonedAny).is_i64() { s = s + (&e as *const ZonedAny).as_i64(); } }
+        if e.is_i64() { s = s + e.as_i64(); }
         i = i + 1i64;
     }
     if s != 30i64 { return 2; }
@@ -29,7 +29,7 @@ fn main() -> i32 {
     i = 0i64;
     while i < h.arr_len(nested) {
         let e: ZonedAny = h.arr_get(nested, i);
-        unsafe { ns = ns + (&e as *const ZonedAny).as_i64(); }
+        ns = ns + e.as_i64();
         i = i + 1i64;
     }
     if ns != 6i64 { return 3; }

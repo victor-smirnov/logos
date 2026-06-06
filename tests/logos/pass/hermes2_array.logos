@@ -16,7 +16,7 @@ use logos.lang.ptr;
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
 unsafe fn dispatch(za: ZonedAny) -> i64 {
-    let o: *const u8 = (&za as *const ZonedAny).resolve();
+    let o: *const u8 = za.resolve();
     let t: &tagged<Hermes2TagSystem> Sum2 = o;
     return t.s();
 }
@@ -41,10 +41,10 @@ fn main() -> i32 {
         let e0: ZonedAny = zarray_get(arr as *const ZArrayAny, 0i64);
         let e2: ZonedAny = zarray_get(arr as *const ZArrayAny, 2i64);
         let e3: ZonedAny = zarray_get(arr as *const ZArrayAny, 3i64);
-        if (&e0 as *const ZonedAny).as_i56() != 1i64 { return 2; }
-        if !(&e2 as *const ZonedAny).is_ref() { return 3; }
+        if e0.as_i56() != 1i64 { return 2; }
+        if !e2.is_ref() { return 3; }
         if dispatch(e2) != 42i64 { return 4; }       // Ref survived grow + re-anchor + dispatch
-        if (&e3 as *const ZonedAny).as_i56() != 99i64 { return 5; }
+        if e3.as_i56() != 99i64 { return 5; }
         return 0;
     }
 }

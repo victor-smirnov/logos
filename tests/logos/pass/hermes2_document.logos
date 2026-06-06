@@ -15,10 +15,10 @@ unsafe fn deep_sum(a: *const ZArrayAny) -> i64 {
     let n: i64 = zarray_len(a);
     while i < n {
         let e: ZonedAny = zarray_get(a, i);
-        if (&e as *const ZonedAny).is_pod() {
-            s = s + (&e as *const ZonedAny).as_i56();
-        } else if (&e as *const ZonedAny).is_ref() {
-            let nested: *const ZArrayAny = (&e as *const ZonedAny).resolve() as *const ZArrayAny;
+        if e.is_pod() {
+            s = s + e.as_i56();
+        } else if e.is_ref() {
+            let nested: *const ZArrayAny = e.resolve() as *const ZArrayAny;
             s = s + deep_sum(nested);    // descend
         }
         i = i + 1i64;

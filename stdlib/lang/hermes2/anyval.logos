@@ -50,17 +50,19 @@ impl ZonedAny {
     // Reference to a tagged zone object — stored ABSOLUTE in the value form.
     pub fn ref_to(obj: *const u8) -> ZonedAny { return ZonedAny { raw: obj as i64 }; }
 
-    // ── accessors ─────────────────────────────────────────────────────────────
-    pub unsafe fn is_null(self: *const ZonedAny) -> bool { return self.raw == 0i64; }
-    pub unsafe fn is_pod(self: *const ZonedAny)  -> bool { return (self.raw & 1i64) == 1i64; }
-    pub unsafe fn is_ref(self: *const ZonedAny)  -> bool {
+    // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
+    //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's
+    //   `as_ptr`); dereferencing / tagged-dispatch through it is where `unsafe` lives.
+    pub fn is_null(self: &ZonedAny) -> bool { return self.raw == 0i64; }
+    pub fn is_pod(self: &ZonedAny)  -> bool { return (self.raw & 1i64) == 1i64; }
+    pub fn is_ref(self: &ZonedAny)  -> bool {
         return (self.raw & 1i64) == 0i64 && self.raw != 0i64;
     }
-    pub unsafe fn pod_code(self: *const ZonedAny) -> u8 { return ((self.raw >> 1) & 0x7Fi64) as u8; }
-    pub unsafe fn as_i56(self: *const ZonedAny)  -> i64 { return self.raw >> 8; }   // sign-extends
-    pub unsafe fn as_bool(self: *const ZonedAny) -> bool { return (self.raw >> 8) != 0i64; }
+    pub fn pod_code(self: &ZonedAny) -> u8 { return ((self.raw >> 1) & 0x7Fi64) as u8; }
+    pub fn as_i56(self: &ZonedAny)  -> i64 { return self.raw >> 8; }   // sign-extends
+    pub fn as_bool(self: &ZonedAny) -> bool { return (self.raw >> 8) != 0i64; }
     // Resolve a Ref to the absolute tagged-object pointer (value form holds it raw).
-    pub unsafe fn resolve(self: *const ZonedAny) -> *const u8 { return self.raw as *const u8; }
+    pub fn resolve(self: &ZonedAny) -> *const u8 { return self.raw as *const u8; }
 }
 
 // Hermes2 ZonedAny Pod primitive type codes (7-bit; identify the inline value).
@@ -73,9 +75,9 @@ impl ZonedAny {
     pub fn from(v: i64)  -> ZonedAny { return ZonedAny::pod(v, ZA_I64); }
     pub fn from(b: bool) -> ZonedAny { return ZonedAny::pod_bool(b, ZA_BOOL); }
 
-    pub unsafe fn is_i64(self: *const ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I64; }
-    pub unsafe fn is_bool(self: *const ZonedAny) -> bool { return self.is_pod() && self.pod_code() == ZA_BOOL; }
-    pub unsafe fn as_i64(self: *const ZonedAny)  -> i64  { return self.as_i56(); }
+    pub fn is_i64(self: &ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I64; }
+    pub fn is_bool(self: &ZonedAny) -> bool { return self.is_pod() && self.pod_code() == ZA_BOOL; }
+    pub fn as_i64(self: &ZonedAny)  -> i64  { return self.as_i56(); }
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────

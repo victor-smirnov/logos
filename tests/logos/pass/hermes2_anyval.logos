@@ -10,7 +10,7 @@ use logos.lang.ptr;
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
 unsafe fn dispatch(za: ZonedAny) -> i64 {
-    let o: *const u8 = (&za as *const ZonedAny).resolve();    // Ref → absolute
+    let o: *const u8 = za.resolve();    // Ref → absolute
     let t: &tagged<Hermes2TagSystem> Sum2 = o;
     return t.s();
 }
@@ -19,13 +19,13 @@ fn main() -> i32 {
     unsafe {
         // ── Pod round-trip through a slot ──
         let pod: ZonedAny = ZonedAny::pod(42i64, 7u8);
-        if !(&pod as *const ZonedAny).is_pod() { return 1; }
-        if (&pod as *const ZonedAny).as_i56() != 42i64 { return 2; }
+        if !pod.is_pod() { return 1; }
+        if pod.as_i56() != 42i64 { return 2; }
         // store into a (pinned) slot, read back
         let slot: *mut ZonedAnyRel = malloc(8i64) as *mut ZonedAnyRel;
         za_lower(pod, slot);
         let pod2: ZonedAny = za_materialize(slot as *const ZonedAnyRel);
-        if (&pod2 as *const ZonedAny).as_i56() != 42i64 { return 3; }
+        if pod2.as_i56() != 42i64 { return 3; }
         free(slot as *mut u8);
 
         // ── Ref round-trip across a segment boundary (never-move) + dispatch ──
@@ -42,7 +42,7 @@ fn main() -> i32 {
         za_lower(ZonedAny::ref_to(pair_at as *const u8), za_slot);
         // materialize back (slot + delta resolves across the segment boundary)
         let za: ZonedAny = za_materialize(za_slot as *const ZonedAnyRel);
-        if !(&za as *const ZonedAny).is_ref() { return 4; }
+        if !za.is_ref() { return 4; }
         // the ZonedAny VALUE is movable — pass it by value to dispatch
         if dispatch(za) != 42i64 { return 5; }     // 30 + 12
         // move it again, still resolves
