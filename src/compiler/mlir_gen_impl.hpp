@@ -629,6 +629,10 @@ private:
         FatDyn,         // &dyn / TraitObject — {data,vtable} 16B
         FatClosure,     // closure — {fn,env} 16B
         FatCustomDst,   // &CustomDst (DstRef) — {data,meta} 16B
+        RelOffset,      // self-relative pointer — storage = i64 byte offset from
+                        // the slot's own address; compute = absolute thin ptr.
+                        // materialize = slot + load_i64(slot); lower = store(slot,
+                        // target − slot). The hermes2 / #[rel_ptr] zoned pointer.
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);

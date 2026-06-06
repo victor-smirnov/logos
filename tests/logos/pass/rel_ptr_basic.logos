@@ -1,0 +1,42 @@
+// #[rel_ptr] — RefRepr RelOffset: a self-relative pointer. Stored as an 8-byte
+// i64 byte-offset from the FIELD's own address; materialized to an absolute thin
+// pointer on read (slot + load_i64(slot)); lowered on write (store target − slot).
+// Position-independent w.r.t. a COHERENT block move (pointer + target relocate
+// together by the same delta). The hermes2 zone's `Hermes::Ptr<T>`.
+// (zone-as-parameter Step 2 — the one real codegen item.)
+package rel_ptr_basic;
+use logos.lang.ptr;
+extern fn malloc(size: i64) -> *mut u8;
+
+#[rel_ptr] struct RP<T> { _off: i64 }
+struct Node { next: RP<i64>, tag: i64 }
+
+fn main() -> i32 {
+    unsafe {
+        let mem: *mut u8 = malloc(64i64);
+        let target: *mut i64 = mem.byte_add(24i64) as *mut i64;
+        *target = 777i64;
+
+        let nd: *mut Node = malloc(16i64) as *mut Node;
+        nd.next = target;                      // lower: store self-relative offset
+        let back: *mut i64 = nd.next;          // materialize: absolute ptr
+        if *back != 777i64 { return 1i32; }    // round-trips through deref
+
+        // the STORED bytes are an OFFSET (target − slot), not the absolute ptr:
+        let slot: *const i64 = (&nd.next) as *const i64;
+        if *slot != (target as i64) - (slot as i64) { return 2i32; }
+
+        // re-point + re-read (overwrite path):
+        let t2: *mut i64 = mem.byte_add(40i64) as *mut i64;
+        *t2 = 555i64;
+        nd.next = t2;
+        let b2: *mut i64 = nd.next;
+        if *b2 != 555i64 { return 3i32; }
+
+        // null round-trips (offset = −slot materialises back to address 0):
+        nd.next = 0i64 as *mut i64;
+        let bn: *mut i64 = nd.next;
+        if (bn as i64) != 0i64 { return 4i32; }
+        return 0i32;
+    }
+}

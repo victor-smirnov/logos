@@ -3468,6 +3468,21 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     return sk == LogosType::Kind::UnsizedSlice || sk == LogosType::Kind::UnsizedDyn;
 }
 
+bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
+    auto one = [&](TypeRef rp, TypeRef pt) -> bool {
+        if (!rp || TypeRef(rp).kind() != LogosType::Kind::Struct) return false;
+        auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(rp).struct_name()));
+        if (!ssi || !ssi->rel_ptr) return false;
+        auto ta = TypeRef(rp).type_args();
+        if (ta.empty()) return false;
+        auto k = TypeRef(pt).kind();
+        if (k != LogosType::Kind::Ptr && k != LogosType::Kind::Ref &&
+            k != LogosType::Kind::MutRef) return false;
+        return TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), ta[0]);
+    };
+    return one(a, b) || one(b, a);
+}
+
 TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     if (!pointee) return nullptr;
     TypeRef p{pointee};

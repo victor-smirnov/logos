@@ -1863,7 +1863,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             TypeRef(ann).kind() != LogosType::Kind::Error &&
             TypeRef(rhs_type).kind() != LogosType::Kind::Error &&
             !rhs_is_expr_blob &&
-            !types_compatible(rhs_type, ann)) {
+            !types_compatible(rhs_type, ann) &&
+            !ptr_rel_compatible(rhs_type, ann)) {  // #[rel_ptr] ↔ *T
             // Implicit CoerceUnsized: `let r: Rc<dyn Tr> = rc_new(a)` rebuilds
             // the smart-pointer struct, unsizing the inner field (no explicit
             // `as` needed). Mirrors the arg/cast paths; closes GAP-C.
@@ -2449,7 +2450,8 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     }
     if (TypeRef(var_type).kind() != LogosType::Kind::Error &&
         TypeRef(rhs->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(rhs->type, var_type)) {
+        !types_compatible(rhs->type, var_type) &&
+        !ptr_rel_compatible(rhs->type, var_type)) {  // #[rel_ptr] ↔ *T
         auto [es, gs] = type_str_pair(var_type, rhs->type);
         error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
               name, es, gs));
@@ -6865,7 +6867,8 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
 
     if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
         val && TypeRef(val->type).kind() != LogosType::Kind::Error &&
-        !types_compatible(val->type, pt))
+        !types_compatible(val->type, pt) &&
+        !ptr_rel_compatible(val->type, pt))  // #[rel_ptr] ↔ *T
         error(std::format("assignment to '{}': type mismatch — expected {}, got {}",
               render_place_node(place_node), type_str(pt), type_str(val->type)));
     // Overflow: an int literal RHS must fit the place's integer type (closes the

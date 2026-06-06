@@ -534,6 +534,16 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         case K::TraitObject:                     return RefReprKind::FatDyn;
         case K::Closure:                         return RefReprKind::FatClosure;
         case K::DstRef:                          return RefReprKind::FatCustomDst;
+        // `#[rel_ptr]` struct → self-relative pointer (8B i64 offset storage,
+        // absolute thin ptr compute). Classify by the struct def's flag.
+        case K::Struct: case K::ZonedStruct: {
+            auto it = all_struct_defs_.find(concrete_struct_name(t));
+            if (it == all_struct_defs_.end())
+                it = all_struct_defs_.find(std::string(TypeRef(t).struct_name()));
+            if (it != all_struct_defs_.end() && it->second && it->second->rel_ptr)
+                return RefReprKind::RelOffset;
+            return RefReprKind::NotARef;
+        }
         // UnsizedSlice (`[T]`) / UnsizedDyn (`dyn`) are unsized POINTEES, not
         // references — they have no by-value footprint ({0,1}); not RefReprs.
         default:                                 return RefReprKind::NotARef;
@@ -556,6 +566,7 @@ mlir::Type MLIRGenImpl::repr_storage_type(RefReprKind k) {
         case RefReprKind::FatDyn:       return dyn_llvm_type();
         case RefReprKind::FatClosure:   return closure_llvm_type();
         case RefReprKind::FatCustomDst: return slice_llvm_type();
+        case RefReprKind::RelOffset:    return builder_.getI64Type();  // 8B offset
         case RefReprKind::NotARef:      return nullptr;
     }
     return nullptr;
@@ -569,6 +580,7 @@ MLIRGenImpl::Layout MLIRGenImpl::repr_storage_layout(RefReprKind k) {
         case RefReprKind::FatDyn:
         case RefReprKind::FatClosure:
         case RefReprKind::FatCustomDst: return {16, 8};
+        case RefReprKind::RelOffset:    return {8, 8};   // i64 offset
         case RefReprKind::NotARef:      return {0, 1};
     }
     return {0, 1};
@@ -585,7 +597,8 @@ mlir::Type MLIRGenImpl::repr_return_type(RefReprKind k) {
         case RefReprKind::FatSlice:     return repr_storage_type(k);  // 16B by value
         case RefReprKind::FatClosure:
         case RefReprKind::FatCustomDst:
-        case RefReprKind::ThinPtr:      return repr_value_type(k);    // 8B ptr value
+        case RefReprKind::ThinPtr:
+        case RefReprKind::RelOffset:    return repr_value_type(k);    // 8B ptr value
         case RefReprKind::NotARef:      return nullptr;
     }
     return nullptr;

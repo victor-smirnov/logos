@@ -1561,6 +1561,16 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.self_describing = true;
                                 break;
                             }
+                        // `#[rel_ptr]`: a self-relative pointer type (RefRepr
+                        // RelOffset — 8B i64 offset storage, absolute ptr compute).
+                        for (auto& ann : pending_annots)
+                            if (str_of(ann.get(la::NAME.code)) == "rel_ptr") {
+                                auto skey = sema_key(cur_package_, sname);
+                                auto sit = structs_.find(skey);
+                                if (sit == structs_.end()) sit = structs_.find(sname);
+                                if (sit != structs_.end()) sit->second.rel_ptr = true;
+                                break;
+                            }
                         // `#[repr(...)]` minimal (logos-core 1.5). For struct
                         // items only `transparent` is recognised so far — sets
                         // the struct's `repr_transparent` flag (single-field

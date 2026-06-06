@@ -1084,6 +1084,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
     TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee() : nullptr;
+    // #[rel_ptr] place (`*(&box.p) = abs`, the lowered form of `box.p = abs`):
+    // lower the absolute ptr value to a self-relative i64 offset stored AT the
+    // slot (`ptr` is the anchor). Must precede the Struct-pointee memcpy below,
+    // which would otherwise copy the pointee's bytes into the offset slot.
+    if (pointee_t && ref_repr_of(pointee_t) == RefReprKind::RelOffset) {
+        repr_lower(RefReprKind::RelOffset, val, ptr);
+        return;
+    }
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -2533,6 +2541,18 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
             }
         }
     }
+    // #[rel_ptr] field: lower the absolute ptr value to a self-relative i64
+    // offset stored AT the field slot (`gep` is the anchor). RefRepr RelOffset.
+    {
+        auto sdit = all_struct_defs_.find(type_name);
+        if (sdit != all_struct_defs_.end() && sdit->second)
+            for (auto& f : sdit->second->fields)
+                if (f.name == field &&
+                    ref_repr_of(f.type) == RefReprKind::RelOffset) {
+                    repr_lower(RefReprKind::RelOffset, val, gep);
+                    return;
+                }
+    }
     for (auto& f : info.fields) {
         if (f.name == field) {
             if (mlir::isa<mlir::LLVM::LLVMStructType>(f.type) &&
@@ -2602,6 +2622,18 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
     if (!gep) return;
     auto val = gen_expr(*val_le);
     if (!val) return;
+    // #[rel_ptr] field: lower the absolute ptr to a self-relative i64 offset
+    // stored AT the slot (`gep` is the anchor). RefRepr RelOffset.
+    {
+        auto sdit = all_struct_defs_.find(sit->first);
+        if (sdit != all_struct_defs_.end() && sdit->second)
+            for (auto& f : sdit->second->fields)
+                if (f.name == field &&
+                    ref_repr_of(f.type) == RefReprKind::RelOffset) {
+                    repr_lower(RefReprKind::RelOffset, val, gep);
+                    return;
+                }
+    }
     for (auto& f : info.fields) {
         if (f.name == field) {
             // If field is an inline struct and val is a pointer (from struct literal/alloca),

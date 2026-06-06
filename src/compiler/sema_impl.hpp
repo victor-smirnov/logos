@@ -725,6 +725,10 @@ private:
     // DstRef canonicalisation at REF/PTR resolve time and for the
     // dst_from_raw_parts intrinsic check.
     bool is_effective_dst(TypeRef t);
+    // A #[rel_ptr] struct `RP<T>` is value-transparent to `*T`/`&T`/`&mut T`
+    // (its compute form is an absolute thin ptr; only storage is a self-relative
+    // offset). Accept the coercion both ways at value-flow sites.
+    bool ptr_rel_compatible(TypeRef a, TypeRef b);
     // If `pointee` is a #[self_describing] custom-DST struct, return the fat
     // `DstRef` type for a `&`/`&mut` borrow of it (so `&*thin_ptr` types the
     // same as the `&Foo` annotation does via resolve_type); else null. The fat
@@ -1217,6 +1221,7 @@ private:
         // (bare `[T]` tail, e.g. Wrap<[u8]>) whose raw pointer must stay a fat
         // DstRef carrying the length. See docs/internals/ref-repr-design.md §6.
         if (name == "self_describing") return bit(AttrTarget::Struct);
+        if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
@@ -1991,6 +1996,12 @@ private:
                             // `*mut/*const T` is a THIN pointer (meta recovered
                             // at deref) rather than a fat DstRef. (ref-repr §6)
                             bool self_describing = false;
+                            // `#[rel_ptr]`: a self-relative pointer type — stored as
+                            // an 8B i64 byte-offset from the field's own address,
+                            // materialized to an absolute thin ptr on load (RefRepr
+                            // RelOffset). Opaque (no field access); transparent to
+                            // `*Pointee` at the value level. (ref-repr §6 / zone-as-parameter)
+                            bool rel_ptr = false;
                             // logos-core §6.1: this type was declared as `union NAME { … }`
                             // rather than `struct`. Layout is max-of-fields aligned to
                             // max-alignment (vs struct's sum-of-fields); every field READ

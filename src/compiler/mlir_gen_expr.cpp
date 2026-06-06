@@ -2491,8 +2491,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     if (TypeRef rt(type); rt) {
         auto rk = ref_repr_of(rt);
         if (rk == RefReprKind::FatSlice || rk == RefReprKind::FatClosure ||
-            rk == RefReprKind::FatCustomDst)
-            return repr_materialize(rk, gep);
+            rk == RefReprKind::FatCustomDst || rk == RefReprKind::RelOffset)
+            return repr_materialize(rk, gep);  // RelOffset: slot + load_i64(slot)
         if (rt.kind() == LogosType::Kind::Tuple)
             return gep;
     }
@@ -4772,6 +4772,15 @@ mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
     if (k == RefReprKind::NotARef) return slot;
     if (k == RefReprKind::ThinPtr)
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+    if (k == RefReprKind::RelOffset) {
+        // Self-relative: load the i64 byte offset stored AT the slot, then GEP the
+        // slot's own address by it → absolute thin ptr. `slot` IS the anchor. A
+        // null target stored as off = −slot materialises back to address 0.
+        auto off = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), slot);
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx{mlir::Value(off)};
+        return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(),
+                                                  builder_.getI8Type(), slot, idx);
+    }
     // Fat (always-16B pair): the value is the storage address.
     return slot;
 }
@@ -4780,6 +4789,17 @@ mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
 void MLIRGenImpl::repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot) {
     if (k == RefReprKind::ThinPtr || k == RefReprKind::NotARef) {
         builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+        return;
+    }
+    if (k == RefReprKind::RelOffset) {
+        // Self-relative: store the i64 byte offset (target − slot) AT the slot.
+        // `slot` is the anchor; a null `val` stores −slot, which materialises to 0.
+        auto val_int  = builder_.create<mlir::LLVM::PtrToIntOp>(
+            loc_, builder_.getI64Type(), val);
+        auto slot_int = builder_.create<mlir::LLVM::PtrToIntOp>(
+            loc_, builder_.getI64Type(), slot);
+        auto off = builder_.create<mlir::arith::SubIOp>(loc_, val_int, slot_int);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, off, slot);
         return;
     }
     // Fat: copy the 16-byte {data, meta} pair (val points at the source pair).

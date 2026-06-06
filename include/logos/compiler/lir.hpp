@@ -860,6 +860,9 @@ struct LStructDef {
     // Rc/Arc<dyn> (those use the fat DstRef path). Consulted at the Ptr→DstRef
     // canonicalisation in mono_subst + sema resolve_type.
     bool                     self_describing = false;
+    // `#[rel_ptr]`: self-relative pointer type — RefRepr RelOffset (8B i64 byte
+    // offset storage, absolute thin ptr compute; materialize = slot + load(slot)).
+    bool                     rel_ptr = false;
     // logos-core §6.1: this type was declared as `union NAME { … }`.
     // Layout is max-of-fields aligned to max-alignment (vs struct's
     // sum-of-fields); only one field is "active" at a time. Field-
