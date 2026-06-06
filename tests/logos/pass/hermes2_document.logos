@@ -1,0 +1,48 @@
+// Hermes2 Phase 4 — minimal heterogeneous document: a root Array<ZonedAny> holding
+// inline ints AND a Ref to a NESTED Array<ZonedAny>. Traverses the whole document
+// (sum top-level ints + descend into the nested array), all in one never-move
+// container across tiny segments. End-to-end: ZonedAny + ZArrayAny + segments.
+package test;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.ptr;
+
+// Sum a ZArrayAny's inline-int elements + recurse into Ref elements (nested arrays).
+unsafe fn deep_sum(a: *const ZArrayAny) -> i64 {
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    let n: i64 = zarray_len(a);
+    while i < n {
+        let e: ZonedAny = zarray_get(a, i);
+        if (&e as *const ZonedAny).is_pod() {
+            s = s + (&e as *const ZonedAny).as_i56();
+        } else if (&e as *const ZonedAny).is_ref() {
+            let nested: *const ZArrayAny = (&e as *const ZonedAny).resolve() as *const ZArrayAny;
+            s = s + deep_sum(nested);    // descend
+        }
+        i = i + 1i64;
+    }
+    return s;
+}
+
+fn main() -> i32 {
+    unsafe {
+        let mut h: Hermes2 = hermes2_new(48i64);
+        // nested array: [1, 2, 3]
+        let nested: *mut ZArrayAny = zarray_new(&mut h, 2i64);
+        zarray_push(nested, &mut h, ZonedAny::pod(1i64, 7u8));
+        zarray_push(nested, &mut h, ZonedAny::pod(2i64, 7u8));
+        zarray_push(nested, &mut h, ZonedAny::pod(3i64, 7u8));
+        // root document: [10, 20, ->nested, 40]
+        let root: *mut ZArrayAny = zarray_new(&mut h, 2i64);
+        zarray_push(root, &mut h, ZonedAny::pod(10i64, 7u8));
+        zarray_push(root, &mut h, ZonedAny::pod(20i64, 7u8));
+        zarray_push(root, &mut h, ZonedAny::ref_to(nested as *const u8));
+        zarray_push(root, &mut h, ZonedAny::pod(40i64, 7u8));
+
+        let total: i64 = deep_sum(root as *const ZArrayAny);  // 10+20+(1+2+3)+40
+        if total != 76i64 { return total as i32; }
+        return 0;
+    }   // container auto-freed (Drop) — whole document released en masse
+}
