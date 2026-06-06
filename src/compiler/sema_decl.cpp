@@ -474,11 +474,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // Pass / return a pointer instead (`*mut T` / `&T`), which lives in the zone's
     // segment and is NOT flagged by contains_rel_ptr_field (it follows only inline
     // storage). Mirrors the DataNode "cannot be returned by value" rule above.
-    if (fn.ret_type && contains_rel_ptr_field(fn.ret_type))
+    if (fn.ret_type && is_non_movable_type(fn.ret_type))
         error(std::format(
-            "return type `{}` inlines a self-relative `#[rel_ptr]` field — it "
-            "cannot be returned by value; return a pointer (`*mut {}` / `&{}`) "
-            "into its zone's segment instead",
+            "return type `{}` is location-anchored (a self-relative `#[rel_ptr]` "
+            "field, or a `#[pinned]` type) — it cannot be returned by value; "
+            "return a pointer (`*mut {}` / `&{}`) into its zone's segment instead",
             type_str(fn.ret_type), type_str(fn.ret_type), type_str(fn.ret_type)));
     // (param check is below, once fn.params is populated)
     // Reset impl-trait inference state for this function.

@@ -1571,6 +1571,16 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.rel_ptr = true;
                                 break;
                             }
+                        // `#[pinned]`: a location-anchored at-rest type (e.g.
+                        // ZonedAnyRel) — non-movable by value (is_non_movable_type).
+                        for (auto& ann : pending_annots)
+                            if (str_of(ann.get(la::NAME.code)) == "pinned") {
+                                auto skey = sema_key(cur_package_, sname);
+                                auto sit = structs_.find(skey);
+                                if (sit == structs_.end()) sit = structs_.find(sname);
+                                if (sit != structs_.end()) sit->second.pinned = true;
+                                break;
+                            }
                         // `#[repr(...)]` minimal (logos-core 1.5). For struct
                         // items only `transparent` is recognised so far — sets
                         // the struct's `repr_transparent` flag (single-field

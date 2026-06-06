@@ -1222,6 +1222,7 @@ private:
         // DstRef carrying the length. See docs/internals/ref-repr-design.md §6.
         if (name == "self_describing") return bit(AttrTarget::Struct);
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
+        if (name == "pinned")          return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
@@ -1778,37 +1779,57 @@ private:
     // first-level field name and passes to SDrop.moved_fields so the
     // mlir-gen field-drop loop skips that field. No-op if not a move type
     // or not a recognised l-value chain.
-    // Zone Step 4 (pin): does `t` INLINE-contain a `#[rel_ptr]` self-relative
-    // field — transitively through struct / tuple / array fields, but NOT through
-    // a pointer or reference? Such a value is anchored to its own address (the
-    // stored offset is `target − &field`), so moving it BY VALUE (a memcpy of its
-    // storage) carries the offset to a new location where the anchor is wrong.
-    // NB: a `#[rel_ptr]` type itself returns FALSE here — only a struct CONTAINING
-    // one as an inline field counts. Reading such a field materialises to an
-    // absolute pointer (its declared type IS the rel_ptr struct, whose own field
-    // is a plain i64), so a field-read is correctly NOT flagged as a storage move.
-    bool contains_rel_ptr_field(TypeRef t, int depth = 0) {
+    // Zone Step 4 (pin): is `t` a NON-MOVABLE (location-anchored) type, so a
+    // by-value move (memcpy of its storage) would be unsound? Two anchoring
+    // sources, transitive through struct / tuple / array fields but NOT through a
+    // pointer or reference (inline storage only):
+    //   (1) an inline `#[rel_ptr]` field — its stored i64 is a self-relative
+    //       offset (target − &field); memcpy carries it to a wrong anchor.
+    //   (2) a `#[pinned]` type (e.g. the at-rest ZonedAnyRel) — bits anchored to
+    //       its slot; accessed in place and materialised to a movable value form.
+    // Asymmetry: a `#[rel_ptr]` type ITSELF is movable (its value-form is the
+    // resolved absolute pointer — flagged only when embedded as a field); a
+    // `#[pinned]` type itself IS non-movable (no implicit value-form).
+    bool is_non_movable_type(TypeRef t, int depth = 0) {
         using K = LogosType::Kind;
         if (!t || depth > 16) return false;
         auto k = TypeRef(t).kind();
         if (k == K::Tuple) {
             for (auto e : TypeRef(t).tuple_elems())
-                if (contains_rel_ptr_field(e, depth + 1)) return true;
+                if (is_non_movable_type(e, depth + 1)) return true;
             return false;
         }
-        if (k == K::Array) return contains_rel_ptr_field(TypeRef(t).elem(), depth + 1);
+        if (k == K::Array) return is_non_movable_type(TypeRef(t).elem(), depth + 1);
         if (k == K::Struct || k == K::ZonedStruct) {
             auto [pkg, ssi] = find_struct_by_name(TypeRef(t).struct_name());
             if (!ssi) return false;
+            // SEMANTICALLY both `#[rel_ptr]` and `#[pinned]` are non-movable (a
+            // memcpy-move of the location-anchored relative bits breaks the
+            // anchor); duplication is a COPY via the absolute intermediate
+            // (materialise → lower, re-anchoring). But the COMPILER flags them
+            // asymmetrically, because of HOW each is read:
+            //  • `#[pinned]` (ZonedAnyRel): accessed via `*mut` + an EXPLICIT
+            //    materialise to a different value type — the bare type never
+            //    appears as a read-out value, so flagging it here is safe and
+            //    correct (it IS non-movable).
+            //  • `#[rel_ptr]`: a field read AUTO-materialises and the result is
+            //    transiently typed `RelPtr<T>` before coercing to `*T` — flagging
+            //    the bare type here would trip the move-check on that very read.
+            //    So it is flagged only when embedded as a FIELD (below), where a
+            //    whole-struct memcpy WOULD carry the delta. In practice rel_ptr is
+            //    non-movable anyway: you always materialise to `*T` or keep it in a
+            //    slot. (Flagging the bare rel_ptr type too needs field reads to
+            //    produce `*T` directly — a follow-up, not needed for the container.)
+            if (ssi->pinned) return true;
             for (auto& f : ssi->fields) {
                 TypeRef ft = f.type;
                 auto fk = TypeRef(ft).kind();
                 if (fk == K::Struct || fk == K::ZonedStruct) {
                     auto [fp, fssi] = find_struct_by_name(TypeRef(ft).struct_name());
-                    if (fssi && fssi->rel_ptr) return true;                 // direct rel_ptr field
-                    if (contains_rel_ptr_field(ft, depth + 1)) return true; // nested inline
+                    if (fssi && (fssi->rel_ptr || fssi->pinned)) return true;  // (1) rel_ptr / (2) pinned field
+                    if (is_non_movable_type(ft, depth + 1)) return true;       // nested inline
                 } else if (fk == K::Tuple || fk == K::Array) {
-                    if (contains_rel_ptr_field(ft, depth + 1)) return true;
+                    if (is_non_movable_type(ft, depth + 1)) return true;
                 }
                 // pointer / reference fields are NOT followed — only inline storage.
             }
@@ -1820,19 +1841,20 @@ private:
     void mark_moved_expr(lir_view::ExprRef er) {
         if (!er) return;
         using C = lir_schema::expr::Code;
-        // Zone Step 4 (pin): reject moving — by value — a PLACE whose type inline-
-        // contains a `#[rel_ptr]` self-relative field. Borrows, in-place writes,
-        // and method autoref never reach mark_moved_expr; a read of the rel_ptr
-        // field itself materialises to an absolute pointer (see above) — so only
-        // a genuine by-value move of the anchored aggregate trips this.
+        // Zone Step 4 (pin): reject moving — by value — a PLACE of a non-movable
+        // (location-anchored) type: one inlining a `#[rel_ptr]` field, or a
+        // `#[pinned]` at-rest type. Borrows, in-place writes, and method autoref
+        // never reach mark_moved_expr; reading a rel_ptr field materialises to an
+        // absolute pointer — so only a genuine by-value move of the anchored
+        // storage trips this.
         if (er.kind() == C::VarRef || er.kind() == C::FieldRead ||
             er.kind() == C::TupleIndex || er.kind() == C::IndexRead) {
             auto mt = er.type(cur_prog_->type_pool.impl());
-            if (mt && contains_rel_ptr_field(mt)) {
+            if (mt && is_non_movable_type(mt)) {
                 error(std::format(
-                    "cannot move a value of type `{}` by value: it inlines a "
-                    "self-relative `#[rel_ptr]` field anchored to its address — "
-                    "use it in place (through `&`, `&mut`, or `*mut`)",
+                    "cannot move a value of type `{}` by value: it is location-"
+                    "anchored (a self-relative `#[rel_ptr]` field, or a `#[pinned]` "
+                    "type) — use it in place (through `&`, `&mut`, or `*mut`)",
                     type_str(mt)));
                 return;
             }
@@ -1978,23 +2000,23 @@ private:
     }
 
     void define(std::string_view name, TypeRef t, bool is_mut = false) {
-        // Zone Step 4 (pin): a `#[rel_ptr]`-containing type may never occupy a
-        // by-value slot — a `let` local, a parameter, or a `match` / `for` /
-        // closure / destructure binding. define() is the SINGLE registrar for all
-        // of them, so this one check covers every by-value slot uniformly. (The
-        // two remaining by-value positions are handled at their own choke points:
-        // a by-value RETURN in sema_decl::lower_fn, and a by-value CONSUME into a
-        // non-slot destination — field-write / assignment — in mark_moved_expr.)
-        // The backing SEGMENT is a `[u8; N]` buffer (no inline rel_ptr field) and
-        // pointers/refs are unflagged, so `*mut T` slots and field-wise in-place
-        // construction through a pointer stay legal — the value just never lives
-        // by value on the stack, where its self-relative anchor would be invalid.
-        if (t && contains_rel_ptr_field(t))
+        // Zone Step 4 (pin): a non-movable (location-anchored) type may never
+        // occupy a by-value slot — a `let` local, a parameter, or a `match` /
+        // `for` / closure / destructure binding. define() is the SINGLE registrar
+        // for all of them, so this one check covers every by-value slot uniformly.
+        // (The two remaining by-value positions are handled at their own choke
+        // points: a by-value RETURN in sema_decl::lower_fn, and a by-value CONSUME
+        // into a non-slot destination — field-write / assignment — in
+        // mark_moved_expr.) The backing SEGMENT is a `[u8; N]` buffer (not anchored)
+        // and pointers/refs are unflagged, so `*mut T` slots and field-wise
+        // in-place construction through a pointer stay legal — the value just never
+        // lives by value on the stack, where its self-relative anchor would break.
+        if (t && is_non_movable_type(t))
             error(std::format(
-                "cannot bind `{}`: type `{}` inlines a self-relative `#[rel_ptr]` "
-                "field and may not occupy a by-value slot — it must live behind a "
-                "pointer, inside its zone's segment (allocate it, e.g. in an arena "
-                "/ `[u8; N]` buffer, and build it in place through a `*mut {}`)",
+                "cannot bind `{}`: type `{}` is location-anchored (a self-relative "
+                "`#[rel_ptr]` field, or a `#[pinned]` type) and may not occupy a "
+                "by-value slot — it must live behind a pointer, in place (e.g. an "
+                "arena / `[u8; N]` buffer), built through a `*mut {}`)",
                 std::string(name), type_str(t), type_str(t)));
         if (!scope_.empty()) {
             auto sname = std::string(name);
@@ -2076,6 +2098,14 @@ private:
                             // RelOffset). Opaque (no field access); transparent to
                             // `*Pointee` at the value level. (ref-repr §6 / zone-as-parameter)
                             bool rel_ptr = false;
+                            // `#[pinned]`: a location-anchored at-rest type (e.g. the
+                            // relative ZonedAnyRel) that must NOT be moved by value —
+                            // its bits are anchored to its storage slot; it is accessed
+                            // in place and materialised explicitly to a movable value
+                            // form. Non-movable itself (unlike #[rel_ptr], whose value
+                            // form is the resolved absolute pointer). Drives the
+                            // is_non_movable_type pin check. (hermes2 minimal-container)
+                            bool pinned = false;
                             // logos-core §6.1: this type was declared as `union NAME { … }`
                             // rather than `struct`. Layout is max-of-fields aligned to
                             // max-alignment (vs struct's sum-of-fields); every field READ

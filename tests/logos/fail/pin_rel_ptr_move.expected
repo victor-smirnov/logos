@@ -1,1 +1,1 @@
-cannot bind `a`: type `Node` inlines a self-relative `#[rel_ptr]` field and may not occupy a by-value slot
+cannot bind `a`: type `Node` is location-anchored (a self-relative `#[rel_ptr]` field, or a `#[pinned]` type) and may not occupy a by-value slot
