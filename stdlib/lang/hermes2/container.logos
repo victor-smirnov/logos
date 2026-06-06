@@ -16,6 +16,7 @@
 package logos.lang.hermes2.container;
 
 use logos.lang.hermes2.allocator;
+use logos.mem.rc;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).
@@ -90,4 +91,28 @@ impl Hermes2 {
     pub fn get_mut<'a, T>(self: &'a mut Hermes2, s: Slot<T>) -> &'a mut T {
         unsafe { return &mut *(s.p); }
     }
+}
+
+// ── Residency: holder (Rc) + escaping held references ─────────────────────────
+//
+// A reference into the container is valid only while the container's segments are
+// alive. For an in-scope reference the borrow checker keeps the owning `Hermes2`
+// alive; a reference that ESCAPES that scope must carry a residency *holder* — an
+// `Rc<Hermes2>` whose clone keeps the segments alive. `hermes2_rc` creates the
+// refcounted (held) container; `hold(&mut h, r)` pairs a reference with a holder
+// clone into a `Held<T>` that can be returned/stored. When the last holder drops,
+// the container drops (Drop frees all segments). (`dyn Resident` type-erasure of
+// the holder + the enforced ref ≤ holder borrow-tie are the next steps.)
+pub fn hermes2_rc(seg_size: i64) -> Rc<Hermes2> { return rc_new(hermes2_new(seg_size)); }
+
+pub struct Held<T> { holder: Rc<Hermes2>, ptr: *const T }
+
+// Pair a reference with a holder clone — the escape form of the reference.
+pub fn hold<T>(h: &mut Rc<Hermes2>, r: &T) -> Held<T> {
+    return Held { holder: h.clone_ref(), ptr: r as *const T };
+}
+
+impl<T> Held<T> {
+    // The held reference; valid while this Held (hence its holder) lives.
+    pub fn get(self: &Held<T>) -> &T { return unsafe { &*self.ptr }; }
 }
