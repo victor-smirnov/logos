@@ -23,9 +23,11 @@ pub struct Hermes2 {
     pub allocator: Allocator,
 }
 
-// Create a container whose segments default to `seg_size` data bytes.
-pub unsafe fn hermes2_new(seg_size: i64) -> Hermes2 {
-    return Hermes2 { allocator: allocator_new(seg_size) };
+// Create a container whose segments default to `seg_size` data bytes. SAFE: the
+// returned container is a sound owned root (RAII-freed on drop); the segment
+// malloc is the only unsafe step and is fully encapsulated here.
+pub fn hermes2_new(seg_size: i64) -> Hermes2 {
+    return Hermes2 { allocator: unsafe { allocator_new(seg_size) } };
 }
 
 // Free the container and all its segments en masse. Must not be used after.
@@ -50,4 +52,42 @@ pub unsafe fn hermes2_alloc_n<T>(h: *mut Hermes2, n: i64) -> *mut T {
 // Stable for the container's lifetime. Null on OOM.
 pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
     return allocator_alloc(&mut h.allocator, n);
+}
+
+// ── Type-safe placement + borrow-checked views ────────────────────────────────
+//
+// `Slot<T>` is an OPAQUE handle to a `T` placed in the container — a stable
+// pointer (the object never moves). The user cannot dereference it directly (the
+// field is private); the only way to read it is `container.get(slot)`, which
+// returns a `&'a T` tied to `&'a self`. The borrow checker therefore enforces,
+// with NO Hermes2-specific machinery:
+//   • a view may not outlive the container it borrows from (E0716 / return-of-
+//     local), and
+//   • mutation excludes views — `get_mut` (or another `&mut self` placement) and
+//     a live `&self` view cannot coexist.
+// The raw `hermes2_alloc*` above stay `unsafe`; this layer is the safe surface.
+pub struct Slot<T> { p: *mut T }
+
+impl Hermes2 {
+    // Place `v` into a never-move segment; return an opaque handle. `&mut self`:
+    // placement is an exclusive operation. (Internally unsafe; the API is safe.)
+    pub fn put<T>(self: &mut Hermes2, v: T) -> Slot<T> {
+        unsafe {
+            let p: *mut T = allocator_alloc(&mut self.allocator, sizeof::<T>() as i64) as *mut T;
+            *p = v;
+            return Slot { p: p };
+        }
+    }
+
+    // Borrow the slot's value, tied to the container's lifetime: the returned
+    // `&'a T` may not outlive `&'a self`. Many shared views may coexist.
+    pub fn get<'a, T>(self: &'a Hermes2, s: Slot<T>) -> &'a T {
+        unsafe { return &*(s.p as *const T); }
+    }
+
+    // Exclusive borrow: `&'a mut self` → `&'a mut T`. While it lives, no other
+    // view (shared or mutable) of the container is allowed.
+    pub fn get_mut<'a, T>(self: &'a mut Hermes2, s: Slot<T>) -> &'a mut T {
+        unsafe { return &mut *(s.p); }
+    }
 }
