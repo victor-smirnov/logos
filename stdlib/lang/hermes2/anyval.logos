@@ -66,18 +66,21 @@ impl ZonedAny {
 }
 
 // Hermes2 ZonedAny Pod primitive type codes (7-bit; identify the inline value).
-pub const ZA_I64:  u8 = 1u8;
+// The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
+// inline (wider values box into a Ref — later), so the name is `i56`, not `i64`.
+pub const ZA_I56:  u8 = 1u8;
 pub const ZA_BOOL: u8 = 2u8;
 
 // Typed, code-managed constructors + accessors (no manual type code at call sites;
-// overloaded `from` per primitive — `ZonedAny::from(v)`).
+// overloaded `from` per primitive — `ZonedAny::from(v)`). `from(i56)` makes the
+// 56-bit inline range a TYPE constraint (a wider i64 must be narrowed consciously).
 impl ZonedAny {
-    pub fn from(v: i64)  -> ZonedAny { return ZonedAny::pod(v, ZA_I64); }
+    pub fn from(v: i56)  -> ZonedAny { return ZonedAny::pod(v as i64, ZA_I56); }
     pub fn from(b: bool) -> ZonedAny { return ZonedAny::pod_bool(b, ZA_BOOL); }
 
-    pub fn is_i64(self: &ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I64; }
+    pub fn is_i56(self: &ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I56; }
     pub fn is_bool(self: &ZonedAny) -> bool { return self.is_pod() && self.pod_code() == ZA_BOOL; }
-    pub fn as_i64(self: &ZonedAny)  -> i64  { return self.as_i56(); }
+    // (the value reads back via `as_i56`)
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
