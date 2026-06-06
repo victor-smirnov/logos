@@ -82,6 +82,33 @@ impl TagSystem for DataTypeTagSystem {
 }
 
 // ---------------------------------------------------------------------------
+// Hermes2TagSystem
+// ---------------------------------------------------------------------------
+
+// TagSystem for Hermes2 (never-move arena) zone datatypes, reached through a
+// SELF-RELATIVE `RelAny` / `RelPtr` (offset = target − &field), not the Hermes1
+// external-base model. The vlen tag FORMAT is identical to HermesTypeTagSystem
+// (same `read_type_code`), but this is a SEPARATE dispatch namespace on purpose:
+// a stateful type (one with internal relative pointers) needs DIFFERENT trait
+// impls for the two memory models — Hermes1 resolves its inner pointers
+// base-relative (`base + offset`), Hermes2 resolves them self-relative. Keying
+// dispatch on (system, type_code) lets the SAME logical type_code carry the
+// Hermes1 impl under HermesTypeTagSystem and the Hermes2 impl here, with no
+// collision. Plain types (no inner pointers) are model-agnostic and may register
+// in both. The dispatch site picks the model: `&tagged<Hermes2TagSystem> Trait`.
+pub struct Hermes2TagSystem {}
+
+impl TagSystem for Hermes2TagSystem {
+    type Tag = u64;
+
+    // Safety: `obj` must point to a validly-tagged Hermes2 arena object (written
+    // with write_tag), with the vlen tag bytes immediately before it.
+    pub fn read_tag(self: &Hermes2TagSystem, obj: *const u8) -> u64 {
+        return unsafe { read_type_code(obj) };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // TomTagSystem
 // ---------------------------------------------------------------------------
 

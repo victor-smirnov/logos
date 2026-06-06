@@ -3725,7 +3725,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
             // Rule 9: datatype fields must be POD-compatible (no heap types).
             // Exception: annotation types are compile-time only and may hold str fields.
             if (!is_annotation_type && ftype && TypeRef(ftype).kind() != LogosType::Kind::Error) {
-                auto is_datatype_safe = [](TypeRef t, auto& self) -> bool {
+                auto is_datatype_safe = [&](TypeRef t, auto& self) -> bool {
                     if (!t) return false;
                     switch (TypeRef(t).kind()) {
                     case LogosType::Kind::I8:  case LogosType::Kind::U8:
@@ -3743,6 +3743,16 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
                         return self(TypeRef(t).elem(), self);
                     case LogosType::Kind::ZonedStruct:
                         return true;  // datatypes in datatypes OK
+                    case LogosType::Kind::Struct: {
+                        // A #[rel_ptr] self-relative pointer (RelAny / RelPtr<T>) is
+                        // POD — an 8-byte offset (target − &field) — and a valid
+                        // Hermes2 datatype field: it reaches another tagged object
+                        // self-relatively, the never-move-arena analog of Hermes1's
+                        // base-relative inner pointer. Other plain structs stay
+                        // disallowed (may carry heap/abs pointers).
+                        auto [pkg, ssi] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
+                        return ssi && ssi->rel_ptr;
+                    }
                     case LogosType::Kind::TypeVar:
                         return true;  // resolved later by mono
                     default:
