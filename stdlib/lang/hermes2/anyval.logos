@@ -63,6 +63,21 @@ impl ZonedAny {
     pub unsafe fn resolve(self: *const ZonedAny) -> *const u8 { return self.raw as *const u8; }
 }
 
+// Hermes2 ZonedAny Pod primitive type codes (7-bit; identify the inline value).
+pub const ZA_I64:  u8 = 1u8;
+pub const ZA_BOOL: u8 = 2u8;
+
+// Typed, code-managed constructors + accessors (no manual type code at call sites;
+// overloaded `from` per primitive — `ZonedAny::from(v)`).
+impl ZonedAny {
+    pub fn from(v: i64)  -> ZonedAny { return ZonedAny::pod(v, ZA_I64); }
+    pub fn from(b: bool) -> ZonedAny { return ZonedAny::pod_bool(b, ZA_BOOL); }
+
+    pub unsafe fn is_i64(self: *const ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I64; }
+    pub unsafe fn is_bool(self: *const ZonedAny) -> bool { return self.is_pod() && self.pod_code() == ZA_BOOL; }
+    pub unsafe fn as_i64(self: *const ZonedAny)  -> i64  { return self.as_i56(); }
+}
+
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
 // Materialise a slot's at-rest form into a movable value. Ref: abs = &slot + delta.
 pub unsafe fn za_materialize(slot: *const ZonedAnyRel) -> ZonedAny {

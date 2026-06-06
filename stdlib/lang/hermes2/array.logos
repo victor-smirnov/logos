@@ -73,3 +73,30 @@ pub unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
     let buf: *mut ZonedAnyRel = za_buf(a);
     return za_materialize(buf.add(i) as *const ZonedAnyRel);
 }
+
+// ── Type-safe surface (container-rooted; no `unsafe`/raw pointer in user code) ──
+//
+// `ArrSlot` is an OPAQUE handle to an array placed in the container (a stable
+// header pointer — the header never moves). Array ops are container methods so
+// growth threads the container's allocator naturally (the `&mut self`-rooted
+// growth of the design, without the deferred allocator-capability machinery).
+pub struct ArrSlot { p: *mut ZArrayAny }
+
+impl Hermes2 {
+    // Create an empty array (capacity `cap`) in the container; opaque handle.
+    pub fn arr_new(self: &mut Hermes2, cap: i64) -> ArrSlot {
+        return ArrSlot { p: unsafe { zarray_new(self as *mut Hermes2, cap) } };
+    }
+    // Append a value (grows in place via the container's allocator if needed).
+    pub fn arr_push(self: &mut Hermes2, a: ArrSlot, v: ZonedAny) {
+        unsafe { zarray_push(a.p, self as *mut Hermes2, v); }
+    }
+    // Element `i` as a movable ZonedAny (materialised). (A Ref's validity is tied
+    // to the container — the borrow-checker tie is the deferred BC work.)
+    pub fn arr_get(self: &Hermes2, a: ArrSlot, i: i64) -> ZonedAny {
+        return unsafe { zarray_get(a.p as *const ZArrayAny, i) };
+    }
+    pub fn arr_len(self: &Hermes2, a: ArrSlot) -> i64 {
+        return unsafe { zarray_len(a.p as *const ZArrayAny) };
+    }
+}
