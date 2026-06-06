@@ -1817,22 +1817,8 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         rhs_type = error_t();
     }
 
-    // Zone Step 4 (pin): a `#[rel_ptr]`-containing value is anchored to its own
-    // address (the stored offset is `target − &field`), so it may live ONLY
-    // inside its zone's segment, reached through a pointer — never as a by-value
-    // binding. A `let n: Node` would place it in a stack slot (ephemeral and
-    // freely relocatable) where the self-relative anchor is invalid, whether
-    // freshly constructed (`Node{..}`), rebound (`let b = a`), or declared uninit.
-    // The backing SEGMENT itself (a `[u8; N]` buffer) may sit on the stack — it
-    // holds no rel_ptr field inline; objects in it are built field-wise through a
-    // `*mut Node`. `let ref y = x` borrows (type `&T`, not flagged).
-    if (rhs_type && contains_rel_ptr_field(rhs_type))
-        error(std::format(
-            "cannot bind a value of type `{}` by value: it inlines a self-"
-            "relative `#[rel_ptr]` field and must live behind a pointer, inside "
-            "its zone's segment — allocate it (e.g. in an arena / `[u8; N]` "
-            "buffer) and construct it in place through a `*mut {}`, field by field",
-            type_str(rhs_type), type_str(rhs_type)));
+    // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing binding is rejected in
+    // define() — the single by-value-slot registrar — which lower_let calls below.)
 
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;

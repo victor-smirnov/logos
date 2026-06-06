@@ -730,17 +730,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     check_unique_names(fn.params,
                        [](auto& p) -> std::string_view { return p.name; },
                        "parameter", "fn " + mangled);
-    // Zone Step 4 (pin): no by-value `#[rel_ptr]`-containing parameter — a callee
-    // by-value param is a stack slot, invalidating the self-relative anchor. Take
-    // a pointer (`*mut T` / `&T`) instead. (Return-type counterpart is in lower_fn
-    // above; pointers are not flagged by contains_rel_ptr_field.)
-    for (auto& p : fn.params)
-        if (p.type && contains_rel_ptr_field(p.type))
-            error(std::format(
-                "parameter `{}` of type `{}` inlines a self-relative `#[rel_ptr]` "
-                "field — it cannot be passed by value; take a pointer (`*mut {}` / "
-                "`&{}`) instead",
-                std::string(p.name), type_str(p.type), type_str(p.type), type_str(p.type)));
+    // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing parameter is rejected in
+    // define() — each param is registered there during the prologue below.)
 
     // B65: outlives bounds — capture explicit + implied + where-clause +
     // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-

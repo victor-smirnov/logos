@@ -1,1 +1,1 @@
-cannot bind a value of type `Node` by value: it inlines a self-relative `#[rel_ptr]` field and must live behind a pointer
+cannot bind `a`: type `Node` inlines a self-relative `#[rel_ptr]` field and may not occupy a by-value slot

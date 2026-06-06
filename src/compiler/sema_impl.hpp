@@ -1978,6 +1978,24 @@ private:
     }
 
     void define(std::string_view name, TypeRef t, bool is_mut = false) {
+        // Zone Step 4 (pin): a `#[rel_ptr]`-containing type may never occupy a
+        // by-value slot — a `let` local, a parameter, or a `match` / `for` /
+        // closure / destructure binding. define() is the SINGLE registrar for all
+        // of them, so this one check covers every by-value slot uniformly. (The
+        // two remaining by-value positions are handled at their own choke points:
+        // a by-value RETURN in sema_decl::lower_fn, and a by-value CONSUME into a
+        // non-slot destination — field-write / assignment — in mark_moved_expr.)
+        // The backing SEGMENT is a `[u8; N]` buffer (no inline rel_ptr field) and
+        // pointers/refs are unflagged, so `*mut T` slots and field-wise in-place
+        // construction through a pointer stay legal — the value just never lives
+        // by value on the stack, where its self-relative anchor would be invalid.
+        if (t && contains_rel_ptr_field(t))
+            error(std::format(
+                "cannot bind `{}`: type `{}` inlines a self-relative `#[rel_ptr]` "
+                "field and may not occupy a by-value slot — it must live behind a "
+                "pointer, inside its zone's segment (allocate it, e.g. in an arena "
+                "/ `[u8; N]` buffer, and build it in place through a `*mut {}`)",
+                std::string(name), type_str(t), type_str(t)));
         if (!scope_.empty()) {
             auto sname = std::string(name);
             if (!scope_.back().vars.count(sname))
