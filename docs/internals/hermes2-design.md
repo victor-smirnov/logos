@@ -89,9 +89,23 @@ Consequences:
   null niche. These invalid bit-patterns feed enum niche-packing
   (`Option<zoned T>`, and `ZonedAny`'s `Ref|Pod` discriminant) — see
   ref-repr §6-7.
-- **Position-independent / serializable.** Self-relative deltas are
-  internal to the blob; the whole segment set can be written to disk and
-  mapped elsewhere with deltas intact.
+- **Position-independent / serializable — for a *rigid block*.** Self-relative
+  deltas survive relocation only if every internal address *difference* is
+  preserved, i.e. the block moves rigidly. A **single segment** (one `malloc`)
+  is such a block → relocatable/serializable (memcpy the segment; all internal
+  deltas shifted by the same amount stay valid). A **live multi-segment**
+  container is **not** relocatable as a set (segments sit at arbitrary malloc
+  addresses; inter-segment deltas break if their relative positions change) — it
+  is only valid *in place* (segments are append-only and never move, §3).
+  Serializing / relocating a multi-segment container therefore first **compacts**
+  it (§4) into a single growing segment, which is then a rigid relocatable blob.
+- **A rel_ptr's value form is absolute (it moves like `String`).** The i64 delta
+  is only the at-rest encoding in zoned storage; a rel_ptr *value* (local, arg,
+  return, register) is the resolved absolute pointer and moves by plain memcpy —
+  see [hermes2-minimal-container-plan.md](hermes2-minimal-container-plan.md)
+  Phase 0.5. This refines the "cannot be carried bare" stance above: it is
+  carried bare *as the absolute compute form*, re-lowered only on store into
+  zoned storage.
 
 ### Reference forms by role
 
