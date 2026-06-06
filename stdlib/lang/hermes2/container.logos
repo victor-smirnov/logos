@@ -105,11 +105,22 @@ impl Hermes2 {
 // the holder + the enforced ref ≤ holder borrow-tie are the next steps.)
 pub fn hermes2_rc(seg_size: i64) -> Rc<Hermes2> { return rc_new(hermes2_new(seg_size)); }
 
-pub struct Held<T> { holder: Rc<Hermes2>, ptr: *const T }
+// `Resident` — a residency root (a segment set), type-erased behind `dyn Resident`
+// so a holder is OPAQUE: it does not name `Hermes2`, and any future container type
+// is held uniformly. Dropping the last `Rc<dyn Resident>` runs the concrete
+// container's Drop (frees its segments).
+pub trait Resident { }
+impl Resident for Hermes2 { }
 
-// Pair a reference with a holder clone — the escape form of the reference.
+pub struct Held<T> { holder: Rc<dyn Resident>, ptr: *const T }
+
+// Pair a reference with a holder clone — the escape form of the reference. The
+// `Rc<Hermes2>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
+// the type-annotated let (Logos coerces Rc<T>→Rc<dyn> at an annotated let / call
+// arg, not yet at a struct-literal field).
 pub fn hold<T>(h: &mut Rc<Hermes2>, r: &T) -> Held<T> {
-    return Held { holder: h.clone_ref(), ptr: r as *const T };
+    let holder: Rc<dyn Resident> = h.clone_ref();
+    return Held { holder: holder, ptr: r as *const T };
 }
 
 impl<T> Held<T> {
