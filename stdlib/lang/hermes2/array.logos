@@ -28,8 +28,12 @@ pub struct ZArrayAny {
     pub data: i64,   // self-relative: element buffer = (header addr) + data
 }
 
-// Absolute element buffer (header + delta). Valid for the container's lifetime.
-unsafe fn za_buf(a: *const ZArrayAny) -> *mut ZonedAnyRel {
+// Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
+// split — a `*const` header yields a `*const` buffer, never laundering const→mut).
+unsafe fn za_buf(a: *const ZArrayAny) -> *const ZonedAnyRel {
+    return ((a as i64) + a.data) as *const ZonedAnyRel;
+}
+unsafe fn za_buf_mut(a: *mut ZArrayAny) -> *mut ZonedAnyRel {
     return ((a as i64) + a.data) as *mut ZonedAnyRel;
 }
 
@@ -52,7 +56,7 @@ pub unsafe fn zarray_push(a: *mut ZArrayAny, h: *mut Hermes2, v: ZonedAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
         let nbuf: *mut ZonedAnyRel = hermes2_alloc_n::<ZonedAnyRel>(h, newcap);
-        let obuf: *mut ZonedAnyRel = za_buf(a);
+        let obuf: *mut ZonedAnyRel = za_buf_mut(a);
         let mut i: i64 = 0i64;
         while i < a.len {
             // re-anchor: materialise from the OLD slot, lower into the NEW slot.
@@ -63,15 +67,15 @@ pub unsafe fn zarray_push(a: *mut ZArrayAny, h: *mut Hermes2, v: ZonedAny) {
         a.data = (nbuf as i64) - (a as i64);
         a.cap  = newcap;
     }
-    let buf: *mut ZonedAnyRel = za_buf(a);
+    let buf: *mut ZonedAnyRel = za_buf_mut(a);
     za_lower(v, buf.add(a.len));
     a.len = a.len + 1i64;
 }
 
 // Read element `i` as a movable absolute ZonedAny (materialised from its slot).
 pub unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
-    let buf: *mut ZonedAnyRel = za_buf(a);
-    return za_materialize(buf.add(i) as *const ZonedAnyRel);
+    let buf: *const ZonedAnyRel = za_buf(a);
+    return za_materialize(buf.add(i));
 }
 
 // ── Type-safe surface (container-rooted; no `unsafe`/raw pointer in user code) ──
