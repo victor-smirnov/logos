@@ -19,13 +19,15 @@ package logos.lang.hermes2.array;
 
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.allocator;
 use logos.lang.ptr;
 
 #[pinned]
 pub struct ZArrayAny {
-    pub len:  i64,
-    pub cap:  i64,
-    pub data: i64,   // self-relative: element buffer = (header addr) + data
+    pub len:   i64,
+    pub cap:   i64,
+    pub data:  i64,             // self-relative: element buffer = (header addr) + data
+    pub alloc: *mut Allocator,  // back-ptr to the owning container's allocator (for growth)
 }
 
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
@@ -37,25 +39,29 @@ unsafe fn za_buf_mut(a: *mut ZArrayAny) -> *mut ZonedAnyRel {
     return ((a as i64) + a.data) as *mut ZonedAnyRel;
 }
 
-// Create an empty array with capacity `cap` in the container `h`. Returns the
-// in-arena (pinned) header — stable for the container's lifetime.
-pub unsafe fn zarray_new(h: *mut Hermes2, cap: i64) -> *mut ZArrayAny {
+// Raw core (internal). Create an empty array in `h`; the header stores a back-
+// pointer to the container's allocator so growth is self-contained (no container
+// threaded through every push).
+unsafe fn zarray_new(h: *mut Hermes2, cap: i64) -> *mut ZArrayAny {
     let hdr: *mut ZArrayAny    = hermes2_alloc::<ZArrayAny>(h);
     let buf: *mut ZonedAnyRel  = hermes2_alloc_n::<ZonedAnyRel>(h, cap);
-    hdr.len  = 0i64;
-    hdr.cap  = cap;
-    hdr.data = (buf as i64) - (hdr as i64);
+    hdr.len   = 0i64;
+    hdr.cap   = cap;
+    hdr.data  = (buf as i64) - (hdr as i64);
+    hdr.alloc = &mut h.allocator as *mut Allocator;
     return hdr;
 }
 
-pub unsafe fn zarray_len(a: *const ZArrayAny) -> i64 { return a.len; }
+unsafe fn zarray_len(a: *const ZArrayAny) -> i64 { return a.len; }
 
-// Append `v`. On overflow, allocate a fresh 2× buffer and re-point `data`,
-// copying each existing slot through the absolute intermediate (re-anchoring).
-pub unsafe fn zarray_push(a: *mut ZArrayAny, h: *mut Hermes2, v: ZonedAny) {
+// Append `v`. On overflow, allocate a fresh 2× buffer THROUGH THE STORED ALLOCATOR
+// and re-point `data`, copying each existing slot through the absolute intermediate
+// (re-anchoring).
+unsafe fn zarray_push(a: *mut ZArrayAny, v: ZonedAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
-        let nbuf: *mut ZonedAnyRel = hermes2_alloc_n::<ZonedAnyRel>(h, newcap);
+        let nbuf: *mut ZonedAnyRel =
+            allocator_alloc(a.alloc, newcap * (sizeof::<ZonedAnyRel>() as i64)) as *mut ZonedAnyRel;
         let obuf: *mut ZonedAnyRel = za_buf_mut(a);
         let mut i: i64 = 0i64;
         while i < a.len {
@@ -72,35 +78,36 @@ pub unsafe fn zarray_push(a: *mut ZArrayAny, h: *mut Hermes2, v: ZonedAny) {
     a.len = a.len + 1i64;
 }
 
-// Read element `i` as a movable absolute ZonedAny (materialised from its slot).
-pub unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
+unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
     let buf: *const ZonedAnyRel = za_buf(a);
     return za_materialize(buf.add(i));
 }
 
-// ── Type-safe surface (container-rooted; no `unsafe`/raw pointer in user code) ──
+// ── Object-oriented type-safe surface (no `unsafe`/raw pointer in user code) ────
 //
-// `ArrSlot` is an OPAQUE handle to an array placed in the container (a stable
-// header pointer — the header never moves). Array ops are container methods so
-// growth threads the container's allocator naturally (the `&mut self`-rooted
-// growth of the design, without the deferred allocator-capability machinery).
-pub struct ArrSlot { p: *mut ZArrayAny }
+// `ZArray` is a lightweight (Copy) handle to an array living in the container. It
+// is created from the container, then used like a `Vec`: `a.push(v)`, `a.get(i)`,
+// `a.len()` — the container is NOT threaded through each call (the array grows via
+// its own stored allocator back-pointer). Nesting: `parent.push(ZonedAny::from(child))`
+// and read back with `ZArray::from(parent.get(i))`.
+pub struct ZArray { hdr: *mut ZArrayAny }
 
 impl Hermes2 {
-    // Create an empty array (capacity `cap`) in the container; opaque handle.
-    pub fn arr_new(self: &mut Hermes2, cap: i64) -> ArrSlot {
-        return ArrSlot { p: unsafe { zarray_new(self as *mut Hermes2, cap) } };
+    // Create an empty array (capacity `cap`) in this container.
+    pub fn array(self: &mut Hermes2, cap: i64) -> ZArray {
+        return ZArray { hdr: unsafe { zarray_new(self as *mut Hermes2, cap) } };
     }
-    // Append a value (grows in place via the container's allocator if needed).
-    pub fn arr_push(self: &mut Hermes2, a: ArrSlot, v: ZonedAny) {
-        unsafe { zarray_push(a.p, self as *mut Hermes2, v); }
-    }
-    // Element `i` as a movable ZonedAny (materialised). (A Ref's validity is tied
-    // to the container — the borrow-checker tie is the deferred BC work.)
-    pub fn arr_get(self: &Hermes2, a: ArrSlot, i: i64) -> ZonedAny {
-        return unsafe { zarray_get(a.p as *const ZArrayAny, i) };
-    }
-    pub fn arr_len(self: &Hermes2, a: ArrSlot) -> i64 {
-        return unsafe { zarray_len(a.p as *const ZArrayAny) };
-    }
+}
+
+impl ZArray {
+    pub fn push(self: &mut ZArray, v: ZonedAny) { unsafe { zarray_push(self.hdr, v); } }
+    pub fn get(self: &ZArray, i: i64) -> ZonedAny { return unsafe { zarray_get(self.hdr as *const ZArrayAny, i) }; }
+    pub fn len(self: &ZArray) -> i64 { return unsafe { zarray_len(self.hdr as *const ZArrayAny) }; }
+    // Reconstruct a handle from a Ref element (a nested array read back).
+    pub fn from(e: ZonedAny) -> ZArray { return ZArray { hdr: e.resolve() as *mut ZArrayAny }; }
+}
+
+impl ZonedAny {
+    // A nested array as a heterogeneous value (Ref to the child's header).
+    pub fn from(a: ZArray) -> ZonedAny { return ZonedAny::ref_to(a.hdr as *const u8); }
 }

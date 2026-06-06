@@ -1,35 +1,34 @@
-// Hermes2 — polished type-safe surface (API polish 1-3): container-method array
-// ops (h.arr_new/arr_push/arr_get/arr_len, growth rooted in &mut self) + overloaded
-// typed ZonedAny::from(i64)/from(bool) — fully safe: NO unsafe / raw pointer in
-// array code, AND ZonedAny value inspection (is_i56/as_i56) is safe &self.
+// Hermes2 — object-oriented type-safe surface: a ZArray handle is used like a Vec
+// (a.push(v)/a.get(i)/a.len()), the container is NOT threaded through each call
+// (the array grows via its own stored allocator), and typed ZonedAny::from(i56)/
+// from(bool) carry no manual type code. FULLY safe: zero `unsafe`/raw pointer.
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 fn main() -> i32 {
     let mut h: Hermes2 = hermes2_new(48i64);
-    let nested: ArrSlot = h.arr_new(2i64);
-    h.arr_push(nested, ZonedAny::from(1i64));
-    h.arr_push(nested, ZonedAny::from(2i64));
-    h.arr_push(nested, ZonedAny::from(3i64));
-    let root: ArrSlot = h.arr_new(2i64);
-    h.arr_push(root, ZonedAny::from(10i64));
-    h.arr_push(root, ZonedAny::from(20i64));
-    h.arr_push(root, ZonedAny::from(true));
-    if h.arr_len(root) != 3i64 { return 1; }
+    let mut nested: ZArray = h.array(2i64);
+    nested.push(ZonedAny::from(1i64));
+    nested.push(ZonedAny::from(2i64));
+    nested.push(ZonedAny::from(3i64));
+    let mut root: ZArray = h.array(2i64);
+    root.push(ZonedAny::from(10i64));
+    root.push(ZonedAny::from(20i64));
+    root.push(ZonedAny::from(true));
+    if root.len() != 3i64 { return 1; }
     let mut s: i64 = 0i64;
     let mut i: i64 = 0i64;
-    while i < h.arr_len(root) {
-        let e: ZonedAny = h.arr_get(root, i);
+    while i < root.len() {
+        let e: ZonedAny = root.get(i);
         if e.is_i56() { s = s + e.as_i56(); }
         i = i + 1i64;
     }
     if s != 30i64 { return 2; }
     let mut ns: i64 = 0i64;
     i = 0i64;
-    while i < h.arr_len(nested) {
-        let e: ZonedAny = h.arr_get(nested, i);
-        ns = ns + e.as_i56();
+    while i < nested.len() {
+        ns = ns + nested.get(i).as_i56();
         i = i + 1i64;
     }
     if ns != 6i64 { return 3; }
