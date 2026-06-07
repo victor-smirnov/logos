@@ -187,3 +187,28 @@ With (c)+(a): `return &local.field`, `return value_local.method_ref()`, and
 disciplined. (b.i) would add exclusivity through `&mut` refs; deferred. The
 residency `holder` (Rc<dyn Resident>) already gives runtime liveness; this adds the
 static proof for the non-escaping (RC-elided) path.
+
+## 8. HAny escape (borrow-carrying value types) — (B), 0000284a
+
+`HAny` is a value (movable), but a Ref HAny is an absolute pointer into a Hermes2
+arena. Returning one derived from a local container is a use-after-free that the BC
+couldn't see (the ref-ness is hidden in the bits). Fix (approach B — reuse the
+escape foundation): a `#[borrow_carrying]` struct attribute marks such a type; the
+BC then escape-tracks its values like references:
+- `prov_of` MethodCall: a borrow-carrying result ties to the receiver (as `&T`).
+- `prov_of` Call: a borrow-carrying result merges its REFERENCE args' provenance
+  (`HAny::from(&x)` borrows x; `HAny::from(7i64)` has no ref arg → returnable).
+- the `let` prov_ binding + `check_return_value` gates fire for borrow-carrying
+  types, not just `is_ref_kind`.
+Plumbed: SemaStructInfo → LStructDef → mono_clone → TypeSets.borrow_carrying.
+The escape hatch is `hold_any(&mut Rc<Hermes2>, HAny) -> HeldAny` (laundered, ties
+to the HERMES2 holder — see container.logos). Test hany_ref_escapes_container.
+
+**Known gap (Rc container):** for `Rc<Hermes2>`, `h.array()` derefs the Rc, so the
+receiver is `AddrOfTemp(Deref(VarRef h))` and `prov_of(VarRef h)` returns {} for the
+value-local Rc — the provenance chain breaks at the smart-ptr Deref. The VALUE
+container (`hermes2_new`) works; the Rc one needs `prov_of` to root a VALUE local
+reached through a Deref. Extending the Front-(c) walk through `Deref` does catch it,
+BUT it FALSELY flags stdlib `Box::leak` (+ 4 examples) as a dangling temporary — the
+value-local-vs-param discriminator alone is insufficient through a deref. A narrower
+discriminator (or consume/leak awareness) is needed; deferred.
