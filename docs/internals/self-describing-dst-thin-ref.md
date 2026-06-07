@@ -1,11 +1,25 @@
 # Thin `&self_describing` DST refs + vlen HString — design map
 
-Status: **design / step-0 mapped (2026-06-07), implementation deferred to a fresh
-focused session.** Goal: make a `&Foo` / `&mut Foo` to a `#[self_describing]` DST a
-THIN 8-byte reference (per the marker contract), so a safe `&HString` works — and
-refactor HString to a vlen-prefixed proper DST. Companion to the committed
-raw-`*const` HString (`stdlib/lang/hermes2/hstring.logos`, 5947dc2f), which works
-+ valgrind-clean today via the thin `*const` idiom (unsafe).
+Status: **DONE (2026-06-07, commits 65e960bc thin-DstRef + 3a89ea18 vlen).** A
+`&Foo`/`&mut Foo` to a `#[self_describing]` DST is now a THIN 8-byte reference,
+so a safe, RETURNABLE `&HString` works; HString is a vlen-prefixed proper DST.
+Full suite 5557/5557, valgrind-clean.
+
+KEY CORRECTION to the step-0 analysis below: the fat path was NOT "contradictory/
+broken" — it WORKS for LOCAL borrows (GBlock in-suite proves it). The real reason
+thin is REQUIRED is the RETURN case: a fat ref's {data,len} pair lives in the
+callee's stack alloca, so a returned `&HString` dangles (reads garbage after any
+intervening call). Thin (the ref IS the heap header pointer) is the only way to
+return one. The two surgical bugs found: (1) `&*p` construction always
+materialized a fat pair → made thin; (2) the self_describing predicate looked up
+the BARE template name (`GBlock`) but all_struct_defs_ keys the CONCRETE mono'd
+name (`GBlock$G1$i64`) → generics silently fell back to fat repr while
+construction went thin → mismatch segfault → fixed by concrete-name lookup. The
+slice-len projection needed `emit_dst_len` (in-band) instead of repr_meta's
+fat-pair-field-1 load. Implemented via the single `dstref_pointee_self_describing`
+predicate across repr/construction/cast/store/slice-len + the sema gate exemption.
+
+(Original step-0 map below, kept for the historical reasoning.)
 
 ## Why a fresh session (the key finding)
 
