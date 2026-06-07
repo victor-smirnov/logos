@@ -59,5 +59,6 @@ endfunction()
 
 logos_add_example(hermes_round_trip)
 logos_add_example(hermes_showcase)
+logos_add_example(hermes2_showcase)
 logos_add_example(logos_showcase METAPROG)
 logos_add_example(persistent_showcase)
