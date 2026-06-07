@@ -140,10 +140,20 @@ is now caught. Three pieces, all in the borrow checker (path 2 chosen):
    VarRef for `push`, vs `12` AddrOfTemp for a user method.)
 Catches direct Vec/collection indexing + user `Index` impls. Test
 `vec_iterator_invalidation`. **Known remaining (rare):** the through-`&mut`-ref
-variant `let a=&mut v; let r=&(*a)[i]; a.push()` — needs the Front-a RECORDING to
-fire on a `&mut`-ref root; doing so (root_is_rawptr=Ptr-only in recording)
-regressed and was reverted. Deferred (unusual shape: indexing through an explicit
-`&mut` ref var).
+variant `let a=&mut v; let r=&(*a)[i]; a.push()`. ROOT CAUSE (instrumented to the
+mechanism): the index call's receiver `&(*a)` is hoisted by `materialize_recv_ref`
+into a statement-scoped temp `__rtmp_N = &(*a)`; `extract_borrow_place(__rtmp)`
+returns an EMPTY root (temps aren't tracked places), so Front-a records no borrow
+on `a` — and even if it did, the temp drops at statement end while `r` (which
+reborrows through it) lives longer, so the borrow must tie to `r`, not the temp.
+There is no `__rtmp`→source map. Fixing needs EITHER (1) temp-provenance threading
+(resolve `__rtmp` to its source place + tie the borrow to the holder), OR (2) sema
+suppressing receiver materialization when the receiver is a reborrow of a tracked
+place. Both are a dedicated piece; the shape is contrived AND not container-
+critical (Hermes2 arrays expose elements by VALUE — ZonedAny — not by `&`).
+(Note: changing Front-a recording to fire on `&mut`-ref roots — root_is_rawptr=
+Ptr-only — does NOT help here, the root is empty not a ref-root; it only added risk
+and was reverted.)
 
 ## 5. False-positive traps (the things that bit us — must stay green)
 - `Box::leak(b: Box<T>) -> &T` — `&*b`: a `Deref` path → NOT FrameDirect; and `b`
