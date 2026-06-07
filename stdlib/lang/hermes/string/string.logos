@@ -17,6 +17,7 @@ use logos.lang.hermes.fabric;
 use logos.lang.arith;
 use logos.lang.hermes.tags;
 use logos.lang.mem;
+pub use logos.lang.vlen;   // re-export the relocated vlen codec (back-compat)
 
 // ---------------------------------------------------------------------------
 // FNV-1a hash (used by ObjectMap for string key hashing)
@@ -36,86 +37,9 @@ pub unsafe fn hermes_fnv1a(ptr: *const u8, len: u64) -> u64 {
     return h;
 }
 
-// ---------------------------------------------------------------------------
-// vlen helpers
-// ---------------------------------------------------------------------------
-
-// Number of bytes needed to encode `value` in vlen format.
-// Values >= 2^56 (requiring 8+ data bytes) cannot be encoded: the marker
-// byte (248+N) would overflow u8.  Such values are capped to the 7-byte
-// maximum so that the returned size is always representable.
-pub unsafe fn vlen_encode_size(value: u64) -> u32 {
-    if value < 249 {
-        return 1;
-    }
-    let mut n: u32 = 0;
-    let mut v: u64 = value;
-    while v > 0 {
-        v = v >> 8;
-        n = n + 1;
-    }
-    if n > 7 { n = 7; }
-    return 1 + n;
-}
-
-// Write vlen-encoded `value` to dst. Returns number of bytes written.
-pub unsafe fn vlen_write(dst: *mut u8, value: u64) -> u32 {
-    if value < 249 {
-        *dst = value as u8;
-        return 1;
-    }
-    let mut n: u32 = 0;
-    let mut v: u64 = value;
-    while v > 0 {
-        v = v >> 8;
-        n = n + 1;
-    }
-    // Values >= 2^56 need n >= 8 data bytes; the marker byte (248+N) would
-    // overflow u8.  Saturate to 7 (max the format can represent).
-    if n > 7 { n = 7; }
-    let marker: u8 = (248 + n) as u8;
-    *dst = marker;
-    let mut i: u32 = 0;
-    let mut rem: u64 = value;
-    while i < n {
-        let p: *mut u8 = dst.byte_add(1 + i as i64);
-        let byte_val: u8 = (rem & 0xFF) as u8;
-        *p = byte_val;
-        rem = rem >> 8;
-        i = i + 1;
-    }
-    return 1 + n;
-}
-
-// Decode vlen value from src. Returns the decoded u64.
-pub unsafe fn vlen_read(src: *const u8) -> u64 {
-    let first: u8 = *src;
-    let first_u32: u32 = first as u32;
-    if first_u32 < 249 {
-        return first as u64;
-    }
-    let n: u32 = first_u32 - 248;
-    let mut value: u64 = 0;
-    let mut i: u32 = 0;
-    while i < n {
-        let p: *const u8 = src.byte_add(1 + i as i64);
-        let b: u64 = (*p) as u64;
-        let shift: u64 = (i * 8) as u64;
-        value = value | (b << shift);
-        i = i + 1;
-    }
-    return value;
-}
-
-// Number of bytes consumed by the vlen prefix at src.
-pub unsafe fn vlen_prefix_size(src: *const u8) -> u32 {
-    let first: u8 = *src;
-    let first_u32: u32 = first as u32;
-    if first_u32 < 249 {
-        return 1;
-    }
-    return first_u32 - 248 + 1;
-}
+// vlen helpers (vlen_encode_size / vlen_write / vlen_read / vlen_prefix_size)
+// were relocated to the neutral `logos.lang.vlen` codec and are re-exported via
+// the top-of-file `pub use logos.lang.vlen;`.
 
 // ---------------------------------------------------------------------------
 // Varchar — logical genos ("variable-length string"), zone-#[zoned] struct HermesString.

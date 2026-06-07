@@ -1,22 +1,20 @@
 // Logos Hermes2 stdlib — hermes2.hstring
 //
-// HString — a UTF-8 string living in the never-move arena as a REAL custom-DST:
-// an inline header (`len`) followed IMMEDIATELY by the bytes (`bytes: [u8]`, the
-// flexible-array tail) — one contiguous allocation, like the arena `Segment` and
-// like Hermes1's HermesString, but now a proper self-describing DST.
+// HString — a UTF-8 string living in the never-move arena as a REAL custom-DST
+// with NO separate length field: the layout is exactly HermesString's wire shape,
 //
-// `#[self_describing]` keeps `*HString` THIN (8B): the tail length is recoverable
-// IN-BAND (it is `len`, via `dst_len`), so the pointer need not carry it — which
-// is what lets a Ref `HAny` to an HString be a plain pointer, and lets `bytes`
-// materialize its slice on demand. `sizeof::<HString>()` is the HEADER size (the
-// tail offset, 8B). A DST is unsized → it only ever lives behind a pointer in the
-// arena (never a by-value local): non-movability is structural.
+//     [ vlen(payload_len) ][ UTF-8 payload ... ]
 //
-// Access is SAFE through `&HString`: because the DST is `#[self_describing]` (its
-// tail length is recovered in-band via `dst_len`), a borrowed `&HString` is a
-// complete reference — field (`self.len`) and tail (`self.bytes`) access need no
-// `unsafe`. `as_str` borrows the inline bytes back as a `str` (a slice into the
-// arena, valid while the container lives).
+// i.e. a `#[self_describing]` DST whose ONLY member is the `[u8]` tail; the length
+// is encoded IN-BAND as a variable-length integer at the front of the bytes (1 byte
+// for strings < 249). `dst_len` (the tail's total byte count = whole object, since
+// there is no sized prefix) is `vlen_prefix_size + vlen_read`; the logical string
+// length is `vlen_read` (the payload only).
+//
+// Access is SAFE through `&HString` (the DST is self-describing → a borrowed
+// reference is complete): `len()` / `as_str()` need no `unsafe` at call sites.
+// `as_str` skips the vlen prefix and borrows the inline payload back as a `str`
+// (a slice into the arena, valid while the container lives).
 
 package logos.lang.hermes2.hstring;
 
@@ -25,27 +23,31 @@ use logos.lang.hermes2.anyval;      // HAny (heterogeneous element)
 use logos.lang.str;                 // str_from_raw
 use logos.lang.mem;                 // copy_bytes
 use logos.lang.ptr;                 // byte_add
+use logos.lang.vlen;                // vlen_encode_size / write / read / prefix_size
 
 #[self_describing]
 pub struct HString {
-    pub len:   i64,
-    pub bytes: [u8],        // inline UTF-8 tail (flexible-array member)
+    pub bytes: [u8],        // [vlen(payload_len)][utf8 payload] — no sized prefix
 }
 
-// The `[u8]` tail length is `len` — recovered in-band so `*HString` stays thin.
+// Tail byte count (for slice materialization) = the WHOLE object: the vlen prefix
+// plus the payload it encodes. (No sized header — `self` points at the bytes.)
 impl SelfDescribing for HString {
-    fn dst_len(self: *const HString) -> i64 { return unsafe { (*self).len }; }
+    fn dst_len(self: *const HString) -> i64 {
+        let p: *const u8 = self as *const u8;
+        return unsafe { (vlen_prefix_size(p) as i64) + (vlen_read(p) as i64) };
+    }
 }
 
-// Allocate header + `len` bytes in ONE arena chunk; copy `s` into the tail.
+// Allocate `vlen_encode_size(n) + n` bytes in ONE arena chunk; write the vlen
+// length prefix, then copy the payload right after it.
 unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
-    let n: i64 = s.len();
-    let raw: *mut u8 = hermes2_alloc_bytes(h, (sizeof::<HString>() as i64) + n);
-    let hdr: *mut HString = raw as *mut HString;
-    hdr.len = n;
-    let body: *mut u8 = raw.byte_add(sizeof::<HString>() as i64);
-    copy_bytes(body, s.as_ptr(), n);
-    return hdr;
+    let n: u64 = s.len() as u64;
+    let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
+    let raw: *mut u8 = hermes2_alloc_bytes(h, total);
+    let pfx: u32 = vlen_write(raw, n);
+    copy_bytes(raw.byte_add(pfx as i64), s.as_ptr(), n as i64);
+    return raw as *mut HString;
 }
 
 impl Hermes2 {
@@ -64,12 +66,21 @@ impl Hermes2 {
 }
 
 impl HString {
-    pub fn len(self: &HString) -> i64 { return self.len; }
+    // Logical string length = the vlen-decoded payload count (NOT dst_len, which
+    // is the whole tail incl. the prefix). `self.bytes` materializes the tail; its
+    // data pointer is the vlen prefix.
+    pub fn len(self: &HString) -> i64 {
+        return unsafe { vlen_read(self.bytes.as_ptr()) as i64 };
+    }
 
-    // The inline UTF-8 slice. `self.bytes` materializes the tail `&[u8]` (its
-    // length recovered in-band via dst_len); `as_ptr` is the byte address.
+    // The inline UTF-8 payload — the tail past its vlen prefix.
     pub fn as_str(self: &HString) -> str {
-        return unsafe { str_from_raw(self.bytes.as_ptr(), self.len); };
+        unsafe {
+            let p: *const u8 = self.bytes.as_ptr();
+            let payload: u64 = vlen_read(p);
+            let body: *const u8 = p.byte_add(vlen_prefix_size(p) as i64);
+            return str_from_raw(body, payload as i64);
+        }
     }
 }
 
