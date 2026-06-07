@@ -1,0 +1,15 @@
+// Borrow-checker: collection iterator-invalidation. A reference into a Vec
+// (`&v[i]` = `&*Vec::index(&v, i)`) borrows the Vec; mutating it (`v.push(..)`,
+// which may reallocate the buffer) while that reference is live is rejected —
+// the classic Rust borrow error. Caught via Front (a): the index method (resolved
+// by NAME, since operator-desugared calls carry no resolved_symbol) is self-
+// borrowing, so the reborrow records a borrow of `v`; `push` (&mut self, a bare
+// VarRef receiver) conflict-checks against it. See escape-analysis §4(b).
+package vec_iterator_invalidation;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64);
+    let r: &i64 = &v[0i64];          // borrows v's buffer
+    v.push(20i64);                   // ERROR: &mut v while r borrows v (realloc → UAF)
+    return *r as i32;
+}

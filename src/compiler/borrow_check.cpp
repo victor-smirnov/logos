@@ -360,6 +360,9 @@ class BorrowChecker {
     std::unordered_set<std::string>      param_names_;
     // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
     std::unordered_map<std::string, const LFunction*> fn_by_name_;
+    // Fallback index by unmangled method name — for operator-desugared / trait
+    // calls (`v[i]` → index) whose resolved_symbol is empty.
+    std::unordered_map<std::string, std::vector<const LFunction*>> fn_by_base_;
     bool                                 fn_map_built_ = false;
     // B82: depth of nested call-arg evaluation. While >0, new &mut borrows
     // are taken as reservations (don't conflict with shared reads of the
@@ -846,29 +849,98 @@ class BorrowChecker {
     void build_fn_map_() {
         if (fn_map_built_) return;
         fn_map_built_ = true;
-        auto add = [&](const std::vector<LFunctionPtr>& fns) {
-            for (auto& f : fns) if (f) fn_by_name_.emplace(f->name, f.get());
+        auto add = [&](const LFunctionPtr& f) {
+            if (!f) return;
+            fn_by_name_.emplace(f->name, f.get());
+            if (!f->method_base.empty()) fn_by_base_[f->method_base].push_back(f.get());
         };
-        add(prog_.functions);
-        add(prog_.specializations);
-        for (auto& sd : prog_.structs)
-            for (auto& m : sd.methods) if (m) fn_by_name_.emplace(m->name, m.get());
+        for (auto& f : prog_.functions)      add(f);
+        for (auto& f : prog_.specializations) add(f);
+        for (auto& sd : prog_.structs) for (auto& m : sd.methods) add(m);
+        for (auto& im : prog_.impls)   for (auto& m : im.methods) add(m);  // trait-impl methods (Index, Deref, …)
+    }
+
+    // Is this callee self-borrowing — reference `self`, reference result, AND no
+    // explicit lifetime params (fully elided → Rust ties the output lifetime to
+    // `&self`)? A method with explicit lifetimes MAY tie its result to an arg
+    // (`fn pick<'a>(&self, x:&'a T)->&'a T`) → NOT self-borrowing (avoids the
+    // over-borrow that broke persistent_showcase). See escape-analysis §4(a).
+    static bool is_self_borrowing(const LFunction* f) {
+        return f && !f->params.empty() && is_ref_kind(f->params[0].type) &&
+               f->lifetime_params.empty() && is_ref_kind(f->ret_type);
     }
 
     // Does this method-call's RESULT reference borrow its receiver (by elision)?
-    // Conservative-TRUE only when confident: the callee takes a reference self
-    // (`&self`/`&mut self`), returns a reference, AND has NO explicit lifetime
-    // params (fully elided → Rust ties the output lifetime to `&self`). A method
-    // with explicit lifetimes MAY tie its result to an arg (`fn pick<'a>(&self,
-    // x:&'a T)->&'a T`) → return FALSE to avoid over-borrowing the receiver (the
-    // false positive that broke persistent_showcase). See escape-analysis §4(a).
     bool result_borrows_self(lir_view::EMethodCallView v) {
         build_fn_map_();
-        auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
-        if (it == fn_by_name_.end()) return false;
-        const LFunction* f = it->second;
-        return !f->params.empty() && is_ref_kind(f->params[0].type) &&
-               f->lifetime_params.empty() && is_ref_kind(f->ret_type);
+        if (auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
+            it != fn_by_name_.end())
+            return is_self_borrowing(it->second);
+        // Operator-desugared / trait calls (`v[i]` → index, `*p` → deref) carry an
+        // EMPTY resolved_symbol. Fall back to the unmangled method name: if EVERY
+        // method with that name is self-borrowing, the result borrows self (the
+        // Index/Deref/etc. trait contract). Conservative — any disagreeing
+        // same-named method, or no match, → false.
+        if (auto it = fn_by_base_.find(std::string(v.method()));
+            it != fn_by_base_.end() && !it->second.empty()) {
+            for (const LFunction* f : it->second)
+                if (!is_self_borrowing(f)) return false;
+            return true;
+        }
+        return false;
+    }
+
+    // Receiver self-kind of a method call: 0 = none/by-value, 1 = `&self`, 2 =
+    // `&mut self`. Resolves via resolved_symbol, falling back to the method name
+    // (all same-named methods must agree, else 0). Used to conflict-check bare-
+    // place (VarRef) receivers, which the AddrOfTemp path doesn't see.
+    int method_self_kind(lir_view::EMethodCallView v) {
+        build_fn_map_();
+        const LFunction* f = nullptr;
+        if (auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
+            it != fn_by_name_.end())
+            f = it->second;
+        else if (auto it = fn_by_base_.find(std::string(v.method()));
+                 it != fn_by_base_.end() && !it->second.empty()) {
+            f = it->second.front();
+            auto kind0 = f->params.empty() ? LogosType::Kind::Void
+                                           : f->params[0].type.kind();
+            for (const LFunction* g : it->second) {
+                auto k = g->params.empty() ? LogosType::Kind::Void
+                                           : g->params[0].type.kind();
+                if (k != kind0) return 0;  // ambiguous
+            }
+        }
+        if (!f || f->params.empty()) return 0;
+        auto k = f->params[0].type.kind();
+        if (k == LogosType::Kind::MutRef) return 2;
+        if (k == LogosType::Kind::Ref)    return 1;
+        return 0;
+    }
+
+    // Whole-root conflict check for a method call's bare-place receiver borrowing
+    // `self`. Only whole-var receivers (empty path) are checked (conservative —
+    // field receivers deferred). Raw-ptr roots are unchecked (Rust parity);
+    // reference roots ARE checked (a `&mut self` call through a `&mut` ref var
+    // still conflicts with a live borrow of it).
+    void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
+        if (bp.root.empty() || !bp.path.empty()) return;
+        if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
+        auto sit = states_.find(bp.root);
+        if (sit == states_.end()) return;
+        if (sit->second.mut_borrowed)
+            report(line, std::format(
+                "cannot borrow '{}': '{}' is already mutably borrowed",
+                bp.root, bp.root));
+        else if (is_mut && sit->second.shared_borrows > 0)
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: '{}' has shared borrows",
+                bp.root, bp.root));
+        else if (is_mut && (!sit->second.shared_field_borrows.empty() ||
+                            !sit->second.mut_field_borrows.empty()))
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: field of '{}' is already borrowed",
+                bp.root, bp.root));
     }
 
     RefProv prov_of(lir_view::ExprRef e) const {
@@ -1175,6 +1247,19 @@ class BorrowChecker {
                         if (fake_param) param_names_.insert(rname);
                         take_borrow(rname, v.is_mut(), line, holder);
                         if (fake_param) param_names_.erase(rname);
+                        break;
+                    }
+                }
+                // Reborrow of a METHOD RESULT: `&*(c.get_ref())`, and crucially
+                // `&v[i]` / `&mut v[i]` which lower to `&*(Vec::index(&v, i))`. The
+                // place decomposition below can't root through the MethodCall, so
+                // route to it — Front (a)'s `result_borrows_self` then records a
+                // borrow of the method's receiver (closing collection iterator-
+                // invalidation: `let r=&v[i]; v.push(); use r`).
+                if (inner && inner.kind() == Code::Deref) {
+                    if (auto op = EDerefView{inner}.operand();
+                        op && op.kind() == Code::MethodCall) {
+                        take_ref_borrows(op, line, holder);
                         break;
                     }
                 }
@@ -2369,6 +2454,20 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         // any subsequent method-call (consecutive `b.foo(); b.bar();`).
         case Code::MethodCall: {
             EMethodCallView v{e};
+            // A `&self`/`&mut self` method whose receiver is a bare place (VarRef /
+            // FieldRead — how generic & stdlib methods like `Vec::push` lower it,
+            // NOT an explicit AddrOfTemp) still borrows the receiver for the call.
+            // The AddrOfTemp path self-checks; for a bare-place receiver, run the
+            // same whole-root conflict check here — so `let r=&v[i]; v.push()`
+            // (push = &mut self, receiver VarRef v, while r borrows v) conflicts
+            // (collection iterator-invalidation).
+            if (auto recv = v.receiver();
+                recv && recv.kind() != Code::AddrOfTemp) {
+                int sk = method_self_kind(v);
+                if (sk >= 1)
+                    check_recv_conflict(extract_borrow_place(recv, pool),
+                                        /*is_mut=*/sk == 2, line);
+            }
             push_scope();
             visit(v.receiver(), /*consuming=*/false, line);
             visit_args(v);
