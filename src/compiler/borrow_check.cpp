@@ -891,6 +891,33 @@ class BorrowChecker {
                 // `__rtmp` case above, which is statement-scoped + NOT extended.
                 if (is_temporary_value_expr(v.inner()))
                     return {{}, /*is_local=*/true, /*is_temp=*/false};
+                // Front (c): a borrow of a VALUE local's inline field/tuple/index
+                // (`&c.x`, `&c.t.0`, `&c.a[i]`) is frame-direct → dangling if
+                // returned. Walk the place chain; BAIL on any Deref / MethodCall /
+                // Call etc. (those go through a pointer/heap — `&*box`, `&r.x`
+                // where r is a ref, are NOT frame-direct). The terminal must be a
+                // VALUE local: in states_, not a param, and NOT a tracked ref-
+                // binding (ref locals are in prov_, handled above). Both guards
+                // (no-Deref + value-local) keep box_leak / `&param.x` / ref-locals
+                // safe — see docs/internals/borrow-escape-analysis-design.md §4(c).
+                {
+                    ExprRef cur = v.inner();
+                    bool pure_place = true;
+                    while (cur) {
+                        Code k = cur.kind();
+                        if (k == Code::FieldRead)  { cur = EFieldReadView{cur}.receiver();  continue; }
+                        if (k == Code::TupleIndex) { cur = ETupleIndexView{cur}.receiver(); continue; }
+                        if (k == Code::IndexRead)  { cur = EIndexReadView{cur}.receiver();  continue; }
+                        if (k == Code::VarRef) break;          // terminal
+                        pure_place = false; break;             // Deref / Method / Call / …
+                    }
+                    if (pure_place && cur && cur.kind() == Code::VarRef) {
+                        std::string rn(EVarRefView{cur}.name());
+                        if (states_.count(rn) && !param_names_.count(rn) &&
+                            prov_.find(rn) == prov_.end())
+                            return {{}, /*is_local=*/true, /*is_temp=*/false};
+                    }
+                }
                 return {};  // unknown — conservative-accept
             }
             case Code::FieldRead:

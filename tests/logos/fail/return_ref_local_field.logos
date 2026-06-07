@@ -1,0 +1,12 @@
+// Borrow-checker escape analysis, Front (c): returning a reference to a VALUE
+// local's inline field (`&c.x`) is dangling — `c` drops at function end, freeing
+// its frame storage. This is frame-direct (no Deref through an owning pointer);
+// `&*box` (a Deref) and `&param.x` (a ref param) are correctly NOT flagged.
+// See docs/internals/borrow-escape-analysis-design.md §4(c).
+package return_ref_local_field;
+struct C { x: i64 }
+fn bad() -> &i64 {
+    let c: C = C { x: 1i64 };
+    return &c.x;            // ERROR: dangling (reported as "temporary value" — AddrOfTemp wording)
+}
+fn main() -> i32 { return 0; }
