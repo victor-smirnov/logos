@@ -1,0 +1,15 @@
+// Borrow-checker iterator-invalidation, through-&mut-ref variant: indexing a Vec
+// THROUGH an explicit `&mut Vec` reference (`&(*a)[i]`) and then mutating through
+// that same reference (`a.push(..)`) while the index reference is live is rejected
+// — same UAF class as the direct form, reached through a reference deref. Closed
+// by `extract_borrow_place` rooting through a `Deref` of a reference (a borrow
+// through `*a` is a borrow of `a`). See escape-analysis §4(b).
+package vec_iter_invalidation_through_ref;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64);
+    let a: &mut Vec<i64> = &mut v;
+    let r: &i64 = &(*a)[0i64];        // borrows v through a
+    a.push(20i64);                    // ERROR: &mut through a while r borrows it
+    return *r as i32;
+}

@@ -323,6 +323,14 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             path_parts.clear();
             bp.index_in_chain = true;
             cur = ESliceIndexView{cur}.slice();
+        } else if (cur.kind() == Code::Deref) {
+            // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
+            // borrow of the reference variable `r` — root through it so reborrows
+            // through a `&`/`&mut` ref are tracked (recording AND conflict checks).
+            // Raw pointers (`*p`) are NOT rooted (unchecked — Rust parity).
+            auto op = EDerefView{cur}.operand();
+            if (op && is_ref_kind(op.type(pool))) { cur = op; continue; }
+            break;
         } else {
             break;
         }
@@ -1364,10 +1372,12 @@ class BorrowChecker {
                 if (recv && recv.kind() == Code::AddrOfTemp && result_borrows_self(v)) {
                     EAddrOfTempView av{recv};
                     BorrowPlace bp = extract_borrow_place(av.inner(), pool);
-                    bool root_is_raw = bp.root_type &&
-                        (bp.root_type.kind() == LogosType::Kind::Ptr ||
-                         bp.root_type.kind() == LogosType::Kind::MutRef);
-                    if (!bp.root.empty() && !root_is_raw && states_.count(bp.root))
+                    // Record on value AND reference roots (so a reborrow through a
+                    // `&`/`&mut` ref — `&(*a)[i]`, now rooted at `a` by extract —
+                    // is tracked); only RAW pointers are unchecked (Rust parity).
+                    bool root_is_rawptr = bp.root_type &&
+                        bp.root_type.kind() == LogosType::Kind::Ptr;
+                    if (!bp.root.empty() && !root_is_rawptr && states_.count(bp.root))
                         take_borrow(bp.root, av.is_mut(), line, holder);
                 } else if (recv && is_ref_kind(recv.type(pool))) {
                     take_ref_borrows(recv, line, holder);
