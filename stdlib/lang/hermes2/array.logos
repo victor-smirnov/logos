@@ -20,6 +20,7 @@ package logos.lang.hermes2.array;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.allocator;
+use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc — for push(str)
 use logos.lang.ptr;
 
 #[pinned]
@@ -113,6 +114,29 @@ impl Hermes2 {
 
 impl Array<HAny> {
     pub fn push(self: &mut Array<HAny>, v: HAny) { unsafe { array_push(self as *mut Array<HAny>, v); } }
+
+    // Overloaded push for the common element types — each wraps the value into an
+    // HAny so callers write `a.push(x)` instead of `a.push(HAny::from(x))`.
+    //   • i64  → an inline Pod (i56 range; the heterogeneous slot is 56-bit)
+    //   • bool → an inline Pod
+    //   • &HString / &Array<HAny> → a Ref to an already-interned arena object
+    pub fn push(self: &mut Array<HAny>, v: i64)  { unsafe { array_push(self as *mut Array<HAny>, HAny::pod(v, HA_I56)); } }
+    pub fn push(self: &mut Array<HAny>, v: bool) { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }
+    pub fn push(self: &mut Array<HAny>, v: &HString)      { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }
+    pub fn push(self: &mut Array<HAny>, v: &Array<HAny>)  { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }
+
+    // `str` → intern the bytes into THIS array's arena (via the stored allocator)
+    // as an HString, then push a Ref to it. (A `String` caller passes `s.as_str()`
+    // — String lives in the `mem` tier, above `lang`, so it can't be an overload
+    // here.) The interned string lives as long as the container.
+    pub fn push(self: &mut Array<HAny>, v: str) {
+        unsafe {
+            let a: *mut Array<HAny> = self as *mut Array<HAny>;
+            let hs: *mut HString = hstring_in_alloc(a.alloc, v);
+            array_push(a, HAny::ref_to(hs as *const u8));
+        }
+    }
+
     pub fn get(self: &Array<HAny>, i: i64) -> HAny { return unsafe { array_get(self as *const Array<HAny>, i) }; }
     pub fn len(self: &Array<HAny>) -> i64 { return unsafe { array_len(self as *const Array<HAny>) }; }
 }

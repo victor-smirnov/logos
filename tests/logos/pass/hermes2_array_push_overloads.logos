@@ -1,0 +1,29 @@
+// Array<HAny> overloaded push() — `a.push(x)` for the common element types instead
+// of `a.push(HAny::from(x))`: i64/bool inline Pods, &HString / &Array<HAny> Refs,
+// and `str` (interned into the array's own arena as an HString, then a Ref).
+package test;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hstring;
+use logos.lang.str;
+fn main() -> i32 {
+    let h: Hermes2 = hermes2_new(64i64);
+    let a: &mut Array<HAny> = h.array(2i64);
+    a.push(42i64);                       // i64 → inline Pod
+    a.push(true);                        // bool → inline Pod
+    a.push("hello");                     // str → interned HString Ref (no manual HString)
+    let hs: &HString = h.hstring("world");
+    a.push(hs);                          // &HString → Ref
+    let nested: &mut Array<HAny> = h.array(1i64);
+    nested.push(7i64);
+    a.push(&*nested);                    // &Array<HAny> → Ref (nested)
+
+    if a.len() != 5i64 { return 1; }
+    if a.get(0i64).as_i56()  != 42i64 { return 2; }
+    if a.get(1i64).as_bool() != true  { return 3; }
+    if !str_eq(h.hstring_of(a.get(2i64)).as_str(), "hello") { return 4; }
+    if !str_eq(h.hstring_of(a.get(3i64)).as_str(), "world") { return 5; }
+    if h.array_of(a.get(4i64)).get(0i64).as_i56() != 7i64 { return 6; }
+    return 0;
+}

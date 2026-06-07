@@ -19,6 +19,7 @@
 package logos.lang.hermes2.hstring;
 
 use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc_bytes
+use logos.lang.hermes2.allocator;   // Allocator, allocator_alloc
 use logos.lang.hermes2.anyval;      // HAny (heterogeneous element)
 use logos.lang.str;                 // str_from_raw
 use logos.lang.mem;                 // copy_bytes
@@ -39,15 +40,22 @@ impl SelfDescribing for HString {
     }
 }
 
-// Allocate `vlen_encode_size(n) + n` bytes in ONE arena chunk; write the vlen
-// length prefix, then copy the payload right after it.
-unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
+// Intern `s` THROUGH AN ALLOCATOR (the shared core): allocate
+// `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
+// prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
+// than the whole `Hermes2`) lets an arena container that holds only its allocator
+// back-pointer — e.g. `Array<HAny>` — intern strings without the full handle.
+pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
-    let raw: *mut u8 = hermes2_alloc_bytes(h, total);
+    let raw: *mut u8 = allocator_alloc(alloc, total);
     let pfx: u32 = vlen_write(raw, n);
     copy_bytes(raw.byte_add(pfx as i64), s.as_ptr(), n as i64);
     return raw as *mut HString;
+}
+
+unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
+    return hstring_in_alloc(&mut h.allocator as *mut Allocator, s);
 }
 
 impl Hermes2 {

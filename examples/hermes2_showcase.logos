@@ -158,12 +158,12 @@ fn main() -> i32 {
     say("byte len", hs.len());
     yn("round-trips", str_eq(hs.as_str(), "hello, hermes2"));
 
-    // 7b ── HString as a HETEROGENEOUS element: a record [name, age] in one
-    //       Array<HAny> — the string is a Ref, the age an inline Pod.
-    let name: &HString = h.hstring("Ada");
+    // 7b ── a record [name, age] in one Array<HAny> via OVERLOADED push: `push`
+    //       takes the value directly (no `HAny::from`) — a `str` is interned into
+    //       the arena as an HString Ref, an i64 stored as an inline Pod.
     let rec: &mut Array<HAny> = h.array(2i64);
-    rec.push(HAny::from(name));          // slot 0: a string Ref
-    rec.push(HAny::from(36i64));         // slot 1: an inline i56
+    rec.push("Ada");                     // str → interned HString Ref
+    rec.push(36i64);                     // i64 → inline Pod
     print("   record.name = "); println(h.hstring_of(rec.get(0i64)).as_str());
     say("record.age", rec.get(1i64).as_i56());
 
