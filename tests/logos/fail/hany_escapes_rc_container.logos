@@ -1,0 +1,18 @@
+// HAny escape, Rc<Hermes2> container: a Ref HAny derived from an Rc-held container
+// can't escape a bare `return` either — the local Rc drops at scope end → refcount
+// 0 → arena freed → the Ref dangles. Caught because `value_local_root` roots a
+// method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
+// back to the local `h`. (The safe escape is `hold_any(&mut h, e) -> HeldAny`.)
+package hany_escapes_rc_container;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
+fn make_elem() -> HAny {
+    let mut h: Rc<Hermes2> = hermes2_rc(64i64);
+    let nested: &mut Array<HAny> = h.array(2i64);
+    nested.push(HAny::from(99i64));
+    let e: HAny = HAny::from(&*nested);
+    return e;                          // ERROR: Ref into the Rc-held arena, escapes
+}
+fn main() -> i32 { return 0; }

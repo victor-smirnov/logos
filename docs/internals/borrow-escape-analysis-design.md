@@ -204,11 +204,14 @@ Plumbed: SemaStructInfo → LStructDef → mono_clone → TypeSets.borrow_carryi
 The escape hatch is `hold_any(&mut Rc<Hermes2>, HAny) -> HeldAny` (laundered, ties
 to the HERMES2 holder — see container.logos). Test hany_ref_escapes_container.
 
-**Known gap (Rc container):** for `Rc<Hermes2>`, `h.array()` derefs the Rc, so the
-receiver is `AddrOfTemp(Deref(VarRef h))` and `prov_of(VarRef h)` returns {} for the
-value-local Rc — the provenance chain breaks at the smart-ptr Deref. The VALUE
-container (`hermes2_new`) works; the Rc one needs `prov_of` to root a VALUE local
-reached through a Deref. Extending the Front-(c) walk through `Deref` does catch it,
-BUT it FALSELY flags stdlib `Box::leak` (+ 4 examples) as a dangling temporary — the
-value-local-vs-param discriminator alone is insufficient through a deref. A narrower
-discriminator (or consume/leak awareness) is needed; deferred.
+**Rc container — DONE.** For `Rc<Hermes2>`, `h.array()` derefs the Rc via
+`Rc::deref` (a method whose `self` receiver is a BARE `VarRef h`, not `&h`), and
+`prov_of(VarRef h)` returns {} for the value-local Rc. Fix: factor the value-local
+walk into `value_local_root(e)` and apply it to the MethodCall RECEIVER too — a
+`&T`/borrow-carrying result of a method on a value-local receiver borrows that local.
+The walk traces FieldRead/TupleIndex/IndexRead/Deref but STOPS at a RAW-pointer deref
+(`*p`, p:`*mut`) — which is exactly what keeps stdlib `Box::leak` (`&mut *into_raw(b)`,
+a raw-ptr deref) safe (an earlier no-discriminator Deref-walk falsely flagged it).
+Now BOTH value (`hermes2_new`) and Rc (`hermes2_rc`) containers reject a bare
+`return` of a Ref HAny; safe: box_leak, hold_any→HeldAny, Pod return, in-scope use.
+Tests hany_ref_escapes_container + hany_escapes_rc_container. L4 5555/5555.

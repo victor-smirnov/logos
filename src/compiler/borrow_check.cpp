@@ -973,6 +973,43 @@ class BorrowChecker {
         return ts_.borrow_carrying.count(std::string(t.struct_name())) > 0;
     }
 
+    // If `e` (a borrow's inner place, or a method receiver) roots at a VALUE local,
+    // return its name; else "". Walk one optional leading AddrOfTemp, then a
+    // FieldRead/TupleIndex/IndexRead/Deref chain to the terminal VarRef. A RAW-
+    // pointer deref (`*p`, p:`*mut`/`*const`) STOPS the walk — the pointee isn't
+    // tied to p's stack lifetime (Rust parity; box_leak's `&mut *into_raw(b)`). The
+    // terminal must be a VALUE local: in states_, NOT a param, NOT a tracked ref-
+    // binding (ref locals are in prov_) — which keeps `&param.x` / ref-locals safe.
+    // A reference rooted at such a local dangles if it escapes the local's scope.
+    std::string value_local_root(lir_view::ExprRef e,
+                                 const TypePoolImpl* pool) const {
+        using namespace lir_view;
+        using Code = lir_schema::expr::Code;
+        ExprRef cur = e;
+        if (cur && cur.kind() == Code::AddrOfTemp) cur = EAddrOfTempView{cur}.inner();
+        while (cur) {
+            Code k = cur.kind();
+            if (k == Code::FieldRead)  { cur = EFieldReadView{cur}.receiver();  continue; }
+            if (k == Code::TupleIndex) { cur = ETupleIndexView{cur}.receiver(); continue; }
+            if (k == Code::IndexRead)  { cur = EIndexReadView{cur}.receiver();  continue; }
+            if (k == Code::Deref) {
+                auto op = EDerefView{cur}.operand();
+                if (op && op.type(pool) &&
+                    op.type(pool).kind() == LogosType::Kind::Ptr)
+                    return {};   // raw-pointer deref — unchecked
+                cur = op; continue;
+            }
+            break;
+        }
+        if (cur && cur.kind() == Code::VarRef) {
+            std::string rn(EVarRefView{cur}.name());
+            if (states_.count(rn) && !param_names_.count(rn) &&
+                prov_.find(rn) == prov_.end())
+                return rn;
+        }
+        return {};
+    }
+
     RefProv prov_of(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
@@ -1027,33 +1064,11 @@ class BorrowChecker {
                 // `__rtmp` case above, which is statement-scoped + NOT extended.
                 if (is_temporary_value_expr(v.inner()))
                     return {{}, /*is_local=*/true, /*is_temp=*/false};
-                // Front (c): a borrow of a VALUE local's inline field/tuple/index
-                // (`&c.x`, `&c.t.0`, `&c.a[i]`) is frame-direct → dangling if
-                // returned. Walk the place chain; BAIL on any Deref / MethodCall /
-                // Call etc. (those go through a pointer/heap — `&*box`, `&r.x`
-                // where r is a ref, are NOT frame-direct). The terminal must be a
-                // VALUE local: in states_, not a param, and NOT a tracked ref-
-                // binding (ref locals are in prov_, handled above). Both guards
-                // (no-Deref + value-local) keep box_leak / `&param.x` / ref-locals
-                // safe — see docs/internals/borrow-escape-analysis-design.md §4(c).
-                {
-                    ExprRef cur = v.inner();
-                    bool pure_place = true;
-                    while (cur) {
-                        Code k = cur.kind();
-                        if (k == Code::FieldRead)  { cur = EFieldReadView{cur}.receiver();  continue; }
-                        if (k == Code::TupleIndex) { cur = ETupleIndexView{cur}.receiver(); continue; }
-                        if (k == Code::IndexRead)  { cur = EIndexReadView{cur}.receiver();  continue; }
-                        if (k == Code::VarRef) break;          // terminal
-                        pure_place = false; break;             // Deref / Method / Call / …
-                    }
-                    if (pure_place && cur && cur.kind() == Code::VarRef) {
-                        std::string rn(EVarRefView{cur}.name());
-                        if (states_.count(rn) && !param_names_.count(rn) &&
-                            prov_.find(rn) == prov_.end())
-                            return {{}, /*is_local=*/true, /*is_temp=*/false};
-                    }
-                }
+                // Front (c): a borrow rooted at a VALUE local (`&c.x`, `&c.a[i]`, or
+                // a deref of a value-local ref/smart-ptr like `&*h`) is dangling if
+                // returned. `value_local_root` does the walk + value-local check.
+                if (!value_local_root(e, pool).empty())
+                    return {{}, /*is_local=*/true, /*is_temp=*/false};
                 return {};  // unknown — conservative-accept
             }
             case Code::FieldRead:
@@ -1095,6 +1110,13 @@ class BorrowChecker {
                     !is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv rp = prov_of(v.receiver());
                 if (is_temporary_value_expr(v.receiver())) rp.is_temp = true;
+                // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s
+                // `self` is `h` directly, not `&h`) — prov_of(VarRef) doesn't flag
+                // value-locals, so catch it here: a `&T`/borrow-carrying result of a
+                // method on a value-local receiver borrows that local.
+                if (rp.params.empty() && !rp.is_local && !rp.is_temp &&
+                    !value_local_root(v.receiver(), pool).empty())
+                    rp.is_local = true;
                 return rp;
             }
             case Code::Call: {
