@@ -30,6 +30,7 @@ package logos.lang.hermes2.anyval;
 
 use logos.lang.ptr;
 
+#[borrow_carrying]
 pub struct HAny { pub raw: i64 }                 // VALUE form — movable
 
 #[pinned]

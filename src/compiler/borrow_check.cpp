@@ -48,6 +48,9 @@ using namespace lir;
 struct TypeSets {
     std::unordered_set<std::string> drop_types;
     std::unordered_set<std::string> copy_types;
+    // `#[borrow_carrying]` struct names — values of these types may hold a Ref into
+    // an arena (HAny); escape-tracked like references.
+    std::unordered_set<std::string> borrow_carrying;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
@@ -74,6 +77,15 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
+    auto reg_bc = [&](const lir::LStructDef& sd) {
+        if (!sd.borrow_carrying) return;
+        ts.borrow_carrying.insert(sd.name);
+        std::string_view n = sd.name;       // also the bare (pkg-stripped) name
+        if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+            ts.borrow_carrying.insert(std::string(n.substr(dot + 1)));
+    };
+    for (auto& sd : prog.structs) reg_bc(sd);
+    for (auto& sd : prog.struct_specializations) reg_bc(sd);
     return ts;
 }
 
@@ -951,6 +963,16 @@ class BorrowChecker {
                 bp.root, bp.root));
     }
 
+    // A `#[borrow_carrying]` type (HAny): a value that may hold a Ref into an arena.
+    // Escape-tracked like a reference — see prov_of MethodCall/Call + Let/return gates.
+    bool is_borrow_carrying_type(TypeRef t) const {
+        if (!t) return false;
+        auto k = t.kind();
+        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
+            return false;
+        return ts_.borrow_carrying.count(std::string(t.struct_name())) > 0;
+    }
+
     RefProv prov_of(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
@@ -1066,14 +1088,31 @@ class BorrowChecker {
                 // temporary, which drops at the end of the statement → is_temp.
                 // (A non-ref result is a plain owned value — no provenance.)
                 EMethodCallView v{e};
-                if (!is_ref_kind(e.type(pool))) return {};
+                // A `&T` result borrows the receiver; SO DOES a `#[borrow_carrying]`
+                // value result (HAny) — its value may be a Ref into the receiver's
+                // arena. Both tie the result's provenance to the receiver.
+                if (!is_ref_kind(e.type(pool)) &&
+                    !is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv rp = prov_of(v.receiver());
                 if (is_temporary_value_expr(v.receiver())) rp.is_temp = true;
                 return rp;
             }
+            case Code::Call: {
+                // A free fn / ctor returning a `#[borrow_carrying]` value
+                // (`HAny::from(&x)`) may alias one of its REFERENCE args — merge the
+                // provenance of each ref arg. (`HAny::from(7i64)` has no ref arg →
+                // empty → freely returnable.) Non-borrow-carrying = caller-owned.
+                if (!is_borrow_carrying_type(e.type(pool))) return {};
+                RefProv merged = {};
+                ECallView{e}.each_arg([&](ExprRef a) {
+                    if (a && is_ref_kind(a.type(pool)))
+                        merged = merge_prov(merged, prov_of(a));
+                });
+                return merged;
+            }
             default:
-                // ECall / EStructLit / literals — value is caller-owned, not a
-                // borrowed reference; leave provenance empty (= unknown/safe).
+                // EStructLit / literals — value is caller-owned, not a borrowed
+                // reference; leave provenance empty (= unknown/safe).
                 return {};
         }
     }
@@ -1086,7 +1125,9 @@ class BorrowChecker {
     // ── Phase 3 + 4: dangling / lifetime check on return ──────────────────
 
     void check_return_value(lir_view::ExprRef er, uint32_t line) {
-        if (!ret_type_ || !is_ref_kind(ret_type_)) return;
+        if (!ret_type_ ||
+            (!is_ref_kind(ret_type_) && !is_borrow_carrying_type(ret_type_)))
+            return;
 
         RefProv prov = prov_of(er);
 
@@ -1831,7 +1872,7 @@ class BorrowChecker {
                 declare_var(name);
                 if (auto it = states_.find(name); it != states_.end())
                     it->second.is_mut_binding = v.is_mut();
-                if (is_ref_kind(t)) {
+                if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
                     RefProv vp = prov_of(val);
                     // E0716: a `let`-bound reference outlives its statement, but
                     // it borrows into a temporary that drops at the end of THIS

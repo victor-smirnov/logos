@@ -1035,6 +1035,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     // RefRepr RelOffset: propagate `#[rel_ptr]` so mlir-gen's ref_repr_of can
     // classify this type as a self-relative pointer (8B offset storage).
     sd.rel_ptr = sinfo->rel_ptr;
+    // hermes2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
+    // values of this type (HAny) like references.
+    sd.borrow_carrying = sinfo->borrow_carrying;
     // §6.1: propagate union flag so mlir-gen's layout path can branch
     // to max-of-fields aligned to max-alignment.
     sd.is_union = sinfo->is_union;

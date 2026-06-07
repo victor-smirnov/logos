@@ -1223,6 +1223,7 @@ private:
         if (name == "self_describing") return bit(AttrTarget::Struct);
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "pinned")          return bit(AttrTarget::Struct);
+        if (name == "borrow_carrying") return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
@@ -2106,6 +2107,14 @@ private:
                             // form is the resolved absolute pointer). Drives the
                             // is_non_movable_type pin check. (hermes2 minimal-container)
                             bool pinned = false;
+                            // `#[borrow_carrying]`: a value type whose value may
+                            // contain a borrow — an absolute Ref into an arena (e.g.
+                            // HAny). The borrow checker tracks such values' ESCAPE
+                            // like a reference: a method/ctor returning one ties the
+                            // result to its ref receiver/arg, so returning it past
+                            // the source's scope is rejected unless laundered through
+                            // a holder (HeldAny). (hermes2 HAny escape safety)
+                            bool borrow_carrying = false;
                             // logos-core §6.1: this type was declared as `union NAME { … }`
                             // rather than `struct`. Layout is max-of-fields aligned to
                             // max-alignment (vs struct's sum-of-fields); every field READ

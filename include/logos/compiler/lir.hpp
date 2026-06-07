@@ -863,6 +863,9 @@ struct LStructDef {
     // `#[rel_ptr]`: self-relative pointer type — RefRepr RelOffset (8B i64 byte
     // offset storage, absolute thin ptr compute; materialize = slot + load(slot)).
     bool                     rel_ptr = false;
+    // `#[borrow_carrying]`: a value type whose value may hold a Ref into an arena
+    // (e.g. HAny) — the borrow checker escape-tracks such values like references.
+    bool                     borrow_carrying = false;
     // logos-core §6.1: this type was declared as `union NAME { … }`.
     // Layout is max-of-fields aligned to max-alignment (vs struct's
     // sum-of-fields); only one field is "active" at a time. Field-
