@@ -123,20 +123,27 @@ unchecked (Rust parity), but REFERENCE roots run the conflict checks (mut-bindin
 check still skipped). Closes `let r=&*a; a.v=5; use r`. (ii) `return a` where
 `a = h.array()` and h is local: **DONE** — falls out of Front (a)+(c).
 
-### STILL OPEN — collection iterator-invalidation (`let r=&v[i]; v.push(); use r`)
-The classic Vec borrow error is NOT caught (verified UAF: valgrind "Invalid read"
-after realloc). Diagnosis (instrumented): `&v[i]` lowers to
-`AddrOfTemp(Deref(MethodCall index))`; routing that reborrow to
-`take_ref_borrows(MethodCall)` so Front (a) applies is correct, BUT
-`result_borrows_self` can't resolve the index method — **its `resolved_symbol` is
-EMPTY** (operator-desugared `[]` / trait-impl calls don't populate it; trait-impl
-methods also live in `prog_.impls`, absent from the resolved-symbol map). The
-signature itself is ideal (`fn index(&self, i) -> &T`, no lifetimes → would be
-`result_borrows_self`=TRUE). BLOCKER is infrastructure, not the predicate. To
-close: either (1) sema populates `resolved_symbol` for operator/trait method calls,
-or (2) the borrow checker resolves by method name + `resolved_type` receiver across
-`prog_.impls`. Both are a substantial separate piece — affects ALL collection
-indexing (Vec/HashMap/slice), broad soundness. Tracked, not yet done.
+### Collection iterator-invalidation (`let r=&v[i]; v.push(); use r`) — DONE (849b1a91)
+The classic Vec borrow error (verified UAF: valgrind "Invalid read" after realloc)
+is now caught. Three pieces, all in the borrow checker (path 2 chosen):
+1. **resolve operator/trait calls.** `&v[i]` → `&*Vec::index(&v,i)`; the index call
+   has an EMPTY `resolved_symbol` (operator desugar) and lives in `prog_.impls`.
+   Fix: index `prog_.impls` methods into the map, and fall back from
+   `resolved_symbol` to the unmangled method NAME (every same-named method must be
+   self-borrowing — Index/Deref contract; conservative, any disagreement → false).
+2. **reborrow-of-method-result routing.** `&*(MethodCall)` in `take_ref_borrows`
+   routes to the MethodCall so Front (a) records the receiver borrow.
+3. **bare-place receiver conflict check.** `v.push()` lowers its `&mut self`
+   receiver as a VarRef (generic/stdlib methods) — the AddrOfTemp path doesn't see
+   it. New `method_self_kind` + `check_recv_conflict` run the whole-root conflict
+   check for VarRef/place receivers. (Discovered by instrumentation: `recvKind=4`
+   VarRef for `push`, vs `12` AddrOfTemp for a user method.)
+Catches direct Vec/collection indexing + user `Index` impls. Test
+`vec_iterator_invalidation`. **Known remaining (rare):** the through-`&mut`-ref
+variant `let a=&mut v; let r=&(*a)[i]; a.push()` — needs the Front-a RECORDING to
+fire on a `&mut`-ref root; doing so (root_is_rawptr=Ptr-only in recording)
+regressed and was reverted. Deferred (unusual shape: indexing through an explicit
+`&mut` ref var).
 
 ## 5. False-positive traps (the things that bit us — must stay green)
 - `Box::leak(b: Box<T>) -> &T` — `&*b`: a `Deref` path → NOT FrameDirect; and `b`
