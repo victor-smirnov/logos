@@ -5964,9 +5964,15 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
 std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
         TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
     if (TypeRef(recv->type).kind() != LogosType::Kind::DstRef) return std::nullopt;
-    if (!inside_unsafe_)
-        error("method call through `&DstStruct` requires unsafe context");
     auto sname_dst = std::string(TypeRef(recv->type).struct_name());
+    // A `#[self_describing]` DST is a complete, safe reference (tail length
+    // recovered in-band via dst_len) — method access is well-defined without
+    // `unsafe`, unlike a plain custom-DST `&Foo` (out-of-band, raw-shaped).
+    if (!inside_unsafe_) {
+        auto [sd_pkg, sd_ssi] = find_struct_by_name(sname_dst);
+        if (!(sd_ssi && sd_ssi->self_describing))
+            error("method call through `&DstStruct` requires unsafe context");
+    }
     std::string mangled = sname_dst + "__" + std::string(method_name);
     std::vector<lir::LExprPtr> d_args = lower_call_args(node);
     std::vector<TypeRef> mtypes;
@@ -8384,15 +8390,19 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         // Phase 1B-14: `f.field` on a DstRef receiver. The receiver is a
         // fat pointer {data, len}. The struct name + pkg are carried in
         // the DstRef type's struct_name / pkg_name slots.
-        if (!inside_unsafe_)
-            error("field read through `&DstStruct` requires unsafe context "
-                  "(custom-DST field access is raw-pointer-shaped)");
         auto sname_dst = std::string(TypeRef(recv_base_t).struct_name());
         auto spkg_dst = std::string(TypeRef(recv_base_t).pkg_name());
         // Look up the struct info to find the tail field (the last one,
         // whose type is the unsized form).
         auto [spkg_lookup, ssi_dst] = find_struct_by_name(sname_dst);
         if (!ssi_dst) { auto [dpkg, dsi] = find_datatype_by_name(sname_dst); ssi_dst = dsi; }
+        // A `#[self_describing]` DST recovers its tail length in-band (dst_len),
+        // so a `&Foo` borrowed of it is a complete, safe reference — field access
+        // is well-defined without `unsafe` (unlike a plain custom-DST `&Foo`,
+        // whose tail length is carried out-of-band and is raw-pointer-shaped).
+        if (!inside_unsafe_ && !(ssi_dst && ssi_dst->self_describing))
+            error("field read through `&DstStruct` requires unsafe context "
+                  "(custom-DST field access is raw-pointer-shaped)");
         bool is_tail_access = false;
         TypeRef tail_elem_t;
         TypeRef tail_post_;

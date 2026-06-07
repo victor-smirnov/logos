@@ -1332,13 +1332,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                 if (auto* op_le = lexpr_of(deref_op)) {
                     auto thin = gen_expr(*op_le);
                     // `&*p` of a thin pointer to a #[self_describing] DST yields a
-                    // FAT &DST (DstRef): materialize {data=p, len=dst_len(p)} so
-                    // the existing fat field/tail-access machinery works. (A
-                    // non-self-describing DST ptr is already a fat DstRef, not a
-                    // thin Ptr/Ref, so it never reaches here.)
-                    if (result_t &&
-                        TypeRef(result_t).kind() == LogosType::Kind::DstRef && thin)
-                        return materialize_self_describing_ref(thin, result_t);
+                    // THIN &DST (DstRef): the reference IS the header pointer (the
+                    // tail length is recovered in-band via dst_len at each access),
+                    // so there is no fat {data,len} pair to build — and crucially
+                    // nothing stack-local to dangle when the `&Foo` is returned.
                     return thin;
                 }
             }
@@ -3237,7 +3234,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // {data, meta} pair) cast to a thin pointer extracts the DATA half —
         // e.g. drop_rc's `free(self.inner as *mut u8)` on an `Rc<dyn>` must
         // free the heap RcInner (the data ptr), not the fat-pair storage.
-        bool src_is_dst = fk == LogosType::Kind::DstRef;
+        // A #[self_describing] DstRef is already a THIN ptr straight to the header
+        // (the value IS the data ptr), so the cast is a no-op — exclude it.
+        bool src_is_dst = fk == LogosType::Kind::DstRef &&
+                          !dstref_pointee_self_describing(op_le->type);
         bool dst_is_void_ptr =
             tk == LogosType::Kind::Ptr &&
             TypeRef(type).pointee() &&
@@ -4767,6 +4767,32 @@ bool MLIRGenImpl::dstref_has_slice_tail(TypeRef t) {
     return lk == LogosType::Kind::Slice || lk == LogosType::Kind::UnsizedSlice;
 }
 
+// True iff `t` is a DstRef whose pointee struct is `#[self_describing]`. Such a
+// ref is PHYSICALLY THIN (8B = pointer straight to the header; the tail length
+// is recovered in-band via `dst_len`), unlike a plain `[T]`-tail DstRef which is
+// an 8B ptr to a 16-byte {data,len} pair. CRUCIAL for RETURNING a `&Foo`: a fat
+// ref's pair lives in a callee stack alloca and dangles on return, whereas a thin
+// ref IS the heap header pointer. The single discriminator routing every
+// data/len-extraction + repr/store/access site onto the thin path.
+// See docs/internals/self-describing-dst-thin-ref.md.
+bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
+    if (!t || TypeRef(t).kind() != LogosType::Kind::DstRef) return false;
+    // A monomorphized generic DST is keyed in all_struct_defs_ by its CONCRETE
+    // name (`GBlock$G1$i64`), not the bare template name (`GBlock`) that
+    // struct_name() returns — so look up the concrete name first (as emit_dst_len
+    // does for dst_len resolution), then fall back to the bare name (non-generic).
+    auto targs = TypeRef(t).type_args();
+    std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string concrete = concrete_struct_name_raw(
+        std::string(TypeRef(t).struct_name()), targ_vec);
+    for (const std::string& nm : {concrete, std::string(TypeRef(t).struct_name())}) {
+        auto it = all_struct_defs_.find(nm);
+        if (it != all_struct_defs_.end() && it->second)
+            return it->second->self_describing;
+    }
+    return false;
+}
+
 // RefRepr op: storage slot -> compute value. See header for the convention.
 mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
     if (k == RefReprKind::NotARef) return slot;
@@ -4808,8 +4834,12 @@ void MLIRGenImpl::repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot) {
     builder_.create<mlir::LLVM::MemcpyOp>(loc_, slot, val, sz, /*isVolatile=*/false);
 }
 
-mlir::Value MLIRGenImpl::materialize_self_describing_ref(mlir::Value thin_ptr,
-                                                         TypeRef dstref_t) {
+// Recover the tail length of a #[self_describing] DST from its THIN header
+// pointer by calling its `SelfDescribing::dst_len` — the in-band metadata of a
+// thin self_describing DstRef (whose physical value IS this header pointer). Used
+// as the `meta` half wherever a slice/len is projected off such a ref (the thin
+// counterpart of repr_meta's fat-pair-field-1 load). Returns an i64.
+mlir::Value MLIRGenImpl::emit_dst_len(mlir::Value thin_ptr, TypeRef dstref_t) {
     if (!thin_ptr || !dstref_t) return thin_ptr;
     // Concrete (type-arg-mangled) struct name so a GENERIC self-describing DST
     // resolves to its monomorphised `Foo$G1$i64__dst_len` instance, not the bare
@@ -4835,7 +4865,7 @@ mlir::Value MLIRGenImpl::materialize_self_describing_ref(mlir::Value thin_ptr,
         len = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
     if (len.getType() != builder_.getI64Type())
         len = coerce_numeric(len, builder_.getI64Type());
-    return repr_construct(RefReprKind::FatCustomDst, thin_ptr, len);
+    return len;
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLitView v, TypeRef type) {
@@ -4950,6 +4980,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ESliceLenView v, TypeRef) {
     if (!sl) return nullptr;
     auto slice = gen_expr(*sl);
     if (!slice) return nullptr;
+    // A thin #[self_describing] DstRef carries no out-of-band metadata — its tail
+    // length is recovered IN-BAND via dst_len(header_ptr). (slice = the header
+    // pointer itself, since repr_data(ThinPtr) is the value.)
+    if (dstref_pointee_self_describing(sl->type))
+        return emit_dst_len(slice, sl->type);
     // RefRepr (Phase 1): len = the metadata half of the fat receiver.
     return repr_meta(ref_repr_of(sl->type), slice);
 }

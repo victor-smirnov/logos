@@ -637,11 +637,12 @@ private:
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
 
-    // Materialize a fat `DstRef` ({data,len}) for a #[self_describing] custom-DST
-    // from a THIN pointer to it: recover the tail length by calling the struct's
-    // `dst_len(*const Self)` with `thin_ptr`, then build the {data,len} pair.
-    // `dstref_t` is the DstRef result type (carries the struct name). ref-repr §6.
-    mlir::Value materialize_self_describing_ref(mlir::Value thin_ptr, TypeRef dstref_t);
+    // Recover the tail length of a #[self_describing] DST from its THIN header
+    // pointer by calling the struct's `dst_len(*const Self)` with `thin_ptr`.
+    // The in-band metadata of a thin self_describing DstRef (whose physical value
+    // IS the header pointer); the thin counterpart of repr_meta. Returns an i64.
+    // `dstref_t` is the DstRef type (carries the struct name). ref-repr §6.
+    mlir::Value emit_dst_len(mlir::Value thin_ptr, TypeRef dstref_t);
 
     // `ref v` / `ref mut v` pattern-binding classifier — single source for the
     // (formerly three) enum-payload binding loops. Given the SEMA-assigned
@@ -703,6 +704,12 @@ private:
     // store/copy sites. Looks the pointee struct up in all_struct_defs_ and
     // checks the last field's kind (Slice / UnsizedSlice).
     bool dstref_has_slice_tail(TypeRef t);
+
+    // True iff `t` is a DstRef to a #[self_describing] DST — PHYSICALLY THIN (8B,
+    // pointer straight to the header; tail length recovered in-band via dst_len).
+    // The discriminator routing data/len-extraction + repr/store/access onto the
+    // thin path. See docs/internals/self-describing-dst-thin-ref.md.
+    bool dstref_pointee_self_describing(TypeRef t);
 
     // Enum representation access — the SINGLE chokepoint for the tagged-enum
     // memory layout, so niche-packing (Phase 3.5) becomes a localized change

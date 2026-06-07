@@ -12,10 +12,11 @@
 // tail offset, 8B). A DST is unsized → it only ever lives behind a pointer in the
 // arena (never a by-value local): non-movability is structural.
 //
-// Access is through a raw `*const HString` in `unsafe` (the proven self-describing
-// idiom — same as `Segment` / HermesString): the in-band tail makes `(*self).len`
-// and `self.bytes` well-defined. `as_str` borrows the inline bytes back as a `str`
-// (a slice into the arena, valid while the container lives).
+// Access is SAFE through `&HString`: because the DST is `#[self_describing]` (its
+// tail length is recovered in-band via `dst_len`), a borrowed `&HString` is a
+// complete reference — field (`self.len`) and tail (`self.bytes`) access need no
+// `unsafe`. `as_str` borrows the inline bytes back as a `str` (a slice into the
+// arena, valid while the container lives).
 
 package logos.lang.hermes2.hstring;
 
@@ -48,31 +49,31 @@ unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
 }
 
 impl Hermes2 {
-    // Intern a string into the arena; return a thin `*mut HString` into never-move
-    // storage (stable for the container's lifetime). Read it back with `as_str`.
-    pub fn hstring(self: &Hermes2, s: str) -> *mut HString {
+    // Intern a string into the arena; return a borrowed `&HString` into never-move
+    // storage (valid for the container's lifetime). Read it back with `as_str`.
+    pub fn hstring<'a>(self: &'a Hermes2, s: str) -> &'a HString {
         unsafe {
             let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
-            return hstring_new(h, s);
+            return &*hstring_new(h, s);
         }
     }
     // Resolve a Ref `HAny` back to the `HString` it points at.
-    pub fn hstring_of(self: &Hermes2, e: HAny) -> *const HString {
-        return e.resolve() as *const HString;
+    pub fn hstring_of<'a>(self: &'a Hermes2, e: HAny) -> &'a HString {
+        return unsafe { &*(e.resolve() as *const HString) };
     }
 }
 
 impl HString {
-    pub unsafe fn len(self: *const HString) -> i64 { return (*self).len; }
+    pub fn len(self: &HString) -> i64 { return self.len; }
 
-    // The inline UTF-8 slice (just past the thin header). Borrows the arena.
-    pub unsafe fn as_str(self: *const HString) -> str {
-        let body: *const u8 = (self as *const u8).byte_add(sizeof::<HString>() as i64);
-        return str_from_raw(body, (*self).len);
+    // The inline UTF-8 slice. `self.bytes` materializes the tail `&[u8]` (its
+    // length recovered in-band via dst_len); `as_ptr` is the byte address.
+    pub fn as_str(self: &HString) -> str {
+        return unsafe { str_from_raw(self.bytes.as_ptr(), self.len); };
     }
 }
 
 impl HAny {
-    // An interned string as a heterogeneous value — a (thin) Ref to its header.
-    pub fn from(s: *const HString) -> HAny { return HAny::ref_to(s as *const u8); }
+    // An interned string as a heterogeneous value — a Ref to its header.
+    pub fn from(s: &HString) -> HAny { return HAny::ref_to(s as *const HString as *const u8); }
 }

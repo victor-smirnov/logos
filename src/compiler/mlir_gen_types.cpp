@@ -533,7 +533,13 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         case K::Slice:                           return RefReprKind::FatSlice;
         case K::TraitObject:                     return RefReprKind::FatDyn;
         case K::Closure:                         return RefReprKind::FatClosure;
-        case K::DstRef:                          return RefReprKind::FatCustomDst;
+        // A #[self_describing] DstRef is physically THIN (8B ptr straight to the
+        // header; tail length in-band via dst_len) — not a 16B {data,len} pair.
+        // This is what lets a `&Foo` to it be RETURNED safely (no stack-local
+        // metadata pair to dangle).
+        case K::DstRef:
+            return dstref_pointee_self_describing(t) ? RefReprKind::ThinPtr
+                                                     : RefReprKind::FatCustomDst;
         // `#[rel_ptr]` struct → self-relative pointer (8B i64 offset storage,
         // absolute thin ptr compute). Classify by the struct def's flag.
         case K::Struct: case K::ZonedStruct: {

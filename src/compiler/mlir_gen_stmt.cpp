@@ -1156,9 +1156,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     // its 8-byte source → SIGSEGV (the rc_arc_dyn crash). Gate on the slice tail,
     // mirroring the dyn-tail/escape exclusion that dst_is_fat_dyn applies to a
     // bare TraitObject place.
+    // A #[self_describing] DstRef is physically THIN (8B ptr to the header; tail
+    // length recovered in-band) even though it has a `[T]` tail — exclude it from
+    // the 16-byte fat copy, else memcpy-16 reads OOB past the 8-byte handle.
     bool dst_is_fat_dst = pointee_t &&
         TypeRef(pointee_t).kind() == LogosType::Kind::DstRef &&
-        dstref_has_slice_tail(pointee_t);
+        dstref_has_slice_tail(pointee_t) &&
+        !dstref_pointee_self_describing(pointee_t);
     if (val.getType() == ptr_type() && val_le->type &&
         (TypeRef(val_le->type).kind() == LogosType::Kind::Closure ||
          TypeRef(val_le->type).kind() == LogosType::Kind::Slice ||
