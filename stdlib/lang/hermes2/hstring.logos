@@ -1,0 +1,71 @@
+// Logos Hermes2 stdlib — hermes2.hstring
+//
+// HString — a UTF-8 string living in the never-move arena. The bytes are stored at
+// a SELF-RELATIVE delta from the header (`header addr + data = bytes`), so the
+// header and its bytes may sit in DIFFERENT never-move segments and the delta
+// stays valid (nothing moves). `#[pinned]` → the header is location-anchored,
+// accessed via `*mut`, never moved by value.
+//
+// `as_str` materializes the absolute UTF-8 slice as a `str` — a borrow INTO the
+// arena, valid while the container (or a holder of it) lives. Like a Ref `HAny`,
+// such a `str` may not outlive its container; the borrow checker tracks it via the
+// `&self`→`str` lifetime elision.
+
+package logos.lang.hermes2.hstring;
+
+use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc / hermes2_alloc_n
+use logos.lang.hermes2.anyval;      // HAny (heterogeneous element)
+use logos.lang.str;                 // str_from_raw
+use logos.lang.mem;                 // copy_bytes
+use logos.lang.ptr;
+
+#[pinned]
+pub struct HString {
+    pub len:  i64,
+    pub data: i64,          // self-relative: bytes = (header addr) + data
+}
+
+// Copy `s`'s bytes into the arena; return a fresh HString header pointing at them.
+unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
+    let n: i64 = s.len();
+    let hdr: *mut HString = hermes2_alloc::<HString>(h);
+    let buf: *mut u8      = hermes2_alloc_n::<u8>(h, n);
+    copy_bytes(buf, s.as_ptr(), n);
+    hdr.len  = n;
+    hdr.data = (buf as i64) - (hdr as i64);
+    return hdr;
+}
+
+impl Hermes2 {
+    // Intern a string into the arena. The returned `&mut HString` lives as long as
+    // the container (interior-mut alloc via `&self`, like `array`).
+    pub fn hstring<'a>(self: &'a Hermes2, s: str) -> &'a mut HString {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return &mut *hstring_new(h, s);
+        }
+    }
+    // Resolve a Ref `HAny` back to the `HString` it points at, tied to THIS
+    // container (the returned `&HString` may not outlive the container).
+    pub fn hstring_of<'a>(self: &'a Hermes2, e: HAny) -> &'a HString {
+        return unsafe { &*(e.resolve() as *const HString) };
+    }
+}
+
+impl HAny {
+    // An interned string as a heterogeneous value — a Ref to its header.
+    pub fn from(s: &HString) -> HAny { return HAny::ref_to(s as *const HString as *const u8); }
+}
+
+impl HString {
+    pub fn len(self: &HString) -> i64 { return self.len; }
+
+    // The UTF-8 slice. Borrows the arena — valid while the container lives.
+    pub fn as_str(self: &HString) -> str {
+        unsafe {
+            let bytes: *const u8 =
+                ((self as *const HString as i64) + self.data) as *const u8;
+            return str_from_raw(bytes, self.len);
+        }
+    }
+}
