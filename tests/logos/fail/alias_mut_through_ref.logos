@@ -1,0 +1,15 @@
+// Borrow-checker: aliasing `&mut` and `&` to the same object THROUGH a reference
+// must be rejected (a reborrow `&*a` held across a mutation through the same `&mut
+// a`). Previously B93.2 skipped ALL tracking for `&mut`/raw-ptr roots — an
+// anti-false-positive measure that overshot into a real use-after-free hole. Fixed
+// by tracking borrow CONFLICTS for reference roots (mut-binding check still skipped
+// — writing through `&mut r` needs no `mut r`; raw pointers stay unchecked).
+package alias_mut_through_ref;
+struct C { v: i64 }
+fn main() -> i32 {
+    let mut x: C = C { v: 1i64 };
+    let a: &mut C = &mut x;
+    let r: &C = &*a;       // shared reborrow through a
+    a.v = 5i64;            // ERROR: mutate through &mut a while r borrows *a
+    return r.v as i32;     // r used after
+}

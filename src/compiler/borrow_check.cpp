@@ -2231,18 +2231,25 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             BorrowPlace bp = extract_borrow_place(inner, pool);
             std::string root = bp.root;
             std::string path = bp.path;
-            // B93.2: a raw-pointer or `&mut T` root means the borrow goes
-            // THROUGH the reference — skip mut-binding + field-borrow
-            // tracking (writing through the ref needs no `mut r` binding,
-            // Rust parity).
-            bool root_is_raw_ptr =
+            // A RAW pointer root (`*mut`/`*const`) is unchecked — Rust parity
+            // (deref of a raw ptr is unsafe; aliasing is the programmer's job).
+            // A REFERENCE root (`&`/`&mut`) IS tracked for borrow CONFLICTS — a
+            // reborrow through it (`&*a`) and a mutation through it (`a.push()`)
+            // must not alias (closing the through-`&mut` use-after-free, B93.2-fix).
+            // Its mut-binding check stays skipped: writing through `&mut r` needs
+            // no `mut r` (Rust parity). Field-path borrow tracking on a reference
+            // root is still skipped (the ref's binding, not its pointee, is the
+            // tracked place) — whole-root conflict checks below suffice.
+            bool root_is_rawptr =
+                bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr;
+            bool root_is_ref =
                 bp.root_type &&
-                (bp.root_type.kind() == LogosType::Kind::Ptr ||
+                (bp.root_type.kind() == LogosType::Kind::Ref ||
                  bp.root_type.kind() == LogosType::Kind::MutRef);
-            if (!root.empty() && !root_is_raw_ptr && states_.count(root)) {
+            if (!root.empty() && !root_is_rawptr && states_.count(root)) {
                 auto sit = states_.find(root);
-                // Mut-binding check (root-level).
-                if (is_mut && !sit->second.is_mut_binding
+                // Mut-binding check (root-level) — skipped for reference roots.
+                if (is_mut && !root_is_ref && !sit->second.is_mut_binding
                     && !param_names_.count(root))
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut",
