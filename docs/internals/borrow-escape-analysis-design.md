@@ -115,13 +115,28 @@ unknown: **do not borrow** (under-approximate — avoid the false positive; we l
 some real catches but never break valid code).
 
 ### Front (b) — provenance/exclusivity through a reference + interior-mut returns
-Two parts. (i) Exclusivity through a `&mut`/`*mut` root (B93.2 is intentionally
-off) — keep off for now (it's a separate, larger relaxation-vs-soundness call;
-the container's arrays are `&mut ZArrayAny`, but mutation goes through `push(&mut
-self)` which is itself the `&mut self` path of GAP 2 once the array is a direct
-binding, not a `&mut` var). (ii) `return a` where `a = h.array()` and h is local:
-falls out of Front (a)+(c) once method-result provenance ties `a` to the receiver
-`h`, and `h` is a FrameDirect local.
+Two parts. (i) Exclusivity through a `&mut` reference root — **DONE (f9e4efa3).**
+B93.2 had skipped ALL tracking for `&mut`/raw-ptr roots (anti-false-positive for
+nested `c.v.set(c.v.get()+1)`); that overshot into a real UAF (aliased `&mut`+`&`
+through a ref). Fix: split the root kind in `visit(AddrOfTemp)` — RAW pointers stay
+unchecked (Rust parity), but REFERENCE roots run the conflict checks (mut-binding
+check still skipped). Closes `let r=&*a; a.v=5; use r`. (ii) `return a` where
+`a = h.array()` and h is local: **DONE** — falls out of Front (a)+(c).
+
+### STILL OPEN — collection iterator-invalidation (`let r=&v[i]; v.push(); use r`)
+The classic Vec borrow error is NOT caught (verified UAF: valgrind "Invalid read"
+after realloc). Diagnosis (instrumented): `&v[i]` lowers to
+`AddrOfTemp(Deref(MethodCall index))`; routing that reborrow to
+`take_ref_borrows(MethodCall)` so Front (a) applies is correct, BUT
+`result_borrows_self` can't resolve the index method — **its `resolved_symbol` is
+EMPTY** (operator-desugared `[]` / trait-impl calls don't populate it; trait-impl
+methods also live in `prog_.impls`, absent from the resolved-symbol map). The
+signature itself is ideal (`fn index(&self, i) -> &T`, no lifetimes → would be
+`result_borrows_self`=TRUE). BLOCKER is infrastructure, not the predicate. To
+close: either (1) sema populates `resolved_symbol` for operator/trait method calls,
+or (2) the borrow checker resolves by method name + `resolved_type` receiver across
+`prog_.impls`. Both are a substantial separate piece — affects ALL collection
+indexing (Vec/HashMap/slice), broad soundness. Tracked, not yet done.
 
 ## 5. False-positive traps (the things that bit us — must stay green)
 - `Box::leak(b: Box<T>) -> &T` — `&*b`: a `Deref` path → NOT FrameDirect; and `b`
