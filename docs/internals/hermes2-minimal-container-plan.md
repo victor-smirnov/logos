@@ -1,7 +1,7 @@
 # Hermes2 — Minimal Type-Safe, BC-Integrated Container (plan)
 
 Goal (Victor, 2026-06-06): a **minimal, type-safe, borrow-check-integrated**
-Hermes2 container holding, for now, **primitive types and `Array<ZonedAny>`**
+Hermes2 container holding, for now, **primitive types and `Array<HAny>`**
 (the Hermes2 analog of `Array<AnyVal>`). Concrete subset of the §9 roadmap in
 [hermes2-design.md](hermes2-design.md).
 
@@ -30,7 +30,7 @@ container hands out in-scope `&'a` views.
 1. The container is owned/managed by hand (`hermes2_free` is manual + `unsafe`) —
    no RAII, no type-safety at the owner level.
 2. The public API is all `unsafe fn … -> *mut T` — raw pointers leak; not type-safe.
-3. No `ZonedAny` (the 8-byte heterogeneous slot) and no `Array<ZonedAny>`.
+3. No `HAny` (the 8-byte heterogeneous slot) and no `Array<HAny>`.
 
 ## Design decisions (recommendations — confirm before building)
 
@@ -38,14 +38,14 @@ container hands out in-scope `&'a` views.
   String/move discussion). Both `{ raw: i64 }`, bit-identical layout, bit-0
   discriminant (`1`→inline **Pod** primitive; `0`→**Ref**; `raw==0`=null); Pod is
   identical in both (position-independent), only the Ref half differs:
-  - `ZonedAny` — the **value form**: Ref = an **absolute** pointer to the tagged
+  - `HAny` — the **value form**: Ref = an **absolute** pointer to the tagged
     object. Movable by memcpy (like `String`'s `ptr`); lives on stack/heap/in
     registers/by-value. Dispatch via `Hermes2TagSystem` (materialize → `*const u8`
     → read_tag).
-  - `ZonedAnyRel` — the **at-rest form** in an arena slot: Ref = a **self-relative**
+  - `HAnyRel` — the **at-rest form** in an arena slot: Ref = a **self-relative**
     delta `target − &slot` (anchor = the slot's own address).
-  - Bridge: `materialize(slot: *const ZonedAnyRel) -> ZonedAny` (Ref: `&slot+delta`)
-    and `lower(v: ZonedAny, dst: *mut ZonedAnyRel)` (Ref: `target−&dst`); identity
+  - Bridge: `materialize(slot: *const HAnyRel) -> HAny` (Ref: `&slot+delta`)
+    and `lower(v: HAny, dst: *mut HAnyRel)` (Ref: `target−&dst`); identity
     for Pod. Array `get` materialises, `put` lowers. Distinct types make the
     conversion mandatory (type-safe — can't use a relative slot as an absolute value).
   - **Later (more canonical):** make these niche-packed `enum { Ref | Pod }` once
@@ -72,7 +72,7 @@ container hands out in-scope `&'a` views.
   `hermes2_container`/`hermes2_allocator` tests stay green.
 
 ### Phase 0.5 — movable self-relative refs (value-form absolute, like `String::ptr`)
-The reduction that lets a rel_ptr / `ZonedAny` value move by **plain memcpy**,
+The reduction that lets a rel_ptr / `HAny` value move by **plain memcpy**,
 exactly as Rust's (weaker-than-C++, no move-ctor) move relocates a `String`'s
 absolute `ptr`:
 - A rel_ptr type's **value/compute representation is an absolute pointer** (not
@@ -81,7 +81,7 @@ absolute `ptr`:
 - The **self-relative i64 delta is only the at-rest encoding in arena (zoned)
   storage**; `materialize` (read arena→value) / `lower` (write value→arena) are
   the boundary — already built for `#[rel_ptr]` field read/write.
-- **Pin relaxes:** a standalone rel_ptr / `ZonedAny` *value* is movable (its
+- **Pin relaxes:** a standalone rel_ptr / `HAny` *value* is movable (its
   value-form is absolute). The relative form never appears in a movable value.
   The only relative-form-in-memory case — a whole **arena-resident** struct with
   rel_ptr fields — is **never moved** (arena objects accessed via views;
@@ -90,11 +90,11 @@ absolute `ptr`:
   make it the absolute value-form. Update [hermes2-design.md](hermes2-design.md)
   §2 ("cannot be carried bare" → "carried bare as the absolute compute form;
   re-lowered only on store into zoned storage").
-- Tests: move / return / stack / copy a `ZonedAny` (and a `RelAny` value) — the
+- Tests: move / return / stack / copy a `HAny` (and a `RelAny` value) — the
   target still resolves after relocation, including across a segment boundary.
 
-### Phase 1 — `ZonedAny` (the Hermes2 AnyVal)  *(D1)*
-- `stdlib/lang/hermes2/anyval.logos`: `ZonedAny { raw: i64 }` + constructors
+### Phase 1 — `HAny` (the Hermes2 AnyVal)  *(D1)*
+- `stdlib/lang/hermes2/anyval.logos`: `HAny { raw: i64 }` + constructors
   (`pod_i64`/`pod_bool`/… and `from_ref(slot, target)`), accessors
   (`is_pod`/`is_ref`/`is_null`, `as_i64`/…, `resolve(self) -> *const u8`).
   Wide primitives that don't fit inline are stored as a tagged zone object and
@@ -114,18 +114,18 @@ absolute `ptr`:
   borrow checker rejects (a) using a view after the container drops, (b) mutating
   the container while a view is live.
 
-### Phase 3 — `Array<ZonedAny>` + primitive arrays  *(D4)*
+### Phase 3 — `Array<HAny>` + primitive arrays  *(D4)*
 - `stdlib/lang/hermes2/array.logos`: `ZArray { len: i64, cap: i64, data: RelPtr<…> }`
   — header in a segment, element buffer in the arena, `data` a self-relative
   pointer. Mirrors Hermes1 `Array<AnyVal>` but self-relative + safe API:
-  `new_array(&mut Hermes2, cap)`, `push(&mut self, ZonedAny)`,
-  `get<'a>(&'a self, i) -> &'a ZonedAny`, `len`. Append-grow per D4.
-- Test: build an `Array<ZonedAny>` of inline primitives **and** a nested
-  `Array<ZonedAny>` (Ref element); read back across segment boundaries; verify
+  `new_array(&mut Hermes2, cap)`, `push(&mut self, HAny)`,
+  `get<'a>(&'a self, i) -> &'a HAny`, `len`. Append-grow per D4.
+- Test: build an `Array<HAny>` of inline primitives **and** a nested
+  `Array<HAny>` (Ref element); read back across segment boundaries; verify
   sums; BC-tied views; growth past one segment.
 
 ### Phase 4 — the minimal document (integration)
-- A `Hermes2Doc` whose root is an `Array<ZonedAny>`; build a small heterogeneous
+- A `Hermes2Doc` whose root is an `Array<HAny>`; build a small heterogeneous
   document (ints + a nested array) entirely through the safe API; end-to-end
   type-safe + BC-clean + valgrind-clean. Optional: dump the blob and confirm it
   is self-contained (self-relative deltas only — relocatable).
@@ -137,4 +137,4 @@ absolute `ptr`:
   the holder scope + RC-elision (we use in-scope `&'a` views).
 - §9 part 6: copy-compaction (copying GC).
 - Nested `PackedAllocator` coupling; the atomic/`Arc` residency variant.
-- Wide / arbitrary user datatypes (only primitives + `Array<ZonedAny>` now).
+- Wide / arbitrary user datatypes (only primitives + `Array<HAny>` now).

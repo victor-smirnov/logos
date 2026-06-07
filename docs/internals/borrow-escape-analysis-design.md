@@ -55,9 +55,9 @@ the receiver (returns a global, or re-borrows an ARG). Needs per-method lifetime
 elision ("does the result borrow `self`?").
 
 **(b) borrow THROUGH a reference is untracked (B93.2, intentional today).** `&*a`
-where `a: &mut ZArrayAny` has root kind `MutRef` → `visit(AddrOfTemp)` skips
+where `a: &mut Array<HAny>` has root kind `MutRef` → `visit(AddrOfTemp)` skips
 tracking (line ~2160). So objects accessed via a `&mut`/`*mut` (the whole Hermes2
-container, since arrays are held as `&mut ZArrayAny`) get NO exclusivity, and
+container, since arrays are held as `&mut Array<HAny>`) get NO exclusivity, and
 `return a` (a from `h.array()`, h a local) is not caught (method-result provenance
 is empty for a local receiver).
 

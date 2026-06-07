@@ -1,4 +1,4 @@
-// #[pinned] — a location-anchored at-rest type (the Hermes2 ZonedAnyRel pattern):
+// #[pinned] — a location-anchored at-rest type (the Hermes2 HAnyRel pattern):
 // its bits are anchored to its storage slot (a self-relative delta), so it must
 // NEVER be moved by value (memcpy would break the anchor). It lives only behind a
 // pointer (`*mut`), accessed in place + materialised explicitly to its movable
@@ -6,8 +6,8 @@
 // so it is itself movable), a #[pinned] type is non-movable itself. Here a by-value
 // `let` binding of the pinned type is the rejection.
 package pinned_non_movable;
-#[pinned] struct ZonedAnyRel { raw: i64 }
+#[pinned] struct HAnyRel { raw: i64 }
 fn main() -> i32 {
-    let x: ZonedAnyRel = ZonedAnyRel { raw: 0i64 };   // ERROR: pinned type by value
+    let x: HAnyRel = HAnyRel { raw: 0i64 };   // ERROR: pinned type by value
     return x.raw as i32;
 }

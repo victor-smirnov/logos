@@ -81,7 +81,7 @@ struct RefRepr {
   // NICHES — invalid storage bit-patterns the enum-layout may use to pack a
   // discriminant for free (e.g. a zoned pointer's low bit is always 0 since
   // zoned objects are ≥2-aligned; a zoned *reference* is additionally non-null).
-  // `ZonedAny = enum { Ref(zoned) | Pod }` and `Option<zoned T>` rely on this.
+  // `HAny = enum { Ref(zoned) | Pod }` and `Option<zoned T>` rely on this.
   NicheSet niches();
 };
 
@@ -211,11 +211,11 @@ reasons, not representation.)
     Rust-faithful query is `offset_of!`. Both are follow-ups, not blockers.
 - **Phase 3.5 — enum niche optimization** (new compiler feature, §7):
   consume `RefRepr::niches()` in the enum-layout so a discriminant packs
-  into invalid bit-patterns. Prerequisite for `ZonedAny` and
+  into invalid bit-patterns. Prerequisite for `HAny` and
   `Option<zoned T>`.
 - **Phase 4 — add the zoned reference reprs** (§6, the first real
   storage/compute specializations): typed `zoned T` (untagged), erased
-  tagged zoned ptr, and `ZonedAny`. hermes2 zoned pointer *fields* become
+  tagged zoned ptr, and `HAny`. hermes2 zoned pointer *fields* become
   auto-relative via these reprs — no `RelPtr<T>`, no hand-rolled resolve.
   Validates the abstraction end-to-end.
 
@@ -242,7 +242,7 @@ never for container internals whose types are known.
   op is *read tag → narrow to a typed compute form → process* (a built-in
   match the compiler materializes per branch — the general case of which
   in-band metadata recovery is the static, single-branch instance).
-- **`ZonedAny = enum { Ref(*zoned) | Pod(embedded) }`** — the AnyVal,
+- **`HAny = enum { Ref(*zoned) | Pod(embedded) }`** — the AnyVal,
   modeled as an ordinary **niche-packed enum** (discriminant in the
   pointer's low-bit niche; `Ref` = even word = self-relative offset, `Pod`
   = low-bit-1 = inline tagged value à la today's AnyVal). In zoned storage
@@ -262,7 +262,7 @@ doesn't conflate the two storage models during the migration; merged once
 hermes1 retires.
 
 This whole model is just a population of the `RefRepr` registry: typed
-`zoned T`, erased-tagged, and `ZonedAny` are descriptors; their niches
+`zoned T`, erased-tagged, and `HAny` are descriptors; their niches
 feed the enum-layout (§7); the relative↔absolute conversion is their
 `materialize`/`lower`.
 
@@ -272,7 +272,7 @@ feed the enum-layout (§7); the relative↔absolute conversion is their
 
 Logos enums today are value-repr `{disc, payload}` with **no niche
 optimization** — a discriminant always costs its own bits. The zoned
-model needs niche-packing: `ZonedAny`'s `Ref|Pod` discriminant must live
+model needs niche-packing: `HAny`'s `Ref|Pod` discriminant must live
 in the pointer's low-bit, and `Option<zoned T>` must use `null` as `None`.
 So this is a **new compiler feature, built as part of the Hermes2 plan**
 (Phase 3.5): the enum-layout queries `RefRepr::niches()` (invalid storage

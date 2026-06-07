@@ -1,7 +1,7 @@
 // Logos Hermes2 stdlib — hermes2.array
 //
-// ZArrayAny — a heterogeneous zoned array of ZonedAny. Elements live AT-REST as
-// `ZonedAnyRel` slots in a never-move arena buffer; the header is `#[pinned]`
+// Array<HAny> — a heterogeneous zoned array of HAny. Elements live AT-REST as
+// `HAnyRel` slots in a never-move arena buffer; the header is `#[pinned]`
 // (in-arena, accessed via `*mut`, never moved). `data` is a self-relative delta
 // from the header to the element buffer — header and buffer may sit in DIFFERENT
 // never-move segments, and the delta stays valid (nothing moves).
@@ -10,7 +10,7 @@
 // untouched (dead until the container drops — design §3, no per-object reclaim).
 // The grow-copy is NOT a memcpy: the at-rest slots are self-relative (anchored to
 // their slot address), so each is COPIED through the absolute intermediate —
-// `za_materialize` (old slot → absolute value) then `za_lower` (→ new slot,
+// `ha_materialize` (old slot → absolute value) then `ha_lower` (→ new slot,
 // re-anchored). This is the canonical "copy a self-relative ref via absolute".
 //
 // (Functional core — raw `unsafe` mechanics; the type-safe surface wraps it.)
@@ -23,7 +23,7 @@ use logos.lang.hermes2.allocator;
 use logos.lang.ptr;
 
 #[pinned]
-pub struct ZArrayAny {
+pub struct Array<T> {
     pub len:   i64,
     pub cap:   i64,
     pub data:  i64,             // self-relative: element buffer = (header addr) + data
@@ -32,19 +32,19 @@ pub struct ZArrayAny {
 
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
 // split — a `*const` header yields a `*const` buffer, never laundering const→mut).
-unsafe fn za_buf(a: *const ZArrayAny) -> *const ZonedAnyRel {
-    return ((a as i64) + a.data) as *const ZonedAnyRel;
+unsafe fn array_buf(a: *const Array<HAny>) -> *const HAnyRel {
+    return ((a as i64) + a.data) as *const HAnyRel;
 }
-unsafe fn za_buf_mut(a: *mut ZArrayAny) -> *mut ZonedAnyRel {
-    return ((a as i64) + a.data) as *mut ZonedAnyRel;
+unsafe fn array_buf_mut(a: *mut Array<HAny>) -> *mut HAnyRel {
+    return ((a as i64) + a.data) as *mut HAnyRel;
 }
 
 // Raw core (internal). Create an empty array in `h`; the header stores a back-
 // pointer to the container's allocator so growth is self-contained (no container
 // threaded through every push).
-unsafe fn zarray_new(h: *mut Hermes2, cap: i64) -> *mut ZArrayAny {
-    let hdr: *mut ZArrayAny    = hermes2_alloc::<ZArrayAny>(h);
-    let buf: *mut ZonedAnyRel  = hermes2_alloc_n::<ZonedAnyRel>(h, cap);
+unsafe fn array_new(h: *mut Hermes2, cap: i64) -> *mut Array<HAny> {
+    let hdr: *mut Array<HAny>    = hermes2_alloc::<Array<HAny>>(h);
+    let buf: *mut HAnyRel  = hermes2_alloc_n::<HAnyRel>(h, cap);
     hdr.len   = 0i64;
     hdr.cap   = cap;
     hdr.data  = (buf as i64) - (hdr as i64);
@@ -52,72 +52,72 @@ unsafe fn zarray_new(h: *mut Hermes2, cap: i64) -> *mut ZArrayAny {
     return hdr;
 }
 
-unsafe fn zarray_len(a: *const ZArrayAny) -> i64 { return a.len; }
+unsafe fn array_len(a: *const Array<HAny>) -> i64 { return a.len; }
 
 // Append `v`. On overflow, allocate a fresh 2× buffer THROUGH THE STORED ALLOCATOR
 // and re-point `data`, copying each existing slot through the absolute intermediate
 // (re-anchoring).
-unsafe fn zarray_push(a: *mut ZArrayAny, v: ZonedAny) {
+unsafe fn array_push(a: *mut Array<HAny>, v: HAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
-        let nbuf: *mut ZonedAnyRel =
-            allocator_alloc(a.alloc, newcap * (sizeof::<ZonedAnyRel>() as i64)) as *mut ZonedAnyRel;
-        let obuf: *mut ZonedAnyRel = za_buf_mut(a);
+        let nbuf: *mut HAnyRel =
+            allocator_alloc(a.alloc, newcap * (sizeof::<HAnyRel>() as i64)) as *mut HAnyRel;
+        let obuf: *mut HAnyRel = array_buf_mut(a);
         let mut i: i64 = 0i64;
         while i < a.len {
             // re-anchor: materialise from the OLD slot, lower into the NEW slot.
-            let val: ZonedAny = za_materialize(obuf.add(i) as *const ZonedAnyRel);
-            za_lower(val, nbuf.add(i));
+            let val: HAny = ha_materialize(obuf.add(i) as *const HAnyRel);
+            ha_lower(val, nbuf.add(i));
             i = i + 1i64;
         }
         a.data = (nbuf as i64) - (a as i64);
         a.cap  = newcap;
     }
-    let buf: *mut ZonedAnyRel = za_buf_mut(a);
-    za_lower(v, buf.add(a.len));
+    let buf: *mut HAnyRel = array_buf_mut(a);
+    ha_lower(v, buf.add(a.len));
     a.len = a.len + 1i64;
 }
 
-unsafe fn zarray_get(a: *const ZArrayAny, i: i64) -> ZonedAny {
-    let buf: *const ZonedAnyRel = za_buf(a);
-    return za_materialize(buf.add(i));
+unsafe fn array_get(a: *const Array<HAny>, i: i64) -> HAny {
+    let buf: *const HAnyRel = array_buf(a);
+    return ha_materialize(buf.add(i));
 }
 
 // ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────
 //
-// Client code holds a DIRECT reference to an array — `&ZArrayAny` / `&mut
-// ZArrayAny`. Arrays live in the never-move arena, so the reference is stable for
+// Client code holds a DIRECT reference to an array — `&Array<HAny>` / `&mut
+// Array<HAny>`. Arrays live in the never-move arena, so the reference is stable for
 // the container's lifetime. Allocation is interior-mutability (`array(&self)`,
 // bumpalo-style): the `&self` lets MANY references into the container coexist with
 // FURTHER allocation — sound precisely because never-move (nothing a reference
 // points at ever moves). Used like a `Vec`: `a.push(v)`, `a.get(i)`, `a.len()`.
-// Nesting: `parent.push(ZonedAny::from(child))`; read back `c.array_of(ref)`.
+// Nesting: `parent.push(HAny::from(child))`; read back `c.array_of(ref)`.
 // (The residency `holder` for ESCAPING references, and the enforced borrow-tie
 // ref ≤ holder + mutation-exclusivity, are the next steps of this model.)
 impl Hermes2 {
     // Create an empty array; returns a fresh `&mut` to it. `&self` allocation
     // (interior-mut): the returned `&mut` is to brand-new never-move storage, so
     // multiple `array(&self)` calls coexist (each &mut is a distinct object).
-    pub fn array<'a>(self: &'a Hermes2, cap: i64) -> &'a mut ZArrayAny {
+    pub fn array<'a>(self: &'a Hermes2, cap: i64) -> &'a mut Array<HAny> {
         unsafe {
             let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
-            return &mut *zarray_new(h, cap);
+            return &mut *array_new(h, cap);
         }
     }
     // Resolve a Ref element back to the array it points at, tied to THIS container
-    // (the returned `&ZArrayAny` may not outlive the container).
-    pub fn array_of<'a>(self: &'a Hermes2, e: ZonedAny) -> &'a ZArrayAny {
-        return unsafe { &*(e.resolve() as *const ZArrayAny) };
+    // (the returned `&Array<HAny>` may not outlive the container).
+    pub fn array_of<'a>(self: &'a Hermes2, e: HAny) -> &'a Array<HAny> {
+        return unsafe { &*(e.resolve() as *const Array<HAny>) };
     }
 }
 
-impl ZArrayAny {
-    pub fn push(self: &mut ZArrayAny, v: ZonedAny) { unsafe { zarray_push(self as *mut ZArrayAny, v); } }
-    pub fn get(self: &ZArrayAny, i: i64) -> ZonedAny { return unsafe { zarray_get(self as *const ZArrayAny, i) }; }
-    pub fn len(self: &ZArrayAny) -> i64 { return unsafe { zarray_len(self as *const ZArrayAny) }; }
+impl Array<HAny> {
+    pub fn push(self: &mut Array<HAny>, v: HAny) { unsafe { array_push(self as *mut Array<HAny>, v); } }
+    pub fn get(self: &Array<HAny>, i: i64) -> HAny { return unsafe { array_get(self as *const Array<HAny>, i) }; }
+    pub fn len(self: &Array<HAny>) -> i64 { return unsafe { array_len(self as *const Array<HAny>) }; }
 }
 
-impl ZonedAny {
+impl HAny {
     // A nested array as a heterogeneous value (Ref to the child's header).
-    pub fn from(a: &ZArrayAny) -> ZonedAny { return ZonedAny::ref_to(a as *const ZArrayAny as *const u8); }
+    pub fn from(a: &Array<HAny>) -> HAny { return HAny::ref_to(a as *const Array<HAny> as *const u8); }
 }

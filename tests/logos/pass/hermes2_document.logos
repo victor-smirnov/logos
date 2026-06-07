@@ -1,16 +1,16 @@
 // Hermes2 — minimal heterogeneous document, direct references + fully safe: a root
-// array holds inline ints AND a NESTED array (ZonedAny::from(&child)); deep_sum
-// descends Ref elements via `h.array_of(ref) -> &ZArrayAny` (tied to the container).
+// array holds inline ints AND a NESTED array (HAny::from(&child)); deep_sum
+// descends Ref elements via `h.array_of(ref) -> &Array<HAny>` (tied to the container).
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 
-fn deep_sum(h: &Hermes2, a: &ZArrayAny) -> i64 {
+fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
     let mut s: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < a.len() {
-        let e: ZonedAny = a.get(i);
+        let e: HAny = a.get(i);
         if e.is_i56() { s = s + e.as_i56(); }
         else { if e.is_ref() { s = s + deep_sum(h, h.array_of(e)); } }
         i = i + 1i64;
@@ -20,15 +20,15 @@ fn deep_sum(h: &Hermes2, a: &ZArrayAny) -> i64 {
 
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
-    let nested: &mut ZArrayAny = h.array(2i64);
-    nested.push(ZonedAny::from(1i64));
-    nested.push(ZonedAny::from(2i64));
-    nested.push(ZonedAny::from(3i64));
-    let root: &mut ZArrayAny = h.array(2i64);
-    root.push(ZonedAny::from(10i64));
-    root.push(ZonedAny::from(20i64));
-    root.push(ZonedAny::from(&*nested));      // nest the child (reborrow &mut as &)
-    root.push(ZonedAny::from(40i64));
+    let nested: &mut Array<HAny> = h.array(2i64);
+    nested.push(HAny::from(1i64));
+    nested.push(HAny::from(2i64));
+    nested.push(HAny::from(3i64));
+    let root: &mut Array<HAny> = h.array(2i64);
+    root.push(HAny::from(10i64));
+    root.push(HAny::from(20i64));
+    root.push(HAny::from(&*nested));      // nest the child (reborrow &mut as &)
+    root.push(HAny::from(40i64));
     let total: i64 = deep_sum(&h, root);    // 10+20+(1+2+3)+40 = 76
     if total != 76i64 { return total as i32; }
     return 0;

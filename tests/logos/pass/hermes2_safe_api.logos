@@ -1,7 +1,7 @@
 // Hermes2 — direct-reference surface (no handle/view wrapper): the client holds a
-// `&mut ZArrayAny` to an array living in the never-move arena, used like a Vec
+// `&mut Array<HAny>` to an array living in the never-move arena, used like a Vec
 // (a.push/a.get/a.len). Allocation is interior-mutability (`h.array(&h)`,
-// bumpalo-style), so two arrays coexist. Typed ZonedAny::from(i56)/from(bool).
+// bumpalo-style), so two arrays coexist. Typed HAny::from(i56)/from(bool).
 // FULLY safe: zero `unsafe`/raw pointer in user code.
 package test;
 use logos.lang.hermes2.container;
@@ -9,19 +9,19 @@ use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
-    let nested: &mut ZArrayAny = h.array(2i64);
-    nested.push(ZonedAny::from(1i64));
-    nested.push(ZonedAny::from(2i64));
-    nested.push(ZonedAny::from(3i64));
-    let root: &mut ZArrayAny = h.array(2i64);
-    root.push(ZonedAny::from(10i64));
-    root.push(ZonedAny::from(20i64));
-    root.push(ZonedAny::from(true));
+    let nested: &mut Array<HAny> = h.array(2i64);
+    nested.push(HAny::from(1i64));
+    nested.push(HAny::from(2i64));
+    nested.push(HAny::from(3i64));
+    let root: &mut Array<HAny> = h.array(2i64);
+    root.push(HAny::from(10i64));
+    root.push(HAny::from(20i64));
+    root.push(HAny::from(true));
     if root.len() != 3i64 { return 1; }
     let mut s: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < root.len() {
-        let e: ZonedAny = root.get(i);
+        let e: HAny = root.get(i);
         if e.is_i56() { s = s + e.as_i56(); }
         i = i + 1i64;
     }

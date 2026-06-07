@@ -1572,7 +1572,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 break;
                             }
                         // `#[pinned]`: a location-anchored at-rest type (e.g.
-                        // ZonedAnyRel) — non-movable by value (is_non_movable_type).
+                        // HAnyRel) — non-movable by value (is_non_movable_type).
                         for (auto& ann : pending_annots)
                             if (str_of(ann.get(la::NAME.code)) == "pinned") {
                                 auto skey = sema_key(cur_package_, sname);

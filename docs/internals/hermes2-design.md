@@ -63,7 +63,7 @@ user-written `RelPtr<T>`** (that explicit type was removed 2026-06-04) —
 it is the **compiler's storage representation** for an ordinary pointer
 field inside a `#[zoned2]` struct, derived from context and converted
 transparently. The full model (typed `zoned T`, tagged/erased refs,
-`ZonedAny`, niches) and the codegen plumbing live in
+`HAny`, niches) and the codegen plumbing live in
 [ref-repr-design.md](ref-repr-design.md) §6; this section states the
 storage mechanics it rests on.
 
@@ -87,7 +87,7 @@ Consequences:
 - **Niche, not just a null sentinel.** Zoned objects are ≥2-aligned, so a
   pointer delta's low bit is always 0; a *reference* (non-null) adds the
   null niche. These invalid bit-patterns feed enum niche-packing
-  (`Option<zoned T>`, and `ZonedAny`'s `Ref|Pod` discriminant) — see
+  (`Option<zoned T>`, and `HAny`'s `Ref|Pod` discriminant) — see
   ref-repr §6-7.
 - **Position-independent / serializable — for a *rigid block*.** Self-relative
   deltas survive relocation only if every internal address *difference* is
@@ -112,7 +112,7 @@ Consequences:
 | Form | What it is | Carries | Used for |
 |---|---|---|---|
 | zoned pointer field | in-zone stored reference, `i64` self-relative (compiler-derived, ref-repr §6) | nothing (the delta is the whole thing) | a zone object referencing another (field, array element) |
-| `ZonedAny` | `enum { Ref(*zoned) \| Pod }` (≈ AnyVal), niche-packed | one 8-byte word | a heterogeneous slot / client-facing value |
+| `HAny` | `enum { Ref(*zoned) \| Pod }` (≈ AnyVal), niche-packed | one 8-byte word | a heterogeneous slot / client-facing value |
 | **read view** | resolved absolute `*const T` (thin) | nothing — it's a plain pointer | reading inside a scope where the holder is known live |
 | **mut receiver** | the object + an allocator capability | `(self_ptr, allocator)` — **no base** | a method that may `grow` |
 | `SuperRc<T>` / holder | residency-retaining owning handle | `Rc<dyn Resident>` + loc | a reference that **escapes** the holder's scope (§4) |

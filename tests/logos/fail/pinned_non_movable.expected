@@ -1,1 +1,1 @@
-cannot bind `x`: type `ZonedAnyRel` is location-anchored (a self-relative `#[rel_ptr]` field, or a `#[pinned]` type)
+cannot bind `x`: type `HAnyRel` is location-anchored (a self-relative `#[rel_ptr]` field, or a `#[pinned]` type)

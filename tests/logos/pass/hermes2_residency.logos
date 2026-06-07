@@ -1,5 +1,5 @@
 // Hermes2 residency/escape: a document built in make_doc() OUTLIVES that scope —
-// the returned Held<ZArrayAny> carries a holder (Rc clone) that keeps the
+// the returned Held<Array<HAny>> carries a holder (Rc clone) that keeps the
 // container's segments alive. The container drops (frees segments) only when the
 // last holder drops (here at main's end).
 package test;
@@ -8,19 +8,19 @@ use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 use logos.mem.rc;
 
-fn make_doc() -> Held<ZArrayAny> {
+fn make_doc() -> Held<Array<HAny>> {
     let mut h: Rc<Hermes2> = hermes2_rc(48i64);
-    let root: &mut ZArrayAny = h.array(2i64);     // build via Rc (auto-deref)
-    root.push(ZonedAny::from(10i64));
-    root.push(ZonedAny::from(20i64));
-    root.push(ZonedAny::from(30i64));             // forces a grow too
+    let root: &mut Array<HAny> = h.array(2i64);     // build via Rc (auto-deref)
+    root.push(HAny::from(10i64));
+    root.push(HAny::from(20i64));
+    root.push(HAny::from(30i64));             // forces a grow too
     return hold(&mut h, root);                    // escape: carry the holder
     // local `h` drops here (-1); the Held's holder keeps the container alive
 }
 
 fn main() -> i32 {
-    let doc: Held<ZArrayAny> = make_doc();         // container outlived make_doc
-    let r: &ZArrayAny = doc.get();
+    let doc: Held<Array<HAny>> = make_doc();         // container outlived make_doc
+    let r: &Array<HAny> = doc.get();
     if r.len() != 3i64 { return 1; }
     let mut sum: i64 = 0i64;
     let mut i: i64 = 0i64;

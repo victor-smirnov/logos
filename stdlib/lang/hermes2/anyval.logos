@@ -1,99 +1,99 @@
 // Logos Hermes2 stdlib — hermes2.anyval
 //
-// ZonedAny — the Hermes2 heterogeneous slot (the AnyVal analog). An 8-byte tagged
+// HAny — the Hermes2 heterogeneous slot (the AnyVal analog). An 8-byte tagged
 // word that is either an inline primitive (Pod) or a reference to a type-tagged
 // zone object (Ref). It comes in TWO forms with bit-identical layout, differing
 // only in how the Ref half is encoded — the storage/compute split (see
 // docs/internals/hermes2-minimal-container-plan.md D1):
 //
-//   ZonedAny    — the VALUE form. Ref = an ABSOLUTE pointer to the tagged object.
+//   HAny    — the VALUE form. Ref = an ABSOLUTE pointer to the tagged object.
 //                 A plain movable struct (moves by memcpy, like String's ptr);
 //                 lives on the stack / in registers / by-value. Dispatch resolves
 //                 it through Hermes2TagSystem.
-//   ZonedAnyRel — the AT-REST form stored in an arena slot. Ref = a SELF-RELATIVE
+//   HAnyRel — the AT-REST form stored in an arena slot. Ref = a SELF-RELATIVE
 //                 delta `target − &slot` (anchor = the slot's own address).
 //                 `#[pinned]` → NON-MOVABLE: it is location-anchored, accessed in
-//                 place via `*mut`, and materialised explicitly to a ZonedAny.
+//                 place via `*mut`, and materialised explicitly to a HAny.
 //
 // Encoding (both forms, little-endian i64 `raw`):
 //   raw == 0           → null reference
 //   raw & 1 == 1       → Pod: bits[7:1] = 7-bit type code, bits[63:8] = 56-bit value
-//   raw & 1 == 0 (≠0)  → Ref: ZonedAny = absolute ptr; ZonedAnyRel = self-relative
+//   raw & 1 == 0 (≠0)  → Ref: HAny = absolute ptr; HAnyRel = self-relative
 //                        delta. Zone objects are ≥2-aligned, so a Ref's low bit is
 //                        always 0 — it never collides with the Pod tag.
 //
-// Bridge: za_materialize (slot → value, Ref: &slot+delta) / za_lower (value → slot,
-// Ref: target−&slot); identity for Pod and null. `Array<ZonedAny>` get/put use
+// Bridge: ha_materialize (slot → value, Ref: &slot+delta) / ha_lower (value → slot,
+// Ref: target−&slot); identity for Pod and null. `Array<HAny>` get/put use
 // these. (Later: make these niche-packed `enum { Ref | Pod }` — more canonical.)
 
 package logos.lang.hermes2.anyval;
 
 use logos.lang.ptr;
 
-pub struct ZonedAny { pub raw: i64 }                 // VALUE form — movable
+pub struct HAny { pub raw: i64 }                 // VALUE form — movable
 
 #[pinned]
-pub struct ZonedAnyRel { pub raw: i64 }              // AT-REST form — non-movable
+pub struct HAnyRel { pub raw: i64 }              // AT-REST form — non-movable
 
-impl ZonedAny {
+impl HAny {
     // ── constructors (value form) ─────────────────────────────────────────────
-    pub fn null() -> ZonedAny { return ZonedAny { raw: 0i64 }; }
+    pub fn null() -> HAny { return HAny { raw: 0i64 }; }
 
     // Inline primitive: `code` is the 7-bit Hermes2 type code (1..127); `v` must
     // fit in 56 signed bits (wider primitives box into a Ref — later).
-    pub fn pod(v: i64, code: u8) -> ZonedAny {
-        return ZonedAny { raw: (v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64 };
+    pub fn pod(v: i64, code: u8) -> HAny {
+        return HAny { raw: (v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64 };
     }
-    pub fn pod_bool(b: bool, code: u8) -> ZonedAny {
-        return ZonedAny::pod(if b { 1i64 } else { 0i64 }, code);
+    pub fn pod_bool(b: bool, code: u8) -> HAny {
+        return HAny::pod(if b { 1i64 } else { 0i64 }, code);
     }
     // Reference to a tagged zone object — stored ABSOLUTE in the value form.
-    pub fn ref_to(obj: *const u8) -> ZonedAny { return ZonedAny { raw: obj as i64 }; }
+    pub fn ref_to(obj: *const u8) -> HAny { return HAny { raw: obj as i64 }; }
 
     // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
     //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's
     //   `as_ptr`); dereferencing / tagged-dispatch through it is where `unsafe` lives.
-    pub fn is_null(self: &ZonedAny) -> bool { return self.raw == 0i64; }
-    pub fn is_pod(self: &ZonedAny)  -> bool { return (self.raw & 1i64) == 1i64; }
-    pub fn is_ref(self: &ZonedAny)  -> bool {
+    pub fn is_null(self: &HAny) -> bool { return self.raw == 0i64; }
+    pub fn is_pod(self: &HAny)  -> bool { return (self.raw & 1i64) == 1i64; }
+    pub fn is_ref(self: &HAny)  -> bool {
         return (self.raw & 1i64) == 0i64 && self.raw != 0i64;
     }
-    pub fn pod_code(self: &ZonedAny) -> u8 { return ((self.raw >> 1) & 0x7Fi64) as u8; }
-    pub fn as_i56(self: &ZonedAny)  -> i64 { return self.raw >> 8; }   // sign-extends
-    pub fn as_bool(self: &ZonedAny) -> bool { return (self.raw >> 8) != 0i64; }
+    pub fn pod_code(self: &HAny) -> u8 { return ((self.raw >> 1) & 0x7Fi64) as u8; }
+    pub fn as_i56(self: &HAny)  -> i64 { return self.raw >> 8; }   // sign-extends
+    pub fn as_bool(self: &HAny) -> bool { return (self.raw >> 8) != 0i64; }
     // Resolve a Ref to the absolute tagged-object pointer (value form holds it raw).
-    pub fn resolve(self: &ZonedAny) -> *const u8 { return self.raw as *const u8; }
+    pub fn resolve(self: &HAny) -> *const u8 { return self.raw as *const u8; }
 }
 
-// Hermes2 ZonedAny Pod primitive type codes (7-bit; identify the inline value).
+// Hermes2 HAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
 // inline (wider values box into a Ref — later), so the name is `i56`, not `i64`.
-pub const ZA_I56:  u8 = 1u8;
-pub const ZA_BOOL: u8 = 2u8;
+pub const HA_I56:  u8 = 1u8;
+pub const HA_BOOL: u8 = 2u8;
 
 // Typed, code-managed constructors + accessors (no manual type code at call sites;
-// overloaded `from` per primitive — `ZonedAny::from(v)`). `from(i56)` makes the
+// overloaded `from` per primitive — `HAny::from(v)`). `from(i56)` makes the
 // 56-bit inline range a TYPE constraint (a wider i64 must be narrowed consciously).
-impl ZonedAny {
-    pub fn from(v: i56)  -> ZonedAny { return ZonedAny::pod(v as i64, ZA_I56); }
-    pub fn from(b: bool) -> ZonedAny { return ZonedAny::pod_bool(b, ZA_BOOL); }
+impl HAny {
+    pub fn from(v: i56)  -> HAny { return HAny::pod(v as i64, HA_I56); }
+    pub fn from(b: bool) -> HAny { return HAny::pod_bool(b, HA_BOOL); }
 
-    pub fn is_i56(self: &ZonedAny)  -> bool { return self.is_pod() && self.pod_code() == ZA_I56; }
-    pub fn is_bool(self: &ZonedAny) -> bool { return self.is_pod() && self.pod_code() == ZA_BOOL; }
+    pub fn is_i56(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
+    pub fn is_bool(self: &HAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
     // (the value reads back via `as_i56`)
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
 // Materialise a slot's at-rest form into a movable value. Ref: abs = &slot + delta.
-pub unsafe fn za_materialize(slot: *const ZonedAnyRel) -> ZonedAny {
+pub unsafe fn ha_materialize(slot: *const HAnyRel) -> HAny {
     let r: i64 = slot.raw;
-    if r == 0i64 { return ZonedAny { raw: 0i64 }; }        // null
-    if (r & 1i64) == 1i64 { return ZonedAny { raw: r }; }  // Pod — position-independent
-    return ZonedAny { raw: (slot as i64) + r };            // Ref — &slot + delta
+    if r == 0i64 { return HAny { raw: 0i64 }; }        // null
+    if (r & 1i64) == 1i64 { return HAny { raw: r }; }  // Pod — position-independent
+    return HAny { raw: (slot as i64) + r };            // Ref — &slot + delta
 }
 
 // Lower a movable value into a slot's at-rest form. Ref: delta = target − &slot.
-pub unsafe fn za_lower(v: ZonedAny, dst: *mut ZonedAnyRel) {
+pub unsafe fn ha_lower(v: HAny, dst: *mut HAnyRel) {
     let r: i64 = v.raw;
     if r == 0i64 { dst.raw = 0i64; return; }               // null
     if (r & 1i64) == 1i64 { dst.raw = r; return; }         // Pod

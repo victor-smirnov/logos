@@ -1,6 +1,6 @@
 package test;
 use logos.lang.hermes2.container;     // Hermes2, hermes2_alloc*, hermes2_new
-use logos.lang.hermes2.anyval;        // ZonedAny, ZonedAnyRel, za_materialize/lower
+use logos.lang.hermes2.anyval;        // HAny, HAnyRel, ha_materialize/lower
 use logos.lang.hermes.datatag;        // write_tag, type_code_of
 use logos.mem.hermes.tag_system;      // Hermes2TagSystem
 use logos.lang.ptr;
@@ -9,7 +9,7 @@ use logos.lang.ptr;
 #[type_code=160] #[zoned] struct Pair { a: i64, b: i64 }
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
-unsafe fn dispatch(za: ZonedAny) -> i64 {
+unsafe fn dispatch(za: HAny) -> i64 {
     let o: *const u8 = za.resolve();    // Ref → absolute
     let t: &tagged<Hermes2TagSystem> Sum2 = o;
     return t.s();
@@ -18,13 +18,13 @@ unsafe fn dispatch(za: ZonedAny) -> i64 {
 fn main() -> i32 {
     unsafe {
         // ── Pod round-trip through a slot ──
-        let pod: ZonedAny = ZonedAny::pod(42i64, 7u8);
+        let pod: HAny = HAny::pod(42i64, 7u8);
         if !pod.is_pod() { return 1; }
         if pod.as_i56() != 42i64 { return 2; }
         // store into a (pinned) slot, read back
-        let slot: *mut ZonedAnyRel = malloc(8i64) as *mut ZonedAnyRel;
-        za_lower(pod, slot);
-        let pod2: ZonedAny = za_materialize(slot as *const ZonedAnyRel);
+        let slot: *mut HAnyRel = malloc(8i64) as *mut HAnyRel;
+        ha_lower(pod, slot);
+        let pod2: HAny = ha_materialize(slot as *const HAnyRel);
         if pod2.as_i56() != 42i64 { return 3; }
         free(slot as *mut u8);
 
@@ -35,18 +35,18 @@ fn main() -> i32 {
         let pair_at: *mut u8 = pobj.byte_add(8i64);
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
-        // a ZonedAnyRel SLOT placed in a LATER segment (force a new one first)
+        // a HAnyRel SLOT placed in a LATER segment (force a new one first)
         let filler: *mut u8 = hermes2_alloc_bytes(&mut hh, 24i64);   // fills seg
-        let za_slot: *mut ZonedAnyRel = hermes2_alloc::<ZonedAnyRel>(&mut hh);  // new segment
+        let za_slot: *mut HAnyRel = hermes2_alloc::<HAnyRel>(&mut hh);  // new segment
         // lower an absolute Ref into the slot (self-relative delta across segments)
-        za_lower(ZonedAny::ref_to(pair_at as *const u8), za_slot);
+        ha_lower(HAny::ref_to(pair_at as *const u8), za_slot);
         // materialize back (slot + delta resolves across the segment boundary)
-        let za: ZonedAny = za_materialize(za_slot as *const ZonedAnyRel);
+        let za: HAny = ha_materialize(za_slot as *const HAnyRel);
         if !za.is_ref() { return 4; }
-        // the ZonedAny VALUE is movable — pass it by value to dispatch
+        // the HAny VALUE is movable — pass it by value to dispatch
         if dispatch(za) != 42i64 { return 5; }     // 30 + 12
         // move it again, still resolves
-        let za_moved: ZonedAny = za;
+        let za_moved: HAny = za;
         if dispatch(za_moved) != 42i64 { return 6; }
     }
     return 0;

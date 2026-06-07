@@ -1785,7 +1785,7 @@ private:
     // pointer or reference (inline storage only):
     //   (1) an inline `#[rel_ptr]` field — its stored i64 is a self-relative
     //       offset (target − &field); memcpy carries it to a wrong anchor.
-    //   (2) a `#[pinned]` type (e.g. the at-rest ZonedAnyRel) — bits anchored to
+    //   (2) a `#[pinned]` type (e.g. the at-rest HAnyRel) — bits anchored to
     //       its slot; accessed in place and materialised to a movable value form.
     // Asymmetry: a `#[rel_ptr]` type ITSELF is movable (its value-form is the
     // resolved absolute pointer — flagged only when embedded as a field); a
@@ -1808,7 +1808,7 @@ private:
             // anchor); duplication is a COPY via the absolute intermediate
             // (materialise → lower, re-anchoring). But the COMPILER flags them
             // asymmetrically, because of HOW each is read:
-            //  • `#[pinned]` (ZonedAnyRel): accessed via `*mut` + an EXPLICIT
+            //  • `#[pinned]` (HAnyRel): accessed via `*mut` + an EXPLICIT
             //    materialise to a different value type — the bare type never
             //    appears as a read-out value, so flagging it here is safe and
             //    correct (it IS non-movable).
@@ -2099,7 +2099,7 @@ private:
                             // `*Pointee` at the value level. (ref-repr §6 / zone-as-parameter)
                             bool rel_ptr = false;
                             // `#[pinned]`: a location-anchored at-rest type (e.g. the
-                            // relative ZonedAnyRel) that must NOT be moved by value —
+                            // relative HAnyRel) that must NOT be moved by value —
                             // its bits are anchored to its storage slot; it is accessed
                             // in place and materialised explicitly to a movable value
                             // form. Non-movable itself (unlike #[rel_ptr], whose value

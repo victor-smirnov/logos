@@ -1,4 +1,4 @@
-// Hermes2 — direct &mut ZArrayAny reference holding inline Pod + a Ref to a TAGGED
+// Hermes2 — direct &mut Array<HAny> reference holding inline Pod + a Ref to a TAGGED
 // non-array object, with growth (cap 2 → 4 pushes) across tiny 48B segments. The
 // Ref survives the re-anchoring grow and dispatches through Hermes2TagSystem.
 package test;
@@ -13,16 +13,16 @@ use logos.lang.ptr;
 #[type_code=161] #[zoned] struct Pair { a: i64, b: i64 }
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
-unsafe fn dispatch(za: ZonedAny) -> i64 {
+unsafe fn dispatch(za: HAny) -> i64 {
     let t: &tagged<Hermes2TagSystem> Sum2 = za.resolve();
     return t.s();
 }
 
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
-    let arr: &mut ZArrayAny = h.array(2i64);
-    arr.push(ZonedAny::from(1i64));
-    arr.push(ZonedAny::from(2i64));
+    let arr: &mut Array<HAny> = h.array(2i64);
+    arr.push(HAny::from(1i64));
+    arr.push(HAny::from(2i64));
     unsafe {
         // a tagged Pair object in the arena (raw) + a Ref element to it
         let hraw: *mut Hermes2 = &h as *const Hermes2 as *mut Hermes2;
@@ -30,13 +30,13 @@ fn main() -> i32 {
         let pair_at: *mut u8 = pobj.byte_add(8i64);
         write_tag(pair_at, type_code_of::<Pair>());
         let p: *mut Pair = pair_at as *mut Pair;  p.a = 30i64;  p.b = 12i64;
-        arr.push(ZonedAny::ref_to(pair_at as *const u8));   // forces grow
-        arr.push(ZonedAny::from(99i64));
+        arr.push(HAny::ref_to(pair_at as *const u8));   // forces grow
+        arr.push(HAny::from(99i64));
 
         if arr.len() != 4i64 { return 1; }
-        let e0: ZonedAny = arr.get(0i64);
-        let e2: ZonedAny = arr.get(2i64);
-        let e3: ZonedAny = arr.get(3i64);
+        let e0: HAny = arr.get(0i64);
+        let e2: HAny = arr.get(2i64);
+        let e3: HAny = arr.get(3i64);
         if e0.as_i56() != 1i64 { return 2; }
         if !e2.is_ref() { return 3; }
         if dispatch(e2) != 42i64 { return 4; }
