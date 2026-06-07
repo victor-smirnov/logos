@@ -22,6 +22,7 @@ use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc / _n
 use logos.lang.hermes2.allocator;   // Allocator, allocator_alloc
 use logos.lang.hermes2.anyval;      // HAny, HAnyRel, ha_lower/materialize, HA_I56
 use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc
+use logos.lang.hermes2.array;       // Array<HAny> + HAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
 use logos.lang.str;                 // str, str_eq
 use logos.lang.ptr;                 // byte_add
@@ -177,11 +178,32 @@ impl HMap {
     pub fn contains(self: &HMap, key: str) -> bool { return !self.get(key).is_null(); }
     pub fn len(self: &HMap) -> i64 { return self.count; }
 
+    // Slot iteration (for generic walkers — stringify/binary). Walk 0..slots();
+    // a slot is occupied iff its key is non-null. The key is a Ref to the interned
+    // HString; the value is the stored HAny.
+    pub fn slots(self: &HMap) -> i64 { return self.cap; }
+    pub fn key_at(self: &HMap, i: i64) -> HAny {
+        unsafe {
+            let ep: *const HMapEntry = om_buf(self as *const HMap).add(i);
+            if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
+            return ha_materialize(ep as *const HAnyRel);
+        }
+    }
+    pub fn val_at(self: &HMap, i: i64) -> HAny {
+        unsafe {
+            let ep: *const HMapEntry = om_buf(self as *const HMap).add(i);
+            if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
+            return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
+        }
+    }
+
     // Overloaded set for the common value types (no manual HAny::from), mirroring
     // Array<HAny>::push. A `str` VALUE is interned into the same arena as a Ref.
     pub fn set(self: &mut HMap, key: str, v: i64)  { self.set(key, HAny::pod(v, HA_I56)); }
     pub fn set(self: &mut HMap, key: str, v: bool) { self.set(key, HAny::from(v)); }
     pub fn set(self: &mut HMap, key: str, v: &HString) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap, key: str, v: &Array<HAny>) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap, key: str, v: &HMap) { self.set(key, HAny::from(v)); }
     pub fn set(self: &mut HMap, key: str, v: str) {
         unsafe {
             let hs: *mut HString = hstring_in_alloc((self as *mut HMap).alloc, v);
