@@ -1,0 +1,18 @@
+// Borrow-checker escape analysis, Front (a): a reference RETURNED by a method
+// borrows its receiver (Rust elision — fully-elided `&self -> &T` ties the result
+// to `&self`). Holding that reference across a `&mut self` call (or field write)
+// on the same receiver is rejected. Conservative: only fully-elided &self→&ret
+// methods borrow self; annotated methods (which may tie the result to an arg) do
+// not. See docs/internals/borrow-escape-analysis-design.md §4(a).
+package mutate_while_method_ref_held;
+struct C { x: i64 }
+impl C {
+    fn get_ref(self: &C) -> &i64 { return &self.x; }
+    fn set(self: &mut C, v: i64) { self.x = v; }
+}
+fn main() -> i32 {
+    let mut c: C = C { x: 1i64 };
+    let v: &i64 = c.get_ref();   // borrows c (elision)
+    c.set(5i64);                 // ERROR: &mut c while v borrows c
+    return *v as i32;            // v used after → held across set
+}

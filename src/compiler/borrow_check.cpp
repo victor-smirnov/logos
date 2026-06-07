@@ -358,6 +358,9 @@ class BorrowChecker {
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
     std::unordered_set<std::string>      param_names_;
+    // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
+    std::unordered_map<std::string, const LFunction*> fn_by_name_;
+    bool                                 fn_map_built_ = false;
     // B82: depth of nested call-arg evaluation. While >0, new &mut borrows
     // are taken as reservations (don't conflict with shared reads of the
     // same target during the remaining arg evaluation).
@@ -837,6 +840,37 @@ class BorrowChecker {
         declare_pat_bindings(pat_ref(p));
     }
 
+    // Escape-analysis Front (a) support. Lazily index every callee by its mangled
+    // symbol (functions + specializations + struct methods) so a MethodCall's
+    // `resolved_symbol` resolves to its LFunction signature.
+    void build_fn_map_() {
+        if (fn_map_built_) return;
+        fn_map_built_ = true;
+        auto add = [&](const std::vector<LFunctionPtr>& fns) {
+            for (auto& f : fns) if (f) fn_by_name_.emplace(f->name, f.get());
+        };
+        add(prog_.functions);
+        add(prog_.specializations);
+        for (auto& sd : prog_.structs)
+            for (auto& m : sd.methods) if (m) fn_by_name_.emplace(m->name, m.get());
+    }
+
+    // Does this method-call's RESULT reference borrow its receiver (by elision)?
+    // Conservative-TRUE only when confident: the callee takes a reference self
+    // (`&self`/`&mut self`), returns a reference, AND has NO explicit lifetime
+    // params (fully elided → Rust ties the output lifetime to `&self`). A method
+    // with explicit lifetimes MAY tie its result to an arg (`fn pick<'a>(&self,
+    // x:&'a T)->&'a T`) → return FALSE to avoid over-borrowing the receiver (the
+    // false positive that broke persistent_showcase). See escape-analysis §4(a).
+    bool result_borrows_self(lir_view::EMethodCallView v) {
+        build_fn_map_();
+        auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
+        if (it == fn_by_name_.end()) return false;
+        const LFunction* f = it->second;
+        return !f->params.empty() && is_ref_kind(f->params[0].type) &&
+               f->lifetime_params.empty() && is_ref_kind(f->ret_type);
+    }
+
     RefProv prov_of(lir_view::ExprRef e) const {
         if (!e) return {};
         using namespace lir_view;
@@ -1234,8 +1268,25 @@ class BorrowChecker {
             }
             case Code::MethodCall: {
                 EMethodCallView v{e};
-                if (auto recv = v.receiver(); recv && is_ref_kind(recv.type(pool)))
+                auto recv = v.receiver();
+                // Front (a): a method whose result borrows `self` (elision) ties
+                // the returned reference to the receiver — hold a borrow of the
+                // receiver's root place for the result's lifetime (`holder`), of
+                // the receiver's mutability. So `let v=c.get_ref(); c.set(…)` while
+                // `v` is live is rejected. Conservative (result_borrows_self only
+                // fires for fully-elided &self→&ret methods). Borrows THROUGH a
+                // reference/pointer root are skipped (B93.2 — same as elsewhere).
+                if (recv && recv.kind() == Code::AddrOfTemp && result_borrows_self(v)) {
+                    EAddrOfTempView av{recv};
+                    BorrowPlace bp = extract_borrow_place(av.inner(), pool);
+                    bool root_is_raw = bp.root_type &&
+                        (bp.root_type.kind() == LogosType::Kind::Ptr ||
+                         bp.root_type.kind() == LogosType::Kind::MutRef);
+                    if (!bp.root.empty() && !root_is_raw && states_.count(bp.root))
+                        take_borrow(bp.root, av.is_mut(), line, holder);
+                } else if (recv && is_ref_kind(recv.type(pool))) {
                     take_ref_borrows(recv, line, holder);
+                }
                 v.each_arg([&](ExprRef a) {
                     if (a && is_ref_kind(a.type(pool)))
                         take_ref_borrows(a, line, holder);
