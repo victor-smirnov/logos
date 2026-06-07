@@ -16,6 +16,7 @@
 package logos.lang.hermes2.container;
 
 use logos.lang.hermes2.allocator;
+use logos.lang.hermes2.anyval;
 use logos.mem.rc;
 
 // The root container: owns the segment arena by value (the container is the
@@ -126,4 +127,28 @@ pub fn hold<T>(h: &mut Rc<Hermes2>, r: &T) -> Held<T> {
 impl<T> Held<T> {
     // The held reference; valid while this Held (hence its holder) lives.
     pub fn get(self: &Held<T>) -> &T { return unsafe { &*self.ptr }; }
+}
+
+// ── Escaping HAny: bind to the HERMES2 arena, not the parent container ─────────
+//
+// An `HAny` is a value (movable), but a Ref `HAny` is an ABSOLUTE pointer into the
+// Hermes2 arena. The object it points at is owned by the ARENA (Hermes2) — NOT by
+// the `Array`/`Map`/… it was read from: that parent is just the read site, and the
+// Ref may point anywhere in the same arena. So an escaping `HAny` must carry a
+// holder of the HERMES2 (the residency that keeps the arena's segments alive),
+// independent of any parent container. `HeldAny` is that escape package: it stores
+// the value BY VALUE (no `*const`, unlike `Held<T>`) + a Hermes2 holder; while the
+// HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.
+pub struct HeldAny { holder: Rc<dyn Resident>, val: HAny }
+
+// Pair an HAny with a clone of the container's residency holder.
+pub fn hold_any(h: &mut Rc<Hermes2>, v: HAny) -> HeldAny {
+    let holder: Rc<dyn Resident> = h.clone_ref();
+    return HeldAny { holder: holder, val: v };
+}
+
+impl HeldAny {
+    // The held value; valid while this HeldAny (hence its Hermes2 holder) lives.
+    pub fn val(self: &HeldAny) -> HAny { return self.val; }
+    pub fn resolve(self: &HeldAny) -> *const u8 { return self.val.resolve(); }
 }
