@@ -72,6 +72,18 @@ impl HAny {
 pub const HA_I56:  u8 = 1u8;
 pub const HA_BOOL: u8 = 2u8;
 
+// Hermes2 REF type codes — the in-band tag of an arena object (stored at obj[-1],
+// the Hermes1 datatag wire convention). A Ref HAny's pointee carries one of these
+// so `HAny::type_code` / `is_string` / `is_array` / `is_map` can dispatch on what
+// a Ref points at. (Allocated via container.alloc_tagged.) Compatible-ish with
+// Hermes1's HermesTag ranges; binary-format alignment comes with the hbs port.
+pub const H2_STRING: u8 = 130u8;
+pub const H2_ARRAY:  u8 = 100u8;
+pub const H2_MAP:    u8 = 101u8;
+
+// Read the in-band type code written immediately before a tagged arena object.
+pub unsafe fn h2_type_code(obj: *const u8) -> u8 { return *(((obj as i64) - 1i64) as *const u8); }
+
 // Typed, code-managed constructors + accessors (no manual type code at call sites;
 // overloaded `from` per primitive — `HAny::from(v)`). `from(i56)` makes the
 // 56-bit inline range a TYPE constraint (a wider i64 must be narrowed consciously).
@@ -82,6 +94,18 @@ impl HAny {
     pub fn is_i56(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
     pub fn is_bool(self: &HAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
     // (the value reads back via `as_i56`)
+
+    // The unified type code: for a Pod, the inline pod code; for a Ref, the
+    // in-band tag of the pointee (obj[-1]); 0 for null. The single dispatch point
+    // for generic walkers (stringify / binary / equality).
+    pub fn type_code(self: &HAny) -> u8 {
+        if self.is_null() { return 0u8; }
+        if self.is_pod()  { return self.pod_code(); }
+        return unsafe { h2_type_code(self.resolve()) };
+    }
+    pub fn is_string(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
+    pub fn is_array(self: &HAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
+    pub fn is_map(self: &HAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────

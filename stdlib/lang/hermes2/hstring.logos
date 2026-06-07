@@ -48,7 +48,7 @@ impl SelfDescribing for HString {
 pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
-    let raw: *mut u8 = allocator_alloc(alloc, total);
+    let raw: *mut u8 = alloc_tagged(alloc, total, H2_STRING);   // in-band Ref tag
     let pfx: u32 = vlen_write(raw, n);
     copy_bytes(raw.byte_add(pfx as i64), s.as_ptr(), n as i64);
     return raw as *mut HString;

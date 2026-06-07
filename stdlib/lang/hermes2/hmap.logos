@@ -65,7 +65,9 @@ fn round_pow2(n: i64) -> i64 {
 }
 
 unsafe fn om_new(h: *mut Hermes2, cap: i64) -> *mut HMap {
-    let hdr: *mut HMap = hermes2_alloc::<HMap>(h);
+    // The header is HAny-Ref'd (HAny::from(&HMap)) → tag it for dispatch.
+    let hdr: *mut HMap =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap>() as i64, H2_MAP) as *mut HMap;
     let buf: *mut HMapEntry  = hermes2_alloc_n::<HMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;

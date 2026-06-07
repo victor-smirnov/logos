@@ -56,6 +56,19 @@ pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
     return allocator_alloc(&mut h.allocator, n);
 }
 
+// Allocate a TAGGED arena object (one reachable via an HAny Ref): reserve an
+// 8-byte tag word BEFORE the object — keeping the object 8-aligned so a Ref's low
+// bit stays 0 — and write the single-byte type `code` at obj[-1] (the Hermes1
+// datatag wire convention). Returns the object pointer; `h2_type_code(obj)` reads
+// the code back. Takes `*mut Allocator` so containers holding only an allocator
+// back-pointer (Array<HAny>, HMap) can tag-allocate without the full Hermes2.
+pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u8) -> *mut u8 {
+    let base: *mut u8 = allocator_alloc(a, 8i64 + size);
+    let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
+    *(((obj as i64) - 1i64) as *mut u8) = code;
+    return obj;
+}
+
 // ── Type-safe placement + borrow-checked views ────────────────────────────────
 //
 // `Slot<T>` is an OPAQUE handle to a `T` placed in the container — a stable
