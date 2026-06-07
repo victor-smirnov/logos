@@ -139,21 +139,19 @@ is now caught. Three pieces, all in the borrow checker (path 2 chosen):
    check for VarRef/place receivers. (Discovered by instrumentation: `recvKind=4`
    VarRef for `push`, vs `12` AddrOfTemp for a user method.)
 Catches direct Vec/collection indexing + user `Index` impls. Test
-`vec_iterator_invalidation`. **Known remaining (rare):** the through-`&mut`-ref
-variant `let a=&mut v; let r=&(*a)[i]; a.push()`. ROOT CAUSE (instrumented to the
-mechanism): the index call's receiver `&(*a)` is hoisted by `materialize_recv_ref`
-into a statement-scoped temp `__rtmp_N = &(*a)`; `extract_borrow_place(__rtmp)`
-returns an EMPTY root (temps aren't tracked places), so Front-a records no borrow
-on `a` — and even if it did, the temp drops at statement end while `r` (which
-reborrows through it) lives longer, so the borrow must tie to `r`, not the temp.
-There is no `__rtmp`→source map. Fixing needs EITHER (1) temp-provenance threading
-(resolve `__rtmp` to its source place + tie the borrow to the holder), OR (2) sema
-suppressing receiver materialization when the receiver is a reborrow of a tracked
-place. Both are a dedicated piece; the shape is contrived AND not container-
-critical (Hermes2 arrays expose elements by VALUE — ZonedAny — not by `&`).
-(Note: changing Front-a recording to fire on `&mut`-ref roots — root_is_rawptr=
-Ptr-only — does NOT help here, the root is empty not a ref-root; it only added risk
-and was reverted.)
+`vec_iterator_invalidation`. The through-`&mut`-ref variant `let a=&mut v; let
+r=&(*a)[i]; a.push()` — DONE (f14ec365). ROOT CAUSE (instrumented to the
+mechanism; an earlier "materialized temp" guess was WRONG): `extract_borrow_place`
+walked FieldRead/IndexRead/SliceIndex but BROKE on `Deref` — so `&(*a)` →
+`Deref(VarRef a)` yielded an EMPTY root, and neither the Front-a RECORDING nor the
+`&mut self` push CHECK saw `a`. Foundational fix: `extract_borrow_place` roots
+THROUGH a `Deref` whose operand is a reference (`&`/`&mut`) — a borrow through `*a`
+is a borrow of `a`; raw pointers stay un-rooted (unchecked). One place fixed →
+recording + checking both benefit. Front-a recording updated to fire on reference
+roots (raw-ptr-only skip), matching the check side. Test
+`vec_iter_invalidation_through_ref`. (Note: an attempt to fire Front-a recording
+on `&mut`-ref roots WITHOUT the extract fix did nothing — the root was empty, not a
+ref-root — and only added risk; the real fix was in `extract_borrow_place`.)
 
 ## 5. False-positive traps (the things that bit us — must stay green)
 - `Box::leak(b: Box<T>) -> &T` — `&*b`: a `Deref` path → NOT FrameDirect; and `b`
