@@ -710,6 +710,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     auto eit = tagged_enums_.find(ed.name);
     if (eit != tagged_enums_.end() && !eit->second.variants.empty()) return;
     TaggedEnumInfo info;
+    info.zoned = ed.zoned2;   // F3: niche enum's Ref arm self-relative at-rest
     info.name = ed.name;
     uint64_t max_bytes = 0, max_align = 1;
     for (auto& v : ed.variants) {

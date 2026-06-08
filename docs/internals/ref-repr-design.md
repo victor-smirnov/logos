@@ -289,4 +289,70 @@ bit-patterns) and, when a payload field offers a niche, encodes the
 discriminant there instead of a separate tag — exactly Rust's
 `Option<&T>` / `NonNull` niche optimization. Scope: at minimum low-bit and
 null-pointer niches; general niche-packing (enum-of-enums, range niches)
-can follow.
+can follow. **§7 DONE (F2, 2026-06-08, commit 9e132ea0)** — see §7 note above.
+
+---
+
+## 8. Phase 4 — the zoned reference repr (F3): implementation map
+
+Decided 2026-06-08 (full `*zoned` RefRepr). Surface: **`#[zoned2]` on the
+niche ENUM** (not a `*zoned T` wrapper type — same context-derives-relativity
+philosophy as `#[zoned2]` on structs / the removed `RelPtr<T>`). A `#[zoned2]`
+niche enum (HAny-shape) has the **storage/compute split**: the `Ref` arm is a
+self-relative offset AT-REST (in memory, behind a pointer) and an absolute,
+movable pointer as a VALUE. The bridge is the compiler-owned generalization of
+today's `ha_materialize`/`ha_lower`:
+
+- **materialize(slot)** — load word `r`; `r==0`→null (raw 0); `r&1==1`→Pod
+  (raw `r`, position-independent); else Ref→`slot + r` (absolute). The access
+  location IS the anchor (exactly RelOffset's anchor convention).
+- **lower(val, slot)** — `val==0`→store 0; `val&1==1`→store `val` (Pod); else
+  Ref→store `val − slot` (delta).
+
+This is RelOffset's conversion, *gated by the low bit* (Pod arm = identity).
+
+**Phase 1 (mechanism + toy) — exact sites:**
+1. sema accept `#[zoned2]` on enums: `sema_impl.hpp:1227` add
+   `| bit(AttrTarget::Enum)`; `SemaEnumInfo` (`sema_impl.hpp:2225`) add
+   `bool zoned2=false`; `collect_enum` (`sema_collect.cpp:1898`) set it from
+   `pending_annots` (mirror the struct path at `sema_collect.cpp:1596`; the
+   enum item's annots are live in `pending_annots` at the dispatch ~1423).
+2. propagate: `lir.hpp` `LEnumDef` (line 914) add `bool zoned2=false`;
+   `lower_enum_def` (`sema_decl.cpp:1141`) set `ed.zoned2`; `clone_enum_def`
+   (`mono_clone.cpp:5369`) add `nd.zoned2 = tmpl.zoned2`.
+3. mlir: `TaggedEnumInfo` (`mlir_gen_impl.hpp:66`) add `bool zoned=false`;
+   `register_tagged_enum` (`mlir_gen_types.cpp`) set `info.zoned = ed.zoned2`.
+4. mlir: two helpers (model on `repr_materialize`/`repr_lower` RelOffset case,
+   `mlir_gen_expr.cpp:4890`/`4908`): `zoned_enum_materialize(slot)` /
+   `zoned_enum_lower(val, slot)` doing the conditional-offset above.
+5. **threading — CRUX (found 2026-06-08, validated):** threading on a *plain*
+   `*p` deref of a `#[zoned2]` enum is **PROVENANCE-UNSOUND**. Enums are
+   by-pointer (the value IS a ptr to the 8-byte word alloca); a `&HAny` to a
+   *value-form* local is the same `*HAny` type as a ptr into at-rest storage,
+   so `*p` cannot tell "materialize this at-rest slot" from "no-op, already a
+   value" — materializing a value-form word (absolute) would wrongly add the
+   slot address. The at-rest-ness MUST be carried at the **type** level. Hence
+   the `*zoned T` / `&zoned T` flavor (§6) is REQUIRED, not optional: only a
+   `*zoned T` deref/assign materialises/lowers; a plain `*T` is the value form.
+   So step 5 is: introduce `*zoned T`/`&zoned T` (grammar + a flag on the Ptr
+   type, threaded through sema/mono/TypeUID/serialize like `mut_ptr`), and route
+   `zoned_enum_materialize`/`zoned_enum_lower` on `*zoned`-deref READ
+   (`EDerefView` 1629) / WRITE (`SDerefWrite` 1071). The `zoned_enum_*` helpers
+   (step 4) are landed and correct; only the *trigger* moves from
+   "enum-pointee-is-zoned" to "pointer-is-`*zoned`".
+6. toy `pass/zoned_enum_basic.logos`: `#[zoned2] enum Z { Ref(&i64), Val(i32) }`;
+   store `Z::Ref(&x)` into a `*zoned Z` slot, assert the stored word ≠ the
+   absolute address (it's a delta), read back via `*slot`, match → deref → x.
+
+**Phase 2** generalizes step-5 threading to field access + buffer indexing
+(`buf.add(i)` deref) of a `*zoned`-element buffer — `HArray.data: *zoned HAny`.
+The `#[zoned2]`-on-enum marker (Phase-1a, landed) + the `zoned_enum_*` bridge
+helpers are sound and inert until `*zoned T` exists to trigger them.
+
+**Phase 3** re-expresses HAny + retires HAnyRel. WRINKLE: HAny's Pod is a
+63-bit `(value<<7)|code` composite — F2's `(v<<1)|1` shift reproduces the
+exact current word IF the Pod arm can hold 63 bits, but there is no 63-bit
+primitive (max `i56`). Decide then: (a) add `i63`, (b) struct Pod arm
+`{code:u8, value:i56}` + extend niche to ≤63-bit struct payloads (most
+Rust-faithful), or (c) a no-shift "raw tagged word" Pod flavor. Affects the
+wire-encoding the hbs/Hermes1 port depends on — resolve before Phase 3.

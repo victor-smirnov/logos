@@ -76,6 +76,13 @@ struct TaggedEnumInfo {
     };
     std::vector<VariantPayload> variants;
 
+    // F3 (ref-repr-design §8): `#[zoned2]` on the enum. The Ref (low-bit-0)
+    // arm of this niche enum is stored SELF-RELATIVE at-rest and absolute as a
+    // value — the storage/compute split, bridged by zoned_enum_materialize /
+    // zoned_enum_lower (the generalized ha_materialize/ha_lower). Only
+    // meaningful together with a LowBit niche.
+    bool zoned = false;
+
     // Phase 3.5 niche optimization. When `packed`, the enum has NO separate
     // discriminant: it is laid out as just its payload (`llvm_type` is the
     // niche field), and the discriminant is encoded in an invalid bit-pattern
@@ -723,6 +730,17 @@ private:
     //     ptr. Fat: memcpy the 16B pair (val is a ptr to the source pair).
     mlir::Value repr_materialize(RefReprKind k, mlir::Value slot);
     void        repr_lower(RefReprKind k, mlir::Value val, mlir::Value slot);
+
+    // F3 (§8): storage↔compute bridge for a `#[zoned2]` niche enum (the
+    // compiler-owned ha_materialize/ha_lower). `slot` is the at-rest word
+    // (Ref arm self-relative, anchor = slot); the value is a by-pointer enum
+    // (ptr to a fresh alloca holding the word with the Ref arm absolute).
+    mlir::Value zoned_enum_materialize(mlir::Value slot);
+    void        zoned_enum_lower(mlir::Value val, mlir::Value slot);
+    // True iff `t` is a tagged enum carrying the `#[zoned2]` (zoned) marker —
+    // i.e. its Ref arm is stored self-relative at-rest. Returns the TaggedEnumInfo
+    // (or nullptr) so callers can reuse it.
+    const TaggedEnumInfo* zoned_niche_enum_info(TypeRef t);
 
     // True iff `t` is a DstRef whose pointee struct has a literal `[T]` slice
     // tail — i.e. a GENUINELY 16-byte {data,len} fat ref (the len is carried

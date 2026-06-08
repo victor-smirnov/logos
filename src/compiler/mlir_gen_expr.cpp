@@ -4886,6 +4886,55 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
     return false;
 }
 
+// F3 (ref-repr-design §8): the storage↔compute bridge for a `#[zoned2]` niche
+// enum — the compiler-owned generalization of hermes2's ha_materialize/ha_lower.
+// The at-rest slot holds the 8-byte niche word with the Ref arm SELF-RELATIVE
+// (anchor = the slot's own address); the compute value is a by-pointer enum
+// (a fresh alloca holding the word with the Ref arm ABSOLUTE).
+//
+//   word r:  r==0 → null;  r&1==1 → Pod (position-independent, copied raw);
+//            else Ref → absolute = slot + r  (materialize) / delta = val − slot
+//            (lower). The Pod/null arms are identity; only the Ref arm shifts.
+mlir::Value MLIRGenImpl::zoned_enum_materialize(mlir::Value slot) {
+    auto r    = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), slot);
+    auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+    auto one  = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+    auto lo   = builder_.create<mlir::LLVM::AndOp>(loc_, r, one);
+    auto is_pod  = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, lo, zero);
+    auto is_null = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::eq, r, zero);
+    auto slot_int = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, builder_.getI64Type(), slot);
+    auto abs = builder_.create<mlir::LLVM::AddOp>(loc_, slot_int, r);        // Ref → slot + delta
+    auto pod_or_ref = builder_.create<mlir::LLVM::SelectOp>(loc_, is_pod, mlir::Value(r), mlir::Value(abs));
+    auto word = builder_.create<mlir::LLVM::SelectOp>(loc_, is_null, mlir::Value(zero), mlir::Value(pod_or_ref));
+    auto a = create_entry_alloca(builder_.getI64Type());
+    builder_.create<mlir::LLVM::StoreOp>(loc_, word, a);
+    return a;   // by-pointer enum value: a ptr to the absolute word
+}
+void MLIRGenImpl::zoned_enum_lower(mlir::Value val, mlir::Value slot) {
+    auto w    = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), val);
+    auto zero = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+    auto one  = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+    auto lo   = builder_.create<mlir::LLVM::AndOp>(loc_, w, one);
+    auto is_pod  = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::ne, lo, zero);
+    auto is_null = builder_.create<mlir::LLVM::ICmpOp>(
+        loc_, mlir::LLVM::ICmpPredicate::eq, w, zero);
+    auto slot_int = builder_.create<mlir::LLVM::PtrToIntOp>(loc_, builder_.getI64Type(), slot);
+    auto delta = builder_.create<mlir::LLVM::SubOp>(loc_, w, slot_int);      // Ref → val − slot
+    auto pod_or_ref = builder_.create<mlir::LLVM::SelectOp>(loc_, is_pod, mlir::Value(w), mlir::Value(delta));
+    auto stored = builder_.create<mlir::LLVM::SelectOp>(loc_, is_null, mlir::Value(zero), mlir::Value(pod_or_ref));
+    builder_.create<mlir::LLVM::StoreOp>(loc_, stored, slot);
+}
+
+const TaggedEnumInfo* MLIRGenImpl::zoned_niche_enum_info(TypeRef t) {
+    if (!t || t.kind() != LogosType::Kind::Enum) return nullptr;
+    auto* info = resolve_tagged_enum(std::string(t.enum_name()), t);
+    if (info && info->zoned && info->niche.packed) return info;
+    return nullptr;
+}
+
 // RefRepr op: storage slot -> compute value. See header for the convention.
 mlir::Value MLIRGenImpl::repr_materialize(RefReprKind k, mlir::Value slot) {
     if (k == RefReprKind::NotARef) return slot;

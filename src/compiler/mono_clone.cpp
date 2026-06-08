@@ -5373,6 +5373,7 @@ lir::LEnumDef Mono::clone_enum_def(const lir::LEnumDef& tmpl,
     lir::LEnumDef nd;
     nd.name = new_name;
     nd.pkg  = tmpl.pkg;
+    nd.zoned2 = tmpl.zoned2;   // F3: preserve the niche enum's at-rest-relative marker
     for (auto& v : tmpl.variants) {
         lir::LVariant nv;
         nv.name = v.name;

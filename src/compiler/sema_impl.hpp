@@ -1224,7 +1224,7 @@ private:
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "pinned")          return bit(AttrTarget::Struct);
         if (name == "zone_mut")        return bit(AttrTarget::Struct);
-        if (name == "zoned2")          return bit(AttrTarget::Struct);
+        if (name == "zoned2")          return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         if (name == "borrow_carrying") return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
@@ -2228,6 +2228,7 @@ private:
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)
         std::string doc;     // outer `///` doc-comment
+        bool zoned2 = false; // #[zoned2]: niche enum's Ref arm self-relative at-rest (F3)
     };
 
     // ── Trait info ───────────────────────────────────────────────

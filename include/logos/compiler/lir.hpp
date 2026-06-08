@@ -920,6 +920,12 @@ struct LEnumDef {
     std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     std::vector<LVariant>    variants;
     TypeRef         backing_type = nullptr;  // null = default (i32)
+    // `#[zoned2]`: a niche-packed enum whose Ref arm is stored SELF-RELATIVE
+    // (RelOffset) at-rest and absolute as a value — the storage/compute split
+    // (ref-repr-design §8 / F3). The compiler bridges via the generalized
+    // ha_materialize/ha_lower (offset the Ref arm by the low bit, anchored at
+    // the access location). #[zoned2] enums are non-movable at-rest.
+    bool                     zoned2 = false;
     bool has_payload() const {
         for (auto& v : variants)
             if (!v.payload_types.empty()) return true;

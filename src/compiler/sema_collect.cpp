@@ -1713,6 +1713,20 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       item_has_type_params(item), pending_annots);
                 }
                 collect_enum(item);
+                // `#[zoned2]` on an enum — the niche enum's Ref arm stores
+                // SELF-RELATIVE at-rest (RelOffset) and absolute as a value (the
+                // storage/compute split; F3, ref-repr-design §8). Mirrors the
+                // struct `#[zoned2]` at the field-collection path above.
+                if (item.has_key(la::NAME.code)) {
+                    std::string ename(str_of(item.get(la::NAME.code)));
+                    for (auto& ann : pending_annots)
+                        if (str_of(ann.get(la::NAME.code)) == "zoned2") {
+                            auto eit = enums_.find(sema_key(cur_package_, ename));
+                            if (eit == enums_.end()) eit = enums_.find(ename);
+                            if (eit != enums_.end()) eit->second.zoned2 = true;
+                            break;
+                        }
+                }
                 // `#[repr(uN)]` on an enum — set discriminant width if the
                 // enum didn't already declare one via the Logos-native
                 // `enum Foo : u32 { ... }` ascription. Maps directly to
