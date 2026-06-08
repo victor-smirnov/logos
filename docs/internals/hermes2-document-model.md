@@ -12,6 +12,12 @@ yet). Each landed L4-green + valgrind-clean. Built on the Hermes2 foundation
 - **Ref** (low bit 0, ≠0): absolute pointer to a tagged arena object.
 - **null**: 0.
 
+**Wide scalars**: values that don't fit the 56-bit inline Pod are BOXED in the
+segment by Ref — an 8-byte tagged object `H2_I64` (full 64-bit int) / `H2_F64`
+(IEEE double). `Hermes2::int(v)` / `float(v)` build them (Pod when it fits, else
+boxed); `HAny::is_int` (Pod i56 OR boxed i64) / `is_float` / `as_i64` / `as_f64`
+read either form transparently.
+
 `HAnyRel` is the at-rest (self-relative) form in arena slots; `ha_materialize` /
 `ha_lower` bridge value↔at-rest.
 
@@ -43,13 +49,16 @@ Overloaded `push` / `set` for i64 / bool / str / &HString / &Array / &HMap.
 | stringify | mem.hermes2.stringify | doc → JSON-ish text |
 | parse | mem.hermes2.parser | JSON-ish text → doc |
 | hbs_write / hbs_read | mem.hermes2.hbs | doc ⇄ bytes (lead-byte + vlen) |
-| compactify | lang.hermes2.compactify | doc → fresh-arena copy (copying GC, design §6) |
+| compactify / clone | lang.hermes2.compactify | doc → fresh-arena copy (copying GC, design §6) |
+| equal | lang.hermes2.equal | structural (deep) equality by value, cross-arena |
 
-All four are the same `type_code`-dispatched recursive walk, differing only in the
-sink (text / bytes / live arena). The model is round-trippable **text ⇄ doc ⇄
-binary** and **self-compacting** (a multi-segment doc copies into one rigid block).
+All are the same `type_code`-dispatched recursive walk, differing only in the sink
+(text / bytes / live arena / bool). The model is round-trippable **text ⇄ doc ⇄
+binary**, **self-compacting** (a multi-segment doc copies into one rigid block),
+and **comparable** (an original equals its round-tripped/compacted copy).
+`examples/hermes2_showcase.logos` §8 demonstrates the whole pipeline.
 
-Tests: `hermes2_{hmap,typetags,stringify,hbs,parser,compactify}`.
+Tests: `hermes2_{hmap,typetags,stringify,hbs,parser,compactify,wide_scalars,equal}`.
 
 ## Lessons (parallel-Hermes hazards)
 
@@ -64,10 +73,13 @@ Tests: `hermes2_{hmap,typetags,stringify,hbs,parser,compactify}`.
 
 ## Remaining for full parity (not started)
 
-- `Map<K,V>` generic (non-string keys).
-- Wider scalars: `i64` beyond 56-bit, `f64` — need a Ref-boxed scalar (HAny Pod is
-  56-bit only).
-- Heavier Hermes1 modules: `clone` (≈ compactify), `equal` (structural), `check`,
-  `decimal`.
-- **Cutover**: retire `stdlib/lang/hermes/*` + `stdlib/mem/hermes/*` wholesale once
-  consumers move to Hermes2 (design §9 part 7).
+- `Map<K,V>` generic (non-string keys; HMap covers the string-keyed JSON object).
+- `check` (validate an HBS byte buffer / doc before trusting it — hbs_read
+  currently assumes well-formed input).
+- `decimal` (arbitrary-precision decimal — a substantial separate piece).
+- **Cutover**: retire `stdlib/lang/hermes/*` + `stdlib/mem/hermes/*` wholesale —
+  explicitly a SEPARATE session (and gated on a new C++ Hermes2 implementation
+  first). Hermes2 lives alongside the old Hermes until then (design §9 part 7).
+
+Done since the roadmap core: **wide scalars** (Ref-boxed i64/f64), **equal**,
+**clone**, showcase §8.

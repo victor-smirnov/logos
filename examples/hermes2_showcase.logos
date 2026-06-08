@@ -24,6 +24,13 @@ use logos.lang.hermes2.container;   // Hermes2, hermes2_new / hermes2_rc, HeldAn
 use logos.lang.hermes2.anyval;      // HAny (value) / HAnyRel (at-rest): Pod + Ref
 use logos.lang.hermes2.array;       // Array<HAny>: push / get / len, grow, nest
 use logos.lang.hermes2.hstring;     // HString: a UTF-8 string in the arena, as_str
+use logos.lang.hermes2.hmap;        // HMap: string-keyed map (JSON object)
+use logos.lang.hermes2.equal;       // structural equality
+use logos.lang.hermes2.compactify;  // compactify / clone (copying GC)
+use logos.mem.hermes2.parser;       // parse: text → doc
+use logos.mem.hermes2.stringify;    // stringify: doc → text
+use logos.mem.hermes2.hbs;          // hbs_write / hbs_read: doc ⇄ bytes
+use logos.mem.collections.vec;      // Vec<u8>
 use logos.lang.hermes2.allocator;   // hermes2_alloc_bytes (raw tagged object)
 use logos.lang.hermes.datatag;      // write_tag, type_code_of
 use logos.mem.hermes.tag_system;    // Hermes2TagSystem
@@ -166,6 +173,26 @@ fn main() -> i32 {
     rec.push(36i64);                     // i64 → inline Pod
     print("   record.name = "); println(h.hstring_of(rec.get(0i64)).as_str());
     say("record.age", rec.get(1i64).as_i56());
+
+    // 8 ── The DOCUMENT MODEL end to end: parse text → doc, stringify it back,
+    //      round-trip through binary (HBS), compact a multi-segment doc into a
+    //      fresh arena, and structurally compare — all dispatching on type_code.
+    section("8. Document model — parse / stringify / HBS / compactify / equal");
+    let tiny: Hermes2 = hermes2_new(32i64);                 // tiny segs → multi-segment doc
+    let src: str = "{\"name\": \"Ada\", \"age\": 36, \"pi\": 3.14, \"big\": 9000000000000000000, \"tags\": [\"x\", \"y\"]}";
+    let doc: HAny = parse(&tiny, src);
+    print("   parsed   = "); let st: String = stringify(doc); println_string(&st);
+
+    let blob: Vec<u8> = hbs_write(doc);
+    say("HBS bytes", blob.len());
+    let arena2: Hermes2 = hermes2_new(4096i64);
+    let back: HAny = hbs_read(&arena2, blob.as_slice().as_ptr(), blob.len());
+    yn("HBS round-trips (equal)", equal(doc, back));
+
+    let arena3: Hermes2 = hermes2_new(4096i64);             // one big segment
+    let compact: HAny = compactify(&arena3, doc);           // copying GC → rigid block
+    yn("compacted (equal)", equal(doc, compact));
+    yn("clone (equal)", equal(doc, clone(&arena3, doc)));
 
     println("");
     println("== all sections ok");
