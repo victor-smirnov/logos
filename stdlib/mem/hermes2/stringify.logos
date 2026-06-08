@@ -22,56 +22,56 @@ use logos.mem.string;              // String
 
 // Append the rendering of `v` to `*out`. A raw `*mut String` (not `&mut`) so the
 // recursion + loops thread the sink without &mut-reborrow churn.
-unsafe fn write_val(out: *mut String, v: HAny) {
-    if v.is_null() { (*out).push_str("null"); return; }
-    if v.is_bool() { (*out).push_str(if v.as_bool() { "true" } else { "false" }); return; }
-    if v.is_float() { let s: String = v.as_f64().to_string(); (*out).push_str(s.as_str()); return; }
-    if v.is_int()   { let s: String = v.as_i64().to_string(); (*out).push_str(s.as_str()); return; }   // i56 Pod or boxed i64
+unsafe fn write_val(out: &mut String, v: HAny) {
+    if v.is_null() { out.push_str("null"); return; }
+    if v.is_bool() { out.push_str(if v.as_bool() { "true" } else { "false" }); return; }
+    if v.is_float() { let s: String = v.as_f64().to_string(); out.push_str(s.as_str()); return; }
+    if v.is_int()   { let s: String = v.as_i64().to_string(); out.push_str(s.as_str()); return; }   // i56 Pod or boxed i64
     if v.is_string() {
         let hs: &HString = &*(v.resolve() as *const HString);
-        (*out).push_u8(34u8);                 // "
-        (*out).push_str(hs.as_str());
-        (*out).push_u8(34u8);
+        out.push_u8(34u8);                 // "
+        out.push_str(hs.as_str());
+        out.push_u8(34u8);
         return;
     }
     if v.is_array() {
         let a: &Array<HAny> = &*(v.resolve() as *const Array<HAny>);
-        (*out).push_u8(91u8);                 // [
+        out.push_u8(91u8);                 // [
         let mut i: i64 = 0i64;
         while i < a.len() {
-            if i > 0i64 { (*out).push_str(", "); }
+            if i > 0i64 { out.push_str(", "); }
             write_val(out, a.get(i));
             i = i + 1i64;
         }
-        (*out).push_u8(93u8);                 // ]
+        out.push_u8(93u8);                 // ]
         return;
     }
     if v.is_map() {
         let m: &HMap = &*(v.resolve() as *const HMap);
-        (*out).push_u8(123u8);                // {
+        out.push_u8(123u8);                // {
         let mut first: bool = true;
         let mut i: i64 = 0i64;
         while i < m.slots() {
             let k: HAny = m.key_at(i);
             if !k.is_null() {
-                if !first { (*out).push_str(", "); }
+                if !first { out.push_str(", "); }
                 first = false;
                 let ks: &HString = &*(k.resolve() as *const HString);
-                (*out).push_u8(34u8); (*out).push_str(ks.as_str()); (*out).push_u8(34u8);
-                (*out).push_u8(58u8); (*out).push_u8(32u8);          // ": "
+                out.push_u8(34u8); out.push_str(ks.as_str()); out.push_u8(34u8);
+                out.push_u8(58u8); out.push_u8(32u8);          // ": "
                 write_val(out, m.val_at(i));
             }
             i = i + 1i64;
         }
-        (*out).push_u8(125u8);                // }
+        out.push_u8(125u8);                // }
         return;
     }
-    (*out).push_u8(63u8);                      // ? — unknown tag
+    out.push_u8(63u8);                      // ? — unknown tag
 }
 
 // Render `v` (and its transitive references) to a fresh String.
 pub fn stringify(v: HAny) -> String {
     let mut out: String = String::new();
-    unsafe { write_val(&mut out as *mut String, v); }
+    unsafe { write_val(&mut out, v); }
     return out;
 }
