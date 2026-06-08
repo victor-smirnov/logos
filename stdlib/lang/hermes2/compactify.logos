@@ -1,0 +1,61 @@
+// Logos Hermes2 stdlib — hermes2.compactify
+//
+// Copy-compaction (the copying-GC half of design §6). A live Hermes2 document may
+// be spread across MANY never-move segments (growth appends; nothing is reclaimed
+// in place). `compactify` walks the doc from its root and rebuilds it wholesale in
+// a FRESH arena `dst` — every string/array/map re-allocated, every Pod copied by
+// value, every self-relative reference re-anchored to its new slot by the normal
+// build path (ha_lower). If `dst` is sized to hold the whole doc, the result is a
+// single contiguous rigid block: relocatable + serializable as one unit. The old
+// container is then dead and freed en masse (its holder dropped) — no per-object
+// reclaim, no in-place moves.
+//
+// It is the inverse-free twin of stringify/hbs_write: same type_code-dispatched
+// walk, but the sink is a live arena rather than text/bytes. (Old → new is a pure
+// copy; the old bytes are never mutated — design §4 "compaction = copy, not move".)
+
+package logos.lang.hermes2.compactify;
+
+use logos.lang.hermes2.container;   // Hermes2
+use logos.lang.hermes2.anyval;      // HAny
+use logos.lang.hermes2.array;       // Array<HAny>
+use logos.lang.hermes2.hmap;        // HMap
+use logos.lang.hermes2.hstring;     // HString
+use logos.lang.str;                 // str
+use logos.lang.ptr;
+
+// Deep-copy `v` (and everything it transitively references) into `dst`; return the
+// new root HAny. Pods/null are position-independent (copied by value); Refs are
+// rebuilt and re-anchored.
+pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
+    if v.is_null() { return HAny { raw: 0i64 }; }
+    if v.is_pod()  { return v; }
+    if v.is_string() {
+        let hs: &HString = unsafe { &*(v.resolve() as *const HString) };
+        return HAny::from(dst.hstring(hs.as_str()));
+    }
+    if v.is_array() {
+        let a: &Array<HAny> = unsafe { &*(v.resolve() as *const Array<HAny>) };
+        let n: i64 = a.len();
+        let na: &mut Array<HAny> = dst.array(if n < 1i64 { 1i64 } else { n });
+        let mut i: i64 = 0i64;
+        while i < n { na.push(compactify(dst, a.get(i))); i = i + 1i64; }
+        return HAny::from(&*na);
+    }
+    if v.is_map() {
+        let m: &HMap = unsafe { &*(v.resolve() as *const HMap) };
+        let n: i64 = m.len();
+        let nm: &mut HMap = dst.map(if n < 1i64 { 1i64 } else { n });
+        let mut i: i64 = 0i64;
+        while i < m.slots() {
+            let k: HAny = m.key_at(i);
+            if !k.is_null() {
+                let ks: &HString = unsafe { &*(k.resolve() as *const HString) };
+                nm.set(ks.as_str(), compactify(dst, m.val_at(i)));
+            }
+            i = i + 1i64;
+        }
+        return HAny::from(&*nm);
+    }
+    return v;
+}
