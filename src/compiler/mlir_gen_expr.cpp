@@ -2506,7 +2506,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     // EXCLUDED — a dyn field read carries a by-value 16B aggregate (the load
     // branch below), a context-dependent dyn convention kept off this path.
     if (TypeRef rt(type); rt) {
-        auto rk = ref_repr_of(rt);
+        auto rk = field_repr(sname, rt);   // zoned2: a thin ptr field reads self-relative
         if (rk == RefReprKind::FatSlice || rk == RefReprKind::FatClosure ||
             rk == RefReprKind::FatCustomDst || rk == RefReprKind::FatZoneMut ||
             rk == RefReprKind::RelOffset)

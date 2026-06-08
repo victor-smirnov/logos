@@ -870,6 +870,10 @@ struct LStructDef {
     // carrying its Hermes zone, so grow methods reach the allocator from &mut self;
     // read `&T` stays thin. (hermes2-zone-mut-fat-ref)
     bool                     zone_mut = false;
+    // `#[zoned2]`: every thin pointer field is stored SELF-RELATIVE (RelOffset i64,
+    // anchored to the field's own slot) and materialises to an absolute pointer in
+    // compute — the untagged zoned-reference case (ref-repr-design §6). Non-movable.
+    bool                     zoned2 = false;
     // logos-core §6.1: this type was declared as `union NAME { … }`.
     // Layout is max-of-fields aligned to max-alignment (vs struct's
     // sum-of-fields); only one field is "active" at a time. Field-

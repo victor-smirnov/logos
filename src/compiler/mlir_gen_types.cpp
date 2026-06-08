@@ -570,6 +570,17 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
     }
 }
 
+MLIRGenImpl::RefReprKind MLIRGenImpl::field_repr(const std::string& owner_key, TypeRef field_type) {
+    auto r = ref_repr_of(field_type);
+    // A thin pointer field of a #[zoned2] struct is stored self-relative.
+    if (r == RefReprKind::ThinPtr) {
+        auto it = all_struct_defs_.find(owner_key);
+        if (it != all_struct_defs_.end() && it->second && it->second->zoned2)
+            return RefReprKind::RelOffset;
+    }
+    return r;
+}
+
 mlir::Type MLIRGenImpl::repr_value_type(RefReprKind k) {
     // Current model: every reference value is a thin pointer (logos_to_mlir
     // returns ptr_type() for all reference kinds). The fat {data,meta} pair

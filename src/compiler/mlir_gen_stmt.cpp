@@ -1092,6 +1092,27 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         repr_lower(RefReprKind::RelOffset, val, ptr);
         return;
     }
+    // #[zoned2] field place: `*(&owner.field) = val` where `owner` is #[zoned2] and
+    // `field` is a thin pointer → the field stores SELF-RELATIVE. The field type
+    // alone isn't RelOffset (it's a plain ptr); recover the owner struct from the
+    // place expr (`&owner.field` = AddrOfTemp(FieldRead)) to consult its zoned2 flag.
+    if (pointee_t && ref_repr_of(pointee_t) == RefReprKind::ThinPtr) {
+        namespace ec = lir_schema::expr;
+        auto pr = expr_ref_of(*ptr_le);
+        if (pr && pr.kind() == ec::Code::AddrOfTemp) {
+            auto inner = lir_view::EAddrOfTempView{pr}.inner();
+            if (inner && inner.kind() == ec::Code::FieldRead) {
+                auto* recv_le = lexpr_of(lir_view::EFieldReadView{inner}.receiver());
+                TypeRef rt = recv_le ? TypeRef(recv_le->type) : TypeRef(nullptr);
+                TypeRef owner = (rt && rt.pointee()) ? rt.pointee() : rt;
+                if (owner && field_repr(concrete_struct_name(owner), pointee_t)
+                                 == RefReprKind::RelOffset) {
+                    repr_lower(RefReprKind::RelOffset, val, ptr);
+                    return;
+                }
+            }
+        }
+    }
     if (pointee_t && (TypeRef(pointee_t).kind() == LogosType::Kind::Struct ||
                       TypeRef(pointee_t).kind() == LogosType::Kind::ZonedStruct) &&
         val.getType() == ptr_type()) {
@@ -2552,7 +2573,7 @@ void MLIRGenImpl::gen_field_write(lir_view::SFieldWriteView v) {
         if (sdit != all_struct_defs_.end() && sdit->second)
             for (auto& f : sdit->second->fields)
                 if (f.name == field &&
-                    ref_repr_of(f.type) == RefReprKind::RelOffset) {
+                    field_repr(type_name, f.type) == RefReprKind::RelOffset) {
                     repr_lower(RefReprKind::RelOffset, val, gep);
                     return;
                 }
@@ -2633,7 +2654,7 @@ void MLIRGenImpl::gen_deref_field_write(lir_view::SDerefFieldWriteView v) {
         if (sdit != all_struct_defs_.end() && sdit->second)
             for (auto& f : sdit->second->fields)
                 if (f.name == field &&
-                    ref_repr_of(f.type) == RefReprKind::RelOffset) {
+                    field_repr(sit->first, f.type) == RefReprKind::RelOffset) {
                     repr_lower(RefReprKind::RelOffset, val, gep);
                     return;
                 }

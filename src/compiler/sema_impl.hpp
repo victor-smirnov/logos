@@ -1224,6 +1224,7 @@ private:
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "pinned")          return bit(AttrTarget::Struct);
         if (name == "zone_mut")        return bit(AttrTarget::Struct);
+        if (name == "zoned2")          return bit(AttrTarget::Struct);
         if (name == "borrow_carrying") return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
@@ -1823,6 +1824,10 @@ private:
             //    slot. (Flagging the bare rel_ptr type too needs field reads to
             //    produce `*T` directly — a follow-up, not needed for the container.)
             if (ssi->pinned) return true;
+            // `#[zoned2]`: self-relative pointer fields are anchored to their own
+            // slot — a whole-struct memcpy would carry stale deltas, so the struct
+            // is non-movable (can't occupy a by-value stack slot).
+            if (ssi->zoned2) return true;
             for (auto& f : ssi->fields) {
                 TypeRef ft = f.type;
                 auto fk = TypeRef(ft).kind();
@@ -2113,6 +2118,12 @@ private:
                             // grow methods reach the allocator from &mut self. Read
                             // `&T` stays thin. (hermes2-zone-mut-fat-ref §)
                             bool zone_mut = false;
+                            // `#[zoned2]`: all thin pointer fields of this struct are
+                            // stored SELF-RELATIVE (RelOffset i64) and materialize to
+                            // absolute pointers in compute — the untagged zoned-ref
+                            // case (ref-repr §6). Non-movable (can't be stack-allocated;
+                            // offsets are anchored to the slot). (hermes2 ptr foundation)
+                            bool zoned2 = false;
                             // `#[borrow_carrying]`: a value type whose value may
                             // contain a borrow — an absolute Ref into an arena (e.g.
                             // HAny). The borrow checker tracks such values' ESCAPE

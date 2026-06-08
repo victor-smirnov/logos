@@ -1591,6 +1591,15 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.zone_mut = true;
                                 break;
                             }
+                        // `#[zoned2]`: all thin ptr fields stored self-relative (RelOffset).
+                        for (auto& ann : pending_annots)
+                            if (str_of(ann.get(la::NAME.code)) == "zoned2") {
+                                auto skey = sema_key(cur_package_, sname);
+                                auto sit = structs_.find(skey);
+                                if (sit == structs_.end()) sit = structs_.find(sname);
+                                if (sit != structs_.end()) sit->second.zoned2 = true;
+                                break;
+                            }
                         // `#[borrow_carrying]`: a value type that may hold a Ref into
                         // an arena (HAny) — escape-tracked like a reference by the BC.
                         for (auto& ann : pending_annots)

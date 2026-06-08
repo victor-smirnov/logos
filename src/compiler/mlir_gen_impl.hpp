@@ -646,6 +646,11 @@ private:
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
+    // The EFFECTIVE repr of a struct field: like ref_repr_of(field_type), but a
+    // thin pointer field inside a #[zoned2] struct stores SELF-RELATIVE (RelOffset)
+    // — the untagged zoned-reference case (ref-repr-design §6). `owner_key` is the
+    // field's containing-struct key (all_struct_defs_ key).
+    RefReprKind field_repr(const std::string& owner_key, TypeRef field_type);
 
     // Recover the tail length of a #[self_describing] DST from its THIN header
     // pointer by calling the struct's `dst_len(*const Self)` with `thin_ptr`.
