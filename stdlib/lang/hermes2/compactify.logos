@@ -61,3 +61,9 @@ pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
     }
     return v;
 }
+
+// Deep-copy `v` into arena `dst`, returning the new independent root. This IS
+// compaction (a full structural copy, re-anchoring every reference) — `clone` is
+// the same operation named for the by-value-copy intent (Hermes1's clone). Copy
+// into the SAME arena to duplicate a subtree; into a FRESH arena to compact.
+pub fn clone(dst: &Hermes2, v: HAny) -> HAny { return compactify(dst, v); }
