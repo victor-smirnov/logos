@@ -736,18 +736,68 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
     // is pointer-sized (sizeof(Option<&T>) == 8). Only `&`/`&mut` are
     // guaranteed-non-null today; Box/Rc/NonZero niches can follow.
     if (info.variants.size() == 2) {
+        using K = LogosType::Kind;
         const TaggedEnumInfo::VariantPayload* none_v = nullptr;
         const TaggedEnumInfo::VariantPayload* some_v = nullptr;
         for (auto& vp : info.variants) {
             if (vp.field_types.empty()) none_v = &vp;
             else if (vp.logos_types.size() == 1) some_v = &vp;
         }
+        // (1) Null-pointer niche — Option<&T>-shape (one fieldless + one &T/&mut T).
         if (none_v && some_v) {
             auto k = TypeRef(some_v->logos_types[0]).kind();
-            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+            if (k == K::Ref || k == K::MutRef) {
+                info.niche.kind      = TaggedEnumInfo::Niche::NullPtr;
                 info.niche.packed    = true;
                 info.niche.none_disc = none_v->disc;
                 info.niche.some_disc = some_v->disc;
+            }
+        }
+        // (2) Low-bit niche — two single-field data arms, one a pointer to an
+        // align≥2 pointee (low bit always 0), one a ≤63-bit integer (stored
+        // low-bit-1 via a compiler tag). Packs into ONE word; disc = the low bit.
+        auto int_arm_bits = [](TypeRef t, uint32_t& bits, bool& sgn) -> bool {
+            switch (TypeRef(t).kind()) {
+                case K::Bool: bits=1;  sgn=false; return true;
+                case K::I8:   bits=8;  sgn=true;  return true;
+                case K::U8:   bits=8;  sgn=false; return true;
+                case K::I16:  bits=16; sgn=true;  return true;
+                case K::U16:  bits=16; sgn=false; return true;
+                case K::I24:  bits=24; sgn=true;  return true;
+                case K::U24:  bits=24; sgn=false; return true;
+                case K::I32:  bits=32; sgn=true;  return true;
+                case K::U32:  bits=32; sgn=false; return true;
+                case K::I56:  bits=56; sgn=true;  return true;
+                default: return false;  // I64/U64 (64 bits) don't fit the niche
+            }
+        };
+        if (!info.niche.packed) {
+            const TaggedEnumInfo::VariantPayload* ptr_arm = nullptr;
+            const TaggedEnumInfo::VariantPayload* val_arm = nullptr;
+            uint32_t vbits = 0; bool vsigned = false; bool ok = true;
+            for (auto& vp : info.variants) {
+                if (vp.logos_types.size() != 1) { ok = false; break; }
+                TypeRef ft = vp.logos_types[0];
+                auto k = TypeRef(ft).kind();
+                // Only &T/&mut T guarantee the pointer is aligned (low bit 0); a raw
+                // `*T` could hold a misaligned address. (Zoned pointers — also
+                // low-bit-0 — join here in F3.)
+                bool is_ptr = (k == K::Ref || k == K::MutRef) &&
+                              TypeRef(ft).pointee() &&
+                              layout_of(TypeRef(ft).pointee()).align >= 2;
+                uint32_t b = 0; bool s = false;
+                bool is_val = int_arm_bits(ft, b, s) && b <= 63;
+                if (is_ptr && !ptr_arm)      ptr_arm = &vp;
+                else if (is_val && !val_arm) { val_arm = &vp; vbits = b; vsigned = s; }
+                else { ok = false; break; }
+            }
+            if (ok && ptr_arm && val_arm) {
+                info.niche.kind       = TaggedEnumInfo::Niche::LowBit;
+                info.niche.packed     = true;
+                info.niche.ptr_disc   = ptr_arm->disc;
+                info.niche.val_disc   = val_arm->disc;
+                info.niche.val_bits   = vbits;
+                info.niche.val_signed = vsigned;
             }
         }
     }

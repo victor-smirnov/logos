@@ -212,7 +212,16 @@ reasons, not representation.)
 - **Phase 3.5 — enum niche optimization** (new compiler feature, §7):
   consume `RefRepr::niches()` in the enum-layout so a discriminant packs
   into invalid bit-patterns. Prerequisite for `HAny` and
-  `Option<zoned T>`.
+  `Option<zoned T>`. **DONE (2026-06-08):** two niche kinds —
+  `NullPtr` (Option<&T>-shape, pre-existing) and `LowBit` (a 2-variant
+  enum with one `&T`/`&mut T` arm to an align≥2 pointee + one ≤63-bit
+  integer arm packs into ONE word; disc = the low bit, value arm stored
+  `(v<<1)|1`, pointer arm stored raw). All routed through the existing
+  enum chokepoints (`enum_store_disc` no-op / `enum_load_disc` low-bit
+  decode / `enum_payload_ptr` runtime-selects the payload address by the
+  low bit — value→`word>>1` temp, pointer→the enum slot itself, mirroring
+  the NullPtr binding). Test `pass/niche_low_bit.logos`. The `HAny`
+  niche-enum (`enum { Ref(*zoned) | Pod }`) is the next step (Phase 4).
 - **Phase 4 — add the zoned reference reprs** (§6, the first real
   storage/compute specializations): typed `zoned T` (untagged), erased
   tagged zoned ptr, and `HAny`. hermes2 zoned pointer *fields* become

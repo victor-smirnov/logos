@@ -440,6 +440,35 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
     // Store discriminant (Phase 3.5: via the representation chokepoint).
     enum_store_disc(alloca, info, disc);
     // Store payload into the payload area, bitcasted.
+    // LowBit niche: encode the single payload field into the word — the ptr arm
+    // raw (low bit 0, guaranteed by ≥2 alignment), the value arm `(v<<1)|1`.
+    if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit) {
+        mlir::Value word;
+        if (!payload.empty()) {
+            auto* pl = lexpr_of(payload[0]);
+            auto v = pl ? gen_expr(*pl) : nullptr;
+            if (!v) return nullptr;
+            if (disc == info.niche.val_disc) {
+                // value arm: extend to i64 (by signedness), then `(v<<1)|1`.
+                TypeRef vt = nullptr;
+                for (auto& vi : info.variants)
+                    if (vi.disc == disc && !vi.logos_types.empty()) { vt = vi.logos_types[0]; break; }
+                auto vi64 = coerce_int(v, builder_.getI64Type(), vt);
+                auto one  = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+                auto sh   = builder_.create<mlir::LLVM::ShlOp>(loc_, vi64, one);
+                word      = builder_.create<mlir::LLVM::OrOp>(loc_, sh, one);
+            } else {
+                // ptr arm: pointer → i64 raw (low bit 0).
+                word = (v.getType() == ptr_type())
+                       ? builder_.create<mlir::LLVM::PtrToIntOp>(loc_, builder_.getI64Type(), v).getResult()
+                       : coerce_int(v, builder_.getI64Type());
+            }
+        } else {
+            word = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        }
+        builder_.create<mlir::LLVM::StoreOp>(loc_, word, alloca);
+        return alloca;
+    }
     if (!payload.empty()) {
         auto pay_ptr = enum_payload_ptr(alloca, info);
         // Find the variant's field types
@@ -3597,7 +3626,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
                 [&](TypeRef t){ pvd_binding_types.push_back(t); });
             int64_t pvd_disc = pvd.disc();
             if (te_info && scrut_ptr) {
-                auto pay_ptr = enum_payload_ptr(scrut_ptr, *te_info);  // Phase 3.5
+                auto pay_ptr = enum_payload_ptr(scrut_ptr, *te_info);  // Phase 3.5 (LowBit decode)
                 const TaggedEnumInfo::VariantPayload* vp = nullptr;
                 for (auto& v : te_info->variants)
                     if (v.disc == pvd_disc) { vp = &v; break; }
@@ -4721,7 +4750,30 @@ mlir::Value MLIRGenImpl::repr_construct(RefReprKind k, mlir::Value data, mlir::V
 // non-null pointer) starts at offset 0 and null encodes the `none` variant.
 mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
                                           const TaggedEnumInfo& info) {
-    // Niche-packed: the payload IS the enum storage (offset 0).
+    // LowBit niche — READ side (the construct encodes inline and returns before
+    // reaching here). Decode by the RUNTIME low bit into a temp the binding loop
+    // reads as the variant payload field: value arm (lo=1) → `word>>1` (signed →
+    // arithmetic), pointer arm (lo=0) → the word itself (the aligned pointer).
+    if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit) {
+        // value arm (low bit 1) → read from a temp holding `word>>1` (signed →
+        // arithmetic shift); pointer arm (low bit 0) → read from the enum slot
+        // itself (the word IS the aligned pointer — mirrors the null-pointer-niche
+        // binding, which works). Runtime-select the payload address by the low bit
+        // so BOTH binding shapes (load-scalar, &Struct) behave as for a normal slot.
+        auto w   = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), enum_addr);
+        auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+        auto z   = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        auto lo  = builder_.create<mlir::LLVM::AndOp>(loc_, w, one);
+        auto isval = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::ne, lo, z);
+        mlir::Value sh = info.niche.val_signed
+            ? builder_.create<mlir::LLVM::AShrOp>(loc_, w, one).getResult()
+            : builder_.create<mlir::LLVM::LShrOp>(loc_, w, one).getResult();
+        auto tmp = create_entry_alloca(builder_.getI64Type());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, sh, tmp);
+        return builder_.create<mlir::LLVM::SelectOp>(loc_, isval, tmp, enum_addr);
+    }
+    // Other niche-packed (null-pointer): the payload IS the enum storage (offset 0).
     if (info.niche.packed) return enum_addr;
     llvm::SmallVector<mlir::LLVM::GEPArg> i{int32_t(0), int32_t(1)};
     return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), info.llvm_type,
@@ -4729,6 +4781,10 @@ mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
 }
 void MLIRGenImpl::enum_store_disc(mlir::Value enum_addr, const TaggedEnumInfo& info,
                                   int64_t disc) {
+    // LowBit: the disc IS the payload word's low bit — encoded by the construct's
+    // payload store (ptr arm raw / value arm `(v<<1)|1`), nothing separate here.
+    if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit)
+        return;
     if (info.niche.packed) {
         // The `none` variant writes the niche value (null) at offset 0; the
         // data (`some`) variant writes nothing here — its payload store places
@@ -4762,6 +4818,18 @@ void MLIRGenImpl::enum_store_disc_value(mlir::Value enum_addr,
 }
 mlir::Value MLIRGenImpl::enum_load_disc(mlir::Value enum_addr,
                                         const TaggedEnumInfo& info) {
+    if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit) {
+        // Decode: load the word; low bit 0 → ptr arm, low bit 1 → value arm.
+        auto w   = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), enum_addr);
+        auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+        auto lo  = builder_.create<mlir::LLVM::AndOp>(loc_, w, one);
+        auto z64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+        auto is_val = builder_.create<mlir::LLVM::ICmpOp>(
+            loc_, mlir::LLVM::ICmpPredicate::ne, lo, z64);
+        auto ptr_c = builder_.create<mlir::arith::ConstantIntOp>(loc_, info.niche.ptr_disc, 32);
+        auto val_c = builder_.create<mlir::arith::ConstantIntOp>(loc_, info.niche.val_disc, 32);
+        return builder_.create<mlir::LLVM::SelectOp>(loc_, is_val, val_c, ptr_c);
+    }
     if (info.niche.packed) {
         // Decode: load the niche pointer; null → none_disc, non-null → some_disc.
         auto p = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), enum_addr);
@@ -5344,7 +5412,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         int32_t ok_d = v.ok_disc();
         for (auto& vp : te->variants) if (vp.disc == ok_d) { ok_vp = &vp; break; }
 
-        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5
+        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5 (LowBit decode)
         if (ok_vp && !ok_vp->field_types.empty()) {
             auto ps  = mlir::LLVM::LLVMStructType::getLiteral(builder_.getContext(), ok_vp->field_types);
             llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(0)};
@@ -5377,7 +5445,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETryView v, TypeRef type) {
         int32_t err_d = v.err_disc();
         for (auto& vp : te->variants) if (vp.disc == err_d) { err_vp = &vp; break; }
 
-        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5
+        auto pay_ptr = enum_payload_ptr(inner_ptr, *te);  // Phase 3.5 (LowBit decode)
 
         auto ret_alloca = create_entry_alloca(te->llvm_type);
         enum_store_disc(ret_alloca, *te, v.err_disc());

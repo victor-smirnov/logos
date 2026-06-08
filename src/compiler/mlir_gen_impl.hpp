@@ -84,9 +84,22 @@ struct TaggedEnumInfo {
     // field = `some_disc`); the niche value is null (0) at offset 0, so
     // sizeof(Option<&T>) == sizeof(&T) == 8, matching Rust.
     struct Niche {
-        bool    packed    = false;
-        int64_t none_disc = 0;   // variant encoded by the niche value (null)
-        int64_t some_disc = 0;   // data variant (the non-null pointer)
+        // NullPtr: Option<&T>-shape — null encodes `none_disc`, the non-null ptr
+        //          encodes `some_disc`. Stored as just the pointer (8B).
+        // LowBit:  HAny-shape — two data arms disambiguated by the payload word's
+        //          LOW BIT. The `ptr_disc` arm holds a pointer to an align≥2 pointee
+        //          (so its low bit is always 0) stored RAW; the `val_disc` arm holds
+        //          a ≤63-bit integer stored as `(value << 1) | 1` (low bit 1). Read:
+        //          low bit 0 → ptr arm (word as ptr), low bit 1 → val arm (word >> 1).
+        enum Kind { NoNiche, NullPtr, LowBit };
+        Kind    kind      = NoNiche;
+        bool    packed    = false;       // kind != NoNiche (enum is just its payload word)
+        int64_t none_disc = 0;           // NullPtr: the null variant
+        int64_t some_disc = 0;           // NullPtr: the pointer variant
+        int64_t ptr_disc  = 0;           // LowBit: the low-bit-0 pointer arm
+        int64_t val_disc  = 0;           // LowBit: the low-bit-1 value arm
+        uint32_t val_bits = 0;           // LowBit: value arm's bit width (for read sign/zero-extend)
+        bool     val_signed = false;     // LowBit: value arm signedness
     };
     Niche niche;
 };
