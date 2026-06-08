@@ -41,19 +41,19 @@ pub unsafe fn hermes2_free(h: *mut Hermes2) {
 // The caller initialises the storage. The pointer is stable for the container's
 // lifetime. Returns null on OOM.
 pub unsafe fn hermes2_alloc<T>(h: *mut Hermes2) -> *mut T {
-    return allocator_alloc(&mut h.allocator, sizeof::<T>() as i64) as *mut T;
+    return allocator_alloc(&mut h.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` contiguous uninitialised `T` (array backing) in one segment; return
 // a pointer to element 0. Stable for the container's lifetime. Null on OOM.
 pub unsafe fn hermes2_alloc_n<T>(h: *mut Hermes2, n: i64) -> *mut T {
-    return allocator_alloc(&mut h.allocator, (sizeof::<T>() as i64) * n) as *mut T;
+    return allocator_alloc(&mut h.allocator, (sizeof::<T>() as i64) * n, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` raw bytes (for self-describing blobs — Varchar payloads, etc.).
 // Stable for the container's lifetime. Null on OOM.
 pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
-    return allocator_alloc(&mut h.allocator, n);
+    return allocator_alloc(&mut h.allocator, n, 8i64);   // conservative: callers may place 8-aligned data
 }
 
 // Allocate a TAGGED arena object (one reachable via an HAny Ref): reserve an
@@ -63,7 +63,7 @@ pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
 // the code back. Takes `*mut Allocator` so containers holding only an allocator
 // back-pointer (Array<HAny>, HMap) can tag-allocate without the full Hermes2.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u8) -> *mut u8 {
-    let base: *mut u8 = allocator_alloc(a, 8i64 + size);
+    let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
     *(((obj as i64) - 1i64) as *mut u8) = code;
     return obj;
@@ -117,7 +117,7 @@ impl Hermes2 {
     // placement is an exclusive operation. (Internally unsafe; the API is safe.)
     pub fn put<T>(self: &mut Hermes2, v: T) -> Slot<T> {
         unsafe {
-            let p: *mut T = allocator_alloc(&mut self.allocator, sizeof::<T>() as i64) as *mut T;
+            let p: *mut T = allocator_alloc(&mut self.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
             *p = v;
             return Slot { p: p };
         }

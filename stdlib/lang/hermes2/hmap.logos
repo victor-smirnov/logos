@@ -87,7 +87,7 @@ unsafe fn om_grow(m: *mut HMap) {
     let oldcap: i64 = m.cap;
     let newcap: i64 = if oldcap == 0i64 { 8i64 } else { oldcap * 2i64 };
     let nbuf: *mut HMapEntry =
-        allocator_alloc(m.alloc, newcap * (sizeof::<HMapEntry>() as i64)) as *mut HMapEntry;
+        allocator_alloc(m.alloc, newcap * (sizeof::<HMapEntry>() as i64), align_of::<HMapEntry>() as i64) as *mut HMapEntry;
     om_zero(nbuf, newcap);
     let obuf: *mut HMapEntry = om_buf_mut(m);
     let ncap_u: u64 = newcap as u64;

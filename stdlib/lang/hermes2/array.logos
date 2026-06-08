@@ -64,7 +64,7 @@ unsafe fn array_push(a: *mut Array<HAny>, v: HAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
         let nbuf: *mut HAnyRel =
-            allocator_alloc(a.alloc, newcap * (sizeof::<HAnyRel>() as i64)) as *mut HAnyRel;
+            allocator_alloc(a.alloc, newcap * (sizeof::<HAnyRel>() as i64), align_of::<HAnyRel>() as i64) as *mut HAnyRel;
         let obuf: *mut HAnyRel = array_buf_mut(a);
         let mut i: i64 = 0i64;
         while i < a.len {

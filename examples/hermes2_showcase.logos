@@ -179,7 +179,13 @@ fn main() -> i32 {
     //      fresh arena, and structurally compare — all dispatching on type_code.
     section("8. Document model — parse / stringify / HBS / compactify / equal");
     let tiny: Hermes2 = hermes2_new(32i64);                 // tiny segs → multi-segment doc
-    let src: str = "{\"name\": \"Ada\", \"age\": 36, \"pi\": 3.14, \"big\": 9000000000000000000, \"tags\": [\"x\", \"y\"]}";
+    let src: str = r#"{
+        "name": "Ada", 
+        "age": 36, 
+        "pi": 3.14, 
+        "big": 9000000000000000000, 
+        "tags": ["x", "y"]
+    }"#;
     let doc: HAny = parse(&tiny, src);
     print("   parsed   = "); let st: String = stringify(doc); println_string(&st);
 

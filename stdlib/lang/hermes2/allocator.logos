@@ -103,24 +103,31 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
     return seg;
 }
 
-// Bump-allocate `size` bytes (8-byte aligned) from the allocator, appending a new
-// segment if the current one is full. Returns a pointer into a never-moved
-// segment (stable for the allocator's lifetime), or null on OOM.
-pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64) -> *mut u8 {
+// Bump-allocate `size` bytes with the requested `align` from the allocator,
+// appending a new segment if the current one is full. `align` is any power of two
+// (pass `align_of::<T>()`); the ALLOCATOR FLOOR is 2 — a 1-byte request is still
+// handed back ≥2-aligned, because a Ref'd object's low bit must be 0 (the HAny
+// Pod/Ref tag). Returns a pointer into a never-moved segment (stable for the
+// allocator's lifetime), or null on OOM.
+pub unsafe fn allocator_alloc(a: *mut Allocator, size: i64, align: i64) -> *mut u8 {
+    let al: i64 = if align < 2i64 { 2i64 } else { align };
     let seg: *mut Segment = a.current;
-    let aligned: i64 = (seg.used + 7) / 8 * 8;
-    if aligned + size <= seg.cap {
-        let p: *mut u8 = (seg_data(seg) + aligned) as *mut u8;
-        seg.used = aligned + size;
-        return p;
+    let base: i64 = seg_data(seg);
+    let addr: i64 = (base + seg.used + al - 1i64) / al * al;   // align the ABSOLUTE address
+    let off: i64 = addr - base;
+    if off + size <= seg.cap {
+        seg.used = off + size;
+        return addr as *mut u8;
     }
-    // Doesn't fit — append a new segment sized to hold it. Its data region
-    // starts 8-aligned with used == 0, so allocate from offset 0.
-    let ns: *mut Segment = allocator_append(a, size);
+    // Doesn't fit — append a segment with `al` headroom so its data region can be
+    // aligned even when seg_data isn't already `al`-aligned (seg_data is 8-aligned;
+    // for align > 8 the slack absorbs the rounding).
+    let ns: *mut Segment = allocator_append(a, size + al);
     if ns.is_null() { return null_mut::<u8>(); }
-    let p: *mut u8 = seg_data(ns) as *mut u8;
-    ns.used = size;
-    return p;
+    let nbase: i64 = seg_data(ns);
+    let na: i64 = (nbase + al - 1i64) / al * al;
+    ns.used = (na - nbase) + size;
+    return na as *mut u8;
 }
 
 // Free all segments en masse. The allocator must not be used afterwards.
