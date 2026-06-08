@@ -27,12 +27,16 @@ use logos.lang.ptr;
 // zone (the allocator) — so grow methods reach the allocator from `&mut self` with
 // NO stored field. The zone is no longer in the object; it rides the mutable
 // reference (hermes2-design §9.4 / zone-as-parameter). Read `&Array` stays thin.
+// `#[zoned2]`: the `data` pointer is stored SELF-RELATIVE (RelOffset i64, anchored
+// to its own slot) and materialises to an absolute pointer on read — the untagged
+// zoned-reference (ref-repr-design §6). No manual `(a)+delta` arithmetic.
 #[zone_mut]
 #[pinned]
+#[zoned2]
 pub struct HArray<T> {
     pub len:   i64,
     pub cap:   i64,
-    pub data:  i64,             // self-relative: element buffer = (header addr) + data
+    pub data:  *mut HAnyRel,    // element buffer (auto-relative via #[zoned2])
 }
 
 // Ergonomic alias for the heterogeneous array (the only instantiation today):
@@ -42,10 +46,10 @@ pub type HValArray = HArray<HVal>;
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
 // split — a `*const` header yields a `*const` buffer, never laundering const→mut).
 unsafe fn array_buf(a: *const HArray<HVal>) -> *const HAnyRel {
-    return ((a as i64) + a.data) as *const HAnyRel;
+    return a.data as *const HAnyRel;   // #[zoned2]: materialises to absolute on read
 }
 unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *mut HAnyRel {
-    return ((a as i64) + a.data) as *mut HAnyRel;
+    return a.data;
 }
 
 // Raw core (internal). Create an empty array header + buffer in `h`'s zone and
@@ -58,7 +62,7 @@ unsafe fn array_new(h: *mut Hermes2, cap: i64) -> *mut HArray<HVal> {
     let buf: *mut HAnyRel  = hermes2_alloc_n::<HAnyRel>(h, cap);
     hdr.len   = 0i64;
     hdr.cap   = cap;
-    hdr.data  = (buf as i64) - (hdr as i64);
+    hdr.data  = buf;            // #[zoned2]: lowers to a self-relative offset
     return hdr;
 }
 
@@ -80,7 +84,7 @@ unsafe fn array_push(a: *mut HArray<HVal>, alloc: *mut Allocator, v: HAny) {
             ha_lower(val, nbuf.add(i));
             i = i + 1i64;
         }
-        a.data = (nbuf as i64) - (a as i64);
+        a.data = nbuf;          // #[zoned2]: lowers to a self-relative offset
         a.cap  = newcap;
     }
     let buf: *mut HAnyRel = array_buf_mut(a);

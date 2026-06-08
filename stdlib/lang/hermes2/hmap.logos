@@ -36,12 +36,15 @@ pub struct HMapEntry {
 // `#[zone_mut]`: a `&mut HMap<HString, HVal>` is a FAT ref {data, zone} carrying its Hermes zone
 // (the allocator) — grow/intern reach it via zone_of(self); the object stores no
 // allocator. Read `&HMap<HString, HVal>` stays thin. (Mirrors HArray<HVal>; hermes2-design §9.4.)
+// `#[zoned2]`: the `data` pointer to the entry buffer is stored SELF-RELATIVE and
+// materialises to an absolute pointer on read (ref-repr-design §6). No manual delta.
 #[zone_mut]
 #[pinned]
+#[zoned2]
 pub struct HMap<K, V> {
     pub count: i64,             // occupied slots
     pub cap:   i64,             // number of slots (power of 2)
-    pub data:  i64,             // self-relative: entry buffer = (header addr) + data
+    pub data:  *mut HMapEntry,  // entry buffer (auto-relative via #[zoned2])
 }
 
 // Ergonomic alias for the heterogeneous string-keyed map (the only instantiation
@@ -49,8 +52,9 @@ pub struct HMap<K, V> {
 pub type HValMap = HMap<HString, HVal>;
 
 // Absolute entry buffer (header + delta).
-unsafe fn om_buf(m: *const HMap<HString, HVal>) -> *const HMapEntry { return ((m as i64) + m.data) as *const HMapEntry; }
-unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return ((m as i64) + m.data) as *mut HMapEntry; }
+// #[zoned2]: `m.data` materialises to the absolute entry buffer on read.
+unsafe fn om_buf(m: *const HMap<HString, HVal>) -> *const HMapEntry { return m.data as *const HMapEntry; }
+unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return m.data; }
 
 // Field-slot pointers within an entry (key @0, val @8) — addressed by offset to
 // avoid copying the `#[pinned]` HAnyRel by value.
@@ -79,7 +83,7 @@ unsafe fn om_new(h: *mut Hermes2, cap: i64) -> *mut HMap<HString, HVal> {
     let buf: *mut HMapEntry  = hermes2_alloc_n::<HMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
-    hdr.data  = (buf as i64) - (hdr as i64);
+    hdr.data  = buf;            // #[zoned2]: lowers to self-relative offset
     om_zero(buf, cap);
     return hdr;
 }
@@ -118,7 +122,7 @@ unsafe fn om_grow(m: *mut HMap<HString, HVal>, alloc: *mut Allocator) {
         }
         i = i + 1i64;
     }
-    m.data = (nbuf as i64) - (m as i64);
+    m.data = nbuf;          // #[zoned2]: lowers to self-relative offset
     m.cap  = newcap;
 }
 
