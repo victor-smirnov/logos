@@ -28,7 +28,12 @@ pub struct Array<T> {
     pub len:   i64,
     pub cap:   i64,
     pub data:  i64,             // self-relative: element buffer = (header addr) + data
-    pub alloc: *mut Allocator,  // back-ptr to the owning container's allocator (for growth)
+    pub alloc: *mut Allocator,  // the Hermes ZONE this Array is resident in. A zone-
+                                // resident container intrinsically knows its zone (its
+                                // zone membership) and grows WITHIN it — this is the
+                                // model, not a back-patch. Under the zoned-types design
+                                // it becomes a `Z: Zone` handle / `Z::Ptr` (GAT); this is
+                                // its runtime seed. (zone-as-parameter / zoned-types-design)
 }
 
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`

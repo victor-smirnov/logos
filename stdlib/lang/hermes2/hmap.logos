@@ -38,7 +38,9 @@ pub struct HMap {
     pub count: i64,             // occupied slots
     pub cap:   i64,             // number of slots (power of 2)
     pub data:  i64,             // self-relative: entry buffer = (header addr) + data
-    pub alloc: *mut Allocator,  // back-ptr to the owning container's allocator
+    pub alloc: *mut Allocator,  // the Hermes ZONE this HMap is resident in — its zone
+                                // membership (grows within its zone). Becomes a `Z: Zone`
+                                // handle under the zoned-types design. (Array<T> mirrors this.)
 }
 
 // Absolute entry buffer (header + delta).
