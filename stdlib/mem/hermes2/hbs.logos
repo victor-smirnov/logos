@@ -44,6 +44,12 @@ unsafe fn put_bytes(out: *mut Vec<u8>, p: *const u8, n: i64) {
     let mut i: i64 = 0i64;
     while i < n { (*out).push(*p.byte_add(i)); i = i + 1i64; }
 }
+unsafe fn put_f64(out: *mut Vec<u8>, x: f64) {
+    let tmp: f64 = x;
+    let p: *const u8 = &tmp as *const f64 as *const u8;   // reinterpret bytes (no bitcast)
+    let mut i: i64 = 0i64;
+    while i < 8i64 { (*out).push(*p.byte_add(i)); i = i + 1i64; }
+}
 unsafe fn put_str(out: *mut Vec<u8>, s: str) {
     put_vlen(out, s.len() as u64);
     put_bytes(out, s.as_ptr(), s.len());
@@ -52,7 +58,8 @@ unsafe fn put_str(out: *mut Vec<u8>, s: str) {
 unsafe fn write_val(out: *mut Vec<u8>, v: HAny) {
     if v.is_null() { (*out).push(0u8); return; }
     if v.is_bool() { (*out).push(if v.as_bool() { 2u8 } else { 1u8 }); return; }
-    if v.is_i56()  { (*out).push(0x10u8); put_i64(out, v.as_i56()); return; }
+    if v.is_float() { (*out).push(0x18u8); put_f64(out, v.as_f64()); return; }
+    if v.is_int()   { (*out).push(0x10u8); put_i64(out, v.as_i64()); return; }   // i56 Pod or boxed i64
     if v.is_string() {
         let hs: &HString = &*(v.resolve() as *const HString);
         (*out).push(0x30u8); put_str(out, hs.as_str()); return;
@@ -104,6 +111,14 @@ unsafe fn rd_i64(data: *const u8, pos: *mut i64) -> i64 {
     while i < 8i64 { x = x | (((*data.byte_add(*pos + i)) as i64) << (i * 8i64)); i = i + 1i64; }
     *pos = *pos + 8i64; return x;
 }
+unsafe fn rd_f64(data: *const u8, pos: *mut i64) -> f64 {
+    let mut tmp: f64 = 0.0f64;
+    let dp: *mut u8 = &mut tmp as *mut f64 as *mut u8;
+    let mut i: i64 = 0i64;
+    while i < 8i64 { *dp.byte_add(i) = *data.byte_add(*pos + i); i = i + 1i64; }
+    *pos = *pos + 8i64;
+    return tmp;
+}
 unsafe fn rd_str(data: *const u8, pos: *mut i64) -> str {
     let len: i64 = rd_vlen(data, pos) as i64;
     let p: *const u8 = data.byte_add(*pos);
@@ -116,7 +131,8 @@ unsafe fn read_val(h: &Hermes2, data: *const u8, pos: *mut i64) -> HAny {
     if lead == 0u8    { return HAny { raw: 0i64 }; }
     if lead == 1u8    { return HAny::from(false); }
     if lead == 2u8    { return HAny::from(true); }
-    if lead == 0x10u8 { return HAny::pod(rd_i64(data, pos), HA_I56); }
+    if lead == 0x10u8 { return h.int(rd_i64(data, pos)); }     // i64 (Pod if it fits, else boxed)
+    if lead == 0x18u8 { return h.float(rd_f64(data, pos)); }   // f64 (boxed)
     if lead == 0x30u8 { return HAny::from(h.hstring(rd_str(data, pos))); }
     if lead == 0x40u8 {
         let cnt: i64 = rd_vlen(data, pos) as i64;

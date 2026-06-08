@@ -25,7 +25,8 @@ use logos.mem.string;              // String
 unsafe fn write_val(out: *mut String, v: HAny) {
     if v.is_null() { (*out).push_str("null"); return; }
     if v.is_bool() { (*out).push_str(if v.as_bool() { "true" } else { "false" }); return; }
-    if v.is_i56()  { let s: String = v.as_i56().to_string(); (*out).push_str(s.as_str()); return; }
+    if v.is_float() { let s: String = v.as_f64().to_string(); (*out).push_str(s.as_str()); return; }
+    if v.is_int()   { let s: String = v.as_i64().to_string(); (*out).push_str(s.as_str()); return; }   // i56 Pod or boxed i64
     if v.is_string() {
         let hs: &HString = &*(v.resolve() as *const HString);
         (*out).push_u8(34u8);                 // "

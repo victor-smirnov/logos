@@ -69,6 +69,35 @@ pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u8) -> *mut u8 {
     return obj;
 }
 
+// Box a WIDE scalar — a value that doesn't fit the 56-bit inline Pod — into its
+// own 8-byte tagged arena object, returning an HAny Ref to it.
+pub unsafe fn box_i64(a: *mut Allocator, v: i64) -> HAny {
+    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_I64);
+    *(obj as *mut i64) = v;
+    return HAny::ref_to(obj as *const u8);
+}
+pub unsafe fn box_f64(a: *mut Allocator, v: f64) -> HAny {
+    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_F64);
+    *(obj as *mut f64) = v;
+    return HAny::ref_to(obj as *const u8);
+}
+// Make an integer HAny: inline Pod when it fits i56, else boxed.
+pub unsafe fn make_int(a: *mut Allocator, v: i64) -> HAny {
+    if fits_i56(v) { return HAny::pod(v, HA_I56); }
+    return box_i64(a, v);
+}
+
+impl Hermes2 {
+    // Build a scalar HAny in THIS arena (boxing wide values). For walkers that
+    // hold a `&Hermes2` (parse / hbs_read / compactify).
+    pub fn int(self: &Hermes2, v: i64) -> HAny {
+        unsafe { return make_int(&mut (self as *const Hermes2 as *mut Hermes2).allocator as *mut Allocator, v); }
+    }
+    pub fn float(self: &Hermes2, v: f64) -> HAny {
+        unsafe { return box_f64(&mut (self as *const Hermes2 as *mut Hermes2).allocator as *mut Allocator, v); }
+    }
+}
+
 // ── Type-safe placement + borrow-checked views ────────────────────────────────
 //
 // `Slot<T>` is an OPAQUE handle to a `T` placed in the container — a stable

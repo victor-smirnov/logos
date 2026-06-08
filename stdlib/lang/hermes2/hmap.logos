@@ -199,7 +199,8 @@ impl HMap {
 
     // Overloaded set for the common value types (no manual HAny::from), mirroring
     // Array<HAny>::push. A `str` VALUE is interned into the same arena as a Ref.
-    pub fn set(self: &mut HMap, key: str, v: i64)  { self.set(key, HAny::pod(v, HA_I56)); }
+    pub fn set(self: &mut HMap, key: str, v: i64)  { unsafe { self.set(key, make_int((self as *mut HMap).alloc, v)); } }
+    pub fn set(self: &mut HMap, key: str, v: f64)  { unsafe { self.set(key, box_f64((self as *mut HMap).alloc, v)); } }
     pub fn set(self: &mut HMap, key: str, v: bool) { self.set(key, HAny::from(v)); }
     pub fn set(self: &mut HMap, key: str, v: &HString) { self.set(key, HAny::from(v)); }
     pub fn set(self: &mut HMap, key: str, v: &Array<HAny>) { self.set(key, HAny::from(v)); }

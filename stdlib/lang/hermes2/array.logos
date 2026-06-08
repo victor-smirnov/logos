@@ -119,10 +119,12 @@ impl Array<HAny> {
 
     // Overloaded push for the common element types — each wraps the value into an
     // HAny so callers write `a.push(x)` instead of `a.push(HAny::from(x))`.
-    //   • i64  → an inline Pod (i56 range; the heterogeneous slot is 56-bit)
+    //   • i64  → inline Pod when it fits i56, else boxed (H2_I64) into the arena
+    //   • f64  → boxed (H2_F64) into the arena (never fits the inline Pod)
     //   • bool → an inline Pod
     //   • &HString / &Array<HAny> → a Ref to an already-interned arena object
-    pub fn push(self: &mut Array<HAny>, v: i64)  { unsafe { array_push(self as *mut Array<HAny>, HAny::pod(v, HA_I56)); } }
+    pub fn push(self: &mut Array<HAny>, v: i64)  { unsafe { let a: *mut Array<HAny> = self as *mut Array<HAny>; array_push(a, make_int(a.alloc, v)); } }
+    pub fn push(self: &mut Array<HAny>, v: f64)  { unsafe { let a: *mut Array<HAny> = self as *mut Array<HAny>; array_push(a, box_f64(a.alloc, v)); } }
     pub fn push(self: &mut Array<HAny>, v: bool) { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }
     pub fn push(self: &mut Array<HAny>, v: &HString)      { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }
     pub fn push(self: &mut Array<HAny>, v: &Array<HAny>)  { unsafe { array_push(self as *mut Array<HAny>, HAny::from(v)); } }

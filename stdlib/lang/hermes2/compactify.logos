@@ -29,7 +29,9 @@ use logos.lang.ptr;
 // rebuilt and re-anchored.
 pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
     if v.is_null() { return HAny { raw: 0i64 }; }
-    if v.is_pod()  { return v; }
+    if v.is_pod()  { return v; }                       // i56 / bool — position-independent
+    if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
+    if v.is_int()   { return dst.int(v.as_i64()); }    // (boxed i64; Pod i56 already handled above)
     if v.is_string() {
         let hs: &HString = unsafe { &*(v.resolve() as *const HString) };
         return HAny::from(dst.hstring(hs.as_str()));

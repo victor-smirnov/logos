@@ -23,6 +23,7 @@ use logos.lang.hermes2.hmap;        // HMap
 use logos.lang.hermes2.hstring;     // HString
 use logos.lang.str;                 // str
 use logos.lang.ptr;                 // byte_add
+use logos.lang.num.parse;           // f64_from_str
 use logos.mem.string;               // String (escape-decoded scratch)
 
 // Parser cursor over the source bytes.
@@ -58,13 +59,27 @@ unsafe fn parse_str_raw(p: *mut P) -> String {
     return s;
 }
 
-unsafe fn parse_number(p: *mut P) -> i64 {
-    let mut neg: bool = false;
-    if peek(p) == 45u8 { neg = true; advance(p); }    // -
-    let mut v: i64 = 0i64;
-    while is_digit(peek(p)) { v = v * 10i64 + ((advance(p) - 48u8) as i64); }
-    if neg { return 0i64 - v; }
-    return v;
+// Parse a number token. Integers (possibly wide) → `h.int`; anything with a
+// fractional '.' or exponent 'e'/'E' → f64 via `h.float`.
+unsafe fn parse_number(h: &Hermes2, p: *mut P) -> HAny {
+    let start: i64 = (*p).pos;
+    let neg: bool = peek(p) == 45u8;
+    if neg { advance(p); }                                  // -
+    let mut iv: i64 = 0i64;
+    while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
+    let pc: u8 = peek(p);
+    if pc == 46u8 || pc == 101u8 || pc == 69u8 {            // . e E → float
+        if pc == 46u8 { advance(p); while is_digit(peek(p)) { advance(p); } }
+        let ec: u8 = peek(p);
+        if ec == 101u8 || ec == 69u8 {
+            advance(p);
+            let sg: u8 = peek(p); if sg == 43u8 || sg == 45u8 { advance(p); }
+            while is_digit(peek(p)) { advance(p); }
+        }
+        let tok: str = str_from_raw((*p).data.byte_add(start), (*p).pos - start);
+        return h.float(f64_from_str(tok).unwrap_or(0.0f64));
+    }
+    return h.int(if neg { 0i64 - iv } else { iv });
 }
 
 unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
@@ -111,7 +126,7 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
     if c == 116u8 { (*p).pos = (*p).pos + 4i64; return HAny::from(true); }   // true
     if c == 102u8 { (*p).pos = (*p).pos + 5i64; return HAny::from(false); }  // false
     if c == 110u8 { (*p).pos = (*p).pos + 4i64; return HAny { raw: 0i64 }; } // null
-    return HAny::pod(parse_number(p), HA_I56);   // number
+    return parse_number(h, p);                   // number (int or float)
 }
 
 // Parse JSON-ish `text` into a fresh document rooted in `h`.

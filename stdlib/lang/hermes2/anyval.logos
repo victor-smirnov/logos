@@ -80,6 +80,17 @@ pub const HA_BOOL: u8 = 2u8;
 pub const H2_STRING: u8 = 130u8;
 pub const H2_ARRAY:  u8 = 100u8;
 pub const H2_MAP:    u8 = 101u8;
+// Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
+// own 8-byte tagged arena object, referenced by the HAny. (Allocated via
+// container.box_i64 / box_f64.)
+pub const H2_I64:    u8 = 110u8;   // full 64-bit signed integer
+pub const H2_F64:    u8 = 111u8;   // 64-bit IEEE float
+
+// True iff `v` fits the 56-bit signed inline Pod range (else it must be boxed).
+pub fn fits_i56(v: i64) -> bool {
+    let lim: i64 = 1i64 << 55i64;
+    return v >= (0i64 - lim) && v < lim;
+}
 
 // Read the in-band type code written immediately before a tagged arena object.
 pub unsafe fn h2_type_code(obj: *const u8) -> u8 { return *(((obj as i64) - 1i64) as *const u8); }
@@ -106,6 +117,18 @@ impl HAny {
     pub fn is_string(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
     pub fn is_array(self: &HAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
     pub fn is_map(self: &HAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
+
+    // Wide scalars: an integer is either an inline i56 Pod or a boxed H2_I64;
+    // a float is always a boxed H2_F64. `as_i64` / `as_f64` read either form.
+    pub fn is_int(self: &HAny) -> bool {
+        return self.is_i56() || (self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_I64);
+    }
+    pub fn is_float(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_F64; }
+    pub fn as_i64(self: &HAny) -> i64 {
+        if self.is_pod() { return self.as_i56(); }
+        return unsafe { *(self.resolve() as *const i64) };
+    }
+    pub fn as_f64(self: &HAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
