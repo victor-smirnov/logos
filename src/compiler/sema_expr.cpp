@@ -2691,6 +2691,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call_v(std::move(ec), str_t);
     }
 
+    // `zone_of(r: &mut T) -> *mut u8` — recover the Hermes zone (allocator)
+    // carried by a fat `&mut T`: the metadata half of the fat pair (slice_len),
+    // reinterpreted as a pointer. The dual of zone_mut_ref. (No type arg → handled
+    // in this early builtin section, using the pre-lowered arg_exprs.)
+    if (callee == "zone_of") {
+        if (n_args != 1) { error("zone_of(r): expected exactly 1 argument"); return error_expr(); }
+        auto meta = builder().slice_len(std::move(arg_exprs[0]), prim(LogosType::Kind::I64));
+        return builder().cast(std::move(meta), make_ptr(/*is_mut=*/true, prim(LogosType::Kind::U8)));
+    }
+
     // reify_type(t: Type) -> Type — mono-time round-trip via the
     // uid → TypeRef reverse table. The arg must be a direct producer
     // expression (struct lit, type_of/typelist_*/args_of/...). Mono's
@@ -4219,6 +4229,42 @@ lir::LExprPtr SemaChecker::lower_intrinsic_dst_from_raw_parts(TinyMapView node, 
     return builder().slice_lit(std::move(rargs[0]), std::move(rargs[1]), dst_ref_t);
 }
 
+// `zone_mut_ref::<T>(ptr: *mut T, zone: *mut u8) -> &mut T` — build a FAT `&mut T`
+// {data=ptr, zone} for a #[zone_mut] type T, bundling the Hermes zone (allocator)
+// onto the reference. Reuses the {data,meta} fat-pair construction (slice_lit):
+// the meta slot carries the zone pointer (as i64). ref_repr_of(&mut zone_mut T) =
+// FatZoneMut, so slice_lit emits the 16-byte pair and it returns by value.
+lir::LExprPtr SemaChecker::lower_intrinsic_zone_mut_ref(TinyMapView node) {
+    auto ts = collect_type_args(node);
+    if (ts.size() != 1 || !ts[0]) {
+        error("zone_mut_ref::<T>(ptr, zone) requires exactly one type argument");
+        return error_expr();
+    }
+    if (!inside_unsafe_) error("zone_mut_ref requires unsafe context");
+    TypeRef T = ts[0];
+    std::vector<lir::LExprPtr> rargs;
+    if (node.has_key(la::ARGS)) {
+        AnyVal av = node.get(la::ARGS.code);
+        if (!av.is_null()) {
+            auto args_list = map_of(av);
+            if (args_list.has_key(la::ITEMS)) {
+                auto items = arr_of(args_list.get(la::ITEMS.code));
+                for (uint64_t i = 0; i < items.size(); ++i)
+                    rargs.push_back(lower_expr(map_of(items.get(i))));
+            }
+        }
+    }
+    if (rargs.size() != 2) {
+        error("zone_mut_ref::<T>(ptr, zone): expected 2 args");
+        return error_expr();
+    }
+    // meta = the zone pointer carried as an i64 in the fat pair's metadata slot.
+    auto zone_i64 = builder().cast(std::move(rargs[1]), prim(LogosType::Kind::I64));
+    auto ref_t = make_ref(/*is_mut=*/true, T);
+    return builder().slice_lit(std::move(rargs[0]), std::move(zone_i64), ref_t);
+}
+
+
 lir::LExprPtr SemaChecker::lower_intrinsic_reflect(TinyMapView node) {
     // Check if the single type arg is a genos name (before resolve_type, which rejects traits).
     if (node.has_key(la::TYPE_PARAMS)) {
@@ -4474,6 +4520,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // length to synthesise an `&[T]` slice; sized-prefix reads use the
     // data pointer as the struct base.
     if (callee == "dst_from_raw_parts" || callee == "dst_from_raw_parts_mut") return lower_intrinsic_dst_from_raw_parts(node, callee);
+    if (callee == "zone_mut_ref") return lower_intrinsic_zone_mut_ref(node);   // fat &mut zone ref
     if (callee == "is_ptr" || callee == "is_ref" || callee == "is_mut_ref" ||
         callee == "is_struct" || callee == "is_zoned" || callee == "is_enum" ||
         callee == "is_tuple" || callee == "is_slice" || callee == "is_array" ||

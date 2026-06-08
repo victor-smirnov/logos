@@ -419,7 +419,14 @@ private:
     // a pointer-to-{ptr,len}. Spill the value back to a stack slot and hand back
     // the slot address so the by-value→by-pointer transition is transparent.
     mlir::Value spill_slice_call_result(mlir::Value v, TypeRef ty) {
-        if (!v || !ty || ty.kind() != LogosType::Kind::Slice) return v;
+        // A by-value 16B fat return (a Slice, or a fat `&mut` zone reference) comes
+        // back as an LLVM struct value; spill it to an alloca so the consumer sees
+        // the usual ptr-to-{data,meta} pair (repr_data/repr_meta gep). Without this
+        // a returned fat ref is a struct value and field access geps it directly.
+        if (!v || !ty) return v;
+        bool fat_returnable = (ty.kind() == LogosType::Kind::Slice) ||
+                              (ref_repr_of(ty) == RefReprKind::FatZoneMut);
+        if (!fat_returnable) return v;
         if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
             return spill_to_alloca(v);
         return v;
@@ -629,6 +636,9 @@ private:
         FatDyn,         // &dyn / TraitObject — {data,vtable} 16B
         FatClosure,     // closure — {fn,env} 16B
         FatCustomDst,   // &CustomDst (DstRef) — {data,meta} 16B
+        FatZoneMut,     // &mut T for a #[zone_mut] type — {data, zone=*mut Allocator}
+                        // 16B, returned by value (like FatSlice). The zone (allocator)
+                        // rides the &mut so grow methods reach it from &mut self.
         RelOffset,      // self-relative pointer — storage = i64 byte offset from
                         // the slot's own address; compute = absolute thin ptr.
                         // materialize = slot + load_i64(slot); lower = store(slot,
@@ -1014,6 +1024,7 @@ private:
     mlir::Value gep_field(mlir::Value base, const StructInfo& info,
                           const std::string& field_name);
     std::pair<mlir::Value, std::string> gen_recv_struct(const LExpr& recv);
+    std::pair<mlir::Value, std::string> gen_recv_struct_inner(const LExpr& recv);
     mlir::Value gen_struct_lit(lir_view::EStructLitView v);
 
     // Bind the payload of a tagged-enum VariantData pattern given a pointer to

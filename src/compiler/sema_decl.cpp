@@ -1032,6 +1032,9 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     // Hermes2 / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
     // canonicalisation in mono_subst can keep `*Self` thin for this struct.
     sd.self_describing = sinfo->self_describing;
+    // Hermes2: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
+    // {data, zone} reference carrying its allocator.
+    sd.zone_mut = sinfo->zone_mut;
     // RefRepr RelOffset: propagate `#[rel_ptr]` so mlir-gen's ref_repr_of can
     // classify this type as a self-relative pointer (8B offset storage).
     sd.rel_ptr = sinfo->rel_ptr;

@@ -703,7 +703,20 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
 }
 
 // Resolve receiver expr → (object_ptr, type_name).
+// A FatZoneMut receiver (`&mut T` of a #[zone_mut] type) is a {data, zone} fat
+// pair; the struct's address is the DATA half. The inner resolver returns the
+// pointer-to-pair (like any ref value); this wrapper peels it to the data ptr so
+// field/method access lands on the object, not the fat-pair storage. Identity for
+// every other (thin) receiver.
 std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct(const LExpr& recv) {
+    auto res = gen_recv_struct_inner(recv);
+    if (res.first && recv.type &&
+        ref_repr_of(TypeRef(recv.type)) == RefReprKind::FatZoneMut)
+        res.first = repr_data(RefReprKind::FatZoneMut, res.first);
+    return res;
+}
+
+std::pair<mlir::Value, std::string> MLIRGenImpl::gen_recv_struct_inner(const LExpr& recv) {
     namespace ec = lir_schema::expr;
     auto recv_ref = expr_ref_of(recv);
     auto recv_kind = recv_ref ? recv_ref.kind() : ec::Code(0);

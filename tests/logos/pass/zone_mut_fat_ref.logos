@@ -1,0 +1,35 @@
+// Fat `&mut` zone reference (hermes2-zone-mut-fat-ref). A `&mut T` to a #[zone_mut]
+// type is a fat {data, zone} pair: `zone_mut_ref` builds it (bundling a zone ptr),
+// `zone_of` recovers the zone. Verifies field read/write + method (fat self) +
+// zone cascade inside a method + a RETURNABLE fat &mut (no dangling).
+package test;
+extern fn malloc(n: i64) -> *mut u8;
+#[zone_mut] struct Box2 { v: i64 }
+impl Box2 {
+    fn get(self: &mut Box2) -> i64 { return self.v; }
+    fn set(self: &mut Box2, x: i64) { self.v = x; }
+    fn zone_i(self: &mut Box2) -> i64 { return zone_of(self) as i64; }   // cascade
+}
+unsafe fn make(p: *mut Box2, z: *mut u8) -> &mut Box2 { return zone_mut_ref::<Box2>(p, z); }
+unsafe fn main() -> i32 {
+    let p: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*p).v = 42i64;
+    let r: &mut Box2 = zone_mut_ref::<Box2>(p, 12345i64 as *mut u8);
+    if r.v != 42i64 { return 1; }            // field read (data half)
+    r.v = 99i64;                              // field write
+    if (*p).v != 99i64 { return 2; }
+    if r.get() != 99i64 { return 3; }        // method, fat self
+    r.set(7i64);
+    if (*p).v != 7i64 { return 4; }
+    if r.zone_i() != 12345i64 { return 5; }  // zone cascades into the method
+    if (zone_of(r) as i64) != 12345i64 { return 6; }
+
+    // returnable: a factory returns the fat &mut; used after another alloc.
+    let q: *mut Box2 = malloc(8i64) as *mut Box2;
+    (*q).v = 11i64;
+    let s: &mut Box2 = make(q, 777i64 as *mut u8);
+    let _spacer: *mut u8 = malloc(64i64);    // intervening alloc (clobber)
+    if s.v != 11i64 { return 7; }
+    if (zone_of(s) as i64) != 777i64 { return 8; }
+    return 0;
+}

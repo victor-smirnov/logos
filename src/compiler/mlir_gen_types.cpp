@@ -528,7 +528,21 @@ MLIRGenImpl::RefReprKind MLIRGenImpl::ref_repr_of(TypeRef t) {
         // classification is by the OUTER kind, matching today's field layout
         // (a Ptr-to-TraitObject field is an 8B thin slot; a bare TraitObject
         // field is the 16B inline fat pair).
-        case K::Ptr: case K::Ref: case K::MutRef:
+        // `&mut T` to a #[zone_mut] type is a FAT ref {data, zone=*mut Allocator}
+        // carrying its Hermes zone (the allocator rides the &mut → grow methods
+        // reach it from &mut self). Shared `&T` / `*T` stay thin (read never grows).
+        case K::MutRef: {
+            TypeRef p = TypeRef(t).pointee();
+            if (p && (p.kind() == K::Struct || p.kind() == K::ZonedStruct)) {
+                auto it = all_struct_defs_.find(concrete_struct_name(p));
+                if (it == all_struct_defs_.end())
+                    it = all_struct_defs_.find(std::string(p.struct_name()));
+                if (it != all_struct_defs_.end() && it->second && it->second->zone_mut)
+                    return RefReprKind::FatZoneMut;
+            }
+            return RefReprKind::ThinPtr;
+        }
+        case K::Ptr: case K::Ref:
         case K::FnPtr: case K::FnItem:           return RefReprKind::ThinPtr;
         case K::Slice:                           return RefReprKind::FatSlice;
         case K::TraitObject:                     return RefReprKind::FatDyn;
@@ -572,6 +586,7 @@ mlir::Type MLIRGenImpl::repr_storage_type(RefReprKind k) {
         case RefReprKind::FatDyn:       return dyn_llvm_type();
         case RefReprKind::FatClosure:   return closure_llvm_type();
         case RefReprKind::FatCustomDst: return slice_llvm_type();
+        case RefReprKind::FatZoneMut:   return slice_llvm_type();  // {data, zone} 16B
         case RefReprKind::RelOffset:    return builder_.getI64Type();  // 8B offset
         case RefReprKind::NotARef:      return nullptr;
     }
@@ -585,7 +600,8 @@ MLIRGenImpl::Layout MLIRGenImpl::repr_storage_layout(RefReprKind k) {
         case RefReprKind::FatSlice:
         case RefReprKind::FatDyn:
         case RefReprKind::FatClosure:
-        case RefReprKind::FatCustomDst: return {16, 8};
+        case RefReprKind::FatCustomDst:
+        case RefReprKind::FatZoneMut:   return {16, 8};
         case RefReprKind::RelOffset:    return {8, 8};   // i64 offset
         case RefReprKind::NotARef:      return {0, 1};
     }
@@ -600,7 +616,8 @@ mlir::Type MLIRGenImpl::repr_return_type(RefReprKind k) {
     // to logos_to_mlir = ptr). Thin → 8B value.
     switch (k) {
         case RefReprKind::FatDyn:
-        case RefReprKind::FatSlice:     return repr_storage_type(k);  // 16B by value
+        case RefReprKind::FatSlice:
+        case RefReprKind::FatZoneMut:   return repr_storage_type(k);  // 16B by value
         case RefReprKind::FatClosure:
         case RefReprKind::FatCustomDst:
         case RefReprKind::ThinPtr:

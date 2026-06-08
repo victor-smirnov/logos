@@ -2300,7 +2300,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             }
         }
     }
-    auto [ptr, tname] = gen_recv_struct(*recv_le);
+    // A fat zone-mut receiver: the method's `self: &mut T` is ITSELF fat, so pass
+    // the full fat value (the inner ptr-to-{data,zone} pair), not the peeled data
+    // half — gen_recv_struct(self) inside the callee re-peels it for field access.
+    bool recv_is_fat_zone =
+        recv_le->type && ref_repr_of(TypeRef(recv_le->type)) == RefReprKind::FatZoneMut;
+    auto [ptr, tname] = recv_is_fat_zone ? gen_recv_struct_inner(*recv_le)
+                                         : gen_recv_struct(*recv_le);
     if (!ptr || tname.empty()) return nullptr;
     if (strip_struct_pkg(tname) == "AnyVal" && ptr.getType() != ptr_type()) {
         auto slot = create_entry_alloca(builder_.getI32Type());
@@ -2488,7 +2494,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     if (TypeRef rt(type); rt) {
         auto rk = ref_repr_of(rt);
         if (rk == RefReprKind::FatSlice || rk == RefReprKind::FatClosure ||
-            rk == RefReprKind::FatCustomDst || rk == RefReprKind::RelOffset)
+            rk == RefReprKind::FatCustomDst || rk == RefReprKind::FatZoneMut ||
+            rk == RefReprKind::RelOffset)
             return repr_materialize(rk, gep);  // RelOffset: slot + load_i64(slot)
         if (rt.kind() == LogosType::Kind::Tuple)
             return gep;

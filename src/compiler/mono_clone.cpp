@@ -4918,6 +4918,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.self_describing = tmpl.self_describing;  // Hermes2: thin-*Self marker preserved.
     nd.rel_ptr = tmpl.rel_ptr;                  // RefRepr RelOffset marker preserved.
     nd.borrow_carrying = tmpl.borrow_carrying;  // HAny escape-tracking marker preserved.
+    nd.zone_mut = tmpl.zone_mut;                // Hermes2: fat-`&mut` zone marker preserved.
     nd.is_union = tmpl.is_union;  // §6.1: preserved through mono clone.
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono

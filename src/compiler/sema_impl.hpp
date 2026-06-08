@@ -1223,6 +1223,7 @@ private:
         if (name == "self_describing") return bit(AttrTarget::Struct);
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "pinned")          return bit(AttrTarget::Struct);
+        if (name == "zone_mut")        return bit(AttrTarget::Struct);
         if (name == "borrow_carrying") return bit(AttrTarget::Struct);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
@@ -2107,6 +2108,11 @@ private:
                             // form is the resolved absolute pointer). Drives the
                             // is_non_movable_type pin check. (hermes2 minimal-container)
                             bool pinned = false;
+                            // `#[zone_mut]`: a `&mut T` to this type is a FAT ref
+                            // {data, zone=*mut Allocator} carrying its Hermes zone, so
+                            // grow methods reach the allocator from &mut self. Read
+                            // `&T` stays thin. (hermes2-zone-mut-fat-ref §)
+                            bool zone_mut = false;
                             // `#[borrow_carrying]`: a value type whose value may
                             // contain a borrow — an absolute Ref into an arena (e.g.
                             // HAny). The borrow checker tracks such values' ESCAPE
@@ -3390,6 +3396,7 @@ private:
     lir::LExprPtr lower_intrinsic_template_of(hermes::TinyMapView node);
     lir::LExprPtr lower_intrinsic_has_trait_of(hermes::TinyMapView node);
     lir::LExprPtr lower_intrinsic_dst_from_raw_parts(hermes::TinyMapView node, std::string_view callee);
+    lir::LExprPtr lower_intrinsic_zone_mut_ref(hermes::TinyMapView node);
     lir::LExprPtr lower_intrinsic_reflect(hermes::TinyMapView node);
     lir::LExprPtr lower_intrinsic_get_annotation(hermes::TinyMapView node);
     lir::LExprPtr lower_generic_ref(hermes::TinyMapView node);

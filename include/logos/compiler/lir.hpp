@@ -866,6 +866,10 @@ struct LStructDef {
     // `#[borrow_carrying]`: a value type whose value may hold a Ref into an arena
     // (e.g. HAny) — the borrow checker escape-tracks such values like references.
     bool                     borrow_carrying = false;
+    // `#[zone_mut]`: a `&mut T` to this type is a FAT ref {data, zone=*mut Allocator}
+    // carrying its Hermes zone, so grow methods reach the allocator from &mut self;
+    // read `&T` stays thin. (hermes2-zone-mut-fat-ref)
+    bool                     zone_mut = false;
     // logos-core §6.1: this type was declared as `union NAME { … }`.
     // Layout is max-of-fields aligned to max-alignment (vs struct's
     // sum-of-fields); only one field is "active" at a time. Field-
