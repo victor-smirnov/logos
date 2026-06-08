@@ -1,7 +1,7 @@
 // Logos Hermes2 stdlib — mem.hermes2.parser
 //
 // Text → document: a recursive-descent JSON-ish reader that builds a Hermes2 doc
-// (HMap / Array / HString / i56 / bool / null) in a caller-supplied arena — the
+// (HMap<HString, HVal> / Array / HString / i56 / bool / null) in a caller-supplied arena — the
 // inverse of stringify, and the Hermes2 port of hermes.parser (much smaller: the
 // grammar here is plain JSON-with-integers).
 //
@@ -18,8 +18,8 @@ package logos.mem.hermes2.parser;
 
 use logos.lang.hermes2.container;   // Hermes2
 use logos.lang.hermes2.anyval;      // HAny, HA_I56
-use logos.lang.hermes2.array;       // Array<HAny>
-use logos.lang.hermes2.hmap;        // HMap
+use logos.lang.hermes2.array;       // HArray<HVal>
+use logos.lang.hermes2.hmap;        // HMap<HString, HVal>
 use logos.lang.hermes2.hstring;     // HString
 use logos.lang.str;                 // str
 use logos.lang.ptr;                 // byte_add
@@ -87,7 +87,7 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
     let c: u8 = peek(p);
     if c == 123u8 {                              // {  object
         advance(p);
-        let m: &mut HMap = h.map(8i64);
+        let m: &mut HMap<HString, HVal> = h.map(8i64);
         skip_ws(p);
         if peek(p) == 125u8 { advance(p); return HAny::from(&*m); }   // {}
         let mut done: bool = false;
@@ -106,7 +106,7 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
     }
     if c == 91u8 {                               // [  array
         advance(p);
-        let a: &mut Array<HAny> = h.array(8i64);
+        let a: &mut HArray<HVal> = h.array(8i64);
         skip_ws(p);
         if peek(p) == 93u8 { advance(p); return HAny::from(&*a); }   // []
         let mut done: bool = false;

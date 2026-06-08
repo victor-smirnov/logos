@@ -44,7 +44,7 @@ impl SelfDescribing for HString {
 // `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
 // prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
 // than the whole `Hermes2`) lets an arena container that holds only its allocator
-// back-pointer — e.g. `Array<HAny>` — intern strings without the full handle.
+// back-pointer — e.g. `HArray<HVal>` — intern strings without the full handle.
 pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);

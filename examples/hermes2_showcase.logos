@@ -3,7 +3,7 @@
 //
 // Demonstrates, all at once:
 //   1. HAny — the 8-byte heterogeneous slot: inline Pod (i56 / bool) vs Ref.
-//   2. Array<HAny> — a Vec-like heterogeneous array: push / get / len, and
+//   2. HArray<HVal> — a Vec-like heterogeneous array: push / get / len, and
 //      GROWTH that appends a fresh buffer (never frees the old one).
 //   3. Never-move — a reference into the arena stays valid ACROSS a grow
 //      (more permissive than Vec: push need not invalidate &elem).
@@ -15,16 +15,16 @@
 //   7. HString — a UTF-8 string interned in the arena; `as_str` borrows it back.
 //
 // Borrow-checked (compile-time, not shown at runtime): a bare `return` of a Ref
-// HAny — or a `&Array<HAny>` — that outlives its container is REJECTED; the only
+// HAny — or a `&HArray<HVal>` — that outlives its container is REJECTED; the only
 // way out is the `HeldAny` holder above. RAII frees every arena on scope exit.
 //
 package hermes2_showcase;
 
 use logos.lang.hermes2.container;   // Hermes2, hermes2_new / hermes2_rc, HeldAny, hold_any
 use logos.lang.hermes2.anyval;      // HAny (value) / HAnyRel (at-rest): Pod + Ref
-use logos.lang.hermes2.array;       // Array<HAny>: push / get / len, grow, nest
+use logos.lang.hermes2.array;       // HArray<HVal>: push / get / len, grow, nest
 use logos.lang.hermes2.hstring;     // HString: a UTF-8 string in the arena, as_str
-use logos.lang.hermes2.hmap;        // HMap: string-keyed map (JSON object)
+use logos.lang.hermes2.hmap;        // HMap<HString, HVal>: string-keyed map (JSON object)
 use logos.lang.hermes2.equal;       // structural equality
 use logos.lang.hermes2.compactify;  // compactify / clone (copying GC)
 use logos.mem.hermes2.parser;       // parse: text → doc
@@ -63,7 +63,7 @@ unsafe fn dispatch_area(e: HAny) -> i64 {
 
 // Deep-sum a document whose elements are inline i56 Pods OR Refs to child arrays.
 // `&self` allocation means the container is borrowed shared; recursion reads only.
-fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
+fn deep_sum(h: &Hermes2, a: &HArray<HVal>) -> i64 {
     let mut total: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < a.len() {
@@ -71,7 +71,7 @@ fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
         if e.is_i56() {
             total = total + e.as_i56();
         } else if e.is_ref() {
-            let child: &Array<HAny> = h.array_of(e);   // tied to this container
+            let child: &HArray<HVal> = h.array_of(e);   // tied to this container
             total = total + deep_sum(h, child);
         }
         i = i + 1i64;
@@ -83,7 +83,7 @@ fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
 // the build scope — bound to the HERMES2 holder, not the (gone) build frame.
 fn make_held_doc() -> HeldAny {
     let mut h: Rc<Hermes2> = hermes2_rc(64i64);
-    let doc: &mut Array<HAny> = h.array(2i64);
+    let doc: &mut HArray<HVal> = h.array(2i64);
     doc.push(HAny::from(101i64));
     doc.push(HAny::from(202i64));
     doc.push(HAny::from(303i64));                 // grows past cap 2
@@ -102,10 +102,10 @@ fn main() -> i32 {
     yn("bool is_bool", p_bool.is_bool());
     yn("bool as_bool", p_bool.as_bool());
 
-    // 2 ── Array<HAny> + growth across tiny segments (never-move arena).
-    section("2. Array<HAny> — push / get / len + growth");
+    // 2 ── HArray<HVal> + growth across tiny segments (never-move arena).
+    section("2. HArray<HVal> — push / get / len + growth");
     let h: Hermes2 = hermes2_new(48i64);          // small segment → growth is real
-    let arr: &mut Array<HAny> = h.array(2i64);    // direct &mut, interior-mut arena
+    let arr: &mut HArray<HVal> = h.array(2i64);    // direct &mut, interior-mut arena
     let mut k: i64 = 0i64;
     while k < 6i64 { arr.push(HAny::from((k * 10i64) as i56)); k = k + 1i64; }   // cap 2 → grows
     say("len after 6 pushes", arr.len());
@@ -123,10 +123,10 @@ fn main() -> i32 {
 
     // 4 ── Nested document: root array holds Refs to child arrays; deep traversal.
     section("4. Nested document — deep_sum");
-    let root: &mut Array<HAny> = h.array(2i64);
-    let a: &mut Array<HAny> = h.array(2i64);
+    let root: &mut HArray<HVal> = h.array(2i64);
+    let a: &mut HArray<HVal> = h.array(2i64);
     a.push(HAny::from(1i64)); a.push(HAny::from(2i64)); a.push(HAny::from(3i64));
-    let b: &mut Array<HAny> = h.array(2i64);
+    let b: &mut HArray<HVal> = h.array(2i64);
     b.push(HAny::from(10i64)); b.push(HAny::from(20i64));
     root.push(HAny::from(&*a));                    // Ref to child a   (sum 6)
     root.push(HAny::from(100i64));                 // inline Pod       (100)
@@ -135,7 +135,7 @@ fn main() -> i32 {
 
     // 5 ── Tagged dispatch: a Rect object in the arena, dispatched by its type code.
     section("5. Tagged dispatch — Hermes2TagSystem");
-    let shapes: &mut Array<HAny> = h.array(2i64);
+    let shapes: &mut HArray<HVal> = h.array(2i64);
     unsafe {
         let hraw: *mut Hermes2 = &h as *const Hermes2 as *mut Hermes2;
         let obj: *mut u8 = hermes2_alloc_bytes(hraw, 8i64 + 16i64);
@@ -151,7 +151,7 @@ fn main() -> i32 {
     // 6 ── Residency & escape: an element outlives its build scope via HeldAny.
     section("6. Residency — HeldAny escapes its build scope");
     let held: HeldAny = make_held_doc();           // the arena outlived make_held_doc
-    let doc: &Array<HAny> = unsafe { &*(held.val().resolve() as *const Array<HAny>) };
+    let doc: &HArray<HVal> = unsafe { &*(held.val().resolve() as *const HArray<HVal>) };
     say("held doc len", doc.len());
     say("held doc [2]", doc.get(2i64).as_i56());    // 303
     // `held` drops at scope end → Rc holder → arena freed (RAII).
@@ -165,10 +165,10 @@ fn main() -> i32 {
     say("byte len", hs.len());
     yn("round-trips", str_eq(hs.as_str(), "hello, hermes2"));
 
-    // 7b ── a record [name, age] in one Array<HAny> via OVERLOADED push: `push`
+    // 7b ── a record [name, age] in one HArray<HVal> via OVERLOADED push: `push`
     //       takes the value directly (no `HAny::from`) — a `str` is interned into
     //       the arena as an HString Ref, an i64 stored as an inline Pod.
-    let rec: &mut Array<HAny> = h.array(2i64);
+    let rec: &mut HArray<HVal> = h.array(2i64);
     rec.push("Ada");                     // str → interned HString Ref
     rec.push(36i64);                     // i64 → inline Pod
     print("   record.name = "); println(h.hstring_of(rec.get(0i64)).as_str());

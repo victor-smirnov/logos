@@ -5,6 +5,7 @@ use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
 use logos.lang.hermes2.equal;
 use logos.lang.hermes2.compactify;
 use logos.mem.hermes2.parser;
@@ -27,8 +28,8 @@ fn main() -> i32 {
     if !equal(a1, compactify(&h2, a1)) { return 4; }
 
     // map key-order independence
-    let m1: &mut HMap = h.map(8i64); m1.set("a", 1i64); m1.set("b", 2i64); m1.set("c", 3i64);
-    let m2: &mut HMap = h.map(8i64); m2.set("c", 3i64); m2.set("a", 1i64); m2.set("b", 2i64);
+    let m1: &mut HMap<HString, HVal> = h.map(8i64); m1.set("a", 1i64); m1.set("b", 2i64); m1.set("c", 3i64);
+    let m2: &mut HMap<HString, HVal> = h.map(8i64); m2.set("c", 3i64); m2.set("a", 1i64); m2.set("b", 2i64);
     if !equal(HAny::from(&*m1), HAny::from(&*m2)) { return 5; }
     m2.set("b", 99i64);
     if equal(HAny::from(&*m1), HAny::from(&*m2)) { return 6; }   // value differs now

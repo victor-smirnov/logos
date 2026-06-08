@@ -7,6 +7,7 @@ use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
 use logos.mem.hermes2.stringify;
 use logos.mem.string;
 use logos.lang.str;
@@ -17,23 +18,23 @@ fn main() -> i32 {
     if !eq(HAny { raw: 0i64 }, "null") { return 3; }
     let h: Hermes2 = hermes2_new(1024i64);
     // scalar array — deterministic order
-    let a: &mut Array<HAny> = h.array(4i64);
+    let a: &mut HArray<HVal> = h.array(4i64);
     a.push(1i64); a.push(2i64); a.push(3i64);
     if !eq(HAny::from(&*a), "[1, 2, 3]") { return 4; }
     // nested arrays
-    let b: &mut Array<HAny> = h.array(2i64);
-    let c: &mut Array<HAny> = h.array(2i64);
+    let b: &mut HArray<HVal> = h.array(2i64);
+    let c: &mut HArray<HVal> = h.array(2i64);
     c.push(10i64);
-    let d: &mut Array<HAny> = h.array(2i64);
+    let d: &mut HArray<HVal> = h.array(2i64);
     d.push(20i64); d.push(30i64);
     b.push(&*c); b.push(&*d);
     if !eq(HAny::from(&*b), "[[10], [20, 30]]") { return 5; }
     // string value (escaped quotes)
-    let e: &mut Array<HAny> = h.array(2i64);
+    let e: &mut HArray<HVal> = h.array(2i64);
     e.push("hi");
     if !eq(HAny::from(&*e), "[\"hi\"]") { return 6; }
     // single-entry map — deterministic
-    let m: &mut HMap = h.map(8i64);
+    let m: &mut HMap<HString, HVal> = h.map(8i64);
     m.set("n", 42i64);
     if !eq(HAny::from(&*m), "{\"n\": 42}") { return 7; }
     return 0;

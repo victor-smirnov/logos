@@ -11,8 +11,8 @@ use logos.lang.str;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(512i64);
     let s: &HString = h.hstring("hi");
-    let a: &mut Array<HAny> = h.array(2i64);
-    let m: &mut HMap = h.map(8i64);
+    let a: &mut HArray<HVal> = h.array(2i64);
+    let m: &mut HMap<HString, HVal> = h.map(8i64);
     let vs: HAny = HAny::from(s);
     let va: HAny = HAny::from(&*a);
     let vm: HAny = HAny::from(&*m);

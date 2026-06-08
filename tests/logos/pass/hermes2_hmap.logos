@@ -1,4 +1,4 @@
-// Hermes2 HMap — string-keyed growing hash map (the JSON object) over the
+// Hermes2 HMap<HString, HVal> — string-keyed growing hash map (the JSON object) over the
 // never-move arena. set/get/update, str + scalar values, GROWTH (insert past the
 // initial capacity → rehash, all keys still retrievable), contains/len.
 package test;
@@ -10,7 +10,7 @@ use logos.lang.str;
 use logos.mem.string;        // i64::to_string, String::as_str (mem tier — test is standalone)
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(64i64);
-    let m: &mut HMap = h.map(8i64);
+    let m: &mut HMap<HString, HVal> = h.map(8i64);
 
     m.set("age", 36i64);                 // scalar value
     m.set("name", "Ada");                // str value → interned

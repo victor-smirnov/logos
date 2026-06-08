@@ -23,7 +23,7 @@
 //                        always 0 — it never collides with the Pod tag.
 //
 // Bridge: ha_materialize (slot → value, Ref: &slot+delta) / ha_lower (value → slot,
-// Ref: target−&slot); identity for Pod and null. `Array<HAny>` get/put use
+// Ref: target−&slot); identity for Pod and null. `HArray<HVal>` get/put use
 // these. (Later: make these niche-packed `enum { Ref | Pod }` — more canonical.)
 
 package logos.lang.hermes2.anyval;
@@ -35,6 +35,13 @@ pub struct HAny { pub raw: i64 }                 // VALUE form — movable
 
 #[pinned]
 pub struct HAnyRel { pub raw: i64 }              // AT-REST form — non-movable
+
+// Placeholder element type for the heterogeneous containers `HArray<HVal>` /
+// `HMap<HString, HVal>`. A pure type-level label meaning "a heterogeneous Hermes
+// value": in MEMORY an element is an HAnyRel (at-rest), materialised as an HAny
+// (value) — so neither HAny nor HAnyRel is the right param name. HVal stands in
+// for that logical element. (Phantom: the containers carry no T-typed field.)
+pub struct HVal {}
 
 impl HAny {
     // ── constructors (value form) ─────────────────────────────────────────────
@@ -136,7 +143,7 @@ impl HAny {
 // Where `HAny` is a read value (an absolute pointer, thin), `HAnyMut` is a MUTABLE
 // handle: an object pointer PLUS the Hermes zone (allocator) it lives in. It is the
 // value-form of a fat `&mut` — the bridge for DYNAMIC mutable traversal, where the
-// child's concrete type is unknown until checked. `Array::get_mut` / `HMap::get_mut`
+// child's concrete type is unknown until checked. `Array::get_mut` / `HMap<HString, HVal>::get_mut`
 // produce it (zone = `zone_of(self)`, so the parent's zone cascades into the child);
 // `as_array_mut` / `as_map_mut` (in array/hmap) resolve it to a fat `&mut` carrying
 // that zone, ready to grow. (Read traversal stays on plain HAny.) hermes2 §9.4.

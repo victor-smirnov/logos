@@ -1,4 +1,4 @@
-// Hermes2 — direct &mut Array<HAny> reference holding inline Pod + a Ref to a TAGGED
+// Hermes2 — direct &mut HArray<HVal> reference holding inline Pod + a Ref to a TAGGED
 // non-array object, with growth (cap 2 → 4 pushes) across tiny 48B segments. The
 // Ref survives the re-anchoring grow and dispatches through Hermes2TagSystem.
 package test;
@@ -20,7 +20,7 @@ unsafe fn dispatch(za: HAny) -> i64 {
 
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
-    let arr: &mut Array<HAny> = h.array(2i64);
+    let arr: &mut HArray<HVal> = h.array(2i64);
     arr.push(HAny::from(1i64));
     arr.push(HAny::from(2i64));
     unsafe {

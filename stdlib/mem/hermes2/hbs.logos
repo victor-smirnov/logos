@@ -18,8 +18,8 @@ package logos.mem.hermes2.hbs;
 
 use logos.lang.hermes2.container;     // Hermes2
 use logos.lang.hermes2.anyval;        // HAny, HA_I56
-use logos.lang.hermes2.array;         // Array<HAny>
-use logos.lang.hermes2.hmap;          // HMap
+use logos.lang.hermes2.array;         // HArray<HVal>
+use logos.lang.hermes2.hmap;          // HMap<HString, HVal>
 use logos.lang.hermes2.hstring;       // HString
 use logos.lang.str;                   // str, str_from_raw
 use logos.lang.vlen;                  // vlen_read, vlen_prefix_size
@@ -65,14 +65,14 @@ unsafe fn write_val(out: &mut Vec<u8>, v: HAny) {
         out.push(0x30u8); put_str(out, hs.as_str()); return;
     }
     if v.is_array() {
-        let a: &Array<HAny> = &*(v.resolve() as *const Array<HAny>);
+        let a: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
         out.push(0x40u8); put_vlen(out, a.len() as u64);
         let mut i: i64 = 0i64;
         while i < a.len() { write_val(out, a.get(i)); i = i + 1i64; }
         return;
     }
     if v.is_map() {
-        let m: &HMap = &*(v.resolve() as *const HMap);
+        let m: &HMap<HString, HVal> = &*(v.resolve() as *const HMap<HString, HVal>);
         out.push(0x41u8); put_vlen(out, m.len() as u64);
         let mut i: i64 = 0i64;
         while i < m.slots() {
@@ -136,14 +136,14 @@ unsafe fn read_val(h: &Hermes2, data: *const u8, pos: *mut i64) -> HAny {
     if lead == 0x30u8 { return HAny::from(h.hstring(rd_str(data, pos))); }
     if lead == 0x40u8 {
         let cnt: i64 = rd_vlen(data, pos) as i64;
-        let a: &mut Array<HAny> = h.array(if cnt < 1i64 { 1i64 } else { cnt });
+        let a: &mut HArray<HVal> = h.array(if cnt < 1i64 { 1i64 } else { cnt });
         let mut i: i64 = 0i64;
         while i < cnt { a.push(read_val(h, data, pos)); i = i + 1i64; }
         return HAny::from(&*a);
     }
     if lead == 0x41u8 {
         let cnt: i64 = rd_vlen(data, pos) as i64;
-        let m: &mut HMap = h.map(if cnt < 1i64 { 1i64 } else { cnt });
+        let m: &mut HMap<HString, HVal> = h.map(if cnt < 1i64 { 1i64 } else { cnt });
         let mut i: i64 = 0i64;
         while i < cnt {
             let key: str = rd_str(data, pos);

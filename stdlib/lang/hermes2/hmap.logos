@@ -1,6 +1,6 @@
 // Logos Hermes2 stdlib — hermes2.objectmap
 //
-// HMap — a string-keyed hash map (the JSON "object") over the never-move
+// HMap<HString, HVal> — a string-keyed hash map (the JSON "object") over the never-move
 // arena, the Hermes2 port of hermes.objectmap. Open-addressing with linear
 // probing + FNV-1a (logos.lang.hash); keys are interned HStrings, values HAny.
 //
@@ -8,10 +8,10 @@
 // this GROWS like a Rust HashMap: at load factor > 0.75 it appends a fresh 2×
 // entry buffer through the stored allocator and REHASHES every live entry into
 // it (re-anchoring each self-relative slot through its absolute value, exactly
-// like Array<HAny>'s grow). The old buffer is left dead until the container
+// like HArray<HVal>'s grow). The old buffer is left dead until the container
 // drops (design §3 — no per-object reclaim).
 //
-// Layout mirrors Array<HAny>: a `#[pinned]` header in the arena + a self-relative
+// Layout mirrors HArray<HVal>: a `#[pinned]` header in the arena + a self-relative
 // `data` delta to the HMapEntry buffer (header and buffer may live in different
 // never-move segments; the delta stays valid). Empty slot = key.raw == 0 (the
 // buffer is zero-initialised; a real Ref's at-rest delta is never 0).
@@ -22,7 +22,7 @@ use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc / _n
 use logos.lang.hermes2.allocator;   // Allocator, allocator_alloc
 use logos.lang.hermes2.anyval;      // HAny, HAnyRel, ha_lower/materialize, HA_I56
 use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc
-use logos.lang.hermes2.array;       // Array<HAny> + HAny::from(&Array) — for nested values
+use logos.lang.hermes2.array;       // HArray<HVal> + HAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
 use logos.lang.str;                 // str, str_eq
 use logos.lang.ptr;                 // byte_add
@@ -33,20 +33,24 @@ pub struct HMapEntry {
     pub val: HAnyRel,   // the stored HAny value
 }
 
-// `#[zone_mut]`: a `&mut HMap` is a FAT ref {data, zone} carrying its Hermes zone
+// `#[zone_mut]`: a `&mut HMap<HString, HVal>` is a FAT ref {data, zone} carrying its Hermes zone
 // (the allocator) — grow/intern reach it via zone_of(self); the object stores no
-// allocator. Read `&HMap` stays thin. (Mirrors Array<HAny>; hermes2-design §9.4.)
+// allocator. Read `&HMap<HString, HVal>` stays thin. (Mirrors HArray<HVal>; hermes2-design §9.4.)
 #[zone_mut]
 #[pinned]
-pub struct HMap {
+pub struct HMap<K, V> {
     pub count: i64,             // occupied slots
     pub cap:   i64,             // number of slots (power of 2)
     pub data:  i64,             // self-relative: entry buffer = (header addr) + data
 }
 
+// Ergonomic alias for the heterogeneous string-keyed map (the only instantiation
+// today): write `HValMap` for `HMap<HString, HVal>`.
+pub type HValMap = HMap<HString, HVal>;
+
 // Absolute entry buffer (header + delta).
-unsafe fn om_buf(m: *const HMap) -> *const HMapEntry { return ((m as i64) + m.data) as *const HMapEntry; }
-unsafe fn om_buf_mut(m: *mut HMap) -> *mut HMapEntry { return ((m as i64) + m.data) as *mut HMapEntry; }
+unsafe fn om_buf(m: *const HMap<HString, HVal>) -> *const HMapEntry { return ((m as i64) + m.data) as *const HMapEntry; }
+unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return ((m as i64) + m.data) as *mut HMapEntry; }
 
 // Field-slot pointers within an entry (key @0, val @8) — addressed by offset to
 // avoid copying the `#[pinned]` HAnyRel by value.
@@ -68,10 +72,10 @@ fn round_pow2(n: i64) -> i64 {
     return c;
 }
 
-unsafe fn om_new(h: *mut Hermes2, cap: i64) -> *mut HMap {
-    // The header is HAny-Ref'd (HAny::from(&HMap)) → tag it for dispatch.
-    let hdr: *mut HMap =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap>() as i64, H2_MAP) as *mut HMap;
+unsafe fn om_new(h: *mut Hermes2, cap: i64) -> *mut HMap<HString, HVal> {
+    // The header is HAny-Ref'd (HAny::from(&HMap<HString, HVal>)) → tag it for dispatch.
+    let hdr: *mut HMap<HString, HVal> =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap<HString, HVal>>() as i64, H2_MAP) as *mut HMap<HString, HVal>;
     let buf: *mut HMapEntry  = hermes2_alloc_n::<HMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
@@ -85,7 +89,7 @@ unsafe fn key_str(stored: HAny) -> str { return (&*(stored.resolve() as *const H
 
 // Grow to 2× capacity, rehashing every live entry into the fresh buffer (no key
 // compare — all existing keys are distinct).
-unsafe fn om_grow(m: *mut HMap, alloc: *mut Allocator) {
+unsafe fn om_grow(m: *mut HMap<HString, HVal>, alloc: *mut Allocator) {
     let oldcap: i64 = m.cap;
     let newcap: i64 = if oldcap == 0i64 { 8i64 } else { oldcap * 2i64 };
     let nbuf: *mut HMapEntry =
@@ -119,7 +123,7 @@ unsafe fn om_grow(m: *mut HMap, alloc: *mut Allocator) {
 }
 
 // Insert or update. On a NEW key the str is interned into THIS map's arena.
-unsafe fn om_set(m: *mut HMap, alloc: *mut Allocator, key: str, val: HAny) {
+unsafe fn om_set(m: *mut HMap<HString, HVal>, alloc: *mut Allocator, key: str, val: HAny) {
     if (m.count + 1i64) * 4i64 > m.cap * 3i64 { om_grow(m, alloc); }   // load > 0.75
     let cap_u: u64 = m.cap as u64;
     let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
@@ -143,7 +147,7 @@ unsafe fn om_set(m: *mut HMap, alloc: *mut Allocator, key: str, val: HAny) {
     }
 }
 
-unsafe fn om_get(m: *const HMap, key: str) -> HAny {
+unsafe fn om_get(m: *const HMap<HString, HVal>, key: str) -> HAny {
     let cap_u: u64 = m.cap as u64;
     let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
     let buf: *const HMapEntry = om_buf(m);
@@ -162,38 +166,38 @@ unsafe fn om_get(m: *const HMap, key: str) -> HAny {
     return HAny { raw: 0i64 };
 }
 
-// ── Direct-reference surface (like Array<HAny>) ────────────────────────────────
+// ── Direct-reference surface (like HArray<HVal>) ────────────────────────────────
 impl Hermes2 {
     // Create an empty string-keyed map with at least `cap` slots (rounded to a
     // power of two, min 8). `&self` interior-mut allocation into never-move storage.
-    pub fn map<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HMap {
+    pub fn map<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HMap<HString, HVal> {
         unsafe {
             let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
             // Fat `&mut` carrying this container's zone (the allocator); set/grow/
             // intern recover it via zone_of(self).
-            return zone_mut_ref::<HMap>(om_new(h, round_pow2(cap)), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<HMap<HString, HVal>>(om_new(h, round_pow2(cap)), &mut h.allocator as *mut u8);
         }
     }
 }
 
-impl HMap {
+impl HMap<HString, HVal> {
     // The zone (allocator) for grow/intern comes from the fat `&mut self` via
-    // zone_of(self) — bind it FIRST (no move), then `self as *mut HMap` (the cast
+    // zone_of(self) — bind it FIRST (no move), then `self as *mut HMap<HString, HVal>` (the cast
     // consumes the fat ref) is self's last use in the om_set call.
-    pub fn set(self: &mut HMap, key: str, val: HAny) {
-        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; om_set(self as *mut HMap, z, key, val); }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, val: HAny) {
+        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; om_set(self as *mut HMap<HString, HVal>, z, key, val); }
     }
-    pub fn get(self: &HMap, key: str) -> HAny { return unsafe { om_get(self as *const HMap, key) }; }
-    pub fn contains(self: &HMap, key: str) -> bool { return !self.get(key).is_null(); }
-    pub fn len(self: &HMap) -> i64 { return self.count; }
+    pub fn get(self: &HMap<HString, HVal>, key: str) -> HAny { return unsafe { om_get(self as *const HMap<HString, HVal>, key) }; }
+    pub fn contains(self: &HMap<HString, HVal>, key: str) -> bool { return !self.get(key).is_null(); }
+    pub fn len(self: &HMap<HString, HVal>) -> i64 { return self.count; }
 
     // Mutable cursor onto the value at `key` (a Ref value — nested container/string):
     // carries THIS map's zone (zone_of(self)) so the child can grow in the same arena.
     // Bind the zone FIRST (no move); `self as *const` is self's last use.
-    pub fn get_mut(self: &mut HMap, key: str) -> HAnyMut {
+    pub fn get_mut(self: &mut HMap<HString, HVal>, key: str) -> HAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
-            let v: HAny = om_get(self as *const HMap, key);
+            let v: HAny = om_get(self as *const HMap<HString, HVal>, key);
             return HAnyMut { obj: v.resolve() as *mut u8, zone: z };
         }
     }
@@ -201,31 +205,31 @@ impl HMap {
     // Slot iteration (for generic walkers — stringify/binary). Walk 0..slots();
     // a slot is occupied iff its key is non-null. The key is a Ref to the interned
     // HString; the value is the stored HAny.
-    pub fn slots(self: &HMap) -> i64 { return self.cap; }
-    pub fn key_at(self: &HMap, i: i64) -> HAny {
+    pub fn slots(self: &HMap<HString, HVal>) -> i64 { return self.cap; }
+    pub fn key_at(self: &HMap<HString, HVal>, i: i64) -> HAny {
         unsafe {
-            let ep: *const HMapEntry = om_buf(self as *const HMap).add(i);
+            let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
             if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
             return ha_materialize(ep as *const HAnyRel);
         }
     }
-    pub fn val_at(self: &HMap, i: i64) -> HAny {
+    pub fn val_at(self: &HMap<HString, HVal>, i: i64) -> HAny {
         unsafe {
-            let ep: *const HMapEntry = om_buf(self as *const HMap).add(i);
+            let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
             if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
             return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
         }
     }
 
     // Overloaded set for the common value types (no manual HAny::from), mirroring
-    // Array<HAny>::push. A `str` VALUE is interned into the same arena as a Ref.
-    pub fn set(self: &mut HMap, key: str, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, make_int(z, v)); } }
-    pub fn set(self: &mut HMap, key: str, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, box_f64(z, v)); } }
-    pub fn set(self: &mut HMap, key: str, v: bool) { self.set(key, HAny::from(v)); }
-    pub fn set(self: &mut HMap, key: str, v: &HString) { self.set(key, HAny::from(v)); }
-    pub fn set(self: &mut HMap, key: str, v: &Array<HAny>) { self.set(key, HAny::from(v)); }
-    pub fn set(self: &mut HMap, key: str, v: &HMap) { self.set(key, HAny::from(v)); }
-    pub fn set(self: &mut HMap, key: str, v: str) {
+    // HArray<HVal>::push. A `str` VALUE is interned into the same arena as a Ref.
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, make_int(z, v)); } }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, box_f64(z, v)); } }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: bool) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: &HString) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: &HArray<HVal>) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: &HMap<HString, HVal>) { self.set(key, HAny::from(v)); }
+    pub fn set(self: &mut HMap<HString, HVal>, key: str, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
             let hs: *mut HString = hstring_in_alloc(z, v);
@@ -235,14 +239,14 @@ impl HMap {
 }
 
 impl HAnyMut {
-    // Resolve a mutable cursor to a fat `&mut HMap` carrying its zone — ready to
+    // Resolve a mutable cursor to a fat `&mut HMap<HString, HVal>` carrying its zone — ready to
     // set/grow in the same arena. (Check is_map() first.)
-    pub fn as_map_mut(self: HAnyMut) -> &mut HMap {
-        return unsafe { zone_mut_ref::<HMap>(self.obj as *mut HMap, self.zone) };
+    pub fn as_map_mut(self: HAnyMut) -> &mut HMap<HString, HVal> {
+        return unsafe { zone_mut_ref::<HMap<HString, HVal>>(self.obj as *mut HMap<HString, HVal>, self.zone) };
     }
 }
 
 impl HAny {
     // A map as a heterogeneous value — a Ref to its header.
-    pub fn from(m: &HMap) -> HAny { return HAny::ref_to(m as *const HMap as *const u8); }
+    pub fn from(m: &HMap<HString, HVal>) -> HAny { return HAny::ref_to(m as *const HMap<HString, HVal> as *const u8); }
 }

@@ -1,12 +1,12 @@
 // Hermes2 — minimal heterogeneous document, direct references + fully safe: a root
 // array holds inline ints AND a NESTED array (HAny::from(&child)); deep_sum
-// descends Ref elements via `h.array_of(ref) -> &Array<HAny>` (tied to the container).
+// descends Ref elements via `h.array_of(ref) -> &HArray<HVal>` (tied to the container).
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 
-fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
+fn deep_sum(h: &Hermes2, a: &HArray<HVal>) -> i64 {
     let mut s: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < a.len() {
@@ -20,11 +20,11 @@ fn deep_sum(h: &Hermes2, a: &Array<HAny>) -> i64 {
 
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
-    let nested: &mut Array<HAny> = h.array(2i64);
+    let nested: &mut HArray<HVal> = h.array(2i64);
     nested.push(HAny::from(1i64));
     nested.push(HAny::from(2i64));
     nested.push(HAny::from(3i64));
-    let root: &mut Array<HAny> = h.array(2i64);
+    let root: &mut HArray<HVal> = h.array(2i64);
     root.push(HAny::from(10i64));
     root.push(HAny::from(20i64));
     root.push(HAny::from(&*nested));      // nest the child (reborrow &mut as &)

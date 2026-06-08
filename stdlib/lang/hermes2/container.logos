@@ -61,7 +61,7 @@ pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
 // bit stays 0 — and write the single-byte type `code` at obj[-1] (the Hermes1
 // datatag wire convention). Returns the object pointer; `h2_type_code(obj)` reads
 // the code back. Takes `*mut Allocator` so containers holding only an allocator
-// back-pointer (Array<HAny>, HMap) can tag-allocate without the full Hermes2.
+// back-pointer (HArray<HVal>, HMap<HString, HVal>) can tag-allocate without the full Hermes2.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u8) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
