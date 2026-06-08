@@ -1,6 +1,20 @@
 # Hermes2 `&mut` carries its zone — fat mutable reference (design + plan)
 
-Status: **design / spiking (2026-06-08).** Realises hermes2-design §9 part 4
+Status: **DONE — compiler feature + both containers migrated (2026-06-08).**
+Commits: 3eb14084 (compiler: marker / FatZoneMut repr / zone_mut_ref+zone_of /
+field+method access / spill returnability), b09d371b (Array<HAny> migrated +
+reborrow-peel / method-self / cast sites), 9b235faf (HMap migrated). Both
+`Array<HAny>` and `HMap` dropped their `alloc` field — the zone now rides the fat
+`&mut`. Toy test zone_mut_fat_ref + full hermes2 suite + showcase pass, valgrind-
+clean, L4 5568/5568.
+
+REMAINING (next phase — the dynamic mutable-traversal surface, not yet built):
+`HAnyMut` {obj, zone} value (mutable dual of HAny) + `root()`/`root_mut()` entry
+points + `Array::get_mut`/`array_at_mut` / `HMap::*_at_mut` (resolve a child to a
+fat `&mut` carrying the parent's zone via zone_of(self)).
+
+(original design below.)
+ Realises hermes2-design §9 part 4
 ("growing `&mut self` carrying `(self_ptr, allocator)`"). Goal: a `&mut T` to a
 zone-resident growable container is a FAT reference `{data, zone}` carrying its
 zone (the `Allocator`); the zone rides the reference and cascades through mutable
