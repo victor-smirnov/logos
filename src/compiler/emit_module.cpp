@@ -484,6 +484,16 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         }
     }
 
+    // Pre-mono borrow check of generic templates (Rust parity: a generic never
+    // instantiated is still checked). Done HERE — at each module's own build — so
+    // the loaded stdlib's generics are checked once, by the layer that owns them;
+    // downstream/user compiles skip from_binary_module fns (borrow_check) and need
+    // not re-check them. THIS layer's own generics carry from_binary_module=false,
+    // so they ARE checked; lower-layer deps are skipped (already checked at theirs).
+    prog = borrow_check(std::move(prog), /*generic_templates_only=*/true);
+    prog.print_diags(stderr);
+    if (!prog.ok()) return false;
+
     // Mono (also emits L-IR Hermes mirror; borrow_check reads via mirror)
     prog = mono_pass(std::move(prog));
     prog.print_diags(stderr);
