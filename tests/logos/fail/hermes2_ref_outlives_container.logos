@@ -9,9 +9,9 @@ package hermes2_ref_outlives_container;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
-fn dangle<'a>() -> &'a Array<HAny> {
+fn dangle<'a>() -> &'a HArray<HVal> {
     let h: Hermes2 = hermes2_new(64i64);
-    let a: &mut Array<HAny> = h.array(4i64);
+    let a: &mut HArray<HVal> = h.array(4i64);
     return a;                          // ERROR: a borrows local h → dangling
 }
 fn main() -> i32 { return 0; }
