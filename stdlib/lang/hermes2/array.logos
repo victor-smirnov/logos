@@ -155,6 +155,27 @@ impl Array<HAny> {
 
     pub fn get(self: &Array<HAny>, i: i64) -> HAny { return unsafe { array_get(self as *const Array<HAny>, i) }; }
     pub fn len(self: &Array<HAny>) -> i64 { return unsafe { array_len(self as *const Array<HAny>) }; }
+
+    // Mutable cursor onto element `i` (a Ref element — a nested container/string):
+    // carries THIS array's zone (zone_of(self)) so the child can grow in the same
+    // arena. Bind the zone FIRST (no move); `self as *const` (the cast) is the last
+    // use. For a Pod element the cursor's obj is meaningless — guard with
+    // is_array/is_map/is_string before resolving.
+    pub fn get_mut(self: &mut Array<HAny>, i: i64) -> HAnyMut {
+        unsafe {
+            let z: *mut u8 = zone_of(self);
+            let v: HAny = array_get(self as *const Array<HAny>, i);
+            return HAnyMut { obj: v.resolve() as *mut u8, zone: z };
+        }
+    }
+}
+
+impl HAnyMut {
+    // Resolve a mutable cursor to a fat `&mut Array<HAny>` carrying its zone — ready
+    // to push/grow in the same arena. (Check is_array() first.)
+    pub fn as_array_mut(self: HAnyMut) -> &mut Array<HAny> {
+        return unsafe { zone_mut_ref::<Array<HAny>>(self.obj as *mut Array<HAny>, self.zone) };
+    }
 }
 
 impl HAny {

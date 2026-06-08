@@ -187,6 +187,17 @@ impl HMap {
     pub fn contains(self: &HMap, key: str) -> bool { return !self.get(key).is_null(); }
     pub fn len(self: &HMap) -> i64 { return self.count; }
 
+    // Mutable cursor onto the value at `key` (a Ref value — nested container/string):
+    // carries THIS map's zone (zone_of(self)) so the child can grow in the same arena.
+    // Bind the zone FIRST (no move); `self as *const` is self's last use.
+    pub fn get_mut(self: &mut HMap, key: str) -> HAnyMut {
+        unsafe {
+            let z: *mut u8 = zone_of(self);
+            let v: HAny = om_get(self as *const HMap, key);
+            return HAnyMut { obj: v.resolve() as *mut u8, zone: z };
+        }
+    }
+
     // Slot iteration (for generic walkers — stringify/binary). Walk 0..slots();
     // a slot is occupied iff its key is non-null. The key is a Ref to the interned
     // HString; the value is the stored HAny.
@@ -220,6 +231,14 @@ impl HMap {
             let hs: *mut HString = hstring_in_alloc(z, v);
             self.set(key, HAny::ref_to(hs as *const u8));
         }
+    }
+}
+
+impl HAnyMut {
+    // Resolve a mutable cursor to a fat `&mut HMap` carrying its zone — ready to
+    // set/grow in the same arena. (Check is_map() first.)
+    pub fn as_map_mut(self: HAnyMut) -> &mut HMap {
+        return unsafe { zone_mut_ref::<HMap>(self.obj as *mut HMap, self.zone) };
     }
 }
 

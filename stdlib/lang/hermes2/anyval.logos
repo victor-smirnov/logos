@@ -131,6 +131,29 @@ impl HAny {
     pub fn as_f64(self: &HAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
 }
 
+// ── HAnyMut — the MUTABLE dual of HAny (a dynamic mutable cursor) ──────────────
+//
+// Where `HAny` is a read value (an absolute pointer, thin), `HAnyMut` is a MUTABLE
+// handle: an object pointer PLUS the Hermes zone (allocator) it lives in. It is the
+// value-form of a fat `&mut` — the bridge for DYNAMIC mutable traversal, where the
+// child's concrete type is unknown until checked. `Array::get_mut` / `HMap::get_mut`
+// produce it (zone = `zone_of(self)`, so the parent's zone cascades into the child);
+// `as_array_mut` / `as_map_mut` (in array/hmap) resolve it to a fat `&mut` carrying
+// that zone, ready to grow. (Read traversal stays on plain HAny.) hermes2 §9.4.
+pub struct HAnyMut {
+    pub obj:  *mut u8,   // the resolved object pointer (a tagged arena object)
+    pub zone: *mut u8,   // its Hermes zone (allocator), erased to *mut u8 (cast at use)
+}
+
+impl HAnyMut {
+    pub fn type_code(self: &HAnyMut) -> u8 { return unsafe { h2_type_code(self.obj as *const u8) }; }
+    pub fn is_string(self: &HAnyMut) -> bool { return self.type_code() == H2_STRING; }
+    pub fn is_array(self: &HAnyMut)  -> bool { return self.type_code() == H2_ARRAY; }
+    pub fn is_map(self: &HAnyMut)    -> bool { return self.type_code() == H2_MAP; }
+    // The read value at this cursor (an absolute Ref to the same object).
+    pub fn as_any(self: &HAnyMut) -> HAny { return HAny::ref_to(self.obj as *const u8); }
+}
+
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
 // Materialise a slot's at-rest form into a movable value. Ref: abs = &slot + delta.
 pub unsafe fn ha_materialize(slot: *const HAnyRel) -> HAny {

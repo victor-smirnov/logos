@@ -1,0 +1,37 @@
+// HAnyMut — dynamic mutable traversal. Descend into a nested child via get_mut,
+// resolve to a fat `&mut` (carrying the parent's zone), and GROW the child in the
+// same arena. The zone cascades parent→child with no container threaded.
+package test;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+fn main() -> i32 {
+    let h: Hermes2 = hermes2_new(256i64);
+    let root: &mut Array<HAny> = h.array(2i64);
+    let child: &mut Array<HAny> = h.array(2i64);
+    child.push(1i64);
+    root.push(&*child);                       // root[0] = nested array
+    let m: &mut HMap = h.map(4i64);
+    m.set("a", 100i64);
+    root.push(HAny::from(&*m));                // root[1] = nested map (HAny::from; array cannot import hmap)
+
+    // descend into root[0] and GROW the nested child through the cursor
+    let cur: HAnyMut = root.get_mut(0i64);
+    if !cur.is_array() { return 1; }
+    let ca: &mut Array<HAny> = cur.as_array_mut();   // fat &mut, carries root's zone
+    ca.push(2i64); ca.push(3i64);                    // triggers grow (cap 2) IN the arena
+    let back: &Array<HAny> = h.array_of(root.get(0i64));
+    if back.len() != 3 { return 2; }
+    if back.get(2i64).as_i56() != 3 { return 3; }
+
+    // descend into root[1] (map) and set a new key through the cursor
+    let cur2: HAnyMut = root.get_mut(1i64);
+    if !cur2.is_map() { return 4; }
+    let cm: &mut HMap = cur2.as_map_mut();
+    cm.set("b", 200i64);
+    let bm: &HMap = unsafe { &*(root.get(1i64).resolve() as *const HMap) };
+    if bm.get("b").as_i56() != 200 { return 5; }
+    if bm.get("a").as_i56() != 100 { return 6; }
+    return 0;
+}
