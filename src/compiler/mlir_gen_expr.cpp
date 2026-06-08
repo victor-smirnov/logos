@@ -1331,6 +1331,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                        TypeRef(dt).kind() == LogosType::Kind::Ref)) {
                 if (auto* op_le = lexpr_of(deref_op)) {
                     auto thin = gen_expr(*op_le);
+                    // Reborrowing a fat zone-mut `&mut T` (`&*r` / `&mut *r`): if the
+                    // RESULT is a thin reference (`&T` / `*T` — a read reborrow), peel
+                    // the {data,zone} pair to its data half; if the result is itself a
+                    // fat `&mut T`, keep the pair (the zone rides on).
+                    if (ref_repr_of(op_le->type) == RefReprKind::FatZoneMut &&
+                        !(result_t && ref_repr_of(result_t) == RefReprKind::FatZoneMut))
+                        return repr_data(RefReprKind::FatZoneMut, thin);
                     // `&*p` of a thin pointer to a #[self_describing] DST yields a
                     // THIN &DST (DstRef): the reference IS the header pointer (the
                     // tail length is recovered in-band via dst_len at each access),
@@ -2392,6 +2399,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     // Look up by the RESOLVED FuncOp name (carries the `__g__<arg-mangle>`
     // generic-instance suffix), not the un-suffixed callee_name base.
     auto m_fpit = fn_param_types_.find(callee_fn.getName().str());
+    // A fat zone-mut receiver (`&mut T`) passed to a method whose `self` is THIN
+    // (`&self`, a read method) must be peeled to its data half — the callee
+    // expects a plain pointer, not the {data,zone} pair. A `&mut self` (fat)
+    // method keeps the full pair. (self is param index 0.)
+    if (recv_is_fat_zone && m_fpit != fn_param_types_.end() && !m_fpit->second.empty() &&
+        ref_repr_of(m_fpit->second[0]) != RefReprKind::FatZoneMut)
+        args[0] = repr_data(RefReprKind::FatZoneMut, args[0]);
     for (size_t i = 0; i < arg_les.size(); ++i) {
         auto val = gen_expr(*arg_les[i]);
         if (!val) return nullptr;
@@ -3245,6 +3259,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // (the value IS the data ptr), so the cast is a no-op — exclude it.
         bool src_is_dst = fk == LogosType::Kind::DstRef &&
                           !dstref_pointee_self_describing(op_le->type);
+        // A fat zone-mut `&mut T` cast to a thin `*mut T`/`*const T` extracts the
+        // DATA half (the object pointer), dropping the carried zone.
+        bool src_is_zone_mut = (ref_repr_of(op_le->type) == RefReprKind::FatZoneMut);
         bool dst_is_void_ptr =
             tk == LogosType::Kind::Ptr &&
             TypeRef(type).pointee() &&
@@ -3259,6 +3276,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         if (src_is_dyn_val && (dst_is_void_ptr || dst_is_thin_ptr)) fat_to_thin = true;
         if (src_is_slice  && dst_is_thin_ptr) fat_to_thin = true;
         if (src_is_dst    && dst_is_thin_ptr) fat_to_thin = true;
+        if (src_is_zone_mut && dst_is_thin_ptr) fat_to_thin = true;
     }
     if (fat_to_thin) {
         auto fat_t = mlir::LLVM::LLVMStructType::getLiteral(
