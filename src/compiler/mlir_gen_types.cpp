@@ -769,7 +769,11 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
                 case K::I32:  bits=32; sgn=true;  return true;
                 case K::U32:  bits=32; sgn=false; return true;
                 case K::I56:  bits=56; sgn=true;  return true;
-                default: return false;  // I64/U64 (64 bits) don't fit the niche
+                // 64-bit arms pack ONLY in a `#[zoned2]` raw niche (no shift — the
+                // producer bakes the low-bit-1 tag in); excluded otherwise.
+                case K::I64:  bits=64; sgn=true;  return true;
+                case K::U64:  bits=64; sgn=false; return true;
+                default: return false;
             }
         };
         if (!info.niche.packed) {
@@ -780,14 +784,20 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
                 if (vp.logos_types.size() != 1) { ok = false; break; }
                 TypeRef ft = vp.logos_types[0];
                 auto k = TypeRef(ft).kind();
-                // Only &T/&mut T guarantee the pointer is aligned (low bit 0); a raw
-                // `*T` could hold a misaligned address. (Zoned pointers — also
-                // low-bit-0 — join here in F3.)
-                bool is_ptr = (k == K::Ref || k == K::MutRef) &&
-                              TypeRef(ft).pointee() &&
-                              layout_of(TypeRef(ft).pointee()).align >= 2;
+                // Pointer arm: `&T`/`&mut T` to an align≥2 pointee guarantees low
+                // bit 0. A `#[zoned2]` enum additionally TRUSTS a raw `*T` (its Ref
+                // invariant — Hermes zone objects are ≥2-aligned by the allocator),
+                // so HAny's type-erased `*u8` Ref qualifies despite u8's align 1.
+                bool is_ptr = ((k == K::Ref || k == K::MutRef) &&
+                               TypeRef(ft).pointee() &&
+                               layout_of(TypeRef(ft).pointee()).align >= 2)
+                           || (info.zoned && (k == K::Ptr || k == K::Ref || k == K::MutRef));
                 uint32_t b = 0; bool s = false;
-                bool is_val = int_arm_bits(ft, b, s) && b <= 63;
+                bool int_ok = int_arm_bits(ft, b, s);
+                // Value arm: a ≤56-bit int packs SHIFTED `(v<<1)|1`. A `#[zoned2]`
+                // enum also accepts a RAW 64-bit `u64`/`i64` word (HAny's Pod =
+                // `(value<<8)|(code<<1)|1`, low-bit-1 baked in by the producer).
+                bool is_val = int_ok && (b <= 56 || (b == 64 && info.zoned));
                 if (is_ptr && !ptr_arm)      ptr_arm = &vp;
                 else if (is_val && !val_arm) { val_arm = &vp; vbits = b; vsigned = s; }
                 else { ok = false; break; }
@@ -799,6 +809,7 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
                 info.niche.val_disc   = val_arm->disc;
                 info.niche.val_bits   = vbits;
                 info.niche.val_signed = vsigned;
+                info.niche.val_raw    = (vbits == 64);  // raw word, no <<1 shift
             }
         }
     }

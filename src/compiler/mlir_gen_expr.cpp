@@ -449,14 +449,20 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EEnumLitDataView v, TypeRef typ
             auto v = pl ? gen_expr(*pl) : nullptr;
             if (!v) return nullptr;
             if (disc == info.niche.val_disc) {
-                // value arm: extend to i64 (by signedness), then `(v<<1)|1`.
                 TypeRef vt = nullptr;
                 for (auto& vi : info.variants)
                     if (vi.disc == disc && !vi.logos_types.empty()) { vt = vi.logos_types[0]; break; }
                 auto vi64 = coerce_int(v, builder_.getI64Type(), vt);
-                auto one  = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
-                auto sh   = builder_.create<mlir::LLVM::ShlOp>(loc_, vi64, one);
-                word      = builder_.create<mlir::LLVM::OrOp>(loc_, sh, one);
+                if (info.niche.val_raw) {
+                    // RAW mode (HAny Pod): the value IS the final word (low-bit-1
+                    // already baked in by the producer) — store verbatim, no shift.
+                    word = vi64;
+                } else {
+                    // value arm: extend to i64 (by signedness), then `(v<<1)|1`.
+                    auto one = builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 64);
+                    auto sh  = builder_.create<mlir::LLVM::ShlOp>(loc_, vi64, one);
+                    word     = builder_.create<mlir::LLVM::OrOp>(loc_, sh, one);
+                }
             } else {
                 // ptr arm: pointer → i64 raw (low bit 0).
                 word = (v.getType() == ptr_type())
@@ -4763,6 +4769,10 @@ mlir::Value MLIRGenImpl::enum_payload_ptr(mlir::Value enum_addr,
     // reads as the variant payload field: value arm (lo=1) → `word>>1` (signed →
     // arithmetic), pointer arm (lo=0) → the word itself (the aligned pointer).
     if (info.niche.packed && info.niche.kind == TaggedEnumInfo::Niche::LowBit) {
+        // RAW mode (HAny Pod(u64)): both arms read the word VERBATIM — Pod is the
+        // raw tagged word, Ref is the raw pointer — so the payload IS the slot
+        // (no decode). The HAny accessors decode value/code from the word.
+        if (info.niche.val_raw) return enum_addr;
         // value arm (low bit 1) → read from a temp holding `word>>1` (signed →
         // arithmetic shift); pointer arm (low bit 0) → read from the enum slot
         // itself (the word IS the aligned pointer — mirrors the null-pointer-niche
