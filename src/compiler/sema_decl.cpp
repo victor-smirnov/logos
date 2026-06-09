@@ -1154,6 +1154,7 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
     ed.type_params = einfo.type_params;
     ed.backing_type = einfo.backing_type;
     ed.zoned2 = einfo.zoned2;   // F3: niche enum's Ref arm self-relative at-rest
+    ed.borrow_carrying = einfo.borrow_carrying;   // HAny: escape-tracked value
     // B65: capture outlives bounds. Enum lifetime_params lives on einfo;
     // outlives bounds re-read from the node.
     ed.lifetime_params = einfo.lifetime_params;

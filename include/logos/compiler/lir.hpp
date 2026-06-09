@@ -926,6 +926,9 @@ struct LEnumDef {
     // ha_materialize/ha_lower (offset the Ref arm by the low bit, anchored at
     // the access location). #[zoned2] enums are non-movable at-rest.
     bool                     zoned2 = false;
+    // `#[borrow_carrying]`: an enum value (HAny) may hold a Ref into an arena —
+    // the borrow checker escape-tracks it like a reference.
+    bool                     borrow_carrying = false;
     bool has_payload() const {
         for (auto& v : variants)
             if (!v.payload_types.empty()) return true;

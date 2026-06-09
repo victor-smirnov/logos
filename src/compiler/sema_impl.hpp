@@ -1231,7 +1231,7 @@ private:
         if (name == "pinned")          return bit(AttrTarget::Struct);
         if (name == "zone_mut")        return bit(AttrTarget::Struct);
         if (name == "zoned2")          return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
-        if (name == "borrow_carrying") return bit(AttrTarget::Struct);
+        if (name == "borrow_carrying") return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
@@ -2235,6 +2235,7 @@ private:
         TypeRef backing_type = nullptr;  // null = default (i32)
         std::string doc;     // outer `///` doc-comment
         bool zoned2 = false; // #[zoned2]: niche enum's Ref arm self-relative at-rest (F3)
+        bool borrow_carrying = false; // #[borrow_carrying]: a value (HAny) may hold a Ref into an arena
     };
 
     // ── Trait info ───────────────────────────────────────────────
@@ -3945,7 +3946,16 @@ private:
                                      TypeRef pt) const noexcept {
         if (types_equal(at, pt)) return true;
         if (types_compatible(at, pt)) return true;
-        if (arg && at && pt && is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()))
+        // An int LITERAL that fits a narrower integer param dispatches (e.g.
+        // `push(u8)` with `7`). NOTE: `is_integer_kind` also returns true for
+        // `Enum` (C-like enums are integer-backed), so this MUST exclude an enum
+        // target — otherwise an integer arg spuriously matches a DATA/niche-enum
+        // param (`push(7i64)` → `push(HAny)`, reinterpreting the int as the enum's
+        // by-pointer storage → UB). You pass a variant to an enum, not an int.
+        if (arg && at && pt &&
+            is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()) &&
+            TypeRef(at).kind() != LogosType::Kind::Enum &&
+            TypeRef(pt).kind() != LogosType::Kind::Enum)
             if (auto v = get_intlit_value(arg))
                 if (intlit_fits(*v, TypeRef(pt).kind()))
                     return true;

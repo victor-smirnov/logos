@@ -77,15 +77,20 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
-    auto reg_bc = [&](const lir::LStructDef& sd) {
-        if (!sd.borrow_carrying) return;
-        ts.borrow_carrying.insert(sd.name);
-        std::string_view n = sd.name;       // also the bare (pkg-stripped) name
+    auto reg_bc_name = [&](const std::string& name) {
+        ts.borrow_carrying.insert(name);
+        std::string_view n = name;          // also the bare (pkg-stripped) name
         if (auto dot = n.rfind('.'); dot != std::string_view::npos)
             ts.borrow_carrying.insert(std::string(n.substr(dot + 1)));
     };
+    auto reg_bc = [&](const lir::LStructDef& sd) {
+        if (sd.borrow_carrying) reg_bc_name(sd.name);
+    };
     for (auto& sd : prog.structs) reg_bc(sd);
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
+    // `#[borrow_carrying]` enums (HAny) — same escape tracking as the struct form.
+    for (auto& ed : prog.enums)
+        if (ed.borrow_carrying) reg_bc_name(ed.name);
     return ts;
 }
 
@@ -968,6 +973,8 @@ class BorrowChecker {
     bool is_borrow_carrying_type(TypeRef t) const {
         if (!t) return false;
         auto k = t.kind();
+        if (k == LogosType::Kind::Enum)   // HAny: the niche-enum form (F3)
+            return ts_.borrow_carrying.count(std::string(t.enum_name())) > 0;
         if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
             return false;
         return ts_.borrow_carrying.count(std::string(t.struct_name())) > 0;

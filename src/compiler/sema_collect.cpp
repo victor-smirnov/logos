@@ -1726,6 +1726,15 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                             if (eit != enums_.end()) eit->second.zoned2 = true;
                             break;
                         }
+                    // `#[borrow_carrying]` on an enum (HAny): a value that may hold a
+                    // Ref into an arena — escape-tracked by the borrow checker.
+                    for (auto& ann : pending_annots)
+                        if (str_of(ann.get(la::NAME.code)) == "borrow_carrying") {
+                            auto eit = enums_.find(sema_key(cur_package_, ename));
+                            if (eit == enums_.end()) eit = enums_.find(ename);
+                            if (eit != enums_.end()) eit->second.borrow_carrying = true;
+                            break;
+                        }
                 }
                 // `#[repr(uN)]` on an enum — set discriminant width if the
                 // enum didn't already declare one via the Logos-native
