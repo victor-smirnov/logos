@@ -27,17 +27,36 @@ use logos.lang.hermes2.allocator;
 use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc — for push(str)
 use logos.lang.ptr;
 
-// `#[zone_mut]`: a `&mut HArray<HVal>` is a FAT ref {data, zone} carrying its Hermes
-// zone (the allocator) — so grow methods reach the allocator from `&mut self` with
-// NO stored field. The zone is no longer in the object; it rides the mutable
-// reference (hermes2-design §9.4 / zone-as-parameter). Read `&Array` stays thin.
-// `#[zoned2]`: the `data` pointer is stored SELF-RELATIVE (RelOffset i64, anchored
-// to its own slot) and materialises to an absolute pointer on read — the untagged
-// zoned-reference (ref-repr-design §6). No manual `(a)+delta` arithmetic.
+// HArray<T> has two partial specialisations by element kind (mirrors Hermes1's
+// typed `Array<T>` vs heterogeneous container):
+//   • HArray<T>    — the generic base: a TYPED homogeneous packed array of a
+//                    primitive `T` (plain elements, `*mut T`; codes 2101-2110).
+//   • HArray<HVal> — the HETEROGENEOUS HAny array (the JSON array): AT-REST HAny
+//                    elements in a `*zoned mut HAny` buffer.
+// Element-kind selection is by specificity (the concrete `HVal` spec wins over the
+// type-var base); the typed methods sit behind `T: HArrTag`, which HVal does not
+// satisfy — so the two method sets never collide.
+//
+// Shared shape: `#[zone_mut]` makes a `&mut` a FAT ref {data, zone} carrying its
+// allocator (push/grow recover it via zone_of(self); read `&` stays thin —
+// hermes2-design §9.4). `#[pinned]` header in the never-move arena. `#[zoned2]`
+// stores `data` SELF-RELATIVE (RelOffset, anchored to its slot; ref-repr §6).
+
+// ── Typed generic base: packed primitive elements (HArray<T>, T: HArrTag) ──────
 #[zone_mut]
 #[pinned]
 #[zoned2]
 pub struct HArray<T> {
+    pub len:  i64,
+    pub cap:  i64,
+    pub data: *mut T,   // packed T[] (auto-relative ptr; plain position-independent elements)
+}
+
+// ── Heterogeneous spec: AT-REST HAny elements (HArray<HVal>) ───────────────────
+#[zone_mut]
+#[pinned]
+#[zoned2]
+pub struct HArray<HVal> {
     pub len:   i64,
     pub cap:   i64,
     // Element buffer of AT-REST HAny words. `*zoned mut HAny`: each `*(buf.add(i))`
@@ -47,8 +66,7 @@ pub struct HArray<T> {
     pub data:  *zoned mut HAny,
 }
 
-// Ergonomic alias for the heterogeneous array (the only instantiation today):
-// write `HValArray` for `HArray<HVal>`.
+// Ergonomic alias for the heterogeneous array: write `HValArray` for `HArray<HVal>`.
 pub type HValArray = HArray<HVal>;
 
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
@@ -206,4 +224,74 @@ impl HAnyMut {
 impl HAny {
     // A nested array as a heterogeneous value (Ref to the child's header).
     pub fn from(a: &HArray<HVal>) -> HAny { return HAny::ref_to(a as *const HArray<HVal> as *const u8); }
+}
+
+// ── Typed array surface (HArray<T>, T a primitive) — Hermes1 typed Array<T> ────
+//
+// Homogeneous packed array of a primitive `T` (u8..f64). Elements are plain values
+// (no Refs, no per-element zoning); growth is a plain element copy (position-
+// independent — no self-relative re-anchor that HArray<HVal> needs). `data` is the
+// element buffer: #[zoned2] self-relative as a POINTER, plain `T` as elements, so
+// `*(buf.add(i))` is an ordinary load/store.
+
+// Per-element Hermes wire tag (HermesTag ArrayU8=2101 .. ArrayF64=2110) so a typed
+// array carries the precise element-type code (type_code() emits it; hbs-ready).
+pub trait HArrTag { fn arr_code() -> u64; }
+impl HArrTag for u8  { fn arr_code() -> u64 { return 2101u64; } }
+impl HArrTag for u16 { fn arr_code() -> u64 { return 2102u64; } }
+impl HArrTag for u32 { fn arr_code() -> u64 { return 2103u64; } }
+impl HArrTag for u64 { fn arr_code() -> u64 { return 2104u64; } }
+impl HArrTag for i8  { fn arr_code() -> u64 { return 2105u64; } }
+impl HArrTag for i16 { fn arr_code() -> u64 { return 2106u64; } }
+impl HArrTag for i32 { fn arr_code() -> u64 { return 2107u64; } }
+impl HArrTag for i64 { fn arr_code() -> u64 { return 2108u64; } }
+impl HArrTag for f32 { fn arr_code() -> u64 { return 2109u64; } }
+impl HArrTag for f64 { fn arr_code() -> u64 { return 2110u64; } }
+
+unsafe fn harr_new<T: HArrTag>(h: *mut Hermes2, cap: i64) -> *mut HArray<T> {
+    let hdr: *mut HArray<T> =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<T>>() as i64, T::arr_code()) as *mut HArray<T>;
+    let buf: *mut T = hermes2_alloc_n::<T>(h, cap);
+    hdr.len  = 0i64;
+    hdr.cap  = cap;
+    hdr.data = buf;            // #[zoned2]: lowers to a self-relative offset
+    return hdr;
+}
+
+// Append `v`; on overflow allocate a fresh 2× buffer and PLAIN-copy the elements
+// (primitives are position-independent — no re-anchor, unlike HArray<HVal>).
+unsafe fn harr_push<T: HArrTag>(a: *mut HArray<T>, alloc: *mut Allocator, v: T) {
+    if a.len >= a.cap {
+        let newcap: i64 = if a.cap == 0i64 { 8i64 } else { a.cap * 2i64 };
+        let nbuf: *mut T = allocator_alloc(alloc, newcap * (sizeof::<T>() as i64), align_of::<T>() as i64) as *mut T;
+        let obuf: *mut T = a.data;
+        let mut i: i64 = 0i64;
+        while i < a.len { *(nbuf.add(i)) = *(obuf.add(i)); i = i + 1i64; }
+        a.data = nbuf;
+        a.cap  = newcap;
+    }
+    let buf: *mut T = a.data;
+    *(buf.add(a.len)) = v;
+    a.len = a.len + 1i64;
+}
+
+impl<T: HArrTag> HArray<T> {
+    pub fn len(self: &HArray<T>) -> i64 { return self.len; }
+    pub fn get(self: &HArray<T>, i: i64) -> T { return unsafe { *(self.data.add(i)) }; }
+    // Bind the zone FIRST (zone_of reborrows); `self as *mut HArray<T>` (the cast)
+    // consumes the fat &mut, so it must be self's LAST use.
+    pub fn push(self: &mut HArray<T>, v: T) {
+        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; harr_push::<T>(self as *mut HArray<T>, z, v); }
+    }
+}
+
+impl Hermes2 {
+    // Create an empty typed array; returns a fresh fat `&mut` carrying this
+    // container's zone (interior-mut `&self` allocation, like `array`).
+    pub fn tarray<'a, T: HArrTag>(self: &'a Hermes2, cap: i64) -> &'a mut HArray<T> {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return zone_mut_ref::<HArray<T>>(harr_new::<T>(h, cap), &mut h.allocator as *mut u8);
+        }
+    }
 }
