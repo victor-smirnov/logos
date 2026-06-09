@@ -316,6 +316,24 @@ lir::Pattern Mono::subst_pattern(lir_view::PatRef pref, const SubstMap& s) {
     return w.walk(pref);
 }
 
+const lir::LStructDef* Mono::resolve_struct_layout(TypeRef t, SubstMap& m_out) {
+    auto args = t.type_args();
+    std::string base{t.struct_name()};
+    // Prefer the best-matching partial specialisation (e.g. HMap<HString,V> over the
+    // empty base HMap<K,V>); bind its pattern type-vars via match_type, exactly as
+    // instantiate_struct_templates does — otherwise layout reads the wrong fields.
+    if (auto* spec = find_best_struct_spec(base, args)) {
+        for (size_t i = 0; i < spec->spec_patterns.size() && i < args.size(); ++i)
+            match_type(args[i], spec->spec_patterns[i], m_out);
+        return spec;
+    }
+    auto* sit = find_any_struct(t.pkg_name(), t.struct_name());
+    if (!sit) return nullptr;
+    for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
+        m_out[sit->type_params[i].name] = args[i];
+    return sit;
+}
+
 uint64_t Mono::mono_abi_size(TypeRef t) {
     using K = LogosType::Kind;
     if (!t) return 8;
@@ -344,12 +362,9 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
         return off;
     }
     case K::Struct: case K::ZonedStruct: {
-        auto* sit = find_any_struct(t.pkg_name(), t.struct_name());
-        if (!sit) return 8;
         SubstMap m;
-        auto args = t.type_args();
-        for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
-            m[sit->type_params[i].name] = args[i];
+        auto* sit = resolve_struct_layout(t, m);
+        if (!sit) return 8;
         uint64_t off = 0, maxa = 1;
         for (auto& f : sit->fields) {
             TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);
@@ -367,12 +382,9 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
 bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                  uint64_t& off_out, TypeRef& ftype_out) {
     using K = LogosType::Kind;
-    auto* sit = find_any_struct(dstref.pkg_name(), dstref.struct_name());
-    if (!sit || sit->fields.empty()) return false;
     SubstMap m;
-    auto args = dstref.type_args();
-    for (size_t i = 0; i < sit->type_params.size() && i < args.size(); ++i)
-        m[sit->type_params[i].name] = args[i];
+    auto* sit = resolve_struct_layout(dstref, m);
+    if (!sit || sit->fields.empty()) return false;
     uint64_t off = 0;
     for (auto& f : sit->fields) {
         TypeRef ft = m.empty() ? TypeRef(f.type) : subst_type(f.type, m);

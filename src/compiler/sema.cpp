@@ -6697,6 +6697,24 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         }
     };
 
+    // Apply the STRUCTURAL boolean flags (#[zone_mut], #[zoned2], #[rel_ptr],
+    // #[self_describing], #[borrow_carrying]) from the pending annotations onto an
+    // LStructDef. For regular structs these flow collect → structs_ → lower_struct_def;
+    // SPECIALISATIONS bypass structs_ (lower_spec_struct builds the LStructDef directly),
+    // so without this they silently lose every struct-level attribute — e.g. a
+    // `#[zone_mut] struct HMap<HString,V>` spec would clone with zone_mut=false, making
+    // ref_repr_of treat `&mut` as thin and corrupting the zone-carrying receiver.
+    auto apply_struct_flags = [&](lir::LStructDef& sd) {
+        for (auto& ann : pending_annots) {
+            auto aname = std::string(str_of(ann.get(la::NAME.code)));
+            if      (aname == "zone_mut")        sd.zone_mut        = true;
+            else if (aname == "zoned2")          sd.zoned2          = true;
+            else if (aname == "rel_ptr")         sd.rel_ptr         = true;
+            else if (aname == "self_describing") sd.self_describing = true;
+            else if (aname == "borrow_carrying") sd.borrow_carrying = true;
+        }
+    };
+
     auto apply_annots_to_trait = [&](lir::LTraitDef& td) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
@@ -6959,6 +6977,10 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             std::string struct_doc = take_pending_doc();
             if (is_specialization_struct(item)) {
                 auto sd = lower_spec_struct(item);
+                // Structural flags (zone_mut/zoned2/rel_ptr/…) apply to EVERY spec,
+                // not just #[zoned] ones — they bypass the collect→structs_ path that
+                // carries them for regular structs.
+                apply_struct_flags(sd);
                 if (has_zoned) {
                     sd.is_zoned = true;
                     apply_annots_to_struct(sd);

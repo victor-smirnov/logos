@@ -36,15 +36,20 @@ pub struct HMapEntry {
     pub val: i64,   // the stored HAny value
 }
 
-// `#[zone_mut]`: a `&mut HMap<HString, HVal>` is a FAT ref {data, zone} carrying its Hermes zone
-// (the allocator) — grow/intern reach it via zone_of(self); the object stores no
-// allocator. Read `&HMap<HString, HVal>` stays thin. (Mirrors HArray<HVal>; hermes2-design §9.4.)
-// `#[zoned2]`: the `data` pointer to the entry buffer is stored SELF-RELATIVE and
-// materialises to an absolute pointer on read (ref-repr-design §6). No manual delta.
+// HMap<K, V> — empty base; per-key-shape partial SPECIALISATIONS attach layout +
+// impl (mirrors Hermes1 Map<K,V>). Never instantiated directly.
+#[zoned2]
+pub struct HMap<K, V> {}
+
+// ── Open-addressing spec: string keys (HMap<HString, V>) ──────────────────────
+// `#[zone_mut]`: a `&mut` is a FAT ref {data, zone} carrying its Hermes zone (the
+// allocator) — grow/intern reach it via zone_of(self); read `&` stays thin.
+// `#[zoned2]`: `data` is stored SELF-RELATIVE and materialises to the absolute
+// entry buffer on read (ref-repr-design §6). No manual delta.
 #[zone_mut]
 #[pinned]
 #[zoned2]
-pub struct HMap<K, V> {
+pub struct HMap<HString, V> {
     pub count: i64,             // occupied slots
     pub cap:   i64,             // number of slots (power of 2)
     pub data:  *mut HMapEntry,  // entry buffer (auto-relative via #[zoned2])

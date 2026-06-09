@@ -225,6 +225,13 @@ private:
     uint64_t mono_abi_size(TypeRef t);
     bool mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                uint64_t& off_out, TypeRef& ftype_out);
+    // Resolve a concrete struct TypeRef to its definition + the substitution that
+    // binds the chosen def's type-vars to `t`'s type-args. Prefers the best-matching
+    // partial SPECIALISATION (find_best_struct_spec) over the generic base — the same
+    // selection instantiate_struct_templates uses — so layout/size computed here
+    // matches the struct that is actually emitted. Falls back to the base template
+    // (positional binding) when no spec matches. Returns nullptr if no def is found.
+    const lir::LStructDef* resolve_struct_layout(TypeRef t, SubstMap& m_out);
 
     const lir::LStructDef*
     find_struct_template_bare_first(std::string_view pkg, std::string_view base) const noexcept {
