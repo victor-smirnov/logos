@@ -1749,7 +1749,11 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
             to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64) return true;
     }
     if (from.kind() == LogosType::Kind::Enum   && is_integer_kind(to.kind())) return true;
-    if (is_integer_kind(from.kind()) && to.kind() == LogosType::Kind::Enum)   return true;
+    // NOTE: implicit `int → enum` is intentionally NOT allowed (Rust requires an
+    // explicit cast / variant). Permitting it made a data/niche enum (e.g. HAny)
+    // a spurious overload candidate for an integer arg — `push(7i64)` resolved to
+    // `push(HAny)`, reinterpreting the integer as the by-pointer enum's storage
+    // pointer → UB. Explicit `as` casts go through the cast path, not here.
     // Safe implicit integer widening (e.g. u32 → i64, i32 → i64, u8 → u32).
     // Value preservation guaranteed; signed→unsigned never allowed here.
     if (can_widen_int(from.kind(), to.kind())) return true;
