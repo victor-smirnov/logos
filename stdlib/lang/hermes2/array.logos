@@ -36,7 +36,11 @@ use logos.lang.ptr;
 pub struct HArray<T> {
     pub len:   i64,
     pub cap:   i64,
-    pub data:  *mut HAnyRel,    // element buffer (auto-relative via #[zoned2])
+    // Element buffer of AT-REST HAny words. `*zoned mut HAny`: each `*(buf.add(i))`
+    // materialises the slot (Ref delta → absolute) and `*(buf.add(i)) = v` lowers
+    // it — the compiler owns the at-rest↔value bridge (no HAnyRel, no ha_*). The
+    // pointer ITSELF is also auto-relative (#[zoned2] field → RelOffset).
+    pub data:  *zoned mut HAny,
 }
 
 // Ergonomic alias for the heterogeneous array (the only instantiation today):
@@ -45,10 +49,10 @@ pub type HValArray = HArray<HVal>;
 
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
 // split — a `*const` header yields a `*const` buffer, never laundering const→mut).
-unsafe fn array_buf(a: *const HArray<HVal>) -> *const HAnyRel {
-    return a.data as *const HAnyRel;   // #[zoned2]: materialises to absolute on read
+unsafe fn array_buf(a: *const HArray<HVal>) -> *zoned HAny {
+    return a.data as *zoned HAny;   // #[zoned2]: materialises to absolute on read
 }
-unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *mut HAnyRel {
+unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *zoned mut HAny {
     return a.data;
 }
 
@@ -59,7 +63,7 @@ unsafe fn array_new(h: *mut Hermes2, cap: i64) -> *mut HArray<HVal> {
     // The header is HAny-Ref'd (nesting / array_of) → tag it for dispatch.
     let hdr: *mut HArray<HVal>    =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<HVal>>() as i64, H2_ARRAY) as *mut HArray<HVal>;
-    let buf: *mut HAnyRel  = hermes2_alloc_n::<HAnyRel>(h, cap);
+    let buf: *zoned mut HAny  = hermes2_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
     hdr.data  = buf;            // #[zoned2]: lowers to a self-relative offset
@@ -74,27 +78,27 @@ unsafe fn array_len(a: *const HArray<HVal>) -> i64 { return a.len; }
 unsafe fn array_push(a: *mut HArray<HVal>, alloc: *mut Allocator, v: HAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
-        let nbuf: *mut HAnyRel =
-            allocator_alloc(alloc, newcap * (sizeof::<HAnyRel>() as i64), align_of::<HAnyRel>() as i64) as *mut HAnyRel;
-        let obuf: *mut HAnyRel = array_buf_mut(a);
+        let nbuf: *zoned mut HAny =
+            allocator_alloc(alloc, newcap * (sizeof::<HAny>() as i64), align_of::<HAny>() as i64) as *zoned mut HAny;
+        let obuf: *zoned mut HAny = array_buf_mut(a);
         let mut i: i64 = 0i64;
         while i < a.len {
-            // re-anchor: materialise from the OLD slot, lower into the NEW slot.
-            let val: HAny = ha_materialize(obuf.add(i) as *const HAnyRel);
-            ha_lower(val, nbuf.add(i));
+            // re-anchor: materialise from the OLD slot, lower into the NEW slot —
+            // each `*zoned` deref/assign re-anchors to its own slot automatically.
+            *(nbuf.add(i)) = *(obuf.add(i));
             i = i + 1i64;
         }
         a.data = nbuf;          // #[zoned2]: lowers to a self-relative offset
         a.cap  = newcap;
     }
-    let buf: *mut HAnyRel = array_buf_mut(a);
-    ha_lower(v, buf.add(a.len));
+    let buf: *zoned mut HAny = array_buf_mut(a);
+    *(buf.add(a.len)) = v;
     a.len = a.len + 1i64;
 }
 
 unsafe fn array_get(a: *const HArray<HVal>, i: i64) -> HAny {
-    let buf: *const HAnyRel = array_buf(a);
-    return ha_materialize(buf.add(i));
+    let buf: *zoned HAny = array_buf(a);
+    return *(buf.add(i));
 }
 
 // ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────

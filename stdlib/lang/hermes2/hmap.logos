@@ -29,8 +29,11 @@ use logos.lang.ptr;                 // byte_add
 
 #[pinned]
 pub struct HMapEntry {
-    pub key: HAnyRel,   // Ref to the interned HString key; raw==0 = empty slot
-    pub val: HAnyRel,   // the stored HAny value
+    // Two AT-REST HAny words (key @0, val @8). Held as raw `i64` and accessed
+    // through `*zoned mut HAny` slot pointers (ent_key/ent_val), so each read
+    // materialises and each write lowers — no HAnyRel, no ha_*. key==0 = empty.
+    pub key: i64,   // Ref to the interned HString key; ==0 = empty slot
+    pub val: i64,   // the stored HAny value
 }
 
 // `#[zone_mut]`: a `&mut HMap<HString, HVal>` is a FAT ref {data, zone} carrying its Hermes zone
@@ -58,8 +61,8 @@ unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return m.d
 
 // Field-slot pointers within an entry (key @0, val @8) — addressed by offset to
 // avoid copying the `#[pinned]` HAnyRel by value.
-unsafe fn ent_key(ep: *mut HMapEntry) -> *mut HAnyRel { return ep as *mut HAnyRel; }
-unsafe fn ent_val(ep: *mut HMapEntry) -> *mut HAnyRel { return (ep as *mut u8).byte_add(8i64) as *mut HAnyRel; }
+unsafe fn ent_key(ep: *mut HMapEntry) -> *zoned mut HAny { return ep as *zoned mut HAny; }
+unsafe fn ent_val(ep: *mut HMapEntry) -> *zoned mut HAny { return (ep as *mut u8).byte_add(8i64) as *zoned mut HAny; }
 unsafe fn ent_key_raw(ep: *const HMapEntry) -> i64 { return *(ep as *const i64); }   // key.raw, no copy
 
 unsafe fn om_zero(buf: *mut HMapEntry, cap: i64) {
@@ -105,16 +108,16 @@ unsafe fn om_grow(m: *mut HMap<HString, HVal>, alloc: *mut Allocator) {
     while i < oldcap {
         let oep: *mut HMapEntry = obuf.add(i);
         if ent_key_raw(oep as *const HMapEntry) != 0i64 {
-            let key: HAny = ha_materialize(oep as *const HAnyRel);
-            let val: HAny = ha_materialize(ent_val(oep) as *const HAnyRel);
+            let key: HAny = *(ent_key(oep));
+            let val: HAny = *(ent_val(oep));
             let s: str = key_str(key);
             let hh: u64 = fnv1a_bytes(s.as_ptr(), s.len() as u64);
             let mut slot: u64 = hh & (ncap_u - 1u64);
             loop {
                 let nep: *mut HMapEntry = nbuf.add(slot as i64);
                 if ent_key_raw(nep as *const HMapEntry) == 0i64 {
-                    ha_lower(key, ent_key(nep));
-                    ha_lower(val, ent_val(nep));
+                    *(ent_key(nep)) = key;
+                    *(ent_val(nep)) = val;
                     break;
                 }
                 slot = (slot + 1u64) & (ncap_u - 1u64);
@@ -137,14 +140,14 @@ unsafe fn om_set(m: *mut HMap<HString, HVal>, alloc: *mut Allocator, key: str, v
         let ep: *mut HMapEntry = buf.add(slot as i64);
         if ent_key_raw(ep as *const HMapEntry) == 0i64 {
             let ks: *mut HString = hstring_in_alloc(alloc, key);
-            ha_lower(HAny::ref_to(ks as *const u8), ent_key(ep));
-            ha_lower(val, ent_val(ep));
+            *(ent_key(ep)) = HAny::ref_to(ks as *const u8);
+            *(ent_val(ep)) = val;
             m.count = m.count + 1i64;
             return;
         }
-        let stored: HAny = ha_materialize(ep as *const HAnyRel);
+        let stored: HAny = *(ent_key(ep));
         if str_eq(key_str(stored), key) {
-            ha_lower(val, ent_val(ep));   // update existing
+            *(ent_val(ep)) = val;   // update existing
             return;
         }
         slot = (slot + 1u64) & (cap_u - 1u64);
@@ -160,9 +163,9 @@ unsafe fn om_get(m: *const HMap<HString, HVal>, key: str) -> HAny {
     while probed < cap_u {
         let ep: *const HMapEntry = buf.add(slot as i64);
         if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
-        let stored: HAny = ha_materialize(ep as *const HAnyRel);
+        let stored: HAny = *(ent_key(ep as *mut HMapEntry));
         if str_eq(key_str(stored), key) {
-            return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
+            return *(ent_val(ep as *mut HMapEntry));
         }
         slot = (slot + 1u64) & (cap_u - 1u64);
         probed = probed + 1u64;
@@ -214,14 +217,14 @@ impl HMap<HString, HVal> {
         unsafe {
             let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
             if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
-            return ha_materialize(ep as *const HAnyRel);
+            return *(ent_key(ep as *mut HMapEntry));
         }
     }
     pub fn val_at(self: &HMap<HString, HVal>, i: i64) -> HAny {
         unsafe {
             let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
             if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
-            return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
+            return *(ent_val(ep as *mut HMapEntry));
         }
     }
 
