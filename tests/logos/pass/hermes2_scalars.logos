@@ -1,0 +1,34 @@
+// P1 scalar port — EXACT-WIDTH inline round-trip. Each narrow integer keeps its
+// precise Hermes width tag (I8=20..U24=25) through from()/as_*(), unlike the
+// generic i56 Pod. (Boxed wide scalars i64/u64/f32/f64 are exercised elsewhere.)
+package test;
+use logos.lang.hermes2.anyval;
+fn main() -> i32 {
+    let a: HAny = HAny::from(-5i8);
+    if !a.is_i8() { return 1i32; }
+    if a.as_i8() != -5i8 { return 2i32; }
+    if a.type_code() != 20u8 { return 3i32; }          // HT_I8
+    if a.is_i16() || a.is_bool() { return 4i32; }      // exact: not i16/bool
+
+    let b: HAny = HAny::from(200u8);
+    if !b.is_u8() || b.as_u8() != 200u8 { return 5i32; }
+
+    let c: HAny = HAny::from(-1000i16);
+    if !c.is_i16() || c.as_i16() != -1000i16 { return 6i32; }
+
+    let d: HAny = HAny::from(60000u16);
+    if !d.is_u16() || d.as_u16() != 60000u16 { return 7i32; }
+
+    let e: HAny = HAny::from((-5000000i64) as i24);
+    if !e.is_i24() || e.as_i24() != ((-5000000i64) as i24) { return 8i32; }
+
+    let f: HAny = HAny::from((15000000i64) as u24);
+    if !f.is_u24() || f.as_u24() != ((15000000i64) as u24) { return 9i32; }
+
+    // all classify as int, none float
+    if !a.is_int() || !f.is_int() { return 10i32; }
+    if a.is_float() { return 11i32; }
+    // negative sign-extension
+    if HAny::from(-1i8).as_i8() != -1i8 { return 12i32; }
+    return 0i32;
+}

@@ -94,9 +94,21 @@ impl HAny {
 
 // Hermes2 HAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
-// inline (wider values box into a Ref — later), so the name is `i56`, not `i64`.
+// inline (wider values box into a Ref — H2_I64), so the name is `i56`, not `i64`.
+// `HA_I56` is the generic inline-int fallback (no exact Hermes width tag — e.g. a
+// plain `i32`/`i56`); the narrow widths below keep their EXACT type instead.
 pub const HA_I56:  u8 = 1u8;
 pub const HA_BOOL: u8 = 2u8;
+
+// Exact-width inline integer Pod codes — the Hermes1 HermesTag values (so a narrow
+// int keeps its precise type through a round-trip, and `type_code()` already emits
+// the wire tag for the hbs port). All fit the 56-bit Pod value, so no boxing.
+pub const HT_I8:  u8 = 20u8;
+pub const HT_U8:  u8 = 21u8;
+pub const HT_I16: u8 = 22u8;
+pub const HT_I24: u8 = 23u8;
+pub const HT_U16: u8 = 24u8;
+pub const HT_U24: u8 = 25u8;
 
 // Hermes2 REF type codes — the in-band tag of an arena object (stored at obj[-1],
 // the Hermes1 datatag wire convention). A Ref HAny's pointee carries one of these
@@ -128,9 +140,33 @@ impl HAny {
     pub fn from(v: i56)  -> HAny { return HAny::pod(v as i64, HA_I56); }
     pub fn from(b: bool) -> HAny { return HAny::pod_bool(b, HA_BOOL); }
 
+    // Exact-width inline integers — all fit the 56-bit Pod value (no boxing), each
+    // tagged with its precise Hermes width so the read-back type matches the write.
+    pub fn from(v: i8)  -> HAny { return HAny::pod(v as i64, HT_I8);  }
+    pub fn from(v: u8)  -> HAny { return HAny::pod(v as i64, HT_U8);  }
+    pub fn from(v: i16) -> HAny { return HAny::pod(v as i64, HT_I16); }
+    pub fn from(v: i24) -> HAny { return HAny::pod(v as i64, HT_I24); }
+    pub fn from(v: u16) -> HAny { return HAny::pod(v as i64, HT_U16); }
+    pub fn from(v: u24) -> HAny { return HAny::pod(v as i64, HT_U24); }
+
+    // Exact-width reads — the inline value re-narrowed to the written type. (A wrong
+    // accessor truncates rather than faulting; pair with the `is_*` predicate.)
+    pub fn as_i8(self: &HAny)  -> i8  { return self.as_i56() as i8;  }
+    pub fn as_u8(self: &HAny)  -> u8  { return self.as_i56() as u8;  }
+    pub fn as_i16(self: &HAny) -> i16 { return self.as_i56() as i16; }
+    pub fn as_i24(self: &HAny) -> i24 { return self.as_i56() as i24; }
+    pub fn as_u16(self: &HAny) -> u16 { return self.as_i56() as u16; }
+    pub fn as_u24(self: &HAny) -> u24 { return self.as_i56() as u24; }
+
     pub fn is_i56(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HA_I56; }
     pub fn is_bool(self: &HAny) -> bool { return self.is_pod() && self.pod_code() == HA_BOOL; }
-    // (the value reads back via `as_i56`)
+    pub fn is_i8(self: &HAny)   -> bool { return self.is_pod() && self.pod_code() == HT_I8;  }
+    pub fn is_u8(self: &HAny)   -> bool { return self.is_pod() && self.pod_code() == HT_U8;  }
+    pub fn is_i16(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I16; }
+    pub fn is_i24(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_I24; }
+    pub fn is_u16(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U16; }
+    pub fn is_u24(self: &HAny)  -> bool { return self.is_pod() && self.pod_code() == HT_U24; }
+    // (the value reads back via the matching `as_*`)
 
     // The unified type code: for a Pod, the inline pod code; for a Ref, the
     // in-band tag of the pointee (obj[-1]); 0 for null. The single dispatch point
@@ -147,7 +183,12 @@ impl HAny {
     // Wide scalars: an integer is either an inline i56 Pod or a boxed H2_I64;
     // a float is always a boxed H2_F64. `as_i64` / `as_f64` read either form.
     pub fn is_int(self: &HAny) -> bool {
-        return self.is_i56() || (self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_I64);
+        if self.is_pod() {
+            let c: u8 = self.pod_code();
+            // the generic i56, or any exact-width inline integer (I8..U24, 20..25).
+            return c == HA_I56 || (c >= HT_I8 && c <= HT_U24);
+        }
+        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_I64;   // boxed i64
     }
     pub fn is_float(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_F64; }
     pub fn as_i64(self: &HAny) -> i64 {
