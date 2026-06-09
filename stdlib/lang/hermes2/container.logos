@@ -81,6 +81,18 @@ pub unsafe fn box_f64(a: *mut Allocator, v: f64) -> HAny {
     *(obj as *mut f64) = v;
     return HAny::ref_to(obj as *const u8);
 }
+// u64 is ALWAYS boxed (no inline unsigned-56 tag — keeps `is_u64`/`as_u64` exact).
+pub unsafe fn box_u64(a: *mut Allocator, v: u64) -> HAny {
+    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_U64);
+    *(obj as *mut u64) = v;
+    return HAny::ref_to(obj as *const u8);
+}
+// f32 boxed in an 8-byte slot (4 used); never fits the inline integer Pod.
+pub unsafe fn box_f32(a: *mut Allocator, v: f32) -> HAny {
+    let obj: *mut u8 = alloc_tagged(a, 8i64, H2_F32);
+    *(obj as *mut f32) = v;
+    return HAny::ref_to(obj as *const u8);
+}
 // Make an integer HAny: inline Pod when it fits i56, else boxed.
 pub unsafe fn make_int(a: *mut Allocator, v: i64) -> HAny {
     if fits_i56(v) { return HAny::pod(v, HA_I56); }

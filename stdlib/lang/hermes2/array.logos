@@ -153,8 +153,18 @@ impl HArray<HVal> {
     //   • bool → an inline Pod
     //   • &HString / &HArray<HVal> → a Ref to an already-interned arena object
     pub fn push(self: &mut HArray<HVal>, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, make_int(z, v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: u64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_u64(z, v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: f32)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_f32(z, v)); } }
     pub fn push(self: &mut HArray<HVal>, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_f64(z, v)); } }
     pub fn push(self: &mut HArray<HVal>, v: bool) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    // Exact-width inline integers — value-form HAny (no boxing); the zone is only
+    // needed for a potential grow inside array_push.
+    pub fn push(self: &mut HArray<HVal>, v: i8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: u8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: i16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: u16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: i24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HVal>, v: u24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
     pub fn push(self: &mut HArray<HVal>, v: &HString)      { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
     pub fn push(self: &mut HArray<HVal>, v: &HArray<HVal>)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
 
