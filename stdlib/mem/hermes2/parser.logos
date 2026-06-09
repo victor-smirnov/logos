@@ -125,7 +125,7 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
     }
     if c == 116u8 { (*p).pos = (*p).pos + 4i64; return HAny::from(true); }   // true
     if c == 102u8 { (*p).pos = (*p).pos + 5i64; return HAny::from(false); }  // false
-    if c == 110u8 { (*p).pos = (*p).pos + 4i64; return HAny { raw: 0i64 }; } // null
+    if c == 110u8 { (*p).pos = (*p).pos + 4i64; return HAny::ref_to(0i64 as *const u8); } // null
     return parse_number(h, p);                   // number (int or float)
 }
 

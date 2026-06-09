@@ -28,7 +28,7 @@ use logos.lang.ptr;
 // new root HAny. Pods/null are position-independent (copied by value); Refs are
 // rebuilt and re-anchored.
 pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
-    if v.is_null() { return HAny { raw: 0i64 }; }
+    if v.is_null() { return HAny::ref_to(0i64 as *const u8); }
     if v.is_pod()  { return v; }                       // i56 / bool — position-independent
     if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
     if v.is_int()   { return dst.int(v.as_i64()); }    // (boxed i64; Pod i56 already handled above)
