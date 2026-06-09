@@ -56,16 +56,36 @@ pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
     return allocator_alloc(&mut h.allocator, n, 8i64);   // conservative: callers may place 8-aligned data
 }
 
-// Allocate a TAGGED arena object (one reachable via an HAny Ref): reserve an
-// 8-byte tag word BEFORE the object — keeping the object 8-aligned so a Ref's low
-// bit stays 0 — and write the single-byte type `code` at obj[-1] (the Hermes1
-// datatag wire convention). Returns the object pointer; `h2_type_code(obj)` reads
-// the code back. Takes `*mut Allocator` so containers holding only an allocator
-// back-pointer (HArray<HVal>, HMap<HString, HVal>) can tag-allocate without the full Hermes2.
-pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u8) -> *mut u8 {
+// Write the in-band type tag immediately before `obj` — the Hermes1 datatag VARINT:
+// codes 1..222 = a single byte at obj[-1]; codes >222 (typed arrays 2101+, int-keyed
+// maps 3101+, Datatype 1001, TypedValue 4115) = a header byte (223 + n-1) at obj[-1]
+// plus `n` little-endian code bytes at obj[-2], obj[-3], …. The 8-byte pre-object
+// slot fits any ≤7-byte code. (Mirrors hermes.datatag::write_tag.)
+pub unsafe fn h2_write_tag(obj: *mut u8, code: u64) {
+    if code == 0u64 { return; }
+    if code <= 222u64 { *(((obj as i64) - 1i64) as *mut u8) = code as u8; return; }
+    let mut v: u64 = code;
+    let mut off: i64 = 1i64;
+    loop {
+        *(((obj as i64) - 1i64 - off) as *mut u8) = (v & 0xFFu64) as u8;
+        v = v >> 8u64;
+        off = off + 1i64;
+        if v == 0u64 { break; }
+    }
+    let n: i64 = off - 1i64;
+    *(((obj as i64) - 1i64) as *mut u8) = (223i64 + (n - 1i64)) as u8;
+}
+
+// Allocate a TAGGED arena object (one reachable via an HAny Ref): reserve an 8-byte
+// tag slot BEFORE the object — keeping the object 8-aligned so a Ref's low bit stays
+// 0 — and write the (varint) type `code` ending at obj[-1]. Returns the object
+// pointer; `h2_type_code(obj)` reads the code back. Takes `*mut Allocator` so
+// containers holding only an allocator back-pointer (HArray<HVal>, HMap<HString,
+// HVal>, HTinyValMap) can tag-allocate without the full Hermes2.
+pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
-    *(((obj as i64) - 1i64) as *mut u8) = code;
+    h2_write_tag(obj, code);
     return obj;
 }
 

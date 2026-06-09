@@ -110,23 +110,23 @@ pub const HT_I24: u8 = 23u8;
 pub const HT_U16: u8 = 24u8;
 pub const HT_U24: u8 = 25u8;
 
-// Hermes2 REF type codes — the in-band tag of an arena object (stored at obj[-1],
-// the Hermes1 datatag wire convention). A Ref HAny's pointee carries one of these
-// so `HAny::type_code` / `is_string` / `is_array` / `is_map` can dispatch on what
-// a Ref points at. (Allocated via container.alloc_tagged.) Compatible-ish with
-// Hermes1's HermesTag ranges; binary-format alignment comes with the hbs port.
-pub const H2_STRING:  u8 = 130u8;
-pub const H2_ARRAY:   u8 = 100u8;
-pub const H2_MAP:     u8 = 101u8;
-pub const H2_TINYMAP: u8 = 98u8;   // bitmap-indexed tiny map (Hermes1 TinyObjectMap)
+// Hermes2 REF type codes — the in-band tag of an arena object (the Hermes1 datatag
+// VARINT before the object). A Ref HAny's pointee carries one so `HAny::type_code` /
+// `is_string` / `is_array` / `is_map` dispatch on what it points at. Codes are u64
+// (the full Hermes1 HermesTag range): codes ≤222 take one byte at obj[-1], >222 a
+// header + little-endian code bytes — see container.h2_write_tag / h2_type_code.
+pub const H2_STRING:  u64 = 130u64;
+pub const H2_ARRAY:   u64 = 100u64;
+pub const H2_MAP:     u64 = 101u64;
+pub const H2_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (Hermes1 TinyObjectMap)
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
 // own 8-byte tagged arena object, referenced by the HAny. Codes are the Hermes1
 // HermesTag values, so `type_code()` emits the wire tag (hbs-ready). (Allocated via
 // container.box_i64 / box_u64 / box_f32 / box_f64.)
-pub const H2_I64:    u8 = 26u8;    // full 64-bit signed integer
-pub const H2_U64:    u8 = 27u8;    // full 64-bit unsigned integer
-pub const H2_F32:    u8 = 30u8;    // 32-bit IEEE float
-pub const H2_F64:    u8 = 31u8;    // 64-bit IEEE float
+pub const H2_I64:    u64 = 26u64;    // full 64-bit signed integer
+pub const H2_U64:    u64 = 27u64;    // full 64-bit unsigned integer
+pub const H2_F32:    u64 = 30u64;    // 32-bit IEEE float
+pub const H2_F64:    u64 = 31u64;    // 64-bit IEEE float
 
 // True iff `v` fits the 56-bit signed inline Pod range (else it must be boxed).
 pub fn fits_i56(v: i64) -> bool {
@@ -135,7 +135,23 @@ pub fn fits_i56(v: i64) -> bool {
 }
 
 // Read the in-band type code written immediately before a tagged arena object.
-pub unsafe fn h2_type_code(obj: *const u8) -> u8 { return *(((obj as i64) - 1i64) as *const u8); }
+// Read the in-band type tag immediately before a tagged arena object (Hermes1
+// datatag varint): obj[-1] in 1..222 is the code directly; a header >222 means
+// `(header-223+1)` little-endian code bytes follow at obj[-2], obj[-3], … 0 = unset.
+pub unsafe fn h2_type_code(obj: *const u8) -> u64 {
+    let b: u8 = *(((obj as i64) - 1i64) as *const u8);
+    if b >= 1u8 && b <= 222u8 { return b as u64; }
+    if b == 0u8 || b > 230u8 { return 0u64; }
+    let n: i64 = (b as i64) - 223i64 + 1i64;
+    let mut code: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let bv: u64 = *(((obj as i64) - 2i64 - i) as *const u8) as u64;
+        code = code | (bv << ((i as u64) * 8u64));
+        i = i + 1i64;
+    }
+    return code;
+}
 
 // Typed, code-managed constructors + accessors (no manual type code at call sites;
 // overloaded `from` per primitive — `HAny::from(v)`). `from(i56)` makes the
@@ -175,9 +191,9 @@ impl HAny {
     // The unified type code: for a Pod, the inline pod code; for a Ref, the
     // in-band tag of the pointee (obj[-1]); 0 for null. The single dispatch point
     // for generic walkers (stringify / binary / equality).
-    pub fn type_code(self: &HAny) -> u8 {
-        if self.is_null() { return 0u8; }
-        if self.is_pod()  { return self.pod_code(); }
+    pub fn type_code(self: &HAny) -> u64 {
+        if self.is_null() { return 0u64; }
+        if self.is_pod()  { return self.pod_code() as u64; }
         return unsafe { h2_type_code(self.resolve()) };
     }
     pub fn is_string(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
@@ -195,7 +211,7 @@ impl HAny {
             return c == HA_I56 || (c >= HT_I8 && c <= HT_U24);
         }
         if !self.is_ref() { return false; }
-        let t: u8 = unsafe { h2_type_code(self.resolve()) };
+        let t: u64 = unsafe { h2_type_code(self.resolve()) };
         return t == H2_I64 || t == H2_U64;          // boxed i64 / u64
     }
     pub fn is_u64(self: &HAny) -> bool {
@@ -206,7 +222,7 @@ impl HAny {
     }
     pub fn is_float(self: &HAny) -> bool {
         if !self.is_ref() { return false; }
-        let t: u8 = unsafe { h2_type_code(self.resolve()) };
+        let t: u64 = unsafe { h2_type_code(self.resolve()) };
         return t == H2_F32 || t == H2_F64;          // boxed f32 / f64
     }
     pub fn as_i64(self: &HAny) -> i64 {
@@ -247,7 +263,7 @@ impl HAnyMut {
 
     // All predicates/reads delegate to the materialised value — so a Pod cursor
     // reads its inline value and a Ref cursor reports the pointee's tag.
-    pub fn type_code(self: &HAnyMut) -> u8   { return self.get().type_code(); }
+    pub fn type_code(self: &HAnyMut) -> u64  { return self.get().type_code(); }
     pub fn is_pod(self: &HAnyMut)    -> bool { return self.get().is_pod(); }
     pub fn is_ref(self: &HAnyMut)    -> bool { return self.get().is_ref(); }
     pub fn is_string(self: &HAnyMut) -> bool { return self.type_code() == H2_STRING; }

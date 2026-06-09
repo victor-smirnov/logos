@@ -10,7 +10,7 @@ fn main() -> i32 {
     let a: HAny = HAny::from(-5i8);
     if !a.is_i8() { return 1i32; }
     if a.as_i8() != -5i8 { return 2i32; }
-    if a.type_code() != 20u8 { return 3i32; }          // HT_I8
+    if a.type_code() != 20u64 { return 3i32; }          // HT_I8
     if a.is_i16() || a.is_bool() { return 4i32; }      // exact: not i16/bool
 
     let b: HAny = HAny::from(200u8);
@@ -44,16 +44,16 @@ fn main() -> i32 {
 
     let g0: HAny = arr.get(0i64);
     if !g0.is_u64() || g0.as_u64() != 9000000000000000000u64 { return 13i32; }
-    if g0.type_code() != 27u8 { return 14i32; }
+    if g0.type_code() != 27u64 { return 14i32; }
     let g1: HAny = arr.get(1i64);
     if !g1.is_f32() || g1.as_f32() != 3.5f32 { return 15i32; }
-    if g1.type_code() != 30u8 { return 16i32; }
+    if g1.type_code() != 30u64 { return 16i32; }
     let g2: HAny = arr.get(2i64);
     if !g2.is_float() || g2.as_f64() != 2.5f64 { return 17i32; }
-    if g2.type_code() != 31u8 { return 18i32; }
+    if g2.type_code() != 31u64 { return 18i32; }
     let g3: HAny = arr.get(3i64);
     if !g3.is_int() || g3.as_i64() != 1000000000000000000i64 { return 19i32; }
-    if g3.type_code() != 26u8 { return 20i32; }
+    if g3.type_code() != 26u64 { return 20i32; }
 
     // cross-checks: a float is not int, a u64 is int not float
     if g1.is_int() || g0.is_float() { return 21i32; }
