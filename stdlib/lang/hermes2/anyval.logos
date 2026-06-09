@@ -156,27 +156,41 @@ impl HAny {
     pub fn as_f64(self: &HAny) -> f64 { return unsafe { *(self.resolve() as *const f64) }; }
 }
 
-// ── HAnyMut — the MUTABLE dual of HAny (a dynamic mutable cursor) ──────────────
+// ── HAnyMut — the MUTABLE dual of HAny (a fat `&mut` onto an element slot) ─────
 //
-// Where `HAny` is a read value (an absolute pointer, thin), `HAnyMut` is a MUTABLE
-// handle: an object pointer PLUS the Hermes zone (allocator) it lives in. It is the
-// value-form of a fat `&mut` — the bridge for DYNAMIC mutable traversal, where the
-// child's concrete type is unknown until checked. `Array::get_mut` / `HMap<HString, HVal>::get_mut`
-// produce it (zone = `zone_of(self)`, so the parent's zone cascades into the child);
-// `as_array_mut` / `as_map_mut` (in array/hmap) resolve it to a fat `&mut` carrying
-// that zone, ready to grow. (Read traversal stays on plain HAny.) hermes2 §9.4.
+// Where `HAny` is a read VALUE (an 8-byte word, thin), `HAnyMut` is a MUTABLE
+// handle = the at-rest element SLOT (`*zoned mut HAny`) PLUS the Hermes zone
+// (allocator) it lives in. It is the value-form of a fat `&mut` — the bridge for
+// DYNAMIC mutable traversal, where the element's concrete kind (Pod or Ref to a
+// nested container/string) is unknown until checked. Holding the SLOT (not a
+// resolved object pointer) means it faithfully carries BOTH a Pod (read its
+// inline value) and a Ref (descend + grow), and can REPLACE the element in place
+// (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `HMap<HString, HVal>::get_mut`
+// produce it (zone = `zone_of(self)`, so the parent's zone cascades into the
+// child); `as_array_mut` / `as_map_mut` (in array/hmap) resolve a Ref element to a
+// fat `&mut` carrying that zone, ready to grow. hermes2 §9.4.
 pub struct HAnyMut {
-    pub obj:  *mut u8,   // the resolved object pointer (a tagged arena object)
-    pub zone: *mut u8,   // its Hermes zone (allocator), erased to *mut u8 (cast at use)
+    pub slot: *zoned mut HAny,   // the at-rest element slot (never-move arena)
+    pub zone: *mut u8,           // its Hermes zone (allocator), erased to *mut u8 (cast at use)
 }
 
 impl HAnyMut {
-    pub fn type_code(self: &HAnyMut) -> u8 { return unsafe { h2_type_code(self.obj as *const u8) }; }
+    // Read the element value (materialise the at-rest slot → absolute HAny).
+    pub fn get(self: &HAnyMut) -> HAny { return unsafe { *self.slot }; }
+    // Replace the element in place (lower the new value into the slot).
+    pub fn set(self: &HAnyMut, v: HAny) { unsafe { *self.slot = v; } }
+
+    // All predicates/reads delegate to the materialised value — so a Pod cursor
+    // reads its inline value and a Ref cursor reports the pointee's tag.
+    pub fn type_code(self: &HAnyMut) -> u8   { return self.get().type_code(); }
+    pub fn is_pod(self: &HAnyMut)    -> bool { return self.get().is_pod(); }
+    pub fn is_ref(self: &HAnyMut)    -> bool { return self.get().is_ref(); }
     pub fn is_string(self: &HAnyMut) -> bool { return self.type_code() == H2_STRING; }
     pub fn is_array(self: &HAnyMut)  -> bool { return self.type_code() == H2_ARRAY; }
     pub fn is_map(self: &HAnyMut)    -> bool { return self.type_code() == H2_MAP; }
-    // The read value at this cursor (an absolute Ref to the same object).
-    pub fn as_any(self: &HAnyMut) -> HAny { return HAny::ref_to(self.obj as *const u8); }
+    pub fn as_i56(self: &HAnyMut)    -> i64  { return self.get().as_i56(); }
+    // The read value at this cursor (the materialised element).
+    pub fn as_any(self: &HAnyMut) -> HAny { return self.get(); }
 }
 
 // ── at-rest ↔ value: COMPILER-OWNED, no bridge functions ───────────────────────

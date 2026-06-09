@@ -34,5 +34,15 @@ fn main() -> i32 {
     let bm: &HMap<HString, HVal> = unsafe { &*(root.get(1i64).resolve() as *const HMap<HString, HVal>) };
     if bm.get("b").as_i56() != 200 { return 5; }
     if bm.get("a").as_i56() != 100 { return 6; }
+
+    // a POD element through get_mut — previously LOST (the cursor stored a resolved
+    // object pointer, and a Pod has no object). Now the cursor holds the SLOT, so an
+    // inline value reads faithfully — and can be REPLACED in place via `set`.
+    root.push(77i64);                                 // root[2] = inline Pod
+    let cur3: HAnyMut = root.get_mut(2i64);
+    if !cur3.is_pod() { return 7; }
+    if cur3.as_i56() != 77 { return 8; }
+    cur3.set(HAny::pod(88i64, 7u8));                  // in-place replace (lower into the slot)
+    if root.get(2i64).as_i56() != 88 { return 9; }
     return 0;
 }

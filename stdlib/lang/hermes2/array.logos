@@ -168,25 +168,24 @@ impl HArray<HVal> {
     pub fn get(self: &HArray<HVal>, i: i64) -> HAny { return unsafe { array_get(self as *const HArray<HVal>, i) }; }
     pub fn len(self: &HArray<HVal>) -> i64 { return unsafe { array_len(self as *const HArray<HVal>) }; }
 
-    // Mutable cursor onto element `i` (a Ref element — a nested container/string):
-    // carries THIS array's zone (zone_of(self)) so the child can grow in the same
-    // arena. Bind the zone FIRST (no move); `self as *const` (the cast) is the last
-    // use. For a Pod element the cursor's obj is meaningless — guard with
-    // is_array/is_map/is_string before resolving.
+    // Mutable cursor onto element `i` — the element SLOT plus THIS array's zone
+    // (zone_of(self)), so a nested child can grow in the same arena and a Pod
+    // element reads/replaces in place. Bind the zone FIRST (no move); `self as *mut`
+    // (the cast) is the last use.
     pub fn get_mut(self: &mut HArray<HVal>, i: i64) -> HAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
-            let v: HAny = array_get(self as *const HArray<HVal>, i);
-            return HAnyMut { obj: v.resolve() as *mut u8, zone: z };
+            let slot: *zoned mut HAny = array_buf_mut(self as *mut HArray<HVal>).add(i);
+            return HAnyMut { slot: slot, zone: z };
         }
     }
 }
 
 impl HAnyMut {
-    // Resolve a mutable cursor to a fat `&mut HArray<HVal>` carrying its zone — ready
+    // Resolve a Ref cursor to a fat `&mut HArray<HVal>` carrying its zone — ready
     // to push/grow in the same arena. (Check is_array() first.)
     pub fn as_array_mut(self: HAnyMut) -> &mut HArray<HVal> {
-        return unsafe { zone_mut_ref::<HArray<HVal>>(self.obj as *mut HArray<HVal>, self.zone) };
+        return unsafe { zone_mut_ref::<HArray<HVal>>(self.get().resolve() as *mut HArray<HVal>, self.zone) };
     }
 }
 

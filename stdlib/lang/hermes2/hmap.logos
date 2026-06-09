@@ -173,6 +173,28 @@ unsafe fn om_get(m: *const HMap<HString, HVal>, key: str) -> HAny {
     return HAny::ref_to(0i64 as *const u8);
 }
 
+// Find the value SLOT for `key` (for `get_mut`) — the `*zoned mut HAny` to read /
+// replace / descend in place. Returns a null pointer if the key is absent (the
+// cursor is then invalid; callers ensure the key exists, mirroring `get_mut`).
+unsafe fn om_get_slot(m: *mut HMap<HString, HVal>, key: str) -> *zoned mut HAny {
+    let cap_u: u64 = m.cap as u64;
+    let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
+    let buf: *mut HMapEntry = om_buf_mut(m);
+    let mut slot: u64 = hh & (cap_u - 1u64);
+    let mut probed: u64 = 0u64;
+    while probed < cap_u {
+        let ep: *mut HMapEntry = buf.add(slot as i64);
+        if ent_key_raw(ep as *const HMapEntry) == 0i64 { return 0i64 as *zoned mut HAny; }
+        let stored: HAny = *(ent_key(ep));
+        if str_eq(key_str(stored), key) {
+            return ent_val(ep);
+        }
+        slot = (slot + 1u64) & (cap_u - 1u64);
+        probed = probed + 1u64;
+    }
+    return 0i64 as *zoned mut HAny;
+}
+
 // ── Direct-reference surface (like HArray<HVal>) ────────────────────────────────
 impl Hermes2 {
     // Create an empty string-keyed map with at least `cap` slots (rounded to a
@@ -204,8 +226,8 @@ impl HMap<HString, HVal> {
     pub fn get_mut(self: &mut HMap<HString, HVal>, key: str) -> HAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
-            let v: HAny = om_get(self as *const HMap<HString, HVal>, key);
-            return HAnyMut { obj: v.resolve() as *mut u8, zone: z };
+            let slot: *zoned mut HAny = om_get_slot(self as *mut HMap<HString, HVal>, key);
+            return HAnyMut { slot: slot, zone: z };
         }
     }
 
@@ -249,7 +271,7 @@ impl HAnyMut {
     // Resolve a mutable cursor to a fat `&mut HMap<HString, HVal>` carrying its zone — ready to
     // set/grow in the same arena. (Check is_map() first.)
     pub fn as_map_mut(self: HAnyMut) -> &mut HMap<HString, HVal> {
-        return unsafe { zone_mut_ref::<HMap<HString, HVal>>(self.obj as *mut HMap<HString, HVal>, self.zone) };
+        return unsafe { zone_mut_ref::<HMap<HString, HVal>>(self.get().resolve() as *mut HMap<HString, HVal>, self.zone) };
     }
 }
 
