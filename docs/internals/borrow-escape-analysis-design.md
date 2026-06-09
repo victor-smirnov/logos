@@ -215,3 +215,28 @@ a raw-ptr deref) safe (an earlier no-discriminator Deref-walk falsely flagged it
 Now BOTH value (`hermes2_new`) and Rc (`hermes2_rc`) containers reject a bare
 `return` of a Ref HAny; safe: box_leak, hold_any→HeldAny, Pod return, in-scope use.
 Tests hany_ref_escapes_container + hany_escapes_rc_container. L4 5555/5555.
+
+**Aggregate & container propagation — DONE (2026-06-09).** Borrow-carrying was
+tracked for a DIRECT HAny value but LOST when the value was embedded in an
+aggregate: `return Wrap { a: hany }` and `return vec_of_hany` escaped a local-arena
+Ref UNCAUGHT, even though the bare `return hany` was caught. Closed in three parts
+plus an exemption:
+- **Transitive classification** (build_type_sets fixpoint): a struct/enum with an
+  INLINE field / variant payload of a borrow-carrying type is itself borrow-
+  carrying. And `is_borrow_carrying_type` treats a generic CONTAINER of a borrow-
+  carrying element (`Vec<HAny>`, `Option<HAny>`, `Box<HAny>`) as borrow-carrying —
+  the element holds a Ref even behind the owning pointer / as a type-param (a raw
+  `*mut HAny` has no type-args → stays unchecked, like box_leak).
+- **Aggregate-literal provenance**: `prov_of(StructLit/TupleLit/EnumLitData)` merges
+  its constituents' provenance, so a literal built from a local borrow taints the
+  whole aggregate.
+- **Container capture-flow**: a `&mut self` method (push/insert/set) given a
+  BY-VALUE borrow-carrying argument merges the arg's provenance into the receiver's
+  — modelling the capture, so a later `return v` is rejected. Restricted to
+  &mut self + by-value bc args: `&self` reads and `&x` ref-args don't taint
+  (keeps `v.contains(&x)`/`v.len()` clean).
+- **Holder exemption**: a type with a residency-HOLDER field (`Rc`/`Arc<...>`, e.g.
+  `HeldAny { holder: Rc<dyn Resident>, val: HAny }`) is NOT transitively borrow-
+  carrying — the holder ref-counts the arena alive, so the escape package is
+  returnable (that is its whole purpose).
+Tests hany_in_struct_escapes + hany_in_vec_escapes. L4 5574/5574.

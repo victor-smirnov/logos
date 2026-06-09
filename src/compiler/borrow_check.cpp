@@ -91,6 +91,70 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // `#[borrow_carrying]` enums (HAny) — same escape tracking as the struct form.
     for (auto& ed : prog.enums)
         if (ed.borrow_carrying) reg_bc_name(ed.name);
+    // Transitive closure (escape tracking must see the WHOLE aggregate): a struct
+    // or enum with an INLINE field / variant payload of a (transitively) borrow-
+    // carrying type is itself borrow-carrying — the borrow rides inside the value,
+    // so returning the aggregate escapes it exactly as returning the bare HAny
+    // would. (Borrow-carrying as a generic CONTAINER element — `Vec<HAny>`, behind
+    // an owning pointer — is handled by the container-element rule below.)
+    auto type_bc_name = [](TypeRef t) -> std::string {
+        if (!t) return {};
+        auto k = t.kind();
+        if (k == LogosType::Kind::Enum) return std::string(t.enum_name());
+        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            return std::string(t.struct_name());
+        return {};
+    };
+    auto type_is_bc = [&](TypeRef t) -> bool {
+        // A direct borrow-carrying field/payload, OR a generic type-argument that
+        // is borrow-carrying (a container of HAny — `Vec<HAny>`, `Option<HAny>` —
+        // carries the borrows of its elements even though the buffer sits behind a
+        // raw pointer / the payload is a type-param).
+        auto n = type_bc_name(t);
+        if (!n.empty() && ts.borrow_carrying.count(n) > 0) return true;
+        if (!t) return false;
+        for (auto a : t.type_args()) {
+            auto an = type_bc_name(a);
+            if (!an.empty() && ts.borrow_carrying.count(an) > 0) return true;
+        }
+        return false;
+    };
+    // A residency-holder field (`Rc`/`Arc<...>`) marks the LAUNDERED escape package
+    // (`HeldAny { holder: Rc<dyn Resident>, val: HAny }`): the holder ref-counts the
+    // arena alive independent of any local, so the contained borrow is SAFE to
+    // escape. Such a type must NOT be transitively borrow-carrying (else returning
+    // the escape hatch — its whole purpose — would be wrongly rejected).
+    auto holds_residency_holder = [&](const lir::LStructDef& sd) -> bool {
+        for (auto& f : sd.fields) {
+            if (!f.type) continue;
+            auto k = f.type.kind();
+            if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) continue;
+            std::string n(f.type.struct_name());
+            if (auto d = n.rfind('.'); d != std::string::npos) n = n.substr(d + 1);
+            if (n == "Rc" || n == "Arc") return true;
+        }
+        return false;
+    };
+    bool bc_changed = true;
+    while (bc_changed) {
+        bc_changed = false;
+        auto consider_struct = [&](const lir::LStructDef& sd) {
+            if (ts.borrow_carrying.count(sd.name)) return;
+            if (holds_residency_holder(sd)) return;   // laundered escape package — exempt
+            for (auto& f : sd.fields)
+                if (type_is_bc(f.type)) { reg_bc_name(sd.name); bc_changed = true; return; }
+        };
+        for (auto& sd : prog.structs)                consider_struct(sd);
+        for (auto& sd : prog.struct_specializations) consider_struct(sd);
+        for (auto& ed : prog.enums) {
+            if (ts.borrow_carrying.count(ed.name)) continue;
+            for (auto& var : ed.variants) {
+                bool hit = false;
+                for (auto& pt : var.payload_types) if (type_is_bc(pt)) { hit = true; break; }
+                if (hit) { reg_bc_name(ed.name); bc_changed = true; break; }
+            }
+        }
+    }
     return ts;
 }
 
@@ -973,11 +1037,20 @@ class BorrowChecker {
     bool is_borrow_carrying_type(TypeRef t) const {
         if (!t) return false;
         auto k = t.kind();
-        if (k == LogosType::Kind::Enum)   // HAny: the niche-enum form (F3)
-            return ts_.borrow_carrying.count(std::string(t.enum_name())) > 0;
-        if (k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct)
-            return false;
-        return ts_.borrow_carrying.count(std::string(t.struct_name())) > 0;
+        std::string nm;
+        if (k == LogosType::Kind::Enum)                 // HAny: the niche-enum form (F3)
+            nm = std::string(t.enum_name());
+        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+            nm = std::string(t.struct_name());
+        if (!nm.empty() && ts_.borrow_carrying.count(nm) > 0) return true;
+        // A generic CONTAINER of a borrow-carrying element carries its elements'
+        // borrows (`Vec<HAny>`, `Option<HAny>`, `Box<HAny>`) — even though the
+        // buffer sits behind an owning pointer / the payload is a type-param, the
+        // value transitively holds a Ref into an arena. (A raw `*mut HAny` has no
+        // type-args → stays unchecked, like box_leak — Rust parity.)
+        for (auto a : t.type_args())
+            if (is_borrow_carrying_type(a)) return true;
+        return false;
     }
 
     // If `e` (a borrow's inner place, or a method receiver) roots at a VALUE local,
@@ -1139,9 +1212,33 @@ class BorrowChecker {
                 });
                 return merged;
             }
+            case Code::StructLit: {
+                // An aggregate LITERAL borrows through its borrow-carrying field
+                // initialisers: `Wrap { a: HAny::from(&local) }` ties Wrap to the
+                // local, so returning the Wrap escapes the borrow. Merge each
+                // field-value's provenance (a Pod / owned field contributes {}).
+                RefProv merged = {};
+                EStructLitView{e}.each_field_value([&](ExprRef fv){
+                    merged = merge_prov(merged, prov_of(fv));
+                });
+                return merged;
+            }
+            case Code::TupleLit: {
+                RefProv merged = {};
+                ETupleLitView{e}.each_elem([&](ExprRef el){
+                    merged = merge_prov(merged, prov_of(el));
+                });
+                return merged;
+            }
+            case Code::EnumLitData: {
+                RefProv merged = {};
+                EEnumLitDataView{e}.each_payload([&](ExprRef pl){
+                    merged = merge_prov(merged, prov_of(pl));
+                });
+                return merged;
+            }
             default:
-                // EStructLit / literals — value is caller-owned, not a borrowed
-                // reference; leave provenance empty (= unknown/safe).
+                // Other rvalues / literals — caller-owned, no borrowed provenance.
                 return {};
         }
     }
@@ -2552,6 +2649,28 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             visit(v.receiver(), /*consuming=*/false, line);
             visit_args(v);
             pop_scope();
+            // Capture-flow: a `&mut self` method (push / insert / set) may STORE a
+            // by-value borrow-carrying argument INTO the receiver. If the receiver
+            // is a tracked local and such an arg borrows a local (`v.push(HAny::
+            // from(&n))`), the receiver now transitively holds that borrow — taint
+            // its provenance so a later `return v` is caught. Restricted to
+            // &mut self + BY-VALUE borrow-carrying args: `&self` reads can't capture
+            // and `&x` ref-args aren't moved in, so neither taints (keeps
+            // `v.contains(&x)` / `v.len()` clean).
+            if (auto recv = v.receiver();
+                recv && recv.kind() == Code::VarRef && method_self_kind(v) == 2) {
+                std::string rn(lir_view::EVarRefView{recv}.name());
+                if (states_.count(rn)) {
+                    RefProv cap = {};
+                    v.each_arg([&](lir_view::ExprRef a){
+                        if (a && !is_ref_kind(a.type(pool)) &&
+                            is_borrow_carrying_type(a.type(pool)))
+                            cap = merge_prov(cap, prov_of(a));
+                    });
+                    if (!cap.params.empty() || cap.is_local || cap.is_temp)
+                        prov_[rn] = merge_prov(prov_[rn], cap);
+                }
+            }
             break;
         }
 
