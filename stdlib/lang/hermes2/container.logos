@@ -23,13 +23,29 @@ use logos.mem.rc;
 // stable root — it does not move; only never-move segments hang off it).
 pub struct Hermes2 {
     pub allocator: Allocator,
+    // The document ROOT — the top-level HAny, stored as its raw 8-byte word (0 =
+    // null/unset). The Hermes1 DocumentHeader analogue, folded into the root
+    // container rather than a separate zone object.
+    pub root: i64,
 }
 
 // Create a container whose segments default to `seg_size` data bytes. SAFE: the
 // returned container is a sound owned root (RAII-freed on drop); the segment
 // malloc is the only unsafe step and is fully encapsulated here.
 pub fn hermes2_new(seg_size: i64) -> Hermes2 {
-    return Hermes2 { allocator: unsafe { allocator_new(seg_size) } };
+    return Hermes2 { allocator: unsafe { allocator_new(seg_size) }, root: 0i64 };
+}
+
+impl Hermes2 {
+    // The document root value (the top-level HAny). `set_root` is interior-mutable
+    // (`&self`, like `array`/`map`) — writing the root word neither moves nor
+    // invalidates anything in the never-move arena, so it coexists with live
+    // references into the container. `root()` reconstructs the HAny from the stored
+    // word (branchless: a Pod word reads back Pod, a Ref word reads back Ref).
+    pub fn set_root(self: &Hermes2, v: HAny) {
+        unsafe { let p: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2; p.root = v.raw(); }
+    }
+    pub fn root(self: &Hermes2) -> HAny { return HAny::ref_to(self.root as *const u8); }
 }
 
 // Free the container and all its segments en masse. Must not be used after.
