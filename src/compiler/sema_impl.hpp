@@ -3946,15 +3946,17 @@ private:
                                      TypeRef pt) const noexcept {
         if (types_equal(at, pt)) return true;
         if (types_compatible(at, pt)) return true;
-        // An int LITERAL that fits a narrower integer param dispatches (e.g.
-        // `push(u8)` with `7`). NOTE: `is_integer_kind` also returns true for
-        // `Enum` (C-like enums are integer-backed), so this MUST exclude an enum
-        // target — otherwise an integer arg spuriously matches a DATA/niche-enum
-        // param (`push(7i64)` → `push(HAny)`, reinterpreting the int as the enum's
-        // by-pointer storage → UB). You pass a variant to an enum, not an int.
+        // An UNSUFFIXED int LITERAL that fits a narrower integer param dispatches
+        // (e.g. `push(u8)` with `7`). Gated on `at == IntLit`: a SUFFIXED literal
+        // (`9u64`, `5i32`) has a CONCRETE type and must match by type, not flex by
+        // value — else `push(9u64)` spuriously also matches `push(i64)` (the value
+        // fits i64) and the first-declared overload wins, picking the wrong width.
+        // (Rust parity: `9u64` is `u64`, period.) NOTE: `IntLit` excludes `Enum`,
+        // so a data/niche-enum param can't be hit by an integer (would reinterpret
+        // the int as the enum's by-pointer storage → UB); `pt` is guarded too.
         if (arg && at && pt &&
-            is_integer_kind(TypeRef(at).kind()) && is_integer_kind(TypeRef(pt).kind()) &&
-            TypeRef(at).kind() != LogosType::Kind::Enum &&
+            TypeRef(at).kind() == LogosType::Kind::IntLit &&
+            is_integer_kind(TypeRef(pt).kind()) &&
             TypeRef(pt).kind() != LogosType::Kind::Enum)
             if (auto v = get_intlit_value(arg))
                 if (intlit_fits(*v, TypeRef(pt).kind()))
