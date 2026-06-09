@@ -1689,6 +1689,16 @@
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false }
               / STAR KW_MUT type_ref
              => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: true }
+              // F3 (ref-repr-design §6/§8): `*zoned T` / `*zoned mut T` — a zoned
+              // raw pointer (Ref-arm self-relative at-rest; deref/assign runs the
+              // storage↔compute bridge). `zoned` is a CONTEXTUAL keyword: after
+              // `*`, the only words today are the `mut`/`const` keyword tokens, so a
+              // bare IDENT there can only be `zoned` (sema validates NAME=="zoned").
+              // Not reserved globally — `#[zoned]` attributes still parse as IDENT.
+              / STAR IDENT KW_MUT type_ref
+             => { CODE: PTR_TYPE, POINTEE: $4, MUTPTR: true, NAME: $2 }
+              / STAR IDENT type_ref
+             => { CODE: PTR_TYPE, POINTEE: $3, MUTPTR: false, NAME: $2 }
 
     // [T; N] — fixed-size array type
     // First alt: [T; sizeof...(P)] — size from variadic pack length, lowered

@@ -1903,7 +1903,9 @@ std::string type_str(TypeRef t) {
     }
     case LogosType::Kind::FloatLit: return "{float}";
     case LogosType::Kind::Ptr:
-        return std::string(TypeRef(t).mut_ptr() ? "*mut " : "*const ") + type_str(TypeRef(t).pointee());
+        return std::string(TypeRef(t).zoned_ptr() ? (TypeRef(t).mut_ptr() ? "*zoned mut " : "*zoned ")
+                                                  : (TypeRef(t).mut_ptr() ? "*mut " : "*const "))
+             + type_str(TypeRef(t).pointee());
     case LogosType::Kind::Ref: {
         std::string s = "&";
         if (!TypeRef(t).lifetime().empty()) { s.append(TypeRef(t).lifetime()); s += " "; }
@@ -4025,13 +4027,13 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
             if (rssi && rssi->self_describing) {
                 if (inner == t.pointee()) return t;
-                return make_ptr(t.mut_ptr(), inner);
+                return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());
             }
             std::vector<TypeRef> args_vec = inner.type_args();
             return make_dst_ref(sn, spkg, t.mut_ptr(), std::move(args_vec));
         }
         if (inner == t.pointee()) return t;
-        return make_ptr(t.mut_ptr(), inner);
+        return make_ptr(t.mut_ptr(), inner, t.zoned_ptr());   // F3: preserve *zoned
     }
     case LogosType::Kind::Ref:
     case LogosType::Kind::MutRef: {
@@ -5150,6 +5152,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         bool mut = false;
         AnyVal mv = node.get(la::MUTPTR.code);
         if (!mv.is_null() && mv.is_value()) mut = mv.as_value<uint8_t>() != 0;
+        // F3: `*zoned T` / `*zoned mut T` — the contextual `zoned` modifier rides
+        // in NAME (grammar `STAR IDENT ... type_ref`). Validate it (the only legal
+        // word after `*` besides the mut/const keywords) and carry it into make_ptr.
+        bool zoned = false;
+        if (node.has_key(la::NAME)) {
+            std::string mod(str_of(node.get(la::NAME.code)));
+            if (mod == "zoned") zoned = true;
+            else error(std::format(
+                "unknown raw-pointer modifier '*{}' — expected '*const', '*mut', "
+                "or '*zoned'", mod));
+        }
         auto inner = node.has_key(la::POINTEE)
                       ? resolve_type(map_of(node.get(la::POINTEE.code)))
                       : error_t();
@@ -5187,11 +5200,11 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             // ref-repr §6.
             SemaStructInfo* rssi = find_struct_repr_(spkg, sn);
             if (rssi && rssi->self_describing)
-                return make_ptr(mut, inner);
+                return make_ptr(mut, inner, zoned);
             std::vector<TypeRef> targs = inner.type_args();
             return make_dst_ref(sn, spkg, mut, std::move(targs));
         }
-        return make_ptr(mut, inner);
+        return make_ptr(mut, inner, zoned);
     }
 
     if (tc == la::REF_TYPE) {

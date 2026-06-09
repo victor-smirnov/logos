@@ -1084,6 +1084,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
         elem_type = logos_to_mlir(pt.pointee());
     if (!elem_type) elem_type = builder_.getI32Type();
     TypeRef pointee_t = (pt && pt.pointee()) ? pt.pointee() : nullptr;
+    // F3: `*p = v` over a `*zoned Enum` (zoned niche enum) LOWERS — store the
+    // word with the Ref arm self-relative (delta = val − slot, anchor = `ptr`).
+    // `val` is the by-pointer enum value (ptr to the absolute word). The `*zoned`
+    // pointer type disambiguates an at-rest slot from a value-form place.
+    if (pt.zoned_ptr() && zoned_niche_enum_info(pointee_t)) {
+        zoned_enum_lower(val, ptr);
+        return;
+    }
     // #[rel_ptr] place (`*(&box.p) = abs`, the lowered form of `box.p = abs`):
     // lower the absolute ptr value to a self-relative i64 offset stored AT the
     // slot (`ptr` is the anchor). Must precede the Struct-pointee memcpy below,

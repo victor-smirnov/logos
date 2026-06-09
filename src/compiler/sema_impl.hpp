@@ -203,9 +203,15 @@ private:
                                             : LogosType::Kind::I64;
     }
 
-    TypeRef make_ptr(bool mut, TypeRef pointee) {
+    TypeRef make_ptr(bool mut, TypeRef pointee, bool zoned = false) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::Ptr;
         t.mut_ptr = mut; t.pointee = pointee;
+        // F3 (ref-repr-design §6/§8): `*zoned T` — a zoned pointer. Stored in the
+        // free-for-Ptr const_val (bit 0), so it interns distinctly, serializes,
+        // and equality-checks via the existing const_val plumbing (no MUT_PTR-style
+        // per-site threading; sidesteps the P2-11 serialization trap). Deref/assign
+        // of a `*zoned T` runs the zoned_enum_* (or RelOffset) storage↔compute bridge.
+        if (zoned) t.const_val = 1;
         return pool_->alloc(t);
     }
     TypeRef make_ref(bool mut, TypeRef pointee, std::string lifetime = "") {

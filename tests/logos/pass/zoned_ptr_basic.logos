@@ -1,0 +1,30 @@
+// F3 / ref-repr-design §6+§8: `*zoned T` — a zoned raw pointer. Storing a niche
+// enum through it LOWERS the Ref arm self-relative (delta = target − slot); reading
+// MATERIALISES it back absolute. The `*zoned` pointer TYPE (not the pointee) is
+// what marks at-rest storage, so a value-form `*Enum` is unaffected.
+package ze2;
+#[zoned2] enum Z { Ref(&i64), Val(i32) }
+fn main() -> i32 {
+    let x: i64 = 99i64;
+    let mut buf: [i64; 1] = [0i64];
+    unsafe {
+        let slot: *zoned mut Z = &mut buf[0] as *mut i64 as *zoned mut Z;
+        *slot = Z::Ref(&x);
+        let raw: i64 = buf[0];                       // at-rest word
+        let absx: i64 = &x as *const i64 as i64;
+        if raw == absx { return 60i32; }             // stored ABSOLUTE → zoned NOT applied
+        if raw == 0i64 { return 61i32; }
+        let z: Z = *slot;                            // materialise → absolute Ref
+        match z { Z::Ref(p) => { if *p != 99i64 { return 1i32; } } Z::Val(v) => { return 2i32; } }
+    }
+    let mut buf2: [i64; 1] = [0i64];
+    unsafe {
+        let slot2: *zoned mut Z = &mut buf2[0] as *mut i64 as *zoned mut Z;
+        *slot2 = Z::Val(7i32);
+        let raw2: i64 = buf2[0];
+        if (raw2 & 1i64) != 1i64 { return 62i32; }   // Pod must be low-bit-1 (position-independent)
+        let z2: Z = *slot2;
+        match z2 { Z::Ref(p) => { return 3i32; } Z::Val(v) => { if v != 7i32 { return 4i32; } } }
+    }
+    return 0i32;
+}

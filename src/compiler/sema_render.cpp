@@ -1605,12 +1605,17 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
         return s;
     }
     case la::PTR_TYPE: {
-        // Grammar: POINTEE (sub-type), MUTPTR (bool, not IS_MUT).
+        // Grammar: POINTEE (sub-type), MUTPTR (bool, not IS_MUT), NAME (the
+        // contextual `zoned` modifier — F3).
         bool is_mut = flag_set(node, la::MUTPTR);
+        bool zoned  = node.has_key(la::NAME) &&
+                      std::string(str_of(node.get(la::NAME.code))) == "zoned";
         TinyMapView pointee;
         if (node.has_key(la::POINTEE)) pointee = map_of(node.get(la::POINTEE.code));
         else if (node.has_key(la::TYPE)) pointee = map_of(node.get(la::TYPE.code));  // legacy
-        return std::string(is_mut ? "*mut " : "*const ") + recur(pointee);
+        std::string pre = zoned ? (is_mut ? "*zoned mut " : "*zoned ")
+                                : (is_mut ? "*mut " : "*const ");
+        return pre + recur(pointee);
     }
     case la::REF_TYPE: {
         auto inner = node.has_key(la::POINTEE) ? map_of(node.get(la::POINTEE.code))

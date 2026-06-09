@@ -239,6 +239,15 @@ public:
         auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
         return av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    // F3 (§6/§8): `*zoned T` — a zoned raw pointer (Ref-arm self-relative at-rest,
+    // absolute as a value; deref/assign runs the storage↔compute bridge). Carried
+    // in Ptr's const_val bit 0 (free for Ptr), so it interns/serializes/equates via
+    // the existing const_val plumbing. False for any non-Ptr or a plain `*T`.
+    bool zoned_ptr() const noexcept {
+        if (kind() != LogosType::Kind::Ptr) return false;
+        auto cv = const_val();
+        return cv.has_value() && ((uint64_t(*cv) & 1u) != 0);
+    }
     // Owning kind of a TraitObject. Same fat-pair {data,vtable} layout and
     // dispatch for ALL kinds (incl. Borrow), but the owning forms are droppable
     // with kind-specific release: Box → free(data); Rc → dec strong, at 0 →

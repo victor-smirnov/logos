@@ -1668,6 +1668,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EDerefView v, TypeRef type) {
                  // → SIGSEGV in `let (a,b) = *p` / `(*p).0`.
                  TypeRef(type).kind() == LogosType::Kind::Tuple))
         return ptr;
+    // F3: `*p` over a `*zoned Enum` (a zoned niche enum) MATERIALISES — the slot
+    // holds the at-rest word (Ref arm self-relative, anchor = the slot `ptr`);
+    // the value is a by-pointer enum with the Ref arm absolute. The `*zoned`
+    // operand type is what disambiguates an at-rest slot from a value-form local
+    // (both are `*Enum`); a plain `*Enum` falls through to the no-op below.
+    if (auto* op_le = lexpr_of(v.operand()); op_le && TypeRef(op_le->type).zoned_ptr() &&
+        zoned_niche_enum_info(type))
+        return zoned_enum_materialize(ptr);
     // Enum value-repr: a TAGGED enum is pointer-to-inline-storage (like a
     // Struct), so `*p` over a `&Enum` yields the SAME pointer (no load) — the
     // storage address. (A C-like enum is an i32 value and DOES load below.)
