@@ -1,0 +1,84 @@
+// Logos Hermes2 stdlib — hermes2.typed_value
+//
+// HTypedValue — a Hermes SDN datatype instantiation, wire code 4115 (the Hermes2
+// port of Hermes1's TypedValue). Canonical textual form:
+//
+//     @Type(params?) = <initializer>
+//
+// Three AT-REST HAny words: the type-name (a Ref to an interned HString), the
+// params (an Array<HVal> or null), and the initializer value. Like HMapEntry the
+// words are held as raw `i64` and accessed through `*zoned mut HAny` slot pointers,
+// so each read materialises the at-rest Ref-delta → absolute and each write lowers
+// it — no distinct HAnyRel, no ha_* helpers.
+
+package logos.lang.hermes2.typed_value;
+
+use logos.lang.hermes2.container;   // Hermes2, alloc_tagged, H2_TYPEDVALUE
+use logos.lang.hermes2.anyval;      // HAny, h2_type_code
+use logos.lang.hermes2.allocator;   // Allocator
+use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc
+use logos.lang.ptr;                 // byte_add
+
+#[pinned]
+pub struct HTypedValue {
+    pub type_name: i64,   // at-rest HAny: Ref to the type-name HString
+    pub params:    i64,   // at-rest HAny: params (Array<HVal> or null)
+    pub init:      i64,   // at-rest HAny: the initializer value
+}
+
+// Field slot (type_name @0, params @8, init @16) as `*zoned mut HAny` — each read
+// materialises the at-rest word, each write lowers it (mirrors HMap's ent_key/_val).
+unsafe fn tv_slot(p: *mut HTypedValue, off: i64) -> *zoned mut HAny {
+    return (p as *mut u8).byte_add(off) as *zoned mut HAny;
+}
+unsafe fn tv_slot_c(p: *const HTypedValue, off: i64) -> *zoned HAny {
+    return (p as *const u8).byte_add(off) as *zoned HAny;
+}
+
+unsafe fn tv_new(h: *mut Hermes2, type_name: HAny, params: HAny, init: HAny) -> *mut HTypedValue {
+    let obj: *mut HTypedValue =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HTypedValue>() as i64, H2_TYPEDVALUE) as *mut HTypedValue;
+    *(tv_slot(obj, 0i64))  = type_name;   // *zoned write: lowers to a self-relative delta
+    *(tv_slot(obj, 8i64))  = params;
+    *(tv_slot(obj, 16i64)) = init;
+    return obj;
+}
+
+impl HTypedValue {
+    // The type-name value (a Ref to an HString).
+    pub fn type_name(self: &HTypedValue) -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 0i64)) }; }
+    // The params value (Array<HVal> or null).
+    pub fn params(self: &HTypedValue)    -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 8i64)) }; }
+    // The initializer value.
+    pub fn init(self: &HTypedValue)      -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 16i64)) }; }
+
+    // The type name as a string view (resolves the Ref → HString → bytes).
+    pub fn type_name_str(self: &HTypedValue) -> str {
+        return unsafe { (&*(self.type_name().resolve() as *const HString)).as_str() };
+    }
+    // Are params present (non-null)?
+    pub fn has_params(self: &HTypedValue) -> bool { return !self.params().is_null(); }
+}
+
+impl Hermes2 {
+    // Build a typed value `@type_name(params?) = init` in THIS arena; the type name
+    // is interned as an HString. Pass a null HAny for `params` when none.
+    pub fn typed_value(self: &Hermes2, type_name: str, params: HAny, init: HAny) -> HAny {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let hs: *mut HString = hstring_in_alloc(&mut h.allocator as *mut Allocator, type_name);
+            let tn: HAny = HAny::ref_to(hs as *const u8);
+            return HAny::ref_to(tv_new(h, tn, params, init) as *const u8);
+        }
+    }
+}
+
+impl HAny {
+    pub fn is_typed_value(self: &HAny) -> bool {
+        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TYPEDVALUE;
+    }
+    // Borrow the pointed-at typed value (check is_typed_value first).
+    pub fn as_typed_value(self: &HAny) -> &HTypedValue { return unsafe { &*(self.resolve() as *const HTypedValue) }; }
+    // A typed value as a heterogeneous value (Ref to it).
+    pub fn from(tv: &HTypedValue) -> HAny { return HAny::ref_to(tv as *const HTypedValue as *const u8); }
+}

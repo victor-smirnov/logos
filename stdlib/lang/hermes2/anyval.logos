@@ -120,6 +120,8 @@ pub const H2_ARRAY:   u64 = 100u64;
 pub const H2_MAP:     u64 = 101u64;
 pub const H2_TINYMAP: u64 = 98u64;   // bitmap-indexed tiny map (Hermes1 TinyObjectMap)
 pub const H2_DECIMAL: u64 = 102u64;  // fixed-precision signed decimal
+pub const H2_PARAMETER:  u64 = 127u64;   // query-parameter capture slot (?name / @-literal)
+pub const H2_TYPEDVALUE: u64 = 4115u64;  // SDN datatype instantiation @Type(params?)=init
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
 // own 8-byte tagged arena object, referenced by the HAny. Codes are the Hermes1
 // HermesTag values, so `type_code()` emits the wire tag (hbs-ready). (Allocated via
