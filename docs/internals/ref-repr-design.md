@@ -344,10 +344,34 @@ This is RelOffset's conversion, *gated by the low bit* (Pod arm = identity).
    store `Z::Ref(&x)` into a `*zoned Z` slot, assert the stored word ≠ the
    absolute address (it's a delta), read back via `*slot`, match → deref → x.
 
-**Phase 2** generalizes step-5 threading to field access + buffer indexing
-(`buf.add(i)` deref) of a `*zoned`-element buffer — `HArray.data: *zoned HAny`.
-The `#[zoned2]`-on-enum marker (Phase-1a, landed) + the `zoned_enum_*` bridge
-helpers are sound and inert until `*zoned T` exists to trigger them.
+**Phase 1b — LANDED (commit 39ac9d16).** `*zoned T`/`*zoned mut T` parse via a
+CONTEXTUAL `zoned` (grammar `STAR IDENT type_ref`; not reserved, so `#[zoned]`
+attrs are unaffected); `zoned` rides in Ptr's free `const_val` bit 0 (interns/
+serialises/equates via existing plumbing — no P2-11 trap); deref-read
+materialises, deref-write lowers, gated on `zoned_ptr() && zoned_niche_enum_info`.
+Test `pass/zoned_ptr_basic.logos`. A plain `*T` deref is unchanged (value form) —
+the provenance ambiguity is resolved by the pointer TYPE.
+
+**Phase 2 — LANDED (commit e23f6400, validated).** `.add(i)` PRESERVES the
+`*zoned` type, so buffer element access already routes through the Phase-1b
+bridge — no extra codegen. Test `pass/zoned_buffer.logos` proves the
+relocation-safety invariant (same target at two slots → two different at-rest
+deltas, both materialising to the same absolute ref). `HArray.data: *zoned HAny`
+will Just Work.
+
+**Phase 3 — re-express HAny, retire HAnyRel + ha_materialize/ha_lower.** The
+foundation is ready; this is the stdlib application. HAny becomes a `#[zoned2]`
+niche enum and its buffers become `*zoned HAny`. The Pod-encoding fork (still
+open, coupled to the Hermes1 port's inline-scalar set): HAny's Pod is a 63-bit
+`(value<<7)|code` tagged word with no 63-bit primitive. Options:
+  (a) add `i63`;
+  (b) struct Pod arm `{code:u8, value:i56}` + extend the niche to pack a ≤63-bit
+      STRUCT payload (most Rust-faithful — Rust niches DO pack struct payloads);
+  (c) a no-shift "raw tagged word" niche flavor (`LowBitRaw`): Pod stored RAW
+      (low-bit-1 guaranteed by the `HAny::pod` builder), Ref low-bit-0 +
+      relativised — preserves the EXACT current wire word, simplest.
+Recommendation: (c) for an exact-encoding-preserving first cut, revisit (b) when
+the port needs richer inline payloads. Decide alongside the port's scalar set.
 
 **Phase 3** re-expresses HAny + retires HAnyRel. WRINKLE: HAny's Pod is a
 63-bit `(value<<7)|code` composite — F2's `(v<<1)|1` shift reproduces the
