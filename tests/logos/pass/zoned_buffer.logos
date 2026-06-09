@@ -1,0 +1,27 @@
+// F3 Phase 2: a `*zoned` buffer. `.add(i)` PRESERVES the zoned pointer type, so
+package zoned_buffer;
+// each element access materialises/lowers anchored at ITS OWN slot. The key
+// relocation-safety property: the same target stored at two slots yields two
+// DIFFERENT at-rest deltas, both materialising back to the same absolute ref —
+// so the whole buffer can relocate en-masse with every offset still valid.
+use logos.lang.ptr;
+#[zoned2] enum Z { Ref(&i64), Val(i32) }
+fn main() -> i32 {
+    let x: i64 = 99i64;
+    let mut buf: [i64; 2] = [0i64, 0i64];
+    unsafe {
+        let base: *zoned mut Z = &mut buf[0] as *mut i64 as *zoned mut Z;
+        // store Z::Ref(&x) at slot 0 and slot 1 — each must store a DELTA relative
+        // to ITS OWN slot, so the two raw words DIFFER, yet both materialize to &x.
+        *base = Z::Ref(&x);
+        *base.add(1) = Z::Ref(&x);
+        let w0: i64 = buf[0];
+        let w1: i64 = buf[1];
+        if w0 == w1 { return 70i32; }        // same word → NOT per-slot relative
+        let z0: Z = *base;
+        let z1: Z = *base.add(1);
+        match z0 { Z::Ref(p) => { if *p != 99i64 { return 1i32; } } Z::Val(v) => { return 2i32; } }
+        match z1 { Z::Ref(p) => { if *p != 99i64 { return 3i32; } } Z::Val(v) => { return 4i32; } }
+    }
+    return 0i32;
+}
