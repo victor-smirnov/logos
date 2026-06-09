@@ -1,0 +1,71 @@
+// Logos Hermes2 stdlib — hermes2.decimal
+//
+// HDecimal — a fixed-precision signed decimal (the Hermes2 port of Hermes1's
+// Decimal, wire code 102). The value is `(neg ? -1 : 1) * coeff / 10^scale`, with a
+// u64 coefficient magnitude. `spec` packs the Hermes1 layout: scale in bits[0:11]
+// (0..4095), sign in bit[31]. Fixed size (no inline tail), so it's a plain tagged
+// arena object — no zoning.
+//
+// [Arbitrary-precision (multi-limb u32 coefficient) Decimals are a custom-DST
+//  follow-up — they need the inline variable-length tail that custom-DST provides;
+//  deferred. The u64-coefficient form here covers the common case.]
+
+package logos.lang.hermes2.decimal;
+
+use logos.lang.hermes2.container;   // Hermes2, alloc_tagged, H2_DECIMAL
+use logos.lang.hermes2.anyval;      // HAny, h2_type_code
+use logos.lang.hermes2.allocator;   // Allocator
+
+#[pinned]
+pub struct HDecimal {
+    pub spec:  u32,   // scale (bits[0:11]) | sign (bit[31])
+    pub coeff: u64,   // coefficient magnitude (value_abs)
+}
+
+const DEC_SCALE_MASK: u32 = 0xFFFu32;        // bits[0:11] — scale 0..4095
+const DEC_SIGN_BIT:   u32 = 0x80000000u32;   // bit[31] — 1 = negative
+
+unsafe fn decimal_new(h: *mut Hermes2, coeff: u64, scale: u32, neg: bool) -> *mut HDecimal {
+    let obj: *mut HDecimal =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HDecimal>() as i64, H2_DECIMAL) as *mut HDecimal;
+    let mut spec: u32 = scale & DEC_SCALE_MASK;
+    if neg { spec = spec | DEC_SIGN_BIT; }
+    obj.spec  = spec;
+    obj.coeff = coeff;
+    return obj;
+}
+
+impl HDecimal {
+    pub fn scale(self: &HDecimal)  -> u32  { return self.spec & DEC_SCALE_MASK; }
+    pub fn is_neg(self: &HDecimal) -> bool { return (self.spec & DEC_SIGN_BIT) != 0u32; }
+    pub fn coeff(self: &HDecimal)  -> u64  { return self.coeff; }
+    // Approximate value as f64 (coeff / 10^scale, signed). Exact decimal arithmetic
+    // stays on the integer coeff+scale; this is the convenience float view.
+    pub fn to_f64(self: &HDecimal) -> f64 {
+        let mut d: f64 = self.coeff as f64;
+        let mut s: u32 = self.scale();
+        while s > 0u32 { d = d / 10.0f64; s = s - 1u32; }
+        if self.is_neg() { return 0.0f64 - d; }
+        return d;
+    }
+}
+
+impl Hermes2 {
+    // Build a decimal in THIS arena; returns a Ref HAny to it.
+    pub fn decimal(self: &Hermes2, coeff: u64, scale: u32, neg: bool) -> HAny {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return HAny::ref_to(decimal_new(h, coeff, scale, neg) as *const u8);
+        }
+    }
+}
+
+impl HAny {
+    pub fn is_decimal(self: &HAny) -> bool {
+        return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_DECIMAL;
+    }
+    // Borrow the pointed-at decimal (check is_decimal first).
+    pub fn as_decimal(self: &HAny) -> &HDecimal { return unsafe { &*(self.resolve() as *const HDecimal) }; }
+    // A decimal as a heterogeneous value (Ref to it).
+    pub fn from(d: &HDecimal) -> HAny { return HAny::ref_to(d as *const HDecimal as *const u8); }
+}
