@@ -36,7 +36,7 @@ fn main() -> i32 {
 
     // int vs float are not cross-equal; null/bool distinct
     if equal(h.int(3i64), h.float(3.0f64)) { return 7; }
-    if equal(HAny::from(true), HAny::ref_to(0i64 as *const u8)) { return 8; }
+    if equal(HAny::from(true), HAny { raw: 0i64 }) { return 8; }
     if !equal(h.int(5i64), h.int(5i64)) { return 9; }
     return 0;
 }

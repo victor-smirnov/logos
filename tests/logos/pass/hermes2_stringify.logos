@@ -15,7 +15,7 @@ fn eq(v: HAny, want: str) -> bool { let s: String = stringify(v); return str_eq(
 fn main() -> i32 {
     if !eq(HAny::from(42i56), "42") { return 1; }
     if !eq(HAny::from(true), "true") { return 2; }
-    if !eq(HAny::ref_to(0i64 as *const u8), "null") { return 3; }
+    if !eq(HAny { raw: 0i64 }, "null") { return 3; }
     let h: Hermes2 = hermes2_new(1024i64);
     // scalar array — deterministic order
     let a: &mut HArray<HVal> = h.array(4i64);

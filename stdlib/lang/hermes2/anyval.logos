@@ -30,23 +30,9 @@ package logos.lang.hermes2.anyval;
 
 use logos.lang.ptr;
 
-// HAny — the heterogeneous Hermes2 slot, a niche-packed `#[zoned2]` enum (F3).
-// ONE 8-byte word: `Ref` = a type-erased pointer to a tagged zone object
-// (low-bit-0; self-relative at-rest via #[zoned2], absolute as a value), `Pod`
-// = an inline tagged word `(value<<8)|(code<<1)|1` (low-bit-1, position-
-// independent). `null` = `Ref(0)`. The compiler owns the at-rest↔value bridge
-// (materialise/lower on a `*zoned HAny` access) — no hand-rolled relative math.
 #[borrow_carrying]
-#[zoned2]
-pub enum HAny {
-    Ref(*const u8),   // tagged zone object (low-bit-0; zoned)
-    Pod(u64),         // inline tagged word (low-bit-1; position-independent)
-}
+pub struct HAny { pub raw: i64 }                 // VALUE form — movable
 
-// AT-REST marker: the in-arena form of an HAny slot — a thin location-anchored
-// word accessed through a `*zoned HAny` so the compiler materialises/lowers the
-// Ref arm. (Transitional: array/hmap still type their buffers `*mut HAnyRel` and
-// bridge via ha_materialize/ha_lower; they migrate to `*zoned HAny` next.)
 #[pinned]
 pub struct HAnyRel { pub raw: i64 }              // AT-REST form — non-movable
 
@@ -58,47 +44,33 @@ pub struct HAnyRel { pub raw: i64 }              // AT-REST form — non-movable
 pub struct HVal {}
 
 impl HAny {
-    // The raw 8-byte word (value form) — the single decode point every accessor
-    // reads bits off. Pod → the tagged word; Ref → the absolute pointer bits
-    // (low-bit-0). Reconstructing the word from the two arms makes the niche-enum
-    // transition transparent to the bit-twiddling accessors below.
-    pub fn raw(self: &HAny) -> i64 {
-        // The niche enum IS its 8-byte word (value form: Pod = the tagged word,
-        // Ref = the absolute pointer bits). Read it directly rather than matching —
-        // both arms reconstruct the same word, and this avoids the via-&self niche
-        // match entirely.
-        return unsafe { *(self as *const HAny as *const i64) };
-    }
-
     // ── constructors (value form) ─────────────────────────────────────────────
-    pub fn null() -> HAny { return HAny::Ref(0i64 as *const u8); }
+    pub fn null() -> HAny { return HAny { raw: 0i64 }; }
 
     // Inline primitive: `code` is the 7-bit Hermes2 type code (1..127); `v` must
-    // fit in 56 signed bits (wider primitives box into a Ref — later). The Pod arm
-    // holds the FULL tagged word (low-bit-1), stored verbatim by the raw niche.
+    // fit in 56 signed bits (wider primitives box into a Ref — later).
     pub fn pod(v: i64, code: u8) -> HAny {
-        return HAny::Pod(((v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64) as u64);
+        return HAny { raw: (v << 8) | (((code as i64) & 0x7Fi64) << 1) | 1i64 };
     }
     pub fn pod_bool(b: bool, code: u8) -> HAny {
         return HAny::pod(if b { 1i64 } else { 0i64 }, code);
     }
-    // Reference to a tagged zone object — absolute in the value form, self-relative
-    // at-rest (the #[zoned2] Ref arm; the compiler bridges).
-    pub fn ref_to(obj: *const u8) -> HAny { return HAny::Ref(obj); }
+    // Reference to a tagged zone object — stored ABSOLUTE in the value form.
+    pub fn ref_to(obj: *const u8) -> HAny { return HAny { raw: obj as i64 }; }
 
     // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
     //   call sites). `resolve` returns a raw pointer (safe to OBTAIN, like Rust's
     //   `as_ptr`); dereferencing / tagged-dispatch through it is where `unsafe` lives.
-    pub fn is_null(self: &HAny) -> bool { return self.raw() == 0i64; }
-    pub fn is_pod(self: &HAny)  -> bool { return (self.raw() & 1i64) == 1i64; }
+    pub fn is_null(self: &HAny) -> bool { return self.raw == 0i64; }
+    pub fn is_pod(self: &HAny)  -> bool { return (self.raw & 1i64) == 1i64; }
     pub fn is_ref(self: &HAny)  -> bool {
-        return (self.raw() & 1i64) == 0i64 && self.raw() != 0i64;
+        return (self.raw & 1i64) == 0i64 && self.raw != 0i64;
     }
-    pub fn pod_code(self: &HAny) -> u8 { return ((self.raw() >> 1) & 0x7Fi64) as u8; }
-    pub fn as_i56(self: &HAny)  -> i64 { return self.raw() >> 8; }   // sign-extends
-    pub fn as_bool(self: &HAny) -> bool { return (self.raw() >> 8) != 0i64; }
+    pub fn pod_code(self: &HAny) -> u8 { return ((self.raw >> 1) & 0x7Fi64) as u8; }
+    pub fn as_i56(self: &HAny)  -> i64 { return self.raw >> 8; }   // sign-extends
+    pub fn as_bool(self: &HAny) -> bool { return (self.raw >> 8) != 0i64; }
     // Resolve a Ref to the absolute tagged-object pointer (value form holds it raw).
-    pub fn resolve(self: &HAny) -> *const u8 { return self.raw() as *const u8; }
+    pub fn resolve(self: &HAny) -> *const u8 { return self.raw as *const u8; }
 }
 
 // Hermes2 HAny Pod primitive type codes (7-bit; identify the inline value).
@@ -190,28 +162,18 @@ impl HAnyMut {
 }
 
 // ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
-// Now COMPILER-OWNED: an at-rest HAnyRel slot IS a `*zoned HAny`, so deref reads
-// materialise the Ref arm (slot + delta → absolute) and assignments lower it
-// (target − slot → delta); Pod/null are position-independent (identity). These
-// wrappers just retype the slot and let the `*zoned` deref/assign do the work —
-// the hand-rolled relative arithmetic (Ref: &slot ± delta) is gone.
+// Materialise a slot's at-rest form into a movable value. Ref: abs = &slot + delta.
 pub unsafe fn ha_materialize(slot: *const HAnyRel) -> HAny {
-    // Materialise the at-rest slot (the `*zoned` deref turns a Ref arm's stored
-    // self-relative delta into an absolute pointer), then RECONSTRUCT the value
-    // by-value: read the absolute word and build a fresh HAny. Returning the
-    // `*zoned` deref result directly would hand back a pointer into THIS frame's
-    // materialise temp, which dangles after return (the by-pointer-enum return
-    // ABI copies a CONSTRUCT to the caller's slot, but not a deref'd place).
-    // The VALUE binding forces materialisation (Ref delta → absolute); a method
-    // receiver `(*…).raw()` would instead read the at-rest place (the raw delta).
-    let v: HAny = *(slot as *const u8 as *zoned HAny);
-    // Reconstruct by-value from the absolute word. In the VALUE form the niche
-    // enum IS its word and the Pod/Ref arm is decided by the LOW BIT at read time,
-    // so `ref_to(word)` stores the word verbatim — a Pod word (low-bit-1) reads
-    // back as a Pod. A single branchless construct (a two-arm `if Pod else Ref`
-    // mis-merges the niche return slot across branches).
-    return HAny::ref_to(v.raw() as *const u8);
+    let r: i64 = slot.raw;
+    if r == 0i64 { return HAny { raw: 0i64 }; }        // null
+    if (r & 1i64) == 1i64 { return HAny { raw: r }; }  // Pod — position-independent
+    return HAny { raw: (slot as i64) + r };            // Ref — &slot + delta
 }
+
+// Lower a movable value into a slot's at-rest form. Ref: delta = target − &slot.
 pub unsafe fn ha_lower(v: HAny, dst: *mut HAnyRel) {
-    *(dst as *mut u8 as *zoned mut HAny) = v;
+    let r: i64 = v.raw;
+    if r == 0i64 { dst.raw = 0i64; return; }               // null
+    if (r & 1i64) == 1i64 { dst.raw = r; return; }         // Pod
+    dst.raw = r - (dst as i64);                            // Ref — target − &slot
 }

@@ -159,7 +159,7 @@ unsafe fn om_get(m: *const HMap<HString, HVal>, key: str) -> HAny {
     let mut probed: u64 = 0u64;
     while probed < cap_u {
         let ep: *const HMapEntry = buf.add(slot as i64);
-        if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
+        if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
         let stored: HAny = ha_materialize(ep as *const HAnyRel);
         if str_eq(key_str(stored), key) {
             return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
@@ -167,7 +167,7 @@ unsafe fn om_get(m: *const HMap<HString, HVal>, key: str) -> HAny {
         slot = (slot + 1u64) & (cap_u - 1u64);
         probed = probed + 1u64;
     }
-    return HAny::ref_to(0i64 as *const u8);
+    return HAny { raw: 0i64 };
 }
 
 // ── Direct-reference surface (like HArray<HVal>) ────────────────────────────────
@@ -213,14 +213,14 @@ impl HMap<HString, HVal> {
     pub fn key_at(self: &HMap<HString, HVal>, i: i64) -> HAny {
         unsafe {
             let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
-            if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
+            if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
             return ha_materialize(ep as *const HAnyRel);
         }
     }
     pub fn val_at(self: &HMap<HString, HVal>, i: i64) -> HAny {
         unsafe {
             let ep: *const HMapEntry = om_buf(self as *const HMap<HString, HVal>).add(i);
-            if ent_key_raw(ep) == 0i64 { return HAny::ref_to(0i64 as *const u8); }
+            if ent_key_raw(ep) == 0i64 { return HAny { raw: 0i64 }; }
             return ha_materialize(ent_val(ep as *mut HMapEntry) as *const HAnyRel);
         }
     }
