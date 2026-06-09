@@ -1,24 +1,30 @@
 // Logos Hermes2 stdlib — hermes2.anyval
 //
-// HAny — the Hermes2 heterogeneous slot (the AnyVal analog): a niche-packed
-// `#[zoned2] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
-// 8-byte word that is either an inline primitive (Pod) or a reference to a
-// type-tagged zone object (Ref). The storage/compute split is now COMPILER-OWNED:
+// HAny — the Hermes2 heterogeneous slot (the AnyVal analog). An 8-byte tagged
+// word that is either an inline primitive (Pod) or a reference to a type-tagged
+// zone object (Ref). It comes in TWO forms with bit-identical layout, differing
+// only in how the Ref half is encoded — the storage/compute split (see
+// docs/internals/hermes2-minimal-container-plan.md D1):
 //
-//   VALUE form  — Ref = an ABSOLUTE pointer to the tagged object. Movable, lives
-//                 on the stack / in registers / by-value; dispatch resolves it
-//                 through Hermes2TagSystem. This is the plain `HAny`.
-//   AT-REST     — the same HAny stored in an arena slot reached through a
-//                 `*zoned HAny` (e.g. HArray/HMap buffers). Ref = a SELF-RELATIVE
-//                 delta `target − &slot`; `*slot` materialises it to the value
-//                 form and `*slot = v` lowers it — the compiler does the math.
+//   HAny    — the VALUE form. Ref = an ABSOLUTE pointer to the tagged object.
+//                 A plain movable struct (moves by memcpy, like String's ptr);
+//                 lives on the stack / in registers / by-value. Dispatch resolves
+//                 it through Hermes2TagSystem.
+//   HAnyRel — the AT-REST form stored in an arena slot. Ref = a SELF-RELATIVE
+//                 delta `target − &slot` (anchor = the slot's own address).
+//                 `#[pinned]` → NON-MOVABLE: it is location-anchored, accessed in
+//                 place via `*mut`, and materialised explicitly to a HAny.
 //
-// Encoding (little-endian i64 word, identical to AnyVal):
-//   word == 0          → null reference  (= Ref(0))
-//   word & 1 == 1      → Pod: bits[7:1] = 7-bit type code, bits[63:8] = 56-bit value
-//   word & 1 == 0 (≠0) → Ref: VALUE = absolute ptr; AT-REST = self-relative delta.
-//                        Zone objects are ≥2-aligned, so a Ref's low bit is always
-//                        0 — it never collides with the Pod tag.
+// Encoding (both forms, little-endian i64 `raw`):
+//   raw == 0           → null reference
+//   raw & 1 == 1       → Pod: bits[7:1] = 7-bit type code, bits[63:8] = 56-bit value
+//   raw & 1 == 0 (≠0)  → Ref: HAny = absolute ptr; HAnyRel = self-relative
+//                        delta. Zone objects are ≥2-aligned, so a Ref's low bit is
+//                        always 0 — it never collides with the Pod tag.
+//
+// Bridge: ha_materialize (slot → value, Ref: &slot+delta) / ha_lower (value → slot,
+// Ref: target−&slot); identity for Pod and null. `HArray<HVal>` get/put use
+// these. (Later: make these niche-packed `enum { Ref | Pod }` — more canonical.)
 
 package logos.lang.hermes2.anyval;
 
@@ -37,8 +43,12 @@ pub enum HAny {
     Pod(u64),         // inline tagged word (low-bit-1; position-independent)
 }
 
-// (HAnyRel — the old distinct at-rest marker type — is RETIRED. The at-rest form
-// is the same HAny, reached through a `*zoned HAny` slot; the compiler bridges.)
+// AT-REST marker: the in-arena form of an HAny slot — a thin location-anchored
+// word accessed through a `*zoned HAny` so the compiler materialises/lowers the
+// Ref arm. (Transitional: array/hmap still type their buffers `*mut HAnyRel` and
+// bridge via ha_materialize/ha_lower; they migrate to `*zoned HAny` next.)
+#[pinned]
+pub struct HAnyRel { pub raw: i64 }              // AT-REST form — non-movable
 
 // Placeholder element type for the heterogeneous containers `HArray<HVal>` /
 // `HMap<HString, HVal>`. A pure type-level label meaning "a heterogeneous Hermes
@@ -179,10 +189,19 @@ impl HAnyMut {
     pub fn as_any(self: &HAnyMut) -> HAny { return HAny::ref_to(self.obj as *const u8); }
 }
 
-// ── at-rest ↔ value: COMPILER-OWNED, no bridge functions ───────────────────────
-// An at-rest HAny slot is reached through a `*zoned HAny` (e.g. HArray/HMap buffers
-// are `*zoned mut HAny`). Reading `*p` materialises the Ref arm (stored
-// self-relative delta → absolute pointer) and `*p = v` lowers it (target − slot →
-// delta); Pod/null are position-independent (identity). The old `HAnyRel` at-rest
-// marker type and the `ha_materialize`/`ha_lower` wrappers are gone — the compiler
-// owns the conversion via the `*zoned` deref/assign (ref-repr-design §6/§8).
+// ── bridge: at-rest (slot) ↔ value ─────────────────────────────────────────────
+// Now COMPILER-OWNED: an at-rest HAnyRel slot IS a `*zoned HAny`, so deref reads
+// materialise the Ref arm (slot + delta → absolute) and assignments lower it
+// (target − slot → delta); Pod/null are position-independent (identity). These
+// wrappers just retype the slot and let the `*zoned` deref/assign do the work —
+// the hand-rolled relative arithmetic (Ref: &slot ± delta) is gone.
+pub unsafe fn ha_materialize(slot: *const HAnyRel) -> HAny {
+    // An at-rest HAnyRel slot IS a `*zoned HAny`: the deref materialises it (a Ref
+    // arm's stored self-relative delta → an absolute pointer; Pod/null are
+    // position-independent). The value-context deref forces materialisation and the
+    // return copies the value out — no hand-rolled `&slot ± delta` arithmetic.
+    return *(slot as *const u8 as *zoned HAny);
+}
+pub unsafe fn ha_lower(v: HAny, dst: *mut HAnyRel) {
+    *(dst as *mut u8 as *zoned mut HAny) = v;
+}
