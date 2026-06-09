@@ -451,8 +451,17 @@ private:
         if (!v || !ty) return v;
         bool fat_returnable = (ty.kind() == LogosType::Kind::Slice) ||
                               (ref_repr_of(ty) == RefReprKind::FatZoneMut);
-        if (!fat_returnable) return v;
-        if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+        // A tagged/niche enum is RETURNED by value (an aggregate; mlir_gen_fn.cpp),
+        // but its value-repr is by-POINTER (logos_to_mlir(Enum) == ptr). Spill the
+        // aggregate result to a slot so consumers (method `self`, match scrutinee,
+        // field/disc access) see a pointer — otherwise a by-value enum call result
+        // is used as if it were a pointer (e.g. `f().method()` → `*(self …)`),
+        // emitting `llvm.load(aggregate)`. (This is the niche-enum-byvalue bug.)
+        bool enum_returnable = ty.kind() == LogosType::Kind::Enum &&
+                               resolve_tagged_enum(std::string(ty.enum_name()), ty) != nullptr;
+        if (!fat_returnable && !enum_returnable) return v;
+        if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()) ||
+            mlir::isa<mlir::LLVM::LLVMArrayType>(v.getType()))
             return spill_to_alloca(v);
         return v;
     }
