@@ -1,17 +1,21 @@
 // Logos Hermes2 stdlib — hermes2.array
 //
-// HArray<HVal> — a heterogeneous zoned array of HAny. Elements live AT-REST as
-// `HAnyRel` slots in a never-move arena buffer; the header is `#[pinned]`
-// (in-arena, accessed via `*mut`, never moved). `data` is a self-relative delta
-// from the header to the element buffer — header and buffer may sit in DIFFERENT
-// never-move segments, and the delta stays valid (nothing moves).
+// HArray<HVal> — a heterogeneous zoned array of HAny. Elements live AT-REST as HAny
+// words in a `*zoned mut HAny` buffer (no distinct `HAnyRel` type — the at-rest-ness
+// is in the POINTER: each `*(buf.add(i))` materialises the slot Ref-delta → absolute,
+// `*(buf.add(i)) = v` lowers it; the compiler owns the bridge). The header is
+// `#[pinned]` (in-arena, accessed via `*mut`, never moved). `data` is itself a
+// self-relative delta from the header to the element buffer (#[zoned2] field) —
+// header and buffer may sit in DIFFERENT never-move segments, and the delta stays
+// valid (nothing moves).
 //
 // Growth APPENDS a fresh 2× buffer and re-points `data`; the old buffer is left
 // untouched (dead until the container drops — design §3, no per-object reclaim).
 // The grow-copy is NOT a memcpy: the at-rest slots are self-relative (anchored to
 // their slot address), so each is COPIED through the absolute intermediate —
-// `ha_materialize` (old slot → absolute value) then `ha_lower` (→ new slot,
-// re-anchored). This is the canonical "copy a self-relative ref via absolute".
+// `*(nbuf.add(i)) = *(obuf.add(i))` re-anchors each via its own slot automatically
+// (`*zoned` read → absolute, write → new delta). The canonical "copy a self-relative
+// ref via absolute".
 //
 // (Functional core — raw `unsafe` mechanics; the type-safe surface wraps it.)
 

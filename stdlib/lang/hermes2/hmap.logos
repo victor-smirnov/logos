@@ -20,7 +20,7 @@ package logos.lang.hermes2.hmap;
 
 use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc / _n
 use logos.lang.hermes2.allocator;   // Allocator, allocator_alloc
-use logos.lang.hermes2.anyval;      // HAny, HAnyRel, ha_lower/materialize, HA_I56
+use logos.lang.hermes2.anyval;      // HAny (niche enum), HAnyMut, HA_I56 — at-rest via *zoned
 use logos.lang.hermes2.hstring;     // HString, hstring_in_alloc
 use logos.lang.hermes2.array;       // HArray<HVal> + HAny::from(&Array) — for nested values
 use logos.lang.hash;                // fnv1a_bytes
@@ -59,8 +59,8 @@ pub type HValMap = HMap<HString, HVal>;
 unsafe fn om_buf(m: *const HMap<HString, HVal>) -> *const HMapEntry { return m.data as *const HMapEntry; }
 unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return m.data; }
 
-// Field-slot pointers within an entry (key @0, val @8) — addressed by offset to
-// avoid copying the `#[pinned]` HAnyRel by value.
+// Field-slot pointers within an entry (key @0, val @8) as `*zoned mut HAny` — each
+// read materialises the at-rest word, each write lowers it (no distinct HAnyRel).
 unsafe fn ent_key(ep: *mut HMapEntry) -> *zoned mut HAny { return ep as *zoned mut HAny; }
 unsafe fn ent_val(ep: *mut HMapEntry) -> *zoned mut HAny { return (ep as *mut u8).byte_add(8i64) as *zoned mut HAny; }
 unsafe fn ent_key_raw(ep: *const HMapEntry) -> i64 { return *(ep as *const i64); }   // key.raw, no copy

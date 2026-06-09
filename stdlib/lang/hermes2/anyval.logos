@@ -42,9 +42,10 @@ pub enum HAny {
 
 // Placeholder element type for the heterogeneous containers `HArray<HVal>` /
 // `HMap<HString, HVal>`. A pure type-level label meaning "a heterogeneous Hermes
-// value": in MEMORY an element is an HAnyRel (at-rest), materialised as an HAny
-// (value) — so neither HAny nor HAnyRel is the right param name. HVal stands in
-// for that logical element. (Phantom: the containers carry no T-typed field.)
+// value": in MEMORY an element is an AT-REST HAny word (reached through a
+// `*zoned mut HAny` slot), materialised to a value-form HAny on read — there is no
+// distinct at-rest type, so `HAny` alone isn't the right param name either. HVal
+// stands in for that logical element. (Phantom: the containers carry no T-typed field.)
 pub struct HVal {}
 
 impl HAny {
