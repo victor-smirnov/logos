@@ -115,9 +115,10 @@ pub const HT_U24: u8 = 25u8;
 // so `HAny::type_code` / `is_string` / `is_array` / `is_map` can dispatch on what
 // a Ref points at. (Allocated via container.alloc_tagged.) Compatible-ish with
 // Hermes1's HermesTag ranges; binary-format alignment comes with the hbs port.
-pub const H2_STRING: u8 = 130u8;
-pub const H2_ARRAY:  u8 = 100u8;
-pub const H2_MAP:    u8 = 101u8;
+pub const H2_STRING:  u8 = 130u8;
+pub const H2_ARRAY:   u8 = 100u8;
+pub const H2_MAP:     u8 = 101u8;
+pub const H2_TINYMAP: u8 = 98u8;   // bitmap-indexed tiny map (Hermes1 TinyObjectMap)
 // Boxed WIDE scalars — values that don't fit the 56-bit inline Pod live in their
 // own 8-byte tagged arena object, referenced by the HAny. Codes are the Hermes1
 // HermesTag values, so `type_code()` emits the wire tag (hbs-ready). (Allocated via
@@ -182,6 +183,7 @@ impl HAny {
     pub fn is_string(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_STRING; }
     pub fn is_array(self: &HAny)  -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_ARRAY; }
     pub fn is_map(self: &HAny)    -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_MAP; }
+    pub fn is_tinymap(self: &HAny) -> bool { return self.is_ref() && unsafe { h2_type_code(self.resolve()) } == H2_TINYMAP; }
 
     // Wide scalars: an integer is an inline (i56 / exact-width) Pod or a boxed
     // H2_I64 / H2_U64; a float is a boxed H2_F32 / H2_F64. `as_i64`/`as_u64`/

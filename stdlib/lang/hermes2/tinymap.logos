@@ -1,0 +1,123 @@
+// Logos Hermes2 stdlib — hermes2.tinymap
+//
+// HTinyValMap — the Hermes2 port of Hermes1's TinyObjectMap (`Map<Bitmap, AnyVal>`,
+// wire type_code 98): a compact, FIXED-capacity bitmap-indexed map of up to 52
+// small `u8` keys (0..51) to HAny values. Conceptually `HMap<Hu6, HVal>` (a 6-bit
+// key); HTinyValMap is the concrete name.
+//
+// Lookup is O(1): the value-array position of a key is `popcount(bitmap & keys-
+// below-key)`, and the value array is kept in key order (insert shifts right). The
+// presence bitmap + capacity + size pack into one `u64` header; `data` is the value
+// buffer (`#[zoned2]` self-relative, each slot a `*zoned mut HAny` — like HArray).
+//
+// Capacity is fixed at creation (≤52), so `set` NEVER allocates — no growth, no
+// zone needed for mutation. (Unlike HArray/HMap, which grow.)
+//
+//   header: bits[0:51] = key presence bitmap   (keys 0..51)
+//           bits[52:57] = capacity (≤52, 6 bits)
+//           bits[58:63] = current size (6 bits)
+
+package logos.lang.hermes2.tinymap;
+
+use logos.lang.hermes2.container;   // Hermes2, hermes2_alloc_n, alloc_tagged, H2_TINYMAP
+use logos.lang.hermes2.anyval;      // HAny (niche enum), HVal
+use logos.lang.hermes2.allocator;   // Allocator
+use logos.lang.ptr;
+
+// Hu6 — a pure type-level label for the 6-bit key (keys 0..51): the map is
+// conceptually `HMap<Hu6, HVal>`. (The concrete handle is HTinyValMap.)
+pub struct Hu6 {}
+
+// `#[zoned2]`: the `data` pointer to the value buffer is stored SELF-RELATIVE and
+// materialises to an absolute pointer on read (each `*(buf.add(i))` is a `*zoned`
+// access). `#[pinned]`: the header lives in the never-move arena.
+#[pinned]
+#[zoned2]
+pub struct HTinyValMap {
+    pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
+    pub data:   *zoned mut HAny,   // value array (cap slots; auto-relative)
+}
+
+// Ergonomic alias — the bitmap-indexed tiny map (the "HMap<Hu6, HVal>").
+pub type HMapTiny = HTinyValMap;
+
+// bits[0:51] presence-bitmap mask.
+const HTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;
+
+// Create an empty tiny map with `cap` (clamped to 52) value slots in `h`'s arena.
+unsafe fn htv_new(h: *mut Hermes2, cap: i64) -> *mut HTinyValMap {
+    let c: i64 = if cap > 52i64 { 52i64 } else { if cap < 0i64 { 0i64 } else { cap } };
+    let hdr: *mut HTinyValMap =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HTinyValMap>() as i64, H2_TINYMAP) as *mut HTinyValMap;
+    let buf: *zoned mut HAny = hermes2_alloc_n::<HAny>(h, c) as *zoned mut HAny;
+    hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
+    hdr.data   = buf;                   // #[zoned2]: lowers to a self-relative offset
+    let mut i: i64 = 0i64;
+    while i < c { *(buf.add(i)) = HAny::ref_to(0i64 as *const u8); i = i + 1i64; }
+    return hdr;
+}
+
+impl HTinyValMap {
+    pub fn size(self: &HTinyValMap) -> i64 { return ((self.header >> 58u64) & 0x3Fu64) as i64; }
+    pub fn cap(self: &HTinyValMap)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
+
+    // Is `key` present?
+    pub fn contains(self: &HTinyValMap, key: u8) -> bool {
+        return (self.header & HTV_BITMAP_MASK & (1u64 << (key as u64))) != 0u64;
+    }
+
+    // Value at `key`, or null HAny if absent / key out of range.
+    pub fn get(self: &HTinyValMap, key: u8) -> HAny {
+        if key >= 52u8 { return HAny::ref_to(0i64 as *const u8); }
+        let bitmap: u64 = self.header & HTV_BITMAP_MASK;
+        let kb: u64 = 1u64 << (key as u64);
+        if (bitmap & kb) == 0u64 { return HAny::ref_to(0i64 as *const u8); }
+        let pos: i64 = popcount_u64(bitmap & (kb - 1u64)) as i64;
+        // `self.data` is the #[zoned2] field → materialises to the absolute buffer;
+        // each `*(…​.add(i))` is a `*zoned` element access (at-rest → value).
+        return unsafe { *(self.data.add(pos)) };
+    }
+
+    // Insert or update `key → val`. `key >= 52` or a full map (new key) is a no-op.
+    pub fn set(self: &mut HTinyValMap, key: u8, val: HAny) {
+        if key >= 52u8 { return; }
+        unsafe {
+            let bitmap: u64 = self.header & HTV_BITMAP_MASK;
+            let kb: u64  = 1u64 << (key as u64);
+            let pos: i64 = popcount_u64(bitmap & (kb - 1u64)) as i64;
+            let size: i64 = ((self.header >> 58u64) & 0x3Fu64) as i64;
+            let cap: i64  = ((self.header >> 52u64) & 0x3Fu64) as i64;
+            let buf: *zoned mut HAny = self.data;   // #[zoned2] field → absolute buffer
+            if (bitmap & kb) == 0u64 {
+                if size >= cap { return; }   // full — no growth
+                // shift the value array right by 1 to keep it in key order
+                let mut i: i64 = size;
+                while i > pos {
+                    *(buf.add(i)) = *(buf.add(i - 1i64));
+                    i = i - 1i64;
+                }
+                let cap_bits:  u64 = (cap as u64) << 52u64;
+                let size_bits: u64 = ((size + 1i64) as u64) << 58u64;
+                self.header = (bitmap | kb) | cap_bits | size_bits;
+            }
+            *(buf.add(pos)) = val;
+        }
+    }
+}
+
+impl Hermes2 {
+    // Create an empty tiny map; returns a fresh `&mut` to it (interior-mut `&self`
+    // allocation, like `array`/`map`). FIXED capacity — `set` never grows, so the
+    // map carries no zone (a thin `&mut`).
+    pub fn tinymap<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HTinyValMap {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return &mut *htv_new(h, cap);
+        }
+    }
+}
+
+// A nested tiny map as a heterogeneous value (Ref to its header).
+impl HAny {
+    pub fn from(m: &HTinyValMap) -> HAny { return HAny::ref_to(m as *const HTinyValMap as *const u8); }
+}
