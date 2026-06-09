@@ -783,6 +783,11 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
     switch (t.kind) {
     case K::Ptr:
         put_byte(buf, t.mut_ptr ? 1 : 0);
+        // const_val bit 0 = `*zoned T` (F3) — a zoned raw pointer must intern
+        // DISTINCTLY from a plain `*T`, else the dedup collapses them and whichever
+        // is interned first wins (the `*zoned T` loses its flag intermittently,
+        // by interning order). Mirrors DstRef/TraitObject hashing const_val.
+        put_u64(buf, uint64_t(t.const_val.value_or(0)));
         put_sub(buf, impl, t.pointee);
         break;
     case K::Ref:
