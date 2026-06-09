@@ -5,7 +5,7 @@
 package test;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.tinymap;
+use logos.lang.hermes2.hmap;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(256i64);
     let m: &mut HTinyValMap = h.tinymap(8i64);
