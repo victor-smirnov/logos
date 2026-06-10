@@ -118,6 +118,8 @@ public:
     template <typename T> T* as_ptr() const noexcept {
         return reinterpret_cast<T*>(const_cast<uint8_t*>(resolve()));
     }
+    // CUT-OVER VESTIGIAL (base ignored) — lets logosc as_ptr(base) sites compile.
+    template <typename T> T* as_ptr(const void*) const noexcept { return as_ptr<T>(); }
 
     // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
     // Hermes1 base-relative `set_pointer(target, base)` — base no longer needed).

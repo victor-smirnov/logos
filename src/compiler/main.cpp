@@ -986,7 +986,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     AnyVal eav = user_uses->get(i);
                     if (!eav.is_pointer()) continue;
                     auto* unode = reinterpret_cast<const TinyObjectMap*>(
-                        user_baeav.resolve());
+                        eav.resolve());
                     std::string dotted;
                     if (unode->has_key(la::NAME.code)) {
                         AnyVal nm_av = unode->get(la::NAME.code);
@@ -1004,7 +1004,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 AnyVal pav = parts->get(pi);
                                 if (!pav.is_pointer()) continue;
                                 auto* part = reinterpret_cast<const TinyObjectMap*>(
-                                    user_bapav.resolve());
+                                    pav.resolve());
                                 if (!part->has_key(la::NAME.code)) continue;
                                 AnyVal nv = part->get(la::NAME.code);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
@@ -1024,7 +1024,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal sav = synth_uses_ptr->get(si);
                         if (!sav.is_pointer()) continue;
                         auto* snode = reinterpret_cast<const TinyObjectMap*>(
-                            HermesAccess::base(dosav.resolve());
+                            sav.resolve();
                         if (!snode->has_key(la::NAME.code)) continue;
                         AnyVal sn_av = snode->get(la::NAME.code,
                                                   HermesAccess::base(doc));
@@ -2010,7 +2010,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
 
-    auto packed_e = clone(doc);
+    auto packed_e = compactify(doc);
     if (!packed_e) return nullptr;
     auto packed = std::move(packed_e).get();
     auto& parena = HermesAccess::arena(packed);

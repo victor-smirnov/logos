@@ -33,6 +33,16 @@ public:
         if (holder_) holder_->ref();
     }
 
+    // Construct from a within-arena offset + holder (Hermes1's `View(offset, holder)`).
+    // Resolves obj against the holder's single-chunk base. NULL_OFFSET → null view.
+    View(arena_offset_t off, MemHolder* holder) noexcept {
+        if (off != NULL_OFFSET && holder) {
+            obj_ = reinterpret_cast<Obj*>(holder->base() + off.value());
+            holder_ = holder;
+            holder_->ref();
+        }
+    }
+
     // Construct from a value-form Ref AnyVal (resolves self-relatively). null/Pod → a
     // null view. The cut-over uses this in place of Hermes1's `View(av.to_offset(), h)`.
     View(AnyVal av, MemHolder* holder) noexcept {
@@ -71,6 +81,12 @@ public:
     explicit operator bool() const noexcept { return obj_ != nullptr; }
     MemHolder* holder() const noexcept { return holder_; }
     Obj*       ptr()    const noexcept { return obj_; }
+    // The object's within-arena offset (single-chunk base = holder's head).
+    arena_offset_t offset() const noexcept {
+        return obj_ ? arena_offset_t(static_cast<uint32_t>(
+                          reinterpret_cast<const uint8_t*>(obj_) - holder_->base()))
+                    : NULL_OFFSET;
+    }
 
     // The object as a value-form AnyVal Ref (an absolute pointer; re-lowers when
     // stored into a zoned slot).
