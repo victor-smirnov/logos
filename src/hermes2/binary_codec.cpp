@@ -65,6 +65,7 @@ void enc_obj(const uint8_t* obj, std::vector<uint8_t>& o) {
     case tc::TINYMAP: {
         auto* t = reinterpret_cast<const TinyObjectMap*>(obj);
         w_varint(o, t->capacity()); w_varint(o, t->size());
+        w_varint(o, t->schema_type_code());
         for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k)
             if (t->has_key(k)) { w_byte(o, k); enc_av(t->get(k), o); }
         break;
@@ -179,8 +180,10 @@ void* dec_obj(Reader& r, Arena& a) {
     }
     case tc::TINYMAP: {
         uint64_t cap = r.varint(); uint64_t cnt = r.varint();
+        uint64_t schema = r.varint();
         auto res = TinyObjectMap::create(a, cap); if (!res) { r.ok = false; return nullptr; }
         TinyObjectMap* d = *res;
+        d->set_schema_type_code(schema);
         for (uint64_t i = 0; i < cnt; ++i) { uint8_t k = r.u8(); (void)d->put(k, dec_av(r, a), a); }
         return d;
     }

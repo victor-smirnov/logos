@@ -88,6 +88,7 @@ void* deep_copy_object(const uint8_t* src_obj, DeepCopyState& dedup) noexcept {
         auto r = TinyObjectMap::create(dst, s->capacity());
         if (!r) return nullptr;
         TinyObjectMap* d = *r;
+        d->set_schema_type_code(s->schema_type_code());   // carry node-class discriminator
         dedup.map(src_obj, d);
         for (uint8_t k = 0; k < TinyObjectMap::MAX_KEYS; ++k)
             if (s->has_key(k))

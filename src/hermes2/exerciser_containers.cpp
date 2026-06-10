@@ -121,8 +121,11 @@ int main() {
         CHECK(m_exp.has_value(), 50);
         TinyObjectMap* m = *m_exp;
         CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::TINYMAP, 51);
-        CHECK(sizeof(TinyObjectMap) == 16, 52);
+        CHECK(sizeof(TinyObjectMap) == 24, 52);
         CHECK(m->capacity() == 8 && m->size() == 0, 53);
+        CHECK(m->schema_type_code() == 0, 54);           // default: no schema
+        m->set_schema_type_code(5002);                   // round-trips through put/get
+        CHECK(m->schema_type_code() == 5002, 55);
 
         // insert out of key order; values stay addressable by key
         (void)m->put(5, AnyVal::pod(500, tc::HA_I56), arena);

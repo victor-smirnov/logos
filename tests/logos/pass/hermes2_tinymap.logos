@@ -34,5 +34,10 @@ fn main() -> i32 {
     if !got.is_tinymap() { return 11i32; }
     let back: &HTinyValMap = unsafe { &*(got.resolve() as *const HTinyValMap) };
     if back.get(1u8).as_i16() != 999i16 { return 12i32; }
+    // schema_type_code — first-class node-class discriminator (byte-shared with C++ TOM)
+    if m.schema_type_code() != 0u64 { return 13i32; }   // default: none
+    m.set_schema_type_code(5002u64);                    // LirArenaRoot-style tag
+    if m.schema_type_code() != 5002u64 { return 14i32; }
+    if m.get(5u8).as_i8() != 55i8 || m.size() != 5i64 { return 15i32; }  // unaffected by schema (size 5: keys 0,2,5,10,40)
     return 0i32;
 }

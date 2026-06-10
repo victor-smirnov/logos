@@ -301,7 +301,8 @@ impl HAny {
 #[zoned2]
 pub struct HMap<Hu6, V> {
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
-    pub data:   *zoned mut HAny,   // value array (cap slots; auto-relative)
+    pub schema: u64,               // node-class discriminator (0 = none); byte-shared with C++ TOM
+    pub data:   *zoned mut HAny,   // value array (cap slots; auto-relative) — zoned ptr stays LAST
 }
 
 // The bitmap-indexed tiny map (Hermes1 TinyObjectMap); was the standalone HTinyValMap.
@@ -315,6 +316,7 @@ unsafe fn htv_new(h: *mut Hermes2, cap: i64) -> *mut HMap<Hu6, HVal> {
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap<Hu6, HVal>>() as i64, H2_TINYMAP) as *mut HMap<Hu6, HVal>;
     let buf: *zoned mut HAny = hermes2_alloc_n::<HAny>(h, c) as *zoned mut HAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
+    hdr.schema = 0u64;                  // no schema by default
     hdr.data   = buf;                   // #[zoned2]: lowers to a self-relative offset
     let mut i: i64 = 0i64;
     while i < c { *(buf.add(i)) = HAny::ref_to(0i64 as *const u8); i = i + 1i64; }
@@ -324,6 +326,10 @@ unsafe fn htv_new(h: *mut Hermes2, cap: i64) -> *mut HMap<Hu6, HVal> {
 impl HMap<Hu6, HVal> {
     pub fn size(self: &HMap<Hu6, HVal>) -> i64 { return ((self.header >> 58u64) & 0x3Fu64) as i64; }
     pub fn cap(self: &HMap<Hu6, HVal>)  -> i64 { return ((self.header >> 52u64) & 0x3Fu64) as i64; }
+
+    // Node-class discriminator (0 = none); byte-shared with the C++ TinyObjectMap.
+    pub fn schema_type_code(self: &HMap<Hu6, HVal>) -> u64 { return self.schema; }
+    pub fn set_schema_type_code(self: &mut HMap<Hu6, HVal>, code: u64) { self.schema = code; }
 
     // Is `key` present?
     pub fn contains(self: &HMap<Hu6, HVal>, key: u8) -> bool {
