@@ -203,7 +203,35 @@ The API + invariants match Hermes1 so logosc's call-sites move with a `hermes::`
    Load-bearing Hermes APIs: `arena_offset_t`(276), `TinyMapView`(263), `AnyVal`(178),
    `MemHolder`(33), `binary_codec`, `clone`, `arena_publish_named`, `schema`.
 
-**Migration strategy (Victor):** keep the Hermes1 **API + collection algorithms** so
+**DECIDED (Victor 2026-06-10): NATIVE rename, no base-model leak.** Rename
+`hermes::` → `hermes2::` across the compiler and adapt each site to the native
+self-relative API; do NOT reintroduce a base/offset facade. End-state is clean
+hermes2. Incremental by translation unit, gated by the full build + test suite.
+- **Phase A — DONE (`c9980a59`).** Additive hermes2 API so the rename is near-mechanical
+  for value/discriminant sites WITHOUT a base model: AnyVal `is_pointer/is_value`
+  (= `is_ref/is_pod`), `as_value<T>`, `value_type_hash`, `from_value<T>(v,code)`. The
+  genuinely base-relative sites (`to_offset`/`as_ptr(base)`/`from_offset`) get NO alias —
+  they adapt to `resolve()`/`set_ref()`.
+- **Per-site mapping:** `av.to_offset()`+`holder` → pass `av` to `as_tinymap/as_array/
+  as_string(av, holder)`; `av.as_ptr<const T>(base)` → `reinterpret_cast<const T*>(av.resolve())`;
+  `from_offset(off)`/`set_pointer(p,base)` → `set_ref(p)`; `make_doc(n)` → `HermesCtr::make(n)`
+  (now `expected`); `doc.root_object().as_tiny_map()` → `as_tinymap(doc.root(), doc.holder())`;
+  `binary_encode/clone/from_bytes_copy` → hermes2 `binary_encode`/`clone`/`compactify`/
+  `HermesCtr::from_bytes`; multi-arena names already match (§6.1).
+- **Phase B — AST producer + readers (the big-bang; do atomically).** The AST is built
+  by the GENERATED `build/src/compiler/logos_parser.hpp` (every rule returns
+  `hermes::AnyVal`; ~236 sites), emitted by `tools/peg_gen/src/codegen.cpp` — so the
+  producer flip is in codegen's emitted strings + the parser runtime helpers. All AST
+  readers (`sema_impl.hpp` `code_of/str_of/map_of/arr_of`, `sema_expr/stmt/decl/collect`,
+  `module_loader` AST reads) flip together (shared AST arena → cannot half-migrate).
+- **Phase C — LIR mirror** (`lir_mirror.cpp` 447, `lir_view.hpp`, `lir_schema.hpp`) + mono
+  (`mono_clone`, reads via schema_type_code) — a SEPARATE arena from the AST, so it can
+  land after B. `ExprRef/StmtRef`: `arena_offset_t`+base → AnyVal/ptr + `schema_type_code()`.
+- **Phase D — `.hermes0`** (`emit_module.cpp`, `module_loader.cpp`) — binary_encode for
+  AST + publish/clone for the LIR blob + ArenaPool load (§6.1 layer is ready).
+- **Phase E — link swap:** drop `logos_hermes`, link `logos_hermes2`; delete Hermes1 (step 6).
+
+**Original strategy note (kept for context):** keep the Hermes1 **API + collection algorithms** so
 logosc's ~1150 `hermes::` call-sites barely change; swap the **primitives** (done in
 `logos_hermes2`). Concretely: provide the same view surface (`TinyMapView::get`,
 `map_of/arr_of/str_of`) on top of `logos_hermes2`, so the sema/mirror walkers are a
