@@ -62,6 +62,10 @@ inline constexpr uint64_t ArrayF32      = tc::ARRAY_F32;
 inline constexpr uint64_t ArrayF64      = tc::ARRAY_F64;
 }  // namespace type_hash
 
+// Hermes1's type-ops registry init — hermes2 has no per-type ops vtable (clone/
+// stringify dispatch directly on the TypeTag), so this is a no-op.
+inline void hermes_init() noexcept {}
+
 // ── Doc-handle spellings ─────────────────────────────────────────────────────────
 // (Object lives in view.hpp; HermesCtr::root_object() returns it.)
 using HermesView = HermesCtr;
