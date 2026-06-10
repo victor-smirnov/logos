@@ -72,6 +72,14 @@ impl HView2 {
         return unsafe { (&*(p as *const HMap<HString, HVal>)).get(key) };
     }
 
+    // u8-keyed TinyObjectMap field read (the AST/schema flavour: HMap<Hu6,HVal>).
+    pub fn tiny_map_get(self: HView2, node: HAny, key: u8) -> HAny {
+        if !node.is_ref() { return HAny::Ref(0i64 as *const u8); }
+        let p: *const u8 = node.resolve();
+        if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
+        return unsafe { (&*(p as *const HMap<Hu6, HVal>)).get(key) };
+    }
+
     // Scalar reads — an integer is an inline Pod OR a boxed zone H2_I64/H2_U64;
     // as_i64/as_u64 read whichever form holds it. Non-int → 0 / false.
     pub fn get_int(self: HView2, v: HAny) -> i64 {
