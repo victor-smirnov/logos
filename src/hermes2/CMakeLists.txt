@@ -1,6 +1,7 @@
 add_library(logos_hermes2
     arena.cpp
     clone.cpp
+    binary_codec.cpp
 )
 
 target_include_directories(logos_hermes2 PUBLIC
@@ -40,3 +41,9 @@ add_executable(hermes2_exerciser_document exerciser_document.cpp)
 target_link_libraries(hermes2_exerciser_document PRIVATE logos_hermes2)
 add_test(NAME hermes2_exerciser_document COMMAND hermes2_exerciser_document)
 set_tests_properties(hermes2_exerciser_document PROPERTIES LABELS "hermes2;cpp")
+
+# Exerciser: Layer 6 (binary codec — encode/decode roundtrip)
+add_executable(hermes2_exerciser_codec exerciser_codec.cpp)
+target_link_libraries(hermes2_exerciser_codec PRIVATE logos_hermes2)
+add_test(NAME hermes2_exerciser_codec COMMAND hermes2_exerciser_codec)
+set_tests_properties(hermes2_exerciser_codec PROPERTIES LABELS "hermes2;cpp")
