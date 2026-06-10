@@ -1459,7 +1459,7 @@ std::vector<ParsedModule> load_modules(
             if (!wanted(pm.package)) continue;
             if (!visited_files.insert(pm.path).second) continue;
             if (!pm.package.empty()) visited_packages.insert(pm.package);
-            modules.push_back({pm.path, pm.package, std::move(pm.ast),
+            modules.push_back({pm.path, pm.package, pm.ast,
                                /*from_binary_module=*/true,
                                /*is_lazy=*/pm.is_lazy});
         }

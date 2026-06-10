@@ -90,7 +90,7 @@ public:
     TypePoolImpl(logos::InitTag& tag) {
         // hermes2 MemHolder::make returns a holder with refcount 1 (owning); the
         // GrowableSingleChunk arena is the mirror/TypePool's single segment.
-        auto h = hermes2::MemHolder::make(64 * 1024, hermes2::ArenaMode::GrowableSingleChunk);
+        auto h = hermes2::MemHolder::make(512ull * 1024 * 1024, hermes2::ArenaMode::GrowableSingleChunk);
         if (!h) {
             tag.fail(std::move(h.error()));
             return;

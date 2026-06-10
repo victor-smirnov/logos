@@ -94,8 +94,12 @@ public:
         if (cap > MAX_KEYS) cap = MAX_KEYS;
         TypeTag tag(tc::TINYMAP);
         LOGOS_TRY(auto* mem, arena.allocate(sizeof(TinyObjectMap), alignof(TinyObjectMap), tag));
-        auto* m = new (mem) TinyObjectMap();
+        // GrowableSingleChunk REALLOCS on the buffer alloc below, which would dangle
+        // `mem` — remember its offset and recompute after (no-op for never-move).
+        size_t hdr_off = static_cast<size_t>(static_cast<uint8_t*>(mem) - arena.head().data());
         LOGOS_TRY(auto* buf_mem, arena.allocate_raw(cap * sizeof(AnyVal), alignof(AnyVal)));
+        if (arena.mode() == ArenaMode::GrowableSingleChunk) mem = arena.head().data() + hdr_off;
+        auto* m = new (mem) TinyObjectMap();
         auto* buf = static_cast<AnyVal*>(buf_mem);
         for (uint64_t i = 0; i < cap; ++i) new (&buf[i]) AnyVal();
         m->header_           = (cap << 52);    // bitmap 0, size 0, cap bits

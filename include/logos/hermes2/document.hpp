@@ -70,8 +70,21 @@ public:
         }
         return *this;
     }
-    HermesCtr(const HermesCtr&) = delete;
-    HermesCtr& operator=(const HermesCtr&) = delete;
+    // COPYABLE — shared refcounted ownership (the Hermes1 `Hermes = Own<HermesView>`
+    // semantics). A copy takes a +1 ref on the holder + shares the header; the doc
+    // lives as long as any handle. Needed because logosc copies AST handles (into
+    // module lists, caches, ParsedModule) rather than moving them.
+    HermesCtr(const HermesCtr& o) noexcept : holder_(o.holder_), header_(o.header_) {
+        if (holder_) holder_->ref();
+    }
+    HermesCtr& operator=(const HermesCtr& o) noexcept {
+        if (this != &o) {
+            if (o.holder_) o.holder_->ref();
+            if (holder_) holder_->unref();
+            holder_ = o.holder_; header_ = o.header_;
+        }
+        return *this;
+    }
     ~HermesCtr() noexcept { if (holder_) holder_->unref(); }
 
     bool       is_null() const noexcept { return holder_ == nullptr; }
@@ -79,9 +92,12 @@ public:
     MemHolder* holder()  const noexcept { return holder_; }
     Arena&     arena()   const noexcept { return holder_->arena(); }
 
-    AnyVal root()           const noexcept { return header_->root; }   // by-value re-anchor
+    // Null-safe (a default/empty doc handle reads as null root) — Hermes1's Own<>
+    // returned a null Object for a null handle, and logosc relies on that for
+    // lazy/placeholder AST slots.
+    AnyVal root()           const noexcept { return header_ ? header_->root : AnyVal{}; }
     void   set_root(AnyVal v) noexcept { header_->root = v; }          // assignment lowers
-    Object root_object()    const noexcept { return Object(header_->root, holder_); }
+    Object root_object()    const noexcept { return header_ ? Object(header_->root, holder_) : Object{}; }
 
     // Seal the arena: forbid further allocations (the document becomes immutable).
     void seal() noexcept { holder_->arena().seal(); }
