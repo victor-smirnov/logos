@@ -2,6 +2,8 @@ add_library(logos_hermes2
     arena.cpp
     clone.cpp
     binary_codec.cpp
+    stringify.cpp
+    text_parser.cpp
 )
 
 target_include_directories(logos_hermes2 PUBLIC
@@ -47,3 +49,9 @@ add_executable(hermes2_exerciser_codec exerciser_codec.cpp)
 target_link_libraries(hermes2_exerciser_codec PRIVATE logos_hermes2)
 add_test(NAME hermes2_exerciser_codec COMMAND hermes2_exerciser_codec)
 set_tests_properties(hermes2_exerciser_codec PROPERTIES LABELS "hermes2;cpp")
+
+# Exerciser: Layer 7 (text — stringify + parse roundtrip)
+add_executable(hermes2_exerciser_text exerciser_text.cpp)
+target_link_libraries(hermes2_exerciser_text PRIVATE logos_hermes2)
+add_test(NAME hermes2_exerciser_text COMMAND hermes2_exerciser_text)
+set_tests_properties(hermes2_exerciser_text PROPERTIES LABELS "hermes2;cpp")
