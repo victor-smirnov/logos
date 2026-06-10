@@ -54,16 +54,14 @@ public:
     bool is_null() const noexcept { return offset_ == 0; }
     bool is_not_null() const noexcept { return offset_ != 0; }
 
-    // Resolve to an absolute pointer (relative → absolute). No base needed.
-    T* get() noexcept {
+    // Resolve to an absolute pointer (relative → absolute). No base needed. Returns
+    // a mutable `T*` even from a const RelativePtr (the relptr's constness does not
+    // imply the pointee's — matching Memoria/Hermes1's convention).
+    T* get() const noexcept {
         return offset_ ? reinterpret_cast<T*>(my_addr() + offset_) : nullptr;
     }
-    const T* get() const noexcept {
-        return offset_ ? reinterpret_cast<const T*>(my_addr() + offset_) : nullptr;
-    }
 
-    T* operator->() noexcept { return get(); }
-    const T* operator->() const noexcept { return get(); }
+    T* operator->() const noexcept { return get(); }
 
     // Raw at-rest offset (for serialization / niche inspection).
     int64_t offset() const noexcept { return offset_; }
