@@ -74,6 +74,10 @@ unsafe fn write_val(out: &mut String, v: HAny) {
             write_typed_array(out, p, tcv);
             return;
         }
+        if tcv >= 3101u64 && tcv <= 3104u64 {
+            write_typed_map(out, p, tcv);
+            return;
+        }
     }
     out.push_u8(63u8);                      // ? — unknown tag
 }
@@ -123,6 +127,46 @@ unsafe fn write_typed_array(out: &mut String, p: *const u8, tc: u64) {
         i = i + 1u64;
     }
     out.push_u8(93u8);                                     // ]
+}
+
+// Render a TypedMap<K> blob: size_(i64@0) cap_(i64@8) keys_(RelativePtr@16→K[])
+// vals_(RelativePtr@24→AnyVal[]). Values are AT-REST HAny words (self-relative to
+// their slot). `<KType,AnyVal> {k: v, ...}`.
+unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64) {
+    let size: i64 = *(p as *const i64);
+    let kfield: i64 = (p as i64) + 16i64;
+    let keys: i64 = kfield + *(kfield as *const i64);      // RelativePtr resolve
+    let vfield: i64 = (p as i64) + 24i64;
+    let vals: i64 = vfield + *(vfield as *const i64);
+    let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };  // I32/U32 vs I64/U64
+    out.push_u8(60u8);                                     // <
+    if      tc == 3101u64 { out.push_str("I32"); }
+    else if tc == 3102u64 { out.push_str("U32"); }
+    else if tc == 3103u64 { out.push_str("I64"); }
+    else                  { out.push_str("U64"); }
+    out.push_str(", AnyVal");
+    out.push_u8(62u8); out.push_u8(32u8);                  // > (space)
+    out.push_u8(123u8);                                    // {
+    let mut i: i64 = 0i64;
+    while i < size {
+        if i > 0i64 { out.push_str(", "); }
+        let koff: i64 = keys + i * kw;
+        if      tc == 3101u64 { let k: i32 = *(koff as *const i32); out.push_str((k as i64).to_string().as_str()); }
+        else if tc == 3102u64 { let k: u32 = *(koff as *const u32); out.push_str((k as u64).to_string().as_str()); }
+        else if tc == 3103u64 { let k: i64 = *(koff as *const i64); out.push_str(k.to_string().as_str()); }
+        else                  { let k: u64 = *(koff as *const u64); out.push_str(k.to_string().as_str()); }
+        out.push_u8(58u8); out.push_u8(32u8);              // : (space)
+        // value: at-rest HAny word at vals[i], self-relative to the slot.
+        let vslot: i64 = vals + i * 8i64;
+        let w: i64 = *(vslot as *const i64);
+        let vh: HAny =
+            if w == 0i64 { HAny::Ref(0i64 as *const u8) }
+            else if (w & 1i64) == 1i64 { HAny::Pod(w as u64) }
+            else { HAny::Ref((vslot + w) as *const u8) };
+        write_val(out, vh);
+        i = i + 1i64;
+    }
+    out.push_u8(125u8);                                    // }
 }
 
 // Render `v` (and its transitive references) to a fresh String.

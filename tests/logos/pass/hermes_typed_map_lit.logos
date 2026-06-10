@@ -1,10 +1,12 @@
-// hermes_typed_map_lit.logos — verify @<K,V>{...} compile-time typed map blobs.
+// hermes_typed_map_lit.logos — verify @<K, V>{...} compile-time typed map blobs.
 
 package hermes_typed_map_lit;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.mem.hermes.stringify;
+use logos.mem.hermes2.stringify;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
@@ -12,7 +14,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }
@@ -20,29 +22,29 @@ unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
 pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
-    // 1. @<I32,AnyVal>{1: 10, 2: 20} → Map<i32, AnyVal> (tc=105)
-    let lit1: HermesStatic = @<I32,AnyVal>{1: 10, 2: 20};
-    rc = check(&lit1, "<I32,AnyVal> {1:10,2:20}", 1);
+    // 1. @<I32, AnyVal>{1: 10, 2: 20} → Map<i32, AnyVal> (tc=105)
+    let lit1: HermesStatic = @<I32, AnyVal>{1: 10, 2: 20};
+    rc = check(&lit1, "<I32, AnyVal> {1: 10, 2: 20}", 1);
     if rc != 0 { return rc; }
 
     // 2. @<I32>{3: true, 4: false} — single type arg
     let lit2: HermesStatic = @<I32>{3: true, 4: false};
-    rc = check(&lit2, "<I32,AnyVal> {3:true,4:false}", 2);
+    rc = check(&lit2, "<I32, AnyVal> {3: true, 4: false}", 2);
     if rc != 0 { return rc; }
 
-    // 3. Empty @<I32,AnyVal>{}
-    let lit3: HermesStatic = @<I32,AnyVal>{};
-    rc = check(&lit3, "<I32,AnyVal> {}", 3);
+    // 3. Empty @<I32, AnyVal>{}
+    let lit3: HermesStatic = @<I32, AnyVal>{};
+    rc = check(&lit3, "<I32, AnyVal> {}", 3);
     if rc != 0 { return rc; }
 
     // 4. Negative keys: @<I32>{-1: "neg", 0: "zero"}
     let lit4: HermesStatic = @<I32>{-1: "neg", 0: "zero"};
-    rc = check(&lit4, "<I32,AnyVal> {-1:\"neg\",0:\"zero\"}", 4);
+    rc = check(&lit4, "<I32, AnyVal> {-1: \"neg\", 0: \"zero\"}", 4);
     if rc != 0 { return rc; }
 
-    // 5. @<Varchar,AnyVal>{"a": 1, "b": 2} — same as untyped @{"a":1,"b":2}
-    let lit5: HermesStatic = @<Varchar,AnyVal>{"a": 1, "b": 2};
-    rc = check(&lit5, "{\"a\":1,\"b\":2}", 5);
+    // 5. @<Varchar, AnyVal>{"a": 1, "b": 2} — same as untyped @{"a": 1, "b": 2}
+    let lit5: HermesStatic = @<Varchar, AnyVal>{"a": 1, "b": 2};
+    rc = check(&lit5, "{\"a\": 1, \"b\": 2}", 5);
     if rc != 0 { return rc; }
 
     return 0;
