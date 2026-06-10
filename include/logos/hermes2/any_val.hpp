@@ -54,10 +54,28 @@ public:
     bool is_pod()  const noexcept { return (word_ & 1) == 1; }
     bool is_ref()  const noexcept { return (word_ & 1) == 0 && word_ != 0; }
 
+    // Hermes1-spelling aliases (a Ref is the self-relative successor of Hermes1's
+    // base-relative "pointer"; a Pod is its inline "value"). Kept so the logosc
+    // cut-over is a near-mechanical rename — NO base/offset model is reintroduced.
+    bool is_pointer() const noexcept { return is_ref(); }
+    bool is_value()   const noexcept { return is_pod(); }
+
     // ── Pod accessors (position-independent reads) ──────────────────────────────
     uint8_t pod_code() const noexcept { return static_cast<uint8_t>((word_ >> 1) & 0x7F); }
     int64_t as_i56()   const noexcept { return word_ >> 8; }   // arithmetic shift → sign-extends
     bool    as_bool()  const noexcept { return (word_ >> 8) != 0; }
+
+    // Typed inline-value accessors (the i56 payload narrowed to T). `value_type_hash`
+    // is the Hermes1 spelling of `pod_code`.
+    template <typename T>
+    T as_value() const noexcept { return static_cast<T>(as_i56()); }
+    uint8_t value_type_hash() const noexcept { return pod_code(); }
+
+    // Encode a small typed value into a Pod niche with type code `code`.
+    template <typename T>
+    static AnyVal from_value(T v, uint8_t code) noexcept {
+        return pod(static_cast<int64_t>(v), code);
+    }
 
     // ── Ref access ──────────────────────────────────────────────────────────────
     // Lower an absolute pointer into this slot's self-relative Ref (absolute → rel).
