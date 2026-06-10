@@ -1634,6 +1634,12 @@ private:
         for (const auto& e : g_.exports) {
             w.fmt("logos::hermes2::Hermes {}::parse_{}() {{", parser_class_, e);
             w.indent();
+            // MultiChunk (never-move): the parser holds node ptrs / owning views
+            // across allocations + ObjectArray/Map::grow assume the header never moves,
+            // so a single-chunk realloc would dangle them. MultiChunk grows by
+            // APPENDING (existing objects never move). Metaprog reads the AST via
+            // resolve()/Refs (position-independent), not base+offset, so chunk spans
+            // are fine.
             w.line("doc_ = logos::hermes2::make_doc(524288).get();");
             w.fmt("AnyVal root = rule_{}();", e);
             // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
