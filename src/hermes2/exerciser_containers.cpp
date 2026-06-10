@@ -8,6 +8,8 @@
 #include <logos/hermes2/arena.hpp>
 #include <logos/hermes2/arena_string.hpp>
 #include <logos/hermes2/object_array.hpp>
+#include <logos/hermes2/typed_array.hpp>
+#include <logos/hermes2/tiny_object_map.hpp>
 #include <logos/hermes2/any_val.hpp>
 #include <logos/hermes2/type_codes.hpp>
 
@@ -90,6 +92,64 @@ int main() {
         CHECK(child->get(0).as_i56() == 7, 35);
     }
 
-    std::printf("hermes2 containers (string + array): OK\n");
+    // ── TypedArray<T>: plain packed elements, memcpy growth ────────────────────
+    {
+        auto a_exp = ArrayU8::create(arena, 2);
+        CHECK(a_exp.has_value(), 40);
+        ArrayU8* a = *a_exp;
+        CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(a)).type_code() == tc::ARRAY_U8, 41);
+        CHECK(sizeof(ArrayU8) == 24, 42);
+        for (int i = 0; i < 50; ++i)
+            CHECK(a->push_back(static_cast<uint8_t>(i), arena).has_value(), 43);
+        CHECK(a->size() == 50, 44);
+        for (int i = 0; i < 50; ++i) CHECK(a->get(static_cast<uint64_t>(i)) == static_cast<uint8_t>(i), 45);
+
+        auto d_exp = ArrayF64::create(arena, 1);
+        CHECK(d_exp.has_value(), 46);
+        ArrayF64* d = *d_exp;
+        CHECK(d->push_back(3.5, arena).has_value() && d->push_back(-1.25, arena).has_value(), 47);
+        CHECK(d->get(0) == 3.5 && d->get(1) == -1.25, 48);
+        CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(d)).type_code() == tc::ARRAY_F64, 49);
+    }
+
+    // ── TinyObjectMap: bitmap-indexed, key-order, fixed cap ────────────────────
+    {
+        auto m_exp = TinyObjectMap::create(arena, 8);
+        CHECK(m_exp.has_value(), 50);
+        TinyObjectMap* m = *m_exp;
+        CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::TINYMAP, 51);
+        CHECK(sizeof(TinyObjectMap) == 16, 52);
+        CHECK(m->capacity() == 8 && m->size() == 0, 53);
+
+        // insert out of key order; values stay addressable by key
+        (void)m->put(5, AnyVal::pod(500, tc::HA_I56), arena);
+        (void)m->put(1, AnyVal::pod(100, tc::HA_I56), arena);
+        (void)m->put(9, AnyVal::pod(900, tc::HA_I56), arena);
+        CHECK(m->size() == 3, 54);
+        CHECK(m->get(1).as_i56() == 100, 55);
+        CHECK(m->get(5).as_i56() == 500, 56);
+        CHECK(m->get(9).as_i56() == 900, 57);
+        CHECK(m->has_key(5) && !m->has_key(7), 58);
+        CHECK(m->get(7).is_null(), 59);
+
+        // a Ref value survives the key-order shift inserts
+        auto sx = ArenaString::create(arena, "v3");
+        CHECK(sx.has_value(), 60);
+        AnyVal rv; rv.set_ref(*sx);
+        (void)m->put(3, rv, arena);                  // inserts between keys 1 and 5 → shifts 5,9 right
+        CHECK(m->get(3).is_ref(), 61);
+        CHECK(reinterpret_cast<const ArenaString*>(m->get(3).resolve())->view() == "v3", 62);
+        CHECK(m->get(5).as_i56() == 500 && m->get(9).as_i56() == 900, 63);   // shifted, still correct
+
+        // update existing key (no size change)
+        (void)m->put(5, AnyVal::pod(555, tc::HA_I56), arena);
+        CHECK(m->size() == 4 && m->get(5).as_i56() == 555, 64);
+
+        // remove
+        CHECK(m->remove(1) && !m->has_key(1) && m->size() == 3, 65);
+        CHECK(m->get(9).as_i56() == 900, 66);   // survivors intact after left-shift
+    }
+
+    std::printf("hermes2 containers (string + array + typed_array + tinymap): OK\n");
     return 0;
 }
