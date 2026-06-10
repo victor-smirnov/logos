@@ -2321,7 +2321,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         rb.kind    = LogosType::Kind::Ref;
                         rb.pointee = et;
                         TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
-                        lir::LExprPtr cmp;
+                        lir::LExprPtr cmp = nullptr;
                         if (et.kind() == LogosType::Kind::Tuple) {
                             // Nested — inline the inner chain. Use the
                             // field refs as the new receivers.
@@ -2454,7 +2454,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         }
                         TypeRef et = es[i];
                         auto field = lb.tuple_index(selfr, (uint32_t)i, et);
-                        lir::LExprPtr fld;
+                        lir::LExprPtr fld = nullptr;
                         if (et.kind() == LogosType::Kind::Tuple) {
                             LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = et;
                             TypeRef et_ref = out_.type_pool.alloc(std::move(rb));

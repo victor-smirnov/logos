@@ -944,7 +944,7 @@ lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
                 else pos = arity - trailing + (i - (size_t)rest_idx - 1);
                 if (arity && pos >= arity) continue;
                 TypeRef elem_t = error_t();
-                lir::LExprPtr acc;
+                lir::LExprPtr acc = nullptr;
                 if (src_is_array && TypeRef(src_ty).elem()) {
                     elem_t = TypeRef(src_ty).elem();
                     acc = builder().index_read(
@@ -2268,7 +2268,7 @@ lir::LStmt SemaChecker::lower_place_compound_assign(
                             !types_compatible(rhs2->type, out_t))
                             error(std::format("compound assignment to '{}[i]': type mismatch — expected {}, got {}",
                                   arr_name, type_str(out_t), type_str(rhs2->type)));
-                        lir::LExprPtr cur;
+                        lir::LExprPtr cur = nullptr;
                         if (fit_rd) {
                             std::vector<lir::LExprPtr> ra;
                             ra.push_back(builder().addr_of(arr_name, make_ref(false, arr_type)));
@@ -3288,7 +3288,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         if (sc == la::PAT_WILD && !explicit_name.empty() &&
             (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
             return synth;
-        lir::LExprPtr value;
+        lir::LExprPtr value = nullptr;
         // G172-1: nested string-literal pattern (`Some("foo")`, `("foo", _)`).
         // Bind the element to `synth`, gate with `str_eq(synth, "foo")` (a raw
         // `==` would pointer-compare the slices).
@@ -4532,7 +4532,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 TypeRef ft = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                                     ? ftype : prim(LogosType::Kind::I64);
                                 define(syn, ft);
-                                lir::LExprPtr value;
+                                lir::LExprPtr value = nullptr;
                                 if (sknode == la::PAT_INT && sub_node.has_key(la::VALUE))
                                     value = builder().lit_int(parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
                                 else if (sknode == la::PAT_NEG_INT && sub_node.has_key(la::VALUE))
@@ -4785,7 +4785,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             "__byte_{}", tmp_var_count_++);
                         auto u8t = prim(LogosType::Kind::U8);
                         auto i64t = prim(LogosType::Kind::I64);
-                        lir::LExprPtr guard;
+                        lir::LExprPtr guard = nullptr;
                         for (size_t k = 0; k < arr_n; ++k) {
                             auto lhs = builder().slice_index(
                                 builder().var_ref(syn, scrut_type),
@@ -6084,7 +6084,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             TypeRef slice_ty = make_slice_type(elem_t);
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(iter));
-            lir::LExprPtr slice_call;
+            lir::LExprPtr slice_call = nullptr;
             if (!as_slice_fn->type_params.empty())
                 slice_call = finish_generic_call(
                     as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
@@ -6149,7 +6149,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
                                                            : iif->symbol_name;
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(iter));
-                lir::LExprPtr it_call;
+                lir::LExprPtr it_call = nullptr;
                 if (!iif->type_params.empty())
                     it_call = finish_generic_call(sym, *iif, std::move(targs), std::move(pargs));
                 else

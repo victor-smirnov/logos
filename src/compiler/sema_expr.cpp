@@ -9451,7 +9451,7 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     // addr_of_temp (best-effort; a place chain like `g.h[i]` keeps the
     // pre-existing behaviour).
     auto self_ref_t = make_ref(is_mut, arr_type);
-    lir::LExprPtr recv_ref;
+    lir::LExprPtr recv_ref = nullptr;
     if (code_of(recv_node) == la::VAR_REF) {
         auto var_name = std::string(str_of(recv_node.get(la::NAME.code)));
         recv_ref = builder().addr_of(var_name, self_ref_t);
@@ -9507,7 +9507,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             lir::LExprPtr lo = idx_node.has_key(la::LHS)
                 ? lower_expr(map_of(idx_node.get(la::LHS.code))) : builder().lit_int(0, i64t);
             widen_int_expr(lo, i64t, builder());
-            lir::LExprPtr hi;
+            lir::LExprPtr hi = nullptr;
             if (idx_node.has_key(la::RHS)) {
                 hi = lower_expr(map_of(idx_node.get(la::RHS.code)));
                 widen_int_expr(hi, i64t, builder());
@@ -10988,7 +10988,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     TypeRef(fld_decl_ty).kind() == LogosType::Kind::Enum &&
                     !TypeRef(fld_decl_ty).type_args().empty() &&
                     !enum_arg_unresolved(fld_decl_ty);
-                lir::LExprPtr val;
+                lir::LExprPtr val = nullptr;
                 int32_t fcode = code_of(fnode);
                 if (fnode.has_key(la::VALUE)) {
                     TypeRef saved_eh = hint_enum_type_;
@@ -12846,7 +12846,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         }
         push_scope();
         bind_pattern(pat, scrut_type);
-        lir::LExprPtr then_val;
+        lir::LExprPtr then_val = nullptr;
         {
             auto then_node = map_of(node.get(la::THEN.code));
             if (code_of(then_node) == la::BLOCK) {
@@ -12883,7 +12883,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         pop_scope();
         // Else branch
         auto else_node = map_of(node.get(la::ELSE.code));
-        lir::LExprPtr else_val;
+        lir::LExprPtr else_val = nullptr;
         if (code_of(else_node) == la::BLOCK) {
             auto stmts = arr_of(else_node.get(la::ITEMS.code));
             bool saved_tail = tail_as_return_; tail_as_return_ = false;
@@ -14926,8 +14926,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         return builder().cast(builder().lit_int(0, intlit_t()), u8_ptr_t);
     };
 
-    lir::LExprPtr idents_blob_e;
-    lir::LExprPtr blobs_blob_e;
+    lir::LExprPtr idents_blob_e = nullptr;
+    lir::LExprPtr blobs_blob_e = nullptr;
 
     if (N_idents > 0) {
         // Build `[*const Ident; N_idents]` of `&local` for each ident site.
@@ -15032,7 +15032,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         blobs_blob_e = null_u8_ptr();
     }
 
-    lir::LExprPtr cursors_blob_e;
+    lir::LExprPtr cursors_blob_e = nullptr;
     if (N_cursors > 0) {
         // Build `[*const Vec<Ident>; N_cursors]` of `&cursor_var` for each
         // cursor placeholder (DFS order matches the dst encoding).
@@ -15841,7 +15841,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     int span_tmp_idx = 0;
     auto eb_struct_t = make_struct_type("ExprBlob");
     for (auto& ph : placeholders) {
-        lir::LExprPtr ptr_v;
+        lir::LExprPtr ptr_v = nullptr;
         uint64_t kind = 0;
         if (ph.is_cursor && ph.is_vec_cursor && ph.is_expr_blob) {
             // Slice 1.6: Vec<ExprBlob> cursor. Each iteration of `#(...)*`
@@ -15898,7 +15898,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             auto raw_addr  = builder().addr_of(pname, p_ptr_t);
             ptr_v          = builder().cast(std::move(raw_addr), ident_ptr_t);
         }
-        lir::LExprPtr cnt_v;
+        lir::LExprPtr cnt_v = nullptr;
         if (ph.is_vec_cursor) {
             // count = xs.len cast to u64. Element type matches the cursor
             // flavor: Vec<ExprBlob> for kind=2, Vec<Ident> for kind=0.
@@ -16344,7 +16344,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     // monomorphisation. For block form: lower stmts in a fresh scope, take
     // type from the trailing TAIL_EXPR. Whatever return type pops out drives
     // the primitive check below.
-    lir::LExprPtr lowered;
+    lir::LExprPtr lowered = nullptr;
     if (ic_is_block) {
         push_scope();
         TypeRef block_ty;
