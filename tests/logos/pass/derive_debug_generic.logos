@@ -14,7 +14,7 @@ package main;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.string;
 use logos.std.compiler.metaprog;
 use logos.std.fmt;
@@ -27,8 +27,8 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
 
     let nf: u64 = view.ast_struct_field_count(item);
@@ -46,7 +46,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
         let mut k: u64 = 0 as u64;
         while k < np {
             if k > (0 as u64) { em.buf.push_str(", "); }
-            let tp: StringView = view.ast_type_param_name(item, k);
+            let tp: SView = view.ast_type_param_name(item, k);
             unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
             em.buf.push_str(": Debug");
             k = k + (1 as u64);
@@ -60,7 +60,7 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
         let mut k: u64 = 0 as u64;
         while k < np {
             if k > (0 as u64) { em.buf.push_str(", "); }
-            let tp: StringView = view.ast_type_param_name(item, k);
+            let tp: SView = view.ast_type_param_name(item, k);
             unsafe { em.buf.push_bytes(tp.ptr, tp.len as i64); }
             k = k + (1 as u64);
         }
@@ -79,8 +79,8 @@ fn derive_debug_g_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0 as u64;
     while i < nf {
-        let fld: AnyVal = view.ast_struct_field(item, i);
-        let fname: StringView = view.ast_field_name(fld);
+        let fld: HAny = view.ast_struct_field(item, i);
+        let fname: SView = view.ast_field_name(fld);
 
         if i == (0 as u64) {
             em.buf.push_str("        let _ = __f.write_str(\" \");");

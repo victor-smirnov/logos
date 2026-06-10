@@ -17,7 +17,7 @@ fn slice6_smoke_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: Item = Item { raw: AnyVal::from_offset(target_offset) };
+    let item: Item = Item { raw: view.node_at(target_offset) };
     if item.field_count(&view) == (0 as u64) { return; }
 
     let f0: Item = item.field(&view, 0 as u64);

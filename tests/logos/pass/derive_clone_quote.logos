@@ -10,7 +10,7 @@ use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.string;
 use logos.lang.clone;
 
@@ -19,8 +19,8 @@ fn derive_clone_q_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let nm_sv: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let nm_sv: SView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
     let nm: Ident = Ident { ptr: nm_sv.ptr, len: nm_sv.len };
 
@@ -28,8 +28,8 @@ fn derive_clone_q_hook(target_offset: u32) -> () {
     let mut fnames: Vec<Ident> = Vec::<Ident>::new();
     let mut i: u64 = 0 as u64;
     while i < nf {
-        let fld: AnyVal = view.ast_struct_field(item, i);
-        let fsv: StringView = view.ast_field_name(fld);
+        let fld: HAny = view.ast_struct_field(item, i);
+        let fsv: SView = view.ast_field_name(fld);
         unsafe {
             (&mut fnames as *mut Vec<Ident>).push(
                 Ident { ptr: fsv.ptr, len: fsv.len });

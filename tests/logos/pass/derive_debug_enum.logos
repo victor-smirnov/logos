@@ -11,7 +11,7 @@ package main;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.string;
 use logos.std.compiler.metaprog;
 use logos.std.fmt;
@@ -24,8 +24,8 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
 
     let nv: u64 = view.ast_enum_variant_count(item);
@@ -48,8 +48,8 @@ fn derive_debug_enum_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0 as u64;
     while i < nv {
-        let v: AnyVal = view.ast_enum_variant(item, i);
-        let vname: StringView = view.ast_node_name(v);
+        let v: HAny = view.ast_enum_variant(item, i);
+        let vname: SView = view.ast_node_name(v);
         let arity: u64 = view.ast_variant_arity(v);
 
         em.buf.push_str("            ");
