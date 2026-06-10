@@ -5978,7 +5978,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     // the for-loop, build a mutable slice over the array and iterate yielding
     // `&mut T` (the shared `&arr` form already slices + yields `&T`).
     bool for_mut_ref = false;
-    lir::LExprPtr iter;
+    lir::LExprPtr iter = nullptr;   // LExprPtr is a RAW ptr (ADR 0007) — must init,
+                                    // else `if (!iter)` below reads an indeterminate
+                                    // value and skips lowering the iterable.
     if (node.has_key(la::ITER)) {
         auto inode = map_of(node.get(la::ITER.code));
         if (code_of(inode) == la::ADDR_OF_MUT && inode.has_key(la::VALUE)) {
