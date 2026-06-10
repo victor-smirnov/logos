@@ -1,200 +1,158 @@
 # How Models Behave
 
-The rest of this section argues for specific platform requirements. That argument rests on a small number of facts about how LLMs actually behave. This page collects those facts — model behavior in isolation: what tasks they generalize on, what they cannot reliably do, how their iteration dynamics work, where their basins of attraction sit. The companion page [Models, Humans, and Programs as One System](joint-system.md) takes those facts and works out the joint-system consequences (responsibility, ownership, the human-performance model, and the platform's two fundamental goals).
+The platform requirements in this section rest on a small set of facts about LLM behavior in isolation: the task classes they generalize on, the operations they cannot reliably perform, the dynamics of their iteration, and the geometry of their attraction basins. This page states those facts; [Models, Humans, and Programs as One System](joint-system.md) derives the joint-system consequences (responsibility, ownership, the human-performance model, the platform's two goals).
 
-This is not a survey of ML — it is the subset of model behavior that determines what tools and languages should look like in an era when models write a lot of the code.
-
-The framing here follows the Memoria Framework's analysis of LLMs as applied components ([memoria-framework.dev/docs/applications/aiml](https://memoria-framework.dev/docs/applications/aiml/)). Where this page makes claims about model behavior, that source is the reference.
+Scope: not a survey of ML, but the subset of model behavior that constrains tool and language design under high model-authored-code share. Framing follows the Memoria Framework's treatment of LLMs as applied components ([memoria-framework.dev/docs/applications/aiml](https://memoria-framework.dev/docs/applications/aiml/)), the reference for the behavioral claims below.
 
 ## Two Domains of Tasks
 
-LLMs are probability distributions over text. They generate by autoregressive sampling, and what we want from them is correct prediction on **unseen** inputs — i.e. *generalization*, not recall.
+An LLM is a distribution `p(y | x)` over token sequences, sampled autoregressively. The objective is low expected loss on **unseen** `x` — *generalization*, not recall. Tasks partition along a **compressibility axis**:
 
-Tasks divide into two regimes:
+**Low-compressible domain.** Translation, style transfer, summarization, elaboration, idiomatic code-completion, data structures and data bases. The input→output map has high conditional entropy and admits no short canonical algorithm; performance is dominated by interpolation over a dense example manifold. Generalization is not the binding constraint — **parameter/data scale is**, and loss decreases monotonically with both.
 
-**Low-compressible tasks.** Translation, style transfer, summarization, elaboration, code-completion in well-trodden idioms. The mapping from input to output has high entropy, no short canonical algorithm, and benefits from massive memorization across many examples. Here, *generalization is not the bottleneck*; **scale is**. Bigger models with more data get monotonically better on these tasks.
+**High-compressible domain.** Arithmetic, logic, constraint solving, game-tree search, query execution, formal verification, algorithms — any map with a short deterministic generator. The target function is low-complexity, but a neural LLM realizes only a learned approximation of it. Approximation quality is set by training-distribution coverage, architecture, and optimizer — all fixed in current neural LLMs and **not closeable by scale**.
 
-**High-compressible tasks.** Arithmetic, logic puzzles, constraint solving, board-game search, database-query execution, formal verification, anything that admits a short deterministic procedure. The mapping is highly regular — there *is* a short program — but neural LLMs cannot reliably run that program. Generalization on these tasks depends on training data quality, architecture, and learning algorithm — all of which are fixed in current neural LLMs and not solvable by scale.
+The asymmetry is architectural: *"no amount of scaling can make a database engine out of a neural network."* In Wirth's decomposition *Programs = Algorithms + Data Structures*, the terms split across the axis. **Data** is the incompressible term — facts irreducible by any procedure, recoverable only by storage. **Algorithms** are the compressible term — short generators whose value is precisely that they are *not* lookup tables.
 
-The asymmetry is structural, not a bug to be patched out by the next training run. Per the Memoria text: *"no amount of scaling can make a database engine out of a neural network."*
+Symbolic programs represent this split **explicitly**: the language separates code from values, the type system classifies each, the runtime segregates their storage, and tooling analyzes them independently — which is what lets an O(1)-sized algorithm range over an O(n)-sized dataset. A neural network **superposes** both terms in one parameter tensor: algorithm and datum share weights and a single gradient, with no tag distinguishing them. This predicts both the strength on the low-compressible term (memorization capacity scales with parameter count) and the unreliability on the high-compressible term (a weight-shared algorithm approximation contends with all co-resident data). It also bounds interpretability: factoring "program" from "indexed table" inside trained weights is strictly harder than the original fit, so **the interpretation problem dominates the AGI problem in difficulty**.
 
-A useful illustration: borrow the old Wirth formula, *Programs = Algorithms + Data Structures*. The two halves sit on opposite sides of the compressibility axis. **Data** is the low-compressible half — facts about a specific world, irreducible by any clever procedure, recoverable only by storing them. **Algorithms** are the high-compressible half — short procedures that, applied to data, produce many outputs; their value is exactly that they are *not* a lookup table.
+Platform consequence: maintain the split externally even where the model maintains none internally. Data in storage; algorithms in code; the LLM as a recognition/routing layer between them, holding neither.
 
-Symbolic programs make this split **explicit**: the language separates code from values, the compiler types each, the runtime allocates them in different memory, and tools can reason about them independently. This is not bookkeeping — it is what allows a 10-line algorithm to operate on a terabyte of data. The compression ratio is enormous, and visible.
+## Determinism
 
-Neural networks fold both halves into one homogeneous parameter tensor. Algorithms and data live in the same weights, learned from the same gradient, with no marker telling you which is which. That is why these models are so good at the low-compressible half (memorization scales with parameter count) and so unreliable at the high-compressible half (a learned approximation of an algorithm has to share weights with all the *data* the network also stores). It is also why interpretability is so much harder than the original modelling problem: separating "the program" from "the table it runs against" inside a trained network is a problem strictly harder than the one the network was trained to solve. There is a real sense in which **the interpretation problem looks harder than the AGI problem itself**.
+> **LLMs do not reliably execute deterministic algorithms — chain-of-thought included.**
 
-The platform consequence is straightforward: keep the split explicit on the outside, even when the inside has no notion of one. Data in storage; algorithms in code; the LLM as a routing/recognition layer between them, not as the thing that holds either.
+A reasoning-mode pass over long multiplication is not a multiplier; each token is still sampled from `p(· | prefix)`, which carries no fidelity guarantee. The correct model is **approximate execution**: output approximates the deterministic result, with error governed by per-class generalization.
 
-## What This Means for Determinism
+Hence a **bimodal** failure profile. In-distribution (small operands, common shapes, familiar phrasing) the approximation is observationally exact. Out-of-distribution (large operands, adversarial structure, novel framing, long dependency chains) accuracy collapses discontinuously — no graceful degradation, and no internal signal indicating the regime. Error rate correlates with context length, operand magnitude, surface form, and distance to the training support: a model correct on `n` similar prompts may be confidently wrong on `n+1` if it exits the generalization basin.
 
-The practical consequence is sharp:
+This holds for any correctness criterion of the form "deterministic procedure yields `X`": type checking, borrow analysis, constraint solving, dependency resolution, parsing, query planning, ABI lowering — none guaranteed by an LLM at any scale.
 
-> **LLMs cannot reliably execute deterministic algorithms — even when told to "reason step by step."**
+## Two Rules
 
-A reasoning-mode model walking through long multiplication does not become a multiplier. It still samples each token from a distribution conditioned on the prior tokens, and that distribution carries no guarantee of executing the algorithm faithfully. The right framing is not "imitate vs run" but **approximate execution**: the model produces an answer that *approximates* the result of the deterministic algorithm, and the quality of the approximation tracks how well the model generalizes on that specific task class.
+**1. Work *requiring* deterministic execution must be offloaded to a symbolic algorithm.** If correctness is "output of a fixed procedure," route to that procedure; do not have the model emulate it. The formalism is immaterial (SAT/SMT, term rewriting, compilation, query engine, plain code) — only the locus matters: determinism must reside outside the model.
 
-That makes the failure mode bimodal rather than uniform. On task classes where the model generalizes well — small operands, common shapes, in-distribution wording — the approximation is indistinguishable from a faithful run; nothing visible goes wrong. On task classes where it generalizes poorly — large operands, adversarial structure, novel framings, long chains — it falls over abruptly. There is no graceful degradation in between, and no internal signal that tells you which regime a given input lands in.
+"Determinism" bundles two properties: **reproducibility** (input → identical output, run-to-run and over time) and **verifiability** (output independently checkable against the procedure). Symbolic algorithms provide both; LLMs provide neither — sampling is not bit-stable, and the only check on a model answer is a deterministic procedure, i.e. the one that should have produced it. An LLM is a trusted black box; a symbolic algorithm is a verifiable glass box. Anything auditable, reviewable, or reproducible must originate in the latter. The model's role reduces to **recognition + dispatch**: parse input, identify the implied formal problem, invoke the solver, post-process. This is the Memoria architecture — a small fine-tuned LLM fronting a solver-centric system.
 
-Errors are correlated with context length, with operand magnitude, with surface form, and with whatever happens to be in distribution near the prompt. The same model that handles a hundred similar arithmetic prompts in a row may still produce confidently wrong output on the hundred-and-first that happens to land outside its generalization basin.
-
-This is not specific to arithmetic. It applies to any task whose correctness criterion is "the deterministic procedure produces output X". Type checking, borrow analysis, constraint solving, dependency resolution, parser implementation, query planning, ABI lowering — all of these have correctness criteria that LLMs cannot guarantee no matter how big they get.
-
-## Two Rules That Follow
-
-From the asymmetry between the two domains, two design rules:
-
-**1. Anything that *requires* deterministic execution must be offloaded to a classical symbolic algorithm.**
-
-If the task has a "right answer" the model must produce, and that right answer is the output of a deterministic procedure, route the task to that procedure. Do not ask the model to perform it. The choice of formalism does not matter — SAT/SMT, term rewriting, compilation, database query, plain code — what matters is that the determinism live somewhere other than the model.
-
-"Determinism" here is shorthand for two distinct properties that travel together: **reproducibility** (the same input yields the same output, today and a year from now) and **verifiability** (the output can be independently checked against the rules of the procedure). Symbolic algorithms give both for free. LLMs give neither: their outputs are not bit-stable across runs in the general case, and there is no way to *check* a model's answer except by running another deterministic procedure against it — which, if available, is the procedure that should have produced the answer in the first place. An LLM is a black box you trust; a symbolic algorithm is a glass box you verify. Anything that needs to be auditable, reviewable, or reproducible has to come from the latter.
-
-The model's role in such systems is *recognition and routing*, not computation: read the input, identify which formal problem it implies, dispatch to the appropriate solver, post-process the result for the human (or the next model). This is the architecture the Memoria text recommends: a relatively small, fine-tuned LLM as the front-end of a system whose substantive work happens in solvers.
-
-**2. Anything that *can* be offloaded *should* be (eventually).**
-
-Even when the model could plausibly handle a task, offloading is preferable on cost and energy grounds. LLM inference is O(N) in parameter count per token; the model's "implicit memory" — its weights — is an extraordinarily expensive substrate compared to a database index, a B-tree, a hash table, or a compiled function. As the Memoria text puts it under the *trading speed for memory* heading: when the energy cost of storing and retrieving a solution is lower than recomputing it, store it. This applies recursively to model output, since recomputing model output is much more expensive than storing it.
-
-The rule is not "minimize model usage at all costs". It is "do not have the model do something a cheaper deterministic component could do, once that deterministic component exists." The migration is incremental: in the early stages of a system, the model does more; as solvers, indexes, and caches accumulate, the model's share of the work shrinks — and that is the desired direction.
+**2. Work that *can* be offloaded *should* be (asymptotically).** Inference cost is O(parameters) per token; weights are an extreme-cost memory substrate versus an index, B-tree, hash, or compiled function. Per Memoria's *trading speed for memory*: store a result whenever store+retrieve energy < recompute energy — which holds strongly for model output, where recompute cost is high. The rule is not "minimize model calls" but "do not have the model do what an existing cheaper deterministic component can." Migration is monotone: solver/index/cache accumulation drives the model's work share down over time — the intended direction.
 
 ## Determinism as Guardrail
 
-The two rules above cover deterministic components in their *computational* role — substituting for work the model cannot do reliably, or doing work it should not be asked to repeat. There is a second role, less often named but at least as load-bearing: **keeping the model on a trajectory**. Models drift. Across enough steps — tokens, turns, sessions — they wander off the path the task requires, even when each individual step looked locally sensible. The mitigation is not "a better model"; it is a scaffold of deterministic checkpoints that the trajectory has to pass through. Type checks, test runs, schema validation, lints, CI gates, structured tool interfaces, formal preconditions on tool calls, refusal of malformed outputs — every one of these is a deterministic predicate the trajectory either satisfies or is forced to revisit. The model's job becomes "produce something that passes the next checkpoint", not "produce the right thing in one go".
+The two rules cover the *computational* role of deterministic components. A second role is equally load-bearing: **trajectory confinement.** Over enough tokens/turns/sessions the iteration drifts off-path despite locally plausible steps. The remedy is not model capability but a lattice of deterministic checkpoints the trajectory must satisfy: type checks, test runs, schema validation, lints, CI gates, typed tool interfaces, tool-call preconditions, malformed-output rejection. Each is a predicate the trajectory passes or must revisit, reducing the objective from "emit the right artifact" to "emit one passing the next checkpoint."
 
-This is the main reason **the volume of classical code in front of and around models grows, not shrinks, as models get more capable.** A more capable model can be entrusted with longer sub-trajectories between checkpoints, but the checkpoints themselves are still where reliability comes from. The pattern is visible in the wild: when the prompts and orchestration logic of frontier coding agents have leaked, the bulk of what was found was not clever prompting but **a great deal of plain `if`/`then` code** wrapping the model — guardrails, mode dispatch, tool gating, format checks, retries on detectable failures. There are no magic prompts; there is a lot of conventional software keeping a probabilistic component on rails. (And, notably, much of that conventional software encodes the operator's preferences and policies, not the user's.)
+This is why **the surrounding classical-code volume grows with model capability, not against it.** Higher capability buys longer inter-checkpoint sub-trajectories, but the checkpoints remain the source of reliability. Leaked frontier-agent orchestration confirms it: not exotic prompting but **predominantly `if`/`then` code** — guardrails, mode dispatch, tool gating, format checks, failure-triggered retries — confining a stochastic component. (Note: much of that code encodes the *operator's* policy, not the user's.)
 
-The two rules above and this one combine into a sharper statement: deterministic components in an AI system serve **three** roles simultaneously — *compute* the parts the model cannot, *cache* the parts it can but shouldn't recompute, and *constrain* the trajectory through the parts it does compute. A platform optimized for AI as primary user is, in large part, a platform that makes all three easy to add, compose, and audit.
+Combined statement: deterministic components serve **three** simultaneous roles — *compute* what the model cannot, *cache* what it can but should not recompute, *constrain* the trajectory through what it does compute. An AI-primary platform makes all three cheap to add, compose, and audit.
 
 ## Models as Iterated Maps
 
-The compressibility argument above is one half of how models behave. The other half — orthogonal to it and equally load-bearing for platform design — is dynamical.
-
-Model operation — at every level, from token-by-token generation up to multi-turn agentic loops — has the form
+Orthogonal to compressibility is the **dynamical** view. At every level — token generation through agentic loops — operation is a fixed-point iteration
 
 ```
 X_{n+1} = F(X_n)
 ```
 
-where `X_n` is the state (context, prompt, in-flight code, conversation history) and `F` is "run the model once and update". Whether such a sequence converges, cycles, or drifts is governed by the **contraction properties** of `F` — and the answer is not "always converges". It depends on `F`, on the input, and on the regime.
+with state `X_n` (context, prompt, in-flight code, history) and `F` = "one model step + state update." Convergence, cycling, or drift is set by the **contraction modulus** of `F`; it is not unconditionally contractive but regime-, input-, and `F`-dependent. Consequences, all empirically attested:
 
-Several behaviors fall out of this view, and they all show up in practice.
+**Termination is learned, not intrinsic.** Frontier models rarely diverge into unbounded generation — a trained stopping policy, not a property of the bare dynamics, which resume their natural shape once that policy is removed.
 
-**Stopping is taught, not intrinsic.** Modern frontier models almost never run away into infinite generation. This is not because the underlying dynamics naturally terminate — it is because the models have been trained to stop at appropriate points. Remove that training and the dynamics resume their natural shape.
+**Cycles persist one level up.** At the agentic loop, mid-tier models exhibit limit cycles on code tasks (fix → fail → near-identical fix → drift between two states). Frontier models converge in O(few) iterations — not "more capable" in the abstract, but a more contractive `F` on this input class, hence a faster, more reliable fixed point.
 
-**Looping is not gone, just moved up a level.** The same dynamics reappear at the **agentic-loop** level. On code-generation tasks, mid-tier models can still enter cycles: try a fix, fail, try a similar fix, fail, drift between two near-identical attempts indefinitely. Frontier models on the same tasks converge in a few iterations. The difference is not "more capable" in some general sense — it is that the frontier model's `F` happens to be more contractive on this class of inputs, so the iteration finds a fixed point faster and more reliably.
+**Iteration is Turing-complete.** `X_{n+1} = F(X_n)` expresses arbitrary computation, so any model behavior is a sequence converging to a fixed point. The implied object of study is not "the output" but "the basin of attraction of `F` for this input, and its contraction rate."
 
-**Iteration is Turing-complete.** The form `X_{n+1} = F(X_n)` can express arbitrary computation (the proof is standard and not repeated here). So *anything* a model does — at any level of the stack — can in principle be cast as a sequence of iterations converging to some fixed point. This is not a vacuous claim: it tells you what the right object of study is. Not "what does the model output?" but "what is the basin of attraction of `F` for this input, and how fast does it contract?"
+**Symbolic and stochastic dynamics differ in fixed-point structure.** A symbolic algorithm is the degenerate case: **a single fixed point** over **a narrow, fully analyzed trajectory set**, with `F` engineered for guaranteed contraction to the correct destination — whence reproducibility and verifiability. A model has **many fixed points, irregular basins, and perturbation-sensitive trajectories**, with no global contraction and no a priori map from input to which fixed point (or whether any) is reached; fixed points include correct answers, confident errors, and partial-answer cycles. "The model can do task T" ≡ "the correct-answer basin is large and contractive on T's input distribution."
 
-**Symbolic vs. probabilistic dynamics differ sharply in fixed-point structure.**
+This concretizes the platform argument:
 
-A symbolic algorithm is a degenerate case of the iterated-map view: it has **one well-defined fixed point** (the result), reached by **a narrow, fully analyzed set of trajectories** (the algorithm's execution paths). The algorithm designer has done all the work of choosing `F` so that contraction is guaranteed and the destination is the right one. Reproducibility and verifiability follow because the dynamics are trivially simple.
-
-A probabilistic algorithm — a model — has, in general, **many fixed points, complicated basins of attraction, and trajectories sensitive to small input perturbations**. There is no global guarantee of contraction. There is no a priori knowledge of which fixed point a given input will reach, or whether it will reach one at all rather than enter a cycle or drift. Some fixed points correspond to correct answers; others correspond to confidently wrong ones; still others correspond to looping on partial answers. The model's ability to "do" a task is, in this view, the property that the basin of attraction around correct answers is large and contractive enough on the relevant input distribution.
-
-This reframing is what makes the platform argument concrete:
-
-- **Offloading deterministic work** is replacing a region of complicated probabilistic dynamics with a region of trivial symbolic dynamics — collapsing many fixed points into one, and many trajectories into one verified path.
-- **Reward signal** is the thing that shapes `F` in flight: a useful, structured signal makes the iteration more contractive on the right answer, and shrinks the basins of the wrong ones. A noisy or human-shaped signal does the opposite.
-- **Convergence speed is a platform property, not just a model property.** The same model, given a better feedback loop, converges in fewer iterations on the same task. That is one of the levers the platform actually controls.
+- **Offloading deterministic work** = replacing stochastic dynamics with symbolic ones — collapsing many fixed points to one, many trajectories to a single verified path.
+- **Reward signal** shapes `F` online: a structured signal raises contraction toward correct answers and shrinks error basins; a noisy/human-shaped signal does the reverse.
+- **Convergence rate is a platform variable**, not solely a model one: identical model + better feedback loop ⇒ fewer iterations. A lever the platform controls.
 
 ### Attraction Basins as First-Class Objects
 
-The iterated-map view turns out to be more than a metaphor. **Attraction basins should be first-class concepts** in the design of a human–AI development platform — named, observable, optimized for, talked about explicitly.
+**Basins should be first-class platform constructs** — named, observable, optimization targets. Three agent classes share the workspace, each with characteristic basin geometry:
 
-Three kinds of agents share the workspace, and each has its own basin geometry:
+- **Models** — wide, smooth, irregular basins; fast settling in-distribution, drift/cycle out; boundaries unaligned with human perception.
+- **Humans** — narrow, sharp basins bounded by working memory and attention; precise on few patterns, fatigue-limited on long iterations, slow inter-basin transit.
+- **Symbolic algorithms** — degenerate basins (one fixed point, one trajectory, zero drift/fatigue); immovable, cheap, but cover only constructed regions.
 
-- **Models** have wide, smooth, but irregular basins. They settle quickly when the input is in distribution, drift or cycle when it is not, and the boundaries between basins do not align with anything humans naturally perceive.
-- **Humans** have narrower, sharper basins, shaped by working memory, attention, and learned heuristics. We recognize a small number of patterns very precisely, get exhausted by long-running iterations, and move slowly between basins.
-- **Symbolic algorithms** have degenerate basins: one fixed point, one trajectory, no drift, no fatigue. They are immovable and cheap to run, but they only cover the regions someone has built them for.
+A naive system iterates each independently and forces inter-agent translation; the agents' updates displace one another's basins and the joint state drifts. A well-designed system makes the three basins **interlock** into a **single emergent fixed point** reachable by none alone: model contraction lands in the symbolic-verifiable region, the symbolic guarantee lands in a human-auditable representation, human judgment lands in a model-attendable structured form. The composed map is strictly more contractive than any component.
 
-A naive system runs each of these in its own loop and forces the others to translate. The human translates model output into something verifiable; the model translates human prose into something it can act on; the symbolic algorithm only sees the small part of the problem someone hand-encoded. Each agent's iterations leave the others' basins in different positions, and the joint state drifts.
+The design target is therefore not per-agent improvement but **engineering the joint-system basin geometry** for fast, reliable convergence to a mutually accepted output. This reframes:
 
-A well-designed system arranges things so that the basins of all three **interlock** — the trajectories of one feed productively into another, and the system as a whole has a **single emergent fixed point** that none of the three could reach alone. The model's wide-but-noisy contraction lands in a region the symbolic component can verify; the symbolic component's narrow guarantee lands in a representation the human can audit; the human's sharp judgment lands in a structured form the model can attend to next iteration. The joint map is more contractive than any of its parts.
+- **Diagnostics** = *boundary objects* co-aligning the human/model/checker basins (one anchor across all three) — not "human error messages" vs "model payloads."
+- **Tools** = selected by whose output lands in the basin of every downstream reader, not by producing agent.
+- **Failure modes** = *basin-separation events* (joint map fragments, agents stop co-converging) — not "hallucination" or "user confusion."
 
-This is the actual target of platform design. Not "make the model better" or "make the tools better" or "make the human's life easier" individually, but **engineer the basin geometry of the joint system** so that it converges, reliably and quickly, to outputs everyone agrees on.
-
-Concretely, this reframes several familiar concerns:
-
-- **Diagnostics** are not "error messages for humans" or "structured payloads for models" — they are *boundary objects* that keep the human, model, and symbolic-checker basins aligned. The same diagnostic should be the same anchor in all three minds.
-- **Tools** are not picked by which agent uses them. The right tool is the one whose output is in the basin of all the agents that need to read it next.
-- **Failure modes** are not "the model hallucinated" or "the user got confused" — they are *basin separation events*, places where the joint map fragmented and the agents stopped converging on the same thing.
-
-The platform's job is to make basins **legible, addressable, and shapeable** — so that engineering effort can be spent on aligning them rather than on translating between mismatched ones.
+Platform objective: make basins **legible, addressable, shapeable**, so effort goes to alignment rather than translation.
 
 ### InD vs OoD: The Native Coordinate System
 
-For models specifically, **in-distribution (InD) vs out-of-distribution (OoD)** is not a footnote — it is the primary coordinate system for everything else. Models generalize substantially better in-distribution than out-of-distribution; the performance profiles of the two regimes are different in kind, not in degree. And basins of attraction form **around InD examples**: dynamics initialized anywhere near a known case will slide into a familiar trajectory and a familiar conclusion.
+For models, **in-distribution (InD) vs out-of-distribution (OoD)** is the primary coordinate. Generalization is qualitatively, not merely quantitatively, better InD, and basins nucleate **around InD examples**: an iteration initialized near a known case contracts into its trajectory and conclusion. Two phenomena follow.
 
-This explains two things at once.
+**No gibberish.** Output is incoherence-free (distinct from "contested"): the iteration almost always lands in *some* InD basin even when the correct answer is far from all of them, yielding structured, confident output — confidence being a property of *being-in-a-basin*, not *being-in-the-correct-one*.
 
-**Why models do not produce gibberish.** Not "things some humans aggressively disagree with" — actual incoherence. They almost always land in *some* InD basin, even when the right answer is far from any of them. The output is recognizable, structured, and confident, because confidence is a property of being-in-some-basin, not of being-in-the-right-one.
+**Low inventiveness** — the same property, dual sign. The model maximizes residence in InD basins and avoids OoD, the region of lost contraction and collapsed accuracy. Adaptive for typical load, wrong for invention.
 
-**Why models are not very inventive.** The same property that prevents incoherence prevents novelty. Models work hard to stay inside InD basins and steer away from OoD. OoD is the chaotic region where their dynamics lose contraction, where their accuracy collapses, where they themselves "feel" the pull of nothing — so they avoid it. This avoidance is adaptive for typical use; it is exactly wrong for invention.
+**InD support is fragmented, not connected** — the load-bearing structural fact. The well-handled input set is a constellation of islands across OoD gaps; human-adjacent problems may occupy distinct islands, and small rephrasings translate a query between islands or off-support.
 
-**InD is fragmentary, not contiguous.** This is the crucial structural fact. The set of inputs the model handles well is *not* a single connected region. It is a constellation of islands separated by OoD ravines. Two problems that look adjacent to a human can sit in entirely different InD islands; a small rephrasing can move a query from one island to the next, or off the map.
+Therefore **models must often be led** across the basin landscape. The human's function is not only evaluation but **steering** — perturbing `X` (hints, examples, intermediate framings, partial code, error messages) to relocate the iteration's fixed point. Mechanically: Δ`X` → Δdynamics → Δlanding-basin. This is the primitive of human–AI collaboration; "prompting" understates it.
 
-The practical consequence is that **models often need to be led** through the basin landscape. The human's role is not just to evaluate output — it is to nudge the system from one InD basin into another, by feeding back hints, examples, intermediate framings, partial code, error messages, or any other change to `X` that reshapes the iteration's destination. Mechanically, feedback changes `X`, which changes the dynamics, which changes which basin the model lands in next. This *is* the steering primitive of human–AI collaboration. Calling it "prompting" undersells what it is doing.
+**OoD targets require forcing.** When the target lies in no island, the model must be driven out of InD into the chaotic region and **led stepwise**; unforced, it relaxes to the nearest InD basin and fails by reverting to the closest known pattern. Invention is thus an active, adversarial process against the model's contraction toward familiarity — categorically harder than refinement.
 
-**OoD work requires forcing.** Where the task genuinely demands something new — not in any island — the model has to be pushed out of its comfortable InD basins on purpose, into the chaotic region, and then **led by hand**. Left alone, it will drift back to the nearest familiar basin and fail by reverting to the closest known thing. Genuine invention with a model is therefore a much more active process than refinement: it is sustained adversarial guidance against the model's own contraction toward familiarity.
+Platform affordances:
 
-For the platform, this turns several pieces of design into specific affordances:
+- **Nudge surfaces.** First-class, cheap, repeated, structured perturbation — not a chat-box afterthought. Every diagnostic / test failure / partial result is a candidate `X`-perturbation.
+- **Basin observability.** On output, the high-value signal is *which training neighborhood* it originated from — currently unobservable; a large tooling opportunity.
+- **Explicit OoD mode.** A channel to assert "non-modal request; suppress regression to nearest pattern," plus the sustained context that holds the iteration in the chaotic region.
 
-- **Surfaces for nudging.** The platform must make the cheap, repeated, structured nudge a first-class action — not an afterthought layered onto a chat box. Every diagnostic, every test failure, every partial result is potentially a nudge; the platform decides whether it is a useful one.
-- **Visibility into which basin the model landed in.** When the model gives an answer, the most useful thing to know is often *which neighborhood* of training experience it came from. Today this is invisible; better tooling here is one of the larger open opportunities.
-- **Explicit support for OoD work.** The platform should make it easy to *tell* the system "this is not a normal request, do not regress to your nearest familiar pattern" — and to provide the running context that keeps the model out in the chaotic zone for the duration of the task.
-
-That is as far as the model-only picture goes. The remaining design consequences — what it means for the human in the loop, how ownership and responsibility are allocated, and what the platform's two fundamental goals are — are the subject of [Models, Humans, and Programs as One System](joint-system.md).
+The model-only picture ends here; human-in-the-loop, ownership/responsibility, and the platform's two goals are in [Models, Humans, and Programs as One System](joint-system.md).
 
 ## The Information-Theoretic View of Model Memory
 
-The iterated-map view is one lens on model behavior; it describes the **dynamics**. There is a second lens, dual to it, that describes the **statics** — what a trained model's knowledge *is*, as an object, and which operations that object does and does not support. The two do not compete. Where the dynamical view asks *which basin does this trajectory fall into*, the information-theoretic view asks *what is stored, and can it be retrieved, enumerated, or inverted*. Logos's design leans on the second lens as heavily as the first, because it is the one that explains — structurally, from the architecture rather than as an observed quirk — the single most consequential failure mode in AI-authored code.
+The iterated-map lens describes **dynamics**; its dual describes **statics** — the trained model's knowledge as an object and the operations it supports. Dynamics asks *which basin*; statics asks *what is stored, and is it retrievable / enumerable / invertible*. Logos relies on the static lens equally, because it derives — from architecture, not observation — the dominant failure mode in model-authored code.
 
-### Memory as a compressed, forward-only program
+### Memory as a compressed forward-only program
 
-Generalization is compression: a trained network stores the regularities of its training distribution as a short program, not as a table (this is the same compressibility axis as [Two Domains of Tasks](#two-domains-of-tasks), seen from the memory side rather than the task side). The decisive point is that the compression is **implicit**. There is no materialized list of "what the model knows" anywhere in the weights — there is a function that, run forward, evaluates a learned mapping at one point.
+Generalization is compression: the network stores its training distribution's regularities as a short program, not a table (the compressibility axis of [Two Domains of Tasks](#two-domains-of-tasks), memory-side). The compression is **implicit** — no materialized inventory of known facts exists in the weights, only a function evaluating a learned map pointwise.
 
-That makes the model a *point-query engine*. It computes a forward map cheaply, in one pass. It does not compute the **inverse**, and it does not **enumerate**. "Given this output, what inputs produce it" and "list all the cases/behaviors of kind X" are not forward evaluations — they are an inversion or a scan over a materialized, navigable extent, and no such extent exists. The partition a network induces over its input space is never written down; it is only ever evaluated. A database has an index you can walk; a model has a function you can call.
+The model is thus a **point-query engine**: a cheap one-pass forward map, with **no inverse** and **no enumeration**. "Which inputs yield this output" (preimage) and "list all cases of kind X" (domain scan) require a materialized, navigable extent that is never constructed — the induced input-space partition is evaluated, never written. A database exposes a walkable index; a model exposes a callable function.
 
-> A model answers *what is f at this point*. It cannot answer *enumerate the domain* or *invert f* — those require a materialized extent the architecture does not build. This is not a gap scale closes; it is a property of storing knowledge as a compressed forward function instead of as an index.
+> A model computes *f at a point*. It cannot *enumerate dom(f)* or *invert f* — both require a materialized extent the architecture omits. Not a scale-closeable gap, but a consequence of storing knowledge as a compressed forward function rather than an index.
 
 ### Two kinds of gap
 
-When a model emits an incomplete artifact — an implementation that handles a feature's common cases and silently drops the rest — the omissions fall into two structurally different classes, and distinguishing them is the whole game.
+When the model emits an incomplete artifact (common cases handled, remainder silently dropped), omissions fall into two structurally distinct classes; discriminating them is the central problem:
 
-- **OOD gap.** The relevant mass never formed. The training distribution lacked the case, generalization did not bridge it, so there is no learned function to evaluate there. Closing it requires *new external content* — genuine acquisition.
-- **InD gap.** The mass is present — the model "knows" the case, in the operational sense that when the case is placed in front of it, it handles it immediately and correctly — but it was not emitted, because emitting it would have required *enumerating* the feature's full set of sub-behaviors, and enumeration is the one operation the model does not have. The knowledge is in-distribution but not self-listable.
+- **OOD gap.** No mass formed — the case is absent from the training distribution and unbridged by generalization, so no learned function exists there. Closure requires *external acquisition*.
+- **InD gap.** Mass is present — presented explicitly, the case is handled immediately and correctly — but unemitted, because emission would require *enumerating* the feature's sub-behavior set, the missing operation. The knowledge is in-distribution yet not self-listable.
 
-The InD gap is the surprising and expensive one: the deficiency is not knowledge but *access*. And before the case is probed, **OOD and InD gaps are indistinguishable from the outside** — both present as "the model silently did not do X." Which regime you are in is knowable only after probing.
+The InD gap is the costly one: a deficit of **access**, not knowledge. Pre-probe, **OOD and InD gaps are externally indistinguishable** (both read as "X silently absent"); the regime is determined only by probing. This is the static image of the dynamical [InD vs OoD](#ind-vs-ood-the-native-coordinate-system) fact: "basins nucleate on InD islands" ≡ "mass exists, but forward dynamics from an ordinary prompt contract to the modal basin and never visit the island." **"Models must be led through the basin landscape" (dynamical) and "localization must come from outside" (static) are one proposition in two vocabularies.**
 
-This is precisely the static shadow of the dynamical [InD vs OoD](#ind-vs-ood-the-native-coordinate-system) picture. "Basins form around InD examples, and the InD region is a constellation of islands" is the same fact as "the mass exists, but the forward dynamics started from an ordinary prompt contract toward the modal basin and never visit the island." The case is reachable — but only if something *leads* the trajectory there. **"Models need to be led through the basin landscape" (dynamical) and "localization must come from outside" (information-theoretic) are one statement in two vocabularies.**
+### Generation ≠ verification
 
-### Generation is not verification
+Producing a complete artifact requires selecting one trajectory from an exponentially branching space *and* allocating effort across thousands of sub-behaviors with no internal salience signal — yielding uniformly shallow coverage. Verifying/repairing a *specific* flagged case is conditioned on a near-complete answer specification (failing example pins behavior, surrounding code pins structure), so conditional entropy `H(answer | witness)` is small and the model is fluent. Check-given-witness is cheap; produce-and-cover is not — the recognize-vs-find asymmetry. Two corollaries, paradoxical only without the asymmetry:
 
-Producing a complete artifact means committing to one trajectory out of an astronomically branching space *and* allocating effort correctly across thousands of sub-behaviors with no internal signal for which deserves attention next — so the model spreads effort and leaves uniform shallow gaps. Verifying or repairing a *specific* flagged case is conditioned on a near-complete specification of the answer (the failing example pins the expected behavior; the surrounding code pins the structure), so its conditional entropy is small and the model does it fluently. Checking-given-a-witness is cheap; producing-and-covering is not — the same asymmetry that separates recognizing a solution from finding one.
+- **Self-written tests inherit the artifact's blind spot.** A model-authored test draws from the same compressed feature-model that produced the implementation, exercising exactly the implemented subset. The gap lies in that model's *complement*, untestable from within it; artifact and self-test blind spots coincide.
+- **Self-checking does not surface InD gaps.** The check is sampled from the same distribution with identical coverage bias; "looks done" is a completion under the same shallow-coverage pressure, and confidence indexes basin-membership, not completeness.
 
-Two corollaries look like paradoxes until the asymmetry is in hand:
+### Irreducibility from inside
 
-- **Self-written tests route around the model's own gaps.** A test the model writes is drawn from the same compressed model of the feature that produced the implementation; it exercises exactly the subset that was implemented. The gap lives in the *complement* of that shared model — and you cannot write a test for what lies outside your model of the feature. The artifact's blind spot and its self-test's blind spot coincide.
-- **"Ask the model to check its own work" does not surface InD gaps.** The check is generated from the same distribution as the artifact, with the same coverage bias. Confidence is a property of being-in-a-basin, not of being-complete; the model's "looks done" is itself a generated completion under the identical shallow-coverage pressure.
+Materializing InD knowledge by exhaustive sampling is possible in the limit and intractable in practice: InD gaps occupy the low-probability tail (the reason for non-emission), surfacing an item of probability ε costs ~1/ε draws, and the gaps span exponentially many tail regions. Sampling-to-enumerate *is* brute-force inversion — re-incurring the exponential the absent inverse operator imposes — cheap where useless (the modal output, already available) and astronomically costly where needed (the tail), with support recovered only in the limit, no stopping rule, no completeness certificate.
 
-### Why this cannot be fixed from inside
+Nor is the deficit *offloadable* like arithmetic. Offloading requires the missing function's domain to be **external** (arithmetic ranges over numbers; hand them to a calculator). "Enumerate what the model knows" has domain = **the model itself**; a function over X cannot be offloaded to a party without access to X, and only the model accesses its learned extent while being exactly the architecture that cannot scan it. Deficit and data are co-located inside the model — not a missing *capability* (offloadable) but a missing *reflexive* operation (not offloadable in principle).
 
-You might hope to materialize the model's InD knowledge by sampling it exhaustively — drive the forward map until everything it knows has been seen, then store *that* as an enumerable extent. In the limit this is possible. It is also intractable, for a principled reason: InD gaps live in the low-probability tail (that is *why* they were not emitted), surfacing an item of probability ε costs ~1/ε draws, and the gaps are spread over exponentially many such tail regions. Sampling-to-enumerate is brute-force inversion; it re-incurs exactly the exponential the missing inverse operator imposed. It is also cheap precisely where it is useless (the modal output you already get) and astronomically expensive precisely where you need it (the rare tail). And even unbounded sampling yields the support only in the limit, with no stopping rule and no completeness certificate — you never know whether the whole tail has been seen.
-
-Nor can the deficiency be *offloaded* the way arithmetic is. Offloading works when the missing function's domain is **external** to the model: arithmetic is over numbers, numbers live outside, hand it to a calculator. "Enumerate what the model knows" is a function whose domain *is the model*. You cannot offload a function over X to a party with no access to X — and only the model has access to its own learned extent, while it is exactly the architecture that cannot scan it. The deficit and the data coincide inside the model. This is not a missing *capability* (offloadable) but a missing *reflexive* operation (not offloadable in principle).
-
-> The model cannot enumerate its own knowledge, and no amount of self-querying makes it. If the model cannot list what it does not know, the list must come from outside. That single consequence drives the development methodology in [Coding Tasks](coding-tasks.md).
+> The model cannot enumerate its own knowledge, and no self-querying induces it. If it cannot list what it lacks, the list must come from outside — the consequence driving the methodology in [Coding Tasks](coding-tasks.md).
 
 ## What Cannot Be Assumed About Models
 
-A few negative claims, useful to keep in mind whenever the temptation to "just have the model do it" appears:
+Negative invariants, applicable whenever "just have the model do it" arises:
 
-- Models do not have persistent state between invocations. Whatever the platform does not store explicitly is gone.
-- Models do not reliably follow instructions that conflict with their training distribution. "Always output JSON" works most of the time and fails in rare prompts; the platform must validate, not trust.
-- Models do not know when they are wrong. There is no internal signal correlated with correctness on high-compressible tasks; confidence is shaped by surface plausibility, not by truth.
-- Models do not generalize cleanly out of distribution. Adversarial inputs, novel domain combinations, and tasks that "look like" but differ from training tasks all degrade quietly.
-- Models cannot enforce invariants. Anything the platform requires to be invariant must be enforced *by the platform*, not relied on from the model.
-- Models cannot enumerate their own knowledge. They can evaluate what they know at a point, but cannot list it. Any set of cases that must be covered has to be supplied and checked from outside; the model has no operation that scans its own extent, and self-sampling cannot stand in for one (see [The Information-Theoretic View of Model Memory](#the-information-theoretic-view-of-model-memory)).
+- **No persistent inter-invocation state.** Anything not explicitly stored by the platform is lost.
+- **No reliable instruction-following against the training prior.** "Always output JSON" holds in the common case and fails in the tail; validate, do not trust.
+- **No self-knowledge of error.** No internal signal correlates with correctness on high-compressible tasks; confidence tracks surface plausibility.
+- **No clean OoD generalization.** Adversarial inputs, novel domain products, and train-adjacent-but-distinct tasks degrade silently.
+- **No invariant enforcement.** Required invariants must be enforced *by the platform*.
+- **No self-enumeration.** Pointwise evaluation only, no listing; coverage sets must be supplied and checked externally, and self-sampling is not a substitute (see [The Information-Theoretic View of Model Memory](#the-information-theoretic-view-of-model-memory)).
 
-Each of these is reflected in the requirements that follow.
+Each maps onto a requirement that follows.

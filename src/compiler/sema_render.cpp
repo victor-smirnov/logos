@@ -1763,11 +1763,11 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
         if (av.is_null()) return {};
         // String values point at hermes2::ArenaString (length-prefixed bytes).
         // Reuse the same StringView wrapper sema uses.
-        auto sv = hermes2::StringView(av.to_offset(), holder).view();
+        auto sv = hermes2::StringView(av, holder).view();
         return std::string(sv);
     };
     auto arr_at = [&](hermes2::AnyVal av) {
-        return hermes2::ArrayView(av.to_offset(), holder);
+        return hermes2::ArrayView(av, holder);
     };
 
     auto get_fn_or_impl_items = [&](hermes2::TinyObjectMap* tom, std::string prefix) {

@@ -974,18 +974,18 @@ private:
     std::string_view str_of(hermes2::AnyVal av) noexcept {
         using namespace sema_detail;
         if (av.is_null()) return {};
-        return StringView(av.to_offset(), holder_).view();
+        return StringView(av, holder_).view();
     }
 
     hermes2::TinyMapView map_of(hermes2::AnyVal av) noexcept {
         using namespace sema_detail;
         if (av.is_null()) return TinyMapView{};
-        return TinyMapView(av.to_offset(), holder_);
+        return TinyMapView(av, holder_);
     }
 
     hermes2::ArrayView arr_of(hermes2::AnyVal av) noexcept {
         using namespace sema_detail;
-        return ArrayView(av.to_offset(), holder_);
+        return ArrayView(av, holder_);
     }
 
     // ── Call/method argument parsing ──────────────────────────────

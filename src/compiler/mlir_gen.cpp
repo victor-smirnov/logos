@@ -294,13 +294,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 // recurse so nested calls inside arithmetic / struct lits /
                 // match arms etc. get visited.
                 auto recurse_arr = [&](uint8_t key) {
-                    auto av = e.mirror()->get(key, e.base());
+                    auto av = e.mirror()->get(key);
                     if (av.is_null()) return;
-                    auto* arr = av.as_ptr<const hermes2::ObjectArray>(e.base());
+                    auto* arr = av.as_ptr<const hermes2::ObjectArray>();
                     for (uint64_t i = 0; i < arr->size(); ++i) {
-                        auto el = arr->get(i, e.base());
+                        auto el = arr->get(i);
                         if (!el.is_null())
-                            walk_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el.to_offset()));
+                            walk_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el));
                     }
                 };
                 auto recurse_sub = [&](uint8_t key) {
@@ -321,14 +321,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 recurse_arr(ek::PAYLOAD.code);
                 // Match arms: each arm has (pat, guard, value).
                 {
-                    auto av = e.mirror()->get(ek::ARMS.code, e.base());
+                    auto av = e.mirror()->get(ek::ARMS.code);
                     if (!av.is_null()) {
-                        auto* arr = av.as_ptr<const hermes2::ObjectArray>(e.base());
+                        auto* arr = av.as_ptr<const hermes2::ObjectArray>();
                         for (uint64_t i = 0; i < arr->size(); ++i) {
-                            auto el = arr->get(i, e.base());
+                            auto el = arr->get(i);
                             if (el.is_null()) continue;
                             lir_view::EMatchArmRef arm =
-                                lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el.to_offset());
+                                lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
                             walk_expr(arm.guard());
                             walk_expr(arm.value());
                             walk_block(arm.body());

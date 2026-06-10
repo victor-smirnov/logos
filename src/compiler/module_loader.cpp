@@ -60,11 +60,11 @@ static bool file_opts_out_of_implicit_prelude(hermes2::HermesView ast) {
     if (!root.has_key(la::ITEMS)) return false;
     AnyVal items_av = root.get(la::ITEMS);
     if (items_av.is_null() || !items_av.is_pointer()) return false;
-    auto items = ArrayView(items_av.to_offset(), holder);
+    auto items = ArrayView(items_av, holder);
     for (uint64_t i = 0; i < items.size(); ++i) {
         AnyVal it = items.get(i);
         if (it.is_null() || !it.is_pointer()) continue;
-        auto node = TinyMapView(it.to_offset(), holder);
+        auto node = TinyMapView(it, holder);
         if (!node.has_key(la::CODE)) continue;
         AnyVal cav = node.get(la::CODE);
         if (cav.is_null() || cav.is_pointer()) continue;
@@ -72,7 +72,7 @@ static bool file_opts_out_of_implicit_prelude(hermes2::HermesView ast) {
         if (!node.has_key(la::NAME)) continue;
         AnyVal nav = node.get(la::NAME);
         if (nav.is_null() || !nav.is_pointer()) continue;
-        auto name = StringView(nav.to_offset(), holder).view();
+        auto name = StringView(nav, holder).view();
         if (name == "no_implicit_prelude") return true;
     }
     return false;
@@ -102,11 +102,11 @@ static std::vector<std::string> extract_uses(hermes2::HermesView ast,
     AnyVal uses_av = root.get(la::USES);
     if (uses_av.is_null() || !uses_av.is_pointer()) return finalize();
 
-    auto uses = ArrayView(uses_av.to_offset(), holder);
+    auto uses = ArrayView(uses_av, holder);
     for (uint64_t i = 0; i < uses.size(); ++i) {
         AnyVal use_av = uses.get(i);
         if (use_av.is_null() || !use_av.is_pointer()) continue;
-        auto use_node = TinyMapView(use_av.to_offset(), holder);
+        auto use_node = TinyMapView(use_av, holder);
 
         // Reconstruct dotted path from NAME + PATH_PARTS.
         // `use a.b.c;` → NAME="a", PATH_PARTS=[{NAME:"b"},{NAME:"c"}] → "a.b.c".
@@ -114,21 +114,21 @@ static std::vector<std::string> extract_uses(hermes2::HermesView ast,
         if (use_node.has_key(la::NAME)) {
             AnyVal name_av = use_node.get(la::NAME);
             if (!name_av.is_null() && name_av.is_pointer())
-                dotted = std::string(StringView(name_av.to_offset(), holder).view());
+                dotted = std::string(StringView(name_av, holder).view());
         }
         if (use_node.has_key(la::mod::PATH_PARTS)) {
             AnyVal parts_av = use_node.get(la::mod::PATH_PARTS);
             if (!parts_av.is_null() && parts_av.is_pointer()) {
-                auto parts = ArrayView(parts_av.to_offset(), holder);
+                auto parts = ArrayView(parts_av, holder);
                 for (uint64_t pi = 0; pi < parts.size(); ++pi) {
                     AnyVal part_av = parts.get(pi);
                     if (part_av.is_null() || !part_av.is_pointer()) continue;
-                    auto part = TinyMapView(part_av.to_offset(), holder);
+                    auto part = TinyMapView(part_av, holder);
                     if (!part.has_key(la::NAME)) continue;
                     AnyVal pn = part.get(la::NAME);
                     if (pn.is_null() || !pn.is_pointer()) continue;
                     if (!dotted.empty()) dotted += '.';
-                    dotted += std::string(StringView(pn.to_offset(), holder).view());
+                    dotted += std::string(StringView(pn, holder).view());
                 }
             }
         }
@@ -148,7 +148,7 @@ static std::vector<std::string> extract_uses(hermes2::HermesView ast,
         if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
             AnyVal tn_av = use_node.get(la::TYPE_NAME);
             if (!tn_av.is_null() && tn_av.is_pointer()) {
-                std::string tn(StringView(tn_av.to_offset(), holder).view());
+                std::string tn(StringView(tn_av, holder).view());
                 if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
                     // Lowercase: grouped sub-package import.
                     std::string prefix = dotted.empty()
@@ -156,15 +156,15 @@ static std::vector<std::string> extract_uses(hermes2::HermesView ast,
                     if (use_node.has_key(la::VARIANTS)) {
                         AnyVal vlist_av = use_node.get(la::VARIANTS);
                         if (!vlist_av.is_null() && vlist_av.is_pointer()) {
-                            auto vlist = ArrayView(vlist_av.to_offset(), holder);
+                            auto vlist = ArrayView(vlist_av, holder);
                             for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
                                 AnyVal vav = vlist.get(vi);
                                 if (vav.is_null() || !vav.is_pointer()) continue;
-                                auto v = TinyMapView(vav.to_offset(), holder);
+                                auto v = TinyMapView(vav, holder);
                                 if (!v.has_key(la::NAME)) continue;
                                 AnyVal nv = v.get(la::NAME);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
-                                std::string bare(StringView(nv.to_offset(), holder).view());
+                                std::string bare(StringView(nv, holder).view());
                                 std::string full = prefix + "." + bare;
                                 result.push_back(std::move(full));
                             }

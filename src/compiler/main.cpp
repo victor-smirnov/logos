@@ -3001,7 +3001,7 @@ int main(int argc, char** argv) {
             if (root.has_key(la::NAME)) {
                 auto nm_av = root.get(la::NAME.code);
                 if (!nm_av.is_null())
-                    pkg = std::string(StringView(nm_av.to_offset(), holder).view());
+                    pkg = std::string(StringView(nm_av, holder).view());
             }
             if (root.has_key(la::mod::PATH_PARTS)) {
                 auto parts_av = root.get(la::mod::PATH_PARTS.code);
@@ -3013,7 +3013,7 @@ int main(int argc, char** argv) {
                         auto pn = p.get(la::NAME.code);
                         if (pn.is_null()) continue;
                         if (!pkg.empty()) pkg.push_back('.');
-                        pkg += std::string(StringView(pn.to_offset(), holder).view());
+                        pkg += std::string(StringView(pn, holder).view());
                     }
                 }
             }
@@ -3047,7 +3047,7 @@ int main(int argc, char** argv) {
                         auto nv = item.get(la::NAME.code);
                         std::string_view nm = nv.is_null()
                             ? std::string_view{}
-                            : StringView(nv.to_offset(), holder).view();
+                            : StringView(nv, holder).view();
                         if      (nm == "test")         pending_test = true;
                         else if (nm == "should_panic") {
                             pending_sp = true;
@@ -3074,7 +3074,7 @@ int main(int argc, char** argv) {
                                             auto kn = a.get(la::NAME.code);
                                             std::string_view kname = kn.is_null()
                                                 ? std::string_view{}
-                                                : StringView(kn.to_offset(), holder).view();
+                                                : StringView(kn, holder).view();
                                             if (kname != "expected") continue;
                                             TinyMapView v(a.get(la::VALUE.code).to_offset(),
                                                           holder);
@@ -3110,7 +3110,7 @@ int main(int argc, char** argv) {
                     auto nv = item.get(la::NAME.code);
                     std::string nm = nv.is_null()
                         ? std::string{}
-                        : std::string(StringView(nv.to_offset(), holder).view());
+                        : std::string(StringView(nv, holder).view());
                     if (nm == "main" && same_pkg) user_has_main = true;
                     if (pending_test && same_pkg) {
                         tests.push_back({nm, pending_sp, pending_ig,

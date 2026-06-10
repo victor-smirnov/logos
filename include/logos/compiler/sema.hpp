@@ -236,7 +236,7 @@ public:
     TypeRef closure_ret()  const noexcept;
 
     bool mut_ptr() const noexcept {
-        auto av = mirror()->get(sema_schema::MUT_PTR.code, mirror_base());
+        auto av = mirror()->get(sema_schema::MUT_PTR.code);
         return av.is_value() && av.as_value<uint8_t>() != 0;
     }
     // F3 (§6/§8): `*zoned T` — a zoned raw pointer (Ref-arm self-relative at-rest,
@@ -302,22 +302,22 @@ public:
         return dst_owning_kind() != OwningKind::Borrow;
     }
     uint64_t arr_size() const noexcept {
-        auto av = mirror()->get(sema_schema::ARR_SIZE.code, mirror_base());
+        auto av = mirror()->get(sema_schema::ARR_SIZE.code);
         if (av.is_null()) return 0;
-        return *av.as_ptr<const uint64_t>(mirror_base());
+        return *av.as_ptr<const uint64_t>();
     }
 
     // String accessors return realloc-safe owning views (refcounted MemHolder).
     // Implementation is out-of-line in sema.cpp because it needs MemHolder*,
     // which is reachable only through TypePoolImpl (PIMPL).
-    hermes2::OStringView lifetime()        const noexcept;
-    hermes2::OStringView struct_name()     const noexcept;
-    hermes2::OStringView enum_name()       const noexcept;
-    hermes2::OStringView pkg_name()        const noexcept;
-    hermes2::OStringView trait_name()      const noexcept;
-    hermes2::OStringView type_var_name()   const noexcept;
-    hermes2::OStringView assoc_type_name() const noexcept;
-    hermes2::OStringView arr_size_var()    const noexcept;
+    hermes2::StringView lifetime()        const noexcept;
+    hermes2::StringView struct_name()     const noexcept;
+    hermes2::StringView enum_name()       const noexcept;
+    hermes2::StringView pkg_name()        const noexcept;
+    hermes2::StringView trait_name()      const noexcept;
+    hermes2::StringView type_var_name()   const noexcept;
+    hermes2::StringView assoc_type_name() const noexcept;
+    hermes2::StringView arr_size_var()    const noexcept;
 
     std::vector<TypeRef> type_args()      const noexcept;
     std::vector<TypeRef> tuple_elems()    const noexcept;
@@ -326,9 +326,9 @@ public:
     std::vector<std::string> lifetime_args() const noexcept;
 
     std::optional<int64_t> const_val() const noexcept {
-        auto av = mirror()->get(sema_schema::CONST_VAL.code, mirror_base());
+        auto av = mirror()->get(sema_schema::CONST_VAL.code);
         if (av.is_null()) return std::nullopt;
-        return *av.as_ptr<const int64_t>(mirror_base());
+        return *av.as_ptr<const int64_t>();
     }
 
     LogosTypeBuilder to_builder() const;

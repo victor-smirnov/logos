@@ -49,7 +49,7 @@ namespace logos::compiler {
 class TypePoolImpl {
 public:
     // Owning ref to MemHolder: refcount==1 at init, dropped in dtor. Views
-    // (OStringView et al.) take additional refs via Own<>. The arena moves on
+    // (StringView et al.) take additional refs via Own<>. The arena moves on
     // grow() — never cache base pointers; always re-fetch via holder_->base().
     hermes2::MemHolder*                                     holder_ = nullptr;
 
@@ -1139,12 +1139,12 @@ namespace {
 // docs for the limitation.
 TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     if (!self) return {};
-    auto av = self.mirror()->get(key.code, self.mirror_base());
+    auto av = self.mirror()->get(key.code);
     if (av.is_null()) return {};
 
     // Single-arena fast path: AnyVal points at a normal mirror node in the
     // same arena. This branch covers ~100% of current single-arena work.
-    if (!hermes2::is_external_ref_av(av, self.mirror_base())) [[likely]] {
+    if (!hermes2::is_external_ref_av(av)) [[likely]] {
         if (self.pool()) {
             return self.pool()->ref(av.to_offset());
         }
@@ -1159,7 +1159,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // Cross-arena dispatch: AnyVal points at an ExternalRef object; resolve
     // via global ArenaPool. Returned TypeRef has pool_ = nullptr — caller
     // gets read-only access; further pool-dependent accessors degrade
-    // gracefully (return null OStringView etc.).
+    // gracefully (return null StringView etc.).
     auto* ref = reinterpret_cast<const hermes2::ExternalRef*>(
         self.mirror_base() + av.to_offset().value());
     auto r = hermes2::resolve_external_ref(*ref);
@@ -1177,7 +1177,7 @@ TypeRef TypeRef::closure_ret() const noexcept { return ptr_via_mirror(*this, sem
 // String accessors return realloc-safe owning views. The MemHolder is reached
 // via pool_ for local TypeRefs; for cross-arena TypeRefs (pool_ == nullptr,
 // arena_id_ valid) it is looked up from the global ArenaPool. Both paths
-// yield a working OStringView; only fully synthetic TypeRefs (no pool, no
+// yield a working StringView; only fully synthetic TypeRefs (no pool, no
 // arena_id) degrade to a null view.
 namespace {
 hermes2::MemHolder* holder_for(const TypeRef& self) noexcept {
@@ -1187,25 +1187,25 @@ hermes2::MemHolder* holder_for(const TypeRef& self) noexcept {
     }
     return nullptr;
 }
-hermes2::OStringView ostr_via_mirror(const TypeRef& self,
+hermes2::StringView ostr_via_mirror(const TypeRef& self,
                                     sema_schema::Key key) noexcept {
     if (!self) return {};
     auto* holder = holder_for(self);
     if (!holder) return {};
-    auto av = self.mirror()->get(key.code, self.mirror_base());
+    auto av = self.mirror()->get(key.code);
     if (av.is_null()) return {};
-    return hermes2::OStringView(av.to_offset(), holder);
+    return hermes2::StringView(av, holder);
 }
 } // namespace
 
-hermes2::OStringView TypeRef::lifetime()        const noexcept { return ostr_via_mirror(*this, sema_schema::LIFETIME);        }
-hermes2::OStringView TypeRef::struct_name()     const noexcept { return ostr_via_mirror(*this, sema_schema::STRUCT_NAME);     }
-hermes2::OStringView TypeRef::enum_name()       const noexcept { return ostr_via_mirror(*this, sema_schema::ENUM_NAME);       }
-hermes2::OStringView TypeRef::pkg_name()        const noexcept { return ostr_via_mirror(*this, sema_schema::PKG_NAME);        }
-hermes2::OStringView TypeRef::trait_name()      const noexcept { return ostr_via_mirror(*this, sema_schema::TRAIT_NAME);      }
-hermes2::OStringView TypeRef::type_var_name()   const noexcept { return ostr_via_mirror(*this, sema_schema::TYPE_VAR_NAME);   }
-hermes2::OStringView TypeRef::assoc_type_name() const noexcept { return ostr_via_mirror(*this, sema_schema::ASSOC_TYPE_NAME); }
-hermes2::OStringView TypeRef::arr_size_var()    const noexcept { return ostr_via_mirror(*this, sema_schema::ARR_SIZE_VAR);    }
+hermes2::StringView TypeRef::lifetime()        const noexcept { return ostr_via_mirror(*this, sema_schema::LIFETIME);        }
+hermes2::StringView TypeRef::struct_name()     const noexcept { return ostr_via_mirror(*this, sema_schema::STRUCT_NAME);     }
+hermes2::StringView TypeRef::enum_name()       const noexcept { return ostr_via_mirror(*this, sema_schema::ENUM_NAME);       }
+hermes2::StringView TypeRef::pkg_name()        const noexcept { return ostr_via_mirror(*this, sema_schema::PKG_NAME);        }
+hermes2::StringView TypeRef::trait_name()      const noexcept { return ostr_via_mirror(*this, sema_schema::TRAIT_NAME);      }
+hermes2::StringView TypeRef::type_var_name()   const noexcept { return ostr_via_mirror(*this, sema_schema::TYPE_VAR_NAME);   }
+hermes2::StringView TypeRef::assoc_type_name() const noexcept { return ostr_via_mirror(*this, sema_schema::ASSOC_TYPE_NAME); }
+hermes2::StringView TypeRef::arr_size_var()    const noexcept { return ostr_via_mirror(*this, sema_schema::ARR_SIZE_VAR);    }
 
 // 2c.4e.3.0/.1: vector accessors via mirror ObjectArray, sourced from
 // TypeRef's base/off/pool fat pointer.

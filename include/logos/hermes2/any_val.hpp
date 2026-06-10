@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <logos/hermes2/config.hpp>   // arena_offset_t (for the mirror's base+offset handles)
 
 namespace logos::hermes2 {
 
@@ -98,6 +99,19 @@ public:
     // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
     // Hermes1 base-relative `set_pointer(target, base)` — base no longer needed).
     void set_pointer(const void* target) noexcept { set_ref(target); }
+
+    // The single-segment (GrowableSingleChunk) arena offset of this Ref's target,
+    // relative to `base` (= arena.head().data()). Used by the LIR mirror / TypePool
+    // handles, which store realloc-safe arena_offset_t (not absolute pointers, which
+    // would dangle when the single chunk reallocs on grow). Resolve the inverse with
+    // `from_offset(base, off)`.
+    arena_offset_t to_offset(const uint8_t* base) const noexcept {
+        return arena_offset_t(static_cast<uint32_t>(resolve() - base));
+    }
+    // Build a Ref AnyVal from a (base, offset) pair (the inverse of to_offset(base)).
+    static AnyVal from_offset(const uint8_t* base, arena_offset_t off) noexcept {
+        AnyVal a; a.set_ref(base + off.value()); return a;
+    }
 
     // The raw at-rest word (for serialization / niche inspection).
     int64_t raw() const noexcept { return word_; }
