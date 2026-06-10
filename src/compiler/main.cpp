@@ -431,7 +431,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // replaced by NAME(string) drawn from idents[idx]. Mirrors the dst
     // walker in lower_quote_item, so placeholders at any nesting depth
     // (struct field name, fn arg name, type ref name, …) are resolved.
-    namespace lh = logos::hermes;
+    namespace lh = logos::hermes2;
     bool subst_failed = false;
 
     // Splice helper: if `child_off` is a TOM placeholder with NAME_VAR(neg
@@ -521,11 +521,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 dbase = HermesAccess::base(doc);
                                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
                                 (void)tom->put(la::NAME.code,
-                                    AnyVal::from_offset(arena_offset_t(name_off)),
+                                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)),
                                     arena);
                                 dbase = HermesAccess::base(doc);
                                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
-                                tom->remove(la::NAME_VAR.code, dbase);
+                                tom->remove(la::NAME_VAR.code);
                             }
                         }
                     }
@@ -696,7 +696,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     (void)na->push_back(src_nonptr[i], arena);
                 } else {
                     (void)na->push_back(
-                        AnyVal::from_offset(arena_offset_t(src_els[i].off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(src_els[i].off)),
                         arena);
                 }
                 continue;
@@ -720,7 +720,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 auto* na2 = reinterpret_cast<ObjectArray*>(
                     HermesAccess::base(doc) + new_arr_off);
                 (void)na2->push_back(
-                    AnyVal::from_offset(arena_offset_t(copy_off)), arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(copy_off)), arena);
             }
         }
         return new_arr_off;
@@ -769,10 +769,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 dbase = HermesAccess::base(doc);
                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
                 (void)tom->put(la::NAME.code,
-                    AnyVal::from_offset(arena_offset_t(name_off)), arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)), arena);
                 dbase = HermesAccess::base(doc);
                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
-                tom->remove(la::NAME_VAR.code, dbase);
+                tom->remove(la::NAME_VAR.code);
             }
         }
         // Snapshot children before recursion (puts above may have rebased).
@@ -805,7 +805,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         uint8_t* db = HermesAccess::base(doc);
                         auto* t = reinterpret_cast<TinyObjectMap*>(db + off);
                         (void)t->put(key,
-                            AnyVal::from_offset(arena_offset_t(new_off)),
+                            AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)),
                             arena);
                     });
                 if (!spliced) subst_walk(cref.coff);
@@ -822,7 +822,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     uint8_t* db = HermesAccess::base(doc);
                     auto* t = reinterpret_cast<TinyObjectMap*>(db + off);
                     (void)t->put(cref.key,
-                        AnyVal::from_offset(arena_offset_t(expanded)), arena);
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(expanded)), arena);
                     arr_off = expanded;
                 }
             }
@@ -846,7 +846,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         uint8_t* db = HermesAccess::base(doc);
                         auto* a = reinterpret_cast<ObjectArray*>(db + arr_off);
                         a->set(ei,
-                               AnyVal::from_offset(arena_offset_t(new_off)),
+                               AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)),
                                db);
                     });
                 if (!spliced) subst_walk(eoff);
@@ -901,7 +901,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         reinterpret_cast<uint8_t*>(sv_e.get())
                         - HermesAccess::base(doc));
                     (void)root_ptr()->put(la::NAME.code,
-                        AnyVal::from_offset(arena_offset_t(sv_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(sv_off)),
                         arena);
                 }
             }
@@ -932,11 +932,11 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                             reinterpret_cast<uint8_t*>(cp_e.get())
                             - HermesAccess::base(doc));
                         (void)pp_arr_ptr()->push_back(
-                            AnyVal::from_offset(arena_offset_t(cp_off)),
+                            AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(cp_off)),
                             arena);
                     }
                     (void)root_ptr()->put(la::mod::PATH_PARTS.code,
-                        AnyVal::from_offset(arena_offset_t(pp_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(pp_off)),
                         arena);
                 }
             }
@@ -972,7 +972,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         reinterpret_cast<uint8_t*>(a_e.get())
                         - HermesAccess::base(doc));
                     (void)root_ptr()->put(la::USES.code,
-                        AnyVal::from_offset(arena_offset_t(synth_uses_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(synth_uses_off)),
                         arena);
                 } else {
                     synth_uses_off = static_cast<uint32_t>(
@@ -1053,12 +1053,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal::from_value(static_cast<int32_t>(la::USE.code)),
                         arena);
                     (void)utom_ptr()->put(la::NAME.code,
-                        AnyVal::from_offset(arena_offset_t(pname_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(pname_off)),
                         arena);
                     auto* sa = reinterpret_cast<ObjectArray*>(
                         HermesAccess::base(doc) + synth_uses_off);
                     (void)sa->push_back(
-                        AnyVal::from_offset(arena_offset_t(utom_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(utom_off)),
                         arena);
                 }
             }
@@ -1489,7 +1489,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value()));
                 if (no == 0) return 0;
                 (void)dst_arr()->push_back(
-                    AnyVal::from_offset(arena_offset_t(no)),
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(no)),
                     dst_arena);
             }
             return dst_off;
@@ -1521,7 +1521,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value()));
             if (no == 0) return 0;
             (void)dst_tom()->put(k,
-                AnyVal::from_offset(arena_offset_t(no)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(no)), dst_arena);
         }
         return dst_off;
     };
@@ -1558,11 +1558,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 reinterpret_cast<uint8_t*>(op_e.get())
                 - HermesAccess::base(dst_doc));
             (void)bin()->put(la::OP.code,
-                AnyVal::from_offset(arena_offset_t(op_off)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(op_off)), dst_arena);
             (void)bin()->put(la::LHS.code,
-                AnyVal::from_offset(arena_offset_t(acc)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(acc)), dst_arena);
             (void)bin()->put(la::RHS.code,
-                AnyVal::from_offset(arena_offset_t(rhs)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(rhs)), dst_arena);
             bin()->set_schema_type_code(
                 logos::hermes2::schema::ast(la::BINOP.code));
             acc = bin_off;
@@ -1715,7 +1715,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             (void)dst_tom()->put(la::CODE.code,
                 AnyVal::from_value<int32_t>(la::VAR_REF.code), dst_arena);
             (void)dst_tom()->put(la::NAME.code,
-                AnyVal::from_offset(arena_offset_t(name_off)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)), dst_arena);
             // Copy SRC_LINE if present so error messages keep line info.
             if (src_tom->has_key(la::SRC_LINE.code)) {
                 AnyVal lav = src_tom->get(la::SRC_LINE.code,
@@ -1760,7 +1760,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint8_t out_key = (cd == la::FIELD_READ.code)
                     ? la::FIELD.code : la::NAME.code;
                 (void)dst_tom()->put(out_key,
-                    AnyVal::from_offset(arena_offset_t(name_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)), dst_arena);
                 continue;
             }
             if (av.is_null()) {
@@ -1786,17 +1786,17 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     reinterpret_cast<uint8_t*>(se.get())
                     - HermesAccess::base(dst_doc));
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(arena_offset_t(s_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(s_off)), dst_arena);
             } else if (tc == 100) {
                 uint32_t new_off = copy_array(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(arena_offset_t(new_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)), dst_arena);
             } else {
                 uint32_t new_off = copy_expr(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(arena_offset_t(new_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(new_off)), dst_arena);
             }
         }
         return dst_off;
@@ -1868,7 +1868,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         return 0;
                     }
                     (void)dst_arr()->push_back(
-                        AnyVal::from_offset(arena_offset_t(copy_off)),
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(copy_off)),
                         dst_arena);
                 }
                 cursor_i = saved;
@@ -1876,7 +1876,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint32_t copy_off = copy_expr(el_off);
                 if (copy_off == 0) return 0;
                 (void)dst_arr()->push_back(
-                    AnyVal::from_offset(arena_offset_t(copy_off)),
+                    AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(copy_off)),
                     dst_arena);
             }
         }
@@ -1970,7 +1970,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
         (void)tm()->put(la::CODE.code,
                         AnyVal::from_value<int32_t>(la::LIT_INT.code), arena);
         (void)tm()->put(la::VALUE.code,
-                        AnyVal::from_offset(arena_offset_t(str_off)), arena);
+                        AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(str_off)), arena);
         (void)tm()->put(la::SRC_LINE.code,
                         AnyVal::from_value<int32_t>(1), arena);
         tm()->set_schema_type_code(
@@ -1998,11 +1998,11 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     (void)root()->put(la::CODE.code,
                       AnyVal::from_value<int32_t>(la::BINOP.code), arena);
     (void)root()->put(la::OP.code,
-                      AnyVal::from_offset(arena_offset_t(op_off)), arena);
+                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(op_off)), arena);
     (void)root()->put(la::LHS.code,
-                      AnyVal::from_offset(arena_offset_t(lhs_off)), arena);
+                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(lhs_off)), arena);
     (void)root()->put(la::RHS.code,
-                      AnyVal::from_offset(arena_offset_t(rhs_off)), arena);
+                      AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(rhs_off)), arena);
     (void)root()->put(la::SRC_LINE.code,
                       AnyVal::from_value<int32_t>(1), arena);
     root()->set_schema_type_code(

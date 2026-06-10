@@ -140,13 +140,13 @@ public:
     hermes2::AnyVal put_string(std::string_view s) {
         auto p = hermes2::ArenaString::create(arena(), s);
         LOGOS_ASSERT(p.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
-        return hermes2::AnyVal::from_offset(offset_of(*p));
+        return hermes2::AnyVal::from_offset(arena().head().data(), offset_of(*p));
     }
 
     // Translate a TypeRef to an AnyVal pointing at its mirror.
     hermes2::AnyVal ptr_to_mirror(TypeRef p) {
         if (!p) return hermes2::AnyVal{};
-        return hermes2::AnyVal::from_offset(p.offset());
+        return hermes2::AnyVal::from_offset(arena().head().data(), p.offset());
     }
 
     // Build an ObjectArray from a vector<TypeRef> and return AnyVal.
@@ -161,7 +161,7 @@ public:
                      ->push_back(v_any, arena());
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
-        return hermes2::AnyVal::from_offset(arr_off);
+        return hermes2::AnyVal::from_offset(arena().head().data(), arr_off);
     }
 
     // Build an ObjectArray from a vector<std::string> (lifetime_args).
@@ -176,7 +176,7 @@ public:
                      ->push_back(v_any, arena());
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
-        return hermes2::AnyVal::from_offset(arr_off);
+        return hermes2::AnyVal::from_offset(arena().head().data(), arr_off);
     }
 
     // Build a Hermes mirror for `t` and return its arena offset.

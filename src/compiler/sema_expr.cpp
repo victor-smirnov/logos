@@ -14501,7 +14501,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     };
     int qi_repeat_depth = 0;
     bool walk_failed = false;
-    namespace lh = logos::hermes;
+    namespace lh = logos::hermes2;
     std::set<uint32_t> visited_src;
     std::function<void(uint32_t)> walk_src = [&](uint32_t off) {
         if (walk_failed) return;
@@ -14712,7 +14712,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 if (key == la::NAME_VAR.code) continue;
                 AnyVal av = tom->get(key);
                 if (av.is_null() || !av.is_pointer()) continue;
-                uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+                uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
                 const uint8_t* pointee = dbase + coff;
                 lh::TypeTag tag = lh::TypeTag::read_before(pointee);
                 if (tag.type_code() == lh::type_hash::TinyObjectMap)
@@ -14732,7 +14732,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 for (uint64_t i = 0; i < arr->size(); ++i) {
                     AnyVal e = arr->get(i);
                     if (e.is_null() || !e.is_pointer()) continue;
-                    uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                    uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
                     const uint8_t* ep = dbase2 + eoff;
                     lh::TypeTag etag = lh::TypeTag::read_before(ep);
                     if (etag.type_code() == lh::type_hash::TinyObjectMap)
@@ -15544,7 +15544,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t->has_key(key)) return true;
             AnyVal av = t->get(key);
             if (av.is_null() || !av.is_pointer()) return true;
-            return walk(static_cast<uint32_t>(av.to_offset().value()));
+            return walk(static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value()));
         };
 
         if (cd == la::VAR_REF.code) {
@@ -15606,7 +15606,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (t->has_key(la::ARGS.code)) {
                 AnyVal av = t->get(la::ARGS.code);
                 if (av.is_pointer()) {
-                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+                    uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
                     uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
                     // Refresh base+arr each iter: walk() can grow the arena via
                     // register_name_var->put(), staling `b` and `arr`.
@@ -15616,7 +15616,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
                         AnyVal el = arr2->get(i);
                         if (!el.is_pointer()) continue;
                         if (!walk(static_cast<uint32_t>(
-                                el.to_offset().value()))) {
+                                el.to_offset(HermesAccess::base(doc)).value()))) {
                             return false;
                         }
                     }
@@ -15634,14 +15634,14 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t->has_key(la::ITEMS.code)) return true;
             AnyVal av = t->get(la::ITEMS.code);
             if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
             for (uint64_t i = 0; i < n; ++i) {
                 auto* b2 = HermesAccess::base(doc);
                 auto* arr2 = reinterpret_cast<ObjectArray*>(b2 + arr_off);
                 AnyVal el = arr2->get(i);
                 if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset().value())))
+                if (!walk(static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value())))
                     return false;
             }
             return true;
@@ -15664,14 +15664,14 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             if (!t->has_key(la::ITEMS.code)) return true;
             AnyVal av = t->get(la::ITEMS.code);
             if (!av.is_pointer()) return true;
-            uint32_t arr_off = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t arr_off = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             uint64_t n = reinterpret_cast<ObjectArray*>(b + arr_off)->size();
             for (uint64_t i = 0; i < n; ++i) {
                 auto* b2 = HermesAccess::base(doc);
                 auto* arr2 = reinterpret_cast<ObjectArray*>(b2 + arr_off);
                 AnyVal el = arr2->get(i);
                 if (!el.is_pointer()) continue;
-                if (!walk(static_cast<uint32_t>(el.to_offset().value())))
+                if (!walk(static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value())))
                     return false;
             }
             return true;
@@ -17628,7 +17628,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
     if ((is_format_family || is_write_family) &&
         arg_avs.size() > fmt_pos && arg_avs[fmt_pos].is_pointer()) {
         auto* fmt_tom = reinterpret_cast<TinyObjectMap*>(
-            const_cast<uint8_t*>(src_base) + arg_avs[fmt_pos].to_offset().value());
+            arg_avs[fmt_pos].resolve());
         int32_t fc = 0;
         if (fmt_tom->has_key(la::CODE.code)) {
             AnyVal cv = fmt_tom->get(la::CODE.code, const_cast<uint8_t*>(src_base));
@@ -17891,7 +17891,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
                                 AnyVal av = tom->get(key, const_cast<uint8_t*>(b2));
                                 if (!av.is_pointer()) return nullptr;
                                 return reinterpret_cast<TinyObjectMap*>(
-                                    const_cast<uint8_t*>(b2) + av.to_offset().value());
+                                    const_cast<uint8_t*>(b2) + av.to_offset(HermesAccess::base(doc)).value());
                             };
                             auto nav_aa = [&](TinyObjectMap* tom, uint8_t key)
                                               -> TinyObjectMap* {
@@ -17899,12 +17899,12 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
                                 AnyVal av = tom->get(key, const_cast<uint8_t*>(b2));
                                 if (!av.is_pointer()) return nullptr;
                                 auto* arr = reinterpret_cast<logos::hermes2::ObjectArray*>(
-                                    const_cast<uint8_t*>(b2) + av.to_offset().value());
+                                    const_cast<uint8_t*>(b2) + av.to_offset(HermesAccess::base(doc)).value());
                                 if (arr->size() == 0) return nullptr;
                                 AnyVal el = arr->get(0, const_cast<uint8_t*>(b2));
                                 if (!el.is_pointer()) return nullptr;
                                 return reinterpret_cast<TinyObjectMap*>(
-                                    const_cast<uint8_t*>(b2) + el.to_offset().value());
+                                    const_cast<uint8_t*>(b2) + el.to_offset(HermesAccess::base(doc)).value());
                             };
                             auto* fn   = nav_aa(mod, la::ITEMS.code);
                             auto* body = fn   ? nav_kk(fn,   la::BODY.code)  : nullptr;
@@ -17971,7 +17971,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
             return error_expr();
         }
         const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
-            src_base + arg_avs[i].to_offset().value());
+            arg_avs[i].resolve());
         // Read CODE so we can re-stamp schema_type_code on the cloned
         // root — lower_hermes_blob dispatches via that field.
         int32_t code = 0;
@@ -18228,7 +18228,7 @@ void SemaChecker::lower_fn_macro_call_item(hermes2::TinyMapView node,
             return;
         }
         const auto* src_tom = reinterpret_cast<const TinyObjectMap*>(
-            src_base + arg_avs[i].to_offset().value());
+            arg_avs[i].resolve());
         int32_t code = 0;
         if (src_tom->has_key(la::CODE.code)) {
             AnyVal cav = src_tom->get(la::CODE.code,
