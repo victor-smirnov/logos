@@ -1423,7 +1423,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             }
             return 0;
         }
-        if (tc0 == 28) return 0;
+        if (tc0 == 130) return 0;
         // Treat as TOM. Check for NAME_VAR(int idx) on this node.
         const auto* tt = reinterpret_cast<const TinyObjectMap*>(
             src_base + off);
@@ -1462,7 +1462,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     copy_node_raw = [&](const uint8_t* sb, uint32_t off) -> uint32_t {
         auto tag = logos::hermes2::TypeTag::read_before(sb + off);
         uint64_t tc = tag.type_code();
-        if (tc == 28) {
+        if (tc == 130) {
             const auto* s = reinterpret_cast<const ArenaString*>(sb + off);
             auto se = ArenaString::create(dst_arena, s->view());
             if (!se) return 0;
@@ -1781,7 +1781,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 src_base + child_off);
             uint64_t tc = tag.type_code();
 
-            if (tc == 28) {
+            if (tc == 130) {
                 const auto* s = reinterpret_cast<const ArenaString*>(
                     src_base + child_off);
                 auto se = ArenaString::create(dst_arena, s->view());
