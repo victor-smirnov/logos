@@ -8,7 +8,9 @@ package hermes_typed_array_all_elems;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.mem.hermes.stringify;
+use logos.mem.hermes2.stringify;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
@@ -16,7 +18,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }
@@ -26,7 +28,7 @@ pub unsafe fn main() -> i32 {
 
     // ── i8 (error offset 10) ──────────────────────────────────────────────────
     let a_i8: HermesStatic = @<I8>[-1, 2, 127];
-    rc = check(&a_i8, "<I8> [-1,2,127]", 10);
+    rc = check(&a_i8, "<I8> [-1, 2, 127]", 10);
     if rc != 0 { return rc; }
 
     let e_i8: HermesStatic = @<I8>[];
@@ -35,7 +37,7 @@ pub unsafe fn main() -> i32 {
 
     // ── u8 (error offset 20) ──────────────────────────────────────────────────
     let a_u8: HermesStatic = @<U8>[0, 128, 255];
-    rc = check(&a_u8, "<U8> [0,128,255]", 20);
+    rc = check(&a_u8, "<U8> [0, 128, 255]", 20);
     if rc != 0 { return rc; }
 
     let e_u8: HermesStatic = @<U8>[];
@@ -44,7 +46,7 @@ pub unsafe fn main() -> i32 {
 
     // ── i16 (error offset 30) ─────────────────────────────────────────────────
     let a_i16: HermesStatic = @<I16>[-300, 0, 300];
-    rc = check(&a_i16, "<I16> [-300,0,300]", 30);
+    rc = check(&a_i16, "<I16> [-300, 0, 300]", 30);
     if rc != 0 { return rc; }
 
     let e_i16: HermesStatic = @<I16>[];
@@ -53,7 +55,7 @@ pub unsafe fn main() -> i32 {
 
     // ── u16 (error offset 40) ─────────────────────────────────────────────────
     let a_u16: HermesStatic = @<U16>[0, 1000, 65535];
-    rc = check(&a_u16, "<U16> [0,1000,65535]", 40);
+    rc = check(&a_u16, "<U16> [0, 1000, 65535]", 40);
     if rc != 0 { return rc; }
 
     let e_u16: HermesStatic = @<U16>[];
@@ -62,7 +64,7 @@ pub unsafe fn main() -> i32 {
 
     // ── i32 (error offset 50) ─────────────────────────────────────────────────
     let a_i32: HermesStatic = @<I32>[-1, 0, 1];
-    rc = check(&a_i32, "<I32> [-1,0,1]", 50);
+    rc = check(&a_i32, "<I32> [-1, 0, 1]", 50);
     if rc != 0 { return rc; }
 
     let e_i32: HermesStatic = @<I32>[];
@@ -71,7 +73,7 @@ pub unsafe fn main() -> i32 {
 
     // ── u32 (error offset 60) ─────────────────────────────────────────────────
     let a_u32: HermesStatic = @<U32>[0, 1, 4294967295];
-    rc = check(&a_u32, "<U32> [0,1,4294967295]", 60);
+    rc = check(&a_u32, "<U32> [0, 1, 4294967295]", 60);
     if rc != 0 { return rc; }
 
     let e_u32: HermesStatic = @<U32>[];
@@ -80,7 +82,7 @@ pub unsafe fn main() -> i32 {
 
     // ── i64 (error offset 70) ─────────────────────────────────────────────────
     let a_i64: HermesStatic = @<I64>[-1, 0, 1];
-    rc = check(&a_i64, "<I64> [-1,0,1]", 70);
+    rc = check(&a_i64, "<I64> [-1, 0, 1]", 70);
     if rc != 0 { return rc; }
 
     let e_i64: HermesStatic = @<I64>[];
@@ -89,7 +91,7 @@ pub unsafe fn main() -> i32 {
 
     // ── u64 (error offset 80) ─────────────────────────────────────────────────
     let a_u64: HermesStatic = @<U64>[0, 1, 18446744073709551615];
-    rc = check(&a_u64, "<U64> [0,1,18446744073709551615]", 80);
+    rc = check(&a_u64, "<U64> [0, 1, 18446744073709551615]", 80);
     if rc != 0 { return rc; }
 
     let e_u64: HermesStatic = @<U64>[];
@@ -98,7 +100,7 @@ pub unsafe fn main() -> i32 {
 
     // ── f32 (error offset 90) — HermesStringify casts f32 → i64 ─────────────
     let a_f32: HermesStatic = @<F32>[1, 2, 3];
-    rc = check(&a_f32, "<F32> [1,2,3]", 90);
+    rc = check(&a_f32, "<F32> [1, 2, 3]", 90);
     if rc != 0 { return rc; }
 
     let e_f32: HermesStatic = @<F32>[];
@@ -107,7 +109,7 @@ pub unsafe fn main() -> i32 {
 
     // ── f64 (error offset 100) — HermesStringify casts f64 → i64 ────────────
     let a_f64: HermesStatic = @<F64>[10, 20, 30];
-    rc = check(&a_f64, "<F64> [10,20,30]", 100);
+    rc = check(&a_f64, "<F64> [10, 20, 30]", 100);
     if rc != 0 { return rc; }
 
     let e_f64: HermesStatic = @<F64>[];
