@@ -5591,14 +5591,15 @@ struct HermesZoneBuild {
 // Build a HermesVal into the live `doc`, returning the raw AnyVal u32.
 // For PARAM (HVCapture), returns the inline PARAM raw; the caller writes it
 // into the slot, and clone() will pick it up via its out_params bookkeeping.
-static uint32_t build_hermes_val(lir_view::HermesValRef v,
-                                 logos::hermes2::Hermes& doc);
+// Returns a proper Hermes2 SELF-relative AnyVal (Pod for scalars/captures, Ref for
+// strings/arrays/maps/types). NOT the Hermes1 u32 base-relative "raw" — that made
+// from_raw(off) resolve to &slot+off = garbage.
+static AnyVal build_hermes_val(lir_view::HermesValRef v,
+                               logos::hermes2::Hermes& doc);
 
-static uint32_t ptr_anyval_raw(const void* obj, logos::hermes2::Hermes& doc) {
-    const uint8_t* base = HermesAccess::base(doc);
-    uint32_t off = static_cast<uint32_t>(
-        static_cast<const uint8_t*>(obj) - base);
-    return off;
+// Self-relative Ref to an in-arena object (single-segment doc → base+off is absolute).
+static AnyVal ptr_anyval(const void* obj) {
+    AnyVal r; r.set_ref(obj); return r;
 }
 
 static uint32_t build_object_array(lir_view::HVArrayView arr,
@@ -5609,11 +5610,10 @@ static uint32_t build_object_array(lir_view::HVArrayView arr,
     uint32_t a_off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(a) - HermesAccess::base(doc));
     for (uint64_t i = 0; i < n; ++i) {
-        uint32_t elem_raw = build_hermes_val(arr.elem(i), doc);
+        AnyVal elem_av = build_hermes_val(arr.elem(i), doc);   // may alloc → re-fetch cur
         auto* cur = reinterpret_cast<ObjectArray*>(
             HermesAccess::base(doc) + a_off);
-        cur->push_back(AnyVal::from_raw(elem_raw),
-                       HermesAccess::arena(doc)).get();
+        cur->push_back(elem_av, HermesAccess::arena(doc)).get();
     }
     return a_off;
 }
@@ -5667,11 +5667,10 @@ static uint32_t build_object_map(lir_view::HVMapView map,
         std::string key_str = map.int_keyed()
             ? std::to_string(map.int_key(i))
             : std::string(map.str_key(i));
-        uint32_t val_raw = build_hermes_val(map.value(i), doc);
+        AnyVal val_av = build_hermes_val(map.value(i), doc);
         auto* cur = reinterpret_cast<ObjectMap*>(
             HermesAccess::base(doc) + m_off);
-        cur->put(key_str, AnyVal::from_raw(val_raw),
-                 HermesAccess::arena(doc)).get();
+        cur->put(key_str, val_av, HermesAccess::arena(doc)).get();
     }
     return m_off;
 }
@@ -5686,10 +5685,10 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
         reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
     for (uint64_t i = 0; i < n; ++i) {
         K key = static_cast<K>(map.int_key(i));
-        uint32_t val_raw = build_hermes_val(map.value(i), doc);
+        AnyVal val_av = build_hermes_val(map.value(i), doc);
         auto* cur = reinterpret_cast<Map*>(
             HermesAccess::base(doc) + m_off);
-        cur->put(key, AnyVal::from_raw(val_raw));
+        cur->put(key, val_av);
     }
     return m_off;
 }
@@ -5704,42 +5703,44 @@ static uint32_t build_map(lir_view::HVMapView map,
     return build_object_map(map, doc);
 }
 
-static uint32_t build_hermes_val(lir_view::HermesValRef v,
-                                 logos::hermes2::Hermes& doc) {
-    if (!v) return 0;
+static AnyVal build_hermes_val(lir_view::HermesValRef v,
+                               logos::hermes2::Hermes& doc) {
+    if (!v) return AnyVal::null();
     using HC = lir_schema::hermes_val::Code;
     switch (v.kind()) {
     case HC::Null:
-        return 0;
+        return AnyVal::null();
     case HC::Bool:
         // Boolean: type_hash=37 (see any_val.hpp).
         return AnyVal::from_value<uint8_t>(
-            lir_view::HVBoolView{v}.value() ? 1 : 0, 37).raw();
+            lir_view::HVBoolView{v}.value() ? 1 : 0, 37);
     case HC::Int: {
         int64_t iv = lir_view::HVIntView{v}.value();
-        if (iv >= -8388608LL && iv <= 8388607LL) {
-            return AnyVal::from_value<int32_t>(
-                static_cast<int32_t>(iv)).raw();
-        }
-        return anyval_put<int64_t>(HermesAccess::arena(doc), iv).get().raw();
+        if (iv >= -8388608LL && iv <= 8388607LL)
+            return AnyVal::from_value<int32_t>(static_cast<int32_t>(iv));
+        return anyval_put<int64_t>(HermesAccess::arena(doc), iv).get();
     }
     case HC::Float:
         return anyval_put<double>(
             HermesAccess::arena(doc),
-            lir_view::HVFloatView{v}.value()).get().raw();
+            lir_view::HVFloatView{v}.value()).get();
     case HC::Str: {
         auto sv = lir_view::HVStrView{v}.value();
         auto* s = ArenaString::create(
             HermesAccess::arena(doc), std::string(sv)).get();
-        return ptr_anyval_raw(s, doc);
+        return ptr_anyval(s);
     }
-    case HC::Array:
-        return build_array(lir_view::HVArrayView{v}, doc);
-    case HC::Map:
-        return build_map(lir_view::HVMapView{v}, doc);
+    case HC::Array: {
+        uint32_t off = build_array(lir_view::HVArrayView{v}, doc);   // build FIRST (may realloc)
+        return ptr_anyval(HermesAccess::base(doc) + off);            // then re-fetch base
+    }
+    case HC::Map: {
+        uint32_t off = build_map(lir_view::HVMapView{v}, doc);
+        return ptr_anyval(HermesAccess::base(doc) + off);
+    }
     case HC::Capture:
-        // Inline PARAM (tc=127): raw = (value_index << 8) | 0xFF.
-        return (lir_view::HVCaptureView{v}.value_index() << 8u) | 0xFFu;
+        // Inline PARAM (tc=127): word = (value_index << 8) | ((127&0x7F)<<1) | 1.
+        return AnyVal::pod(lir_view::HVCaptureView{v}.value_index(), 127);
     case HC::Type: {
         // Component-metaprog slice 1C: emit a TinyObjectMap whose
         // schema_type_code = type_hash::Type=107 carrying:
@@ -5769,10 +5770,10 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
             HermesAccess::base(doc) + m_off);
         cur->put(2, name_av, arena).get();
 
-        return m_off;
+        return ptr_anyval(HermesAccess::base(doc) + m_off);
     }
     }
-    return 0;
+    return AnyVal::null();
 }
 
 // Build the full zone blob for an EHermesLit node.
@@ -5785,8 +5786,8 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
 //   5. Extract bytes from packed head() chunk.
 static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
     auto doc = logos::hermes2::make_doc_single_chunk().get();
-    uint32_t root_raw = build_hermes_val(e.root(), doc);
-    HermesAccess::set_root_offset(doc, arena_offset_t(root_raw));
+    AnyVal root_av = build_hermes_val(e.root(), doc);
+    HermesAccess::set_root_offset(doc, root_av);   // AnyVal overload (no offset)
 
     std::vector<logos::hermes2::ParamSlot> params;
     auto packed = logos::hermes2::compactify(doc).get();
