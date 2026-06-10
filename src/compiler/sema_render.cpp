@@ -1800,7 +1800,7 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto child_av = items.get(i);
             if (child_av.is_null()) continue;
-            auto* child = map_at(child_av.to_offset(holder_->base()));
+            auto* child = map_at(child_av.to_offset(base));
             auto code_av = child->get(la::CODE.code);
             int32_t cc = (!code_av.is_null() && code_av.is_value())
                          ? code_av.as_value<int32_t>() : -1;
@@ -1811,7 +1811,7 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
                 std::string recv;
                 auto type_av = child->get(la::TYPE.code);
                 if (!type_av.is_null()) {
-                    auto* ty_tom = map_at(type_av.to_offset());
+                    auto* ty_tom = map_at(type_av.to_offset(base));
                     auto nm_av = ty_tom->get(la::NAME.code);
                     if (!nm_av.is_null()) recv = str_at(nm_av);
                 }

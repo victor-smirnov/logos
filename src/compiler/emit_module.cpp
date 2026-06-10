@@ -1013,7 +1013,7 @@ bool emit_module(const ModuleManifest& manifest,
                 (canon.size() >= only_file_canon.size() &&
                  canon.compare(canon.size() - only_file_canon.size(),
                                only_file_canon.size(), only_file_canon) == 0)) {
-                single.push_back(m);
+                single.push_back(std::move(m));
                 break;
             }
         }
@@ -1076,7 +1076,7 @@ bool emit_module(const ModuleManifest& manifest,
             ++dropped_dep_asts;
             continue;
         }
-        own_modules_for_h0.push_back(modules_for_h0[i]);
+        own_modules_for_h0.push_back(std::move(modules_for_h0[i]));
     }
     if (verbose) {
         std::fprintf(stderr,

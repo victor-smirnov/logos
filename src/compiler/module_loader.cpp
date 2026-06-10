@@ -54,7 +54,7 @@ static std::string read_file(const std::string& path) {
 // Three-layer split Phase 3.4: scan a parsed AST for the file-level inner
 // attribute `#![no_implicit_prelude]`. Returns true if present. Walks
 // root.ITEMS for any INNER_ANNOTATION node with NAME="no_implicit_prelude".
-static bool file_opts_out_of_implicit_prelude(hermes2::HermesView ast) {
+static bool file_opts_out_of_implicit_prelude(const hermes2::HermesView& ast) {
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();
     if (!root.has_key(la::ITEMS)) return false;
@@ -1334,7 +1334,7 @@ std::vector<ParsedModule> load_modules(
             auto members = ar_read_members(archive_path, ".hm0");
             if (members.empty()) {
                 std::fprintf(stderr, "module_loader: no .hermes0 in %s\n", archive_path.c_str());
-                binary_cache[cache_key] = {};
+                binary_cache[cache_key].clear();
                 return;
             }
             std::vector<ParsedModule> decoded;

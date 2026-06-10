@@ -5689,7 +5689,7 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
         uint32_t val_raw = build_hermes_val(map.value(i), doc);
         auto* cur = reinterpret_cast<Map*>(
             HermesAccess::base(doc) + m_off);
-        cur->put(key, AnyVal::from_raw(val_raw), HermesAccess::base(doc));
+        cur->put(key, AnyVal::from_raw(val_raw));
     }
     return m_off;
 }
