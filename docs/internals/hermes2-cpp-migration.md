@@ -219,11 +219,39 @@ hermes2. Incremental by translation unit, gated by the full build + test suite.
   `binary_encode/clone/from_bytes_copy` → hermes2 `binary_encode`/`clone`/`compactify`/
   `HermesCtr::from_bytes`; multi-arena names already match (§6.1).
 - **Phase B — AST producer + readers (the big-bang; do atomically).** The AST is built
-  by the GENERATED `build/src/compiler/logos_parser.hpp` (every rule returns
-  `hermes::AnyVal`; ~236 sites), emitted by `tools/peg_gen/src/codegen.cpp` — so the
-  producer flip is in codegen's emitted strings + the parser runtime helpers. All AST
-  readers (`sema_impl.hpp` `code_of/str_of/map_of/arr_of`, `sema_expr/stmt/decl/collect`,
+  by the GENERATED `build/src/compiler/logos_parser.hpp/.cpp` (~55K lines; every rule
+  returns `hermes::AnyVal`), emitted by `tools/peg_gen/src/codegen.cpp` — so the producer
+  flip is REGENERATION via codegen edits, not hand-editing the parser. All AST readers
+  (`sema_impl.hpp` `code_of/str_of/map_of/arr_of`, `sema_expr/stmt/decl/collect`,
   `module_loader` AST reads) flip together (shared AST arena → cannot half-migrate).
+  The hermes2 producer surface is READY (`make_doc`/`HermesCtr::make_tiny_map/make_array/
+  make_string/make_object_map/seal`, `schema_codes.hpp`, AnyVal `from_value`/`set_ref`;
+  exerciser_producer proves the exact build+read path) — Phase A + producer commits landed.
+
+  **Producer codegen recipe** (the ~8 emission points in `codegen.cpp`, all currently
+  emitting Hermes1 `HermesAccess`/base/offset → flip to hermes2-native):
+  | codegen emits now (Hermes1) | flip to (hermes2-native) |
+  |---|---|
+  | `logos::hermes::Hermes doc_;` (line ~751) | `logos::hermes2::HermesCtr doc_;` |
+  | `make_doc(524288).get()` (~1637) | `*logos::hermes2::make_doc(524288)` (MultiChunk) |
+  | `HermesAccess::raw_tiny_map(doc_, n).get()` (~2145) | `*doc_.make_tiny_map(n)` |
+  | `node->put(K, AV, HermesAccess::arena(doc_)).get()` (~2171…) | `(void)node->put(K, AV, doc_.arena())` |
+  | `node->set_schema_type_code(hermes::schema::ast(c))` (~2207) | `…hermes2::schema::ast(c)` |
+  | `result_.set_pointer(node, HermesAccess::base(doc_))` (~2240) | `result_.set_ref(node)` |
+  | `HermesAccess::set_root_offset(doc_, root.to_offset())` (~1650) | `doc_.set_root(root)` |
+  | `doc_.make_array(4).get()` (~1747,1979) + `.to_anyval()` | `*doc_.make_array(4)`; wire via a local `AnyVal{}; v.set_ref(arr)` |
+  | `doc_.make_string(t).get().to_anyval()` (~1830…) | `AnyVal v; v.set_ref(*doc_.make_string(t))` |
+  | includes (~585,784) `hermes/view.hpp`,`access.hpp`,`schema_codes.hpp` | `hermes2/document.hpp`,`view.hpp`,`schema_codes.hpp` |
+
+  **GOTCHA — parser arena mode.** The Hermes1 parser runs on a GrowableSingleChunk arena
+  with base-relative offsets + `arena_checkpoint`/rollback for backtracking. On hermes2
+  (self-relative storage, ABSOLUTE pointers held across allocations), a GrowableSingleChunk
+  realloc would dangle the live `node`/`items` pointers. So the parser doc MUST be
+  **MultiChunk (never-move)** (`make_doc` defaults to it). Consequence: the codegen's
+  `arena_checkpoint()`/rollback emission (backtracking space reclaim) becomes a no-op or
+  a MultiChunk tail-drop — backtracking stays correct, just keeps dead nodes from failed
+  alternatives until the doc frees (acceptable transient memory for a compile). Either
+  extend `Arena::rollback` to MultiChunk (drop appended chunks + rewind tail) or emit no-ops.
 - **Phase C — LIR mirror** (`lir_mirror.cpp` 447, `lir_view.hpp`, `lir_schema.hpp`) + mono
   (`mono_clone`, reads via schema_type_code) — a SEPARATE arena from the AST, so it can
   land after B. `ExprRef/StmtRef`: `arena_offset_t`+base → AnyVal/ptr + `schema_type_code()`.
