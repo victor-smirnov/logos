@@ -92,12 +92,18 @@ public:
     MemHolder* holder()  const noexcept { return holder_; }
     Arena&     arena()   const noexcept { return holder_->arena(); }
 
-    // Null-safe (a default/empty doc handle reads as null root) — Hermes1's Own<>
-    // returned a null Object for a null handle, and logosc relies on that for
-    // lazy/placeholder AST slots.
-    AnyVal root()           const noexcept { return header_ ? header_->root : AnyVal{}; }
-    void   set_root(AnyVal v) noexcept { header_->root = v; }          // assignment lowers
-    Object root_object()    const noexcept { return header_ ? Object(header_->root, holder_) : Object{}; }
+    // The DocumentHeader lives at the head chunk's offset 0. RECOMPUTE it from the
+    // holder on every access rather than trusting the cached `header_`: a
+    // GrowableSingleChunk arena reallocs (moves) when it grows (e.g. a metaprog subst
+    // that appends to a from_bytes doc sized exactly to the blob), which would dangle
+    // a cached header ptr. holder_->base() is always the current head base.
+    // Null-safe — a default/empty handle reads as a null root (lazy/placeholder slots).
+    DocumentHeader* live_header() const noexcept {
+        return holder_ ? reinterpret_cast<DocumentHeader*>(holder_->base()) : nullptr;
+    }
+    AnyVal root()           const noexcept { auto* h = live_header(); return h ? h->root : AnyVal{}; }
+    void   set_root(AnyVal v) noexcept { if (auto* h = live_header()) h->root = v; }
+    Object root_object()    const noexcept { auto* h = live_header(); return h ? Object(h->root, holder_) : Object{}; }
 
     // Seal the arena: forbid further allocations (the document becomes immutable).
     void seal() noexcept { holder_->arena().seal(); }
