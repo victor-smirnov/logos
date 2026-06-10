@@ -52,6 +52,7 @@ enable_testing()
 add_subdirectory(src/verification)
 add_subdirectory(src/core)
 add_subdirectory(src/hermes)
+add_subdirectory(src/hermes2)
 
 # The following subtrees consume the C++ Hermes API and are temporarily
 # disabled while Hermes/C++ is being brought byte-for-byte in line with the
