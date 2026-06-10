@@ -1,0 +1,131 @@
+// Logos project — https://github.com/victor-smirnov/logos
+
+#pragma once
+
+#include <cstdint>
+#include <string_view>
+
+#include <logos/hermes2/mem_holder.hpp>
+#include <logos/hermes2/any_val.hpp>
+#include <logos/hermes2/arena_string.hpp>
+#include <logos/hermes2/object_array.hpp>
+#include <logos/hermes2/tiny_object_map.hpp>
+#include <logos/hermes2/object_map.hpp>
+#include <logos/core/expected.hpp>
+
+namespace logos::hermes2 {
+
+// View<Obj> — an OWNING typed view over an arena object. It carries a +1 ref on the
+// MemHolder (the residency root) plus the RESOLVED absolute pointer to the object —
+// valid because nothing in a Hermes2 segment ever moves while the holder lives.
+//
+// Owning (not the Hermes1 non-owning view + Own<> split): without a borrow checker
+// C++ cannot prove the holder outlives the view, so the view must keep it alive.
+// Copy → +1 ref, move → transfer, destroy → -1 ref. Navigation (get a child) returns
+// another owning view sharing the same holder.
+template <typename Obj>
+class View {
+public:
+    View() noexcept = default;
+
+    View(Obj* obj, MemHolder* holder) noexcept : holder_(holder), obj_(obj) {
+        if (holder_) holder_->ref();
+    }
+
+    View(const View& o) noexcept : holder_(o.holder_), obj_(o.obj_) {
+        if (holder_) holder_->ref();
+    }
+    View(View&& o) noexcept : holder_(o.holder_), obj_(o.obj_) {
+        o.holder_ = nullptr; o.obj_ = nullptr;
+    }
+    View& operator=(const View& o) noexcept {
+        if (this != &o) {
+            if (o.holder_) o.holder_->ref();
+            if (holder_) holder_->unref();
+            holder_ = o.holder_; obj_ = o.obj_;
+        }
+        return *this;
+    }
+    View& operator=(View&& o) noexcept {
+        if (this != &o) {
+            if (holder_) holder_->unref();
+            holder_ = o.holder_; obj_ = o.obj_;
+            o.holder_ = nullptr; o.obj_ = nullptr;
+        }
+        return *this;
+    }
+    ~View() noexcept { if (holder_) holder_->unref(); }
+
+    bool       is_null() const noexcept { return obj_ == nullptr; }
+    explicit operator bool() const noexcept { return obj_ != nullptr; }
+    MemHolder* holder() const noexcept { return holder_; }
+    Obj*       ptr()    const noexcept { return obj_; }
+
+    // The object as a value-form AnyVal Ref (an absolute pointer; re-lowers when
+    // stored into a zoned slot).
+    AnyVal to_anyval() const noexcept {
+        AnyVal a; a.set_ref(obj_); return a;
+    }
+
+protected:
+    Arena& arena() const noexcept { return holder_->arena(); }
+
+    MemHolder* holder_ = nullptr;
+    Obj*       obj_    = nullptr;
+};
+
+// ── Typed views ────────────────────────────────────────────────────────────────
+
+class StringView : public View<ArenaString> {
+public:
+    using View::View;
+    std::string_view view() const noexcept { return obj_ ? obj_->view() : std::string_view{}; }
+    size_t length() const noexcept { return obj_ ? obj_->length() : 0; }
+    bool operator==(std::string_view s) const noexcept { return view() == s; }
+};
+
+class ArrayView : public View<ObjectArray> {
+public:
+    using View::View;
+    uint64_t size() const noexcept { return obj_ ? obj_->size() : 0; }
+    bool empty() const noexcept { return size() == 0; }
+    AnyVal get(uint64_t i) const noexcept { return obj_ ? obj_->get(i) : AnyVal{}; }
+    [[nodiscard]] logos::expected<void> push_back(AnyVal v) noexcept { return obj_->push_back(v, arena()); }
+    void set(uint64_t i, AnyVal v) noexcept { if (obj_) obj_->set(i, v); }
+};
+
+class TinyMapView : public View<TinyObjectMap> {
+public:
+    using View::View;
+    uint64_t size() const noexcept { return obj_ ? obj_->size() : 0; }
+    bool has_key(uint8_t key) const noexcept { return obj_ && obj_->has_key(key); }
+    AnyVal get(uint8_t key) const noexcept { return obj_ ? obj_->get(key) : AnyVal{}; }
+    [[nodiscard]] logos::expected<void> put(uint8_t key, AnyVal v) noexcept { return obj_->put(key, v, arena()); }
+};
+
+class MapView : public View<ObjectMap> {
+public:
+    using View::View;
+    uint64_t size() const noexcept { return obj_ ? obj_->size() : 0; }
+    bool has(std::string_view key) const noexcept { return obj_ && obj_->has(key); }
+    AnyVal get(std::string_view key) const noexcept { return obj_ ? obj_->get(key) : AnyVal{}; }
+    [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal v) noexcept { return obj_->put(key, v, arena()); }
+};
+
+// ── Navigation: wrap a value-form AnyVal Ref into an owning child view ──────────
+// (Sharing the parent's holder — the child lives in the same segment set.)
+
+inline StringView as_string(AnyVal av, MemHolder* h) noexcept {
+    return av.is_ref() ? StringView(reinterpret_cast<ArenaString*>(const_cast<uint8_t*>(av.resolve())), h) : StringView{};
+}
+inline ArrayView as_array(AnyVal av, MemHolder* h) noexcept {
+    return av.is_ref() ? ArrayView(reinterpret_cast<ObjectArray*>(const_cast<uint8_t*>(av.resolve())), h) : ArrayView{};
+}
+inline TinyMapView as_tinymap(AnyVal av, MemHolder* h) noexcept {
+    return av.is_ref() ? TinyMapView(reinterpret_cast<TinyObjectMap*>(const_cast<uint8_t*>(av.resolve())), h) : TinyMapView{};
+}
+inline MapView as_map(AnyVal av, MemHolder* h) noexcept {
+    return av.is_ref() ? MapView(reinterpret_cast<ObjectMap*>(const_cast<uint8_t*>(av.resolve())), h) : MapView{};
+}
+
+} // namespace logos::hermes2
