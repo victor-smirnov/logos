@@ -4,9 +4,14 @@
 
 #include <new>
 #include <cstring>
+#include <string_view>
 
 #include <logos/hermes2/mem_holder.hpp>
 #include <logos/hermes2/any_val.hpp>
+#include <logos/hermes2/tiny_object_map.hpp>
+#include <logos/hermes2/object_array.hpp>
+#include <logos/hermes2/object_map.hpp>
+#include <logos/hermes2/arena_string.hpp>
 #include <logos/core/expected.hpp>
 
 namespace logos::hermes2 {
@@ -66,6 +71,27 @@ public:
     AnyVal root()           const noexcept { return header_->root; }   // by-value re-anchor
     void   set_root(AnyVal v) noexcept { header_->root = v; }          // assignment lowers
 
+    // Seal the arena: forbid further allocations (the document becomes immutable).
+    void seal() noexcept { holder_->arena().seal(); }
+
+    // ── Producer conveniences (build objects directly in this document's arena) ──
+    // Thin wrappers over the container ::create factories. Returned pointers are
+    // stable (never-move arena). Wire them into a parent via AnyVal::set_ref(ptr) /
+    // set_root(av). Mirror the Hermes1 make_tiny_map/make_array/make_string surface
+    // so the logosc producer (parser/codegen) is a near-mechanical rename.
+    [[nodiscard]] logos::expected<TinyObjectMap*> make_tiny_map(uint64_t cap = 4) noexcept {
+        return TinyObjectMap::create(arena(), cap);
+    }
+    [[nodiscard]] logos::expected<ObjectArray*> make_array(uint64_t cap = 4) noexcept {
+        return ObjectArray::create(arena(), cap);
+    }
+    [[nodiscard]] logos::expected<ObjectMap*> make_object_map(uint64_t cap = 8) noexcept {
+        return ObjectMap::create(arena(), cap);
+    }
+    [[nodiscard]] logos::expected<ArenaString*> make_string(std::string_view s) noexcept {
+        return ArenaString::create(arena(), s);
+    }
+
     // The single-segment blob bytes (valid only when this doc is single-chunk, e.g.
     // a compactify() result): {head().data(), head().used}.
     const uint8_t* blob_data() const noexcept { return holder_->arena().head().data(); }
@@ -89,6 +115,14 @@ private:
 // registered module's root without a HermesCtr handle.
 inline DocumentHeader* doc_header(MemHolder* h) noexcept {
     return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
+}
+
+// Hermes1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
+// MultiChunk arena so the absolute object pointers it holds across allocations stay
+// valid (self-relative storage + realloc would dangle them — see the cut-over notes).
+[[nodiscard]] inline logos::expected<HermesCtr>
+make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::MultiChunk) noexcept {
+    return HermesCtr::make(capacity, mode);
 }
 
 } // namespace logos::hermes2
