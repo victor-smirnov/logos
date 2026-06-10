@@ -911,7 +911,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             AnyVal pp_av = user_root_pkg.get(la::mod::PATH_PARTS.code);
             if (!pp_av.is_null() && pp_av.is_pointer()) {
                 auto* user_pp = reinterpret_cast<const ObjectArray*>(
-                    user_base_ppp_av.resolve());
+                    pp_av.resolve());
                 uint64_t pn = user_pp->size();
                 auto a_e = ObjectArray::create(arena, std::max<uint64_t>(1, pn));
                 if (a_e) {
@@ -925,7 +925,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     for (uint64_t i = 0; i < pn; ++i) {
                         AnyVal part_av = user_pp->get(i);
                         if (!part_av.is_pointer()) continue;
-                        const void* part_obj = user_base_ppart_av.resolve();
+                        const void* part_obj = part_av.resolve();
                         auto cp_e = copy_object_into(part_obj, user_base_pkg, doc);
                         if (!cp_e) continue;
                         uint32_t cp_off = static_cast<uint32_t>(
@@ -957,7 +957,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 auto* user_holder = user_ast.holder();
                 auto* user_base = user_holder->base();
                 auto* user_uses = reinterpret_cast<const ObjectArray*>(
-                    user_bauser_uses_av.resolve());
+                    user_uses_av.resolve());
                 uint64_t un = user_uses->size();
                 // Locate (or create) the synth module's USES array.
                 AnyVal synth_uses_av = root_ptr()->get(la::USES.code,
@@ -999,7 +999,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal pp_av = unode->get(la::mod::PATH_PARTS.code);
                         if (!pp_av.is_null() && pp_av.is_pointer()) {
                             auto* parts = reinterpret_cast<const ObjectArray*>(
-                                user_bapp_av.resolve());
+                                pp_av.resolve());
                             for (uint64_t pi = 0; pi < parts->size(); ++pi) {
                                 AnyVal pav = parts->get(pi);
                                 if (!pav.is_pointer()) continue;
