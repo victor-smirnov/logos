@@ -10,18 +10,12 @@
 // Mirror of mem.hermes.ctr::hermes_{list,map}_comp_{new,push,put} + hermes_coerce_*,
 // AnyVal -> HAny.
 //
-// ⚠️ BLOCKER (step 5, not yet usable): `Hermes2` owns its `Allocator` BY VALUE and
-// is a NON-MOVABLE "stable root" (container.logos:22-25). A comprehension builder
-// RETURNS the container, and the move relocates the Allocator — but the never-move
-// segments' zone_of() back-link points at the old Allocator address, so the first
-// map/array grow (allocator_alloc via zone_of) SIGSEGVs. These fns compile + are the
-// right SHAPE, but to be usable the container must be heap-pinned so it survives the
-// return move: make `Hermes2.allocator` a `Box<Allocator>` (heap-stable, zone_of
-// resolves through it) OR have the comprehension yield `Rc<Hermes2>`/`Box<Hermes2>`
-// (the hermes2 ownership design — never-move + Rc holder). That + the compiler
-// repoint (lower_hermes_list_comp/map_comp + coerce_to_hermes_anyval -> Hermes2/HAny/
-// these fns) is the embedded-Hermes BUILDER port. Verified the move-crash with a
-// direct round-trip test.
+// OWNERSHIP (the never-move + Rc-holder design): the comprehension yields an
+// `Rc<Hermes2>`. `Hermes2` owns its `Allocator` by value and is a non-movable
+// "stable root" — so the container is heap-pinned inside the Rc, and we build the
+// array/map root ONLY AFTER it is in the Rc (the move into Rc is the last move;
+// allocations then capture the STABLE Rc-heap allocator address that zone_of
+// recovers). Returning the Rc moves only the Rc handle, never the Hermes2.
 
 package logos.lang.hermes2.comp_builder;
 
@@ -30,43 +24,64 @@ use logos.lang.hermes2.container;    // Hermes2, hermes2_new
 use logos.lang.hermes2.array;        // HArray<HVal>, Hermes2.array, HArray.push
 use logos.lang.hermes2.hmap;         // HMap<HString,HVal>, Hermes2.map, HMap.set
 use logos.lang.hermes2.hstring;      // HString (key type in the map annotation)
+use logos.mem.rc;                    // Rc — heap-pin the non-movable Hermes2
 use logos.lang.str;
 
+// КОСТЫЛЬ / TODO(deref): we use explicit `rc.deref()` because `*rc` / auto-deref of
+// a user `Deref` impl (Rc) does NOT kick in for method calls or the `*` operator yet
+// (`rc.array()`/`*rc` fail; `rc.deref()` works). Once Logos auto-invokes user Deref
+// (Rust-conformant), drop the explicit `.deref()` here and call methods on the Rc
+// directly. Tracked as a compiler deref-coercion gap.
+
 // ── List comprehension: @[expr for x in iter (if guard)?] ──────────────────────
-pub fn hermes2_list_comp_new(cap: i64) -> Hermes2 {
-    let mut c: Hermes2 = hermes2_new(cap);
-    let arr: &HArray<HVal> = c.array(8);       // build array root (&mut -> & at bind)
-    let root: HAny = HAny::from(arr);
-    c.set_root(root);
-    return c;
+pub fn hermes2_list_comp_new(cap: i64) -> Rc<Hermes2> {
+    let rc: Rc<Hermes2> = rc_new(hermes2_new(cap));    // Hermes2 pinned in Rc heap
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<HVal> = h.array(8);           // allocate AFTER the pin (stable zone)
+    // КОСТЫЛЬ / TODO(fat-thin): `let a: &HArray = h.array(8); HAny::from(a)` stores the
+    // WRONG word — the &mut(fat,zone-carrying) -> &(thin) coercion picks the zone word,
+    // not the data ptr. So extract the DATA ptr explicitly from the fat &mut and rebuild
+    // a clean thin & from it. Fix the fat->thin & coercion in the compiler, then drop this.
+    let aptr: *const HArray<HVal> = arr as *const HArray<HVal>;
+    h.set_root(HAny::from(unsafe { &*aptr }));
+    return rc;
 }
 
-pub fn hermes2_list_comp_push(c: &mut Hermes2, v: HAny) {
-    let root: HAny = c.root();
+pub fn hermes2_list_comp_push(c: &Rc<Hermes2>, v: HAny) {
+    let h: &Hermes2 = c.deref();
+    let root: HAny = h.root();
     unsafe {
-        let arr: &mut HArray<HVal> = &mut *(root.resolve() as *mut HArray<HVal>);
+        let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+        // Rebuild a FAT &mut carrying the container's zone (allocator), so push/grow
+        // recover it via zone_of(self) — a thin &mut from the raw ptr loses the zone.
+        let arr: &mut HArray<HVal> = zone_mut_ref::<HArray<HVal>>(
+            root.resolve() as *mut HArray<HVal>, &mut hp.allocator as *mut u8);
         arr.push(v);
     }
 }
 
 // ── Map comprehension: @{kexpr: vexpr for x in iter (if guard)?} ───────────────
-pub fn hermes2_map_comp_new(cap: i64, slot_hint: i64) -> Hermes2 {
-    let mut c: Hermes2 = hermes2_new(cap);
+pub fn hermes2_map_comp_new(cap: i64, slot_hint: i64) -> Rc<Hermes2> {
+    let rc: Rc<Hermes2> = rc_new(hermes2_new(cap));    // Hermes2 pinned in Rc heap
+    let h: &Hermes2 = rc.deref();
     // Round slot_hint up to next power of two (min 8) — open-addressing masking.
     let mut slots: i64 = 8;
     let mut want:  i64 = slot_hint * 2;
     if want < 8 { want = 8; }
     while slots < want { slots = slots * 2; }
-    let m: &HMap<HString, HVal> = c.map(slots);
-    let root: HAny = HAny::from(m);
-    c.set_root(root);
-    return c;
+    let m: &mut HMap<HString, HVal> = h.map(slots);    // allocate AFTER the pin (stable zone)
+    let mptr: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    h.set_root(HAny::from(unsafe { &*mptr }));
+    return rc;
 }
 
-pub fn hermes2_map_comp_put(c: &mut Hermes2, k: str, v: HAny) {
-    let root: HAny = c.root();
+pub fn hermes2_map_comp_put(c: &Rc<Hermes2>, k: str, v: HAny) {
+    let h: &Hermes2 = c.deref();
+    let root: HAny = h.root();
     unsafe {
-        let m: &mut HMap<HString, HVal> = &mut *(root.resolve() as *mut HMap<HString, HVal>);
+        let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+        let m: &mut HMap<HString, HVal> = zone_mut_ref::<HMap<HString, HVal>>(
+            root.resolve() as *mut HMap<HString, HVal>, &mut hp.allocator as *mut u8);
         m.set(k, v);
     }
 }
