@@ -5711,9 +5711,9 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
     case HC::Null:
         return AnyVal::null();
     case HC::Bool:
-        // Boolean: type_hash=37 (see any_val.hpp).
+        // Boolean: hermes2 HA_BOOL = 2 (was Hermes1 type_hash 37).
         return AnyVal::from_value<uint8_t>(
-            lir_view::HVBoolView{v}.value() ? 1 : 0, 37);
+            lir_view::HVBoolView{v}.value() ? 1 : 0, 2);
     case HC::Int: {
         int64_t iv = lir_view::HVIntView{v}.value();
         if (iv >= -8388608LL && iv <= 8388607LL)
@@ -5814,14 +5814,13 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
     using K = LogosType::Kind;
     switch (TypeRef(t).kind()) {
         case K::Bool: {
-            // C4 bug fix: AnyVal::embed_bool uses type_hash=37, tag_byte=0x4B (not 0x4D=38).
-            // build_hermes_val uses 0x4Bu; coerce must match.
-            // raw = (bool_val << 8) | 0x4B
+            // hermes2 Pod bool: raw = (bool_val << 8) | (HA_BOOL<<1) | 1 = (b<<8) | 5
+            // (HA_BOOL = 2). Was the Hermes1 0x4B (type_hash 37); build_hermes_val matches.
             mlir::Value b = coerce_numeric(v, i32_mlir);
             mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 32));
             return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
-                builder_.create<mlir::arith::ConstantIntOp>(loc_, 0x4B, 32));
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 5, 32));
         }
         case K::I8:  case K::I16: case K::I32:
         case K::U8:  case K::U16: case K::U32:
