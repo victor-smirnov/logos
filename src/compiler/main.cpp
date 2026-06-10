@@ -1370,7 +1370,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     uint32_t src_root_off =
         static_cast<uint32_t>(expr_av.to_offset(src_base).value());
 
-    auto dst_e = make_doc(tpl_size + 256);
+    // DST is GrowableSingleChunk (one segment): the substitution below addresses it
+    // by base(doc)+off; a MultiChunk doc would scatter that across chunks once the
+    // expansion outgrows the first chunk. Pre-size past any realloc (lazy-zero → cheap).
+    auto dst_e = make_doc(std::max<size_t>(tpl_size + 256, size_t(8) * 1024 * 1024),
+                          logos::hermes2::ArenaMode::GrowableSingleChunk);
     if (!dst_e) return nullptr;
     auto dst_doc = std::move(dst_e).get();
     auto& dst_arena = HermesAccess::arena(dst_doc);
@@ -1949,7 +1953,10 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     using logos::hermes2::clone;
     namespace la = logos::compiler::ast;
 
-    auto doc_e = logos::hermes2::make_doc(4096);
+    // GrowableSingleChunk (single segment for base(doc)+off addressing), pre-sized
+    // past any realloc — lazy-zero keeps the reserve cheap.
+    auto doc_e = logos::hermes2::make_doc(size_t(8) * 1024 * 1024,
+                                          logos::hermes2::ArenaMode::GrowableSingleChunk);
     if (!doc_e) return nullptr;
     auto doc = std::move(doc_e).get();
     auto& arena = HermesAccess::arena(doc);

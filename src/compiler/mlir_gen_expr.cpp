@@ -5784,7 +5784,7 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
 //   4. clone() → packed arena + PARAM slot list.
 //   5. Extract bytes from packed head() chunk.
 static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
-    auto doc = make_doc().get();
+    auto doc = logos::hermes2::make_doc_single_chunk().get();
     uint32_t root_raw = build_hermes_val(e.root(), doc);
     HermesAccess::set_root_offset(doc, arena_offset_t(root_raw));
 

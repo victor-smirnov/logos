@@ -156,19 +156,29 @@ inline DocumentHeader* doc_header(MemHolder* h) noexcept {
     return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
 }
 
-// Hermes1-spelling factory for the logosc producer (parser/quote/reflection). The doc
-// is a PRE-SIZED GrowableSingleChunk: the metaprog code addresses the AST by raw
-// `base + offset` (e.g. lower_quote_item's walkers), which REQUIRES one contiguous
-// chunk; and a never-move single segment also keeps the parser's held node/view ptrs
-// valid (a realloc would both scatter the base+offset model AND dangle them). Lazy
-// zero (arena.cpp) keeps RSS to touched pages, so the big reserve is cheap. The reserve
-// is sized so realistic module ASTs never realloc; a genuinely larger AST still grows
-// (rare) — bump PRESIZE if a real module exceeds it.
+// Hermes1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
+// MultiChunk arena: it grows by APPENDING chunks, so an existing object never moves and
+// the parser's held node ptrs / owning views stay valid across allocations (a
+// single-chunk realloc would dangle them). The trade-off: raw `base + offset`
+// addressing is INVALID across a chunk boundary, so metaprog code that walks the AST
+// must resolve()/follow Refs (position-independent) — never reconstruct `base + off`.
 [[nodiscard]] inline logos::expected<HermesCtr>
-make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::GrowableSingleChunk) noexcept {
-    constexpr size_t PRESIZE = size_t(64) * 1024 * 1024;   // 64 MiB lazy reserve
-    if (mode == ArenaMode::GrowableSingleChunk && capacity < PRESIZE) capacity = PRESIZE;
+make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::MultiChunk) noexcept {
     return HermesCtr::make(capacity, mode);
+}
+
+// Single-segment doc for METAPROG producers that address the tree by raw
+// `base(doc) + offset` (quote_item! / blob substitution / reflection / mlir-gen
+// reflection blobs). A GrowableSingleChunk guarantees ONE contiguous segment so
+// base+offset is valid; pre-sized past any realloc so the in-flight container `this`
+// and held base+offset never dangle. Lazy-zero (arena.cpp) keeps the reserve cheap
+// (only touched pages commit). Parser docs do NOT use this — they hold owning views
+// and need MultiChunk never-move; they also never base+offset across a chunk.
+[[nodiscard]] inline logos::expected<HermesCtr>
+make_doc_single_chunk(size_t min_capacity = 0) noexcept {
+    constexpr size_t PRESIZE = size_t(8) * 1024 * 1024;   // 8 MiB lazy reserve
+    return HermesCtr::make(min_capacity < PRESIZE ? PRESIZE : min_capacity,
+                           ArenaMode::GrowableSingleChunk);
 }
 
 } // namespace logos::hermes2

@@ -150,7 +150,7 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
 static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir::LStructDef& sd) {
-    auto doc = make_doc(131072).get();
+    auto doc = logos::hermes2::make_doc_single_chunk(131072).get();
 
     // Root map — log2=4 → 16 buckets.
     uint32_t root = begin_map(doc, 4);
@@ -199,7 +199,7 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
 }
 
 static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir::LTraitDef& td) {
-    auto doc = make_doc(65536).get();
+    auto doc = logos::hermes2::make_doc_single_chunk(65536).get();
     uint32_t root = begin_map(doc, 3);
     map_put(doc, root, "name", hval_str(doc, td.name));
     map_put(doc, root, "pkg",  hval_str(doc, td.pkg));
