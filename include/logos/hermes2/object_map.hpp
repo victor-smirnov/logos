@@ -47,6 +47,8 @@ public:
         const MapEntry* e = find_slot(key);
         return e ? e->val : AnyVal{};
     }
+    // CUT-OVER VESTIGIAL (base ignored) — lets logosc base-threading sites compile.
+    AnyVal get(std::string_view key, const void*) const noexcept { return get(key); }
 
     // Visit every live entry as fn(std::string_view key, AnyVal val).
     template <typename F>

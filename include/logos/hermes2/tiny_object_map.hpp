@@ -52,6 +52,9 @@ public:
         if (!has_key(key)) return AnyVal{};
         return elements()[index_of(key)];     // by-value copy re-anchors the Ref
     }
+    // CUT-OVER VESTIGIAL (base ignored; self-relative needs none) — lets the logosc
+    // base-threading call sites compile unchanged. Remove with the base-arg sweep.
+    AnyVal get(uint8_t key, const void*) const noexcept { return get(key); }
 
     AnyVal* slot(uint8_t key) noexcept {
         return has_key(key) ? &elements()[index_of(key)] : nullptr;
