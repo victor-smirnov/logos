@@ -1634,15 +1634,18 @@ private:
         for (const auto& e : g_.exports) {
             w.fmt("logos::hermes2::Hermes {}::parse_{}() {{", parser_class_, e);
             w.indent();
-            // MultiChunk (never-move): the parser holds node ptrs/views across
+            // MultiChunk (never-move: the parser holds node ptrs/views across
             // allocations + ObjectArray/Map::grow assume the header never moves; a
-            // GrowableSingleChunk realloc would dangle them. MultiChunk APPENDS chunks
-            // (existing objects never move). NB the metaprog dispatcher addresses trigger
-            // items by FLAT head_base + item_offset, which needs the AST in one chunk —
-            // but that path is blocked anyway until the std metaprog AST-access API is
-            // ported off Hermes1 (logos.lang.hermes.anyval = 4-byte base-relative) onto
-            // hermes2 (8-byte self-relative); revisit the chunk size with that port.
-            w.line("doc_ = logos::hermes2::make_doc(524288).get();");
+            // GrowableSingleChunk realloc would dangle them — MultiChunk APPENDS chunks
+            // so existing objects never move) WITH A LARGE FIRST CHUNK. The metaprog
+            // dispatcher AND the metacall splice address AST nodes by FLAT
+            // head_base + offset (node.offset()/item_offset), which is only valid while
+            // the whole AST lives in chunk[0]; a node spilled into chunk 2+ yields a
+            // negative/garbage flat offset → wild ptr. So size chunk[0] large enough
+            // that realistic ASTs never spill. Lazy-zero (arena.cpp) keeps it cheap
+            // (only touched pages commit). A genuinely larger AST still works for
+            // non-metaprog code; only the flat-offset metaprog paths need single-chunk.
+            w.line("doc_ = logos::hermes2::make_doc(64ull * 1024 * 1024).get();");
             w.fmt("AnyVal root = rule_{}();", e);
             // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
             // returns an empty Hermes doc; the caller's ast.is_null() check
