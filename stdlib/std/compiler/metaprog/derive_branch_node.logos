@@ -23,10 +23,7 @@
 package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.anyval;
 use logos.mem.string;
 use logos.lang.str;
 // Note (debt #13 closure): the handler used to import
@@ -43,36 +40,36 @@ use logos.lang.mem;
 // AnyVal or null if not found. The walk is bounded — we stop on the
 // first non-ANNOTATION item before the target so we don't pick up an
 // earlier struct's annotations.
-unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> AnyVal {
-    let root: AnyVal = view.root();
-    let items: AnyVal = view.tiny_map_get(root, 2 as u8);
-    if items.raw == 0 { return AnyVal::null_ptr(); }
+unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> HAny {
+    let root: HAny = view.root();
+    let items: HAny = view.tiny_map_get(root, 2 as u8);
+    if items.is_null() { return HAny::Ref(0i64 as *const u8); }
     let n: u64 = view.array_len(items);
 
     // Find target index.
     let mut tgt_idx: i64 = -1i64;
     let mut i: u64 = 0u64;
     while i < n {
-        let it: AnyVal = view.array_get(items, i);
-        if it.raw != 0 && (it.as_offset() as u32) == target_offset {
+        let it: HAny = view.array_get(items, i);
+        if !it.is_null() && ((it.resolve() as i64 - view.base as i64) as u32) == target_offset {
             tgt_idx = i as i64;
             break;
         }
         i = i + (1 as u64);
     }
-    if tgt_idx < 0 { return AnyVal::null_ptr(); }
+    if tgt_idx < 0 { return HAny::Ref(0i64 as *const u8); }
 
     // Walk back collecting ANNOTATION nodes; return one whose NAME
     // matches `trigger`. Bail at the first non-ANNOTATION item.
     let trig_len: u64 = trigger.len() as u64;
     let mut k: i64 = tgt_idx - (1 as i64);
     while k >= 0 {
-        let it: AnyVal = view.array_get(items, k as u64);
-        let code_av: AnyVal = view.tiny_map_get(it, 0 as u8);     // CODE
+        let it: HAny = view.array_get(items, k as u64);
+        let code_av: HAny = view.tiny_map_get(it, 0 as u8);     // CODE
         if code_av.is_null() { break; }
-        let code_val: i32 = unsafe { (&code_av as *const AnyVal).as_i24() };
+        let code_val: i32 = code_av.as_i24();
         if code_val != (150 as i32) { break; }                    // !ANNOTATION
-        let nm_sv: StringView = view.ast_node_name(it);
+        let nm_sv: SView = view.ast_node_name(it);
         if nm_sv.len == trig_len {
             let mut j: u64 = 0u64;
             let mut eq: bool = true;
@@ -88,25 +85,25 @@ unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> 
         }
         k = k - (1 as i64);
     }
-    return AnyVal::null_ptr();
+    return HAny::Ref(0i64 as *const u8);
 }
 
 // In an ANNOTATION's ARGS list, find the ANNOT_KV with NAME=`key`
 // and return its VALUE AnyVal. Null if no such entry.
-unsafe fn annot_kv_value(view: &OView, ann: AnyVal, key: str) -> AnyVal {
-    let args: AnyVal = view.tiny_map_get(ann, 15 as u8);          // ARGS
-    if args.raw == 0 { return AnyVal::null_ptr(); }
-    let items: AnyVal = view.tiny_map_get(args, 2 as u8);         // ITEMS
-    if items.raw == 0 { return AnyVal::null_ptr(); }
+unsafe fn annot_kv_value(view: &OView, ann: HAny, key: str) -> HAny {
+    let args: HAny = view.tiny_map_get(ann, 15 as u8);          // ARGS
+    if args.is_null() { return HAny::Ref(0i64 as *const u8); }
+    let items: HAny = view.tiny_map_get(args, 2 as u8);         // ITEMS
+    if items.is_null() { return HAny::Ref(0i64 as *const u8); }
     let n: u64 = view.array_len(items);
     let klen: u64 = key.len() as u64;
     let mut i: u64 = 0u64;
     while i < n {
-        let entry: AnyVal = view.array_get(items, i);
-        let code_av: AnyVal = view.tiny_map_get(entry, 0 as u8);
-        let code_val: i32 = unsafe { (&code_av as *const AnyVal).as_i24() };
+        let entry: HAny = view.array_get(items, i);
+        let code_av: HAny = view.tiny_map_get(entry, 0 as u8);
+        let code_val: i32 = code_av.as_i24();
         if !code_av.is_null() && code_val == (192 as i32) {       // ANNOT_KV
-            let nm_sv: StringView = view.ast_node_name(entry);
+            let nm_sv: SView = view.ast_node_name(entry);
             if nm_sv.len == klen {
                 let mut j: u64 = 0u64;
                 let mut eq: bool = true;
@@ -123,24 +120,24 @@ unsafe fn annot_kv_value(view: &OView, ann: AnyVal, key: str) -> AnyVal {
         }
         i = i + (1 as u64);
     }
-    return AnyVal::null_ptr();
+    return HAny::Ref(0i64 as *const u8);
 }
 
 // In a HERMES_MAP node (AST shape: { CODE: HERMES_MAP, ITEMS: [HERMES_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
-fn hermes_map_get(view: &OView, hmap: AnyVal, key: str) -> AnyVal {
-    let items: AnyVal = view.tiny_map_get(hmap, 2 as u8);          // ITEMS
-    if items.raw == 0 { return AnyVal::null_ptr(); }
+fn hermes_map_get(view: &OView, hmap: HAny, key: str) -> HAny {
+    let items: HAny = view.tiny_map_get(hmap, 2 as u8);          // ITEMS
+    if items.is_null() { return HAny::Ref(0i64 as *const u8); }
     let n: u64 = view.array_len(items);
     let klen: u64 = key.len() as u64;
     let mut i: u64 = 0u64;
     while i < n {
-        let entry: AnyVal = view.array_get(items, i);
+        let entry: HAny = view.array_get(items, i);
         // entry has KEY (field 18) and VALUE (field 7); KEY is a STRING-
         // captured token with quotes around it, same as LIT_STR/HERMES_STR.
-        let key_av: AnyVal = view.tiny_map_get(entry, 51 as u8);   // KEY
-        let raw: StringView = view.get_str_view(key_av);
+        let key_av: HAny = view.tiny_map_get(entry, 51 as u8);   // KEY
+        let raw: SView = view.get_str_view(key_av);
         if raw.len >= (2 as u64) {
             let inner_len: u64 = raw.len - (2 as u64);
             if inner_len == klen {
@@ -159,7 +156,7 @@ fn hermes_map_get(view: &OView, hmap: AnyVal, key: str) -> AnyVal {
         }
         i = i + (1 as u64);
     }
-    return AnyVal::null_ptr();
+    return HAny::Ref(0i64 as *const u8);
 }
 
 #[metaprog_handler("derive_branch_node")]
@@ -167,17 +164,17 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let nm_sv: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let nm_sv: SView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
 
     // Read leaf type-param names. Convention: [K, V, STORE_CFG, CFG].
     let np: u64 = view.ast_type_param_count(item);
     if np < (4 as u64) { return; }
 
-    let k_sv:    StringView = view.ast_type_param_name(item, 0 as u64);
-    let scfg_sv: StringView = view.ast_type_param_name(item, 2 as u64);
-    let cfg_sv:  StringView = view.ast_type_param_name(item, 3 as u64);
+    let k_sv:    SView = view.ast_type_param_name(item, 0 as u64);
+    let scfg_sv: SView = view.ast_type_param_name(item, 2 as u64);
+    let cfg_sv:  SView = view.ast_type_param_name(item, 3 as u64);
 
     let k:    Ident = Ident { ptr: k_sv.ptr,    len: k_sv.len };
     let scfg: Ident = Ident { ptr: scfg_sv.ptr, len: scfg_sv.len };
@@ -190,17 +187,17 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let mut ops_name_len:    u64       = 0 as u64;
     let mut branch_name_ptr: *const u8 = 0 as *const u8;
     let mut branch_name_len: u64       = 0 as u64;
-    let ann: AnyVal = unsafe { find_my_annotation(&view, target_offset, "derive_branch_node") };
-    if ann.raw != 0 {
-        let kv_ops: AnyVal = unsafe { annot_kv_value(&view, ann, "ops") };
-        if kv_ops.raw != 0 {
-            let sv: StringView = view.ast_lit_str_view(kv_ops);
+    let ann: HAny = unsafe { find_my_annotation(&view, target_offset, "derive_branch_node") };
+    if !ann.is_null() {
+        let kv_ops: HAny = unsafe { annot_kv_value(&view, ann, "ops") };
+        if !kv_ops.is_null() {
+            let sv: SView = view.ast_lit_str_view(kv_ops);
             ops_name_ptr = sv.ptr;
             ops_name_len = sv.len;
         }
-        let kv_branch: AnyVal = unsafe { annot_kv_value(&view, ann, "branch") };
-        if kv_branch.raw != 0 {
-            let sv: StringView = view.ast_lit_str_view(kv_branch);
+        let kv_branch: HAny = unsafe { annot_kv_value(&view, ann, "branch") };
+        if !kv_branch.is_null() {
+            let sv: SView = view.ast_lit_str_view(kv_branch);
             branch_name_ptr = sv.ptr;
             branch_name_len = sv.len;
         }
@@ -226,21 +223,21 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let mut shuttle_fns:  Vec<Ident> = vec_new::<Ident>();   // stdlib templ name
     let mut shuttle_syms: Vec<Ident> = vec_new::<Ident>();   // emitted wrapper
 
-    let ops_const: AnyVal = view.find_template_decl(ops_name);
-    if ops_const.raw != 0 {
-        let arr_lit: AnyVal = view.tiny_map_get(ops_const, 7 as u8);   // VALUE
-        if arr_lit.raw != 0 {
-            let items: AnyVal = view.tiny_map_get(arr_lit, 2 as u8);   // ITEMS
-            if items.raw != 0 {
+    let ops_const: HAny = view.find_template_decl(ops_name);
+    if !ops_const.is_null() {
+        let arr_lit: HAny = view.tiny_map_get(ops_const, 7 as u8);   // VALUE
+        if !arr_lit.is_null() {
+            let items: HAny = view.tiny_map_get(arr_lit, 2 as u8);   // ITEMS
+            if !items.is_null() {
                 let n: u64 = view.array_len(items);
                 let mut i: u64 = 0u64;
                 while i < n {
-                    let op_map: AnyVal = view.array_get(items, i);
-                    let f_sv: StringView = view.ast_lit_str_view(
+                    let op_map: HAny = view.array_get(items, i);
+                    let f_sv: SView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "field"));
-                    let t_sv: StringView = view.ast_lit_str_view(
+                    let t_sv: SView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "type"));
-                    let k_sv: StringView = view.ast_lit_str_view(
+                    let k_sv: SView = view.ast_lit_str_view(
                         hermes_map_get(&view, op_map, "kind"));
                     if f_sv.len > (0 as u64) && t_sv.len > (0 as u64) && k_sv.len > (0 as u64) {
                         let f_id: Ident = Ident { ptr: f_sv.ptr, len: f_sv.len };

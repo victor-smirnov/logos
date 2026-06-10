@@ -1,79 +1,42 @@
 // logos.std.compiler.metaprog — untyped-AST helpers for hook handlers.
 //
-// Hooks fire pre-sema (slice 17), so the AST they walk is freshly
-// parsed: TinyObjectMap nodes keyed by integer codes from
-// `include/logos/compiler/ast.hpp`. The handler receives a target
-// offset and an OView; these helpers turn the raw key/code layout
-// into named accessors (struct name, field iteration, type name).
+// HERMES2 PORT (cut-over step 4): node handles are hermes2 `HAny` (8-byte
+// self-relative; value-form holds the resolved absolute ptr), read through the
+// OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
+// HMap<Hu6,HVal> / HArray<HVal> / HString). The old Hermes1 4-byte AnyVal{raw}
+// + base-relative `base + offset` model is gone.
 //
-// Schema constants mirror ast.hpp directly. They're inlined u8s so
-// the const-fn argument shape of tiny_map_get works without ceremony.
+// Hooks fire pre-sema: the AST is freshly parsed TinyObjectMap nodes keyed by
+// integer codes from include/logos/compiler/ast.hpp. Schema keys are inlined u8s.
 
 package logos.std.compiler.metaprog;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
-use logos.lang.hermes.map;
-use logos.lang.hermes.scalar;
+use logos.lang.hermes2.anyval;     // HAny
+use logos.lang.hermes2.hmap;       // HMap<Hu6,HVal> (for schema_type_code on type_from_anyval)
+use logos.lang.hermes2.hstring;
 use logos.mem.string;
 use logos.lang.str;
 
 // ── AST handle types ──────────────────────────────────────────────
 //
-// Typed wrappers over AnyVal that distinguish AST node kinds at the
-// type level. Slice 2 of the metaprog quote epic
-// (~/.claude/plans/metaprog-quote.md): `quote_item! { ... }` returns
-// `Item`; later slices add `Expr`, `Stmt`, `Pat`, `Type`, `Ident` for
-// the remaining quote forms and `#name` anti-quotation.
-//
-// Holder/lifetime is intentionally NOT part of the type for the MVP:
-// quote literals lower to HermesStatic blobs (rodata), so `raw` points
-// into static memory and no retain count is needed. Once metafunctions
-// start mutating items or stashing them across iterations, Item can
-// grow a holder field without breaking the type identity.
+// Typed wrappers over HAny that distinguish AST node kinds at the type level.
+// `raw` is a value-form HAny Ref to the node TOM (resolve() = its absolute ptr).
 
 pub struct Item {
-    pub raw: AnyVal,
+    pub raw: HAny,
 }
 
-// `Type` — typelevel value-handle. Returned by the compiler builtin
-// `type_of::<T>()`. Carries a numeric `kind` mirroring
-// `LogosType::Kind` from the compiler (Void=0, I32=1, I64=2, F64=3,
-// F32=4, Bool=5, U8=6, ...). Slice 1 of the typelevel-metaprog epic
-// — just `kind`; later slices grow `name`, `args`, `fields`,
-// `has_trait`, `size_of`. Lives at runtime as a value (printable,
-// composable, comparable); reification back into a real type
-// position requires `metacall` + a reify-position (`type_alias`,
-// `quote_ty!`, `#[derive]`).
+// `Type` — typelevel value-handle (from `type_of::<T>()`). `kind` mirrors
+// LogosType::Kind (Void=0, I32=1, ...). name/size/align/uid filled by the
+// compiler when materialising a Type literal.
 pub struct Type {
     pub kind: u32,
-    // Canonical printable name produced by the compiler's `type_str`:
-    // primitives — "i32"/"bool"/etc; structs — "Foo" (no package prefix
-    // yet); generic instantiations — "Vec<i32>". Slice 1 surface; later
-    // slices will add structured access (`args`, `fields`, full path).
     pub name: &[u8],
-    // Byte size of T, computed at mono via the existing `size_of` LIR leaf
-    // (codegen-folded to LLVM data layout). 0 for zero-sized types.
     pub size: i64,
-    // Byte alignment of T, computed at mono via the `align_of` LIR leaf
-    // (codegen-folded to LLVM data layout).
     pub align: i64,
-    // TypeUID — first 8 bytes of SHA-256(canonical(T)) as u64. Stable
-    // identity for `quote_ty!` antiquot reification: mono reads this at
-    // antiquot sites and looks up the source TypeRef. Same byte source
-    // as Hermes `schema_type_code` and TagSystem 56-bit slice, just
-    // wider — they all share one canonicalisation. Collision risk
-    // 2^-64; linker checks parallel tag-dispatch.
     pub uid: u64,
 }
 
-// Kind-tag predicates as methods. Mirror `LogosType::Kind` numeric
-// values (see include/logos/compiler/sema.hpp). Pure reads off
-// `self.kind` — same logic as the free `is_*` functions in
-// std::meta, but available with method-call ergonomics so user
-// code can write `t.is_struct()` instead of `is_struct(t)`.
 impl Type {
     pub fn is_void(&self) -> bool { return self.kind == (0 as u32); }
     pub fn is_bool(&self) -> bool { return self.kind == (5 as u32); }
@@ -115,14 +78,6 @@ impl Type {
         return k == (18 as u32) || k == (19 as u32) || k == (20 as u32);
     }
 
-    // Borrow the canonical printable name as an `Ident` for use at
-    // `#(t.ident())` antiquot positions in `quote_*!`. Bytes live in
-    // the rodata strings interned by the compiler when materialising
-    // the Type literal — same lifetime as `self.name`. For primitive
-    // and bare-struct types the result is a syntactically valid
-    // identifier; for generic instantiations like "Vec<i32>" the bytes
-    // contain `<`/`>` and parsing as a NAME will fail (structural
-    // materialisation lands in a later slice).
     pub fn ident(&self) -> Ident {
         return Ident {
             ptr: self.name.as_ptr(),
@@ -131,25 +86,16 @@ impl Type {
     }
 }
 
-// `Template` — declaration-as-data handle. Wraps an item AST node that
-// carries type parameters (struct/enum/fn/trait/impl). Step 5 of the
-// typelevel-metaprog taxonomy: pairs with `Item` (untyped node) and
-// `GenericType` (value-handle for an unapplied constructor). The
-// `raw` field points at the underlying AST node — callers go through
-// `OView` accessors, identical to `Item`.
-//
-// For now Template is a typed wrapper; producers are the existing
-// `template <decl>` keyword (TEMPLATE_DECL node) plus future
-// `template_of::<X>()` intrinsics. Inspection methods delegate to
-// `OView::ast_type_param_*` and `ast_node_name`.
+// `Template` — declaration-as-data handle (struct/enum/fn/trait/impl carrying
+// type params). `raw` is the underlying AST node; inspection goes through OView.
 pub struct Template {
-    pub raw: AnyVal,
+    pub raw: HAny,
 }
 
 impl Template {
     pub fn name(self: &Template, view: &OView) -> Ident {
-        let nm: AnyVal = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
-        let sv: StringView = view.get_str_view(nm);
+        let nm: HAny = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
+        let sv: SView = view.get_str_view(nm);
         return Ident { ptr: sv.ptr, len: sv.len };
     }
 
@@ -158,52 +104,29 @@ impl Template {
     }
 
     pub fn type_param_name(self: &Template, view: &OView, idx: u64) -> Ident {
-        let sv: StringView = view.ast_type_param_name(self.raw, idx);
+        let sv: SView = view.ast_type_param_name(self.raw, idx);
         return Ident { ptr: sv.ptr, len: sv.len };
     }
 
-    // Body is the same AST node, viewed as an `Item`. Useful for
-    // calling Item-side accessors (field iteration, etc.) without
-    // re-wrapping. Kind discrimination lives at a later slice.
     pub fn body(self: &Template) -> Item {
         return Item { raw: self.raw };
     }
 }
 
-// `TypeList<T...>` — A-layer pack-carrier (zero-sized).  Slice 2 of the
-// typelevel-metaprog epic.  The pack lives only at the type level; the
-// runtime bridge to a value-level pack of `Type` handles is via the
-// `type_refs_of::<T...>() -> [Type; N]` intrinsic.  Future slices grow
-// `length/nth/head/tail/concat` as partial-spec'd generic functions.
+// `TypeList<T...>` — A-layer pack-carrier (zero-sized).
 pub struct TypeList<T...> {}
 
-// `Ident` — borrowed identifier bytes. Slice 5/6 of metaprog-quote:
-// produced by `Item::name()`/`OView::ast_node_ident()` and consumed
-// at `#name` antiquot positions inside `quote_item! { ... }`. The
-// pointer borrows from whatever arena owned the source string —
-// callers must not let that arena outlive the Ident's use.
+// `Ident` — borrowed identifier bytes (ptr borrows the source arena).
 pub struct Ident {
     pub ptr: *const u8,
     pub len: u64,
 }
 
-// Ident is a non-owning view (ptr borrows from the arena holding the
-// source string). No Drop, no ownership — Copy semantics match intent.
 impl Copy for Ident {}
 
-// Hygiene: `gensym(prefix)` returns a fresh `Ident` whose bytes are
-// `<prefix>__hyg_<N>` (counter is global to the compilation). The host
-// owns the byte storage; it lives until the compiler exits, which is
-// well past every metafn invocation. Use inside `quote_item!`/`quote_expr!`
-// to name local helpers/temps that must not collide across invocations.
 extern fn logos_metaprog_gensym(pref_ptr: *const u8, pref_len: u64,
                                 out_len: *mut u64) -> *const u8;
 
-// Function-style macros (slice 1.3b): host shim resolving the
-// (site_id, arg_idx)-th ARG of a `name!(...)` invocation. Driver
-// (main.cpp) populates the per-site arg-blob table before invoking
-// each macro thunk; this shim returns a pointer past the 8-byte size
-// prefix so it is directly usable as `ExprBlob.ptr`.
 extern fn logos_macro_arg(site_id: u64, arg_idx: u64) -> *const u8;
 
 pub fn gensym(prefix: str) -> Ident {
@@ -215,87 +138,39 @@ pub fn gensym(prefix: str) -> Ident {
     return Ident { ptr: p, len: len };
 }
 
-// `QuoteItemBlob` — bundle returned by `quote_item! { ... }` post-
-// Slice 5a.1. `template_ptr/size` is the rodata Hermes blob with
-// `NAME_VAR` placeholders carrying integer indices. `idents_blob` is a
-// single owned heap allocation packing all per-site `Ident` values
-// inline (so the QIB is safe to return through Vec/struct without
-// dangling stack pointers). Layout of `idents_blob`:
-//
-//   [u64 N] [N × Ident{ptr,len}] [packed ident bytes...]
-//
-// Each Ident.ptr points into this same blob's bytes section. `N == 0`
-// is encoded by setting `idents_blob` to null. The blob is allocated by
-// `qib_pack_idents` (sibling fn) and freed via `qib_free_idents`. The
-// host shim `logos_emit_item_blob_subst` reads N from the blob header
-// and walks the packed Ident array directly.
+// `QuoteItemBlob` — bundle returned by `quote_item! { ... }`. Unchanged by the
+// hermes2 port (it carries rodata blob ptrs + packed ident/blob/cursor payloads,
+// all *const u8 — no AnyVal).
 pub struct QuoteItemBlob {
     pub template_ptr: *const u8,
     pub template_size: u64,
     pub idents_blob: *const u8,
-    // Packed ExprBlob splice payloads. Layout:
-    //   [u64 N] [N × {offset_into_blob: u64, size: u64}] [concatenated bodies]
-    // Each entry is the raw bytes of an `ExprBlob` returned by
-    // `quote_expr!`, copied so QIB owns its lifetime. Splice sites in the
-    // template are encoded as `NAME_VAR=int(-(idx+1))`; the host shim
-    // distinguishes from ident sites (positive idx) by sign.
     pub blobs_blob: *const u8,
-    // Packed cursor (Vec<Ident>) payloads. Layout mirrors idents_blob but
-    // grouped per-cursor:
-    //   [u64 N_cursors]
-    //   [N_cursors × {u64 count, u64 byte_offset_to_pods}]
-    //   [pods + ident bytes...]
-    // Each pod is `{ptr,len}` like in idents_blob; ptr points into this
-    // same blob's bytes section. Cursor sites in the template are
-    // `NAME_VAR=int(idx | 0x40000000)`; idx selects the entry above.
     pub cursors_blob: *const u8,
 }
 
-// `ExprBlob` — marker return type for metafunctions that produce an AST
-// expression fragment. ABI is identical to `HermesStatic` (single
-// `*const u8` past an 8-byte length prefix in rodata or malloc'd by
-// `__metacall_freeze`); the difference is purely nominal — sema's
-// `lower_metacall` recognises the marker and defers the call site's
-// type to the surrounding context (typically the `let` annotation),
-// because the actual expr type is determined post-splice by reading the
-// blob's root `schema_type_code` and recursing into `lower_expr`.
-//
-// Sibling markers (`StmtBlob`/`PatBlob`/`TyBlob`) follow when the other
-// quote forms land in Slice 7's grammar pass.
+// `ExprBlob` — marker return type (ABI = HermesStatic; a single *const u8).
 pub struct ExprBlob {
     pub ptr: *const u8,
 }
 
 impl Item {
-    // Read the item's NAME field as an `Ident`. Works for STRUCT,
-    // ENUM, FN, etc.; for nodes without a NAME key the returned
-    // Ident has `ptr=null, len=0`. The Ident borrows from the AST
-    // arena owned by `view`.
     pub fn name(self: &Item, view: &OView) -> Ident {
-        let nm: AnyVal = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
-        let sv: StringView = view.get_str_view(nm);
+        let nm: HAny = view.tiny_map_get(self.raw, 1 as u8);  // NAME = 1
+        let sv: SView = view.get_str_view(nm);
         return Ident { ptr: sv.ptr, len: sv.len };
     }
 
-    // Number of FIELDS entries on a STRUCT item (zero for empty structs
-    // or non-struct nodes). Slice 6 of metaprog-quote — minimum needed
-    // for `quote_item!`-based derive over plain structs.
     pub fn field_count(self: &Item, view: &OView) -> u64 {
         return view.ast_struct_field_count(self.raw);
     }
 
-    // i-th FIELD_DEF as an `Item` handle. Caller stays within
-    // `field_count(view)`; out-of-range returns an Item wrapping a
-    // null AnyVal whose `name()` reports `ptr=null, len=0`.
     pub fn field(self: &Item, view: &OView, idx: u64) -> Item {
         return Item { raw: view.ast_struct_field(self.raw, idx) };
     }
 }
 
 impl Ident {
-    // Byte-wise equality. Both sides must have non-null `ptr` for a
-    // meaningful comparison; an empty Ident (`ptr=null, len=0`) only
-    // matches another empty Ident.
     pub fn eq(self: &Ident, other: &Ident) -> bool {
         if self.len != other.len { return false; }
         if self.len == (0 as u64) { return true; }
@@ -314,214 +189,132 @@ impl Ident {
     }
 }
 
-// ── AST schema (mirrors include/logos/compiler/ast.hpp) ────────────
+// ── `<type:T>` decode (schema_type_code=107 TOM) — hermes2 ──────────
 //
-// AST keys (TinyObjectMap field discriminators) are inlined as u8
-// literals at each call site.  `pub const` at module scope is not
-// yet supported end-to-end, and the helpers are few enough that the
-// magic numbers are easier to read than imported names anyway.
-//
-//   NAME   = 1
-//   TYPE   = 3
-//   FIELDS = 22
-
-// ── `<type:T>` decode — free fn so HermesStatic / HermesView callers
-// don't need an OView. Counterpart to the C++ `ObjectView::as_type()`
-// (TypeView reader, slice 1E). The schema_type_code=107 contract is
-// shared with sema's `<type:T>` emitter (HVType / lir_mirror_emit_hv_
-// type → mlir_gen_expr → TOM keys 0=kind, 1=uid, 2=name).
-//
-// Returns a zero-filled `Type` if `val` doesn't point at a TinyObject
-// Map carrying schema_type_code=107 — callers can probe untrusted
-// input without branching first.
-
-pub fn type_from_anyval(base: *const u8, val: AnyVal) -> Type {
+// `val` is a node handle (HAny Ref to the TOM). Returns a zero-filled Type if
+// `val` isn't a Ref to a schema-107 TinyObjectMap.
+pub fn type_from_anyval(val: HAny) -> Type {
     unsafe {
-        if !val.is_ptr() {
+        if !val.is_ref() || val.is_null() {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }
-        if val.is_null() {
+        let obj: *const u8 = val.resolve();
+        if obj == (0 as *const u8) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }
-        let obj: *const u8 =
-            (base as i64 + val.as_offset() as i64) as *const u8;
-        let tag_hash: u64 = read_type_code(obj);
-        if tag_hash != hermes_tag_tiny_map() {
-            return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
-        }
-        let tom: *const Map<Bitmap, AnyVal> =
-            obj as *const Map<Bitmap, AnyVal>;
-        if tom.schema_type_code != (107 as u64) {
+        let tom: *const HMap<Hu6, HVal> = obj as *const HMap<Hu6, HVal>;
+        if (&*tom).schema_type_code() != (107 as u64) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }
 
-        let kind_av: AnyVal = tom.get(base, 0 as u8);
-        let uid_av:  AnyVal = tom.get(base, 1 as u8);
-        let name_av: AnyVal = tom.get(base, 2 as u8);
+        let kind_av: HAny = (&*tom).get(0 as u8);
+        let uid_av:  HAny = (&*tom).get(1 as u8);
 
         let mut kind: u32 = 0 as u32;
-        if !kind_av.is_null() && !kind_av.is_ptr() {
+        if kind_av.is_pod() {
             kind = kind_av.as_u24() as u32;
         }
 
         let mut uid: u64 = 0 as u64;
-        if !uid_av.is_null() && uid_av.is_ptr() {
-            let uobj: *const U64 =
-                (base as i64 + uid_av.as_offset() as i64) as *const U64;
-            uid = uobj.value();
+        if uid_av.is_ref() && !uid_av.is_null() {
+            // uid is a zone-boxed u64 record; resolve + read the 8-byte payload.
+            let uobj: *const u64 = uid_av.resolve() as *const u64;
+            uid = *uobj;
         }
 
-        if name_av.is_null() || !name_av.is_ptr() {
-            return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
-        }
-        let nobj: *const u8 =
-            (base as i64 + name_av.as_offset() as i64) as *const u8;
-        if read_type_code(nobj) != hermes_tag_string() {
-            return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
-        }
-        // Slice 1G note: we cannot populate `name` from user code yet —
-        // `&[u8]` struct fields are lowered as 8-byte pointers to a
-        // separate slice {ptr,len} aggregate (mlir_gen_types.cpp,
-        // logos_to_mlir Kind::Ref), and any slice we synthesise here has
-        // function-local stack storage that goes out of scope on return.
-        // Compiler-built Type literals work because the compiler emits
-        // the slice into rodata at lowering time. Bridging that for the
-        // user-construction path needs either a fat-ptr-inline ABI for
-        // `&[u8]` fields or a stable allocation for the slice storage —
-        // see abstraction-debt registry. For now leave name empty.
+        // name (key 2) intentionally left empty — synthesising a &[u8] slice with
+        // stable storage from user code needs the fat-ptr-inline ABI (see the
+        // Hermes1 note); compiler-built Type literals emit name into rodata.
         return Type { kind: kind, name: "", size: 0, align: 0, uid: uid };
     }
 }
 
-// ── OView convenience methods ─────────────────────────────────────
+// ── OView convenience accessors (hermes2) ─────────────────────────────────
+//
+// All take/return HAny node handles via the oview.logos primitives.
 
 impl OView {
-    // Read the struct's NAME as a borrowed StringView. `node` must be
-    // a STRUCT (or any node with a NAME key).  Empty view if missing.
-    pub fn ast_node_name(self: &OView, node: AnyVal) -> StringView {
-        let nm: AnyVal = self.tiny_map_get(node, 1 as u8);
+    pub fn ast_node_name(self: &OView, node: HAny) -> SView {
+        let nm: HAny = self.tiny_map_get(node, 1 as u8);
         return self.get_str_view(nm);
     }
 
-    // Number of fields in a STRUCT node. Zero for empty structs or
-    // when FIELDS is absent.
-    pub fn ast_struct_field_count(self: &OView, node: AnyVal) -> u64 {
-        let fields: AnyVal = self.tiny_map_get(node, 22 as u8);
-        if fields.raw == 0 { return 0 as u64; }
+    pub fn ast_struct_field_count(self: &OView, node: HAny) -> u64 {
+        let fields: HAny = self.tiny_map_get(node, 22 as u8);
+        if fields.is_null() { return 0 as u64; }
         return self.array_len(fields);
     }
 
-    // Get the i-th FIELD_DEF node from a STRUCT. Caller is responsible
-    // for staying within ast_struct_field_count() — out-of-range
-    // returns null AnyVal, behaviour after that is undefined.
-    pub fn ast_struct_field(self: &OView, node: AnyVal, idx: u64) -> AnyVal {
-        let fields: AnyVal = self.tiny_map_get(node, 22 as u8);
+    pub fn ast_struct_field(self: &OView, node: HAny, idx: u64) -> HAny {
+        let fields: HAny = self.tiny_map_get(node, 22 as u8);
         return self.array_get(fields, idx);
     }
 
-    // Field's declared name. Borrows from the AST zone.
-    pub fn ast_field_name(self: &OView, field_def: AnyVal) -> StringView {
-        let nm: AnyVal = self.tiny_map_get(field_def, 1 as u8);
+    pub fn ast_field_name(self: &OView, field_def: HAny) -> SView {
+        let nm: HAny = self.tiny_map_get(field_def, 1 as u8);
         return self.get_str_view(nm);
     }
 
-    // §6.10 (derive_default): field's declared type-base name as a
-    // string view. For `f: T` returns the NAME of the TYPE node
-    // (e.g., "i32" for `f: i32`, "Vec" for `f: Vec<i32>` — type
-    // arguments aren't rendered, mirroring `ast_node_name`'s
-    // single-NAME read). Callers that need the full rendered type
-    // (incl. generic args) use the C++-side render_type_src helper
-    // via a different code path. Empty view when the FIELD_DEF has
-    // no TYPE slot or the TYPE has no NAME (anonymous shapes).
-    pub fn ast_field_type_name(self: &OView, field_def: AnyVal) -> StringView {
-        let ty: AnyVal = self.tiny_map_get(field_def, 3 as u8);   // TYPE
-        if ty.raw == 0 {
-            return StringView { ptr: 0 as *const u8, len: 0 as u64 };
+    pub fn ast_field_type_name(self: &OView, field_def: HAny) -> SView {
+        let ty: HAny = self.tiny_map_get(field_def, 3 as u8);   // TYPE
+        if ty.is_null() {
+            return SView { ptr: 0 as *const u8, len: 0 as u64 };
         }
-        let nm: AnyVal = self.tiny_map_get(ty, 1 as u8);          // NAME
+        let nm: HAny = self.tiny_map_get(ty, 1 as u8);          // NAME
         return self.get_str_view(nm);
     }
 
-    // Number of type parameters on a STRUCT/ENUM (zero for plain types).
-    // Reads TYPE_PARAMS(27) → ITEMS array length.
-    pub fn ast_type_param_count(self: &OView, node: AnyVal) -> u64 {
-        let tps: AnyVal = self.tiny_map_get(node, 27 as u8);
-        if tps.raw == 0 { return 0 as u64; }
-        let inner: AnyVal = self.tiny_map_get(tps, 2 as u8);  // ITEMS
-        if inner.raw == 0 { return 0 as u64; }
+    pub fn ast_type_param_count(self: &OView, node: HAny) -> u64 {
+        let tps: HAny = self.tiny_map_get(node, 27 as u8);
+        if tps.is_null() { return 0 as u64; }
+        let inner: HAny = self.tiny_map_get(tps, 2 as u8);  // ITEMS
+        if inner.is_null() { return 0 as u64; }
         return self.array_len(inner);
     }
 
-    // i-th type parameter's NAME (e.g. "T"). Empty view if out of range.
-    // Lifetime params (LIFETIME_PARAM) and const params share the index
-    // space; for derive purposes we read NAME unconditionally and let
-    // the synthesised header place every name into `impl<...>` — bounds
-    // and lifetime markers are caller's concern.
-    pub fn ast_type_param_name(self: &OView, node: AnyVal, idx: u64) -> StringView {
-        let tps: AnyVal = self.tiny_map_get(node, 27 as u8);
-        if tps.raw == 0 { return StringView { ptr: 0 as *const u8, len: 0 as u64 }; }
-        let inner: AnyVal = self.tiny_map_get(tps, 2 as u8);
-        if inner.raw == 0 { return StringView { ptr: 0 as *const u8, len: 0 as u64 }; }
-        let item: AnyVal = self.array_get(inner, idx);
+    pub fn ast_type_param_name(self: &OView, node: HAny, idx: u64) -> SView {
+        let tps: HAny = self.tiny_map_get(node, 27 as u8);
+        if tps.is_null() { return SView { ptr: 0 as *const u8, len: 0 as u64 }; }
+        let inner: HAny = self.tiny_map_get(tps, 2 as u8);
+        if inner.is_null() { return SView { ptr: 0 as *const u8, len: 0 as u64 }; }
+        let item: HAny = self.array_get(inner, idx);
         return self.ast_node_name(item);
     }
 
     // ── ENUM helpers ──────────────────────────────────────────────
-    //
-    // ENUM AST shape (mirrors logos.peg): `node.ITEMS` (key 2) is a
-    // wrapper TinyObjectMap whose own ITEMS key holds the array of
-    // VARIANT_DEF nodes. Inner variant payloads follow the same
-    // wrapper pattern (so `variant.ITEMS` → wrapper → array of type_ref
-    // maps), except for variadic variants where ITEMS is a single
-    // type_ref node — those are out of scope here.
-
-    // Number of variants in an ENUM node. Zero if ITEMS is missing.
-    pub fn ast_enum_variant_count(self: &OView, node: AnyVal) -> u64 {
-        let outer: AnyVal = self.tiny_map_get(node, 2 as u8);
-        if outer.raw == 0 { return 0 as u64; }
-        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
-        if inner.raw == 0 { return 0 as u64; }
+    pub fn ast_enum_variant_count(self: &OView, node: HAny) -> u64 {
+        let outer: HAny = self.tiny_map_get(node, 2 as u8);
+        if outer.is_null() { return 0 as u64; }
+        let inner: HAny = self.tiny_map_get(outer, 2 as u8);
+        if inner.is_null() { return 0 as u64; }
         return self.array_len(inner);
     }
 
-    // i-th VARIANT_DEF node from an ENUM. Caller stays within
-    // ast_enum_variant_count(); out-of-range yields a null AnyVal.
-    pub fn ast_enum_variant(self: &OView, node: AnyVal, idx: u64) -> AnyVal {
-        let outer: AnyVal = self.tiny_map_get(node, 2 as u8);
-        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
+    pub fn ast_enum_variant(self: &OView, node: HAny, idx: u64) -> HAny {
+        let outer: HAny = self.tiny_map_get(node, 2 as u8);
+        let inner: HAny = self.tiny_map_get(outer, 2 as u8);
         return self.array_get(inner, idx);
     }
 
-    // Arity (number of payload types) for a VARIANT_DEF. Zero for
-    // unit variants. Variadic variants (T...) report 1 here but
-    // callers should check IS_VARIADIC if it matters.
-    pub fn ast_variant_arity(self: &OView, variant: AnyVal) -> u64 {
-        let outer: AnyVal = self.tiny_map_get(variant, 2 as u8);
-        if outer.raw == 0 { return 0 as u64; }
-        let inner: AnyVal = self.tiny_map_get(outer, 2 as u8);
-        if inner.raw == 0 { return 1 as u64; }
+    pub fn ast_variant_arity(self: &OView, variant: HAny) -> u64 {
+        let outer: HAny = self.tiny_map_get(variant, 2 as u8);
+        if outer.is_null() { return 0 as u64; }
+        let inner: HAny = self.tiny_map_get(outer, 2 as u8);
+        if inner.is_null() { return 1 as u64; }
         return self.array_len(inner);
     }
 
-    // Walk the user-root MODULE's ITEMS array and return the first
-    // declaration node (struct/enum/fn/trait/impl) whose NAME matches
-    // `name` byte-for-byte. Returns a null AnyVal when no item
-    // matches. Step 5 of the typelevel-metaprog taxonomy: this is the
-    // primary producer for `Template` handles — users wrap the result
-    // in `Template { raw: ... }` and feed it to `Template::name()` /
-    // `type_param_*()`. (A typed `template_of::<X>()` form that
-    // resolves T at sema time and bakes the offset is a future
-    // sweetener, but the producer story is closed by this lookup.)
-    pub fn find_template_decl(self: &OView, name: &[u8]) -> AnyVal {
-        let root: AnyVal = self.root();
-        let items: AnyVal = self.tiny_map_get(root, 2 as u8);  // ITEMS
-        if items.raw == 0 { return AnyVal::null_ptr(); }
+    // First MODULE item whose NAME matches `name` byte-for-byte; null HAny if none.
+    pub fn find_template_decl(self: &OView, name: &[u8]) -> HAny {
+        let root: HAny = self.root();
+        let items: HAny = self.tiny_map_get(root, 2 as u8);  // ITEMS
+        if items.is_null() { return HAny::Ref(0i64 as *const u8); }
         let n: u64 = self.array_len(items);
         let nlen: i64 = name.len();
         let mut i: u64 = 0 as u64;
         while i < n {
-            let item: AnyVal = self.array_get(items, i);
-            let nm: StringView = self.ast_node_name(item);
+            let item: HAny = self.array_get(items, i);
+            let nm: SView = self.ast_node_name(item);
             if nm.len == (nlen as u64) {
                 let mut j: i64 = 0;
                 let mut eq: bool = true;
@@ -536,59 +329,38 @@ impl OView {
             }
             i = i + (1 as u64);
         }
-        return AnyVal::null_ptr();
+        return HAny::Ref(0i64 as *const u8);
     }
 
-    // STRING-token literal byte view minus the surrounding quote chars.
-    // The lexer captures `"foo"` literally with quotes; sema's C++
-    // consumers strip them at use-site (sema_expr.cpp's HERMES_STR /
-    // LIT_STR readers). Metaprog handlers walking AST string-bearing
-    // nodes (LIT_STR, HERMES_STR, HERMES_ENTRY KEY) need the same
-    // strip — this helper does it once. Empty StringView if `lit` is
-    // null or doesn't carry a STRING-shaped payload.
-    pub fn ast_lit_str_view(self: &OView, lit: AnyVal) -> StringView {
-        let s_av: AnyVal = self.tiny_map_get(lit, 7 as u8);   // VALUE
-        let raw: StringView = self.get_str_view(s_av);
-        if raw.len < (2 as u64) { return StringView { ptr: 0 as *const u8, len: 0 }; }
-        return StringView {
+    // STRING-token literal byte view minus surrounding quotes. Empty if absent.
+    pub fn ast_lit_str_view(self: &OView, lit: HAny) -> SView {
+        let s_av: HAny = self.tiny_map_get(lit, 7 as u8);   // VALUE
+        let raw: SView = self.get_str_view(s_av);
+        if raw.len < (2 as u64) { return SView { ptr: 0 as *const u8, len: 0 }; }
+        return SView {
             ptr: (raw.ptr as i64 + 1i64) as *const u8,
             len: raw.len - (2 as u64),
         };
     }
 
-    // Decode a `<type:T>` Hermes value (TinyObjectMap with
-    // schema_type_code=107) into a metaprog `Type` struct. `val` must
-    // point at the TOM (e.g. via `view.tiny_map_get(node, key)` or by
-    // walking the document root). Returns a zero-filled `Type` if `val`
-    // is null, not a pointer, not a TinyObjectMap, or carries a schema
-    // other than 107. Counterpart to the C++ `ObjectView::as_type()` —
-    // shares the schema_type_code=107 contract with sema's `<type:T>`
-    // emitter (HVType / lir_mirror_emit_hv_type → mlir_gen_expr).
-    //
-    // TOM key layout:
-    //   0 → kind  (u32, value-mode AnyVal)
-    //   1 → uid   (u64, zone-allocated U64 record)
-    //   2 → name  (HermesString in zone, borrowed for the OView lifetime)
-    pub fn as_type(self: &OView, val: AnyVal) -> Type {
-        unsafe { return type_from_anyval(self.base, val); }
+    // Decode a `<type:T>` Hermes value (schema_type_code=107 TOM) into a Type.
+    pub fn as_type(self: &OView, val: HAny) -> Type {
+        return type_from_anyval(val);
     }
 
     // Append the user-root MODULE's dotted package name to `buf`.
-    // For `package main;` writes `main`; for `package std.lang.text;`
-    // writes `std.lang.text`. Reads NAME(1) (first identifier) plus
-    // each PATH_PARTS(16)[i].NAME (subsequent dotted parts).
     pub fn module_package_append(self: &OView, buf: &mut String) {
-        let root: AnyVal = self.root();
-        let head: StringView = self.ast_node_name(root);
+        let root: HAny = self.root();
+        let head: SView = self.ast_node_name(root);
         if head.len == (0 as u64) { return; }
         unsafe { buf.push_bytes(head.ptr, head.len as i64); }
-        let parts: AnyVal = self.tiny_map_get(root, 16 as u8);
-        if parts.raw == 0 { return; }
+        let parts: HAny = self.tiny_map_get(root, 16 as u8);
+        if parts.is_null() { return; }
         let n: u64 = self.array_len(parts);
         let mut i: u64 = 0 as u64;
         while i < n {
-            let part: AnyVal = self.array_get(parts, i);
-            let pn: StringView = self.ast_node_name(part);
+            let part: HAny = self.array_get(parts, i);
+            let pn: SView = self.ast_node_name(part);
             buf.push_u8(46 as u8);  // '.'
             unsafe { buf.push_bytes(pn.ptr, pn.len as i64); }
             i = i + (1 as u64);

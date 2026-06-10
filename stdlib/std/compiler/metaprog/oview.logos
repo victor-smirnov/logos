@@ -8,7 +8,7 @@
 //
 // Navigation model: the dispatcher hands a hook a flat `item_offset` into the AST
 // doc's single segment; `node_at(offset)` turns it into a node HANDLE
-// (`HAny::ref_to(base + offset)`). From there every step is `HAny::resolve()`
+// (`HAny::Ref(base + offset)`). From there every step is `HAny::resolve()`
 // (position-independent, no base) → the child object's absolute pointer. So a node
 // handle is just a value-form HAny Ref; reading a field is resolve → HMap.get.
 //
@@ -35,13 +35,13 @@ extern fn logos_get_module_ast_oview(out_holder: *mut *mut u8,
 
 extern fn logos_holder_release(holder: *mut u8) -> ();
 
-// ── Borrowed string bytes (was logos.lang.hermes.view::StringView) ──────────
-pub struct StringView {
+// ── Borrowed string bytes (was logos.lang.hermes.view::SView) ──────────
+pub struct SView {
     pub ptr: *const u8,
     pub len: u64,
 }
 
-impl Copy for StringView {}
+impl Copy for SView {}
 
 // ── OView ─────────────────────────────────────────────────────────────────
 
@@ -83,7 +83,7 @@ impl OView {
 
     // Wrap a flat arena offset (the only base+offset step) into a node handle.
     pub fn node_at(self: &OView, offset: u32) -> HAny {
-        return HAny::ref_to((self.base as i64 + offset as i64) as *const u8);
+        return HAny::Ref((self.base as i64 + offset as i64) as *const u8);
     }
 
     // The document root HAny. DocumentHeader = { HAny root } at base+0; the at-rest
@@ -91,30 +91,30 @@ impl OView {
     // Pod → verbatim, 0 → null.
     pub fn root(self: &OView) -> HAny {
         let w: i64 = unsafe { *(self.base as *const i64) };
-        if w == 0i64 { return HAny::null(); }
+        if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
         if (w & 1i64) == 1i64 {
-            return HAny::pod(w >> 8i64, ((w >> 1i64) & 0x7Fi64) as u8);
+            return HAny::Pod(w as u64);
         }
-        return HAny::ref_to((self.base as i64 + w) as *const u8);
+        return HAny::Ref((self.base as i64 + w) as *const u8);
     }
 
     // TinyObjectMap field read: `node` (Ref to a HMap<Hu6,HVal>) → key → HAny.
     // Null/non-ref node, or absent key, yields a null HAny.
     pub fn tiny_map_get(self: &OView, node: HAny, key: u8) -> HAny {
-        if !node.is_ref() { return HAny::null(); }
+        if !node.is_ref() { return HAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
-        if p == (0 as *const u8) { return HAny::null(); }
+        if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
         return unsafe { (&*(p as *const HMap<Hu6, HVal>)).get(key) };
     }
 
     // Borrowed UTF-8 bytes of a string node (Ref to HString). Empty view if `v`
     // is null/non-ref.
-    pub fn get_str_view(self: &OView, v: HAny) -> StringView {
-        if !v.is_ref() { return StringView { ptr: 0 as *const u8, len: 0 as u64 }; }
+    pub fn get_str_view(self: &OView, v: HAny) -> SView {
+        if !v.is_ref() { return SView { ptr: 0 as *const u8, len: 0 as u64 }; }
         let p: *const u8 = v.resolve();
-        if p == (0 as *const u8) { return StringView { ptr: 0 as *const u8, len: 0 as u64 }; }
+        if p == (0 as *const u8) { return SView { ptr: 0 as *const u8, len: 0 as u64 }; }
         let s: str = unsafe { (&*(p as *const HString)).as_str() };
-        return StringView { ptr: s.as_ptr(), len: s.len() as u64 };
+        return SView { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 
     // Array length / element. `v` is a Ref to HArray<HVal>; null/non-ref → 0 / null.
@@ -126,9 +126,9 @@ impl OView {
     }
 
     pub fn array_get(self: &OView, v: HAny, idx: u64) -> HAny {
-        if !v.is_ref() { return HAny::null(); }
+        if !v.is_ref() { return HAny::Ref(0i64 as *const u8); }
         let p: *const u8 = v.resolve();
-        if p == (0 as *const u8) { return HAny::null(); }
+        if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
         return unsafe { (&*(p as *const HArray<HVal>)).get(idx as i64) };
     }
 
