@@ -974,7 +974,7 @@ bool emit_module(const ModuleManifest& manifest,
                 auto nm = root_map.get(logos::compiler::ast::NAME.code);
                 if (!nm.is_null() && nm.is_pointer()) {
                     pkg = std::string(hermes2::StringView(
-                        nm.to_offset(), asts[i].holder()).view());
+                        nm, asts[i].holder()).view());
                 }
             }
             if (root_map.has_key(logos::compiler::ast::mod::PATH_PARTS)) {
@@ -986,13 +986,13 @@ bool emit_module(const ModuleManifest& manifest,
                         auto part_av = arr->get(j, asts[i].holder()->base());
                         if (!part_av.is_pointer()) continue;
                         auto part_map = hermes2::TinyMapView(
-                            part_av.to_offset(), asts[i].holder());
+                            part_av, asts[i].holder());
                         if (part_map.has_key(logos::compiler::ast::NAME)) {
                             auto nm = part_map.get(logos::compiler::ast::NAME.code);
                             if (!nm.is_null() && nm.is_pointer()) {
                                 pkg += ".";
                                 pkg += std::string(hermes2::StringView(
-                                    nm.to_offset(), asts[i].holder()).view());
+                                    nm, asts[i].holder()).view());
                             }
                         }
                     }

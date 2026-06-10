@@ -1152,7 +1152,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
         // foreign arena: same arena bytes, same arena_id, no local pool.
         // Phase 5.B step 3: needed so subst_type can chase pointee/elem on a
         // TypeRef whose root came from a foreign mirror.
-        return TypeRef(self.arena(), av.to_offset(),
+        return TypeRef(self.arena(), av,
                        /*pool=*/nullptr, self.arena_id());
     }
 
@@ -1230,7 +1230,7 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
         if (self.pool()) {
             result.push_back(self.pool()->ref(e.to_offset()));
         } else {
-            result.push_back(TypeRef(self.arena(), e.to_offset(),
+            result.push_back(TypeRef(self.arena(), e,
                                      /*pool=*/nullptr, self.arena_id()));
         }
     }

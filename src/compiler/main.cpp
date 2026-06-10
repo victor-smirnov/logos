@@ -542,7 +542,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap)
@@ -561,7 +561,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             for (uint64_t i = 0; i < arr->size(); ++i) {
                 AnyVal e = arr->get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
-                uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
                 const uint8_t* ep = db2 + eoff;
                 lh::TypeTag etag = lh::TypeTag::read_before(ep);
                 if (etag.type_code() == lh::type_hash::TinyObjectMap)
@@ -596,7 +596,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap) {
@@ -606,9 +606,9 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 const auto* arr = reinterpret_cast<const ObjectArray*>(
                     HermesAccess::base(doc) + coff);
                 for (uint64_t i = 0; i < arr->size(); ++i) {
-                    AnyVal e = arr->get(i, HermesAccess::base(doc));
+                    AnyVal e = arr->get(i);
                     if (!e.is_pointer()) continue;
-                    uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                    uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
                     const uint8_t* ep = HermesAccess::base(doc) + eoff;
                     lh::TypeTag etag = lh::TypeTag::read_before(ep);
                     if (etag.type_code() == lh::type_hash::TinyObjectMap) {
@@ -633,7 +633,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         for (uint64_t i = 0; i < n_src; ++i) {
             AnyVal e = arr->get(i);
             if (!e.is_pointer()) continue;
-            uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
             const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
             int32_t cd = 0;
             if (etom->has_key(la::CODE.code)) {
@@ -664,7 +664,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 continue;
             }
             src_nonptr.push_back(AnyVal{});
-            uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+            uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
             const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
             int32_t cd = 0;
             if (etom->has_key(la::CODE.code)) {
@@ -679,7 +679,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     return 0;
                 }
                 src_els.push_back({true, 0,
-                    bav.to_offset().value()});
+                    bav.to_offset(HermesAccess::base(doc)).value()});
             } else {
                 src_els.push_back({false, eoff, 0});
             }
@@ -788,7 +788,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (key == la::NAME_VAR.code) continue;
             AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             const uint8_t* pointee = dbase + coff;
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap)
@@ -833,7 +833,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             for (uint64_t i = 0; i < arr->size(); ++i) {
                 AnyVal e = arr->get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
-                uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
+                uint32_t eoff = static_cast<uint32_t>(e.to_offset(HermesAccess::base(doc)).value());
                 const uint8_t* ep = dbase2 + eoff;
                 lh::TypeTag etag = lh::TypeTag::read_before(ep);
                 if (etag.type_code() == lh::type_hash::TinyObjectMap)
@@ -864,9 +864,9 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             };
             uint64_t n = items_ptr()->size();
             for (uint64_t i = 0; i < n; ++i) {
-                AnyVal it_av = items_ptr()->get(i, HermesAccess::base(doc));
+                AnyVal it_av = items_ptr()->get(i);
                 if (it_av.is_null() || !it_av.is_pointer()) continue;
-                subst_walk(static_cast<uint32_t>(it_av.to_offset().value()));
+                subst_walk(static_cast<uint32_t>(it_av.to_offset(HermesAccess::base(doc)).value()));
                 if (subst_failed) {
                     blob_seen.erase(key); return 0;
                 }
@@ -894,7 +894,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             AnyVal nm_av = user_root_pkg.get(la::NAME.code);
             if (!nm_av.is_null() && nm_av.is_pointer()) {
                 auto user_name = logos::hermes2::StringView(
-                    nm_av.to_offset(), user_holder_pkg).view();
+                    nm_av, user_holder_pkg).view();
                 auto sv_e = ArenaString::create(arena, std::string_view(user_name));
                 if (sv_e) {
                     auto sv_off = static_cast<uint32_t>(
@@ -976,7 +976,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         arena);
                 } else {
                     synth_uses_off = static_cast<uint32_t>(
-                        synth_uses_av.to_offset().value());
+                        synth_uses_av.to_offset(HermesAccess::base(doc)).value());
                 }
                 // Walk user's USE entries; for each, build the dotted
                 // package name and dedup-append a fresh USE node into
@@ -992,7 +992,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal nm_av = unode->get(la::NAME.code);
                         if (!nm_av.is_null() && nm_av.is_pointer()) {
                             dotted = std::string(logos::hermes2::StringView(
-                                nm_av.to_offset(), user_holder).view());
+                                nm_av, user_holder).view());
                         }
                     }
                     if (unode->has_key(la::mod::PATH_PARTS.code)) {
@@ -1010,7 +1010,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 if (!dotted.empty()) dotted += '.';
                                 dotted += std::string(logos::hermes2::StringView(
-                                    nv.to_offset(), user_holder).view());
+                                    nv, user_holder).view());
                             }
                         }
                     }
@@ -1021,7 +1021,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     auto* synth_uses_ptr = reinterpret_cast<const ObjectArray*>(
                         HermesAccess::base(doc) + synth_uses_off);
                     for (uint64_t si = 0; si < synth_uses_ptr->size(); ++si) {
-                        AnyVal sav = synth_uses_ptr->get(si, HermesAccess::base(doc));
+                        AnyVal sav = synth_uses_ptr->get(si);
                         if (!sav.is_pointer()) continue;
                         auto* snode = reinterpret_cast<const TinyObjectMap*>(
                             HermesAccess::base(dosav.resolve());
@@ -1030,7 +1030,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                                   HermesAccess::base(doc));
                         if (sn_av.is_null() || !sn_av.is_pointer()) continue;
                         std::string s_existing(logos::hermes2::StringView(
-                            sn_av.to_offset(), doc.holder()).view());
+                            sn_av, doc.holder()).view());
                         if (s_existing == dotted) { already = true; break; }
                     }
                     if (already) continue;
@@ -1368,7 +1368,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         return nullptr;
     }
     uint32_t src_root_off =
-        static_cast<uint32_t>(expr_av.to_offset().value());
+        static_cast<uint32_t>(expr_av.to_offset(HermesAccess::base(doc)).value());
 
     auto dst_e = make_doc(tpl_size + 256);
     if (!dst_e) return nullptr;
@@ -1414,7 +1414,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     i, const_cast<uint8_t*>(src_base));
                 if (el.is_null() || !el.is_pointer()) continue;
                 uint64_t r = find_cursor_count(
-                    static_cast<uint32_t>(el.to_offset().value()));
+                    static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value()));
                 if (r > 0) return r;
             }
             return 0;
@@ -1443,7 +1443,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             if (!tt->has_key(k)) continue;
             AnyVal av = tt->get(k, const_cast<uint8_t*>(src_base));
             if (av.is_null() || !av.is_pointer()) continue;
-            uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
+            uint32_t coff = static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             uint64_t r = find_cursor_count(coff);
             if (r > 0) return r;
         }
@@ -1486,7 +1486,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     continue;
                 }
                 uint32_t no = copy_node_raw(sb,
-                    static_cast<uint32_t>(el.to_offset().value()));
+                    static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value()));
                 if (no == 0) return 0;
                 (void)dst_arr()->push_back(
                     AnyVal::from_offset(arena_offset_t(no)),
@@ -1518,7 +1518,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 continue;
             }
             uint32_t no = copy_node_raw(sb,
-                static_cast<uint32_t>(av.to_offset().value()));
+                static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value()));
             if (no == 0) return 0;
             (void)dst_tom()->put(k,
                 AnyVal::from_offset(arena_offset_t(no)), dst_arena);
@@ -1603,7 +1603,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                                       const_cast<uint8_t*>(src_base));
             if (!bav.is_pointer()) return 0;
             uint32_t body_off =
-                static_cast<uint32_t>(bav.to_offset().value());
+                static_cast<uint32_t>(bav.to_offset(HermesAccess::base(doc)).value());
             uint64_t n = find_cursor_count(body_off);
             if (n == 0) {
                 std::fprintf(stderr,
@@ -1772,7 +1772,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 continue;
             }
             uint32_t child_off =
-                static_cast<uint32_t>(av.to_offset().value());
+                static_cast<uint32_t>(av.to_offset(HermesAccess::base(doc)).value());
             auto tag = logos::hermes2::TypeTag::read_before(
                 src_base + child_off);
             uint64_t tc = tag.type_code();
@@ -1827,7 +1827,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 continue;
             }
             uint32_t el_off =
-                static_cast<uint32_t>(el.to_offset().value());
+                static_cast<uint32_t>(el.to_offset(HermesAccess::base(doc)).value());
             const auto* el_tom = reinterpret_cast<const TinyObjectMap*>(
                 src_base + el_off);
             int32_t el_cd = 0;
@@ -1852,7 +1852,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                                          const_cast<uint8_t*>(src_base));
                 if (!bav.is_pointer()) return 0;
                 uint32_t body_off =
-                    static_cast<uint32_t>(bav.to_offset().value());
+                    static_cast<uint32_t>(bav.to_offset(HermesAccess::base(doc)).value());
                 uint64_t n = find_cursor_count(body_off);
                 if (n == 0) {
                     std::fprintf(stderr,
@@ -2513,7 +2513,7 @@ int run_metaprog_dispatch(
                         auto nm_av = tom->get(ast::NAME.code);
                         if (!nm_av.is_null()) {
                             auto sv = hermes2::StringView(
-                                nm_av.to_offset(), h).view();
+                                nm_av, h).view();
                             target_name = std::string(sv);
                         }
                     }
@@ -3006,9 +3006,9 @@ int main(int argc, char** argv) {
             if (root.has_key(la::mod::PATH_PARTS)) {
                 auto parts_av = root.get(la::mod::PATH_PARTS.code);
                 if (!parts_av.is_null()) {
-                    ArrayView parts(parts_av.to_offset(), holder);
+                    ArrayView parts(parts_av, holder);
                     for (uint64_t k = 0; k < parts.size(); ++k) {
-                        TinyMapView p(parts.get(k).to_offset(), holder);
+                        TinyMapView p(parts.get(k), holder);
                         if (!p.has_key(la::NAME)) continue;
                         auto pn = p.get(la::NAME.code);
                         if (pn.is_null()) continue;
@@ -3035,11 +3035,11 @@ int main(int argc, char** argv) {
             std::string pkg = pkg_of(i);
             bool same_pkg = (!entry_pkg.empty() && pkg == entry_pkg);
             if (!root.has_key(la::ITEMS)) continue;
-            ArrayView items(root.get(la::ITEMS.code).to_offset(), holder);
+            ArrayView items(root.get(la::ITEMS.code), holder);
             bool pending_test = false, pending_sp = false, pending_ig = false;
             std::string pending_expected;
             for (uint64_t j = 0; j < items.size(); ++j) {
-                TinyMapView item(items.get(j).to_offset(), holder);
+                TinyMapView item(items.get(j), holder);
                 auto cv = item.get(la::CODE.code);
                 int32_t ic = cv.is_null() ? -1 : cv.as_value<int32_t>();
                 if (ic == la::ANNOTATION.code) {
@@ -3058,13 +3058,13 @@ int main(int argc, char** argv) {
                             if (item.has_key(la::ARGS)) {
                                 auto args_av = item.get(la::ARGS.code);
                                 if (!args_av.is_null()) {
-                                    TinyMapView args_map(args_av.to_offset(), holder);
+                                    TinyMapView args_map(args_av, holder);
                                     if (args_map.has_key(la::ITEMS)) {
                                         ArrayView items_arr(
-                                            args_map.get(la::ITEMS.code).to_offset(),
+                                            args_map.get(la::ITEMS.code),
                                             holder);
                                         for (uint64_t k = 0; k < items_arr.size(); ++k) {
-                                            TinyMapView a(items_arr.get(k).to_offset(), holder);
+                                            TinyMapView a(items_arr.get(k), holder);
                                             auto ac = a.get(la::CODE.code);
                                             if (ac.is_null()) continue;
                                             if (ac.as_value<int32_t>() != la::ANNOT_KV.code)
@@ -3076,7 +3076,7 @@ int main(int argc, char** argv) {
                                                 ? std::string_view{}
                                                 : StringView(kn, holder).view();
                                             if (kname != "expected") continue;
-                                            TinyMapView v(a.get(la::VALUE.code).to_offset(),
+                                            TinyMapView v(a.get(la::VALUE.code),
                                                           holder);
                                             auto vc = v.get(la::CODE.code);
                                             if (vc.is_null()) continue;
@@ -3085,7 +3085,7 @@ int main(int argc, char** argv) {
                                             auto raw_av = v.get(la::VALUE.code);
                                             if (raw_av.is_null()) continue;
                                             std::string_view raw = StringView(
-                                                raw_av.to_offset(), holder).view();
+                                                raw_av, holder).view();
                                             // raw is "..." — strip surrounding quotes.
                                             if (raw.size() >= 2
                                                 && raw.front() == '"'

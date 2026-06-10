@@ -14527,7 +14527,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 AnyVal vav = tom->get(la::VALUE.code,
                                       const_cast<uint8_t*>(src_base));
                 if (vav.is_pointer())
-                    walk_src(static_cast<uint32_t>(vav.to_offset().value()));
+                    walk_src(static_cast<uint32_t>(vav.to_offset(src_base).value()));
             }
             --qi_repeat_depth;
             return;
@@ -14566,7 +14566,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                     }
                 } else if (tag.type_code() == lh::type_hash::TinyObjectMap) {
                     // Full form: #(expr) — lower inner expr against current scope.
-                    hermes2::TinyMapView inner(nv.to_offset(), holder_);
+                    hermes2::TinyMapView inner(nv, holder_);
                     auto lowered = lower_expr(inner);
                     if (!lowered) { walk_failed = true; return; }
                     if (is_ident_type(lowered->type)) {
@@ -14596,7 +14596,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             const uint8_t* pointee = src_baav.resolve();
             lh::TypeTag tag = lh::TypeTag::read_before(pointee);
             if (tag.type_code() == lh::type_hash::TinyObjectMap) {
-                walk_src(static_cast<uint32_t>(av.to_offset().value()));
+                walk_src(static_cast<uint32_t>(av.to_offset(src_base).value()));
             } else if (tag.type_code() == lh::type_hash::Array) {
                 const auto* arr =
                     reinterpret_cast<const ObjectArray*>(pointee);
@@ -14606,7 +14606,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                     const uint8_t* ep = src_bae.resolve();
                     lh::TypeTag etag = lh::TypeTag::read_before(ep);
                     if (etag.type_code() == lh::type_hash::TinyObjectMap) {
-                        walk_src(static_cast<uint32_t>(e.to_offset().value()));
+                        walk_src(static_cast<uint32_t>(e.to_offset(src_base).value()));
                     }
                 }
             }
@@ -14616,7 +14616,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         for (uint64_t i = 0; i < src_items.size(); ++i) {
             AnyVal it_av = src_items.get(i);
             if (it_av.is_null() || !it_av.is_pointer()) continue;
-            walk_src(static_cast<uint32_t>(it_av.to_offset().value()));
+            walk_src(static_cast<uint32_t>(it_av.to_offset(src_base).value()));
             if (walk_failed) return error_expr();
         }
     }
@@ -14665,7 +14665,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 if (tom->has_key(la::VALUE.code)) {
                     AnyVal vav = tom->get(la::VALUE.code);
                     if (vav.is_pointer())
-                        walk_dst(static_cast<uint32_t>(vav.to_offset().value()));
+                        walk_dst(static_cast<uint32_t>(vav.to_offset(dst_base).value()));
                 }
                 --qi_repeat_depth_dst;
                 return;
@@ -16736,7 +16736,7 @@ lir::LExprPtr SemaChecker::lower_macro_include(TinyMapView node) {
     // The included AST lives in `inc_doc` (a different holder). Walking
     // into it requires that holder; capture it for the dive.
     auto inc_holder = inc_doc.holder();
-    TinyMapView last_view(last_av.to_offset(), inc_holder);
+    TinyMapView last_view(last_av, inc_holder);
     if (code_of(last_view) == la::TAIL_EXPR && last_view.has_key(la::VALUE)) {
         auto prev = holder_;
         holder_ = inc_holder;
@@ -16816,7 +16816,7 @@ lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body
     // (include!) and a multi-statement push-block (vec! of non-Copy elements:
     // `{ let mut __v = …; __v.push(e0); …; __v }`).
     auto inc_holder = doc.holder();
-    TinyMapView body_view(body_av.to_offset(), inc_holder);
+    TinyMapView body_view(body_av, inc_holder);
     auto prev = holder_;
     holder_ = inc_holder;
     auto r = lower_expr(body_view);   // la::BLOCK → lower_block_expr
@@ -17758,7 +17758,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
                         std::string sink_src = "()";
                         if (!arg_avs.empty() && arg_avs[0].is_pointer()) {
                             auto sink_view = hermes2::TinyMapView(
-                                arg_avs[0].to_offset(), holder_);
+                                arg_avs[0], holder_);
                             sink_src = render_expr_src(sink_view);
                         }
                         blk = "{ let mut __f: Formatter = (";
@@ -17793,7 +17793,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(hermes2::TinyMapView node) {
                             continue;
                         // Render this arg via the existing pretty-printer.
                         auto arg_view = hermes2::TinyMapView(
-                            arg_avs[value_idx].to_offset(), holder_);
+                            arg_avs[value_idx], holder_);
                         std::string arg_src = render_expr_src(arg_view);
                         const char* dispatcher = format_trait_dispatcher(seg.spec.trait_kind);
 

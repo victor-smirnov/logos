@@ -2066,7 +2066,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                             // carrying NAME + TYPE. Walk in declaration
                             // order; that order becomes the canonical
                             // positional layout downstream.
-                            TinyMapView tm(av.to_offset(), holder_);
+                            TinyMapView tm(av, holder_);
                             ArrayView fitems;
                             if (tm.has_key(la::ITEMS)) {
                                 fitems = arr_of(tm.get(la::ITEMS.code));
@@ -2090,7 +2090,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         } else {
                             // Nested record { ITEMS: [...] } (normal variant: ITEMS: $3)
                             // or raw array (old grammar/other paths)
-                            TinyMapView tm(av.to_offset(), holder_);
+                            TinyMapView tm(av, holder_);
                             ArrayView pitems;
                             if (tm.has_key(la::ITEMS)) {
                                 pitems = arr_of(tm.get(la::ITEMS.code));

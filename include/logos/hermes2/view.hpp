@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string_view>
+#include <format>
 
 #include <logos/hermes2/mem_holder.hpp>
 #include <logos/hermes2/any_val.hpp>
@@ -175,3 +176,11 @@ private:
 };
 
 } // namespace logos::hermes2
+
+// Format a StringView like a std::string_view (the readers std::format/println them).
+template <>
+struct std::formatter<logos::hermes2::StringView> : std::formatter<std::string_view> {
+    auto format(const logos::hermes2::StringView& s, auto& ctx) const {
+        return std::formatter<std::string_view>::format(s.view(), ctx);
+    }
+};

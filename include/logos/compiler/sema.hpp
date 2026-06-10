@@ -194,6 +194,17 @@ public:
     TypeRef(const hermes2::Arena* a, hermes2::arena_offset_t off,
             const TypePoolImpl* p, hermes2::arena_id_t aid) noexcept
         : arena_(a), off_(off), pool_(p), arena_id_(aid) {}
+    // AnyVal constructors — compute the within-arena offset from a value-form Ref
+    // against `a`'s single-chunk base (the cut-over unifies offset/AnyVal handles).
+    TypeRef(const hermes2::Arena* a, hermes2::AnyVal av, const TypePoolImpl* p) noexcept
+        : arena_(a),
+          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET),
+          pool_(p) {}
+    TypeRef(const hermes2::Arena* a, hermes2::AnyVal av, const TypePoolImpl* p,
+            hermes2::arena_id_t aid) noexcept
+        : arena_(a),
+          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET),
+          pool_(p), arena_id_(aid) {}
 
     constexpr explicit operator bool() const noexcept {
         return off_ != hermes2::NULL_OFFSET;

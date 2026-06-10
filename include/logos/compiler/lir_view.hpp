@@ -53,6 +53,13 @@ protected:
     RefBase(const hermes2::Arena* a, hermes2::arena_offset_t o,
             hermes2::arena_id_t aid) noexcept
         : arena_(a), off_(o), arena_id_(aid) {}
+    // AnyVal constructors — offset computed from the value-form Ref against `a`'s
+    // single-chunk base (unifies offset/AnyVal handle construction in the cut-over).
+    RefBase(const hermes2::Arena* a, hermes2::AnyVal av) noexcept
+        : arena_(a), off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET) {}
+    RefBase(const hermes2::Arena* a, hermes2::AnyVal av, hermes2::arena_id_t aid) noexcept
+        : arena_(a), off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET),
+          arena_id_(aid) {}
 
 public:
     constexpr explicit operator bool() const noexcept {
