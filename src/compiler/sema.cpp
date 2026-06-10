@@ -1221,12 +1221,12 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     std::vector<TypeRef> result;
     if (!self) return result;
     auto* base = self.mirror_base();
-    auto av = self.mirror()->get(key.code, base);
+    auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
-    auto* arr = av.as_ptr<const hermes2::ObjectArray>(base);
+    auto* arr = av.as_ptr<const hermes2::ObjectArray>();
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto e = const_cast<hermes2::ObjectArray*>(arr)->get(i, base);
+        auto e = const_cast<hermes2::ObjectArray*>(arr)->get(i);
         if (self.pool()) {
             result.push_back(self.pool()->ref(e.to_offset()));
         } else {
@@ -1241,13 +1241,13 @@ std::vector<std::string> string_vec_via_mirror(const TypeRef& self,
     std::vector<std::string> result;
     if (!self) return result;
     auto* base = self.mirror_base();
-    auto av = self.mirror()->get(key.code, base);
+    auto av = self.mirror()->get(key.code);
     if (av.is_null()) return result;
-    auto* arr = av.as_ptr<const hermes2::ObjectArray>(base);
+    auto* arr = av.as_ptr<const hermes2::ObjectArray>();
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
-        auto e = const_cast<hermes2::ObjectArray*>(arr)->get(i, base);
-        auto* s = e.as_ptr<const hermes2::ArenaString>(base);
+        auto e = const_cast<hermes2::ObjectArray*>(arr)->get(i);
+        auto* s = e.as_ptr<const hermes2::ArenaString>();
         result.emplace_back(s->view());
     }
     return result;

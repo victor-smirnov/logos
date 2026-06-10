@@ -68,6 +68,10 @@ public:
     LirMirrorEmitter(hermes2::Arena& a, LirMirrorTable& t, TypePool& p)
         : arena_(a), table_(t), pool_(&p) {}
 
+    hermes2::AnyVal mref(hermes2::arena_offset_t off) const noexcept {
+        return mref(arena_.head().data(), off);
+    }
+
     void run(lir::LProgram& prog);
 
     void emit_function(LFunction& f) {
@@ -825,7 +829,7 @@ public:
         auto scrut_av = expr_av(scrut);
         auto eb_av    = block_av_raw(else_block);
         auto map_off = make_map(hermes2::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
-        put(map_off, sk::PAT,           hermes2::AnyVal::from_offset(pat_off));
+        put(map_off, sk::PAT,           mref(pat_off));
         put(map_off, sk::SCRUT,         scrut_av);
         put(map_off, sk::ELSE_DIVERGE,  eb_av);
         if (!guards.empty())
@@ -903,17 +907,17 @@ public:
         if (!key_strs.empty()) {
             auto off = make_array(key_strs.size());
             for (auto av : key_strs) array_push(off, av);
-            keys_av = hermes2::AnyVal::from_offset(off);
+            keys_av = mref(off);
         } else if (!key_ints.empty()) {
             auto off = make_array(key_ints.size());
             for (auto av : key_ints) array_push(off, av);
-            keys_av = hermes2::AnyVal::from_offset(off);
+            keys_av = mref(off);
         }
         hermes2::AnyVal vals_av;
         if (!val_avs.empty()) {
             auto off = make_array(val_avs.size());
             for (auto av : val_avs) array_push(off, av);
-            vals_av = hermes2::AnyVal::from_offset(off);
+            vals_av = mref(off);
         }
         auto map_off = make_map(hermes2::schema::lir_expr(HV_BASE_DIRECT + 5));
         put(map_off, hk::MAP_KEYS,   keys_av);
@@ -931,7 +935,7 @@ public:
         if (!elems.empty()) {
             auto off = make_array(elems.size());
             for (auto av : elems) array_push(off, av);
-            arr_av = hermes2::AnyVal::from_offset(off);
+            arr_av = mref(off);
         }
         auto map_off = make_map(hermes2::schema::lir_expr(HV_BASE_DIRECT + 6));
         put(map_off, hk::ELEMS, arr_av);
@@ -1100,7 +1104,7 @@ private:
     hermes2::AnyVal put_string(std::string_view s) {
         auto p = hermes2::ArenaString::create(arena_, s);
         LOGOS_ASSERT(p.has_value(), "LIR-MIRROR-001", "ArenaString alloc failed");
-        return hermes2::AnyVal::from_offset(offset_of(*p));
+        return mref(offset_of(*p));
     }
     hermes2::AnyVal put_i64(int64_t v) {
         auto av = hermes2::anyval_put<int64_t>(arena_, v);
@@ -1138,38 +1142,38 @@ private:
         // local arena, so a foreign offset here would read garbage later.
         // is_external() is a single uint32 compare on the hot local path.
         if (pool_ && t.is_external()) t = pool_->intern_foreign(t);
-        return hermes2::AnyVal::from_offset(t.offset());
+        return mref(t.offset());
     }
 
     // ── child-emit helpers (returns AnyVal pointing at child mirror) ───────
 
     hermes2::AnyVal expr_av(const lir::LExprPtr& e) {
         if (!e) return hermes2::AnyVal{};
-        return hermes2::AnyVal::from_offset(emit_expr(*e));
+        return mref(emit_expr(*e));
     }
     hermes2::AnyVal stmt_av(const LStmt& s) {
-        return hermes2::AnyVal::from_offset(emit_stmt(s));
+        return mref(emit_stmt(s));
     }
     hermes2::AnyVal block_av(const lir::LBlockPtr& b) {
         if (!b) return hermes2::AnyVal{};
-        return hermes2::AnyVal::from_offset(emit_block(*b));
+        return mref(emit_block(*b));
     }
     hermes2::AnyVal block_av_raw(const LBlock* b) {
         if (!b) return hermes2::AnyVal{};
-        return hermes2::AnyVal::from_offset(emit_block(*b));
+        return mref(emit_block(*b));
     }
     hermes2::AnyVal pat_av(const Pattern& p) {
-        return hermes2::AnyVal::from_offset(emit_pat(p));
+        return mref(emit_pat(p));
     }
     hermes2::AnyVal hv_av(const lir::HermesValPtr& v) {
         if (!v) return hermes2::AnyVal{};
-        return hermes2::AnyVal::from_offset(emit_hv(*v));
+        return mref(emit_hv(*v));
     }
     hermes2::AnyVal arm_av(const LMatchArm& a) {
-        return hermes2::AnyVal::from_offset(emit_arm(a));
+        return mref(emit_arm(a));
     }
     hermes2::AnyVal closure_av(const EClosure& c) {
-        return hermes2::AnyVal::from_offset(emit_closure(c));
+        return mref(emit_closure(c));
     }
 
     // ── ObjectArray helpers ────────────────────────────────────────────────
@@ -1193,13 +1197,13 @@ private:
         for (auto& e : v) elems.push_back(expr_av(e));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
     hermes2::AnyVal type_array(const std::vector<TypeRef>& v) {
         if (v.empty()) return hermes2::AnyVal{};
         auto arr_off = make_array(v.size());
         for (auto t : v) array_push(arr_off, type_av(t));
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
     hermes2::AnyVal string_array(const std::vector<std::string>& v) {
         if (v.empty()) return hermes2::AnyVal{};
@@ -1208,7 +1212,7 @@ private:
         for (auto& s : v) elems.push_back(put_string(s));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
     hermes2::AnyVal pat_array(const std::vector<Pattern>& v) {
         if (v.empty()) return hermes2::AnyVal{};
@@ -1217,7 +1221,7 @@ private:
         for (auto& p : v) elems.push_back(pat_av(p));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
     hermes2::AnyVal u32_array(const std::vector<uint32_t>& v) {
         if (v.empty()) return hermes2::AnyVal{};
@@ -1226,7 +1230,7 @@ private:
         for (auto x : v) elems.push_back(put_u32(x));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
     hermes2::AnyVal arm_array(const std::vector<LMatchArm>& v) {
         if (v.empty()) return hermes2::AnyVal{};
@@ -1235,7 +1239,7 @@ private:
         for (auto& a : v) elems.push_back(arm_av(a));
         auto arr_off = make_array(elems.size());
         for (auto av : elems) array_push(arr_off, av);
-        return hermes2::AnyVal::from_offset(arr_off);
+        return mref(arr_off);
     }
 
     // EMatchExpr arms have a different shape than LMatchArm (value vs body) —
@@ -1320,7 +1324,7 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_block(const LBlock& b) {
     if (!stmt_elems.empty()) {
         auto arr_off = make_array(stmt_elems.size());
         for (auto av : stmt_elems) array_push(arr_off, av);
-        stmts_av = hermes2::AnyVal::from_offset(arr_off);
+        stmts_av = mref(arr_off);
     }
 
     // Block uses lir_stmt category with a synthetic "Count" code (== stmt::Count)
@@ -1348,8 +1352,8 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_arm(const LMatchArm& a) {
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
     auto map_off = make_map(hermes2::schema::lir_stmt(lir_schema::stmt::Count + 1));
-    put(map_off, ak::PAT,   hermes2::AnyVal::from_offset(pat_off));
-    put(map_off, ak::BODY,  hermes2::AnyVal::from_offset(body_off));
+    put(map_off, ak::PAT,   mref(pat_off));
+    put(map_off, ak::BODY,  mref(body_off));
     put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
@@ -1361,8 +1365,8 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a)
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
     auto map_off = make_map(hermes2::schema::lir_stmt(lir_schema::stmt::Count + 2));
-    put(map_off, ak::PAT,   hermes2::AnyVal::from_offset(pat_off));
-    put(map_off, ak::VALUE, hermes2::AnyVal::from_offset(value_off));
+    put(map_off, ak::PAT,   mref(pat_off));
+    put(map_off, ak::VALUE, mref(value_off));
     put(map_off, ak::GUARD, guard_av);
     return map_off;
 }
@@ -1374,10 +1378,10 @@ hermes2::AnyVal LirMirrorEmitter::expr_arm_array(
     std::vector<hermes2::AnyVal> elems;
     elems.reserve(v.size());
     for (auto& a : v) elems.push_back(
-        hermes2::AnyVal::from_offset(emit_expr_arm(a)));
+        mref(emit_expr_arm(a)));
     auto arr_off = make_array(elems.size());
     for (auto av : elems) array_push(arr_off, av);
-    return hermes2::AnyVal::from_offset(arr_off);
+    return mref(arr_off);
 }
 
 hermes2::arena_offset_t LirMirrorEmitter::emit_field_binding(
@@ -1399,10 +1403,10 @@ hermes2::AnyVal LirMirrorEmitter::field_binding_array(
     std::vector<hermes2::AnyVal> elems;
     elems.reserve(v.size());
     for (auto& fb : v) elems.push_back(
-        hermes2::AnyVal::from_offset(emit_field_binding(fb)));
+        mref(emit_field_binding(fb)));
     auto arr_off = make_array(elems.size());
     for (auto av : elems) array_push(arr_off, av);
-    return hermes2::AnyVal::from_offset(arr_off);
+    return mref(arr_off);
 }
 
 LirMirrorEmitter::FieldArrays LirMirrorEmitter::struct_fields(
@@ -1422,8 +1426,8 @@ LirMirrorEmitter::FieldArrays LirMirrorEmitter::struct_fields(
     for (auto av : name_elems) array_push(names_off, av);
     auto values_off = make_array(value_elems.size());
     for (auto av : value_elems) array_push(values_off, av);
-    out.names  = hermes2::AnyVal::from_offset(names_off);
-    out.values = hermes2::AnyVal::from_offset(values_off);
+    out.names  = mref(names_off);
+    out.values = mref(values_off);
     return out;
 }
 
@@ -1449,8 +1453,8 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
         for (auto av : n_elems) array_push(n_off, av);
         auto t_off = make_array(t_elems.size());
         for (auto av : t_elems) array_push(t_off, av);
-        param_names_av = hermes2::AnyVal::from_offset(n_off);
-        param_types_av = hermes2::AnyVal::from_offset(t_off);
+        param_names_av = mref(n_off);
+        param_types_av = mref(t_off);
     }
 
     // 10 keys (block, name, cap-types, cap-names, param-names, param-types,
@@ -1458,7 +1462,7 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
     auto map_off = make_map(hermes2::schema::lir_expr(lir_schema::expr::Code::ClosureBox)
                             | (1ULL << 47),
                             /*cap=*/12);
-    put(map_off, ck::BLOCK,         hermes2::AnyVal::from_offset(body_off));
+    put(map_off, ck::BLOCK,         mref(body_off));
     if (!c.closure_id.empty())
         put(map_off, ck::NAME, put_string(c.closure_id));
     put(map_off, ck::CAPTURE_TYPES, cap_types_av);
@@ -1480,7 +1484,7 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
         for (bool m : c.mut_captures) m_elems.push_back(put_bool(m));
         auto m_off = make_array(m_elems.size());
         for (auto av : m_elems) array_push(m_off, av);
-        put(map_off, ck::MUT_CAPTURES, hermes2::AnyVal::from_offset(m_off));
+        put(map_off, ck::MUT_CAPTURES, mref(m_off));
     }
     // RFC-2229: per-capture dotted field path. Only emit when at least one path
     // is narrower than its root (else whole-var capture is the implicit default).
@@ -1494,7 +1498,7 @@ hermes2::arena_offset_t LirMirrorEmitter::emit_closure(const EClosure& c) {
             for (auto& p : c.capture_paths) p_elems.push_back(put_string(p));
             auto p_off = make_array(p_elems.size());
             for (auto av : p_elems) array_push(p_off, av);
-            put(map_off, ck::CAPTURE_PATHS, hermes2::AnyVal::from_offset(p_off));
+            put(map_off, ck::CAPTURE_PATHS, mref(p_off));
         }
     }
     // RFC-2229 phase-2: per-capture FIELD type (when narrow). Emit only when at
@@ -2131,7 +2135,7 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
     auto& arena = prog.type_pool.arena_or_init();
     auto* tom = reinterpret_cast<hermes2::TinyObjectMap*>(
         arena.head().data() + expr_off.value());
-    auto av = new_ty ? hermes2::AnyVal::from_offset(new_ty.offset())
+    auto av = new_ty ? mref(new_ty.offset())
                      : hermes2::AnyVal{};
     if (av.is_null()) return;
     auto r = tom->put(lir_schema::expr_common::TYPE.code, av, arena);
@@ -2209,7 +2213,7 @@ void lir_mirror_update_type(lir::LProgram& prog, const lir::LExpr& e) {
     auto* tom = reinterpret_cast<hermes2::TinyObjectMap*>(
                     base + e.mirror_offset_.value());
     auto av = e.type
-              ? hermes2::AnyVal::from_offset(e.type.offset())
+              ? mref(e.type.offset())
               : hermes2::AnyVal{};
     // Ignore put() error: TYPE key was already present when the mirror
     // was first emitted (every emit_*_direct that gets a non-null ty

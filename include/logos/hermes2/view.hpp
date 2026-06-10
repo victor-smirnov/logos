@@ -131,6 +131,11 @@ public:
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal v) noexcept { return obj_->put(key, v, arena()); }
 };
 
+// std::string / string_view on the LEFT vs a StringView on the right (the Hermes1
+// readers compare both ways).
+inline bool operator==(std::string_view a, const StringView& b) noexcept { return a == b.view(); }
+inline bool operator!=(std::string_view a, const StringView& b) noexcept { return a != b.view(); }
+
 // ── Navigation: wrap a value-form AnyVal Ref into an owning child view ──────────
 // (Sharing the parent's holder — the child lives in the same segment set.)
 

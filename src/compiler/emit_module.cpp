@@ -570,7 +570,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                             if (!fn.type_params.empty()) return;
                             if (fn.from_binary_module) return;
                             if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) return;
-                            auto av = hermes2::AnyVal::from_offset(fn.body.mirror_offset_);
+                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), fn.body.mirror_offset_);
                             if (auto r = hermes2::arena_publish_named(*bld, fn.name, av)) {
                                 stamp_export_id(fn.body.mirror_offset_, *r);
                                 ++published;
@@ -595,14 +595,14 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                         // template's body in stdlib's arena, walks via lir_view
                         // through that arena, substitutes into user's arena.
                         for (auto& tmpl : generic_fn_templates) {
-                            auto av = hermes2::AnyVal::from_offset(tmpl.body_offset);
+                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
                             if (auto r = hermes2::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;
                             }
                         }
                         for (auto& tmpl : generic_method_templates) {
-                            auto av = hermes2::AnyVal::from_offset(tmpl.body_offset);
+                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
                             if (auto r = hermes2::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;

@@ -241,7 +241,7 @@ extern "C" void logos_metaprog_error_at(uint32_t target_offset,
         auto* tom = reinterpret_cast<const logos::hermes2::TinyObjectMap*>(
             base + target_offset);
         // SRC_LINE = key 24, u32 inline.
-        auto line_av = tom->get(24, base);
+        auto line_av = tom->get(24);
         uint32_t line = (!line_av.is_null() && line_av.is_value())
                         ? line_av.as_value<uint32_t>() : 0;
         out.append((*g_filenames)[g_user_root_idx]);
@@ -446,7 +446,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         uint8_t* dbase = HermesAccess::base(doc);
         auto* ctom = reinterpret_cast<TinyObjectMap*>(dbase + child_off);
         if (!ctom->has_key(la::NAME_VAR.code)) return false;
-        AnyVal nv = ctom->get(la::NAME_VAR.code, dbase);
+        AnyVal nv = ctom->get(la::NAME_VAR.code);
         if (!nv.is_value()) return false;
         int32_t enc = nv.as_value<int32_t>();
         if (enc >= 0) return false;
@@ -499,7 +499,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         uint8_t* dbase = HermesAccess::base(doc);
         auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
         if (tom->has_key(la::NAME_VAR.code)) {
-            AnyVal nv = tom->get(la::NAME_VAR.code, dbase);
+            AnyVal nv = tom->get(la::NAME_VAR.code);
             if (nv.is_value()) {
                 int32_t enc = nv.as_value<int32_t>();
                 if (enc >= 0 && (enc & 0x400000) != 0) {
@@ -540,7 +540,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
             if (key == la::NAME_VAR.code) continue;
-            AnyVal av = tom->get(key, dbase);
+            AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
             uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
             const uint8_t* pointee = dbase + coff;
@@ -559,7 +559,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             const auto* arr = reinterpret_cast<const ObjectArray*>(db2 + coff);
             std::vector<uint32_t> elem_offs;
             for (uint64_t i = 0; i < arr->size(); ++i) {
-                AnyVal e = arr->get(i, db2);
+                AnyVal e = arr->get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
                 uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
                 const uint8_t* ep = db2 + eoff;
@@ -580,7 +580,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         uint8_t* dbase = HermesAccess::base(doc);
         auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
         if (tom->has_key(la::NAME_VAR.code)) {
-            AnyVal nv = tom->get(la::NAME_VAR.code, dbase);
+            AnyVal nv = tom->get(la::NAME_VAR.code);
             if (nv.is_value()) {
                 int32_t enc = nv.as_value<int32_t>();
                 if (enc >= 0 && (enc & 0x400000) != 0) {
@@ -594,7 +594,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
             if (key == la::NAME_VAR.code) continue;
-            AnyVal av = tom->get(key, dbase);
+            AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
             uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
             const uint8_t* pointee = dbase + coff;
@@ -631,20 +631,20 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         bool any_repeat = false;
         uint64_t n_src = arr->size();
         for (uint64_t i = 0; i < n_src; ++i) {
-            AnyVal e = arr->get(i, dbase);
+            AnyVal e = arr->get(i);
             if (!e.is_pointer()) continue;
             uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
             const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
             int32_t cd = 0;
             if (etom->has_key(la::CODE.code)) {
-                AnyVal cav = etom->get(la::CODE.code, dbase);
+                AnyVal cav = etom->get(la::CODE.code);
                 if (!cav.is_null() && !cav.is_pointer())
                     cd = cav.as_value<int32_t>();
             }
             if (cd == la::REPEAT_GROUP.code) {
                 int32_t sep = -1;
                 if (etom->has_key(la::OP.code)) {
-                    AnyVal sav = etom->get(la::OP.code, dbase);
+                    AnyVal sav = etom->get(la::OP.code);
                     if (!sav.is_null() && !sav.is_pointer())
                         sep = sav.as_value<int32_t>();
                 }
@@ -657,7 +657,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         std::vector<SrcEl> src_els;
         std::vector<AnyVal> src_nonptr;
         for (uint64_t i = 0; i < n_src; ++i) {
-            AnyVal e = arr->get(i, dbase);
+            AnyVal e = arr->get(i);
             if (!e.is_pointer()) {
                 src_els.push_back({false, 0, 0});
                 src_nonptr.push_back(e);
@@ -668,12 +668,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             const auto* etom = reinterpret_cast<const TinyObjectMap*>(dbase + eoff);
             int32_t cd = 0;
             if (etom->has_key(la::CODE.code)) {
-                AnyVal cav = etom->get(la::CODE.code, dbase);
+                AnyVal cav = etom->get(la::CODE.code);
                 if (!cav.is_null() && !cav.is_pointer())
                     cd = cav.as_value<int32_t>();
             }
             if (cd == la::REPEAT_GROUP.code) {
-                AnyVal bav = etom->get(la::VALUE.code, dbase);
+                AnyVal bav = etom->get(la::VALUE.code);
                 if (!bav.is_pointer()) {
                     subst_failed = true;
                     return 0;
@@ -731,7 +731,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         uint8_t* dbase = HermesAccess::base(doc);
         auto* tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
         if (tom->has_key(la::NAME_VAR.code)) {
-            AnyVal idx_av = tom->get(la::NAME_VAR.code, dbase);
+            AnyVal idx_av = tom->get(la::NAME_VAR.code);
             if (idx_av.is_value()) {
                 int32_t idx = idx_av.as_value<int32_t>();
                 if (idx < 0) {
@@ -786,7 +786,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         for (uint8_t key = 0; key < TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
             if (key == la::NAME_VAR.code) continue;
-            AnyVal av = tom->get(key, dbase);
+            AnyVal av = tom->get(key);
             if (av.is_null() || !av.is_pointer()) continue;
             uint32_t coff = static_cast<uint32_t>(av.to_offset().value());
             const uint8_t* pointee = dbase + coff;
@@ -831,7 +831,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 reinterpret_cast<const ObjectArray*>(dbase2 + arr_off);
             std::vector<std::pair<uint64_t, uint32_t>> elems;
             for (uint64_t i = 0; i < arr->size(); ++i) {
-                AnyVal e = arr->get(i, dbase2);
+                AnyVal e = arr->get(i);
                 if (e.is_null() || !e.is_pointer()) continue;
                 uint32_t eoff = static_cast<uint32_t>(e.to_offset().value());
                 const uint8_t* ep = dbase2 + eoff;
@@ -923,7 +923,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                             HermesAccess::base(doc) + pp_off);
                     };
                     for (uint64_t i = 0; i < pn; ++i) {
-                        AnyVal part_av = user_pp->get(i, user_base_pkg);
+                        AnyVal part_av = user_pp->get(i);
                         if (!part_av.is_pointer()) continue;
                         const void* part_obj = user_base_ppart_av.resolve();
                         auto cp_e = copy_object_into(part_obj, user_base_pkg, doc);
@@ -983,30 +983,30 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 // the synth USES array. NAME-only form (build_import_scope
                 // is happy with that).
                 for (uint64_t i = 0; i < un; ++i) {
-                    AnyVal eav = user_uses->get(i, user_base);
+                    AnyVal eav = user_uses->get(i);
                     if (!eav.is_pointer()) continue;
                     auto* unode = reinterpret_cast<const TinyObjectMap*>(
                         user_baeav.resolve());
                     std::string dotted;
                     if (unode->has_key(la::NAME.code)) {
-                        AnyVal nm_av = unode->get(la::NAME.code, user_base);
+                        AnyVal nm_av = unode->get(la::NAME.code);
                         if (!nm_av.is_null() && nm_av.is_pointer()) {
                             dotted = std::string(logos::hermes2::StringView(
                                 nm_av.to_offset(), user_holder).view());
                         }
                     }
                     if (unode->has_key(la::mod::PATH_PARTS.code)) {
-                        AnyVal pp_av = unode->get(la::mod::PATH_PARTS.code, user_base);
+                        AnyVal pp_av = unode->get(la::mod::PATH_PARTS.code);
                         if (!pp_av.is_null() && pp_av.is_pointer()) {
                             auto* parts = reinterpret_cast<const ObjectArray*>(
                                 user_bapp_av.resolve());
                             for (uint64_t pi = 0; pi < parts->size(); ++pi) {
-                                AnyVal pav = parts->get(pi, user_base);
+                                AnyVal pav = parts->get(pi);
                                 if (!pav.is_pointer()) continue;
                                 auto* part = reinterpret_cast<const TinyObjectMap*>(
                                     user_bapav.resolve());
                                 if (!part->has_key(la::NAME.code)) continue;
-                                AnyVal nv = part->get(la::NAME.code, user_base);
+                                AnyVal nv = part->get(la::NAME.code);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 if (!dotted.empty()) dotted += '.';
                                 dotted += std::string(logos::hermes2::StringView(
@@ -2507,10 +2507,10 @@ int run_metaprog_dispatch(
                         auto* base = h->base();
                         auto* tom  = reinterpret_cast<hermes2::TinyObjectMap*>(
                                         base + tgt.item_offset);
-                        auto av = tom->get(ast::SRC_LINE.code, base);
+                        auto av = tom->get(ast::SRC_LINE.code);
                         if (!av.is_null() && av.is_value())
                             line = static_cast<int>(av.as_value<uint32_t>());
-                        auto nm_av = tom->get(ast::NAME.code, base);
+                        auto nm_av = tom->get(ast::NAME.code);
                         if (!nm_av.is_null()) {
                             auto sv = hermes2::StringView(
                                 nm_av.to_offset(), h).view();
@@ -3576,7 +3576,7 @@ int main(int argc, char** argv) {
                             auto* base = h->base();
                             auto* tom  = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
                                             base + site.expr_offset);
-                            auto av = tom->get(logos::compiler::ast::SRC_LINE.code, base);
+                            auto av = tom->get(logos::compiler::ast::SRC_LINE.code);
                             if (!av.is_null() && av.is_value())
                                 line = static_cast<int>(av.as_value<uint32_t>());
                         }

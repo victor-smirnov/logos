@@ -44,7 +44,7 @@ bool ast_tom_equal(const hermes2::TinyObjectMap* a,
     auto* bb = const_cast<uint8_t*>(base_b);
     for (uint8_t k = 0; k < hermes2::TinyObjectMap::MAX_KEYS; ++k) {
         if (!a->has_key(k) || k == la::SRC_LINE.code) continue;
-        if (!ast_anyval_equal(ma->get(k, ba), mb->get(k, bb), base_a, base_b))
+        if (!ast_anyval_equal(ma->get(k), mb->get(k), base_a, base_b))
             return false;
     }
     return true;
@@ -59,7 +59,7 @@ bool ast_array_equal(const hermes2::ObjectArray* a,
     auto* ba = const_cast<uint8_t*>(base_a);
     auto* bb = const_cast<uint8_t*>(base_b);
     for (uint64_t i = 0; i < a->size(); ++i) {
-        if (!ast_anyval_equal(aa->get(i, ba), ab->get(i, bb), base_a, base_b))
+        if (!ast_anyval_equal(aa->get(i), ab->get(i), base_a, base_b))
             return false;
     }
     return true;

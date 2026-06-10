@@ -1742,7 +1742,7 @@ std::string render_module_source_for_dump(hermes2::MemHolder* holder,
     auto* base = holder->base();
     auto* root = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
                     base + root_offset.value());
-    auto code_av = root->get(la::CODE.code, base);
+    auto code_av = root->get(la::CODE.code);
     int32_t c = (!code_av.is_null() && code_av.is_value())
                 ? code_av.as_value<int32_t>() : -1;
     TinyMapView root_view{root_offset, holder};
@@ -1771,11 +1771,11 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
     };
 
     auto get_fn_or_impl_items = [&](hermes2::TinyObjectMap* tom, std::string prefix) {
-        auto code_av = tom->get(la::CODE.code, base);
+        auto code_av = tom->get(la::CODE.code);
         int32_t c = (!code_av.is_null() && code_av.is_value())
                     ? code_av.as_value<int32_t>() : -1;
         if (c == la::FN.code || c == la::EXTERN_FN.code || c == la::STATIC_FN.code) {
-            auto name = str_at(tom->get(la::NAME.code, base));
+            auto name = str_at(tom->get(la::NAME.code));
             if (name.empty()) return;
             // Emit BOTH the bare method name AND the impl receiver type
             // (when present) as separate index entries. Mono mangles
@@ -1788,20 +1788,20 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
     };
 
     auto* root_tom = map_at(root_offset);
-    auto root_code = root_tom->get(la::CODE.code, base);
+    auto root_code = root_tom->get(la::CODE.code);
     int32_t rc = (!root_code.is_null() && root_code.is_value())
                  ? root_code.as_value<int32_t>() : -1;
 
     std::function<void(hermes2::TinyObjectMap*, std::string)> walk_items =
         [&](hermes2::TinyObjectMap* tom, std::string prefix) {
-        auto items_av = tom->get(la::ITEMS.code, base);
+        auto items_av = tom->get(la::ITEMS.code);
         if (items_av.is_null()) return;
         auto items = arr_at(items_av);
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto child_av = items.get(i);
             if (child_av.is_null()) continue;
             auto* child = map_at(child_av.to_offset());
-            auto code_av = child->get(la::CODE.code, base);
+            auto code_av = child->get(la::CODE.code);
             int32_t cc = (!code_av.is_null() && code_av.is_value())
                          ? code_av.as_value<int32_t>() : -1;
             if (cc == la::IMPL_BLOCK.code) {
@@ -1809,13 +1809,13 @@ std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
                 // a TYPE_REF / GENERIC_INST with NAME. Otherwise use the
                 // trait name (NAME field on impl_block).
                 std::string recv;
-                auto type_av = child->get(la::TYPE.code, base);
+                auto type_av = child->get(la::TYPE.code);
                 if (!type_av.is_null()) {
                     auto* ty_tom = map_at(type_av.to_offset());
-                    auto nm_av = ty_tom->get(la::NAME.code, base);
+                    auto nm_av = ty_tom->get(la::NAME.code);
                     if (!nm_av.is_null()) recv = str_at(nm_av);
                 }
-                if (recv.empty()) recv = str_at(child->get(la::NAME.code, base));
+                if (recv.empty()) recv = str_at(child->get(la::NAME.code));
                 walk_items(child, recv);
             } else {
                 get_fn_or_impl_items(child, prefix);
