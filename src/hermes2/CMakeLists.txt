@@ -4,6 +4,10 @@ add_library(logos_hermes2
     binary_codec.cpp
     stringify.cpp
     text_parser.cpp
+    arena_pool.cpp
+    external_ref.cpp
+    import_table.cpp
+    arena_publish.cpp
 )
 
 target_include_directories(logos_hermes2 PUBLIC
@@ -55,3 +59,9 @@ add_executable(hermes2_exerciser_text exerciser_text.cpp)
 target_link_libraries(hermes2_exerciser_text PRIVATE logos_hermes2)
 add_test(NAME hermes2_exerciser_text COMMAND hermes2_exerciser_text)
 set_tests_properties(hermes2_exerciser_text PROPERTIES LABELS "hermes2;cpp")
+
+# Exerciser: Layer 8 (multi-arena — ExternalRef niche, arena pool, publish/resolve, import table)
+add_executable(hermes2_exerciser_multi_arena exerciser_multi_arena.cpp)
+target_link_libraries(hermes2_exerciser_multi_arena PRIVATE logos_hermes2)
+add_test(NAME hermes2_exerciser_multi_arena COMMAND hermes2_exerciser_multi_arena)
+set_tests_properties(hermes2_exerciser_multi_arena PROPERTIES LABELS "hermes2;cpp")

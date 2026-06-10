@@ -84,4 +84,11 @@ private:
     DocumentHeader* header_ = nullptr;
 };
 
+// The DocumentHeader sits at offset 0 of a holder's head chunk (HermesCtr::make and
+// compactify both place it there). Used by the multi-arena layer to reach a
+// registered module's root without a HermesCtr handle.
+inline DocumentHeader* doc_header(MemHolder* h) noexcept {
+    return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
+}
+
 } // namespace logos::hermes2

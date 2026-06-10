@@ -16,8 +16,18 @@ Migrate the Logos compiler (`logosc`) and the Logos stdlib off **Hermes1** onto
 2. **Build the C++ Hermes2 library (`logos_hermes2`).** ✅ **DONE** — data model +
    serialization. Commits `e718990e`..`905379c8`. 7 exercisers, all valgrind-clean.
    Remaining sub-parts (separable, not blocking): multi-arena, path/template — §6.
-3. **Cut `logosc` over to Hermes2** (the deep one). ⬜ NEXT. Needs multi-arena (§6.1)
-   ported first. Scope in §6.2.
+3. **Cut `logosc` over to Hermes2** (the deep one). ⬜ NEXT. Multi-arena (§6.1) now
+   ported. Scope in §6.2.
+
+   **schema_type_code is now a first-class TinyObjectMap field (both impls).** Done
+   2026-06-10. The C++ `TinyObjectMap` and the Logos `HMap<Hu6,HVal>` both carry a
+   `schema_type_code : u64` (the node-class discriminator: LirArenaRoot 5002,
+   ImportTable 5003, metaprog ExprBlob roots). Layout is now **24 bytes**, byte-shared:
+   `{ header:u64, schema_type_code:u64, data: self-rel ptr }` — the `#[zoned2]` pointer
+   stays LAST (the Logos zoned-layout convention; putting a plain field after it is
+   what existing specs avoid). Round-tripped through `clone` + `binary_codec`; text
+   (`stringify`) drops it (JSON has no schema slot). `code_of(node)` reads the AST
+   `CODE` *field*, NOT schema_type_code — they are independent.
 4. **Port the embedded Hermes** (Logos `stdlib/lang/hermes` + `stdlib/mem/hermes`) to
    Hermes2. ⬜ (Logos-side; the `lang/hermes2` + `mem/hermes2` stdlib already exists
    and is the byte-layout spec — see `project_hermes2_port_complete`.)
@@ -57,6 +67,11 @@ Headers `include/logos/hermes2/`, sources + tests `src/hermes2/`. CMake target
 | `binary_codec.{hpp,cpp}` | portable tree codec `binary_encode`/`binary_decode` |
 | `stringify.{hpp,cpp}` | doc → canonical JSON text (sorted map keys) |
 | `text_parser.{hpp,cpp}` | JSON text → fresh doc |
+| `arena_pool.{hpp,cpp}` | `arena_id_t`, `ArenaPool`/`InMemoryArenaPool`, `global_arena_pool`, import-table resolution |
+| `external_ref.{hpp,cpp}` | `ExternalRef` = **AnyVal Pod niche** (arena_id 24 + obj_id 32 = i56); encode/decode/detect + `resolve_external_ref[_local]` |
+| `lir_arena_root.hpp` | `LirArenaRootView` + schema (codes 0..4, SCHEMA_CODE 5002) over a schema-tagged TinyObjectMap |
+| `import_table.{hpp,cpp}` | `ImportEntry` + `build_/read_import_table_blob` (compacted single-segment) |
+| `arena_publish.{hpp,cpp}` | `ArenaPublishBuilder` + `lir_arena_root_begin/_finalize`, `arena_publish[_named]`, `register_lir_arena` |
 
 ---
 
@@ -114,10 +129,11 @@ the zero-copy serialization path; `binary_codec` is the portable (tree) path.
 
 ## 4. Conformance harness
 
-`ctest -R hermes2_exerciser` (label `hermes2;cpp`). 7 tests, each returns the first
+`ctest -R hermes2_exerciser` (label `hermes2;cpp`). 8 tests, each returns the first
 failing check code; run each under valgrind. Add one per new layer.
 `smoke` (foundation) · `containers` · `views` · `clone` · `document` (compactify+blob
-reload) · `codec` · `text`.
+reload) · `codec` · `text` · `multi_arena` (ExternalRef niche + pool + publish/resolve
++ import table).
 
 ---
 
@@ -135,6 +151,15 @@ reload) · `codec` · `text`.
   (linear probing). So binary re-encode bytes / stringify aren't byte-stable unless you
   sort (stringify sorts keys → canonical). The AST uses ordered TinyObjectMap/arrays →
   stable.
+- **`#[zoned2]` structs keep the self-relative pointer LAST** — adding `schema_type_code`
+  to `HMap<Hu6,HVal>` only worked as `{header, schema, data}` (not `{header, data, schema}`):
+  a plain field trailing the `*zoned` pointer breaks the Logos zoned layout. Mirror the
+  same order in the C++ TOM (its `RelativePtr` is self-anchored so it works at any offset,
+  but the byte layout must match Logos).
+- **ExternalRef is a Pod niche, not a tagged object** (hermes2 change). It fits the 8B
+  AnyVal Pod (arena_id 24 + obj_id 32 = i56), so NO allocation; and clone/compactify copy
+  Pods VERBATIM — exactly right for a cross-arena id (a logical reference must not be
+  followed/rewritten by deep-copy). `is_external_ref_av` = `is_pod && pod_code==110`.
 - **`compactify` MUST NOT realloc** — the never-move container methods hold `this`
   across their own allocations; a realloc dangles it. The pre-size (2×) guarantees no
   realloc; the result is asserted to be one chunk. If you ever allow realloc, you must
@@ -144,16 +169,19 @@ reload) · `codec` · `text`.
 
 ## 6. Remaining work (prioritized)
 
-### 6.1 Multi-arena (port next — step 3 needs it)
+### 6.1 Multi-arena — ✅ DONE (2026-06-10)
 
-Hermes1 has `external_ref.hpp`, `arena_pool.{hpp,cpp}`, `import_table.{hpp,cpp}`,
-`arena_publish.{hpp,cpp}`, `lir_arena_root.hpp`. These give cross-arena references for
-the multi-module IR: `ExternalRef` (8B: 24-bit arena_id + 32-bit obj_id), a global
-`ArenaPool` (arena_id → MemHolder), an import table (module-local arena_id →
-file/doc), and `arena_publish_named` (EXPORTS directory). `logosc` uses these to link
-stdlib template bodies across `.hermes0` modules.
-- Port these onto `logos_hermes2`. `ExternalRef` is an `AnyVal` Ref variant (a tagged
-  8B object, code `ExternalRef=110`); `resolve_external_ref` goes through the pool.
+Ported onto `logos_hermes2` (file map in §2): `arena_pool.{hpp,cpp}`,
+`external_ref.{hpp,cpp}`, `lir_arena_root.hpp`, `import_table.{hpp,cpp}`,
+`arena_publish.{hpp,cpp}`, exercised by `exerciser_multi_arena.cpp` (valgrind-clean).
+The API + invariants match Hermes1 so logosc's call-sites move with a `hermes::` →
+`hermes2::` rename. Two hermes2-specific changes:
+- **`ExternalRef` = AnyVal Pod niche** (NOT a tagged 8B object — see §5). arena_id 24 +
+  obj_id 32 = i56, inline, no allocation; clone copies it verbatim (correct for a
+  cross-arena id). `resolve_external_ref[_local]` walks pool → LirArenaRoot DIRECTORY.
+- **No `base` threading.** A registered module's root is `doc_header(mem)->root` (a
+  self-relative AnyVal that resolves in place); LirArenaRoot / ImportTable are
+  discriminated by the now-first-class `schema_type_code` (5002 / 5003).
 - Watch: with self-relative refs, an `ExternalRef` is the ONLY legal cross-arena
   pointer; intra-arena refs stay self-relative.
 
