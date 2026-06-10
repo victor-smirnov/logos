@@ -4901,15 +4901,15 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         size_t want_arity = 1;
         std::vector<lir::LExprPtr> extra_args;
         if (pc == la::PAT_HERMES_NULL) {
-            helper = "hermes_pat_is_null";
+            helper = "hermes2_pat_is_null";
         } else if (pc == la::PAT_HERMES_BOOL) {
-            helper = "hermes_pat_eq_bool";
+            helper = "hermes2_pat_eq_bool";
             want_arity = 2;
             AnyVal bv = p.get(la::VALUE.code);
             bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
             extra_args.push_back(builder().lit_bool(bval, bool_t()));
         } else if (pc == la::PAT_HERMES_INT) {
-            helper = "hermes_pat_eq_i24";
+            helper = "hermes2_pat_eq_i24";
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
             int64_t v = parse_int_literal(sv);
@@ -4925,7 +4925,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             }
             extra_args.push_back(builder().lit_int(v, i32_t()));
         } else {  // PAT_HERMES_STR — hermes_pat_eq_str(*av, base, str)
-            helper = "hermes_pat_eq_str";
+            helper = "hermes2_pat_eq_str";
             want_arity = 3;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
@@ -4941,7 +4941,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             // logos.lang.hermes.anyval; the str-eq helper (one HermesString
             // user) lives in std.hermes.pat.
             const char* hint =
-                std::strcmp(helper, "hermes_pat_eq_str") == 0
+                std::strcmp(helper, "hermes2_pat_eq_str") == 0
                 ? "use logos.mem.hermes.pat;"
                 : "use logos.lang.hermes.anyval;";
             error(std::format(
@@ -4990,7 +4990,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_array_len_eq(&sv, base, n)` as a bool expr.
     auto emit_array_len_eq = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_array_len_eq";
+        const char* helper = "hermes2_pat_array_len_eq";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5010,7 +5010,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
     auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_array_len_ge";
+        const char* helper = "hermes2_pat_array_len_ge";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5030,7 +5030,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
     auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_has_type_code";
+        const char* helper = "hermes2_pat_has_type_code";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5050,7 +5050,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_is_map(&sv, base)` bool expr.
     auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_is_map";
+        const char* helper = "hermes2_pat_is_map";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5069,7 +5069,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_is_present(&sv)` bool expr.
     auto emit_present = [&](const std::string& sv) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_is_present";
+        const char* helper = "hermes2_pat_is_present";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5111,7 +5111,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
                     std::string child = emit_child_let(
-                        "hermes_pat_map_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_map_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -5157,7 +5157,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_int((int64_t)i, u64_t));
                     std::string child = emit_child_let(
-                        "hermes_pat_array_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_array_slot", sv, std::move(xargs), 3);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -7755,11 +7755,22 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             sl.value = std::move(scrut);
             hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
-        anyval_t = make_datatype_type("AnyVal");
+        // hermes2: the node type is HAny (the helper's return type); the root is
+        // hermes2_pat_root(view) — every leaf/slot helper takes *HAny + ignores base.
+        {
+            auto root_cands = find_func_candidates("hermes2_pat_root");
+            const SemaFuncInfo* root_fi = nullptr;
+            for (auto* c : root_cands) if (c->param_types.size() == 1) { root_fi = c; break; }
+            anyval_t = root_fi ? root_fi->ret_type : make_datatype_type("AnyVal");
+            if (!root_fi)
+                error("match with Hermes patterns requires `use logos.lang.hermes2.pat;`");
+        }
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
+            std::vector<lir::LExprPtr> ra;
+            ra.push_back(std::move(view_ref));
+            auto root_call = builder().call("hermes2_pat_root", {}, std::move(ra), anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);

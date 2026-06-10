@@ -4,7 +4,7 @@ package hermes_match_map;
 
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.ctr;
-use logos.mem.hermes.pat;
+use logos.lang.hermes2.pat;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 
