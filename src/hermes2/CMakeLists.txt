@@ -1,5 +1,6 @@
 add_library(logos_hermes2
     arena.cpp
+    clone.cpp
 )
 
 target_include_directories(logos_hermes2 PUBLIC
@@ -27,3 +28,9 @@ add_executable(hermes2_exerciser_views exerciser_views.cpp)
 target_link_libraries(hermes2_exerciser_views PRIVATE logos_hermes2)
 add_test(NAME hermes2_exerciser_views COMMAND hermes2_exerciser_views)
 set_tests_properties(hermes2_exerciser_views PROPERTIES LABELS "hermes2;cpp")
+
+# Exerciser: Layer 4 (clone / compaction — deep_copy + dedup)
+add_executable(hermes2_exerciser_clone exerciser_clone.cpp)
+target_link_libraries(hermes2_exerciser_clone PRIVATE logos_hermes2)
+add_test(NAME hermes2_exerciser_clone COMMAND hermes2_exerciser_clone)
+set_tests_properties(hermes2_exerciser_clone PROPERTIES LABELS "hermes2;cpp")

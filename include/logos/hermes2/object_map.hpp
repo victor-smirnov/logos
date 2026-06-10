@@ -48,6 +48,15 @@ public:
         return e ? e->val : AnyVal{};
     }
 
+    // Visit every live entry as fn(std::string_view key, AnyVal val).
+    template <typename F>
+    void for_each(F&& fn) const {
+        if (cap_ == 0) return;
+        const MapEntry* buf = entries();
+        for (int64_t i = 0; i < cap_; ++i)
+            if (!buf[i].key.is_null()) fn(key_view(buf[i].key), buf[i].val);
+    }
+
     // Insert or update. On a NEW key the string is interned into THIS arena.
     [[nodiscard]] logos::expected<void> put(std::string_view key, AnyVal value, Arena& arena) noexcept {
         if ((count_ + 1) * 4 > cap_ * 3) {                  // load > 0.75
