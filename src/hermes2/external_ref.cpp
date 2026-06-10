@@ -13,6 +13,11 @@
 
 namespace logos::hermes2 {
 
+arena_offset_t ExternalRefResolved::offset() const noexcept {
+    return mem ? arena_offset_t(static_cast<uint32_t>(obj - mem->arena().head().data()))
+               : NULL_OFFSET;
+}
+
 ExternalRefResolved resolve_external_ref(const ExternalRef& ref, ArenaPool& pool) noexcept {
     ExternalRefResolved fail{};
 

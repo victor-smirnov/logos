@@ -139,6 +139,17 @@ inline TargetRef make_sub_ref(const RefBase& parent,
     return TargetRef(parent.arena(), off);
 }
 
+// Overload for a within-arena offset already in hand (e.g. a stored mirror_offset_):
+// no AnyVal/base round-trip needed.
+template <class TargetRef>
+inline TargetRef make_sub_ref(const RefBase& parent,
+                              hermes2::arena_offset_t off) noexcept {
+    if (parent.is_external()) {
+        return TargetRef(parent.arena(), off, parent.arena_id());
+    }
+    return TargetRef(parent.arena(), off);
+}
+
 // Read primitives shared by every view struct. Each takes a ref and a
 // sparse-key code; missing keys return defaults so views can stay terse.
 
@@ -723,7 +734,7 @@ struct EStructLitView {
     }
     // Iterate (name, value) pairs from parallel FIELD_NAMES / FIELD_VALUES arrays.
     template <class F> void each_field(F&& f) const noexcept {
-        auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code,  self.base());
+        auto names_av  = self.mirror()->get(ek::FIELD_NAMES.code);
         auto values_av = self.mirror()->get(ek::FIELD_VALUES.code);
         if (names_av.is_null() || values_av.is_null()) return;
         uint64_t n = std::min(
@@ -804,7 +815,7 @@ private:
         auto cl_av = self.mirror()->get(ek::CLOSURE.code);
         if (cl_av.is_null()) return nullptr;
         return reinterpret_cast<const hermes2::TinyObjectMap*>(
-            self.base() + cl_av.to_offset().value());
+            cl_av.resolve());
     }
 
 public:
@@ -1649,7 +1660,7 @@ struct SLetElseView {
     template <class F> void each_guard(F&& f) const noexcept {
         auto av = self.mirror()->get(sk::LET_ELSE_GUARDS.code);
         if (av.is_null()) return;
-        auto* arr = av.template as_ptr<const hermes2::ObjectArray>(self.base());
+        auto* arr = av.template as_ptr<const hermes2::ObjectArray>();
         if (!arr) return;
         for (uint64_t i = 0; i < arr->size(); ++i) {
             auto el = arr->get(i);

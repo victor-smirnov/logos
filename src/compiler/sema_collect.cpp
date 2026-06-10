@@ -71,8 +71,8 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
     if (a.is_null() || b.is_null()) return false;
     if (a.is_value() != b.is_value()) return false;
     if (a.is_value()) return a.raw() == b.raw();
-    const uint8_t* pa = base_a + a.to_offset().value();
-    const uint8_t* pb = base_b + b.to_offset().value();
+    const uint8_t* pa = basea.resolve();
+    const uint8_t* pb = baseb.resolve();
     auto ta = hermes2::TypeTag::read_before(pa);
     auto tb = hermes2::TypeTag::read_before(pb);
     if (ta.type_code() != tb.type_code()) return false;

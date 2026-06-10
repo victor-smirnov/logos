@@ -91,7 +91,16 @@ public:
     using View::View;
     std::string_view view() const noexcept { return obj_ ? obj_->view() : std::string_view{}; }
     size_t length() const noexcept { return obj_ ? obj_->length() : 0; }
+    size_t size()   const noexcept { return length(); }
+    bool   empty()  const noexcept { return length() == 0; }
+    // Implicit string_view conversion so `std::string(sv)` and string_view APIs work
+    // (the Hermes1 readers rely on this).
+    operator std::string_view() const noexcept { return view(); }
+    std::string to_string() const { return std::string(view()); }
     bool operator==(std::string_view s) const noexcept { return view() == s; }
+    bool operator!=(std::string_view s) const noexcept { return view() != s; }
+    bool operator==(const StringView& o) const noexcept { return view() == o.view(); }
+    bool operator!=(const StringView& o) const noexcept { return view() != o.view(); }
 };
 
 class ArrayView : public View<ObjectArray> {
@@ -137,5 +146,27 @@ inline TinyMapView as_tinymap(AnyVal av, MemHolder* h) noexcept {
 inline MapView as_map(AnyVal av, MemHolder* h) noexcept {
     return av.is_ref() ? MapView(reinterpret_cast<ObjectMap*>(const_cast<uint8_t*>(av.resolve())), h) : MapView{};
 }
+
+// ── Object — the Hermes1 generic node handle, native {AnyVal, holder} ────────────
+// A by-value AnyVal (the node's value-form Ref) + the owning holder, with the as_*
+// navigation the readers use. Returned by HermesCtr::root_object().
+class Object {
+public:
+    Object() noexcept = default;
+    Object(AnyVal av, MemHolder* h) noexcept : av_(av), holder_(h) {}
+
+    bool       is_null()  const noexcept { return av_.is_null(); }
+    AnyVal     tagged()   const noexcept { return av_; }
+    MemHolder* holder()   const noexcept { return holder_; }
+
+    TinyMapView as_tiny_map() const noexcept { return as_tinymap(av_, holder_); }
+    ArrayView   as_array()    const noexcept { return logos::hermes2::as_array(av_, holder_); }
+    StringView  as_string()   const noexcept { return logos::hermes2::as_string(av_, holder_); }
+    MapView     as_map()      const noexcept { return logos::hermes2::as_map(av_, holder_); }
+
+private:
+    AnyVal     av_{};
+    MemHolder* holder_ = nullptr;
+};
 
 } // namespace logos::hermes2

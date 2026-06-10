@@ -62,39 +62,40 @@ inline constexpr uint64_t ArrayF32      = tc::ARRAY_F32;
 inline constexpr uint64_t ArrayF64      = tc::ARRAY_F64;
 }  // namespace type_hash
 
-// ── Object — the Hermes1 generic node handle, native form {AnyVal, holder} ───────
-// A by-value AnyVal (the node's value-form Ref) plus the owning holder, with the
-// as_* navigation the readers use. Returned by HermesCtr::root_object().
-class Object {
-public:
-    Object() noexcept = default;
-    Object(AnyVal av, MemHolder* h) noexcept : av_(av), holder_(h) {}
-
-    bool       is_null()  const noexcept { return av_.is_null(); }
-    AnyVal     tagged()   const noexcept { return av_; }
-    MemHolder* holder()   const noexcept { return holder_; }
-
-    TinyMapView as_tiny_map() const noexcept { return as_tinymap(av_, holder_); }
-    ArrayView   as_array()    const noexcept { return logos::hermes2::as_array(av_, holder_); }
-    StringView  as_string()   const noexcept { return logos::hermes2::as_string(av_, holder_); }
-    MapView     as_map()      const noexcept { return logos::hermes2::as_map(av_, holder_); }
-
-private:
-    AnyVal     av_{};
-    MemHolder* holder_ = nullptr;
-};
-
 // ── Doc-handle spellings ─────────────────────────────────────────────────────────
+// (Object lives in view.hpp; HermesCtr::root_object() returns it.)
 using HermesView = HermesCtr;
 using Hermes     = HermesCtr;
-
-// root_object() on the doc handle (Hermes1 spelling).
-inline Object root_object(const HermesCtr& d) noexcept { return Object(d.root(), d.holder()); }
 
 // Load a document from a compacted blob (Hermes1 spelling of HermesCtr::from_bytes).
 [[nodiscard]] inline logos::expected<HermesCtr>
 from_bytes_copy(const uint8_t* data, size_t size) noexcept {
     return HermesCtr::from_bytes(data, size);
+}
+
+// Deep-copy a tagged object from another document into `dst` (the metaprog blob splice).
+// `src_base` is vestigial (hermes2 is self-relative; src_obj is an absolute pointer the
+// deep-copy walks via resolve()). Returns the dst object pointer.
+[[nodiscard]] inline logos::expected<void*>
+copy_object_into(const void* src_obj, const uint8_t* /*src_base*/, HermesCtr& dst) noexcept {
+    DeepCopyState st(dst.holder());
+    void* d = deep_copy_object(reinterpret_cast<const uint8_t*>(src_obj), st);
+    if (!d) return std::unexpected(logos::err(ErrCode::out_of_memory));
+    return d;
+}
+
+// Box a wide scalar (i64/u64/f32/f64 — doesn't fit the inline Pod) into the arena and
+// return a Ref AnyVal to it (Hermes1 anyval_put / arena_put). Tag = the matching tc code.
+template <typename T>
+[[nodiscard]] inline logos::expected<AnyVal> anyval_put(Arena& arena, T v) noexcept {
+    uint64_t code;
+    if constexpr (std::is_same_v<T, double>)        code = tc::F64;
+    else if constexpr (std::is_same_v<T, float>)    code = tc::F32;
+    else if constexpr (std::is_unsigned_v<T>)       code = tc::U64;
+    else                                            code = tc::I64;
+    LOGOS_TRY(void* mem, arena.allocate(sizeof(T), alignof(T) < 2 ? 2 : alignof(T), TypeTag(code)));
+    std::memcpy(mem, &v, sizeof(T));
+    AnyVal a; a.set_ref(mem); return a;
 }
 
 // ── HermesAccess shim — native (no base/offset model) ───────────────────────────
@@ -106,6 +107,17 @@ public:
     static Arena& arena(HermesCtr& d) noexcept { return d.arena(); }
     static Arena& arena(const HermesCtr& d) noexcept { return const_cast<HermesCtr&>(d).arena(); }
     static uint8_t* base(const HermesCtr& d) noexcept { return d.holder()->arena().head().data(); }
+
+    // Root offset accessors (the mirror/TypePool address by offset within their single
+    // chunk). root() returns the root AnyVal; its offset is relative to base().
+    static arena_offset_t root_offset(const HermesCtr& d) noexcept {
+        AnyVal r = d.root();
+        return r.is_ref() ? r.to_offset(base(d)) : NULL_OFFSET;
+    }
+    static void set_root_offset(HermesCtr& d, arena_offset_t off) noexcept {
+        d.set_root(off == NULL_OFFSET ? AnyVal{} : AnyVal::from_offset(base(d), off));
+    }
+    static void set_root_offset(HermesCtr& d, AnyVal root) noexcept { d.set_root(root); }
 
     [[nodiscard]] static logos::expected<TinyObjectMap*> raw_tiny_map(HermesCtr& d, uint64_t cap = 4) noexcept { return d.make_tiny_map(cap); }
     [[nodiscard]] static logos::expected<ArrayView>      raw_array(HermesCtr& d, uint64_t cap = 4) noexcept { return d.make_array(cap); }

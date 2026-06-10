@@ -71,9 +71,16 @@ public:
 
     AnyVal root()           const noexcept { return header_->root; }   // by-value re-anchor
     void   set_root(AnyVal v) noexcept { header_->root = v; }          // assignment lowers
+    Object root_object()    const noexcept { return Object(header_->root, holder_); }
 
     // Seal the arena: forbid further allocations (the document becomes immutable).
     void seal() noexcept { holder_->arena().seal(); }
+
+    // Parser backtracking watermark. The generated parser calls this on every
+    // alternative but does NOT roll back (the result is [[maybe_unused]]); on the
+    // never-move MultiChunk parser doc, a failed alternative's nodes are simply left
+    // dead (unreferenced) — correct, just transient memory. Returns a monotonic token.
+    size_t arena_checkpoint() const noexcept { return holder_->arena().total_used(); }
 
     // ── Producer conveniences (build objects directly in this document's arena) ──
     // Thin wrappers over the container ::create factories. Returned pointers are
