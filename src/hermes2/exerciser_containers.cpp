@@ -10,8 +10,11 @@
 #include <logos/hermes2/object_array.hpp>
 #include <logos/hermes2/typed_array.hpp>
 #include <logos/hermes2/tiny_object_map.hpp>
+#include <logos/hermes2/object_map.hpp>
+#include <logos/hermes2/map.hpp>
 #include <logos/hermes2/any_val.hpp>
 #include <logos/hermes2/type_codes.hpp>
+#include <string>
 
 #include <cstdio>
 #include <string_view>
@@ -150,6 +153,60 @@ int main() {
         CHECK(m->get(9).as_i56() == 900, 66);   // survivors intact after left-shift
     }
 
-    std::printf("hermes2 containers (string + array + typed_array + tinymap): OK\n");
+    // ── ObjectMap: string keys, open-addressing, GROWTH + rehash ───────────────
+    {
+        auto m_exp = ObjectMap::create(arena, 8);
+        CHECK(m_exp.has_value(), 70);
+        ObjectMap* m = *m_exp;
+        CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::MAP, 71);
+        CHECK(sizeof(ObjectMap) == 24, 72);
+
+        CHECK(m->put("age", AnyVal::pod(36, tc::HA_I56), arena).has_value(), 73);
+        auto name_s = ArenaString::create(arena, "Ada");
+        CHECK(name_s.has_value(), 74);
+        AnyVal nameref; nameref.set_ref(*name_s);
+        CHECK(m->put("name", nameref, arena).has_value(), 75);
+        CHECK(m->size() == 2, 76);
+        CHECK(m->get("age").as_i56() == 36, 77);
+        CHECK(reinterpret_cast<const ArenaString*>(m->get("name").resolve())->view() == "Ada", 78);
+        CHECK(m->has("name") && !m->has("missing"), 79);
+        CHECK(m->get("missing").is_null(), 80);
+
+        // update existing key (no size change)
+        CHECK(m->put("age", AnyVal::pod(37, tc::HA_I56), arena).has_value(), 81);
+        CHECK(m->size() == 2 && m->get("age").as_i56() == 37, 82);
+
+        // GROWTH: 50 distinct keys past cap → several rehashes; all retrievable
+        for (int i = 0; i < 50; ++i) {
+            std::string k = "k" + std::to_string(i);
+            CHECK(m->put(k, AnyVal::pod(i * 10, tc::HA_I56), arena).has_value(), 83);
+        }
+        CHECK(m->size() == 52, 84);
+        for (int i = 0; i < 50; ++i) {
+            std::string k = "k" + std::to_string(i);
+            CHECK(m->get(k).as_i56() == i * 10, 85);
+        }
+        CHECK(m->get("age").as_i56() == 37, 86);   // original survives the rehashes
+        CHECK(reinterpret_cast<const ArenaString*>(m->get("name").resolve())->view() == "Ada", 87);
+    }
+
+    // ── TypedMap<K>: dense int-keyed, fixed capacity ───────────────────────────
+    {
+        auto m_exp = MapI32::create(arena, 8);
+        CHECK(m_exp.has_value(), 90);
+        MapI32* m = *m_exp;
+        CHECK(TypeTag::read_before(reinterpret_cast<const uint8_t*>(m)).type_code() == tc::MAP_I32, 91);
+        CHECK(sizeof(MapI32) == 32, 92);
+        m->put(100, AnyVal::pod(1, tc::HA_I56));
+        m->put(-7,  AnyVal::pod(2, tc::HA_I56));
+        m->put(100, AnyVal::pod(3, tc::HA_I56));   // update
+        CHECK(m->size() == 2, 93);
+        CHECK(m->get(100).as_i56() == 3, 94);
+        CHECK(m->get(-7).as_i56() == 2, 95);
+        CHECK(m->contains(-7) && !m->contains(42), 96);
+        CHECK(m->get(42).is_null(), 97);
+    }
+
+    std::printf("hermes2 containers (string + array + typed_array + tinymap + objectmap + map): OK\n");
     return 0;
 }
