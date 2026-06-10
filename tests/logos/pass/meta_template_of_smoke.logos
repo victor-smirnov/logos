@@ -11,15 +11,15 @@ package main;
 use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 
 #[metaprog_handler("template_of_probe")]
 fn template_of_probe_hook(_target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let raw: AnyVal = view.find_template_decl("Foo");
-    if raw.raw == 0 { return; }
+    let raw: HAny = view.find_template_decl("Foo");
+    if raw.is_null() { return; }
 
     let tpl: Template = Template { raw: raw };
 

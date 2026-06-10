@@ -12,7 +12,7 @@ use logos.std.compiler.metaprog;
 use logos.mem.collections.vec;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.string;
 use logos.lang.hermes.fabric;
 
@@ -20,7 +20,7 @@ use logos.lang.hermes.fabric;
 fn derive_struct_with_cols_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
-    let item: AnyVal = AnyVal::from_offset(target_offset);
+    let item: HAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
 
     let s_a:   str = "a";
