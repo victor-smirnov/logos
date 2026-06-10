@@ -252,9 +252,21 @@ hermes2. Incremental by translation unit, gated by the full build + test suite.
   a MultiChunk tail-drop — backtracking stays correct, just keeps dead nodes from failed
   alternatives until the doc frees (acceptable transient memory for a compile). Either
   extend `Arena::rollback` to MultiChunk (drop appended chunks + rewind tail) or emit no-ops.
-- **Phase C — LIR mirror** (`lir_mirror.cpp` 447, `lir_view.hpp`, `lir_schema.hpp`) + mono
-  (`mono_clone`, reads via schema_type_code) — a SEPARATE arena from the AST, so it can
-  land after B. `ExprRef/StmtRef`: `arena_offset_t`+base → AnyVal/ptr + `schema_type_code()`.
+- **Phase C — LIR mirror — THE HARD PART (finding, 2026-06-10, branch `hermes2-cutover`).**
+  Attempting the full flip revealed the mirror is **~85% of the cut-over and a genuine
+  base+offset SUBSYSTEM**, not a mechanical rename. Of 551 compile errors after the bulk
+  sed, **470 are the mirror** (`sema.hpp` 286 + `lir_view.hpp` 184) and `lir_mirror.cpp`
+  (447 sites) had not even reached compile. `ExprRef/StmtRef/TypeRef` store `arena_offset_t`
+  and resolve via `parent.base() + av.to_offset().value()`. This COLLIDES with the AST
+  readers: they want `AnyVal::to_offset()` to feed a `View(AnyVal,holder)` ctor, while the
+  mirror wants `arena_offset_t` — the SAME method, two incompatible return types. So the
+  mirror needs its OWN self-relative redesign: `ExprRef{holder, AnyVal-or-ptr}` (drop the
+  `arena_offset_t mirror_offset_` storage in `LExpr`), `mirror()->get(key,base)` → `get(key)`,
+  `parent.base()`/`mirror_base()`/`av.to_offset()` removed, mono's cross-arena clone
+  (ExternalRef) re-expressed on hermes2. SEPARATE arena from the AST, so it CAN be staged:
+  either convert it to self-relative as a dedicated push, OR keep `lir_view`/`lir_mirror`/
+  `sema.hpp` mirror types on `logos_hermes` (Hermes1) while the AST goes hermes2 (both libs
+  link; different arenas). The AST side (true Phase B) is only ~53 errors.
 - **Phase D — `.hermes0`** (`emit_module.cpp`, `module_loader.cpp`) — binary_encode for
   AST + publish/clone for the LIR blob + ArenaPool load (§6.1 layer is ready).
 - **Phase E — link swap:** drop `logos_hermes`, link `logos_hermes2`; delete Hermes1 (step 6).
