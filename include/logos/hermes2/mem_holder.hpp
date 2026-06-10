@@ -32,6 +32,17 @@ public:
         return h;
     }
 
+    // Wrap a rigid single-segment blob (a compactify() dump) as a fresh holder
+    // (refcount 1). Self-relative pointers in the blob resolve in place.
+    [[nodiscard]] static logos::expected<MemHolder*>
+    from_bytes(const void* data, size_t size) noexcept {
+        LOGOS_TRY(auto arena, Arena::from_bytes(data, size));
+        auto* h = new (std::nothrow) MemHolder(std::move(arena));
+        if (!h) [[unlikely]] return std::unexpected(logos::err(ErrCode::out_of_memory));
+        h->ref_count_.store(1, std::memory_order_relaxed);
+        return h;
+    }
+
     void ref() noexcept { ref_count_.fetch_add(1, std::memory_order_relaxed); }
     void unref() noexcept {
         if (ref_count_.fetch_sub(1, std::memory_order_acq_rel) == 1) delete this;

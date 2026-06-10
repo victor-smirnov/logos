@@ -6,6 +6,7 @@
 
 #include <logos/hermes2/mem_holder.hpp>
 #include <logos/hermes2/any_val.hpp>
+#include <logos/hermes2/document.hpp>
 #include <logos/core/expected.hpp>
 
 namespace logos::hermes2 {
@@ -57,5 +58,12 @@ struct ClonedDoc {
 // in the source is dropped (the compaction effect). `root` must be a value-form
 // AnyVal the caller keeps alive (its source holder outlives this call).
 [[nodiscard]] logos::expected<ClonedDoc> clone(AnyVal root) noexcept;
+
+// Compactify a whole document into a fresh SINGLE-SEGMENT holder — a rigid,
+// relocatable blob. The dst arena is a GROWABLE_SINGLE_CHUNK pre-sized to a safe
+// upper bound (2× the source's used bytes + slack) so NO realloc happens during the
+// copy (which would dangle the never-move container pointers). The result's
+// blob_data()/blob_size() can be dumped and reloaded with HermesCtr::from_bytes.
+[[nodiscard]] logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept;
 
 } // namespace logos::hermes2

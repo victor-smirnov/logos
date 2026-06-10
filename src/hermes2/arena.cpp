@@ -47,6 +47,19 @@ logos::expected<Arena> Arena::make(ArenaMode mode, size_t initial_capacity) noex
     return arena;
 }
 
+logos::expected<Arena> Arena::from_bytes(const void* data, size_t size) noexcept {
+    auto chunk_exp = Chunk::make(size ? size : 1);
+    if (!chunk_exp) [[unlikely]]
+        return std::unexpected(std::move(chunk_exp.error()));
+    std::memcpy(chunk_exp->data(), data, size);
+    chunk_exp->used = size;
+
+    Arena arena;
+    arena.mode_ = ArenaMode::GrowableSingleChunk;
+    arena.chunks_.push_back(std::move(*chunk_exp));
+    return arena;
+}
+
 void Arena::rollback(size_t pos) noexcept {
     LOGOS_ASSERT(mode_ == ArenaMode::GrowableSingleChunk, "HERMES-ARENA-004",
         "Arena::rollback requires GrowableSingleChunk mode");

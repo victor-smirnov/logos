@@ -162,4 +162,21 @@ logos::expected<ClonedDoc> clone(AnyVal root) noexcept {
     return ClonedDoc{holder, new_root};
 }
 
+logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept {
+    // Upper bound: the compact result (live objects, tight buffers) is ≤ the source's
+    // used bytes; 2× + slack is a safe over-estimate, so the single chunk never reallocs.
+    size_t estimate = src.arena().total_used() * 2 + 4096;
+    LOGOS_TRY(auto dst, HermesCtr::make(estimate, ArenaMode::GrowableSingleChunk));
+
+    DeepCopyState dedup(dst.holder());
+    AnyVal new_root = deep_copy_anyval(src.root(), dedup);
+    dst.set_root(new_root);
+
+    // The pre-size must have prevented every realloc (a realloc would have dangled
+    // the dst container pointers held across recursion). One chunk == no realloc.
+    if (dst.arena().chunk_count() != 1) [[unlikely]]
+        return std::unexpected(logos::err(ErrCode::out_of_memory));
+    return dst;
+}
+
 } // namespace logos::hermes2

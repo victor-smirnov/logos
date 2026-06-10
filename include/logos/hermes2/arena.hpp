@@ -64,6 +64,12 @@ public:
     // Factory: returns an Arena or an OOM error.
     static logos::expected<Arena> make(ArenaMode mode, size_t initial_capacity) noexcept;
 
+    // Wrap an existing rigid single-segment blob (e.g. a compactify() result dumped
+    // to bytes): a GrowableSingleChunk arena whose head chunk is a copy of `data`,
+    // used == size. Self-relative pointers inside resolve in place wherever loaded
+    // (the block moved rigidly). Returns OOM on allocation failure.
+    static logos::expected<Arena> from_bytes(const void* data, size_t size) noexcept;
+
     // Non-copyable, movable.
     Arena(const Arena&)            = delete;
     Arena& operator=(const Arena&) = delete;
