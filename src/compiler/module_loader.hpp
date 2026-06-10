@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <logos/hermes/document.hpp>
+#include <logos/hermes2/compat.hpp>
 
 #include <string>
 #include <string_view>
@@ -17,7 +17,7 @@ namespace logos::compiler {
 struct ParsedModule {
     std::string    path;
     std::string    package;               // dotted package name (e.g. "std.io"); may be empty
-    hermes::Hermes ast;
+    hermes2::Hermes ast;
     bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
     // Phase 6 (multi-arena IR): lazy-mode archive. When true, the consumer
     // must lower this module's items locally (sema/mono/mlir-gen treats
@@ -103,7 +103,7 @@ StdlibExports load_archive_exports(const std::vector<std::string>& archive_paths
 
 // M4 step 1: extract the raw LIR-mirror blob from a .hermes0 v3 archive.
 // Returns the bytes as written by emit_module (a complete Hermes arena
-// segment — load via hermes::from_bytes_copy to wrap as a Hermes view).
+// segment — load via hermes2::from_bytes_copy to wrap as a Hermes view).
 // Returns empty for v2 archives, archives without the lir_blob section
 // (M3-era writes), or zero-length blobs. Returns nullopt on truncation.
 struct LirBlobOpt {

@@ -139,7 +139,7 @@ private:
     const LirMirrorTable* mirror_ = nullptr;
 
     lir_view::ExprRef expr_ref_of(const LExpr& e) const noexcept {
-        if (!prog_ || e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (!prog_ || e.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::ExprRef(prog_->type_pool.arena(), e.mirror_offset_);
     }
     // Resolve an ExprRef back to its variant LExpr* via the mirror's reverse
@@ -152,7 +152,7 @@ private:
         return it->second;
     }
     lir_view::StmtRef stmt_ref_of(const LStmt& s) const noexcept {
-        if (!prog_ || s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (!prog_ || s.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::StmtRef(prog_->type_pool.arena(), s.mirror_offset_);
     }
     lir_view::PatRef pat_ref_of(const Pattern& p) const noexcept {
@@ -162,7 +162,7 @@ private:
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
     }
     lir_view::BlockRef block_ref_of(const LBlock& b) const noexcept {
-        if (!prog_ || b.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (!prog_ || b.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::BlockRef(prog_->type_pool.arena(), b.mirror_offset_);
     }
     const LBlock* lblock_of(lir_view::BlockRef r) const noexcept {
@@ -241,7 +241,7 @@ private:
     // re-computes the MLIR Type for each occurrence. Offsets are
     // stable for the lifetime of a single mlir_gen invocation (the
     // LProgram's type_pool arena isn't mutated by mlir_gen).
-    std::unordered_map<hermes::arena_offset_t, mlir::Type> logos_to_mlir_cache_;
+    std::unordered_map<hermes2::arena_offset_t, mlir::Type> logos_to_mlir_cache_;
 
     // Names already forward-declared in the current generate() pass.
     // Replaces `mod.lookupSymbol(name)` as a duplicate-declaration guard:

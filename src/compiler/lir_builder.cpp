@@ -193,7 +193,7 @@ lir::LExprPtr LirBuilder::closure_to_fnptr(lir::LExpr* arg, TypeRef new_ty) {
 
 void LirBuilder::set_tuple_elem(lir::LExpr* tuple, size_t idx,
                                   lir::LExpr* new_value) {
-    if (!prog_.mirror_table || tuple->mirror_offset_ == hermes::arena_offset_t{}) return;
+    if (!prog_.mirror_table || tuple->mirror_offset_ == hermes2::arena_offset_t{}) return;
     auto& arena = prog_.type_pool.arena_or_init();
     lir_view::ExprRef tref(&arena, tuple->mirror_offset_);
     if (tref.kind() != lir_schema::expr::Code::TupleLit) return;

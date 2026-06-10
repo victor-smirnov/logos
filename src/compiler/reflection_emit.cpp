@@ -11,27 +11,27 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sha256.hpp>
 
-#include <logos/hermes/access.hpp>
-#include <logos/hermes/any_val.hpp>
-#include <logos/hermes/arena_string.hpp>
-#include <logos/hermes/arena_value.hpp>
-#include <logos/hermes/clone.hpp>
-#include <logos/hermes/object_array.hpp>
-#include <logos/hermes/object_map.hpp>
-#include <logos/hermes/view.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
 
 namespace logos::compiler {
 
-using logos::hermes::Hermes;
-using logos::hermes::HermesAccess;
-using logos::hermes::ObjectMap;
-using logos::hermes::ObjectArray;
-using logos::hermes::ArenaString;
-using logos::hermes::AnyVal;
-using logos::hermes::arena_offset_t;
-using logos::hermes::anyval_put;
-using logos::hermes::make_doc;
-using logos::hermes::clone;
+using logos::hermes2::Hermes;
+using logos::hermes2::HermesAccess;
+using logos::hermes2::ObjectMap;
+using logos::hermes2::ObjectArray;
+using logos::hermes2::ArenaString;
+using logos::hermes2::AnyVal;
+using logos::hermes2::arena_offset_t;
+using logos::hermes2::anyval_put;
+using logos::hermes2::make_doc;
+using logos::hermes2::clone;
 
 namespace {
 

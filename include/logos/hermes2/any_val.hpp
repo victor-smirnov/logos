@@ -89,6 +89,16 @@ public:
         return is_ref() ? (my_addr() + word_) : nullptr;
     }
 
+    // Native typed pointer to the Ref target (NO base — self-relative resolves in
+    // place). The Hermes1 cut-over drops the old `base` argument at every call site.
+    template <typename T> T* as_ptr() const noexcept {
+        return reinterpret_cast<T*>(const_cast<uint8_t*>(resolve()));
+    }
+
+    // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
+    // Hermes1 base-relative `set_pointer(target, base)` — base no longer needed).
+    void set_pointer(const void* target) noexcept { set_ref(target); }
+
     // The raw at-rest word (for serialization / niche inspection).
     int64_t raw() const noexcept { return word_; }
 

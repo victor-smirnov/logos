@@ -26,9 +26,8 @@ static TinyObjectMap* make_node(HermesCtr& doc, int32_t code, std::string_view n
     auto* n = *doc.make_tiny_map(4);
     n->set_schema_type_code(schema::ast(code));                     // discriminant in the header
     (void)n->put(la::CODE, AnyVal::from_value(code, tc::HT_I24), doc.arena());
-    auto* s = *doc.make_string(name);
-    AnyVal nm; nm.set_ref(s);
-    (void)n->put(la::NAME, nm, doc.arena());
+    StringView s = *doc.make_string(name);
+    (void)n->put(la::NAME, s.to_anyval(), doc.arena());
     (void)n->put(la::SRC_LINE, AnyVal::from_value(line, tc::HT_U24), doc.arena());
     return n;
 }
@@ -40,12 +39,12 @@ int main() {
 
     // module { NAME="m", ITEMS=[ fn "a", fn "b" ] }
     auto* root = make_node(doc, nc::MODULE, "m", 1);
-    auto* items = *doc.make_array(2);
+    ArrayView items = *doc.make_array(2);                            // owning handle
     auto* fa = make_node(doc, nc::FN, "a", 2);
     auto* fb = make_node(doc, nc::FN, "b", 3);
-    { AnyVal v; v.set_ref(fa); (void)items->push_back(v, doc.arena()); }
-    { AnyVal v; v.set_ref(fb); (void)items->push_back(v, doc.arena()); }
-    { AnyVal v; v.set_ref(items); (void)root->put(la::ITEMS, v, doc.arena()); }
+    { AnyVal v; v.set_ref(fa); (void)items.push_back(v); }
+    { AnyVal v; v.set_ref(fb); (void)items.push_back(v); }
+    (void)root->put(la::ITEMS, items.to_anyval(), doc.arena());
     { AnyVal v; v.set_ref(root); doc.set_root(v); }
 
     // ── Read back via the owning views (the reader path) ────────────────────────

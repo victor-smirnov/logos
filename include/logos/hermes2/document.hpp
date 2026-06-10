@@ -12,6 +12,7 @@
 #include <logos/hermes2/object_array.hpp>
 #include <logos/hermes2/object_map.hpp>
 #include <logos/hermes2/arena_string.hpp>
+#include <logos/hermes2/view.hpp>
 #include <logos/core/expected.hpp>
 
 namespace logos::hermes2 {
@@ -79,17 +80,22 @@ public:
     // stable (never-move arena). Wire them into a parent via AnyVal::set_ref(ptr) /
     // set_root(av). Mirror the Hermes1 make_tiny_map/make_array/make_string surface
     // so the logosc producer (parser/codegen) is a near-mechanical rename.
+    // Tiny map → RAW pointer (node-building: `node->put(...)`). Arrays/maps/strings →
+    // OWNING views (the parser's handle style: `.push_back(av).get()`, `.to_anyval()`).
     [[nodiscard]] logos::expected<TinyObjectMap*> make_tiny_map(uint64_t cap = 4) noexcept {
         return TinyObjectMap::create(arena(), cap);
     }
-    [[nodiscard]] logos::expected<ObjectArray*> make_array(uint64_t cap = 4) noexcept {
-        return ObjectArray::create(arena(), cap);
+    [[nodiscard]] logos::expected<ArrayView> make_array(uint64_t cap = 4) noexcept {
+        LOGOS_TRY(auto* a, ObjectArray::create(arena(), cap));
+        return ArrayView(a, holder_);
     }
-    [[nodiscard]] logos::expected<ObjectMap*> make_object_map(uint64_t cap = 8) noexcept {
-        return ObjectMap::create(arena(), cap);
+    [[nodiscard]] logos::expected<MapView> make_object_map(uint64_t cap = 8) noexcept {
+        LOGOS_TRY(auto* m, ObjectMap::create(arena(), cap));
+        return MapView(m, holder_);
     }
-    [[nodiscard]] logos::expected<ArenaString*> make_string(std::string_view s) noexcept {
-        return ArenaString::create(arena(), s);
+    [[nodiscard]] logos::expected<StringView> make_string(std::string_view s) noexcept {
+        LOGOS_TRY(auto* s2, ArenaString::create(arena(), s));
+        return StringView(s2, holder_);
     }
 
     // The single-segment blob bytes (valid only when this doc is single-chunk, e.g.

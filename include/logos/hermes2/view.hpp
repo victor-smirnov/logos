@@ -32,6 +32,16 @@ public:
         if (holder_) holder_->ref();
     }
 
+    // Construct from a value-form Ref AnyVal (resolves self-relatively). null/Pod → a
+    // null view. The cut-over uses this in place of Hermes1's `View(av.to_offset(), h)`.
+    View(AnyVal av, MemHolder* holder) noexcept {
+        if (av.is_ref()) {
+            obj_ = reinterpret_cast<Obj*>(const_cast<uint8_t*>(av.resolve()));
+            holder_ = holder;
+            if (holder_) holder_->ref();
+        }
+    }
+
     View(const View& o) noexcept : holder_(o.holder_), obj_(o.obj_) {
         if (holder_) holder_->ref();
     }

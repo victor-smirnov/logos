@@ -19,9 +19,9 @@
 #include "sema_impl.hpp"
 #include "ctfe.hpp"
 
-#include <logos/hermes/tiny_object_map.hpp>
-#include <logos/hermes/object_array.hpp>
-#include <logos/hermes/access.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
+#include <logos/hermes2/compat.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -33,8 +33,8 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::AnyVal;
+using hermes2::TinyMapView;
+using hermes2::AnyVal;
 
 namespace {
 
@@ -1733,14 +1733,14 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
 // touch the (empty) type pool, and dispatches by the root node's
 // CODE — MODULE renders the whole package; anything else (a single
 // item from a quote_item! splice) falls through to render_item_src.
-std::string render_module_source_for_dump(hermes::MemHolder* holder,
-                                          hermes::arena_offset_t root_offset) {
-    if (!holder || root_offset == hermes::NULL_OFFSET) return {};
+std::string render_module_source_for_dump(hermes2::MemHolder* holder,
+                                          hermes2::arena_offset_t root_offset) {
+    if (!holder || root_offset == hermes2::NULL_OFFSET) return {};
     SemaChecker checker;
     checker.set_holder_for_render(holder);
     checker.set_render_syntactic(true);
     auto* base = holder->base();
-    auto* root = reinterpret_cast<logos::hermes::TinyObjectMap*>(
+    auto* root = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
                     base + root_offset.value());
     auto code_av = root->get(la::CODE.code, base);
     int32_t c = (!code_av.is_null() && code_av.is_value())
@@ -1750,27 +1750,27 @@ std::string render_module_source_for_dump(hermes::MemHolder* holder,
     return checker.render_item_src(root_view);
 }
 
-std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
-                                                   hermes::arena_offset_t root_offset) {
+std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
+                                                   hermes2::arena_offset_t root_offset) {
     std::vector<std::string> out;
-    if (!holder || root_offset == hermes::NULL_OFFSET) return out;
+    if (!holder || root_offset == hermes2::NULL_OFFSET) return out;
     auto* base = holder->base();
 
-    auto map_at = [&](hermes::arena_offset_t off) {
-        return reinterpret_cast<hermes::TinyObjectMap*>(base + off.value());
+    auto map_at = [&](hermes2::arena_offset_t off) {
+        return reinterpret_cast<hermes2::TinyObjectMap*>(base + off.value());
     };
-    auto str_at = [&](hermes::AnyVal av) -> std::string {
+    auto str_at = [&](hermes2::AnyVal av) -> std::string {
         if (av.is_null()) return {};
-        // String values point at hermes::ArenaString (length-prefixed bytes).
+        // String values point at hermes2::ArenaString (length-prefixed bytes).
         // Reuse the same StringView wrapper sema uses.
-        auto sv = hermes::StringView(av.to_offset(), holder).view();
+        auto sv = hermes2::StringView(av.to_offset(), holder).view();
         return std::string(sv);
     };
-    auto arr_at = [&](hermes::AnyVal av) {
-        return hermes::ArrayView(av.to_offset(), holder);
+    auto arr_at = [&](hermes2::AnyVal av) {
+        return hermes2::ArrayView(av.to_offset(), holder);
     };
 
-    auto get_fn_or_impl_items = [&](hermes::TinyObjectMap* tom, std::string prefix) {
+    auto get_fn_or_impl_items = [&](hermes2::TinyObjectMap* tom, std::string prefix) {
         auto code_av = tom->get(la::CODE.code, base);
         int32_t c = (!code_av.is_null() && code_av.is_value())
                     ? code_av.as_value<int32_t>() : -1;
@@ -1792,8 +1792,8 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
     int32_t rc = (!root_code.is_null() && root_code.is_value())
                  ? root_code.as_value<int32_t>() : -1;
 
-    std::function<void(hermes::TinyObjectMap*, std::string)> walk_items =
-        [&](hermes::TinyObjectMap* tom, std::string prefix) {
+    std::function<void(hermes2::TinyObjectMap*, std::string)> walk_items =
+        [&](hermes2::TinyObjectMap* tom, std::string prefix) {
         auto items_av = tom->get(la::ITEMS.code, base);
         if (items_av.is_null()) return;
         auto items = arr_at(items_av);

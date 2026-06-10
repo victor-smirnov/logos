@@ -274,7 +274,7 @@ do_eval(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
 } // namespace
 
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
+eval_expr(hermes2::TinyMapView node, hermes2::MemHolder* holder,
           ConstResolver* resolver) noexcept {
     return do_eval(node, holder, resolver);
 }

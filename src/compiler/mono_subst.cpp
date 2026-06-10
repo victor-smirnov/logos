@@ -433,7 +433,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         uint64_t hash = (uint64_t)cfg.const_val().value_or(0);
         auto rit = out_.hstatic_registry_.find(hash);
         if (rit == out_.hstatic_registry_.end()) return tv;
-        if (!rit->second || rit->second->mirror_offset_ == hermes::arena_offset_t{}) return tv;
+        if (!rit->second || rit->second->mirror_offset_ == hermes2::arena_offset_t{}) return tv;
         lir_view::ExprRef eref(out_.type_pool.arena(), rit->second->mirror_offset_);
         if (eref.kind() != lir_schema::expr::Code::HermesLit) return tv;
         // Decode path.
