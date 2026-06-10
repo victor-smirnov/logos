@@ -69,7 +69,7 @@ public:
         : arena_(a), table_(t), pool_(&p) {}
 
     hermes2::AnyVal mref(hermes2::arena_offset_t off) const noexcept {
-        return mref(arena_.head().data(), off);
+        return hermes2::AnyVal::from_offset(arena_.head().data(), off);
     }
 
     void run(lir::LProgram& prog);
@@ -2135,7 +2135,7 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
     auto& arena = prog.type_pool.arena_or_init();
     auto* tom = reinterpret_cast<hermes2::TinyObjectMap*>(
         arena.head().data() + expr_off.value());
-    auto av = new_ty ? mref(new_ty.offset())
+    auto av = new_ty ? hermes2::AnyVal::from_offset(arena.head().data(), new_ty.offset())
                      : hermes2::AnyVal{};
     if (av.is_null()) return;
     auto r = tom->put(lir_schema::expr_common::TYPE.code, av, arena);
@@ -2213,7 +2213,7 @@ void lir_mirror_update_type(lir::LProgram& prog, const lir::LExpr& e) {
     auto* tom = reinterpret_cast<hermes2::TinyObjectMap*>(
                     base + e.mirror_offset_.value());
     auto av = e.type
-              ? mref(e.type.offset())
+              ? hermes2::AnyVal::from_offset(arena.head().data(), e.type.offset())
               : hermes2::AnyVal{};
     // Ignore put() error: TYPE key was already present when the mirror
     // was first emitted (every emit_*_direct that gets a non-null ty

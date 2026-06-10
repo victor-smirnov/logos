@@ -81,7 +81,7 @@ static bool file_opts_out_of_implicit_prelude(hermes2::HermesView ast) {
 // Three-layer split Phase 3.4: extract `use` deps from an AST, optionally
 // appending an implicit prelude package (if `implicit_prelude` is non-empty
 // AND the file does not carry `#![no_implicit_prelude]`).
-static std::vector<std::string> extract_uses(hermes2::HermesView ast,
+static std::vector<std::string> extract_uses(const hermes2::HermesView& ast,
                                               std::string_view implicit_prelude = {}) {
     std::vector<std::string> result;
     auto holder = ast.holder();
@@ -1459,7 +1459,7 @@ std::vector<ParsedModule> load_modules(
             if (!wanted(pm.package)) continue;
             if (!visited_files.insert(pm.path).second) continue;
             if (!pm.package.empty()) visited_packages.insert(pm.package);
-            modules.push_back({pm.path, pm.package, pm.ast,
+            modules.push_back({pm.path, pm.package, std::move(pm.ast),
                                /*from_binary_module=*/true,
                                /*is_lazy=*/pm.is_lazy});
         }

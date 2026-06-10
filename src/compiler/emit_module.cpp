@@ -640,7 +640,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
             if (!module_name.empty()) {
                 if (auto* h = prog.type_pool.holder()) {
                     auto src_view = hermes2::HermesView(h);
-                    if (auto cl = hermes2::clone(src_view, nullptr)) {
+                    if (auto cl = hermes2::compactify(src_view)) {
                         const auto& cchunk = cl->holder()->arena().head();
                         out_lir_blob->assign(cchunk.data(),
                                              cchunk.data() + cchunk.used);
@@ -895,7 +895,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
-        modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
+        modules_for_h0.push_back({m.path, m.package, std::move(m.ast)});  // Hermes is copy-on-write safe
         bool ao = is_ast_only_path(m.path);
         filenames.push_back(m.path);
         ast_only_flags.push_back(ao);
@@ -968,7 +968,7 @@ bool emit_module(const ModuleManifest& manifest,
         path += "#" + std::to_string(i - original_ast_count);
         std::string pkg;
         auto root_av = asts[i].root_object();
-        if (root_av.is_pointer()) {
+        if (root_av.tagged().is_pointer()) {
             auto root_map = root_av.as_tiny_map();
             if (root_map.has_key(logos::compiler::ast::NAME)) {
                 auto nm = root_map.get(logos::compiler::ast::NAME.code);
@@ -981,7 +981,7 @@ bool emit_module(const ModuleManifest& manifest,
                 auto pp = root_map.get(logos::compiler::ast::mod::PATH_PARTS.code);
                 if (!pp.is_null() && pp.is_pointer()) {
                     auto* arr = reinterpret_cast<const hermes2::ObjectArray*>(
-                        asts[i].holder()->base() + pp.to_offset().value());
+                        pp.resolve());
                     for (uint64_t j = 0; j < arr->size(); ++j) {
                         auto part_av = arr->get(j, asts[i].holder()->base());
                         if (!part_av.is_pointer()) continue;
@@ -999,7 +999,7 @@ bool emit_module(const ModuleManifest& manifest,
                 }
             }
         }
-        modules_for_h0.push_back({path, pkg, asts[i]});
+        modules_for_h0.push_back({path, pkg, std::move(asts[i])});
     }
 
     // .hermes0: in per-file mode, contains only the target file's AST.

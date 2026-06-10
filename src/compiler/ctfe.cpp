@@ -12,7 +12,7 @@ namespace logos::compiler::ctfe {
 
 namespace {
 
-using namespace logos::hermes;
+using namespace logos::hermes2;
 using K = LogosType::Kind;
 using namespace logos::compiler::sema_detail;  // la::*
 

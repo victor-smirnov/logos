@@ -41,7 +41,7 @@ static AnyVal hval_str(Hermes& doc, std::string_view s) {
     auto* as = ArenaString::create(HermesAccess::arena(doc), s).get();
     uint32_t off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(as) - HermesAccess::base(doc));
-    return AnyVal::from_offset(arena_offset_t(off));
+    return AnyVal::from_raw(static_cast<int64_t>(off));
 }
 
 // u64: store in arena with U64 tag (type_code=27); readable via get_u64().
@@ -84,7 +84,7 @@ static void array_push(Hermes& doc, uint32_t a_off, AnyVal val) {
 }
 
 static AnyVal as_ptr(uint32_t off) {
-    return AnyVal::from_offset(arena_offset_t(off));
+    return AnyVal::from_raw(static_cast<int64_t>(off));
 }
 
 // ── Annotation value serializer ───────────────────────────────────────────
@@ -176,7 +176,7 @@ static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir:
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
 
     // Compact the document
-    auto packed = clone(doc).get();
+    auto packed = compactify(doc).get();
     auto& arena = HermesAccess::arena(packed);
     const uint8_t* data = arena.head().data();
     size_t used = arena.total_used();
@@ -207,7 +207,7 @@ static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir
     if (td.type_code != 0)
         map_put(doc, root, "type_code", hval_u64(doc, td.type_code));
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
-    auto packed = clone(doc).get();
+    auto packed = compactify(doc).get();
     auto& arena = HermesAccess::arena(packed);
     const uint8_t* data = arena.head().data();
     size_t used = arena.total_used();

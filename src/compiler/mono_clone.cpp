@@ -4503,7 +4503,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
         if (resolved.ok()) {
             src_arena_ = &resolved.mem->arena();
             src_body = lir_view::BlockRef(
-                src_arena_, resolved.offset,
+                src_arena_, resolved.offset(),
                 fn.body_external_ref.arena_id());
         }
     }

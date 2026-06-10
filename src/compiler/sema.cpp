@@ -88,17 +88,14 @@ public:
     }
 
     TypePoolImpl(logos::InitTag& tag) {
-        // MemHolder is heap-only (private dtor), so allocate directly and
-        // release via ref/unref on failure.
-        holder_ = new hermes2::MemHolder(
-            tag, 64 * 1024, hermes2::ArenaMode::GrowableSingleChunk);
-        if (!tag.ok()) {
-            holder_->ref();
-            holder_->unref();
-            holder_ = nullptr;
+        // hermes2 MemHolder::make returns a holder with refcount 1 (owning); the
+        // GrowableSingleChunk arena is the mirror/TypePool's single segment.
+        auto h = hermes2::MemHolder::make(64 * 1024, hermes2::ArenaMode::GrowableSingleChunk);
+        if (!h) {
+            tag.fail(std::move(h.error()));
             return;
         }
-        holder_->ref();  // initial owning reference
+        holder_ = *h;  // initial owning reference (refcount 1)
         // Reserve offset 0 for the DocumentHeader so a zero offset reads as
         // the canonical "null" sentinel for AnyVal / RelativePtr.
         auto hdr_exp = arena().allocate_raw(sizeof(hermes2::DocumentHeader),
@@ -108,7 +105,7 @@ public:
             return;
         }
         auto* hdr = static_cast<hermes2::DocumentHeader*>(*hdr_exp);
-        hdr->root_offset = hermes2::NULL_OFFSET;
+        hdr->root = hermes2::AnyVal{};
     }
 
     ~TypePoolImpl() {
@@ -1146,7 +1143,7 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // same arena. This branch covers ~100% of current single-arena work.
     if (!hermes2::is_external_ref_av(av)) [[likely]] {
         if (self.pool()) {
-            return self.pool()->ref(av.to_offset());
+            return self.pool()->ref(av.to_offset(self.mirror_base()));
         }
         // Self is already cross-arena (pool=nullptr). Chain into the same
         // foreign arena: same arena bytes, same arena_id, no local pool.
@@ -1161,10 +1158,10 @@ TypeRef ptr_via_mirror(const TypeRef& self, sema_schema::Key key) {
     // gets read-only access; further pool-dependent accessors degrade
     // gracefully (return null StringView etc.).
     auto* ref = reinterpret_cast<const hermes2::ExternalRef*>(
-        self.mirror_base() + av.to_offset().value());
+        av.resolve());
     auto r = hermes2::resolve_external_ref(*ref);
     if (!r.ok()) return {};
-    return TypeRef(&r.mem->arena(), r.offset, /*pool=*/nullptr, ref->arena_id());
+    return TypeRef(&r.mem->arena(), r.offset(), /*pool=*/nullptr, ref->arena_id());
 }
 
 }  // namespace
@@ -1228,7 +1225,7 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<hermes2::ObjectArray*>(arr)->get(i);
         if (self.pool()) {
-            result.push_back(self.pool()->ref(e.to_offset()));
+            result.push_back(self.pool()->ref(e.to_offset(self.mirror_base())));
         } else {
             result.push_back(TypeRef(self.arena(), e,
                                      /*pool=*/nullptr, self.arena_id()));

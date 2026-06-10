@@ -44,6 +44,7 @@ inline constexpr uint64_t HermesString  = tc::STRING;     // 130 (Hermes1 used 2
 inline constexpr uint64_t Bool          = tc::HA_BOOL;    // 2   (Hermes1 used 37)
 inline constexpr uint64_t TinyObjectMap = tc::TINYMAP;    // 98
 inline constexpr uint64_t Array         = tc::ARRAY;      // 100
+inline constexpr uint64_t ObjectMap     = tc::MAP;        // 101
 inline constexpr uint64_t Type          = 107;            // schema_type_code value (verbatim)
 inline constexpr uint64_t U24           = tc::HT_U24;     // 25
 inline constexpr uint64_t MapI32AnyVal  = tc::MAP_I32;
@@ -61,6 +62,12 @@ inline constexpr uint64_t ArrayI64      = tc::ARRAY_I64;
 inline constexpr uint64_t ArrayF32      = tc::ARRAY_F32;
 inline constexpr uint64_t ArrayF64      = tc::ARRAY_F64;
 }  // namespace type_hash
+
+// Reflection param slot (ported from Hermes1 clone.hpp).
+struct ParamSlot {
+    uint32_t offset;
+    uint32_t value_index;
+};
 
 // Hermes1's type-ops registry init — hermes2 has no per-type ops vtable (clone/
 // stringify dispatch directly on the TypeTag), so this is a no-op.

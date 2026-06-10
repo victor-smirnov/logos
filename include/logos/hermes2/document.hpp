@@ -49,6 +49,16 @@ public:
         return HermesCtr(h, hdr);
     }
 
+    // Wrap an EXISTING holder as a shared-owning doc handle (the Hermes1
+    // `HermesView(holder)` / `Hermes(holder)` spelling): takes a +1 ref, so the
+    // holder outlives this handle; the header is at offset 0. Used by emit_module /
+    // reflection to read/extend a holder owned elsewhere (e.g. prog.type_pool).
+    explicit HermesCtr(MemHolder* h) noexcept
+        : holder_(h),
+          header_(h ? reinterpret_cast<DocumentHeader*>(h->arena().head().data()) : nullptr) {
+        if (holder_) holder_->ref();
+    }
+
     HermesCtr(HermesCtr&& o) noexcept : holder_(o.holder_), header_(o.header_) {
         o.holder_ = nullptr; o.header_ = nullptr;
     }

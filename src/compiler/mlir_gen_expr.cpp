@@ -5576,10 +5576,6 @@ using logos::hermes2::Arena;
 using logos::hermes2::ArenaMode;
 using logos::hermes2::ArenaString;
 using logos::hermes2::HermesAccess;
-using logos::hermes2::type_hash::MapI32AnyVal;
-using logos::hermes2::type_hash::MapU32AnyVal;
-using logos::hermes2::type_hash::MapI64AnyVal;
-using logos::hermes2::type_hash::MapU64AnyVal;
 using logos::hermes2::ObjectArray;
 using logos::hermes2::ObjectMap;
 using logos::hermes2::TypedArray;
@@ -5602,7 +5598,7 @@ static uint32_t ptr_anyval_raw(const void* obj, logos::hermes2::Hermes& doc) {
     const uint8_t* base = HermesAccess::base(doc);
     uint32_t off = static_cast<uint32_t>(
         static_cast<const uint8_t*>(obj) - base);
-    return AnyVal::from_offset(arena_offset_t(off)).raw();
+    return off;
 }
 
 static uint32_t build_object_array(lir_view::HVArrayView arr,
@@ -5619,7 +5615,7 @@ static uint32_t build_object_array(lir_view::HVArrayView arr,
         cur->push_back(AnyVal::from_raw(elem_raw),
                        HermesAccess::arena(doc)).get();
     }
-    return AnyVal::from_offset(arena_offset_t(a_off)).raw();
+    return a_off;
 }
 
 template <typename T>
@@ -5640,7 +5636,7 @@ static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
             HermesAccess::base(doc) + a_off);
         cur->push_back(val, HermesAccess::arena(doc)).get();
     }
-    return AnyVal::from_offset(arena_offset_t(a_off)).raw();
+    return a_off;
 }
 
 static uint32_t build_array(lir_view::HVArrayView arr,
@@ -5677,7 +5673,7 @@ static uint32_t build_object_map(lir_view::HVMapView map,
         cur->put(key_str, AnyVal::from_raw(val_raw),
                  HermesAccess::arena(doc)).get();
     }
-    return AnyVal::from_offset(arena_offset_t(m_off)).raw();
+    return m_off;
 }
 
 template <typename Map, typename K>
@@ -5695,16 +5691,16 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
             HermesAccess::base(doc) + m_off);
         cur->put(key, AnyVal::from_raw(val_raw), HermesAccess::base(doc));
     }
-    return AnyVal::from_offset(arena_offset_t(m_off)).raw();
+    return m_off;
 }
 
 static uint32_t build_map(lir_view::HVMapView map,
                           logos::hermes2::Hermes& doc) {
     auto kt = map.key_type();
-    if (kt == "I32") return build_typed_map_anyval<MapI32AnyVal, int32_t>(map, doc);
-    if (kt == "U32") return build_typed_map_anyval<MapU32AnyVal, uint32_t>(map, doc);
-    if (kt == "I64") return build_typed_map_anyval<MapI64AnyVal, int64_t>(map, doc);
-    if (kt == "U64") return build_typed_map_anyval<MapU64AnyVal, uint64_t>(map, doc);
+    if (kt == "I32") return build_typed_map_anyval<logos::hermes2::TypedMap<int32_t>, int32_t>(map, doc);
+    if (kt == "U32") return build_typed_map_anyval<logos::hermes2::TypedMap<uint32_t>, uint32_t>(map, doc);
+    if (kt == "I64") return build_typed_map_anyval<logos::hermes2::TypedMap<int64_t>, int64_t>(map, doc);
+    if (kt == "U64") return build_typed_map_anyval<logos::hermes2::TypedMap<uint64_t>, uint64_t>(map, doc);
     return build_object_map(map, doc);
 }
 
@@ -5760,7 +5756,7 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
         AnyVal kind_av = AnyVal::from_value<uint32_t>(tv.kind());
         AnyVal uid_av  = anyval_put<uint64_t>(arena, tv.uid()).get();
         auto*  s       = ArenaString::create(arena, std::string(tv.name())).get();
-        AnyVal name_av = AnyVal::from_offset(arena_offset_t(static_cast<uint32_t>(
+        AnyVal name_av = AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(static_cast<uint32_t>(
             reinterpret_cast<uint8_t*>(s) - HermesAccess::base(doc))));
 
         auto* cur = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
@@ -5773,7 +5769,7 @@ static uint32_t build_hermes_val(lir_view::HermesValRef v,
             HermesAccess::base(doc) + m_off);
         cur->put(2, name_av, arena).get();
 
-        return AnyVal::from_offset(arena_offset_t(m_off)).raw();
+        return m_off;
     }
     }
     return 0;
@@ -5793,7 +5789,7 @@ static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
     HermesAccess::set_root_offset(doc, arena_offset_t(root_raw));
 
     std::vector<logos::hermes2::ParamSlot> params;
-    auto packed = logos::hermes2::clone(doc, &params).get();
+    auto packed = logos::hermes2::compactify(doc).get();
 
     auto& packed_arena = HermesAccess::arena(packed);
     const uint8_t* data = packed_arena.head().data();
