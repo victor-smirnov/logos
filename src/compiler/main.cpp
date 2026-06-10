@@ -2175,6 +2175,14 @@ int run_metaprog_dispatch(
     g_filenames     = &filenames;
     g_from_binary   = &from_binary;
     g_user_root_idx = entry_ast_idx;
+    // logos_emit_source()/_blob() push NEW asts onto this vector from INSIDE a
+    // metaprog handler running mid-sema_lower — which holds a `Hermes&` into `asts`.
+    // A vector realloc there moves that element (Hermes move nulls the source), so the
+    // in-flight reference would see a moved-from doc (holder_=header_=0). Reserve up
+    // front (no reference held yet) so emit-driven growth never reallocs. (Hermes1's
+    // copyable handle masked this; hermes2's move-on-realloc exposes it.)
+    asts.reserve(asts.size() + 65536);
+    filenames.reserve(filenames.size() + 65536);
     // Provenance vector: caller-provided when --dump-metaprog is on
     // (so they can read it post-dispatch); otherwise local & discarded.
     std::vector<std::optional<EmitProvenance>> local_provenance;

@@ -39,9 +39,10 @@ namespace {
 
 static AnyVal hval_str(Hermes& doc, std::string_view s) {
     auto* as = ArenaString::create(HermesAccess::arena(doc), s).get();
-    uint32_t off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(as) - HermesAccess::base(doc));
-    return AnyVal::from_raw(static_cast<int64_t>(off));
+    // Hermes2 AnyVal is SELF-relative: build the Ref via set_ref(absolute ptr), NOT
+    // from_raw(offset) (the Hermes1 base-relative convention — resolve() would then be
+    // &slot+offset = garbage). The returned temporary re-anchors when stored.
+    AnyVal r; r.set_ref(as); return r;
 }
 
 // u64: store in arena with U64 tag (type_code=27); readable via get_u64().
@@ -83,8 +84,10 @@ static void array_push(Hermes& doc, uint32_t a_off, AnyVal val) {
     a->push_back(val, HermesAccess::arena(doc)).get();
 }
 
-static AnyVal as_ptr(uint32_t off) {
-    return AnyVal::from_raw(static_cast<int64_t>(off));
+// Self-relative Ref to an in-arena object at byte offset `off` (the arena is a
+// single segment, so base(doc)+off is the absolute address). NOT from_raw(off).
+static AnyVal as_ptr(Hermes& doc, uint32_t off) {
+    AnyVal r; r.set_ref(HermesAccess::base(doc) + off); return r;
 }
 
 // ── Annotation value serializer ───────────────────────────────────────────
@@ -101,7 +104,7 @@ static AnyVal annot_val_to_hval(Hermes& doc, const lir::LAnnotationValue& v) {
         uint32_t arr = begin_array(doc);
         for (auto& item : v.arr)
             array_push(doc, arr, annot_val_to_hval(doc, item));
-        return as_ptr(arr);
+        return as_ptr(doc, arr);
     }
     }
     return AnyVal{};
@@ -115,7 +118,7 @@ static AnyVal build_annotation_map(Hermes& doc, const lir::LAnnotationInstance& 
     map_put(doc, m, "type", hval_str(doc, type_key));
     for (auto& [k, v] : inst.kv)
         map_put(doc, m, k, annot_val_to_hval(doc, v));
-    return as_ptr(m);
+    return as_ptr(doc, m);
 }
 
 // ── Build one field entry ─────────────────────────────────────────────────
@@ -144,7 +147,7 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
     map_put(doc, m, "type_name", hval_str(doc, type_name_of(f.type)));
     map_put(doc, m, "offset",    hval_u64(doc, 0));  // layout not yet computed at LIR stage
     map_put(doc, m, "size",      hval_u64(doc, 0));
-    return as_ptr(m);
+    return as_ptr(doc, m);
 }
 
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
@@ -165,13 +168,13 @@ static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir:
     uint32_t fields_arr = begin_array(doc);
     for (auto& f : sd.fields)
         array_push(doc, fields_arr, build_field_map(doc, f));
-    map_put(doc, root, "fields", as_ptr(fields_arr));
+    map_put(doc, root, "fields", as_ptr(doc, fields_arr));
 
     // Annotations array
     uint32_t annots_arr = begin_array(doc);
     for (auto& inst : sd.annotations)
         array_push(doc, annots_arr, build_annotation_map(doc, inst));
-    map_put(doc, root, "annotations", as_ptr(annots_arr));
+    map_put(doc, root, "annotations", as_ptr(doc, annots_arr));
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root));
 
