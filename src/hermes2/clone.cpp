@@ -7,10 +7,38 @@
 #include <logos/hermes2/object_array.hpp>
 #include <logos/hermes2/object_map.hpp>
 #include <logos/hermes2/tiny_object_map.hpp>
+#include <logos/hermes2/typed_array.hpp>
+#include <logos/hermes2/map.hpp>
+#include <logos/hermes2/compound_types.hpp>
 
 #include <cstring>
 
 namespace logos::hermes2 {
+
+// Clone a typed primitive array (plain elements — no Ref recursion).
+template <typename T>
+static void* clone_typed_array(const uint8_t* src_obj, DeepCopyState& dedup) noexcept {
+    auto* s = reinterpret_cast<const TypedArray<T>*>(src_obj);
+    uint64_t n = s->size();
+    auto r = TypedArray<T>::create(dedup.arena(), n ? n : 1);
+    if (!r) return nullptr;
+    TypedArray<T>* d = *r;
+    dedup.map(src_obj, d);
+    for (uint64_t i = 0; i < n; ++i) (void)d->push_back(s->get(i), dedup.arena());
+    return d;
+}
+
+// Clone a dense int-keyed map (plain keys, Ref-recursed values).
+template <typename K>
+static void* clone_typed_map(const uint8_t* src_obj, DeepCopyState& dedup) noexcept {
+    auto* s = reinterpret_cast<const TypedMap<K>*>(src_obj);
+    auto r = TypedMap<K>::create(dedup.arena(), s->capacity() ? s->capacity() : 1);
+    if (!r) return nullptr;
+    TypedMap<K>* d = *r;
+    dedup.map(src_obj, d);
+    s->for_each([&](K key, AnyVal val) { d->put(key, deep_copy_anyval(val, dedup)); });
+    return d;
+}
 
 AnyVal deep_copy_anyval(AnyVal src_av, DeepCopyState& dedup) noexcept {
     if (src_av.is_null()) return AnyVal::null();
@@ -74,10 +102,56 @@ void* deep_copy_object(const uint8_t* src_obj, DeepCopyState& dedup) noexcept {
         dedup.map(src_obj, *a);
         return *a;
     }
+    // Decimal — fixed POD leaf, no Refs → verbatim copy.
+    case tc::DECIMAL: {
+        auto a = dst.allocate(sizeof(Decimal), alignof(Decimal), TypeTag{code});
+        if (!a) return nullptr;
+        std::memcpy(*a, src_obj, sizeof(Decimal));
+        dedup.map(src_obj, *a);
+        return *a;
+    }
+    // TypedValue / Parameter — fixed objects of at-rest AnyVal words → recurse each.
+    case tc::TYPEDVALUE: {
+        auto* s = reinterpret_cast<const TypedValue*>(src_obj);
+        AnyVal tn = s->type_name, pa = s->params, in = s->init;   // by-value re-anchor
+        auto r = TypedValue::create(dst, AnyVal::null(), AnyVal::null(), AnyVal::null());
+        if (!r) return nullptr;
+        TypedValue* d = *r;
+        dedup.map(src_obj, d);
+        d->type_name = deep_copy_anyval(tn, dedup);
+        d->params    = deep_copy_anyval(pa, dedup);
+        d->init      = deep_copy_anyval(in, dedup);
+        return d;
+    }
+    case tc::PARAMETER: {
+        auto* s = reinterpret_cast<const Parameter*>(src_obj);
+        AnyVal nm = s->name, vl = s->value;
+        auto r = Parameter::create(dst, AnyVal::null(), AnyVal::null());
+        if (!r) return nullptr;
+        Parameter* d = *r;
+        dedup.map(src_obj, d);
+        d->name  = deep_copy_anyval(nm, dedup);
+        d->value = deep_copy_anyval(vl, dedup);
+        return d;
+    }
+    // Typed primitive arrays (ArrayU8..ArrayF64) — plain elements.
+    case tc::ARRAY_U8:  return clone_typed_array<uint8_t>(src_obj, dedup);
+    case tc::ARRAY_U16: return clone_typed_array<uint16_t>(src_obj, dedup);
+    case tc::ARRAY_U32: return clone_typed_array<uint32_t>(src_obj, dedup);
+    case tc::ARRAY_U64: return clone_typed_array<uint64_t>(src_obj, dedup);
+    case tc::ARRAY_I8:  return clone_typed_array<int8_t>(src_obj, dedup);
+    case tc::ARRAY_I16: return clone_typed_array<int16_t>(src_obj, dedup);
+    case tc::ARRAY_I32: return clone_typed_array<int32_t>(src_obj, dedup);
+    case tc::ARRAY_I64: return clone_typed_array<int64_t>(src_obj, dedup);
+    case tc::ARRAY_F32: return clone_typed_array<float>(src_obj, dedup);
+    case tc::ARRAY_F64: return clone_typed_array<double>(src_obj, dedup);
+    // Dense int-keyed maps (MapI32..MapU64).
+    case tc::MAP_I32: return clone_typed_map<int32_t>(src_obj, dedup);
+    case tc::MAP_U32: return clone_typed_map<uint32_t>(src_obj, dedup);
+    case tc::MAP_I64: return clone_typed_map<int64_t>(src_obj, dedup);
+    case tc::MAP_U64: return clone_typed_map<uint64_t>(src_obj, dedup);
     default:
-        // TODO: TypedArray<T> (2101-2110), TypedMap<K> (3101-3104), Decimal (102),
-        // TypedValue (4115), Parameter (127) — added when those C++ types land.
-        return nullptr;
+        return nullptr;   // unknown tag — caller treats a null dst as a copy failure
     }
 }
 

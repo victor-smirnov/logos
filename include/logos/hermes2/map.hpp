@@ -45,6 +45,14 @@ public:
         return AnyVal{};
     }
 
+    // Visit every entry as fn(K key, AnyVal val).
+    template <typename F>
+    void for_each(F&& fn) const {
+        const K* ks = keys_.get();
+        AnyVal* vs = vals_.get();
+        for (int64_t i = 0; i < size_; ++i) fn(ks[i], vs[i]);
+    }
+
     // Insert or update. A new key into a full map is a no-op (fixed capacity).
     void put(K key, AnyVal value) noexcept {
         K* ks = keys_.get();
