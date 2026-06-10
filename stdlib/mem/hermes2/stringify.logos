@@ -66,7 +66,63 @@ unsafe fn write_val(out: &mut String, v: HAny) {
         out.push_u8(125u8);                // }
         return;
     }
+    // Typed dense arrays (ArrayU8..ArrayF64 = 2101..2110): `<Type> [e, e, ...]`.
+    if v.is_ref() {
+        let p: *const u8 = v.resolve();
+        let tcv: u64 = h2_type_code(p);
+        if tcv >= 2101u64 && tcv <= 2110u64 {
+            write_typed_array(out, p, tcv);
+            return;
+        }
+    }
     out.push_u8(63u8);                      // ? — unknown tag
+}
+
+// Element byte-width per typed-array code.
+unsafe fn typed_elem_width(tc: u64) -> i64 {
+    if tc == 2101u64 || tc == 2105u64 { return 1i64; }                  // U8 / I8
+    if tc == 2102u64 || tc == 2106u64 { return 2i64; }                  // U16 / I16
+    if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { return 4i64; } // U32 / I32 / F32
+    return 8i64;                                                        // U64 / I64 / F64
+}
+
+// Render a TypedArray<T> blob: size_(u64@0) capacity_(u64@8) data_(RelativePtr@16,
+// resolves (&data_)+offset). `<Type> [e0, e1, ...]`.
+unsafe fn write_typed_array(out: &mut String, p: *const u8, tc: u64) {
+    let size: u64 = *(p as *const u64);
+    let dfield: i64 = (p as i64) + 16i64;                  // &data_
+    let elems: i64 = dfield + *(dfield as *const i64);     // RelativePtr: (&this)+offset
+    out.push_u8(60u8);                                     // <
+    if      tc == 2101u64 { out.push_str("U8"); }
+    else if tc == 2102u64 { out.push_str("U16"); }
+    else if tc == 2103u64 { out.push_str("U32"); }
+    else if tc == 2104u64 { out.push_str("U64"); }
+    else if tc == 2105u64 { out.push_str("I8"); }
+    else if tc == 2106u64 { out.push_str("I16"); }
+    else if tc == 2107u64 { out.push_str("I32"); }
+    else if tc == 2108u64 { out.push_str("I64"); }
+    else if tc == 2109u64 { out.push_str("F32"); }
+    else                  { out.push_str("F64"); }
+    out.push_u8(62u8); out.push_u8(32u8);                  // > (space)
+    out.push_u8(91u8);                                     // [
+    let w: i64 = typed_elem_width(tc);
+    let mut i: u64 = 0u64;
+    while i < size {
+        if i > 0u64 { out.push_str(", "); }
+        let off: i64 = elems + (i as i64) * w;
+        if      tc == 2110u64 { let e: f64 = *(off as *const f64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2109u64 { let e: f32 = *(off as *const f32); out.push_str((e as f64).to_string().as_str()); }
+        else if tc == 2104u64 { let e: u64 = *(off as *const u64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2103u64 { let e: u32 = *(off as *const u32); out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2102u64 { let e: u16 = *(off as *const u16); out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2101u64 { let e: u8  = *(off as *const u8);  out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2108u64 { let e: i64 = *(off as *const i64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2107u64 { let e: i32 = *(off as *const i32); out.push_str((e as i64).to_string().as_str()); }
+        else if tc == 2106u64 { let e: i16 = *(off as *const i16); out.push_str((e as i64).to_string().as_str()); }
+        else                  { let e: i8  = *(off as *const i8);  out.push_str((e as i64).to_string().as_str()); }
+        i = i + 1u64;
+    }
+    out.push_u8(93u8);                                     // ]
 }
 
 // Render `v` (and its transitive references) to a fresh String.

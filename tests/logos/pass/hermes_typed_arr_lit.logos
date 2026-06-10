@@ -9,7 +9,9 @@ package hermes_typed_arr_lit;
 
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
-use logos.mem.hermes.stringify;
+use logos.mem.hermes2.stringify;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
@@ -17,7 +19,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }
@@ -25,9 +27,9 @@ unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
 pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
-    // 1. @<I32>[10, 20, 30] → Array<i32> (tc=104) → "<I32> [10,20,30]"
+    // 1. @<I32>[10, 20, 30] → Array<i32> (tc=104) → "<I32> [10, 20, 30]"
     let lit1: HermesStatic = @<I32>[10, 20, 30];
-    rc = check(&lit1, "<I32> [10,20,30]", 1);
+    rc = check(&lit1, "<I32> [10, 20, 30]", 1);
     if rc != 0 { return rc; }
 
     // 2. @<I32>[] — empty typed array
@@ -35,9 +37,9 @@ pub unsafe fn main() -> i32 {
     rc = check(&lit2, "<I32> []", 2);
     if rc != 0 { return rc; }
 
-    // 3. @<U64>[1, 2, 3, 4, 5] → Array<u64> (tc=108) → "<U64> [1,2,3,4,5]"
+    // 3. @<U64>[1, 2, 3, 4, 5] → Array<u64> (tc=108) → "<U64> [1, 2, 3, 4, 5]"
     let lit3: HermesStatic = @<U64>[1, 2, 3, 4, 5];
-    rc = check(&lit3, "<U64> [1,2,3,4,5]", 3);
+    rc = check(&lit3, "<U64> [1, 2, 3, 4, 5]", 3);
     if rc != 0 { return rc; }
 
     // 4. @<U64>[] — empty u64 array
@@ -47,7 +49,7 @@ pub unsafe fn main() -> i32 {
 
     // 5. Negative i32 values
     let lit5: HermesStatic = @<I32>[-1, 0, 1];
-    rc = check(&lit5, "<I32> [-1,0,1]", 5);
+    rc = check(&lit5, "<I32> [-1, 0, 1]", 5);
     if rc != 0 { return rc; }
 
     return 0;
