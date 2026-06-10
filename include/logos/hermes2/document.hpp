@@ -156,11 +156,18 @@ inline DocumentHeader* doc_header(MemHolder* h) noexcept {
     return reinterpret_cast<DocumentHeader*>(h->arena().head().data());
 }
 
-// Hermes1-spelling factory. The logosc producer (parser) builds into a NEVER-MOVE
-// MultiChunk arena so the absolute object pointers it holds across allocations stay
-// valid (self-relative storage + realloc would dangle them — see the cut-over notes).
+// Hermes1-spelling factory for the logosc producer (parser/quote/reflection). The doc
+// is a PRE-SIZED GrowableSingleChunk: the metaprog code addresses the AST by raw
+// `base + offset` (e.g. lower_quote_item's walkers), which REQUIRES one contiguous
+// chunk; and a never-move single segment also keeps the parser's held node/view ptrs
+// valid (a realloc would both scatter the base+offset model AND dangle them). Lazy
+// zero (arena.cpp) keeps RSS to touched pages, so the big reserve is cheap. The reserve
+// is sized so realistic module ASTs never realloc; a genuinely larger AST still grows
+// (rare) — bump PRESIZE if a real module exceeds it.
 [[nodiscard]] inline logos::expected<HermesCtr>
-make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::MultiChunk) noexcept {
+make_doc(size_t capacity = 65536, ArenaMode mode = ArenaMode::GrowableSingleChunk) noexcept {
+    constexpr size_t PRESIZE = size_t(64) * 1024 * 1024;   // 64 MiB lazy reserve
+    if (mode == ArenaMode::GrowableSingleChunk && capacity < PRESIZE) capacity = PRESIZE;
     return HermesCtr::make(capacity, mode);
 }
 

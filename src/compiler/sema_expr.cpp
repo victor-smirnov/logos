@@ -14665,7 +14665,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 if (tom->has_key(la::VALUE.code)) {
                     AnyVal vav = tom->get(la::VALUE.code);
                     if (vav.is_pointer())
-                        walk_dst(static_cast<uint32_t>(vav.to_offset(src_base).value()));
+                        walk_dst(static_cast<uint32_t>(vav.to_offset(dbase).value()));
                 }
                 --qi_repeat_depth_dst;
                 return;
