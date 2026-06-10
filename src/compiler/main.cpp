@@ -1490,10 +1490,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     continue;
                 }
                 uint32_t no = copy_node_raw(sb,
-                    static_cast<uint32_t>(el.to_offset(src_base).value()));
+                    static_cast<uint32_t>(el.to_offset(sb).value()));
                 if (no == 0) return 0;
                 (void)dst_arr()->push_back(
-                    AnyVal::from_offset(src_base, arena_offset_t(no)),
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(no)),
                     dst_arena);
             }
             return dst_off;
@@ -1522,10 +1522,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 continue;
             }
             uint32_t no = copy_node_raw(sb,
-                static_cast<uint32_t>(av.to_offset(src_base).value()));
+                static_cast<uint32_t>(av.to_offset(sb).value()));
             if (no == 0) return 0;
             (void)dst_tom()->put(k,
-                AnyVal::from_offset(src_base, arena_offset_t(no)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(no)), dst_arena);
         }
         return dst_off;
     };
@@ -1562,11 +1562,11 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 reinterpret_cast<uint8_t*>(op_e.get())
                 - HermesAccess::base(dst_doc));
             (void)bin()->put(la::OP.code,
-                AnyVal::from_offset(src_base, arena_offset_t(op_off)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(op_off)), dst_arena);
             (void)bin()->put(la::LHS.code,
-                AnyVal::from_offset(src_base, arena_offset_t(acc)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(acc)), dst_arena);
             (void)bin()->put(la::RHS.code,
-                AnyVal::from_offset(src_base, arena_offset_t(rhs)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(rhs)), dst_arena);
             bin()->set_schema_type_code(
                 logos::hermes2::schema::ast(la::BINOP.code));
             acc = bin_off;
@@ -1719,7 +1719,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             (void)dst_tom()->put(la::CODE.code,
                 AnyVal::from_value<int32_t>(la::VAR_REF.code), dst_arena);
             (void)dst_tom()->put(la::NAME.code,
-                AnyVal::from_offset(src_base, arena_offset_t(name_off)), dst_arena);
+                AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(name_off)), dst_arena);
             // Copy SRC_LINE if present so error messages keep line info.
             if (src_tom->has_key(la::SRC_LINE.code)) {
                 AnyVal lav = src_tom->get(la::SRC_LINE.code,
@@ -1764,7 +1764,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint8_t out_key = (cd == la::FIELD_READ.code)
                     ? la::FIELD.code : la::NAME.code;
                 (void)dst_tom()->put(out_key,
-                    AnyVal::from_offset(src_base, arena_offset_t(name_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(name_off)), dst_arena);
                 continue;
             }
             if (av.is_null()) {
@@ -1790,17 +1790,17 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                     reinterpret_cast<uint8_t*>(se.get())
                     - HermesAccess::base(dst_doc));
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(src_base, arena_offset_t(s_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(s_off)), dst_arena);
             } else if (tc == 100) {
                 uint32_t new_off = copy_array(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(src_base, arena_offset_t(new_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(new_off)), dst_arena);
             } else {
                 uint32_t new_off = copy_expr(child_off);
                 if (new_off == 0) return 0;
                 (void)dst_tom()->put(k,
-                    AnyVal::from_offset(src_base, arena_offset_t(new_off)), dst_arena);
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(new_off)), dst_arena);
             }
         }
         return dst_off;
@@ -1872,7 +1872,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         return 0;
                     }
                     (void)dst_arr()->push_back(
-                        AnyVal::from_offset(src_base, arena_offset_t(copy_off)),
+                        AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(copy_off)),
                         dst_arena);
                 }
                 cursor_i = saved;
@@ -1880,7 +1880,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                 uint32_t copy_off = copy_expr(el_off);
                 if (copy_off == 0) return 0;
                 (void)dst_arr()->push_back(
-                    AnyVal::from_offset(src_base, arena_offset_t(copy_off)),
+                    AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(copy_off)),
                     dst_arena);
             }
         }
