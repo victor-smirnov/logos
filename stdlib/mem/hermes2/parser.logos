@@ -16,7 +16,8 @@
 
 package logos.mem.hermes2.parser;
 
-use logos.lang.hermes2.container;   // Hermes2
+use logos.lang.hermes2.allocator;   // Allocator
+use logos.lang.hermes2.container;   // Hermes2, alloc_tagged, hermes2_alloc_bytes
 use logos.lang.hermes2.anyval;      // HAny, HA_I56
 use logos.lang.hermes2.array;       // HArray<HVal>
 use logos.lang.hermes2.hmap;        // HMap<HString, HVal>
@@ -59,6 +60,18 @@ unsafe fn parse_str_raw(p: *mut P) -> String {
     return s;
 }
 
+// Read a bare identifier (object key without quotes) into a fresh String.
+unsafe fn parse_ident_raw(p: *mut P) -> String {
+    let mut s: String = String::new();
+    let mut c: u8 = peek(p);
+    while (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8)
+       || (c >= 48u8 && c <= 57u8) || c == 95u8 {
+        s.push_u8(advance(p));
+        c = peek(p);
+    }
+    return s;
+}
+
 // Parse a number token. Integers (possibly wide) → `h.int`; anything with a
 // fractional '.' or exponent 'e'/'E' → f64 via `h.float`.
 unsafe fn parse_number(h: &Hermes2, p: *mut P) -> HAny {
@@ -82,9 +95,155 @@ unsafe fn parse_number(h: &Hermes2, p: *mut P) -> HAny {
     return h.int(if neg { 0i64 - iv } else { iv });
 }
 
+// Match a keyword at the cursor; advances past it when it matches.
+unsafe fn kw(p: *mut P, s: str) -> bool {
+    let n: i64 = s.len();
+    if (*p).pos + n > (*p).len { return false; }
+    let mut i: i64 = 0i64;
+    while i < n {
+        if *(*p).data.byte_add((*p).pos + i) != *((s.as_ptr() as i64 + i) as *const u8) { return false; }
+        i = i + 1i64;
+    }
+    (*p).pos = (*p).pos + n;
+    return true;
+}
+
+// `<T>[e,...]` typed dense array / `<K[,AnyVal]>{k: v,...}` typed dense map.
+unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
+    advance(p);                                   // '<'
+    skip_ws(p);
+    let tc: u64 =
+        if kw(p, "I16") { 2106u64 } else if kw(p, "U16") { 2102u64 }
+        else if kw(p, "I32") { 2107u64 } else if kw(p, "U32") { 2103u64 }
+        else if kw(p, "I64") { 2108u64 } else if kw(p, "U64") { 2104u64 }
+        else if kw(p, "I8") { 2105u64 } else if kw(p, "U8") { 2101u64 }
+        else if kw(p, "F32") { 2109u64 } else if kw(p, "F64") { 2110u64 }
+        else { 0u64 };
+    if tc == 0u64 { return HAny::ref_to(0i64 as *const u8); }
+    skip_ws(p);
+    if peek(p) == 44u8 {                          // ',' AnyVal (map value type)
+        advance(p); skip_ws(p);
+        let _ = kw(p, "AnyVal");
+        skip_ws(p);
+    }
+    if peek(p) == 62u8 { advance(p); }            // '>'
+    skip_ws(p);
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
+
+    if peek(p) == 123u8 {                         // typed MAP
+        let mtc: u64 =
+            if tc == 2107u64 { 3101u64 } else if tc == 2103u64 { 3102u64 }
+            else if tc == 2108u64 { 3103u64 } else if tc == 2104u64 { 3104u64 } else { 0u64 };
+        advance(p);                               // '{'
+        let mut keys: [i64; 64] = [0; 64];
+        let mut vals: [i64; 64] = [0; 64];
+        let mut n: i64 = 0i64;
+        skip_ws(p);
+        if peek(p) != 125u8 {
+            let mut done: bool = false;
+            while !done {
+                skip_ws(p);
+                let neg: bool = peek(p) == 45u8;
+                if neg { advance(p); }
+                let mut kv: i64 = 0i64;
+                while is_digit(peek(p)) { kv = kv * 10i64 + ((advance(p) - 48u8) as i64); }
+                if neg { kv = 0i64 - kv; }
+                skip_ws(p);
+                if peek(p) == 58u8 { advance(p); }      // ':'
+                let v: HAny = parse_value(h, p);
+                if n < 64i64 { keys[n] = kv; vals[n] = v.raw(); n = n + 1i64; }
+                skip_ws(p);
+                if peek(p) == 44u8 { advance(p); } else { done = true; }
+            }
+        }
+        skip_ws(p); if peek(p) == 125u8 { advance(p); } // '}'
+        if mtc == 0u64 { return HAny::ref_to(0i64 as *const u8); }
+        let kwid: i64 = if mtc == 3101u64 || mtc == 3102u64 { 4i64 } else { 8i64 };
+        let mut kbuf: i64 = 0i64;
+        let mut vbuf: i64 = 0i64;
+        if n > 0i64 {
+            kbuf = hermes2_alloc_bytes(hp, n * kwid) as i64;
+            vbuf = hermes2_alloc_bytes(hp, n * 8i64) as i64;
+            let mut i: i64 = 0i64;
+            while i < n {
+                if kwid == 4i64 { *((kbuf + i * 4i64) as *mut i32) = keys[i] as i32; }
+                else { *((kbuf + i * 8i64) as *mut i64) = keys[i]; }
+                let slot: i64 = vbuf + i * 8i64;
+                let w: i64 = vals[i];
+                if w == 0i64 || (w & 1i64) == 1i64 { *(slot as *mut i64) = w; }
+                else { *(slot as *mut i64) = w - slot; }
+                i = i + 1i64;
+            }
+        }
+        let hdr: *mut u8 = alloc_tagged(ap, 32i64, mtc);
+        *(hdr as *mut i64) = n;
+        *(((hdr as i64) + 8i64) as *mut i64) = n;
+        let kf: i64 = (hdr as i64) + 16i64;
+        let vf: i64 = (hdr as i64) + 24i64;
+        if kbuf == 0i64 { *(kf as *mut i64) = 0i64; *(vf as *mut i64) = 0i64; }
+        else { *(kf as *mut i64) = kbuf - kf; *(vf as *mut i64) = vbuf - vf; }
+        return HAny::ref_to(hdr as *const u8);
+    }
+
+    // typed ARRAY: '[' signed numerals (float for F32/F64) ']'
+    if peek(p) == 91u8 { advance(p); }            // '['
+    let mut elems: [i64; 64] = [0; 64];
+    let mut fels: [f64; 64] = [0.0; 64];
+    let mut n2: i64 = 0i64;
+    skip_ws(p);
+    if peek(p) != 93u8 {
+        let mut done: bool = false;
+        while !done {
+            skip_ws(p);
+            let neg: bool = peek(p) == 45u8;
+            if neg { advance(p); }
+            let mut iv: i64 = 0i64;
+            while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
+            let mut fv: f64 = iv as f64;
+            if peek(p) == 46u8 {
+                advance(p);
+                let mut scale: f64 = 0.1;
+                while is_digit(peek(p)) { fv = fv + ((advance(p) - 48u8) as f64) * scale; scale = scale * 0.1; }
+            }
+            if neg { iv = 0i64 - iv; fv = 0.0 - fv; }
+            if n2 < 64i64 { elems[n2] = iv; fels[n2] = fv; n2 = n2 + 1i64; }
+            skip_ws(p);
+            if peek(p) == 44u8 { advance(p); } else { done = true; }
+        }
+    }
+    skip_ws(p); if peek(p) == 93u8 { advance(p); } // ']'
+    let w2: i64 = if tc == 2101u64 || tc == 2105u64 { 1i64 }
+        else if tc == 2102u64 || tc == 2106u64 { 2i64 }
+        else if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { 4i64 }
+        else { 8i64 };
+    let mut buf: i64 = 0i64;
+    if n2 > 0i64 {
+        buf = hermes2_alloc_bytes(hp, n2 * w2) as i64;
+        let mut i: i64 = 0i64;
+        while i < n2 {
+            if tc == 2110u64      { *((buf + i * 8i64) as *mut f64) = fels[i]; }
+            else if tc == 2109u64 { *((buf + i * 4i64) as *mut f32) = fels[i] as f32; }
+            else if w2 == 1i64    { *((buf + i) as *mut u8) = elems[i] as u8; }
+            else if w2 == 2i64    { *((buf + i * 2i64) as *mut u16) = elems[i] as u16; }
+            else if w2 == 4i64    { *((buf + i * 4i64) as *mut u32) = elems[i] as u32; }
+            else                  { *((buf + i * 8i64) as *mut i64) = elems[i]; }
+            i = i + 1i64;
+        }
+    }
+    let hdr2: *mut u8 = alloc_tagged(ap, 24i64, tc);
+    *(hdr2 as *mut u64) = n2 as u64;
+    *(((hdr2 as i64) + 8i64) as *mut u64) = n2 as u64;
+    let df: i64 = (hdr2 as i64) + 16i64;
+    if buf == 0i64 { *(df as *mut i64) = 0i64; }
+    else { *(df as *mut i64) = buf - df; }
+    return HAny::ref_to(hdr2 as *const u8);
+}
+
 unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
     skip_ws(p);
     let c: u8 = peek(p);
+    if c == 60u8 { return parse_typed(h, p); }   // <  typed dense container
     if c == 123u8 {                              // {  object
         advance(p);
         let m: &mut HMap<HString, HVal> = h.map(8i64);
@@ -93,7 +252,9 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
         let mut done: bool = false;
         while !done {
             skip_ws(p);
-            let key: String = parse_str_raw(p);
+            // Key: "quoted" or a bare identifier (SDN allows {x: 55}).
+            let key: String = if peek(p) == 34u8 { parse_str_raw(p) }
+                              else { parse_ident_raw(p) };
             skip_ws(p);
             if peek(p) == 58u8 { advance(p); }   // :
             let val: HAny = parse_value(h, p);
