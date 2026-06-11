@@ -1,0 +1,53 @@
+// Compactify = clone of the live set into a right-sized container (hermes2:
+// hermes2_clone IS the compactor — dead source space is dropped by walking
+// only reachable objects). Successor of the Hermes1 compactify test.
+package hermes_compactify;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.clone;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // 1. Null root: compactify of an empty container.
+    let e: Rc<Hermes2> = hermes2_rc(4096);
+    let eh: &Hermes2 = e.deref();
+    let c1: Rc<Hermes2> = hermes2_clone(eh.root());
+    let c1h: &Hermes2 = c1.deref();
+    let t1: String = stringify(c1h.root());
+    if !t1.eq_str("null") { return 1; }
+
+    // 2. Build a container with garbage (values replaced after insert), then
+    //    compactify: the copy holds ONLY the live tree and stays equal.
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    let m: &mut HMap<HString, HVal> = h.map(8);
+    m.set("k", HAny::from(&*(h.hstring("first-dead-value") as *const HString)));
+    m.set("k", HAny::from(&*(h.hstring("live") as *const HString)));   // overwrite -> garbage
+    m.set("n", 7i64);
+    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    h.set_root(HAny::ref_to(mp as *const u8));
+
+    let packed: Rc<Hermes2> = hermes2_clone(h.root());
+    let ph: &Hermes2 = packed.deref();
+    if !hermes2_equal(h.root(), ph.root()) { return 2; }
+    let t2: String = stringify(ph.root());
+    if t2.len() != 21i64 { return 3; }   // {"k": "live", "n": 7}
+
+    // 3. Static blob roundtrip through compactify.
+    let s: HermesStatic = @{"deep": [1, {"x": true}]};
+    let base: *const u8 = s.ptr;
+    let w: i64 = *(base as *const i64);
+    let sroot: HAny = HAny::Ref((base as i64 + w) as *const u8);
+    let p3: Rc<Hermes2> = hermes2_clone(sroot);
+    let p3h: &Hermes2 = p3.deref();
+    if !hermes2_equal(sroot, p3h.root()) { return 4; }
+
+    return 0;
+}

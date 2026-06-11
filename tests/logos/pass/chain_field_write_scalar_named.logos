@@ -1,0 +1,28 @@
+// Regression: chain write through a SCALAR-REPRESENTED named mid-field.
+// `h.root.raw = v` where root: AnyVal (lowered as a bare i32, tagged with an
+// EMPTY struct_name in the LLVM struct registry). When chain_field_write was
+// retired onto the general place path, the address resolver could not descend
+// through the scalar-named field (it hit the "not a struct" path and fell back
+// to a temp copy → the write was lost). gen_recv_struct now resolves the field's
+// logical type via the LIR struct def. AnyVal is the real-world surface (hermes
+// document/map), reproduced here with a minimal #[zoned] struct.
+package test;
+
+use logos.lang.hermes.anyval;
+
+#[zoned] struct Hdr { root: AnyVal, }
+
+unsafe fn set_via_chain(h: *mut Hdr, v: AnyVal) {
+    h.root.raw = v.raw;          // 2-level chain through scalar-named AnyVal
+}
+
+unsafe fn main() -> i32 {
+    let mut a: Hdr = Hdr { root: AnyVal::null_ptr(), };
+    let p: *mut Hdr = &mut a as *mut Hdr;
+    set_via_chain(p, AnyVal::from_offset(512u32));
+    if a.root.as_offset() != 512u32 { return 1; }
+    // overwrite once more to confirm the address is stable, not a temp copy
+    set_via_chain(p, AnyVal::from_offset(256u32));
+    if a.root.as_offset() != 256u32 { return 2; }
+    return 42;
+}

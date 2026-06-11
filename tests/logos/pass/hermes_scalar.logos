@@ -1,0 +1,106 @@
+package hermes_scalar;
+// Round-trip test for zone-allocated I64/U64 scalars: build → stringify →
+// equal/hash → clone across zones.
+
+use logos.lang.hermes.zone;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.string;
+use logos.lang.hermes.typetag;
+use logos.mem.hermes.tag_system;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
+use logos.lang.hermes.objectmap;
+use logos.lang.hermes.document;
+use logos.lang.hermes.scalar;
+use logos.mem.hermes.ctr;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
+use logos.mem.hermes.clone;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // ── build a doc with a zone I64 (too big for inline Integer's 24 bits)
+    //    and a zone U64 inside a top-level map.
+    let mut d1: Hermes = Hermes::builder(8192);
+    let big_i: i64 = 9000000000 as i64;         // 9e9, beyond i24 range
+    let big_u: u64 = 18000000000 as u64;
+
+    let iv: AnyVal = d1.build_i64(big_i);
+    let uv: AnyVal = d1.build_u64(big_u);
+    if iv.is_null() { return 1; }
+    if uv.is_null() { return 2; }
+
+    // Accessor round-trip.
+    if d1.get_i64(iv) != big_i { return 3; }
+    if d1.get_u64(uv) != big_u { return 4; }
+
+    // Put them in a map so the traits exercise dispatch from containers.
+    let mut m: AnyVal = d1.build_map(4 as u32);
+    if m.is_null() { return 5; }
+    let ka: str = "a";
+    let kb: str = "b";
+    d1.map_set(m, ka, iv);
+    d1.map_set(m, kb, uv);
+    d1.set_root(m);
+
+    // Stringify — should produce {"a":9000000000,"b":18000000000} (order
+    // depends on slot hash, so we compare against a duplicate rather than a
+    // fixed string).
+    let s1: String = d1.to_string();
+    if s1.is_empty() { return 6; }
+
+    // ── build a second identical doc and verify equal + same hash.
+    let mut d2: Hermes = Hermes::builder(8192);
+    let iv2: AnyVal = d2.build_i64(big_i);
+    let uv2: AnyVal = d2.build_u64(big_u);
+    let mut m2: AnyVal = d2.build_map(4 as u32);
+    d2.map_set(m2, ka, iv2);
+    d2.map_set(m2, kb, uv2);
+    d2.set_root(m2);
+
+    let r1: AnyVal = d1.root();
+    let r2: AnyVal = d2.root();
+    let b1: *const u8 = d1.base();
+    let b2: *const u8 = d2.base();
+
+    let mut eq_ctx: EqualCtx = EqualCtx { base_self: b1, base_other: b2 };
+    if !anyval_equal(r1, r2, &mut eq_ctx) { return 7; }
+
+    let mut h1c: HashCtx = HashCtx { base: b1 };
+    let mut h2c: HashCtx = HashCtx { base: b2 };
+    if anyval_hash(r1, &mut h1c) != anyval_hash(r2, &mut h2c) { return 8; }
+
+    // ── build a third doc with a different I64 — must not equal d1.
+    let mut d3: Hermes = Hermes::builder(8192);
+    let iv3: AnyVal = d3.build_i64(big_i + 1 as i64);
+    let uv3: AnyVal = d3.build_u64(big_u);
+    let mut m3: AnyVal = d3.build_map(4 as u32);
+    d3.map_set(m3, ka, iv3);
+    d3.map_set(m3, kb, uv3);
+    d3.set_root(m3);
+    let r3: AnyVal = d3.root();
+    let b3: *const u8 = d3.base();
+    let mut eq_ctx2: EqualCtx = EqualCtx { base_self: b1, base_other: b3 };
+    if anyval_equal(r1, r3, &mut eq_ctx2) { return 9; }
+
+    // ── clone d1 into a fresh zone, compare stringify output.
+    let mut dst: Hermes = Hermes::builder(8192);
+    let mut c_ctx: CloneCtx = CloneCtx {
+        base_src: b1,
+        zone_dst: dst.zone_mut(),
+        map: 0 as *mut CloneMap,
+    };
+    let cloned: AnyVal = anyval_clone(r1, &mut c_ctx);
+    if cloned.is_null() { return 10; }
+    dst.set_root(cloned);
+
+    let s_orig:   String = d1.to_string();
+    let s_cloned: String = dst.to_string();
+    if !s_orig.eq_string(&s_cloned) { return 11; }
+
+    return 0;
+}

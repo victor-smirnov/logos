@@ -1,0 +1,83 @@
+package tag_dispatch_table;
+// Tests Layer 3: #[tag_dispatch(DataTypeTagSystem)] annotation on a trait
+// causes the compiler to populate the tier-1 dispatch table.
+//
+// We verify indirectly: the impl methods are callable normally (the table
+// is populated but calling through it requires &tagged syntax, deferred).
+// Primary check: compilation succeeds and the impls produce correct results.
+
+use logos.lang.hermes.datatag;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+// A trait annotated for tag-based dispatch.
+#[tag_dispatch(DataTypeTagSystem)]
+trait Checksum {
+    fn checksum(self: &Self) -> i32;
+}
+
+#[zoned] struct Point {
+    x: i32,
+    y: i32,
+}
+
+#[zoned] struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Checksum for Point {
+    pub fn checksum(self: &Point) -> i32 {
+        return self.x + self.y;
+    }
+}
+
+impl Checksum for Color {
+    pub fn checksum(self: &Color) -> i32 {
+        return self.r as i32 + self.g as i32 + self.b as i32 + self.a as i32;
+    }
+}
+
+unsafe fn main() -> i32 {
+    // Direct method calls (not via dispatch table — that's &tagged, deferred).
+    let p: Point = Point { x: 10, y: 32 };
+    let c: Color = Color { r: 1 as u8, g: 2 as u8, b: 3 as u8, a: 4 as u8 };
+
+    let cs_p: i32 = p.checksum();
+    if cs_p != 42 { return 1; }
+
+    let cs_c: i32 = c.checksum();
+    if cs_c != 10 { return 2; }
+
+    // Verify type_code_of returns values in the right range.
+    let code_p: u64 = type_code_of::<Point>();
+    let code_c: u64 = type_code_of::<Color>();
+    if code_p < 128 as u64 { return 3; }
+    if code_c < 128 as u64 { return 4; }
+    if code_p == code_c    { return 5; }
+
+    // Verify write_tag + read_type_code roundtrip for both codes.
+    let buf: *mut u8 = malloc(64);
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 64 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0 as u8;
+        zi = zi + 1;
+    }
+
+    let obj_p: *mut u8 = (buf as i64 + 16) as *mut u8;
+    write_tag(obj_p, code_p);
+    let read_p: u64 = read_type_code(obj_p as *const u8);
+    if read_p != code_p { free(buf); return 6; }
+
+    let obj_c: *mut u8 = (buf as i64 + 40) as *mut u8;
+    write_tag(obj_c, code_c);
+    let read_c: u64 = read_type_code(obj_c as *const u8);
+    if read_c != code_c { free(buf); return 7; }
+
+    free(buf);
+    return 0;
+}

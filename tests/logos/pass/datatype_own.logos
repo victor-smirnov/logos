@@ -1,0 +1,49 @@
+package datatype_own;
+// Phase 7: DataOwn<T> with MemHolder — reference-counted owning handle.
+
+use logos.lang.hermes.zone;
+use logos.lang.hermes.own;
+
+#[zoned] struct Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    // Create zone (holder RC = 1).
+    let mut z: Zone<Mutable> = zone_create(4096);
+
+    // Allocate a Point and wrap in DataOwn: holder RC = 2, obj RC = 1.
+    let raw: *mut u8  = zone_m_alloc_raw(&mut z, sizeof::<Point>());
+    let base_int: i64 = z.holder.base as i64;
+    let raw_int: i64  = raw as i64;
+    let offset: u32   = (raw_int - base_int) as u32;
+    let mut own1: DataOwn<Point> = dataown_create::<Point>(z.holder, offset);
+    // holder RC = 2 (zone + own1), obj RC = 1
+
+    // Initialise via mut_ptr().
+    let pw: *mut Point = own1.mut_ptr();
+    pw.x = 10;
+    pw.y = 20;
+
+    // Clone: holder RC = 3, obj RC = 2.
+    let mut own2: DataOwn<Point> = own1.clone_ref();
+    let rc2: i32 = own1.ref_count();   // 2
+
+    // Release one clone: obj RC → 1; holder RC → 2.
+    own2.release();
+    let rc1: i32 = own1.ref_count();   // 1
+
+    // Read via ptr().
+    let pr: *const Point = own1.ptr();
+    let sum: i32 = pr.x + pr.y;       // 30
+
+    // Release last own: obj RC → 0; RC cell freed; holder RC → 1.
+    own1.release();
+
+    // Release zone handle: holder RC → 0, zone buffer freed.
+    z.release();
+
+    // sum=30, rc2=2, rc1=1 → result = 30 + 2 + 1 = 33
+    return sum + rc2 + rc1;
+}

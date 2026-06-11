@@ -1,0 +1,33 @@
+package datatype_zone_ref;
+// Phase 7: DataRef<T> with MemHolder — fat zone pointer.
+// Demonstrates: zone_create → zone_alloc_typed → ptr()/mut_ptr() → release.
+
+use logos.lang.hermes.zone;
+
+#[zoned] struct Point {
+    x: i32,
+    y: i32,
+}
+
+unsafe fn main() -> i32 {
+    // Create a mutable zone (holder RC = 1).
+    let mut z: Zone<Mutable> = zone_create(4096);
+
+    // Allocate a Point in the zone; holder RC becomes 2.
+    let p: DataRef<Point> = zone_alloc_typed::<Point>(&mut z);
+
+    // Write fields via mut_ptr().
+    let pw: *mut Point = p.mut_ptr();
+    pw.x = 15;
+    pw.y = 27;
+
+    // Read back via ptr().
+    let pr: *const Point = p.ptr();
+    let result: i32 = pr.x + pr.y;
+
+    // Release the DataRef (holder RC → 1) then the Zone (holder RC → 0, freed).
+    p.release();
+    z.release();
+
+    return result;  // 42
+}

@@ -1,0 +1,84 @@
+// hermes_typed_container_clone.logos — verify clone for typed Array<i32> and
+// Map<i32,AnyVal> containers.  Exercises c_typed_array and c_map_i32_anyval
+// C++ clone handlers end-to-end.
+//
+// Note: Hermes text parser only supports <I32>[...] and <I32,AnyVal>{...}.
+// For other types, use @-literals in static tests (hermes_typed_array_all_elems).
+
+package hermes_typed_container_clone;
+
+use logos.mem.hermes.ctr;
+use logos.lang.hermes.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+pub unsafe fn main() -> i32 {
+    // ── 1. Clone Array<i32> ──────────────────────────────────────────────────
+    let mut src1: Hermes = Hermes::new(4096);
+    match src1.parse("<I32>[1,2,3]" as *const u8, 12 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 1; }
+    }
+    let dst1: Hermes = src1.clone();
+    let s1o: String = src1.to_string();
+    let s1d: String = dst1.to_string();
+    if !s1d.eq_string(&s1o) { return 2; }
+    if !s1d.eq_str("<I32> [1,2,3]") { return 3; }
+
+    // ── 2. Clone Array<i32> with more elements ────────────────────────────────
+    let mut src2: Hermes = Hermes::new(4096);
+    match src2.parse("<I32>[10,20,30,40,50]" as *const u8, 21 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 4; }
+    }
+    let dst2: Hermes = src2.clone();
+    let s2d: String = dst2.to_string();
+    if !s2d.eq_str("<I32> [10,20,30,40,50]") { return 5; }
+
+    // ── 3. Clone empty Array<i32> ────────────────────────────────────────────
+    let mut src3: Hermes = Hermes::new(4096);
+    match src3.parse("<I32>[]" as *const u8, 7 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 6; }
+    }
+    let dst3: Hermes = src3.clone();
+    let s3d: String = dst3.to_string();
+    if !s3d.eq_str("<I32> []") { return 7; }
+
+    // ── 4. Clone Map<i32,AnyVal> ─────────────────────────────────────────────
+    let mut src4: Hermes = Hermes::new(4096);
+    match src4.parse("<I32,AnyVal>{1:10,2:20}" as *const u8, 23 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 8; }
+    }
+    let dst4: Hermes = src4.clone();
+    let s4o: String = src4.to_string();
+    let s4d: String = dst4.to_string();
+    if !s4d.eq_string(&s4o) { return 9; }
+    if !s4d.eq_str("<I32,AnyVal> {1:10,2:20}") { return 10; }
+
+    // ── 5. Clone independent: mutation in src doesn't affect dst ─────────────
+    let mut src5: Hermes = Hermes::new(4096);
+    match src5.parse("<I32>[7,8,9]" as *const u8, 12 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 11; }
+    }
+    let dst5: Hermes = src5.clone();
+    // Build something in src5 to exercise the zone.
+    let _v: AnyVal = src5.build_str("mutation");
+    let s5d: String = dst5.to_string();
+    if !s5d.eq_str("<I32> [7,8,9]") { return 12; }
+
+    // ── 6. Clone Map with string values ──────────────────────────────────────
+    let mut src6: Hermes = Hermes::new(4096);
+    match src6.parse("<I32>{5:\"hello\",6:\"world\"}" as *const u8, 26 as i64) {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 13; }
+    }
+    let dst6: Hermes = src6.clone();
+    let s6o: String = src6.to_string();
+    let s6d: String = dst6.to_string();
+    if !s6d.eq_string(&s6o) { return 14; }
+
+    return 0;
+}

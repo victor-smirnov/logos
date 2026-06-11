@@ -1,0 +1,101 @@
+// Typed containers are pre-materialized through type handlers.
+// Supported now:
+//   <I32>[...]  -> dense primitive Array<i32>
+// Unsupported headers still return parse error.
+package hermes_parse_typed_containers;
+
+use logos.lang.hermes.zone;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.lang.hermes.document;
+use logos.mem.hermes.ctr;
+use logos.mem.hermes.stringify;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // Supported typed primitive array.
+    let mut d1: Hermes = Hermes::new(4096);
+    match d1.parse("<I32>[1,2,3]" as *const u8, 12 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
+    }
+    let s1: String = d1.to_string();
+    if !s1.eq_str("<I32> [1,2,3]") { return 2; }
+
+    // Spaces around type are tolerated.
+    let mut d2: Hermes = Hermes::new(4096);
+    match d2.parse("<  I32 > [4,5]" as *const u8, 14 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 3; }
+    }
+    let s2: String = d2.to_string();
+    if !s2.eq_str("<I32> [4,5]") { return 4; }
+
+    // Unknown typed array (no pre-materialization) must fail.
+    let mut d3: Hermes = Hermes::new(4096);
+    match d3.parse("<U64>[1]" as *const u8, 8 as i64) {
+        Result::Ok(())  => { return 5; }
+        Result::Err(_)  => {}
+    }
+
+    // Default typed map short form is materialized.
+    let mut d4: Hermes = Hermes::new(4096);
+    match d4.parse("<Varchar>{\"x\":7}" as *const u8, 16 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 6; }
+    }
+    let s4: String = d4.to_string();
+    if !s4.eq_str("{\"x\":7}") { return 7; }
+
+    // Default typed map full form is materialized.
+    let mut d5: Hermes = Hermes::new(4096);
+    match d5.parse("<Varchar,AnyVal>{\"a\":1}" as *const u8, 23 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 8; }
+    }
+    let s5: String = d5.to_string();
+    if !s5.eq_str("{\"a\":1}") { return 9; }
+
+    // Typed i32 map is materialized; keys must be numeric.
+    let mut d6: Hermes = Hermes::new(4096);
+    match d6.parse("<I32,AnyVal>{1:2}" as *const u8, 17 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 10; }
+    }
+    let s6: String = d6.to_string();
+    if !s6.eq_str("<I32,AnyVal> {1:2}") { return 11; }
+
+    // Empty typed header must fail.
+    let mut d7: Hermes = Hermes::new(4096);
+    match d7.parse("<>[]"
+                   as *const u8, 4 as i64) {
+        Result::Ok(())  => { return 12; }
+        Result::Err(_)  => {}
+    }
+
+    // Invalid type syntax must fail.
+    let mut d8: Hermes = Hermes::new(4096);
+    match d8.parse("<<I32>>[]"
+                   as *const u8, 9 as i64) {
+        Result::Ok(())  => { return 13; }
+        Result::Err(_)  => {}
+    }
+
+    // Wrong element kind for I32 dense array must fail.
+    let mut d9: Hermes = Hermes::new(4096);
+    match d9.parse("<I32>[\"x\"]"
+                   as *const u8, 10 as i64) {
+        Result::Ok(())  => { return 14; }
+        Result::Err(_)  => {}
+    }
+
+    // String key must fail for <I32,AnyVal>.
+    let mut d10: Hermes = Hermes::new(4096);
+    match d10.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 19 as i64) {
+        Result::Ok(())  => { return 15; }
+        Result::Err(_)  => {}
+    }
+
+    return 0;
+}

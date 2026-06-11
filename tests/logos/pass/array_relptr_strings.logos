@@ -1,0 +1,86 @@
+// Array<RelPtr<HermesString>>: a container of zone-pointer elements.
+// Exercises the `impl<T> CloneElem for RelPtr<T>` blanket — cloning an
+// Array of string offsets actually clones each pointee into the dst zone.
+package array_relptr_strings;
+
+use logos.lang.hermes.zone;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
+use logos.lang.hermes.relptr;
+use logos.mem.hermes.relptr_traits;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.string;
+use logos.lang.hermes.typetag;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.clone;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn alloc_hstr(zone: *mut Zone<Mutable>, bytes: *const u8, n: u64) -> u32 {
+    let base: *mut u8 = zone.holder.base;
+    let prefix: i64 = vlen_encode_size(n) as i64;
+    let raw: *mut u8 = zone_m_alloc_tagged(zone, prefix + n as i64,
+                                           hermes_tag_string());
+    HermesString::init(raw, bytes, n);
+    return (raw as i64 - base as i64) as u32;
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: Zone<Mutable> = zone_create(4096);
+    let base: *mut u8 = zone.holder.base;
+    let _hdr: *mut u8 = zone_m_alloc_raw(&mut zone, 8 as i64);  // reserve offset 0
+
+    let off_a: u32 = alloc_hstr(&mut zone, "aa" as *const u8, 2 as u64);
+    let off_b: u32 = alloc_hstr(&mut zone, "bb" as *const u8, 2 as u64);
+
+    let arr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, sizeof::<Array<RelPtr<HermesString>>>() as i64);
+    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 2 as i64 * sizeof::<RelPtr<HermesString>>() as i64);
+    let arr: *mut Array<RelPtr<HermesString>> = arr_raw as *mut Array<RelPtr<HermesString>>;
+    arr.size     = 2 as u64;
+    arr.capacity = 2 as u64;
+    arr.data.offset     = (buf_raw as i64 - base as i64) as u32;
+
+    let e0: *mut RelPtr<HermesString> = buf_raw as *mut RelPtr<HermesString>;
+    e0.offset = off_a;
+    let e1: *mut RelPtr<HermesString> = (buf_raw as i64 + sizeof::<RelPtr<HermesString>>() as i64) as *mut RelPtr<HermesString>;
+    e1.offset = off_b;
+
+    // Stringify through the blanket — each RelPtr dereferences to a
+    // HermesString whose own stringify emits quoted bytes.
+    let mut sb: String = String::new();
+    let mut ctx: StringifyCtx = StringifyCtx {
+        out:   &mut sb as *mut String,
+        base:  base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    arr.stringify(&mut ctx);
+    if !sb.eq_str("[\"aa\",\"bb\"]") { return 1; }
+
+    // Clone the whole Array<RelPtr<HermesString>> into a fresh zone.  Each
+    // RelPtr<HermesString> gets its pointee allocated in the destination
+    // zone via HermesClone::clone_to and the new offset recorded.
+    let mut zone2: Zone<Mutable> = zone_create(4096);
+    let mut cc: CloneCtx = CloneCtx {
+        base_src: base as *const u8,
+        zone_dst: &mut zone2,
+        map: 0 as *mut CloneMap,
+    };
+    let new_raw: *mut u8 = arr.clone_to(&mut cc);
+    if new_raw == 0 as *mut u8 { return 2; }
+    let new_arr: *const Array<RelPtr<HermesString>> = new_raw as *const Array<RelPtr<HermesString>>;
+
+    sb.clear();
+    let mut ctx2: StringifyCtx = StringifyCtx {
+        out:   &mut sb as *mut String,
+        base:  zone2.holder.base as *const u8,
+        opts:  StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    new_arr.stringify(&mut ctx2);
+    if !sb.eq_str("[\"aa\",\"bb\"]") { return 3; }
+
+    return 0;
+}

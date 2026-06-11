@@ -1,0 +1,29 @@
+// Invalid datatype-instantiation syntax must fail parsing.
+package hermes_typed_datatype_values_errors;
+
+use logos.mem.hermes.ctr;
+
+unsafe fn main() -> i32 {
+    // Missing '=' in prefix form.
+    let mut d1: Hermes = Hermes::new(1024);
+    match d1.parse("@I64 42" as *const u8, 7 as i64) {
+        Result::Ok(()) => { return 1; }
+        Result::Err(_) => {}
+    }
+
+    // Missing closing ')' in postfix params form.
+    let mut d2: Hermes = Hermes::new(1024);
+    match d2.parse("\"12\"@Decimal(10,2" as *const u8, 17 as i64) {
+        Result::Ok(()) => { return 2; }
+        Result::Err(_) => {}
+    }
+
+    // Missing type name after '@'.
+    let mut d3: Hermes = Hermes::new(1024);
+    match d3.parse("@=1" as *const u8, 3 as i64) {
+        Result::Ok(()) => { return 3; }
+        Result::Err(_) => {}
+    }
+
+    return 0;
+}

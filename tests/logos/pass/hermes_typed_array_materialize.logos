@@ -1,0 +1,57 @@
+// Typed container materialization: <I32>[...] must become dense Array<i32>
+// and be reachable via Hermes tag-dispatch tables.
+package hermes_typed_array_materialize;
+
+use logos.mem.hermes.ctr;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.map;
+use logos.lang.hermes.typed_value;
+use logos.lang.hermes.typetag;
+use logos.lang.hermes.datatag;
+use logos.mem.hermes.registry;
+use logos.mem.hermes.stringify;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let mut doc: Hermes = Hermes::new(4096);
+    match doc.parse("<I32>[10,20,30]" as *const u8, 15 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
+    }
+
+    let root: AnyVal = doc.root();
+    if !root.is_ptr() { return 2; }
+
+    let base: *const u8 = doc.base();
+    let obj: *const u8 = (base as i64 + root.as_offset() as i64) as *const u8;
+    if read_type_code(obj) != 2107 as u64 { return 3; }  // Array<i32> type_code
+
+    let arr: *const Array<i32> = obj as *const Array<i32>;
+    if arr.size != 3 as u64 { return 4; }
+    let p0: *const i32 = (base as i64 + arr.data.offset as i64 + 0 as i64) as *const i32;
+    let p1: *const i32 = (base as i64 + arr.data.offset as i64 + 4 as i64) as *const i32;
+    let p2: *const i32 = (base as i64 + arr.data.offset as i64 + 8 as i64) as *const i32;
+    if *p0 != 10 as i32 { return 5; }
+    if *p1 != 20 as i32 { return 6; }
+    if *p2 != 30 as i32 { return 7; }
+
+    // Dispatch table path: lookup stringify handler by type_code and call it.
+    let f: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(2107 as u64);
+    let mut s1: String = String::new();
+    let mut ctx: StringifyCtx = StringifyCtx {
+        out: &mut s1 as *mut String,
+        base: base,
+        opts: StringifyOpts::compact(),
+        depth: 0 as i64,
+    };
+    f(obj, &mut ctx);
+    if !s1.eq_str("<I32> [10,20,30]") { return 8; }
+
+    // Public API path must match the same round-trip output.
+    let s2: String = doc.to_string();
+    if !s2.eq_str("<I32> [10,20,30]") { return 9; }
+
+    return 0;
+}

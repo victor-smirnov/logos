@@ -1,0 +1,47 @@
+// HAny basics (hermes2 successor of the Hermes1 AnyVal basics test):
+// Ref/null/Pod forms, the 8-byte niche word, i56 + bool encodings.
+package anyval_basic;
+use logos.lang.hermes2.anyval;
+
+unsafe fn main() -> i32 {
+    // --- Ref mode (absolute pointer in the value form) ---
+    let buf: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+    let p: *const u8 = &buf[0] as *const u8;
+    let av: HAny = HAny::ref_to(p);
+    if !av.is_ref()                       { return 1; }
+    if av.is_null()                       { return 2; }
+    if av.resolve() != p                  { return 3; }
+
+    // --- Null sentinel (zero word) ---
+    let nul: HAny = HAny::Ref(0 as *const u8);
+    if !nul.is_null()                     { return 4; }
+    if nul.is_pod()                       { return 5; }
+
+    // --- Pod: i56 ---
+    let vi: HAny = HAny::from(1024 as i56);
+    if !vi.is_pod()                       { return 6; }
+    if !vi.is_int()                       { return 7; }
+    if vi.as_i64() != 1024i64             { return 8; }
+    if vi.is_null()                       { return 9; }
+    if vi.is_ref()                        { return 10; }
+
+    // --- Pod: negative i56 (sign extension through the <<8 encoding) ---
+    let vn: HAny = HAny::from(-77 as i56);
+    if vn.as_i64() != -77i64              { return 11; }
+
+    // --- Pod: bool ---
+    let vt: HAny = HAny::from(true);
+    if !vt.is_bool()                      { return 12; }
+    if !vt.as_bool()                      { return 13; }
+    if vt.is_int()                        { return 14; }
+    let vf: HAny = HAny::from(false);
+    if vf.as_bool()                       { return 15; }
+    if vf.is_null()                       { return 16; }
+
+    // --- The niche word: Pod has bit0=1; Ref word is the pointer (bit0=0) ---
+    if (vi.raw() & 1i64) != 1i64          { return 17; }
+    if (av.raw() & 1i64) != 0i64          { return 18; }
+    if av.raw() != (p as i64)             { return 19; }
+
+    return 42;
+}

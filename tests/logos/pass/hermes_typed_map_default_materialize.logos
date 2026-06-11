@@ -1,0 +1,39 @@
+// Default typed map materialization:
+//   <Varchar>{...} and <Varchar,AnyVal>{...} -> ObjectMap (type_code=101)
+package hermes_typed_map_default_materialize;
+
+use logos.mem.hermes.ctr;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.typetag;
+use logos.lang.hermes.datatag;
+
+unsafe fn main() -> i32 {
+    // Short form <K>{...}
+    let mut d1: Hermes = Hermes::new(4096);
+    match d1.parse("<Varchar>{\"a\":1,\"b\":2}" as *const u8, 22 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 1; }
+    }
+    let r1: AnyVal = d1.root();
+    if !r1.is_ptr() { return 2; }
+    let b1: *const u8 = d1.base();
+    let o1: *const u8 = (b1 as i64 + r1.as_offset() as i64) as *const u8;
+    if read_type_code(o1) != 101 as u64 { return 3; }   // ObjectMap
+    if d1.get_i64(d1.map_get_cstr(r1, "a" as *const u8)) != 1 as i64 { return 4; }
+    if d1.get_i64(d1.map_get_cstr(r1, "b" as *const u8)) != 2 as i64 { return 5; }
+
+    // Full form <K,V>{...}
+    let mut d2: Hermes = Hermes::new(4096);
+    match d2.parse("<Varchar,AnyVal>{\"x\":7}" as *const u8, 23 as i64) {
+        Result::Ok(())  => {}
+        Result::Err(_)  => { return 6; }
+    }
+    let r2: AnyVal = d2.root();
+    if !r2.is_ptr() { return 7; }
+    let b2: *const u8 = d2.base();
+    let o2: *const u8 = (b2 as i64 + r2.as_offset() as i64) as *const u8;
+    if read_type_code(o2) != 101 as u64 { return 8; }
+    if d2.get_i64(d2.map_get_cstr(r2, "x" as *const u8)) != 7 as i64 { return 9; }
+
+    return 0;
+}

@@ -1,0 +1,48 @@
+package datatype_relptr;
+// Phase 7: RelPtr<T> — thin intra-zone relative pointer (u32 offset).
+// Demonstrates: zone-relative singly-linked list.
+
+use logos.lang.hermes.zone;
+use logos.lang.hermes.relptr;
+
+#[zoned] struct Node {
+    value: i32,
+    next:  RelPtr<Node>,   // 4-byte relative pointer to next node (0 = null)
+}
+
+unsafe fn main() -> i32 {
+    let mut zone: HermesZone = HermesZone::create(4096);
+
+    // Allocate two Nodes in the zone.
+    let sz: i64 = sizeof::<Node>();
+    let raw_a: *mut u8 = zone.alloc_raw(sz);
+    let raw_b: *mut u8 = zone.alloc_raw(sz);
+
+    let base_int: i64 = zone.base as i64;
+
+    // Compute offsets from zone base.
+    let off_a: u32 = (raw_a as i64 - base_int) as u32;
+    let off_b: u32 = (raw_b as i64 - base_int) as u32;
+
+    // Initialise node B (tail): value=20, next=null.
+    let nb: *mut Node = raw_b as *mut Node;
+    nb.value = 20;
+    nb.next = relptr_null::<Node>();
+
+    // Initialise node A (head): value=10, next→B.
+    let na: *mut Node = raw_a as *mut Node;
+    na.value = 10;
+    na.next = RelPtr { offset: off_b };
+
+    // Walk the list: read A.value, follow A.next to B, read B.value.
+    let head: *const Node = raw_a as *const Node;
+    let val_a: i32 = head.value;
+
+    // Resolve the relative pointer: base + next.offset = *const Node B.
+    let base_const: *const u8 = zone.base as *const u8;
+    let node_b: *const Node = head.next.resolve(base_const);
+    let val_b: i32 = node_b.value;
+
+    zone.destroy();
+    return val_a + val_b;  // 10 + 20 = 30
+}

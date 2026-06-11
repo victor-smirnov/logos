@@ -1,0 +1,48 @@
+// HAny accessor surface (hermes2 successor of hermes_anyval_methods):
+// is_*/as_* over every Pod kind + boxed wide scalars.
+package hermes_anyval_methods;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.allocator;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    // --- is_null ---
+    let nul: HAny = HAny::Ref(0 as *const u8);
+    if !nul.is_null()  { return 1; }
+
+    // --- is_int / as_i64 (inline i56) ---
+    let vi: HAny = HAny::from(77 as i56);
+    if !vi.is_int()    { return 2; }
+    if vi.is_bool()    { return 3; }
+    if vi.as_i64() != 77i64 { return 4; }
+
+    // --- is_bool / as_bool ---
+    let vb: HAny = HAny::from(true);
+    if !vb.is_bool()   { return 5; }
+    if vb.is_int()     { return 6; }
+    if !vb.as_bool()   { return 7; }
+
+    // --- small unsigned coercions ---
+    let vu: HAny = HAny::from(255 as u8);
+    if !vu.is_int()    { return 8; }
+    if vu.as_i64() != 255i64 { return 9; }
+
+    // --- boxed wide scalars live in a zone; accessors see through the box ---
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let big: HAny = box_i64(&mut hp.allocator as *mut Allocator, 1311768467463790320i64);
+    if !big.is_int()   { return 10; }
+    if big.is_pod()    { return 11; }                       // boxed → Ref, not Pod
+    if big.as_i64() != 1311768467463790320i64 { return 12; }
+
+    let bu: HAny = box_u64(&mut hp.allocator as *mut Allocator, 18446744073709551615u64);
+    if bu.as_u64() != 18446744073709551615u64 { return 13; }
+
+    let bf: HAny = box_f64(&mut hp.allocator as *mut Allocator, 2.5);
+    if !bf.is_float()  { return 14; }
+    if bf.as_f64() != 2.5 { return 15; }
+
+    return 42;
+}

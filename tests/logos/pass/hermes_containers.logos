@@ -1,0 +1,47 @@
+// hermes2 container kit (successor of the Hermes1 zone-containers test):
+// TinyObjectMap (HMap<Hu6>), ObjectArray (HArray), ObjectMap (HMap<HString>)
+// built in one container and read back through HAny.
+package hermes_containers;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+
+    // --- TinyObjectMap: u8-keyed, bitmap-indexed ---
+    let tm: &mut HMap<Hu6, HVal> = h.tinymap(10);
+    tm.set(1 as u8, HAny::from(11 as i56));
+    tm.set(7 as u8, HAny::from(77 as i56));
+    if tm.get(1 as u8).as_i64() != 11i64 { return 1; }
+    if tm.get(7 as u8).as_i64() != 77i64 { return 2; }
+    if !tm.get(3 as u8).is_null() { return 3; }
+
+    // --- ObjectArray: push + grow + read ---
+    let arr: &mut HArray<HVal> = h.array(4);
+    let mut i: i64 = 0;
+    while i < 20 {
+        arr.push(HAny::from(i as i56));
+        i = i + 1;
+    }
+    if arr.len() != 20i64 { return 4; }
+    if arr.get(0).as_i64() != 0i64 { return 5; }
+    if arr.get(19).as_i64() != 19i64 { return 6; }
+
+    // --- ObjectMap: string keys; container values ---
+    let m: &mut HMap<HString, HVal> = h.map(8);
+    let ap: *const HArray<HVal> = arr as *const HArray<HVal>;
+    m.set("arr", HAny::ref_to(ap as *const u8));
+    m.set("n", 42i64);
+    let got: HAny = (&*(m as *const HMap<HString, HVal>)).get("arr");
+    if !got.is_array() { return 7; }
+    let arr2: &HArray<HVal> = &*(got.resolve() as *const HArray<HVal>);
+    if arr2.len() != 20i64 { return 8; }
+
+    return 42;
+}

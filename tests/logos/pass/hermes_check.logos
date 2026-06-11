@@ -1,0 +1,87 @@
+// Structural integrity check tests for Hermes documents.
+package hermes_check;
+use logos.mem.hermes.ctr;
+use logos.lang.hermes.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    // ── 1. Empty builder (null root) ─────────────────────────────────────
+    let ctr1: Hermes = Hermes::builder(4096);
+    if !ctr1.check() { return 1; }
+
+    // ── 2. Integer root ───────────────────────────────────────────────────
+    let mut ctr2: Hermes = Hermes::new(4096);
+    match ctr2.parse("42") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 2; }
+    }
+    if !ctr2.check() { return 3; }
+
+    // ── 3. String root ────────────────────────────────────────────────────
+    let mut ctr3: Hermes = Hermes::new(4096);
+    match ctr3.parse("\"hello\"") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 4; }
+    }
+    if !ctr3.check() { return 5; }
+
+    // ── 4. Array root ─────────────────────────────────────────────────────
+    let mut ctr4: Hermes = Hermes::new(4096);
+    match ctr4.parse("[1, 2, 3]") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 6; }
+    }
+    if !ctr4.check() { return 7; }
+
+    // ── 5. Map root ───────────────────────────────────────────────────────
+    let mut ctr5: Hermes = Hermes::new(4096);
+    match ctr5.parse("{\"x\": 10, \"y\": 20}") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 8; }
+    }
+    if !ctr5.check() { return 9; }
+
+    // ── 6. Nested document ────────────────────────────────────────────────
+    let mut ctr6: Hermes = Hermes::new(4096);
+    match ctr6.parse("{\"a\": [1, 2], \"b\": {\"c\": true}}") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 10; }
+    }
+    if !ctr6.check() { return 11; }
+
+    // ── 7. Check after compactify ─────────────────────────────────────────
+    let mut ctr7: Hermes = Hermes::new(4096);
+    match ctr7.parse("{\"k\": \"v\"}") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 12; }
+    }
+    let dst7: Hermes = ctr7.compactify();
+    if !dst7.check() { return 13; }
+
+    // ── 8. Check after clone ──────────────────────────────────────────────
+    let mut ctr8: Hermes = Hermes::new(4096);
+    match ctr8.parse("[true, false, null]") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 14; }
+    }
+    let dst8: Hermes = ctr8.clone();
+    if !dst8.check() { return 15; }
+
+    // ── 9. Decimal root ───────────────────────────────────────────────────
+    let mut ctr9: Hermes = Hermes::builder(4096);
+    let dv9: AnyVal = ctr9.decimal_from(10 as i32, 2 as i32, "3.14");
+    if dv9.is_null() { return 16; }
+    ctr9.set_root(dv9);
+    if !ctr9.check() { return 17; }
+
+    // ── 10. TypedValue root ───────────────────────────────────────────────
+    let mut ctr10: Hermes = Hermes::new(4096);
+    match ctr10.parse("@I32()=42") {
+        Result::Ok(()) => {}
+        Result::Err(_) => { return 18; }
+    }
+    if !ctr10.check() { return 19; }
+
+    return 0;
+}

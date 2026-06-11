@@ -1,0 +1,60 @@
+// Decimal API smoke test: from_string / to_string / add / sub / metadata.
+package hermes_decimal_methods;
+
+use logos.mem.hermes.ctr;
+use logos.lang.hermes.anyval;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let mut doc: Hermes = Hermes::builder(16384);
+
+    let a: AnyVal = doc.decimal_from(10 as i32, 2 as i32, "123.45");
+    if a.is_null() { return 1; }
+    if doc.decimal_precision(a) != 10 as u32 { return 2; }
+    if doc.decimal_scale(a) != 2 as u32 { return 3; }
+    if doc.decimal_len(a) != 1 as u32 { return 4; }
+    if doc.decimal_limb(a, 0 as u32) != 12345 as u32 { return 5; }
+    if doc.decimal_is_negative(a) { return 6; }
+    let sa: String = doc.decimal_to_string(a);
+    if !sa.eq_str("123.45") { return 7; }
+
+    let b: AnyVal = doc.decimal_from(10 as i32, 2 as i32, "-23.45");
+    if b.is_null() { return 8; }
+    if !doc.decimal_is_negative(b) { return 9; }
+
+    let sum: AnyVal = doc.decimal_add(a, b);
+    if sum.is_null() { return 10; }
+    let ssum: String = doc.decimal_to_string(sum);
+    if !ssum.eq_str("100.00") { return 11; }
+
+    let diff: AnyVal = doc.decimal_sub(a, b);
+    if diff.is_null() { return 12; }
+    let sdiff: String = doc.decimal_to_string(diff);
+    if !sdiff.eq_str("146.90") { return 13; }
+
+    // Canonicalization of leading zeros.
+    let z: AnyVal = doc.decimal_from(10 as i32, 2 as i32, "000.10");
+    if z.is_null() { return 14; }
+    let sz: String = doc.decimal_to_string(z);
+    if !sz.eq_str("0.10") { return 15; }
+
+    // Too many fractional digits for scale.
+    let bad_frac: AnyVal = doc.decimal_from(10 as i32, 2 as i32, "1.234");
+    if !bad_frac.is_null() { return 16; }
+
+    // Precision overflow on arithmetic.
+    let x: AnyVal = doc.decimal_from(4 as i32, 2 as i32, "99.99");
+    let y: AnyVal = doc.decimal_from(4 as i32, 2 as i32, "0.02");
+    if x.is_null() || y.is_null() { return 17; }
+    let ov: AnyVal = doc.decimal_add(x, y);
+    if !ov.is_null() { return 18; }
+
+    // Spec mismatch (different scale) must fail.
+    let c: AnyVal = doc.decimal_from(10 as i32, 3 as i32, "1.000");
+    if c.is_null() { return 19; }
+    let mm: AnyVal = doc.decimal_add(a, c);
+    if !mm.is_null() { return 20; }
+
+    return 0;
+}

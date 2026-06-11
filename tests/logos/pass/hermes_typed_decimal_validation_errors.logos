@@ -1,0 +1,43 @@
+// Decimal typed-value validation: must reject invalid Decimal(P,S) forms.
+package hermes_typed_decimal_validation_errors;
+
+use logos.mem.hermes.ctr;
+
+unsafe fn main() -> i32 {
+    // 1) Missing params.
+    let mut d1: Hermes = Hermes::new(2048);
+    match d1.parse("@Decimal=\"1\"") {
+        Result::Ok(()) => { return 1; }
+        Result::Err(_) => {}
+    }
+
+    // 2) Wrong arity.
+    let mut d2: Hermes = Hermes::new(2048);
+    match d2.parse("@Decimal(10)=\"1\"") {
+        Result::Ok(()) => { return 2; }
+        Result::Err(_) => {}
+    }
+
+    // 3) Non-integer params.
+    let mut d3: Hermes = Hermes::new(2048);
+    match d3.parse("@Decimal(\"10\",2)=\"1\"") {
+        Result::Ok(()) => { return 3; }
+        Result::Err(_) => {}
+    }
+
+    // 4) Invalid range: S > P.
+    let mut d4: Hermes = Hermes::new(2048);
+    match d4.parse("@Decimal(2,3)=\"1\"") {
+        Result::Ok(()) => { return 4; }
+        Result::Err(_) => {}
+    }
+
+    // 5) Prefix initializer must be string.
+    let mut d5: Hermes = Hermes::new(2048);
+    match d5.parse("@Decimal(10,2)=123") {
+        Result::Ok(()) => { return 5; }
+        Result::Err(_) => {}
+    }
+
+    return 0;
+}
