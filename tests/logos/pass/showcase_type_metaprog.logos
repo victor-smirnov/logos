@@ -22,8 +22,8 @@ package showcase_type_metaprog;
 use logos.std.compiler.metaprog;
 use logos.mem.hermes.ctr;
 use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 
 // A user struct, just enough surface for kind/uid/template flights.
 pub struct Pair<A, B> { pub a: A, pub b: B, }
@@ -83,8 +83,8 @@ unsafe fn main() -> i32 {
         "tag":   "type-registry-v0",
         "kinds": [<type:i32>, <type:f64>, <type:bool>, <type:Point>],
     };
-    let v = cfg.as_view();
-    let arr: AnyVal = v.map_get(v.root(), "kinds");
+    let v: HView2 = hview2_from_ptr(cfg.ptr);
+    let arr: HAny = v.map_get(v.root(), "kinds");
     if arr.is_null() { return 41; }
     let n: u64 = v.array_len(arr);
     if n != (4 as u64) { return 42; }
@@ -96,8 +96,8 @@ unsafe fn main() -> i32 {
 
     let mut idx: i64 = 0;
     while idx < (n as i64) {
-        let av: AnyVal = v.array_get(arr, idx as u64);
-        let t: Type = type_from_anyval(v.base(), av);
+        let av: HAny = v.array_get(arr, idx as u64);
+        let t: Type = type_from_anyval(av);
         if t.is_integer() { int_count    = int_count    + 1; }
         if t.is_float()   { float_count  = float_count  + 1; }
         if t.is_struct()  { struct_count = struct_count + 1; }

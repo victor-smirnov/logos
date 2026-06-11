@@ -26,9 +26,8 @@ package main;
 
 use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 
 pub trait Greet {
     fn id() -> i64;
@@ -46,12 +45,12 @@ fn dele_id<P: Greet>() -> i64 { return P::id(); }
 
 fn assemble_greeter<const CFG: HermesStatic>() -> QuoteItemBlob {
     unsafe {
-        let v = CFG.as_view();
-        let arr: AnyVal = v.map_get(v.root(), "parts");
+        let v: HView2 = hview2_from_ptr(CFG.ptr);
+        let arr: HAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
         let last_idx: u64 = n - 1u64;
-        let last: AnyVal = v.array_get(arr, last_idx);
-        let name_sv: StringView = v.get_str_view(last);
+        let last: HAny = v.array_get(arr, last_idx);
+        let name_sv: SView2 = v.get_str_view(last);
         let name: Ident = Ident { ptr: name_sv.ptr, len: name_sv.len };
 
         // Emit both the assembled struct AND its impl in one splice.
