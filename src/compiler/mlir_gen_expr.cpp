@@ -2537,7 +2537,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     if (!ptr || sname.empty()) return nullptr;
     auto& info = struct_types_[sname];
     auto gep   = gep_field(ptr, info, field);
-    if (!gep) return nullptr;
+    if (!gep) {
+        if (std::getenv("LOGOS_GEP_ABORT"))
+            std::fprintf(stderr, "field-read: recv struct '%s' field '%s' unregistered\n",
+                         sname.c_str(), std::string(field).c_str());
+        return nullptr;
+    }
     // A Slice/Closure/custom-DST-ref field is stored INLINE as a 16-byte fat
     // pair, but the value convention elsewhere is a POINTER to that storage —
     // return the field address rather than loading the pair by value (mirrors
@@ -5790,7 +5795,8 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
 // has no out_params channel, so the capture-patch slot list is rebuilt here.
 static void collect_param_slots(
         const uint8_t* base, size_t used, uint64_t slot_off,
-        std::vector<std::pair<uint32_t, uint32_t>>& out) {
+        std::vector<std::pair<uint32_t, uint32_t>>& out,
+        std::unordered_set<uint64_t>& visited) {
     if (slot_off + 8 > used) return;
     int64_t w = *reinterpret_cast<const int64_t*>(base + slot_off);
     if (w == 0) return;
@@ -5804,6 +5810,9 @@ static void collect_param_slots(
     // Ref: object at slot + w; type tag immediately before it (datatag varint).
     uint64_t obj = slot_off + static_cast<uint64_t>(w);
     if (obj == 0 || obj + 8 > used) return;
+    // Shared (DAG) and cyclic objects: descend each object ONCE — quote/AST blobs
+    // share subtrees heavily, and an unbounded re-walk overflows the stack.
+    if (!visited.insert(obj).second) return;
     uint8_t hb = base[obj - 1];
     uint64_t tc = 0;
     if (hb >= 1 && hb <= 222) {
@@ -5823,7 +5832,7 @@ static void collect_param_slots(
         uint64_t elems = relptr_field_off + static_cast<uint64_t>(rel);
         for (uint64_t i = 0; i < n; ++i)
             collect_param_slots(base, used,
-                                elems + i * stride + first_elem_delta, out);
+                                elems + i * stride + first_elem_delta, out, visited);
     };
     using namespace logos::hermes2;
     switch (tc) {
@@ -5843,13 +5852,13 @@ static void collect_param_slots(
         break;
     }
     case tc::TYPEDVALUE:  // 3 at-rest words {type_name,params,init}
-        collect_param_slots(base, used, obj, out);
-        collect_param_slots(base, used, obj + 8, out);
-        collect_param_slots(base, used, obj + 16, out);
+        collect_param_slots(base, used, obj, out, visited);
+        collect_param_slots(base, used, obj + 8, out, visited);
+        collect_param_slots(base, used, obj + 16, out, visited);
         break;
     case tc::PARAMETER:   // Parameter object: {name,value}
-        collect_param_slots(base, used, obj, out);
-        collect_param_slots(base, used, obj + 8, out);
+        collect_param_slots(base, used, obj, out, visited);
+        collect_param_slots(base, used, obj + 8, out, visited);
         break;
     case tc::MAP_I32: case tc::MAP_U32:
     case tc::MAP_I64: case tc::MAP_U64: {  // TypedMap {size,cap,keys,vals→AnyVal[]}
@@ -5876,7 +5885,8 @@ static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
     HermesZoneBuild out;
     out.blob.assign(data, data + used);
     // The document root word lives at blob offset 0 — walk from it.
-    collect_param_slots(out.blob.data(), used, 0, out.param_slots);
+    std::unordered_set<uint64_t> visited;
+    collect_param_slots(out.blob.data(), used, 0, out.param_slots, visited);
     return out;
 }
 }  // namespace (zone builder helpers)
@@ -6067,7 +6077,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         if (sit == struct_types_.end() || !sit->second.llvm_type) return blob_ptr;
         auto alloca = create_entry_alloca(sit->second.llvm_type);
         auto gep = gep_field(alloca, sit->second, "ptr");
-        if (!gep) return blob_ptr;
+        if (!gep) {
+            if (std::getenv("LOGOS_HLIT_DEBUG"))
+                std::fprintf(stderr, "hlit: sname=%s rt=%s fields=%zu\n", sname.c_str(),
+                    ret_type ? std::string(TypeRef(ret_type).struct_name()).c_str() : "<null>",
+                    sit->second.fields.size());
+            return blob_ptr;
+        }
         builder_.create<mlir::LLVM::StoreOp>(loc_, blob_ptr, gep);
         return alloca;
     };

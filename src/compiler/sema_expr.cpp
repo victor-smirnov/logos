@@ -4025,7 +4025,9 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
             auto item = map_of(raw);
             if (!item.has_key(la::NAME)) continue;
             if (str_of(item.get(la::NAME.code)) == sname) {
-                found_offset = raw.raw();
+                // hermes2: holder-relative node offset (raw.raw() is an at-rest
+                // word, not an offset) — same model as metaprog_targets_.
+                found_offset = static_cast<uint32_t>(item.offset().value());
                 break;
             }
         }
@@ -4035,17 +4037,21 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
               "' in this file");
         return error_expr();
     }
-    // Build inner AnyVal { raw: <u32 lit> }.
-    auto anyval_t = make_datatype_type("AnyVal");
-    std::vector<std::pair<std::string, lir::LExprPtr>> av_f;
-    av_f.emplace_back("raw", builder().lit_int(
+    // hermes2: Template.raw is a value-form HAny — the offset must be anchored
+    // to the hook's OView base at RUNTIME. Lower to the stdlib shim
+    // template_of_at(off) (= Template { raw: oview_module_ast().node_at(off) }).
+    const SemaFuncInfo* fi = nullptr;
+    for (auto* c : find_func_candidates("template_of_at"))
+        if (c->param_types.size() == 1) { fi = c; break; }
+    if (!fi) {
+        error("template_of::<X>() requires `use logos.std.compiler.metaprog;`");
+        return error_expr();
+    }
+    std::vector<lir::LExprPtr> args;
+    args.push_back(builder().lit_int(
         (int64_t)found_offset, prim(LogosType::Kind::U32)));
-    auto av_lit = builder().struct_lit("AnyVal", std::move(av_f), anyval_t);
-    // Wrap in Template { raw: AnyVal{...} }.
-    auto template_t = make_struct_type("Template");
-    std::vector<std::pair<std::string, lir::LExprPtr>> tpl_f;
-    tpl_f.emplace_back("raw", std::move(av_lit));
-    return builder().struct_lit("Template", std::move(tpl_f), template_t);
+    std::string sym = fi->symbol_name.empty() ? "template_of_at" : fi->symbol_name;
+    return builder().call(sym, {}, std::move(args), fi->ret_type);
 }
 
 lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {

@@ -1,6 +1,6 @@
 # Syntax
 
-This page is a reference for the surface syntax of Logos. The authoritative grammar lives in `tools/peg_gen` (the PEG used by the parser); this is the human-readable summary.
+Surface-syntax reference. The authoritative grammar is the PEG in `tools/peg_gen`; this is the human-readable summary.
 
 ## File Structure
 

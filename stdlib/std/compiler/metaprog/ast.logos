@@ -11,6 +11,7 @@
 
 package logos.std.compiler.metaprog;
 
+use logos.lang.hermes.view;        // HermesStatic — the quote/metacall splice handle ({ptr})
 use logos.lang.hermes2.anyval;     // HAny
 use logos.lang.hermes2.hmap;       // HMap<Hu6,HVal> (for schema_type_code on type_from_anyval)
 use logos.lang.hermes2.hstring;
@@ -90,6 +91,16 @@ impl Type {
 // type params). `raw` is the underlying AST node; inspection goes through OView.
 pub struct Template {
     pub raw: HAny,
+}
+
+// Compiler-intrinsic target: `template_of::<X>()` lowers to a call of this with
+// the resolved item's arena offset (the hook-side OView supplies the base).
+pub fn template_of_at(off: u32) -> Template {
+    let view: OView = oview_module_ast();
+    // Raw-pointer anchor (the AST arena outlives the hook) — a borrow-typed
+    // HAny here would dangle-flag against the local `view`.
+    let p: *const u8 = view.base_ptr();
+    return Template { raw: HAny::Ref((p as i64 + off as i64) as *const u8) };
 }
 
 impl Template {
