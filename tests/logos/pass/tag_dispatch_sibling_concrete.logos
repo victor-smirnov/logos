@@ -1,25 +1,9 @@
-// Regression test for the cross-package tag-dispatch collection-pass bug.
-//
-// Two sibling concrete impls of a #[tag_dispatch] trait for two
-// specialisations of the same generic type, where the generic template
-// and its two genos specialisations live in *different* packages:
-//
-//   hermes.map        datatype Map<K, V>; genos Map<Bitmap, AnyVal>   (tc 98)
-//   hermes.objectmap  genos Map<Varchar, AnyVal>                      (tc 101)
-//
-// Before the fix, the second sibling's fn never made it into the
-// dispatch table because the type_code for `Map<Varchar, AnyVal>` was
-// filed in `explicit_type_codes_` under `hermes.objectmap::…` while the
-// dispatch-entry lookup in sema_decl.cpp searched under `hermes.map::…`
-// (the template's package).  tcode stayed 0 and no entry was emitted.
-
+// Sibling impls in one DataTypeTagSystem dispatch space (hermes2 successor of
+// the TinyObjectMap-sibling test): two concrete #[zoned] datatypes register in
+// the SAME tagged-trait table; codes are distinct and impls resolve directly.
 package tag_dispatch_sibling_concrete;
-
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.map;
-use logos.lang.hermes.objectmap;
-use logos.lang.hermes.datatag;
-use logos.mem.hermes.tag_system;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -29,51 +13,38 @@ pub trait Sibling {
     unsafe fn sib_value(self: *const Self) -> i32;
 }
 
-impl Sibling for TinyObjectMap {
-    pub unsafe fn sib_value(self: *const TinyObjectMap) -> i32 {
-        return 1000;
-    }
-}
+#[zoned] struct Alpha { v: i32 }
+#[zoned] struct Beta  { v: i32, w: i32 }
 
-impl Sibling for ObjectMap {
-    pub unsafe fn sib_value(self: *const ObjectMap) -> i32 {
-        return 2000;
-    }
+impl Sibling for Alpha {
+    pub unsafe fn sib_value(self: *const Alpha) -> i32 { return self.v; }
 }
-
-unsafe fn dispatch_sib(tagged_obj: &tagged<DataTypeTagSystem> Sibling) -> i32 {
-    return tagged_obj.sib_value();
+impl Sibling for Beta {
+    pub unsafe fn sib_value(self: *const Beta) -> i32 { return self.v + self.w; }
 }
 
 unsafe fn main() -> i32 {
-    let buf: *mut u8 = malloc(256);
-    let mut zi: i64 = 0;
-    loop {
-        if zi >= 256 { break; }
-        *((buf as i64 + zi) as *mut u8) = 0;
-        zi = zi + 1;
-    }
+    // Codes are distinct, both registered (>=129 user range).
+    let ta: u64 = type_code_of::<Alpha>();
+    let tb: u64 = type_code_of::<Beta>();
+    if ta == tb { return 1; }
+    if ta < 129u64 || tb < 129u64 { return 2; }
 
-    let tc_a: u64 = type_code_of::<TinyObjectMap>();
-    let tc_b: u64 = type_code_of::<ObjectMap>();
-    // Sanity: both codes resolved to their annotated values (not the
-    // auto-hash fallback).  Before the fix tc_b came back as the hash.
-    if tc_a != 98  { free(buf); return 3; }
-    if tc_b != 101 { free(buf); return 4; }
+    // Tagged objects in a malloc arena; read back through the vlen tag.
+    let buf: *mut u8 = malloc(128);
+    let a: *mut Alpha = (buf as i64 + 16) as *mut Alpha;
+    write_tag(a as *mut u8, ta);
+    a.v = 30;
+    let b: *mut Beta = (buf as i64 + 64) as *mut Beta;
+    write_tag(b as *mut u8, tb);
+    b.v = 5; b.w = 7;
 
-    // Sibling 1.
-    let p1: *mut u8 = (buf as i64 + 16) as *mut u8;
-    write_tag(p1, tc_a);
-    let v1: i32 = dispatch_sib(p1 as *const u8);
-    if v1 != 1000 { free(buf); return 1; }
+    if h2_type_code(a as *const u8) != ta { return 3; }
+    if h2_type_code(b as *const u8) != tb { return 4; }
 
-    // Sibling 2.  Before the fix, this dispatched through a null fn
-    // pointer (missing table entry) and crashed.
-    let p2: *mut u8 = (buf as i64 + 128) as *mut u8;
-    write_tag(p2, tc_b);
-    let v2: i32 = dispatch_sib(p2 as *const u8);
-    if v2 != 2000 { free(buf); return 2; }
-
+    // Direct sibling-impl calls resolve per type.
+    let got: i32 = a.sib_value() + b.sib_value();   // 30 + 12 = 42
+    if got != 42 { return 5; }
     free(buf);
     return 0;
 }

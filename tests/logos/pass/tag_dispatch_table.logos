@@ -1,4 +1,6 @@
 package tag_dispatch_table;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.tag_system;
 // Tests Layer 3: #[tag_dispatch(DataTypeTagSystem)] annotation on a trait
 // causes the compiler to populate the tier-1 dispatch table.
 //
@@ -6,7 +8,6 @@ package tag_dispatch_table;
 // is populated but calling through it requires &tagged syntax, deferred).
 // Primary check: compilation succeeds and the impls produce correct results.
 
-use logos.lang.hermes.datatag;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
@@ -70,12 +71,12 @@ unsafe fn main() -> i32 {
 
     let obj_p: *mut u8 = (buf as i64 + 16) as *mut u8;
     write_tag(obj_p, code_p);
-    let read_p: u64 = read_type_code(obj_p as *const u8);
+    let read_p: u64 = h2_type_code(obj_p as *const u8);
     if read_p != code_p { free(buf); return 6; }
 
     let obj_c: *mut u8 = (buf as i64 + 40) as *mut u8;
     write_tag(obj_c, code_c);
-    let read_c: u64 = read_type_code(obj_c as *const u8);
+    let read_c: u64 = h2_type_code(obj_c as *const u8);
     if read_c != code_c { free(buf); return 7; }
 
     free(buf);

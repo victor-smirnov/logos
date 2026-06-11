@@ -1,85 +1,42 @@
+// ObjectMap mechanics on hermes2 (successor of the Hermes1 zone ObjectMap
+// test): put/get/overwrite/missing keys + interning across many entries.
 package hermes_objectmap;
-// Phase 12: ObjectMap — open-addressing string-keyed hash map over a Hermes zone.
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.objectmap;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.rc;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let base: *mut u8 = zone.base;
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
+    let m: &mut HMap<HString, HVal> = h.map(8);
 
-    // Reserve zone offset 0 (document header placeholder — ensures no HermesString
-    // lands at offset 0, which ObjectMap uses as the empty-slot sentinel).
-    let hdr_raw: *mut u8 = zone.alloc_raw(8);
-    *hdr_raw = 0 as u8;   // mark as used
+    // put + get
+    m.set("alpha", 1i64);
+    m.set("beta", 2i64);
+    if m.get("alpha").as_i64() != 1i64 { return 1; }
+    if m.get("beta").as_i64() != 2i64 { return 2; }
 
-    // Allocate ObjectMap header (16 bytes) and entry buffer (4 slots × 16 bytes).
-    let map_sz: i64      = sizeof::<ObjectMap>() as i64;
-    let map_raw: *mut u8     = zone.alloc_raw(map_sz);
-    let entries_buf: *mut u8 = zone.alloc_raw(64);
-    let map: *mut ObjectMap  = ObjectMap::init(map_raw, base, entries_buf, 4 as u32);
+    // missing key → null
+    if !m.get("gamma").is_null() { return 3; }
 
-    // Map starts empty.
-    if map.size() != 0 as u32              { return 1; }
+    // overwrite (last write wins; count stable)
+    m.set("alpha", 10i64);
+    if m.get("alpha").as_i64() != 10i64 { return 4; }
+    if m.len() != 2i64 { return 5; }
 
-    // Build HermesString for key "a" (1 byte) manually:
-    //   byte[0] = vlen prefix = 1 (length), byte[1] = 97 ('a').
-    let hs_a: *mut u8 = zone.alloc_raw(2);
-    let hs_a_v: *mut u8 = (hs_a as i64 + 0 as i64) as *mut u8;
-    let hs_a_d: *mut u8 = (hs_a as i64 + 1 as i64) as *mut u8;
-    *hs_a_v = 1 as u8;    // vlen: 1 byte follows
-    *hs_a_d = 97 as u8;   // 'a'
-    let off_a: u32  = (hs_a as i64 - base as i64) as u32;
-    let key_a: *const u8 = hs_a_d as *const u8;  // raw bytes of "a"
+    // string values intern in the same zone
+    m.set("s", HAny::from(&*(h.hstring("zone-str") as *const HString)));
+    let sv: HAny = m.get("s");
+    if !sv.is_string() { return 6; }
 
-    // Build HermesString for key "b" (1 byte, ASCII 98).
-    let hs_b: *mut u8 = zone.alloc_raw(2);
-    let hs_b_v: *mut u8 = (hs_b as i64 + 0 as i64) as *mut u8;
-    let hs_b_d: *mut u8 = (hs_b as i64 + 1 as i64) as *mut u8;
-    *hs_b_v = 1 as u8;
-    *hs_b_d = 98 as u8;   // 'b'
-    let off_b: u32  = (hs_b as i64 - base as i64) as u32;
-    let key_b: *const u8 = hs_b_d as *const u8;
+    // many entries force probing/larger occupancy
+    m.set("k0", 100i64); m.set("k1", 101i64); m.set("k2", 102i64);
+    m.set("k3", 103i64); m.set("k4", 104i64);
+    if m.get("k3").as_i64() != 103i64 { return 7; }
+    if m.len() != 8i64 { return 8; }
 
-    // Insert "a" → i32(42), "b" → u32(99).
-    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(42));
-    map.set(base, off_b, key_b, 1 as u64, AnyVal::embed_u24(99 as u32));
-
-    if map.size() != 2 as u32              { return 2; }
-
-    // Retrieve "a".
-    let va: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
-    if va.is_ptr()                               { return 3; }
-    if va.as_i24() != 42                         { return 4; }
-
-    // Retrieve "b".
-    let vb: AnyVal = map.get(base as *const u8, key_b, 1 as u64);
-    if vb.is_ptr()                               { return 5; }
-    if vb.as_u24() != 99 as u32                  { return 6; }
-
-    // Key "c" (ASCII 99) — absent, must return null.
-    let hs_c: *mut u8 = zone.alloc_raw(2);
-    let hs_c_v: *mut u8 = (hs_c as i64 + 0 as i64) as *mut u8;
-    let hs_c_d: *mut u8 = (hs_c as i64 + 1 as i64) as *mut u8;
-    *hs_c_v = 1 as u8;
-    *hs_c_d = 99 as u8;   // 'c'
-    let key_c: *const u8 = hs_c_d as *const u8;
-
-    let vc: AnyVal = map.get(base as *const u8, key_c, 1 as u64);
-    if !vc.is_null()                             { return 7; }
-
-    // contains()
-    if !map.contains(base as *const u8, key_a, 1 as u64) { return 8; }
-    if !map.contains(base as *const u8, key_b, 1 as u64) { return 9; }
-    if  map.contains(base as *const u8, key_c, 1 as u64) { return 10; }
-
-    // Update "a" → i32(77) — count must not change.
-    map.set(base, off_a, key_a, 1 as u64, AnyVal::embed_i24(77));
-    if map.size() != 2 as u32              { return 11; }
-    let va2: AnyVal = map.get(base as *const u8, key_a, 1 as u64);
-    if va2.as_i24() != 77                        { return 12; }
-
-    zone.destroy();
     return 42;
 }
