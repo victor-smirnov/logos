@@ -6,7 +6,7 @@ add_executable(peg_gen
 )
 
 target_link_libraries(peg_gen PRIVATE
-    logos_hermes  # peg_gen uses hermes2 internally for the grammar AST
+    logos_hermes  # peg_gen uses hermes internally for the grammar AST
     logos_core
 )
 

@@ -97,7 +97,7 @@ unsafe fn allocator_append(a: *mut Allocator, min_cap: i64) -> *mut Segment {
     let na: i64 = seg as i64;
     let hd: i64 = a.head as i64;
     let d: i64 = if na >= hd { na - hd } else { hd - na };
-    if d < 0 { panic("hermes2: segment out of i64 self-relative reach"); }
+    if d < 0 { panic("hermes: segment out of i64 self-relative reach"); }
     a.current.next = seg;
     a.current = seg;
     return seg;

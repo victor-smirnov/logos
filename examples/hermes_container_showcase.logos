@@ -160,10 +160,10 @@ fn main() -> i32 {
     //      `len` header + `[u8]` tail, one allocation). Because it is
     //      `#[self_describing]`, a borrowed `&HString` is SAFE to read — no unsafe.
     section("7. HString — self-describing DST + as_str");
-    let hs: &HString = h.hstring("hello, hermes2");
+    let hs: &HString = h.hstring("hello, hermes");
     print("   text = "); println(hs.as_str());
     say("byte len", hs.len());
-    yn("round-trips", str_eq(hs.as_str(), "hello, hermes2"));
+    yn("round-trips", str_eq(hs.as_str(), "hello, hermes"));
 
     // 7b ── a record [name, age] in one HArray<HVal> via OVERLOADED push: `push`
     //       takes the value directly (no `HAny::from`) — a `str` is interned into

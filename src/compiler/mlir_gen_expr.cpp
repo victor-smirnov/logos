@@ -6259,7 +6259,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         auto alloc_cstr_fn = find_func_op(parent_mod, "hermes_ctr_alloc_cstr");
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
-            std::fprintf(stderr, "mlir_gen: hermes2 zone-alloc helpers not found — "
+            std::fprintf(stderr, "mlir_gen: hermes zone-alloc helpers not found — "
                          "add 'use logos.lang.hermes.tmpl;' to your file\n");
             return nullptr;
         }
