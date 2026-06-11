@@ -24,7 +24,7 @@ using SCode = lir_schema::stmt::Code;
 } // namespace
 
 void Mono::scan_fn(const lir::LFunction& fn) {
-    if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) return;
+    if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
     auto& arena = out_.type_pool.arena_or_init();
     scan_block(lir_view::BlockRef(&arena, fn.body.mirror_offset_));
 }

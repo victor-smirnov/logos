@@ -885,12 +885,12 @@ class BorrowChecker {
     //   or result of a function call where we don't track cross-call lifetimes).
 
     lir_view::ExprRef expr_ref(const LExprPtr& e) const {
-        if (!e || e->mirror_offset_ == hermes2::arena_offset_t{}) return {};
+        if (!e || e->mirror_offset_ == hermes::arena_offset_t{}) return {};
         return lir_view::ExprRef(prog_.type_pool.arena(), e->mirror_offset_);
     }
 
     lir_view::StmtRef stmt_ref(const LStmt& s) const {
-        if (s.mirror_offset_ == hermes2::arena_offset_t{}) return {};
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
         return lir_view::StmtRef(prog_.type_pool.arena(), s.mirror_offset_);
     }
 

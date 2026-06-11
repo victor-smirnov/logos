@@ -6,10 +6,10 @@
 
 package hermes_typed_map_all_keys;
 
-use logos.lang.hermes2.hstatic;
-use logos.mem.hermes2.stringify;
-use logos.lang.hermes2.static_view;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.hstatic;
+use logos.mem.hermes.stringify;
+use logos.lang.hermes.static_view;
+use logos.lang.hermes.anyval;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -1,10 +1,10 @@
 // @Type in a small arena (hermes2: segments grow on demand — the tiny
 // initial capacity is a stress, not a limit).
 package hermes_typed_datatype_empty_params_small_zone;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.typed_value;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.typed_value;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 use logos.lang.str;
 

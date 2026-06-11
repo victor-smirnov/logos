@@ -1,7 +1,7 @@
 // Typed holder handle (hermes2 successor of DataRef): Held<T> pins the
 // container while reads flow through a plain &T.
 package datatype_zone_ref;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 struct Point { x: i32, y: i32 }

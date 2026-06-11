@@ -1,10 +1,10 @@
 // Parsed typed arrays materialize for reads + render (hermes2: the walker
 // replaces the Hermes1 dispatch-table path).
 package hermes_typed_array_materialize;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

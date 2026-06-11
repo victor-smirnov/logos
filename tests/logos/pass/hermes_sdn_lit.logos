@@ -8,10 +8,10 @@
 
 package hermes_sdn_lit;
 
-use logos.lang.hermes2.hstatic;
-use logos.mem.hermes2.stringify;       // stringify(HAny)
-use logos.lang.hermes2.static_view;  // HView2
-use logos.lang.hermes2.anyval;       // HAny
+use logos.lang.hermes.hstatic;
+use logos.mem.hermes.stringify;       // stringify(HAny)
+use logos.lang.hermes.static_view;  // HView2
+use logos.lang.hermes.anyval;       // HAny
 use logos.mem.string;
 use logos.lang.str;
 

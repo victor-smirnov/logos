@@ -3,9 +3,9 @@
 // *zoned HAny[] values. Exercises i32 insert/update/absent + the 3101 tag, and a
 // u64-keyed map (large key, code 3104).
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(256i64);
     let m: &mut HIntMap<i32> = h.intmap::<i32>(8i64);

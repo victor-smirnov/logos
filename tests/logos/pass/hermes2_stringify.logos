@@ -3,12 +3,12 @@
 // HString read-back). Scalar/array cases are order-deterministic; the single-
 // entry map is too.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.stringify;
 use logos.mem.string;
 use logos.lang.str;
 fn eq(v: HAny, want: str) -> bool { let s: String = stringify(v); return str_eq(s.as_str(), want); }

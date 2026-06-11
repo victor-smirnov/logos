@@ -2,9 +2,9 @@
 // Documents come from static @-literals; hermes2_equal walks by value semantics
 // (order-independent for maps, raw-byte for typed array payloads).
 package hermes_typed_container_equal;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.equal;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.equal;
 
 // Inlined root read (BC flags a borrow-typed HAny against the local view).
 unsafe fn root_of(hs: &HermesStatic) -> HAny {

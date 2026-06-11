@@ -7,7 +7,7 @@
 // CTFE-equivalent of the runtime call.
 package metacall_hermes_static;
 
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 fn build_cfg() -> HermesStatic {
     return @{"x": 42, "y": "hello"};

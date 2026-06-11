@@ -4,9 +4,9 @@
 // method receiver through the Rc's `deref` (a value-local Rc, NOT a raw-ptr deref)
 // back to the local `h`. (The safe escape is `hold_any(&mut h, e) -> HeldAny`.)
 package hany_escapes_rc_container;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 fn make_elem() -> HAny {
     let mut h: Rc<Hermes2> = hermes2_rc(64i64);

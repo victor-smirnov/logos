@@ -27,7 +27,7 @@
 package logos.std.compiler.metaprog;
 
 use logos.mem.collections.vec;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.anyval;
 use logos.lang.default;
 use logos.mem.uninit;
 

@@ -2,8 +2,8 @@
 // the hermes2 HArray<T> grows its element buffer in the never-move arena;
 // old elements survive the re-buffer (copy, not move).
 package array_generic_push_grow;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

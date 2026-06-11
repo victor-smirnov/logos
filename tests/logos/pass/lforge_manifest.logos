@@ -2,11 +2,11 @@
 // { name: "...", version: "...", src: "...", entry: "..." } — required string
 // fields; unknown fields ignored; missing/badly-typed fields are errors.
 package lforge_manifest;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

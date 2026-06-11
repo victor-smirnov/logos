@@ -1,9 +1,9 @@
 // Malformed @Type forms parse to null (hermes2): missing '=', unclosed
 // params, missing name.
 package hermes_typed_datatype_values_errors;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

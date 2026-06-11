@@ -2,7 +2,7 @@
 // RelPtr<Node> test): node.next stores (target - &field) as i64; resolving is
 // pure pointer math — valid because the arena never moves.
 package datatype_relptr;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 struct Node {

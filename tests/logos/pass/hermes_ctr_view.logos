@@ -1,11 +1,11 @@
 // C8f (hermes2): read a LIVE runtime container through the value-form root —
 // the hermes2 analog of HermesView (non-owning read of a live Hermes).
 package hermes_ctr_view;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.static_view;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.static_view;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

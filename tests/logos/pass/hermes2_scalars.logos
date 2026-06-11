@@ -3,9 +3,9 @@
 // tagged arena object (I64=26, U64=27, F32=30, F64=31). `type_code()` emits the
 // Hermes1 wire tag in both forms.
 package test;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.array;
 fn main() -> i32 {
     let a: HAny = HAny::from(-5i8);
     if !a.is_i8() { return 1i32; }

@@ -1,8 +1,8 @@
 package hermes_map_comp_guard_bad;
 
-use logos.lang.hermes2.comp_builder;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.comp_builder;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
 use logos.mem.rc;
 
 fn main() -> i32 {

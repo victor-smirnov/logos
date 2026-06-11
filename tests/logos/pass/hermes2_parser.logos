@@ -2,14 +2,14 @@
 // exactly (order preserved); map verified via lookups (bucket order differs).
 // Plus the full chain text→doc→HBS bytes→doc→text.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
-use logos.mem.hermes2.hbs;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.hbs;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;

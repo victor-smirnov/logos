@@ -2,8 +2,8 @@
 // test): Rc<Hermes2> clones share ONE container; data written through one
 // handle is visible through the other; drops release in any order.
 package hermes_memholder_rc;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
 use logos.mem.rc;
 
 struct Counter {

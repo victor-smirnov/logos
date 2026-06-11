@@ -1,10 +1,10 @@
 // Typed dense containers through the hermes2 SDN parser: arrays + maps,
 // whitespace tolerance, render roundtrip.
 package hermes_parse_typed_containers;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

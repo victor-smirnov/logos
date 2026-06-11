@@ -6,7 +6,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 fn emit_for<T>() -> QuoteItemBlob {
     let _n: i64 = args_count_of::<T>();

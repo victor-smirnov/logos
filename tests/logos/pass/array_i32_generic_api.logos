@@ -1,8 +1,8 @@
 // Generic typed array API on hermes2 (successor of Array<i32>::init/push/get):
 // h.tarray::<i32>() + push/len/get.
 package array_i32_generic_api;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

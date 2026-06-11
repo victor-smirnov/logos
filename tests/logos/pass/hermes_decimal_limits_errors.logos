@@ -1,9 +1,9 @@
 // Decimal limit violations return null handles (hermes2): coefficient
 // overflow, malformed text, scale ceiling, add overflow.
 package hermes_decimal_limits_errors;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.decimal;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

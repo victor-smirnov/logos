@@ -2,10 +2,10 @@
 
 package hermes_match_str;
 
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.pat;   // hermes2_pat_eq_str — `@"str"` pattern helper
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.pat;   // hermes2_pat_eq_str — `@"str"` pattern helper
+use logos.lang.hermes.container;
+use logos.lang.hermes.hstring;
 use logos.mem.rc;
 
 unsafe fn mk_str(s: str) -> Rc<Hermes2> {

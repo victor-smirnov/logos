@@ -2,10 +2,10 @@
 // never-move arena. set/get/update, str + scalar values, GROWTH (insert past the
 // initial capacity → rehash, all keys still retrievable), contains/len.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
 use logos.lang.str;
 use logos.mem.string;        // i64::to_string, String::as_str (mem tier — test is standalone)
 fn main() -> i32 {

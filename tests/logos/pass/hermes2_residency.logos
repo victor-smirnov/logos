@@ -3,9 +3,9 @@
 // container's segments alive. The container drops (frees segments) only when the
 // last holder drops (here at main's end).
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 fn make_doc() -> Held<HArray<HVal>> {

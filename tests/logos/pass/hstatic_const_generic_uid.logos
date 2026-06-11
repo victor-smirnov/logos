@@ -24,7 +24,7 @@
 package hstatic_const_generic_uid;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
 

@@ -17,9 +17,9 @@
 package hermes_type_lit_roundtrip;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.static_view;  // HView2
-use logos.lang.hermes2.anyval;       // HAny
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.static_view;  // HView2
+use logos.lang.hermes.anyval;       // HAny
 
 unsafe fn main() -> i32 {
     let cfg: HermesStatic = @{"t": <type:i32>};

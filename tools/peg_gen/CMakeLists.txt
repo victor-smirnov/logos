@@ -6,7 +6,7 @@ add_executable(peg_gen
 )
 
 target_link_libraries(peg_gen PRIVATE
-    logos_hermes2  # peg_gen uses hermes2 internally for the grammar AST
+    logos_hermes  # peg_gen uses hermes2 internally for the grammar AST
     logos_core
 )
 
@@ -23,7 +23,7 @@ add_executable(peg_gen_test
 )
 
 target_link_libraries(peg_gen_test PRIVATE
-    logos_hermes2
+    logos_hermes
     logos_core
 )
 
@@ -60,7 +60,7 @@ target_include_directories(peg_gen_roundtrip PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}   # generated hermes_parser.hpp
 )
 
-target_link_libraries(peg_gen_roundtrip PRIVATE logos_hermes2 logos_core)
+target_link_libraries(peg_gen_roundtrip PRIVATE logos_hermes logos_core)
 # Generated parser has unused-variable warnings for positional TOKEN_REF captures
 # that exist in the grammar but are not referenced in actions (structural punctuation).
 set_source_files_properties(${HERMES_PARSER_CPP} PROPERTIES

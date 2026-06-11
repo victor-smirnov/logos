@@ -1,9 +1,9 @@
 // hermes2 SDN round-trip example: parse a document, render it back.
 package hermes_example;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

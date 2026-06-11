@@ -1,0 +1,98 @@
+// Logos Hermes2 stdlib — hermes2.hstring
+//
+// HString — a UTF-8 string living in the never-move arena as a REAL custom-DST
+// with NO separate length field: the layout is exactly HermesString's wire shape,
+//
+//     [ vlen(payload_len) ][ UTF-8 payload ... ]
+//
+// i.e. a `#[self_describing]` DST whose ONLY member is the `[u8]` tail; the length
+// is encoded IN-BAND as a variable-length integer at the front of the bytes (1 byte
+// for strings < 249). `dst_len` (the tail's total byte count = whole object, since
+// there is no sized prefix) is `vlen_prefix_size + vlen_read`; the logical string
+// length is `vlen_read` (the payload only).
+//
+// Access is SAFE through `&HString` (the DST is self-describing → a borrowed
+// reference is complete): `len()` / `as_str()` need no `unsafe` at call sites.
+// `as_str` skips the vlen prefix and borrows the inline payload back as a `str`
+// (a slice into the arena, valid while the container lives).
+
+package logos.lang.hermes.hstring;
+
+use logos.lang.hermes.container;   // Hermes2, hermes2_alloc_bytes
+use logos.lang.hermes.allocator;   // Allocator, allocator_alloc
+use logos.lang.hermes.anyval;      // HAny (heterogeneous element)
+use logos.lang.str;                 // str_from_raw
+use logos.lang.mem;                 // copy_bytes
+use logos.lang.ptr;                 // byte_add
+use logos.lang.vlen;                // vlen_encode_size / write / read / prefix_size
+
+#[self_describing]
+pub struct HString {
+    pub bytes: [u8],        // [vlen(payload_len)][utf8 payload] — no sized prefix
+}
+
+// Tail byte count (for slice materialization) = the WHOLE object: the vlen prefix
+// plus the payload it encodes. (No sized header — `self` points at the bytes.)
+impl SelfDescribing for HString {
+    fn dst_len(self: *const HString) -> i64 {
+        let p: *const u8 = self as *const u8;
+        return unsafe { (vlen_prefix_size(p) as i64) + (vlen_read(p) as i64) };
+    }
+}
+
+// Intern `s` THROUGH AN ALLOCATOR (the shared core): allocate
+// `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
+// prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
+// than the whole `Hermes2`) lets an arena container that holds only its allocator
+// back-pointer — e.g. `HArray<HVal>` — intern strings without the full handle.
+pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
+    let n: u64 = s.len() as u64;
+    let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
+    let raw: *mut u8 = alloc_tagged(alloc, total, H2_STRING);   // in-band Ref tag
+    let pfx: u32 = vlen_write(raw, n);
+    copy_bytes(raw.byte_add(pfx as i64), s.as_ptr(), n as i64);
+    return raw as *mut HString;
+}
+
+unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
+    return hstring_in_alloc(&mut h.allocator as *mut Allocator, s);
+}
+
+impl Hermes2 {
+    // Intern a string into the arena; return a borrowed `&HString` into never-move
+    // storage (valid for the container's lifetime). Read it back with `as_str`.
+    pub fn hstring<'a>(self: &'a Hermes2, s: str) -> &'a HString {
+        unsafe {
+            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            return &*hstring_new(h, s);
+        }
+    }
+    // Resolve a Ref `HAny` back to the `HString` it points at.
+    pub fn hstring_of<'a>(self: &'a Hermes2, e: HAny) -> &'a HString {
+        return unsafe { &*(e.resolve() as *const HString) };
+    }
+}
+
+impl HString {
+    // Logical string length = the vlen-decoded payload count (NOT dst_len, which
+    // is the whole tail incl. the prefix). `self.bytes` materializes the tail; its
+    // data pointer is the vlen prefix.
+    pub fn len(self: &HString) -> i64 {
+        return unsafe { vlen_read(self.bytes.as_ptr()) as i64 };
+    }
+
+    // The inline UTF-8 payload — the tail past its vlen prefix.
+    pub fn as_str(self: &HString) -> str {
+        unsafe {
+            let p: *const u8 = self.bytes.as_ptr();
+            let payload: u64 = vlen_read(p);
+            let body: *const u8 = p.byte_add(vlen_prefix_size(p) as i64);
+            return str_from_raw(body, payload as i64);
+        }
+    }
+}
+
+impl HAny {
+    // An interned string as a heterogeneous value — a Ref to its header.
+    pub fn from(s: &HString) -> HAny { return HAny::ref_to(s as *const HString as *const u8); }
+}

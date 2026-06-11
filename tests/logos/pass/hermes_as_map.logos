@@ -1,10 +1,10 @@
 // Hermes C6: parallel slices -> typed hermes2 map via `as <K,AnyVal>{}`.
 // MapSlice values are VALUE-FORM HAny (the hermes2 re-design).
 package hermes_as_map;
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

@@ -1,13 +1,13 @@
 // Structural validation (successor of the Hermes1 Hermes::check test):
 // well-formed documents pass; a corrupted tag fails.
 package hermes_check;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.check;
-use logos.mem.hermes2.clone;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.check;
+use logos.mem.hermes.clone;
 use logos.mem.rc;
 
 unsafe fn root_of(hs: &HermesStatic) -> HAny {

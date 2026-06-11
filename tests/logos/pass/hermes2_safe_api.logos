@@ -4,9 +4,9 @@
 // bumpalo-style), so two arrays coexist. Typed HAny::from(i56)/from(bool).
 // FULLY safe: zero `unsafe`/raw pointer in user code.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(48i64);
     let nested: &mut HArray<HVal> = h.array(2i64);

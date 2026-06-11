@@ -2,9 +2,9 @@
 
 package hermes_match_or;
 
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.pat;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.pat;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn mk(v: HAny) -> Rc<Hermes2> {

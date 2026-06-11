@@ -1,8 +1,8 @@
 // Fail: &[u64] slice cast to <I32>[] — element type mismatch.
 package hermes_as_array_elem_mismatch;
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

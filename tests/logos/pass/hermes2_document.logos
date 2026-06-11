@@ -3,12 +3,12 @@
 // type_code-dispatching like equal/stringify. Builds {"a":[1,2,3],"b":42},
 // sets it as the root, and walks: 6 nodes, depth 3. (Null root = empty doc.)
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.lang.hermes2.document;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.hermes.document;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(512i64);
     let arr: &mut HArray<HVal> = h.array(4i64);

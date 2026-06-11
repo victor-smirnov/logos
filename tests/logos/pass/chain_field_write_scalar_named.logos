@@ -2,7 +2,7 @@
 // successor of the Hermes1 AnyVal scalar-named case): `h.root.w = v.w` through
 // a raw pointer must write the real field, not a temp copy.
 package chain_field_write_scalar_named;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.anyval;
 
 struct Word { w: i64 }
 struct Hdr { root: Word }

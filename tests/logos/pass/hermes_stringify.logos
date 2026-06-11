@@ -2,11 +2,11 @@
 // StringifyCtx test): scalars, strings with escapes, arrays, maps, nesting,
 // boxed wide ints, typed arrays/maps.
 package hermes_stringify;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.allocator;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.allocator;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

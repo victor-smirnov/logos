@@ -5,7 +5,7 @@ package relany;
 // RelAny field stores `target − &field` (RelOffset descriptor) and materialises
 // to *const u8, which the standard `&tagged<TS> Trait` coercion dispatches on.
 use logos.lang.ptr;
-use logos.mem.hermes2.tag_system;
+use logos.mem.hermes.tag_system;
 extern fn malloc(size: i64) -> *mut u8;
 
 // ── the any_object_ptr type: self-relative, materialises to *const u8 ──────────

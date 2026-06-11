@@ -1,7 +1,7 @@
 // Owned holder handle (hermes2 successor of DataOwn): the Held<T> couples the
 // object's lifetime to the holder Rc; reads stay valid as handles move around.
 package datatype_own;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 struct Point { x: i32, y: i32 }

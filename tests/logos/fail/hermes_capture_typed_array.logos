@@ -1,8 +1,8 @@
 // Fail: capture inside a typed @<T>[] array (not supported — typed arrays store raw T, not AnyVal).
 package hermes_capture_typed_array;
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

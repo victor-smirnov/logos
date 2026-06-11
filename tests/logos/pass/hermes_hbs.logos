@@ -1,12 +1,12 @@
 // HBS binary roundtrip on hermes2: serialize -> bytes -> deserialize ->
 // structurally equal + identical render.
 package hermes_hbs;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.hbs;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.hbs;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.stringify;
 use logos.mem.collections.vec;
 use logos.mem.rc;
 use logos.mem.string;

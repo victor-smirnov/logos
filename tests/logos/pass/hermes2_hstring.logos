@@ -4,8 +4,8 @@
 // `len()` / `as_str()` access the header + tail directly. Round-trips; survives a
 // second allocation pushing it across a segment boundary; RAII-freed.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.hstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(32i64);            // tiny segment

@@ -1,9 +1,9 @@
 // hermes2 document header (successor of the Hermes1 DocumentHeader test):
 // the root word lives at blob offset 0, self-relative; null/Pod/Ref forms.
 package hermes_document;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

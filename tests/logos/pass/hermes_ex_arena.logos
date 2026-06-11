@@ -1,9 +1,9 @@
 // Arena-layer exerciser on hermes2 (successor of the Hermes1 ex_arena):
 // self-relative links, HAny wire encodings, vlen datatag raw byte layout.
 package hermes_ex_arena;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.tag_system;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.tag_system;
 use logos.mem.rc;
 
 struct Slot { pub val: i32 }

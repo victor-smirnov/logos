@@ -1,7 +1,7 @@
 // B-ca-06: silent acceptance of unbound `<type:Q>` in HermesStatic literal.
 package type_lit_unbound;
 
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 pub const X: HermesStatic = @{ "key": <type:NotAType> };
 

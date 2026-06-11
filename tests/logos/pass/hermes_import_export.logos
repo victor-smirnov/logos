@@ -2,14 +2,14 @@
 // clone a SUBTREE of one document into another container; both stay live and
 // independent.
 package hermes_import_export;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.clone;
-use logos.mem.hermes2.equal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.clone;
+use logos.mem.hermes.equal;
 use logos.mem.rc;
 use logos.lang.str;
 

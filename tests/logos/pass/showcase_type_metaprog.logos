@@ -20,9 +20,9 @@
 package showcase_type_metaprog;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.static_view;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.static_view;
+use logos.lang.hermes.anyval;
 
 // A user struct, just enough surface for kind/uid/template flights.
 pub struct Pair<A, B> { pub a: A, pub b: B, }

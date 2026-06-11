@@ -1,9 +1,9 @@
 // HAny accessor surface (hermes2 successor of hermes_anyval_methods):
 // is_*/as_* over every Pod kind + boxed wide scalars.
 package hermes_anyval_methods;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.allocator;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.allocator;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

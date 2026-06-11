@@ -6,9 +6,9 @@
 // (A container passed by reference / held via an Rc holder is fine — see
 // hermes2_residency.) docs/internals/borrow-escape-analysis-design.md §7.
 package hermes2_ref_outlives_container;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 fn dangle<'a>() -> &'a HArray<HVal> {
     let h: Hermes2 = hermes2_new(64i64);
     let a: &mut HArray<HVal> = h.array(4i64);

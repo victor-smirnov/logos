@@ -9,7 +9,7 @@
 #include "grammar_ast.hpp"
 
 #include <logos/verification/assert.hpp>
-#include <logos/hermes2/view.hpp>
+#include <logos/hermes/view.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -19,11 +19,11 @@
 namespace fs  = std::filesystem;
 namespace ast = logos::peg_gen::ast;
 
-using logos::hermes2::AnyVal;
-using logos::hermes2::ArrayView;
-using logos::hermes2::TinyMapView;
-using logos::hermes2::StringView;
-using logos::hermes2::MemHolder;
+using logos::hermes::AnyVal;
+using logos::hermes::ArrayView;
+using logos::hermes::TinyMapView;
+using logos::hermes::StringView;
+using logos::hermes::MemHolder;
 using logos::peg_gen::parse_grammar_string;
 using logos::peg_gen::resolve_modules;
 using logos::peg_gen::codegen;
@@ -44,23 +44,23 @@ static int32_t int_field(AnyVal v) {
 }
 
 // Get top-level section (root is ObjectMap, string-keyed).
-static AnyVal section(const logos::hermes2::Hermes& doc, std::string_view key) {
+static AnyVal section(const logos::hermes::Hermes& doc, std::string_view key) {
     if (doc.root().is_null()) return AnyVal{};
     return doc.root_object().as_map().get(key);
 }
 
 // Section helpers that return typed views.
-static TinyMapView meta_of(const logos::hermes2::Hermes& doc) {
+static TinyMapView meta_of(const logos::hermes::Hermes& doc) {
     return TinyMapView(section(doc, "meta"), doc.holder());
 }
 
-static ArrayView array_section(const logos::hermes2::Hermes& doc, std::string_view key) {
+static ArrayView array_section(const logos::hermes::Hermes& doc, std::string_view key) {
     AnyVal v = section(doc, key);
     LOGOS_ASSERT(!v.is_null(), "PEGEN-TEST-NAV", "section '{}' missing", key);
     return ArrayView(v, doc.holder());
 }
 
-static TinyMapView tiny_elem(const logos::hermes2::Hermes& doc, AnyVal v) {
+static TinyMapView tiny_elem(const logos::hermes::Hermes& doc, AnyVal v) {
     return TinyMapView(v, doc.holder());
 }
 
@@ -495,7 +495,7 @@ static void test_action_captures() {
     AnyVal action_val = alt.get(uint8_t(ast::ACTION));
     LOGOS_ASSERT(!action_val.is_null(), "PEGEN-TEST-ACT-001", "action present");
 
-    auto action = logos::hermes2::MapView(action_val, h);
+    auto action = logos::hermes::MapView(action_val, h);
     LOGOS_ASSERT(action.size() == 3, "PEGEN-TEST-ACT-001",
         "action 3 fields, got {}", action.size());
 
@@ -538,7 +538,7 @@ static void test_action_array_capture() {
     auto rule   = tiny_elem(*doc, rules.get(0));
     auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt    = tiny_elem(*doc, alts.get(0));
-    auto action = logos::hermes2::MapView(alt.get(uint8_t(ast::ACTION)), h);
+    auto action = logos::hermes::MapView(alt.get(uint8_t(ast::ACTION)), h);
 
     AnyVal items_v = action.get("ITEMS");
     LOGOS_ASSERT(!items_v.is_null(), "PEGEN-TEST-ACT-002", "ITEMS field present");
@@ -563,7 +563,7 @@ static void test_action_literal_node_code() {
     auto rule   = tiny_elem(*doc, rules.get(0));
     auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt    = tiny_elem(*doc, alts.get(0));
-    auto action = logos::hermes2::MapView(alt.get(uint8_t(ast::ACTION)), h);
+    auto action = logos::hermes::MapView(alt.get(uint8_t(ast::ACTION)), h);
 
     AnyVal code_v = action.get("CODE");
     LOGOS_ASSERT(!code_v.is_null(), "PEGEN-TEST-ACT-003", "CODE field present");

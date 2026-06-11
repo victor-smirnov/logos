@@ -13,7 +13,7 @@
 package metacall_expr_blob;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 extern fn logos_test_make_bin_op_blob() -> ExprBlob;
 

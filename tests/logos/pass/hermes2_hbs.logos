@@ -2,13 +2,13 @@
 // compared via stringify) + map (compared via key lookups, since bucket order may
 // differ on reconstruction).
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.hbs;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.hbs;
+use logos.mem.hermes.stringify;
 use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;

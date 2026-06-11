@@ -26,9 +26,9 @@
 package hstatic_const_generic_extract;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.static_view;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.static_view;
+use logos.lang.hermes.anyval;
 
 unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
     let v: HView2 = hview2_from_ptr(CFG.ptr);

@@ -6,10 +6,10 @@
 
 package hermes_as_array_variants;
 
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

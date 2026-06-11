@@ -29,7 +29,7 @@ target_include_directories(hrpc_gen PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-target_link_libraries(hrpc_gen PRIVATE logos_hermes2 logos_core)
+target_link_libraries(hrpc_gen PRIVATE logos_hermes logos_core)
 
 # ── Step 3: smoke test — parse only ──────────────────────────────────────
 
@@ -38,4 +38,4 @@ add_executable(hrpc_parse_test
     ${HRPC_IDL_PARSER_CPP}
 )
 target_include_directories(hrpc_parse_test PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(hrpc_parse_test PRIVATE logos_hermes2 logos_core)
+target_link_libraries(hrpc_parse_test PRIVATE logos_hermes logos_core)

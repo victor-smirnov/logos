@@ -4,9 +4,9 @@
 // and i32 round-trips, and that the >222 element codes (2101/2110) carry through
 // the in-band VARINT tag.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(512i64);
     // u8 packed array, forced through several grows

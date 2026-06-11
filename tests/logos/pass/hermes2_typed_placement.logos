@@ -5,7 +5,7 @@
 // (Borrow-exclusivity between views and mutation is a separate borrow-checker
 // strengthening — see the deferred BC work; this exercises the safe surface.)
 package test;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 
 fn main() -> i32 {
     let mut d: Hermes2 = hermes2_new(64i64);

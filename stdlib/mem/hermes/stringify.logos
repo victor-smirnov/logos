@@ -1,0 +1,214 @@
+// Logos Hermes2 stdlib — mem.hermes2.stringify
+//
+// Text rendering of a Hermes2 document — the read-only walk that turns an HAny
+// (and everything it transitively references in the arena) into a JSON-ish
+// String. The Hermes2 port of hermes.stringify, and the first end-to-end
+// verifier of the container model: it dispatches purely on `HAny::type_code`
+// (null / i56 / bool / string / array / map), so it exercises the type-tag
+// system, the containers' iteration surfaces, and HString read-back together.
+//
+// Lives in the `mem` tier because it builds a heap `String`; the containers it
+// walks live in `lang`. Output is not strict JSON (map keys are interned in
+// insertion-bucket order, not sorted) — it is a faithful, stable dump.
+
+package logos.mem.hermes.stringify;
+
+use logos.lang.hermes.anyval;     // HAny, type-tag dispatch
+use logos.lang.hermes.array;      // HArray<HVal>
+use logos.lang.hermes.hmap;       // HMap<HString, HVal>
+use logos.lang.hermes.hstring;    // HString
+use logos.lang.str;                // str
+use logos.mem.string;              // String
+
+// Append the rendering of `v` to `*out`. A raw `*mut String` (not `&mut`) so the
+// recursion + loops thread the sink without &mut-reborrow churn.
+unsafe fn write_val(out: &mut String, v: HAny) {
+    if v.is_null() { out.push_str("null"); return; }
+    if v.is_bool() { out.push_str(if v.as_bool() { "true" } else { "false" }); return; }
+    if v.is_float() { let s: String = v.as_f64().to_string(); out.push_str(s.as_str()); return; }
+    if v.is_int()   { let s: String = v.as_i64().to_string(); out.push_str(s.as_str()); return; }   // i56 Pod or boxed i64
+    if v.is_string() {
+        let hs: &HString = &*(v.resolve() as *const HString);
+        out.push_u8(34u8);                 // "
+        out.push_str(hs.as_str());
+        out.push_u8(34u8);
+        return;
+    }
+    if v.is_array() {
+        let a: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
+        out.push_u8(91u8);                 // [
+        let mut i: i64 = 0i64;
+        while i < a.len() {
+            if i > 0i64 { out.push_str(", "); }
+            write_val(out, a.get(i));
+            i = i + 1i64;
+        }
+        out.push_u8(93u8);                 // ]
+        return;
+    }
+    if v.is_map() {
+        let m: &HMap<HString, HVal> = &*(v.resolve() as *const HMap<HString, HVal>);
+        out.push_u8(123u8);                // {
+        let mut first: bool = true;
+        let mut i: i64 = 0i64;
+        while i < m.slots() {
+            let k: HAny = m.key_at(i);
+            if !k.is_null() {
+                if !first { out.push_str(", "); }
+                first = false;
+                let ks: &HString = &*(k.resolve() as *const HString);
+                out.push_u8(34u8); out.push_str(ks.as_str()); out.push_u8(34u8);
+                out.push_u8(58u8); out.push_u8(32u8);          // ": "
+                write_val(out, m.val_at(i));
+            }
+            i = i + 1i64;
+        }
+        out.push_u8(125u8);                // }
+        return;
+    }
+    // Typed dense arrays (ArrayU8..ArrayF64 = 2101..2110): `<Type> [e, e, ...]`.
+    if v.is_ref() {
+        let p: *const u8 = v.resolve();
+        let tcv: u64 = h2_type_code(p);
+        if tcv >= 2101u64 && tcv <= 2110u64 {
+            write_typed_array(out, p, tcv);
+            return;
+        }
+        if tcv >= 3101u64 && tcv <= 3104u64 {
+            write_typed_map(out, p, tcv);
+            return;
+        }
+        if tcv == 4115u64 {                    // TypedValue: init@Name(params)
+            write_typed_value(out, p);
+            return;
+        }
+    }
+    out.push_u8(63u8);                      // ? — unknown tag
+}
+
+// Element byte-width per typed-array code.
+unsafe fn typed_elem_width(tc: u64) -> i64 {
+    if tc == 2101u64 || tc == 2105u64 { return 1i64; }                  // U8 / I8
+    if tc == 2102u64 || tc == 2106u64 { return 2i64; }                  // U16 / I16
+    if tc == 2103u64 || tc == 2107u64 || tc == 2109u64 { return 4i64; } // U32 / I32 / F32
+    return 8i64;                                                        // U64 / I64 / F64
+}
+
+// Render a TypedArray<T> blob: size_(u64@0) capacity_(u64@8) data_(RelativePtr@16,
+// resolves (&data_)+offset). `<Type> [e0, e1, ...]`.
+unsafe fn write_typed_array(out: &mut String, p: *const u8, tc: u64) {
+    let size: u64 = *(p as *const u64);
+    let dfield: i64 = (p as i64) + 16i64;                  // &data_
+    let elems: i64 = dfield + *(dfield as *const i64);     // RelativePtr: (&this)+offset
+    out.push_u8(60u8);                                     // <
+    if      tc == 2101u64 { out.push_str("U8"); }
+    else if tc == 2102u64 { out.push_str("U16"); }
+    else if tc == 2103u64 { out.push_str("U32"); }
+    else if tc == 2104u64 { out.push_str("U64"); }
+    else if tc == 2105u64 { out.push_str("I8"); }
+    else if tc == 2106u64 { out.push_str("I16"); }
+    else if tc == 2107u64 { out.push_str("I32"); }
+    else if tc == 2108u64 { out.push_str("I64"); }
+    else if tc == 2109u64 { out.push_str("F32"); }
+    else                  { out.push_str("F64"); }
+    out.push_u8(62u8); out.push_u8(32u8);                  // > (space)
+    out.push_u8(91u8);                                     // [
+    let w: i64 = typed_elem_width(tc);
+    let mut i: u64 = 0u64;
+    while i < size {
+        if i > 0u64 { out.push_str(", "); }
+        let off: i64 = elems + (i as i64) * w;
+        if      tc == 2110u64 { let e: f64 = *(off as *const f64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2109u64 { let e: f32 = *(off as *const f32); out.push_str((e as f64).to_string().as_str()); }
+        else if tc == 2104u64 { let e: u64 = *(off as *const u64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2103u64 { let e: u32 = *(off as *const u32); out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2102u64 { let e: u16 = *(off as *const u16); out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2101u64 { let e: u8  = *(off as *const u8);  out.push_str((e as u64).to_string().as_str()); }
+        else if tc == 2108u64 { let e: i64 = *(off as *const i64); out.push_str(e.to_string().as_str()); }
+        else if tc == 2107u64 { let e: i32 = *(off as *const i32); out.push_str((e as i64).to_string().as_str()); }
+        else if tc == 2106u64 { let e: i16 = *(off as *const i16); out.push_str((e as i64).to_string().as_str()); }
+        else                  { let e: i8  = *(off as *const i8);  out.push_str((e as i64).to_string().as_str()); }
+        i = i + 1u64;
+    }
+    out.push_u8(93u8);                                     // ]
+}
+
+// Render a TypedMap<K> blob: size_(i64@0) cap_(i64@8) keys_(RelativePtr@16→K[])
+// vals_(RelativePtr@24→AnyVal[]). Values are AT-REST HAny words (self-relative to
+// their slot). `<KType,AnyVal> {k: v, ...}`.
+unsafe fn write_typed_map(out: &mut String, p: *const u8, tc: u64) {
+    let size: i64 = *(p as *const i64);
+    let kfield: i64 = (p as i64) + 16i64;
+    let keys: i64 = kfield + *(kfield as *const i64);      // RelativePtr resolve
+    let vfield: i64 = (p as i64) + 24i64;
+    let vals: i64 = vfield + *(vfield as *const i64);
+    let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };  // I32/U32 vs I64/U64
+    out.push_u8(60u8);                                     // <
+    if      tc == 3101u64 { out.push_str("I32"); }
+    else if tc == 3102u64 { out.push_str("U32"); }
+    else if tc == 3103u64 { out.push_str("I64"); }
+    else                  { out.push_str("U64"); }
+    out.push_str(", AnyVal");
+    out.push_u8(62u8); out.push_u8(32u8);                  // > (space)
+    out.push_u8(123u8);                                    // {
+    let mut i: i64 = 0i64;
+    while i < size {
+        if i > 0i64 { out.push_str(", "); }
+        let koff: i64 = keys + i * kw;
+        if      tc == 3101u64 { let k: i32 = *(koff as *const i32); out.push_str((k as i64).to_string().as_str()); }
+        else if tc == 3102u64 { let k: u32 = *(koff as *const u32); out.push_str((k as u64).to_string().as_str()); }
+        else if tc == 3103u64 { let k: i64 = *(koff as *const i64); out.push_str(k.to_string().as_str()); }
+        else                  { let k: u64 = *(koff as *const u64); out.push_str(k.to_string().as_str()); }
+        out.push_u8(58u8); out.push_u8(32u8);              // : (space)
+        // value: at-rest HAny word at vals[i], self-relative to the slot.
+        let vslot: i64 = vals + i * 8i64;
+        let w: i64 = *(vslot as *const i64);
+        let vh: HAny =
+            if w == 0i64 { HAny::Ref(0i64 as *const u8) }
+            else if (w & 1i64) == 1i64 { HAny::Pod(w as u64) }
+            else { HAny::Ref((vslot + w) as *const u8) };
+        write_val(out, vh);
+        i = i + 1i64;
+    }
+    out.push_u8(125u8);                                    // }
+}
+
+// Render `v` (and its transitive references) to a fresh String.
+pub fn stringify(v: HAny) -> String {
+    let mut out: String = String::new();
+    unsafe { write_val(&mut out, v); }
+    return out;
+}
+
+// TypedValue render: `init@Name(p1,p2)` (postfix form; no parens when the
+// params slot is null). Fields are at-rest words at obj+0/8/16.
+unsafe fn write_typed_value(out: &mut String, p: *const u8) {
+    let tn: HAny = h2s_at((p as i64) + 0i64);
+    let pr: HAny = h2s_at((p as i64) + 8i64);
+    let iv: HAny = h2s_at((p as i64) + 16i64);
+    write_val(out, iv);
+    out.push_u8(64u8);                          // '@'
+    if tn.is_string() {
+        let hs: &HString = &*(tn.resolve() as *const HString);
+        out.push_str(hs.as_str());
+    }
+    if !pr.is_null() {
+        out.push_u8(40u8);                      // '('
+        let pa: &HArray<HVal> = &*(pr.resolve() as *const HArray<HVal>);
+        let mut i: i64 = 0;
+        while i < pa.len() {
+            if i > 0i64 { out.push_u8(44u8); }  // ','
+            write_val(out, pa.get(i));
+            i = i + 1;
+        }
+        out.push_u8(41u8);                      // ')'
+    }
+}
+
+// Materialize the at-rest HAny word at `slot_addr`.
+unsafe fn h2s_at(slot_addr: i64) -> HAny {
+    let w: i64 = *(slot_addr as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((slot_addr + w) as *const u8);
+}

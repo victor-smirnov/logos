@@ -1,9 +1,9 @@
 // hermes2 zone strings (successor of the Hermes1 HermesString test):
 // hstring allocation, len/as_str, interning across HAny, empty + long strings.
 package hermes_string;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hstring;
 use logos.mem.rc;
 use logos.lang.str;
 

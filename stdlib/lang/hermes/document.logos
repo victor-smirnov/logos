@@ -1,0 +1,64 @@
+// Logos Hermes2 stdlib — hermes2.document
+//
+// Document traversal over the heterogeneous Hermes2 tree. A "document" is a
+// `Hermes2` container plus its ROOT HAny (`h.set_root` / `h.root`); the walkers
+// here recurse the tree from any HAny, dispatching on `type_code()` exactly like
+// `equal` / `stringify`. `node_count` (every scalar/string/array/map node) is the
+// canonical demonstrator — the same shape extends to stringify / binary / fold.
+
+package logos.lang.hermes.document;
+
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.ptr;
+
+// Total number of value nodes in the tree rooted at `v`: each scalar / string /
+// array / map counts as one node, and container children are recursed. A null
+// root is an empty document (0 nodes).
+pub fn node_count(v: HAny) -> i64 {
+    if v.is_null() { return 0i64; }
+    if v.is_array() {
+        let a: &HArray<HVal> = unsafe { &*(v.resolve() as *const HArray<HVal>) };
+        let mut n: i64 = 1i64;
+        let mut i: i64 = 0i64;
+        while i < a.len() { n = n + node_count(a.get(i)); i = i + 1i64; }
+        return n;
+    }
+    if v.is_map() {
+        let m: &HMap<HString, HVal> = unsafe { &*(v.resolve() as *const HMap<HString, HVal>) };
+        let mut n: i64 = 1i64;
+        let mut i: i64 = 0i64;
+        while i < m.slots() {
+            if !m.key_at(i).is_null() { n = n + node_count(m.val_at(i)); }
+            i = i + 1i64;
+        }
+        return n;
+    }
+    return 1i64;   // scalar / string leaf
+}
+
+// Maximum nesting depth of the tree rooted at `v` (a scalar/string = depth 1, an
+// empty container = 1, otherwise 1 + the deepest child).
+pub fn depth(v: HAny) -> i64 {
+    if v.is_null() { return 0i64; }
+    if v.is_array() {
+        let a: &HArray<HVal> = unsafe { &*(v.resolve() as *const HArray<HVal>) };
+        let mut d: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < a.len() { let cd: i64 = depth(a.get(i)); if cd > d { d = cd; } i = i + 1i64; }
+        return d + 1i64;
+    }
+    if v.is_map() {
+        let m: &HMap<HString, HVal> = unsafe { &*(v.resolve() as *const HMap<HString, HVal>) };
+        let mut d: i64 = 0i64;
+        let mut i: i64 = 0i64;
+        while i < m.slots() {
+            if !m.key_at(i).is_null() { let cd: i64 = depth(m.val_at(i)); if cd > d { d = cd; } }
+            i = i + 1i64;
+        }
+        return d + 1i64;
+    }
+    return 1i64;
+}

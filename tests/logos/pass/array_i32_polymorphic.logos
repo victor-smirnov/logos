@@ -1,8 +1,8 @@
 // One generic array shape, several element types (successor of the Hermes1
 // polymorphic Array<T> test): i32 / i64 / u8 instantiations behave alike.
 package array_i32_polymorphic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

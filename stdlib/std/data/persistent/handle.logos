@@ -30,7 +30,7 @@ use logos.mem.rc;
 use logos.lang.cmp;
 use logos.lang.drop;
 use logos.lang.fabric;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;

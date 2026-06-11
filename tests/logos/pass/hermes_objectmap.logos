@@ -1,10 +1,10 @@
 // ObjectMap mechanics on hermes2 (successor of the Hermes1 zone ObjectMap
 // test): put/get/overwrite/missing keys + interning across many entries.
 package hermes_objectmap;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
 use logos.mem.rc;
 use logos.lang.str;
 

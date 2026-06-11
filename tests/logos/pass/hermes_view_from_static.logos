@@ -1,9 +1,9 @@
 // C8f: HermesStatic → HermesView conversion via as_view().
 package hermes_view_from_static;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.static_view;  // HView2
-use logos.lang.hermes2.anyval;       // HAny
-use logos.mem.hermes2.stringify;     // stringify
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.static_view;  // HView2
+use logos.lang.hermes.anyval;       // HAny
+use logos.mem.hermes.stringify;     // stringify
 use logos.mem.string;
 use logos.lang.str;
 

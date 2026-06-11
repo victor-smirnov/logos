@@ -1,10 +1,10 @@
 // Hermes comprehension auto-coercion: i32, bool, str values (hermes2).
 package hermes_comp_coerce;
 
-use logos.lang.hermes2.comp_builder;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.static_view;
+use logos.lang.hermes.comp_builder;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.static_view;
 use logos.mem.rc;
 
 fn main() -> i32 {

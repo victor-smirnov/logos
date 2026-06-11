@@ -1,6 +1,6 @@
 package tag_system_basic;
 
-use logos.mem.hermes2.tag_system;
+use logos.mem.hermes.tag_system;
 // Tests:
 // 1. DataTypeTagSystem::read_tag roundtrip (matches write_tag from datatag)
 // 2. TomTagSystem::read_tag reads first 8 bytes as LE u64

@@ -1,6 +1,6 @@
 package tag_dispatch_call;
 
-use logos.mem.hermes2.tag_system;
+use logos.mem.hermes.tag_system;
 // Tests Layer 6: &tagged<TS> Trait call-site dispatch.
 //
 // Verifies:

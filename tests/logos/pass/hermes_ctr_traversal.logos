@@ -1,12 +1,12 @@
 // Parse-then-traverse (hermes2 successor of the Hermes1 traversal test):
 // int/bool extraction, array walk, map lookup — through container reads.
 package hermes_ctr_traversal;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 use logos.lang.str;
 

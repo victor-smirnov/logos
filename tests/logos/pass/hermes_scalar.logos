@@ -1,12 +1,12 @@
 // Boxed wide scalars in hermes2 zones (successor of the Hermes1 scalar test):
 // I64/U64 beyond the inline range, boxed via the container; reads see through.
 package hermes_scalar;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.allocator;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.allocator;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

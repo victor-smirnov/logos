@@ -6,19 +6,19 @@
 #include "hermes_parser.hpp"
 
 #include <logos/verification/assert.hpp>
-#include <logos/hermes2/view.hpp>
+#include <logos/hermes/view.hpp>
 
 #include <print>
 #include <string_view>
 
-using logos::hermes2::HermesParser;
-using logos::hermes2::Hermes;
-using logos::hermes2::TinyMapView;
-using logos::hermes2::ArrayView;
-using logos::hermes2::StringView;
-using logos::hermes2::MemHolder;
-using logos::hermes2::AnyVal;
-namespace ha = logos::hermes2::hermes_ast;
+using logos::hermes::HermesParser;
+using logos::hermes::Hermes;
+using logos::hermes::TinyMapView;
+using logos::hermes::ArrayView;
+using logos::hermes::StringView;
+using logos::hermes::MemHolder;
+using logos::hermes::AnyVal;
+namespace ha = logos::hermes::hermes_ast;
 
 // ── Navigation helpers ───────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 // Typed allocation in a hermes2 arena (successor of the Hermes1 zone basic test).
 package datatype_zone_basic;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 struct Point { x: i32, y: i32 }

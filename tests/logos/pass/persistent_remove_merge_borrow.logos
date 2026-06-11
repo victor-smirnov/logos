@@ -16,7 +16,7 @@ use logos.std.data.persistent.bt.cow;
 use logos.std.data.persistent.bt.descent;
 use logos.std.data.persistent.bt.mutate;
 use logos.lang.fabric;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 pub const StoreCfg: HermesStatic = @{
     "name": "rebal", "ctr_id": <type:u64>, "snp_id": <type:u64>, "block_id": <type:u64>,

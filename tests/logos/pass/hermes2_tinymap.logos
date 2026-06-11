@@ -3,9 +3,9 @@
 // kept in key order. Exercises out-of-order insert (shift), get/contains/overwrite,
 // absent + out-of-range keys, and a nested tiny map referenced from another.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(256i64);
     let m: &mut HTinyValMap = h.tinymap(8i64);

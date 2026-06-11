@@ -23,9 +23,9 @@
 
 package logos.mem.any;
 
-use logos.lang.hermes2.hstatic;     // HermesStatic (reflect::<T>() return type), StringView
-use logos.lang.hermes2.static_view;  // HView2 / hview2_from_ptr / hany_from_word / SView2
-use logos.lang.hermes2.anyval;       // HAny
+use logos.lang.hermes.hstatic;     // HermesStatic (reflect::<T>() return type), StringView
+use logos.lang.hermes.static_view;  // HView2 / hview2_from_ptr / hany_from_word / SView2
+use logos.lang.hermes.anyval;       // HAny
 use logos.lang.str;
 
 // Convert a hermes2 SView2 to the public StringView (same {ptr,len} shape).

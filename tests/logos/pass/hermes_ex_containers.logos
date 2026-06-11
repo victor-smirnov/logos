@@ -1,11 +1,11 @@
 // Container-kit exerciser on hermes2 (successor of the Hermes1 ex_containers):
 // tinymap basic/update/52-key stress, array push/read, map basic/update.
 package hermes_ex_containers;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
 use logos.mem.rc;
 use logos.lang.str;
 

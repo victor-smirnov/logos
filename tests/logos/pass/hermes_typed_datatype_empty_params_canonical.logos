@@ -1,13 +1,13 @@
 // Empty-params canonicalization (hermes2): @T=x == @T()=x == @T( )=x — all
 // parse to a null params slot, render identically, compare/hash equal.
 package hermes_typed_datatype_empty_params_canonical;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.typed_value;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.hashing;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.typed_value;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

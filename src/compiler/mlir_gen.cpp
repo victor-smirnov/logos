@@ -232,7 +232,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // prog is const; use the const arena() accessor (returns nullptr if
         // the pool was never initialised — in that case there are no bodies
         // to walk, so we early-out below).
-        const hermes2::Arena* walk_arena_p = prog.type_pool.arena();
+        const hermes::Arena* walk_arena_p = prog.type_pool.arena();
         std::function<void(lir_view::BlockRef)> walk_block;
         std::function<void(lir_view::StmtRef)>  walk_stmt;
         std::function<void(lir_view::ExprRef)>  walk_expr;
@@ -296,7 +296,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 auto recurse_arr = [&](uint8_t key) {
                     auto av = e.mirror()->get(key);
                     if (av.is_null()) return;
-                    auto* arr = av.as_ptr<const hermes2::ObjectArray>();
+                    auto* arr = av.as_ptr<const hermes::ObjectArray>();
                     for (uint64_t i = 0; i < arr->size(); ++i) {
                         auto el = arr->get(i);
                         if (!el.is_null())
@@ -323,7 +323,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 {
                     auto av = e.mirror()->get(ek::ARMS.code);
                     if (!av.is_null()) {
-                        auto* arr = av.as_ptr<const hermes2::ObjectArray>();
+                        auto* arr = av.as_ptr<const hermes::ObjectArray>();
                         for (uint64_t i = 0; i < arr->size(); ++i) {
                             auto el = arr->get(i);
                             if (el.is_null()) continue;
@@ -397,7 +397,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             auto it = by_name.find(name);
             if (it == by_name.end()) continue;
             auto& fn = *it->second;
-            if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) continue;
+            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) continue;
             walk_block(lir_view::BlockRef(walk_arena_p, fn.body.mirror_offset_));
         }
 

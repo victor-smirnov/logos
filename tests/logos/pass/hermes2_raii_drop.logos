@@ -1,7 +1,7 @@
 // Phase 0 RAII: container auto-frees its never-move arena on scope exit (Drop),
 // no manual hermes2_free. Allocate across a segment boundary, then just return.
 package test;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 struct Node { val: i64, link: *mut Node }
 fn main() -> i32 {
     unsafe {

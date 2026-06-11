@@ -1,11 +1,11 @@
 // parse -> stringify -> parse fixed point on hermes2 (successor of the Hermes1
 // round-trip test): the second parse is structurally equal to the first.
 package hermes_round_trip;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
-use logos.mem.hermes2.equal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.equal;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

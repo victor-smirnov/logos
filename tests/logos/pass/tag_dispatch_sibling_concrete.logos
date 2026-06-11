@@ -2,8 +2,8 @@
 // the TinyObjectMap-sibling test): two concrete #[zoned] datatypes register in
 // the SAME tagged-trait table; codes are distinct and impls resolve directly.
 package tag_dispatch_sibling_concrete;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.tag_system;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

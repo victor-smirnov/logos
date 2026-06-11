@@ -1,8 +1,8 @@
 // hermes2 type tags: canonical codes + the vlen datatag write/read roundtrip
 // (successor of the Hermes1 hermes_typetag test; STRING moved 28 -> 130).
 package hermes_typetag;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.tag_system;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

@@ -1,11 +1,11 @@
 // Deep clone of typed dense containers (hermes2): typed arrays + typed maps
 // copy raw payloads into the destination zone, equal + separate.
 package hermes_typed_container_clone;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.clone;
-use logos.mem.hermes2.equal;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.clone;
+use logos.mem.hermes.equal;
 use logos.mem.rc;
 
 unsafe fn root_of(hs: &HermesStatic) -> HAny {

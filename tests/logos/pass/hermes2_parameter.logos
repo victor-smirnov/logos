@@ -1,9 +1,9 @@
 // HParameter — Hermes2 SDN query-parameter slot `?name` (Hermes1 Parameter, code
 // 127). An unbound `?limit` and a bound `?limit = 50`; read name, bound state, value.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.parameter;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.parameter;
 use logos.lang.str;
 
 fn main() -> i32 {

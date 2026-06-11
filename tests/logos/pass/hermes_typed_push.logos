@@ -1,9 +1,9 @@
 // Typed-array push + read-back via the document root (hermes2 successor of
 // build_array_i32/array_i32_push).
 package hermes_typed_push;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

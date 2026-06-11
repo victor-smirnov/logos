@@ -6,14 +6,14 @@
 #include <cstdlib>
 
 #include <logos/compiler/ast.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -32,10 +32,10 @@ namespace logos::compiler {
 namespace la = logos::compiler::ast;
 namespace fs = std::filesystem;
 
-using hermes2::TinyMapView;
-using hermes2::ArrayView;
-using hermes2::StringView;
-using hermes2::AnyVal;
+using hermes::TinyMapView;
+using hermes::ArrayView;
+using hermes::StringView;
+using hermes::AnyVal;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,7 +54,7 @@ static std::string read_file(const std::string& path) {
 // Three-layer split Phase 3.4: scan a parsed AST for the file-level inner
 // attribute `#![no_implicit_prelude]`. Returns true if present. Walks
 // root.ITEMS for any INNER_ANNOTATION node with NAME="no_implicit_prelude".
-static bool file_opts_out_of_implicit_prelude(const hermes2::HermesView& ast) {
+static bool file_opts_out_of_implicit_prelude(const hermes::HermesView& ast) {
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();
     if (!root.has_key(la::ITEMS)) return false;
@@ -81,7 +81,7 @@ static bool file_opts_out_of_implicit_prelude(const hermes2::HermesView& ast) {
 // Three-layer split Phase 3.4: extract `use` deps from an AST, optionally
 // appending an implicit prelude package (if `implicit_prelude` is non-empty
 // AND the file does not carry `#![no_implicit_prelude]`).
-static std::vector<std::string> extract_uses(const hermes2::HermesView& ast,
+static std::vector<std::string> extract_uses(const hermes::HermesView& ast,
                                               std::string_view implicit_prelude = {}) {
     std::vector<std::string> result;
     auto holder = ast.holder();
@@ -630,7 +630,7 @@ static std::vector<ParsedModule> parse_hermes0(const std::vector<uint8_t>& data,
         uint64_t ast_len = read_le_u64(p); p += 8;
         if (p + ast_len > end) { std::fprintf(stderr, "module_loader: .hermes0 truncated ast\n"); return {}; }
 
-        auto decoded = hermes2::binary_decode(p, static_cast<size_t>(ast_len));
+        auto decoded = hermes::binary_decode(p, static_cast<size_t>(ast_len));
         p += ast_len;
 
         if (!decoded) {
@@ -1216,7 +1216,7 @@ std::vector<ParsedModule> load_modules(
     // Parse one .logos file. On success returns the AST and its use-list;
     // on failure logs to stderr and returns empty.
     auto parse_one = [&](const std::string& canonical)
-        -> std::pair<hermes2::Hermes, std::vector<std::string>>
+        -> std::pair<hermes::Hermes, std::vector<std::string>>
     {
         auto source = read_file(canonical);
         if (source.empty()) {
@@ -1373,10 +1373,10 @@ std::vector<ParsedModule> load_modules(
                 {
                     auto bopt = extract_hermes0_lir_blob(member, archive_path);
                     if (bopt.present && !bopt.bytes.empty()) {
-                        auto doc_exp = hermes2::from_bytes_copy(
+                        auto doc_exp = hermes::from_bytes_copy(
                             bopt.bytes.data(), bopt.bytes.size());
                         if (doc_exp) {
-                            auto reg = hermes2::register_lir_arena(*doc_exp);
+                            auto reg = hermes::register_lir_arena(*doc_exp);
                             if (reg) {
                                 if (trace) {
                                     std::fprintf(stderr,
@@ -1398,11 +1398,11 @@ std::vector<ParsedModule> load_modules(
                                     base = base.substr(s + 1);
                                 for (auto& im : ar_read_members(archive_path, ".imp")) {
                                     auto blob = unwrap_elf_section(im, ".limports");
-                                    auto entries = hermes2::read_import_table_blob(
+                                    auto entries = hermes::read_import_table_blob(
                                         blob.data(), blob.size());
                                     if (entries) {
                                         size_t n = entries->size();
-                                        hermes2::global_arena_pool().set_module_imports(
+                                        hermes::global_arena_pool().set_module_imports(
                                             reg->arena_id, base, std::move(*entries));
                                         if (trace) {
                                             std::fprintf(stderr,
@@ -1472,7 +1472,7 @@ std::vector<ParsedModule> load_modules(
         // Check text index first (source build takes priority).
         auto it = index.find(pkg);
         if (it != index.end()) {
-            struct Pending { std::string path; hermes2::Hermes ast; };
+            struct Pending { std::string path; hermes::Hermes ast; };
             std::vector<Pending> pending;
             std::vector<std::string> pkg_uses;
             for (const auto& file : it->second) {

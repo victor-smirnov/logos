@@ -3,8 +3,8 @@
 #include "codegen.hpp"
 #include "hrpc_idl_parser.hpp"
 
-#include <logos/hermes2/view.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/view.hpp>
+#include <logos/hermes/compat.hpp>
 
 #include <algorithm>
 #include <format>
@@ -15,7 +15,7 @@
 
 namespace logos::hrpc_gen {
 
-using namespace logos::hermes2;
+using namespace logos::hermes;
 using namespace logos::hrpc::hrpc_idl_ast;
 
 // ---------------------------------------------------------------------------
@@ -123,8 +123,8 @@ CodeGen::TypeInfo CodeGen::resolve_type(TinyMapView type_node) const {
     if (c == MAP_TYPE.code) {
         ti.is_map = true;
         ti.name    = "map";
-        ti.cpp_get = "logos::hermes2::MapView";
-        ti.cpp_set = "logos::hermes2::MapView";
+        ti.cpp_get = "logos::hermes::MapView";
+        ti.cpp_set = "logos::hermes::MapView";
         return ti;
     }
 
@@ -168,7 +168,7 @@ CodeGen::TypeInfo CodeGen::resolve_type(TinyMapView type_node) const {
     // String / bytes.
     if (name == "string" || name == "bytes") {
         ti.is_string  = true;
-        ti.cpp_get    = "logos::hermes2::StringView";
+        ti.cpp_get    = "logos::hermes::StringView";
         ti.cpp_set    = "std::string_view";
         return ti;
     }
@@ -247,8 +247,8 @@ void CodeGen::emit_header(std::ostream& out, std::string_view guard) const {
     out << "#include <logos/hrpc/schema.hpp>\n";
     out << "#include <logos/hrpc/session.hpp>\n";
     out << "#include <logos/hrpc/context.hpp>\n";
-    out << "#include <logos/hermes2/view.hpp>\n";
-    out << "#include <logos/hermes2/compat.hpp>\n";
+    out << "#include <logos/hermes/view.hpp>\n";
+    out << "#include <logos/hermes/compat.hpp>\n";
     out << "#include <string_view>\n";
     out << "#include <cstdint>\n\n";
 
@@ -293,13 +293,13 @@ void CodeGen::emit_message_decl(std::ostream& out, TinyMapView node) const {
     std::string name = str_field(node, NAME.code);
 
     out << "struct " << name << " {\n";
-    out << "    logos::hermes2::Hermes  doc;\n";
-    out << "    logos::hermes2::TinyMapView map;\n\n";
+    out << "    logos::hermes::Hermes  doc;\n";
+    out << "    logos::hermes::TinyMapView map;\n\n";
 
     AnyVal items_av = node.get(uint8_t(ITEMS.code));
 
     out << "    static " << name << " make();\n";
-    out << "    static " << name << " from_doc(logos::hermes2::Hermes doc);\n\n";
+    out << "    static " << name << " from_doc(logos::hermes::Hermes doc);\n\n";
 
     // Getters / setters for each field.
     if (!items_av.is_null()) {
@@ -324,7 +324,7 @@ void CodeGen::emit_message_decl(std::ostream& out, TinyMapView node) const {
                 AnyVal val_av = type_node.get(uint8_t(VALUE_TYPE.code));
                 if (val_av.is_null()) continue;
                 TypeInfo vti = resolve_type(map_of(val_av));
-                out << "    logos::hermes2::MapView " << fname << "_map() const;\n";
+                out << "    logos::hermes::MapView " << fname << "_map() const;\n";
                 if (!vti.is_large) {
                     out << "    " << vti.cpp_get << " " << fname
                         << "(std::string_view key) const;\n";
@@ -335,7 +335,7 @@ void CodeGen::emit_message_decl(std::ostream& out, TinyMapView node) const {
                 TypeInfo ti = resolve_type(type_node);
                 if (!ti.is_large) {
                     out << "    uint64_t " << fname << "_size() const;\n";
-                    out << "    logos::hermes2::ArrayView " << fname << "_array() const;\n";
+                    out << "    logos::hermes::ArrayView " << fname << "_array() const;\n";
                     out << "    " << ti.cpp_get << " " << fname << "(uint64_t i) const;\n";
                     out << "    void add_" << fname << "(" << ti.cpp_set << " v);\n";
                 } else {
@@ -443,7 +443,7 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
     // make()
     out << name << " " << name << "::make() {\n";
     out << "    " << name << " m;\n";
-    out << "    m.doc = logos::hermes2::make_doc();\n";
+    out << "    m.doc = logos::hermes::make_doc();\n";
     out << "    auto root = m.doc.make_tiny_map(" << field_count << ");\n";
     out << "    m.doc.set_root(root);\n";
     out << "    m.map = root;\n";
@@ -451,7 +451,7 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
     out << "}\n\n";
 
     // from_doc()
-    out << name << " " << name << "::from_doc(logos::hermes2::Hermes doc) {\n";
+    out << name << " " << name << "::from_doc(logos::hermes::Hermes doc) {\n";
     out << "    " << name << " m;\n";
     out << "    m.doc = std::move(doc);\n";
     out << "    m.map = m.doc.root_object().as_tiny_map();\n";
@@ -486,14 +486,14 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                 if (vti.is_large) continue;
 
                 // {field}_map()
-                out << "logos::hermes2::MapView " << name << "::" << fname << "_map() const {\n";
-                out << "    return logos::hermes2::MapView("
+                out << "logos::hermes::MapView " << name << "::" << fname << "_map() const {\n";
+                out << "    return logos::hermes::MapView("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 out << "}\n\n";
 
                 // {field}(key)
                 out << vti.cpp_get << " " << name << "::" << fname << "(std::string_view key) const {\n";
-                out << "    logos::hermes2::MapView m("
+                out << "    logos::hermes::MapView m("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 if (vti.is_scalar) {
                     out << "    return m.get(key).as_value<" << vti.scalar_cpp << ">();\n";
@@ -501,11 +501,11 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                     out << "    return static_cast<" << vti.name
                         << ">(m.get(key).as_value<uint32_t>());\n";
                 } else if (vti.is_string) {
-                    out << "    return logos::hermes2::StringView(m.get(key).to_offset(), doc.holder());\n";
+                    out << "    return logos::hermes::StringView(m.get(key).to_offset(), doc.holder());\n";
                 } else if (vti.is_message) {
                     out << "    " << vti.name << " nested;\n";
                     out << "    nested.doc = doc;\n";
-                    out << "    nested.map = logos::hermes2::TinyMapView(m.get(key).to_offset(), doc.holder());\n";
+                    out << "    nested.map = logos::hermes::TinyMapView(m.get(key).to_offset(), doc.holder());\n";
                     out << "    return nested;\n";
                 }
                 out << "}\n\n";
@@ -517,12 +517,12 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                 out << "        map.put(uint8_t(" << int(slot)
                     << "), doc.make_object_map().to_anyval());\n";
                 out << "    }\n";
-                out << "    logos::hermes2::MapView m("
+                out << "    logos::hermes::MapView m("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 if (vti.is_scalar) {
-                    out << "    m.put(key, logos::hermes2::AnyVal::from_value(v));\n";
+                    out << "    m.put(key, logos::hermes::AnyVal::from_value(v));\n";
                 } else if (vti.is_enum) {
-                    out << "    m.put(key, logos::hermes2::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
+                    out << "    m.put(key, logos::hermes::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
                 } else if (vti.is_string) {
                     out << "    m.put(key, doc.make_string(v).to_anyval());\n";
                 } else if (vti.is_message) {
@@ -540,19 +540,19 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                 // {field}_size()
                 out << "uint64_t " << name << "::" << fname << "_size() const {\n";
                 out << "    if (!map.has_key(uint8_t(" << int(slot) << "))) return 0;\n";
-                out << "    return logos::hermes2::ArrayView("
+                out << "    return logos::hermes::ArrayView("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder()).size();\n";
                 out << "}\n\n";
 
                 // {field}_array()
-                out << "logos::hermes2::ArrayView " << name << "::" << fname << "_array() const {\n";
-                out << "    return logos::hermes2::ArrayView("
+                out << "logos::hermes::ArrayView " << name << "::" << fname << "_array() const {\n";
+                out << "    return logos::hermes::ArrayView("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 out << "}\n\n";
 
                 // {field}(i) — typed element getter
                 out << ti.cpp_get << " " << name << "::" << fname << "(uint64_t i) const {\n";
-                out << "    logos::hermes2::ArrayView arr("
+                out << "    logos::hermes::ArrayView arr("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 if (ti.is_scalar) {
                     out << "    return arr.get(i).as_value<" << ti.scalar_cpp << ">();\n";
@@ -560,11 +560,11 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                     out << "    return static_cast<" << ti.name
                         << ">(arr.get(i).as_value<uint32_t>());\n";
                 } else if (ti.is_string) {
-                    out << "    return logos::hermes2::StringView(arr.get(i).to_offset(), doc.holder());\n";
+                    out << "    return logos::hermes::StringView(arr.get(i).to_offset(), doc.holder());\n";
                 } else if (ti.is_message) {
                     out << "    " << ti.name << " nested;\n";
                     out << "    nested.doc = doc;\n";
-                    out << "    nested.map = logos::hermes2::TinyMapView(arr.get(i).to_offset(), doc.holder());\n";
+                    out << "    nested.map = logos::hermes::TinyMapView(arr.get(i).to_offset(), doc.holder());\n";
                     out << "    return nested;\n";
                 }
                 out << "}\n\n";
@@ -575,12 +575,12 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                 out << "        map.put(uint8_t(" << int(slot)
                     << "), doc.make_array(4).to_anyval());\n";
                 out << "    }\n";
-                out << "    logos::hermes2::ArrayView arr("
+                out << "    logos::hermes::ArrayView arr("
                     << "map.get(uint8_t(" << int(slot) << ")).to_offset(), doc.holder());\n";
                 if (ti.is_scalar) {
-                    out << "    arr.push_back(logos::hermes2::AnyVal::from_value(v));\n";
+                    out << "    arr.push_back(logos::hermes::AnyVal::from_value(v));\n";
                 } else if (ti.is_enum) {
-                    out << "    arr.push_back(logos::hermes2::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
+                    out << "    arr.push_back(logos::hermes::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
                 } else if (ti.is_string) {
                     out << "    arr.push_back(doc.make_string(v).to_anyval());\n";
                 } else if (ti.is_message) {
@@ -607,12 +607,12 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
                     << ">(map.get(uint8_t(" << int(slot) << ")).as_value<uint32_t>());\n";
             } else if (ti.is_string) {
                 out << "    auto av = map.get(uint8_t(" << int(slot) << "));\n";
-                out << "    return logos::hermes2::StringView(av.to_offset(), doc.holder());\n";
+                out << "    return logos::hermes::StringView(av.to_offset(), doc.holder());\n";
             } else if (ti.is_message) {
                 out << "    " << ti.name << " nested;\n";
                 out << "    nested.doc = doc;\n";
                 out << "    auto av = map.get(uint8_t(" << int(slot) << "));\n";
-                out << "    nested.map = logos::hermes2::TinyMapView(av.to_offset(), doc.holder());\n";
+                out << "    nested.map = logos::hermes::TinyMapView(av.to_offset(), doc.holder());\n";
                 out << "    return nested;\n";
             }
             out << "}\n\n";
@@ -620,10 +620,10 @@ void CodeGen::emit_message_impl(std::ostream& out, TinyMapView node) const {
             // Setter
             out << "void " << name << "::set_" << fname << "(" << ti.cpp_set << " v) {\n";
             if (ti.is_scalar) {
-                out << "    map.put(uint8_t(" << int(slot) << "), logos::hermes2::AnyVal::from_value(v));\n";
+                out << "    map.put(uint8_t(" << int(slot) << "), logos::hermes::AnyVal::from_value(v));\n";
             } else if (ti.is_enum) {
                 out << "    map.put(uint8_t(" << int(slot)
-                    << "), logos::hermes2::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
+                    << "), logos::hermes::AnyVal::from_value(static_cast<uint32_t>(v)));\n";
             } else if (ti.is_string) {
                 out << "    map.put(uint8_t(" << int(slot) << "), doc.make_string(v).to_anyval());\n";
             } else if (ti.is_message) {

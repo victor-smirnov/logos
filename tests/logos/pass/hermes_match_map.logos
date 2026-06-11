@@ -2,8 +2,8 @@
 
 package hermes_match_map;
 
-use logos.lang.hermes2.pat;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.pat;
+use logos.lang.hermes.hstatic;
 
 unsafe fn classify(d: &HermesStatic) -> i32 {
     match d {

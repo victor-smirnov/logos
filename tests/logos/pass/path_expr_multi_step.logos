@@ -7,7 +7,7 @@
 // instantiation) resolution paths walk the path identically.
 package path_expr_multi_step;
 
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 pub const Cfg: HermesStatic = @{
     "outer": { "inner": <type:u64> },

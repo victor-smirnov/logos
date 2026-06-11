@@ -2,9 +2,9 @@
 // the HERMES2 holder (not the parent Array). The arena stays alive while the
 // HeldAny lives; freed when it drops.
 package t;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 fn make_elem() -> HeldAny {

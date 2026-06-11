@@ -1,12 +1,12 @@
 // Decimals nested inside documents on hermes2: array/map members, clone +
 // equal walkers see through, value-compare ignores representation.
 package dec_deep;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.hermes.decimal;
 use logos.mem.rc;
 use logos.lang.str;
 

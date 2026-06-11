@@ -2,10 +2,10 @@
 // The result is an Rc<Hermes2> whose root is a TypedArray<T>; verify content
 // via hermes2 stringify.
 package hermes_as_array;
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

@@ -2,11 +2,11 @@
 // resolve to a fat `&mut` (carrying the parent's zone), and GROW the child in the
 // same arena. The zone cascades parent→child with no container threaded.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(256i64);
     let root: &mut HArray<HVal> = h.array(2i64);

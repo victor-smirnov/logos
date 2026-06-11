@@ -1,11 +1,11 @@
 // Trait-walker edge regressions on hermes2: empty containers, null inside
 // containers, key-order independence of equal/hash, scalar/container kind walls.
 package hermes_traits_bugfix;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.hashing;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

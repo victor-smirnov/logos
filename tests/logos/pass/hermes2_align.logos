@@ -2,8 +2,8 @@
 // (a Ref'd object's low bit must be 0). Interleave odd-sized requests so the bump
 // cursor is misaligned, then verify each allocation meets its requested align.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.allocator;
+use logos.lang.hermes.container;
+use logos.lang.hermes.allocator;
 use logos.lang.ptr;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(4096i64);

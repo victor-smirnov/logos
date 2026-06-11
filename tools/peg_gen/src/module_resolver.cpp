@@ -13,11 +13,11 @@
 namespace fs  = std::filesystem;
 namespace ast = logos::peg_gen::ast;
 
-using logos::hermes2::AnyVal;
-using logos::hermes2::ArrayView;
-using logos::hermes2::TinyMapView;
-using logos::hermes2::StringView;
-using logos::hermes2::MemHolder;
+using logos::hermes::AnyVal;
+using logos::hermes::ArrayView;
+using logos::hermes::TinyMapView;
+using logos::hermes::StringView;
+using logos::hermes::MemHolder;
 
 namespace logos::peg_gen {
 
@@ -38,7 +38,7 @@ static std::string_view read_str(AnyVal val, MemHolder* h) {
 }
 
 static std::vector<ImportEntry>
-collect_imports(const logos::hermes2::HermesView& grammar) {
+collect_imports(const logos::hermes::HermesView& grammar) {
     std::vector<ImportEntry> result;
     if (grammar.root().is_null()) return result;
 

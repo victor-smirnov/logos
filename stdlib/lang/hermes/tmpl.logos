@@ -1,0 +1,119 @@
+// logos.lang.hermes.template — hermes2 runtime builders for capture-@{...} /
+// @[...$x...] literals (the template-patch path).
+//
+// The compiler pre-serializes the @-literal into a hermes2 blob TEMPLATE whose
+// $-capture positions hold inline PARAM Pod words ((value_index<<8)|(127<<1)|1),
+// plus a slots table of u32 pairs [blob_off, value_idx]. At runtime the codegen:
+//   1. (zone-alloc path only) creates the container first via
+//      hermes2_template_ctr_new and allocates string/f64 captures into its zone
+//      (hermes2_ctr_alloc_*), collecting value-form HAny words;
+//   2. coerces scalar captures to value-form HAny words (Pod);
+//   3. calls hermes2_template_install — copy the template into the zone, patch
+//      each PARAM slot, set the root — which keeps the blob base LOCAL (no
+//      base threading anywhere else).
+//
+// resolved[] holds 8-byte VALUE-FORM HAny words: Pod = (v<<8)|(code<<1)|1
+// (stored verbatim — position-independent), Ref = absolute object pointer
+// (lowered at patch time to the at-rest self-relative form: target - slot_addr).
+// This mirrors ha_lower / *zoned-assign semantics.
+//
+// Port of mem.hermes.ctr's hermes_template_ctr_new / hermes_ctr_alloc_* /
+// hermes_template_patch / hermes_build_from_template (Hermes1, 4-byte AnyVal).
+
+package logos.lang.hermes.tmpl;
+
+use logos.lang.hermes.anyval;       // HAny
+use logos.lang.hermes.allocator;    // Allocator
+use logos.lang.hermes.container;    // Hermes2, hermes2_rc, hermes2_alloc_bytes, box_f64
+use logos.lang.hermes.hstring;      // hstring_in_alloc
+use logos.mem.rc;                    // Rc
+use logos.lang.str;                  // str, str_from_raw
+
+// Create the container for the zone-alloc capture path. Capacity covers the
+// template copy + capture allocations in ONE contiguous chunk (self-relative
+// refs must not cross chunk boundaries).
+pub unsafe fn hermes2_template_ctr_new(tmpl_size: i64, extra_cap: i64) -> Rc<Hermes2> {
+    let mut cap: i64 = tmpl_size * 2 + extra_cap + 4096;
+    if cap < 16384 { cap = 16384; }
+    return hermes2_rc(cap);
+}
+
+// Allocate an f64 capture in the zone; value-form HAny word.
+pub unsafe fn hermes2_ctr_alloc_f64(c: &Rc<Hermes2>, val: f64) -> u64 {
+    let h: &Hermes2 = c.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    return box_f64(&mut hp.allocator as *mut Allocator, val).raw() as u64;
+}
+
+// Allocate a (ptr,len) string capture as an HString in the zone; value-form word.
+pub unsafe fn hermes2_ctr_alloc_str(c: &Rc<Hermes2>, ptr: *const u8, len: i64) -> u64 {
+    let h: &Hermes2 = c.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let hs: *mut HString = hstring_in_alloc(&mut hp.allocator as *mut Allocator,
+                                            str_from_raw(ptr, len));
+    return HAny::ref_to(hs as *const u8).raw() as u64;
+}
+
+// Allocate a NUL-terminated C-string capture; value-form word.
+pub unsafe fn hermes2_ctr_alloc_cstr(c: &Rc<Hermes2>, ptr: *const u8) -> u64 {
+    let mut n: i64 = 0;
+    while *(((ptr as i64) + n) as *const u8) != 0u8 { n = n + 1; }
+    return hermes2_ctr_alloc_str(c, ptr, n);
+}
+
+// Copy the template into the zone, patch PARAM slots, set the root.
+// slots: u32 pairs [blob_off, value_idx]; resolved: value-form HAny words.
+pub unsafe fn hermes2_template_install(c: &Rc<Hermes2>, tmpl: *const u8, tmpl_size: i64,
+                                       slots: *const u32, n_slots: i64,
+                                       resolved: *const u64, n_values: i64) {
+    let h: &Hermes2 = c.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let dst: *mut u8 = hermes2_alloc_bytes(hp, tmpl_size);
+
+    // memcpy: u64 stride + u8 tail.
+    let mut i: i64 = 0;
+    while i + 8 <= tmpl_size {
+        *(((dst as i64) + i) as *mut u64) = *(((tmpl as i64) + i) as *const u64);
+        i = i + 8;
+    }
+    while i < tmpl_size {
+        *(((dst as i64) + i) as *mut u8) = *(((tmpl as i64) + i) as *const u8);
+        i = i + 1;
+    }
+
+    // Patch each PARAM slot: Pod/null verbatim; Ref lowered to self-relative.
+    let mut s: i64 = 0;
+    while s < n_slots {
+        let off: i64 = *(((slots as i64) + s * 8) as *const u32) as i64;
+        let vidx: i64 = *(((slots as i64) + s * 8 + 4) as *const u32) as i64;
+        let slot_addr: i64 = (dst as i64) + off;
+        let mut w: u64 = 0u64;
+        if vidx >= 0 && vidx < n_values {
+            w = *(((resolved as i64) + vidx * 8) as *const u64);
+        }
+        if w != 0u64 && (w & 1u64) == 0u64 {
+            // Ref: absolute -> self-relative (signed delta — the target may sit
+            // BELOW the slot, e.g. a capture HString allocated before the copy).
+            w = ((w as i64) - slot_addr) as u64;
+        }
+        *(slot_addr as *mut u64) = w;
+        s = s + 1;
+    }
+
+    // Root: the document word at blob offset 0 (self-relative there).
+    let w0: i64 = *(dst as *const i64);
+    if w0 == 0i64 || (w0 & 1i64) == 1i64 {
+        h.set_root(HAny::Pod(w0 as u64));        // null / Pod root verbatim
+    } else {
+        h.set_root(HAny::ref_to(((dst as i64) + w0) as *const u8));
+    }
+}
+
+// Scalar-only path: no zone-alloc captures — one call does it all.
+pub unsafe fn hermes2_build_from_template(tmpl: *const u8, tmpl_size: i64,
+                                          slots: *const u32, n_slots: i64,
+                                          resolved: *const u64, n_values: i64) -> Rc<Hermes2> {
+    let rc: Rc<Hermes2> = hermes2_template_ctr_new(tmpl_size, 0);
+    hermes2_template_install(&rc, tmpl, tmpl_size, slots, n_slots, resolved, n_values);
+    return rc;
+}

@@ -2,7 +2,7 @@
 // invariant that growth (a new segment) NEVER invalidates earlier pointers.
 package test;
 
-use logos.lang.hermes2.allocator;
+use logos.lang.hermes.allocator;
 
 fn main() -> i32 {
     unsafe {

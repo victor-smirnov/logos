@@ -18,14 +18,14 @@
 #include <string>
 #include <string_view>
 
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
 #include <logos/compiler/sema_schema.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
 #include <logos/verification/assert.hpp>
 
 namespace logos::compiler {
@@ -161,7 +161,7 @@ struct LogosType {
 
 };
 
-class TypePoolImpl;  // PIMPL — owns hermes2::Arena and offset mapping
+class TypePoolImpl;  // PIMPL — owns hermes::Arena and offset mapping
 
 struct LogosTypeBuilder;  // defined below TypeRef
 
@@ -173,8 +173,8 @@ struct LogosTypeBuilder;  // defined below TypeRef
 // the same mirror node.
 
 class TypeRef {
-    const hermes2::Arena*      arena_ = nullptr;
-    hermes2::arena_offset_t    off_{};  // NULL_OFFSET when null
+    const hermes::Arena*      arena_ = nullptr;
+    hermes::arena_offset_t    off_{};  // NULL_OFFSET when null
     const TypePoolImpl*       pool_  = nullptr;
     // Phase 2.B (multi-arena IR): arena_id of the arena this TypeRef belongs
     // to. INVALID_ARENA_ID = "local arena" (single-arena fast path, current
@@ -182,63 +182,63 @@ class TypeRef {
     // the target arena is registered with global_arena_pool() at the indicated
     // id. Single-arena code paths leave this default (INVALID) and behave
     // exactly as before. See docs/internals/multi-arena-ir.md §3.1.
-    hermes2::arena_id_t        arena_id_ = hermes2::INVALID_ARENA_ID;
+    hermes::arena_id_t        arena_id_ = hermes::INVALID_ARENA_ID;
 public:
     constexpr TypeRef() noexcept = default;
     constexpr TypeRef(std::nullptr_t) noexcept {}
-    TypeRef(const hermes2::Arena* a, hermes2::arena_offset_t off,
+    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
             const TypePoolImpl* p) noexcept
         : arena_(a), off_(off), pool_(p) {}
     // Cross-arena constructor: explicit arena_id of the (typically remote)
     // arena. Used by ptr_via_mirror's ExternalRef dispatch path.
-    TypeRef(const hermes2::Arena* a, hermes2::arena_offset_t off,
-            const TypePoolImpl* p, hermes2::arena_id_t aid) noexcept
+    TypeRef(const hermes::Arena* a, hermes::arena_offset_t off,
+            const TypePoolImpl* p, hermes::arena_id_t aid) noexcept
         : arena_(a), off_(off), pool_(p), arena_id_(aid) {}
     // AnyVal constructors — compute the within-arena offset from a value-form Ref
     // against `a`'s single-chunk base (the cut-over unifies offset/AnyVal handles).
-    TypeRef(const hermes2::Arena* a, hermes2::AnyVal av, const TypePoolImpl* p) noexcept
+    TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p) noexcept
         : arena_(a),
-          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET),
+          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET),
           pool_(p) {}
-    TypeRef(const hermes2::Arena* a, hermes2::AnyVal av, const TypePoolImpl* p,
-            hermes2::arena_id_t aid) noexcept
+    TypeRef(const hermes::Arena* a, hermes::AnyVal av, const TypePoolImpl* p,
+            hermes::arena_id_t aid) noexcept
         : arena_(a),
-          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes2::NULL_OFFSET),
+          off_(av.is_ref() ? av.to_offset(a->head().data()) : hermes::NULL_OFFSET),
           pool_(p), arena_id_(aid) {}
 
     constexpr explicit operator bool() const noexcept {
-        return off_ != hermes2::NULL_OFFSET;
+        return off_ != hermes::NULL_OFFSET;
     }
 
-    hermes2::arena_offset_t offset() const noexcept { return off_; }
+    hermes::arena_offset_t offset() const noexcept { return off_; }
 
     friend constexpr bool operator==(TypeRef a, TypeRef b) noexcept {
         return a.off_ == b.off_;
     }
     friend constexpr bool operator==(TypeRef a, std::nullptr_t) noexcept {
-        return a.off_ == hermes2::NULL_OFFSET;
+        return a.off_ == hermes::NULL_OFFSET;
     }
     friend constexpr bool operator==(std::nullptr_t, TypeRef a) noexcept {
-        return a.off_ == hermes2::NULL_OFFSET;
+        return a.off_ == hermes::NULL_OFFSET;
     }
 
     uint8_t* mirror_base() const noexcept {
         return arena_ ? const_cast<uint8_t*>(arena_->head().data()) : nullptr;
     }
-    const hermes2::TinyObjectMap* mirror() const noexcept {
-        return reinterpret_cast<const hermes2::TinyObjectMap*>(mirror_base() + off_.value());
+    const hermes::TinyObjectMap* mirror() const noexcept {
+        return reinterpret_cast<const hermes::TinyObjectMap*>(mirror_base() + off_.value());
     }
-    const hermes2::Arena* arena() const noexcept { return arena_; }
+    const hermes::Arena* arena() const noexcept { return arena_; }
     const TypePoolImpl* pool() const noexcept { return pool_; }
     // Phase 2.B: arena_id of this TypeRef's arena. INVALID = single-arena
     // (local) fast path; consumers can ignore this field unless they need
     // cross-arena awareness.
-    hermes2::arena_id_t  arena_id() const noexcept { return arena_id_; }
+    hermes::arena_id_t  arena_id() const noexcept { return arena_id_; }
     bool                is_external() const noexcept { return arena_id_.is_valid(); }
 
     LogosType::Kind kind() const noexcept {
         return LogosType::Kind(
-            hermes2::schema::variant_of(mirror()->schema_type_code()));
+            hermes::schema::variant_of(mirror()->schema_type_code()));
     }
 
     TypeRef pointee()      const noexcept;
@@ -321,14 +321,14 @@ public:
     // String accessors return realloc-safe owning views (refcounted MemHolder).
     // Implementation is out-of-line in sema.cpp because it needs MemHolder*,
     // which is reachable only through TypePoolImpl (PIMPL).
-    hermes2::StringView lifetime()        const noexcept;
-    hermes2::StringView struct_name()     const noexcept;
-    hermes2::StringView enum_name()       const noexcept;
-    hermes2::StringView pkg_name()        const noexcept;
-    hermes2::StringView trait_name()      const noexcept;
-    hermes2::StringView type_var_name()   const noexcept;
-    hermes2::StringView assoc_type_name() const noexcept;
-    hermes2::StringView arr_size_var()    const noexcept;
+    hermes::StringView lifetime()        const noexcept;
+    hermes::StringView struct_name()     const noexcept;
+    hermes::StringView enum_name()       const noexcept;
+    hermes::StringView pkg_name()        const noexcept;
+    hermes::StringView trait_name()      const noexcept;
+    hermes::StringView type_var_name()   const noexcept;
+    hermes::StringView assoc_type_name() const noexcept;
+    hermes::StringView arr_size_var()    const noexcept;
 
     std::vector<TypeRef> type_args()      const noexcept;
     std::vector<TypeRef> tuple_elems()    const noexcept;
@@ -475,8 +475,8 @@ std::string type_str(TypeRef t);
 // (TYPE_REF/GENERIC_INST/etc. walked structurally). Holder owns the
 // arena bytes; the call is read-only. Returns rendered source ending
 // with a newline.
-std::string render_module_source_for_dump(hermes2::MemHolder* holder,
-                                          hermes2::arena_offset_t root_offset);
+std::string render_module_source_for_dump(hermes::MemHolder* holder,
+                                          hermes::arena_offset_t root_offset);
 
 // Walk a metafn-emitted AST document and collect "navigable" function
 // names — bare fn names plus `Type__method` for impl-block members.
@@ -484,8 +484,8 @@ std::string render_module_source_for_dump(hermes2::MemHolder* holder,
 // grep these names in the global post-mono MLIR / post-mlirgen LLVM
 // IR snapshots. The names are pre-mangling (sema later prefixes pkg
 // or type qualifiers); user-facing grep fans out via substring match.
-std::vector<std::string> collect_fn_names_for_dump(hermes2::MemHolder* holder,
-                                                   hermes2::arena_offset_t root_offset);
+std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
+                                                   hermes::arena_offset_t root_offset);
 
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
@@ -556,13 +556,13 @@ public:
     // offsets stored on L-IR nodes, sub-expression offsets, etc.) all live in
     // a single offset space. Returns nullptr if the pool has not yet allocated
     // (no calls to alloc()).
-    hermes2::Arena*       arena() noexcept;
-    const hermes2::Arena* arena() const noexcept;
+    hermes::Arena*       arena() noexcept;
+    const hermes::Arena* arena() const noexcept;
 
     // Phase 3b: ensure the pool's arena is initialised (allocates the empty
     // arena if no types have been interned yet). Used by the L-IR mirror
     // emitter when the program contains no LogosType allocations.
-    hermes2::Arena&       arena_or_init();
+    hermes::Arena&       arena_or_init();
 
     // Phase 3d: expose the impl pointer so lir_view callers can wrap a raw
     // arena offset into a TypeRef (TypeRef stores pool* for trait/method
@@ -570,10 +570,10 @@ public:
     const TypePoolImpl* impl() const noexcept { return impl_.get(); }
 
     // Multi-arena IR Phase 3: expose the underlying MemHolder so consumers
-    // can wrap the arena as a hermes2::Hermes view for publish-phase work
+    // can wrap the arena as a hermes::Hermes view for publish-phase work
     // (lir_arena_root_begin etc.). Returns nullptr if the pool hasn't yet
     // allocated (no calls to alloc()).
-    hermes2::MemHolder* holder() noexcept;
+    hermes::MemHolder* holder() noexcept;
 
     // Component-metaprog slice 1B: public access to per-type 32-byte UID.
     LogosType::TypeUID uid_of(TypeRef t) const noexcept;

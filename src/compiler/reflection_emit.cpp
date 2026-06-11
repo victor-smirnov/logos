@@ -11,27 +11,27 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sha256.hpp>
 
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
 namespace logos::compiler {
 
-using logos::hermes2::Hermes;
-using logos::hermes2::HermesAccess;
-using logos::hermes2::ObjectMap;
-using logos::hermes2::ObjectArray;
-using logos::hermes2::ArenaString;
-using logos::hermes2::AnyVal;
-using logos::hermes2::arena_offset_t;
-using logos::hermes2::anyval_put;
-using logos::hermes2::make_doc;
-using logos::hermes2::clone;
+using logos::hermes::Hermes;
+using logos::hermes::HermesAccess;
+using logos::hermes::ObjectMap;
+using logos::hermes::ObjectArray;
+using logos::hermes::ArenaString;
+using logos::hermes::AnyVal;
+using logos::hermes::arena_offset_t;
+using logos::hermes::anyval_put;
+using logos::hermes::make_doc;
+using logos::hermes::clone;
 
 namespace {
 
@@ -153,7 +153,7 @@ static AnyVal build_field_map(Hermes& doc, const lir::LField& f) {
 // ── Build TypeInfo blob for one struct ───────────────────────────────────
 
 static std::vector<uint8_t> build_type_info_blob(lir::LProgram& prog, const lir::LStructDef& sd) {
-    auto doc = logos::hermes2::make_doc_single_chunk(131072).get();
+    auto doc = logos::hermes::make_doc_single_chunk(131072).get();
 
     // Root map — log2=4 → 16 buckets.
     uint32_t root = begin_map(doc, 4);
@@ -202,7 +202,7 @@ static std::string reflect_symbol(const std::array<uint8_t, 23>& hash) {
 }
 
 static std::vector<uint8_t> build_genos_info_blob(lir::LProgram& prog, const lir::LTraitDef& td) {
-    auto doc = logos::hermes2::make_doc_single_chunk(65536).get();
+    auto doc = logos::hermes::make_doc_single_chunk(65536).get();
     uint32_t root = begin_map(doc, 3);
     map_put(doc, root, "name", hval_str(doc, td.name));
     map_put(doc, root, "pkg",  hval_str(doc, td.pkg));

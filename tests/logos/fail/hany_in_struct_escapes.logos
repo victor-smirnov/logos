@@ -6,9 +6,9 @@
 // borrow-carrying field is itself borrow-carrying) + struct-literal provenance
 // merge. docs/internals/borrow-escape-analysis-design.md §8.
 package hany_in_struct_escapes;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 struct Wrap { a: HAny }
 fn make() -> Wrap {
     let h: Hermes2 = hermes2_new(64i64);

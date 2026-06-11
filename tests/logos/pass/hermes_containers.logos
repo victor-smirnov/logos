@@ -2,11 +2,11 @@
 // TinyObjectMap (HMap<Hu6>), ObjectArray (HArray), ObjectMap (HMap<HString>)
 // built in one container and read back through HAny.
 package hermes_containers;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
 use logos.mem.rc;
 use logos.lang.str;
 

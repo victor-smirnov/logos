@@ -2,12 +2,12 @@
 // the Hermes1 traits suite): equal docs hash equal & render identically;
 // different docs differ everywhere.
 package hermes_traits_full;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.hashing;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

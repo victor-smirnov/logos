@@ -8,7 +8,7 @@
 package logos.lang.fabric.string_store;
 
 use logos.lang.fabric;
-use logos.lang.hermes2.hstatic;   // StringView
+use logos.lang.hermes.hstatic;   // StringView
 use logos.lang.mem;
 
 extern fn malloc(size: i64) -> *mut u8;

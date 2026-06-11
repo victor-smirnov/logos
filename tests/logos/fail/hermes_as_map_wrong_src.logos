@@ -1,6 +1,6 @@
 // Fail: &[i32] slice cast to <I32,AnyVal>{} — wrong source type (need MapSliceI32).
 package hermes_as_map_wrong_src;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

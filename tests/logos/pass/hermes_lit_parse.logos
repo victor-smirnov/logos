@@ -3,7 +3,7 @@
 
 package hermes_lit_parse;
 
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 pub unsafe fn main() -> i32 {
     // map literal

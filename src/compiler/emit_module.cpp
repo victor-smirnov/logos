@@ -18,12 +18,12 @@
 #include <logos/compiler/borrow_check.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
 #include <cstdio>
 #include <cstdint>
@@ -67,7 +67,7 @@ namespace fs = std::filesystem;
 //                                   — raw bytes of mono's post-mono
 //                                     prog.type_pool.arena() head chunk.
 //                                     Includes DocumentHeader at offset 0.
-//                                     Load via hermes2::from_bytes_copy. The
+//                                     Load via hermes::from_bytes_copy. The
 //                                     blob holds the LIR Hermes mirror
 //                                     (LStructDef / LFunction / LExpr / …)
 //                                     so user-side sema/mono can skip
@@ -153,7 +153,7 @@ static bool write_hermes0(const std::string& path,
     write_u32(f, static_cast<uint32_t>(modules.size()));
 
     for (auto& mod : modules) {
-        auto enc = hermes2::binary_encode(mod.ast);
+        auto enc = hermes::binary_encode(mod.ast);
         if (!enc) {
             std::fprintf(stderr, "emit_module: binary_encode failed for %s\n",
                          mod.path.c_str());
@@ -253,7 +253,7 @@ static void apply_only_file_filter(lir::LProgram& prog,
     for (auto& fn : prog.functions) add(*fn);
 }
 
-static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
+static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                std::vector<std::string>& filenames,
                                const std::vector<bool>& ast_only_flags,
                                const std::vector<bool>& from_binary_module_flags,
@@ -429,7 +429,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
     // names → arena_offset for cross-arena clone.
     struct TemplateEntry {
         std::string                name;
-        hermes2::arena_offset_t     body_offset{};
+        hermes::arena_offset_t     body_offset{};
     };
     std::vector<TemplateEntry> generic_fn_templates;
     std::vector<TemplateEntry> generic_method_templates;
@@ -443,7 +443,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
         // archive providing them. The mirror_offset_ guard below catches
         // the genuine "already published" case (mirror missing means
         // body never lowered locally → nothing to publish).
-        if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) return;
+        if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
         dst.push_back({fn.name, fn.body.mirror_offset_});
     };
     for (auto& fn : prog.functions) {
@@ -508,7 +508,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
     // blob section. This is the post-mono LIR Hermes mirror — every
     // template/struct/fn/expr/stmt that mono produced lives here with its
     // mirror_offset_ value referencing offsets in these very bytes. Loaded
-    // user-side via hermes2::from_bytes_copy; future M4 steps add the cross-
+    // user-side via hermes::from_bytes_copy; future M4 steps add the cross-
     // arena lookup so sema/mono skip re-lowering stdlib AST.
     //
     // Done before apply_only_file_filter so per-file-mode invocations still
@@ -532,8 +532,8 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
             if (!module_name.empty()) {
                 auto* holder = prog.type_pool.holder();
                 if (holder) {
-                    auto doc = hermes2::Hermes(hermes2::HermesView(holder));
-                    if (auto bld = hermes2::lir_arena_root_begin(
+                    auto doc = hermes::Hermes(hermes::HermesView(holder));
+                    if (auto bld = hermes::lir_arena_root_begin(
                             doc, module_name, /*deps=*/{})) {
                         // Phase 4.B: publish each non-generic, non-extern,
                         // non-specialization fn body whose mirror was emitted
@@ -555,13 +555,13 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                         // stays at its offset; only its values array may move —
                         // so stamping after the mirror was emitted is safe.
                         auto stamp_export_id =
-                            [&](hermes2::arena_offset_t off, uint32_t oid) {
-                            if (off == hermes2::arena_offset_t{}) return;
+                            [&](hermes::arena_offset_t off, uint32_t oid) {
+                            if (off == hermes::arena_offset_t{}) return;
                             auto* base = arena->head().data();
-                            auto* m = reinterpret_cast<hermes2::TinyObjectMap*>(
+                            auto* m = reinterpret_cast<hermes::TinyObjectMap*>(
                                 base + off.value());
-                            auto av = hermes2::AnyVal::from_value<uint32_t>(
-                                oid, static_cast<uint8_t>(hermes2::type_hash::U24));
+                            auto av = hermes::AnyVal::from_value<uint32_t>(
+                                oid, static_cast<uint8_t>(hermes::type_hash::U24));
                             (void) m->put(lir_schema::stmt_keys::EXPORT_ID.code, av, *arena);
                         };
                         auto try_publish = [&](const lir::LFunction& fn) {
@@ -569,9 +569,9 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                             if (fn.is_specialization) return;
                             if (!fn.type_params.empty()) return;
                             if (fn.from_binary_module) return;
-                            if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) return;
-                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), fn.body.mirror_offset_);
-                            if (auto r = hermes2::arena_publish_named(*bld, fn.name, av)) {
+                            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) return;
+                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), fn.body.mirror_offset_);
+                            if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
                                 stamp_export_id(fn.body.mirror_offset_, *r);
                                 ++published;
                             }
@@ -595,15 +595,15 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                         // template's body in stdlib's arena, walks via lir_view
                         // through that arena, substitutes into user's arena.
                         for (auto& tmpl : generic_fn_templates) {
-                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
-                            if (auto r = hermes2::arena_publish_named(*bld, tmpl.name, av)) {
+                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
+                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;
                             }
                         }
                         for (auto& tmpl : generic_method_templates) {
-                            auto av = hermes2::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
-                            if (auto r = hermes2::arena_publish_named(*bld, tmpl.name, av)) {
+                            auto av = hermes::AnyVal::from_offset(prog.type_pool.arena()->head().data(), tmpl.body_offset);
+                            if (auto r = hermes::arena_publish_named(*bld, tmpl.name, av)) {
                                 stamp_export_id(tmpl.body_offset, *r);
                                 ++published_tmpl;
                             }
@@ -614,7 +614,7 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
                                 "template body export(s) for module '%s'\n",
                                 published, published_tmpl, module_name.c_str());
                         }
-                        auto fin = hermes2::lir_arena_root_finalize(*bld);
+                        auto fin = hermes::lir_arena_root_finalize(*bld);
                         (void) fin;
                     }
                 }
@@ -639,8 +639,8 @@ static bool compile_to_object(std::vector<hermes2::Hermes>& asts,
             bool dumped = false;
             if (!module_name.empty()) {
                 if (auto* h = prog.type_pool.holder()) {
-                    auto src_view = hermes2::HermesView(h);
-                    if (auto cl = hermes2::compactify(src_view)) {
+                    auto src_view = hermes::HermesView(h);
+                    if (auto cl = hermes::compactify(src_view)) {
                         const auto& cchunk = cl->holder()->arena().head();
                         out_lir_blob->assign(cchunk.data(),
                                              cchunk.data() + cchunk.used);
@@ -889,7 +889,7 @@ bool emit_module(const ModuleManifest& manifest,
     // We stamp ast_only with from_binary=true after dispatch so sema's
     // post-dispatch pass treats those items as already-emitted (no
     // codegen for host-extern-using fns).
-    std::vector<hermes2::Hermes> asts;
+    std::vector<hermes::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool>        ast_only_flags;       // parallel to asts
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
@@ -973,25 +973,25 @@ bool emit_module(const ModuleManifest& manifest,
             if (root_map.has_key(logos::compiler::ast::NAME)) {
                 auto nm = root_map.get(logos::compiler::ast::NAME.code);
                 if (!nm.is_null() && nm.is_pointer()) {
-                    pkg = std::string(hermes2::StringView(
+                    pkg = std::string(hermes::StringView(
                         nm, asts[i].holder()).view());
                 }
             }
             if (root_map.has_key(logos::compiler::ast::mod::PATH_PARTS)) {
                 auto pp = root_map.get(logos::compiler::ast::mod::PATH_PARTS.code);
                 if (!pp.is_null() && pp.is_pointer()) {
-                    auto* arr = reinterpret_cast<const hermes2::ObjectArray*>(
+                    auto* arr = reinterpret_cast<const hermes::ObjectArray*>(
                         pp.resolve());
                     for (uint64_t j = 0; j < arr->size(); ++j) {
                         auto part_av = arr->get(j, asts[i].holder()->base());
                         if (!part_av.is_pointer()) continue;
-                        auto part_map = hermes2::TinyMapView(
+                        auto part_map = hermes::TinyMapView(
                             part_av, asts[i].holder());
                         if (part_map.has_key(logos::compiler::ast::NAME)) {
                             auto nm = part_map.get(logos::compiler::ast::NAME.code);
                             if (!nm.is_null() && nm.is_pointer()) {
                                 pkg += ".";
-                                pkg += std::string(hermes2::StringView(
+                                pkg += std::string(hermes::StringView(
                                     nm, asts[i].holder()).view());
                             }
                         }
@@ -1190,12 +1190,12 @@ bool emit_module(const ModuleManifest& manifest,
     // document per .hermes0; multi-doc reserved).
     std::string imp_obj_path;
     {
-        std::vector<hermes2::ImportEntry> imports;
+        std::vector<hermes::ImportEntry> imports;
         imports.reserve(import_dep_archives.size());
         for (const auto& a : import_dep_archives) {
             imports.push_back({fs::path(a).filename().string(), std::string()});
         }
-        auto blob = hermes2::build_import_table_blob(manifest.name, imports);
+        auto blob = hermes::build_import_table_blob(manifest.name, imports);
         if (!blob) {
             std::fprintf(stderr, "emit_module: import-table build failed\n");
             return false;

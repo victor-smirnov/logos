@@ -20,19 +20,19 @@
 //
 package hermes2_showcase;
 
-use logos.lang.hermes2.container;   // Hermes2, hermes2_new / hermes2_rc, HeldAny, hold_any
-use logos.lang.hermes2.anyval;      // HAny (value) / HAnyRel (at-rest): Pod + Ref
-use logos.lang.hermes2.array;       // HArray<HVal>: push / get / len, grow, nest
-use logos.lang.hermes2.hstring;     // HString: a UTF-8 string in the arena, as_str
-use logos.lang.hermes2.hmap;        // HMap<HString, HVal>: string-keyed map (JSON object)
-use logos.lang.hermes2.equal;       // structural equality
-use logos.lang.hermes2.compactify;  // compactify / clone (copying GC)
-use logos.mem.hermes2.parser;       // parse: text → doc
-use logos.mem.hermes2.stringify;    // stringify: doc → text
-use logos.mem.hermes2.hbs;          // hbs_write / hbs_read: doc ⇄ bytes
+use logos.lang.hermes.container;   // Hermes2, hermes2_new / hermes2_rc, HeldAny, hold_any
+use logos.lang.hermes.anyval;      // HAny (value) / HAnyRel (at-rest): Pod + Ref
+use logos.lang.hermes.array;       // HArray<HVal>: push / get / len, grow, nest
+use logos.lang.hermes.hstring;     // HString: a UTF-8 string in the arena, as_str
+use logos.lang.hermes.hmap;        // HMap<HString, HVal>: string-keyed map (JSON object)
+use logos.lang.hermes.equal;       // structural equality
+use logos.lang.hermes.compactify;  // compactify / clone (copying GC)
+use logos.mem.hermes.parser;       // parse: text → doc
+use logos.mem.hermes.stringify;    // stringify: doc → text
+use logos.mem.hermes.hbs;          // hbs_write / hbs_read: doc ⇄ bytes
 use logos.mem.collections.vec;      // Vec<u8>
-use logos.lang.hermes2.allocator;   // hermes2_alloc_bytes (raw tagged object)
-use logos.mem.hermes2.tag_system;   // write_tag, h2_type_code
+use logos.lang.hermes.allocator;   // hermes2_alloc_bytes (raw tagged object)
+use logos.mem.hermes.tag_system;   // write_tag, h2_type_code
 
 use logos.lang.ptr;                 // byte_add
 use logos.mem.rc;                   // Rc

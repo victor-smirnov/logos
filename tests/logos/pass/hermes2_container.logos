@@ -5,7 +5,7 @@
 // ref-repr-design.md §6 — and are not exercised here; this is the raw-pointer base.)
 package test;
 
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 
 struct Node { val: i64, link: *mut Node }
 

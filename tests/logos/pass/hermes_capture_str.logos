@@ -1,10 +1,10 @@
 // Hermes capture: str captured as HString into @-literals (hermes2 template path).
 // C7-fix2: added stringify verification of captured string values.
 package hermes_capture_str;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

@@ -3,8 +3,8 @@
 // handle (Held<T> / the Rc) is alive; the never-move arena needs no seal step —
 // immutability-of-the-past is structural.
 package hermes_zone_seal;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
 use logos.mem.rc;
 
 struct Pair {

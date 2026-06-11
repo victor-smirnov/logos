@@ -1,8 +1,8 @@
 // Decimal construction boundaries on hermes2: parse rejections + scale limits.
 package dec_boundary;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.decimal;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

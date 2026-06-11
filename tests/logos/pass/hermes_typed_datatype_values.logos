@@ -1,13 +1,13 @@
 // @Type typed values inside documents (hermes2): prefix/postfix forms as map
 // members; reads through HTypedValue accessors.
 package hermes_typed_datatype_values;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.lang.hermes2.typed_value;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.hermes.typed_value;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 use logos.lang.str;
 

@@ -1,10 +1,10 @@
 // Hermes capture: f64 value captured as zone-allocated F64 object (hermes2).
 // C7-fix1: is_ref/is_map checks — confirms root is a zone object (not inline/null).
 package hermes_capture_f64;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.static_view;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.static_view;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

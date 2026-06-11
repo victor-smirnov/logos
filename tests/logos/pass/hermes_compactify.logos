@@ -2,14 +2,14 @@
 // hermes2_clone IS the compactor — dead source space is dropped by walking
 // only reachable objects). Successor of the Hermes1 compactify test.
 package hermes_compactify;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.hmap;
-use logos.lang.hermes2.hstring;
-use logos.mem.hermes2.clone;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.mem.hermes.clone;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

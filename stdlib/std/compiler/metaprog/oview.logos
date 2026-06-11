@@ -17,10 +17,10 @@
 
 package logos.std.compiler.metaprog;
 
-use logos.lang.hermes2.anyval;     // HAny
-use logos.lang.hermes2.hmap;       // HMap<Hu6, HVal>
-use logos.lang.hermes2.array;      // HArray<HVal>
-use logos.lang.hermes2.hstring;    // HString
+use logos.lang.hermes.anyval;     // HAny
+use logos.lang.hermes.hmap;       // HMap<Hu6, HVal>
+use logos.lang.hermes.array;      // HArray<HVal>
+use logos.lang.hermes.hstring;    // HString
 use logos.mem.string;
 use logos.lang.str;
 

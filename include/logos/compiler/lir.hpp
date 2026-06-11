@@ -16,8 +16,8 @@
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
 #include <logos/compiler/str_map.hpp>
-#include <logos/hermes2/compat.hpp>    // arena_offset_t
-#include <logos/hermes2/compat.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
+#include <logos/hermes/compat.hpp>    // arena_offset_t
+#include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
 #include <unordered_set>
 #include <string>
 
@@ -129,7 +129,7 @@ struct PatRefPat {
 // B.6 Stage 3.5 step 7e: Pattern is a POD shell — payload lives in the LIR
 // mirror; pattern variant kinds are transient parameter packs, not stored.
 struct Pattern {
-    mutable hermes2::arena_offset_t mirror_offset_{};
+    mutable hermes::arena_offset_t mirror_offset_{};
 
     Pattern() = default;
     Pattern(const Pattern&) = default;
@@ -188,7 +188,7 @@ struct HVType {
 };
 
 struct HermesVal {
-    mutable hermes2::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 
     HermesVal() = default;
     HermesVal(const HermesVal&) = default;
@@ -479,7 +479,7 @@ struct LExpr {
     // Stage 3g.2 / 7e: back-pointer to this node's Hermes mirror is the only
     // payload — the variant kind has been dropped, all readers go through the
     // mirror via lir_view::ExprRef.
-    mutable hermes2::arena_offset_t mirror_offset_{};
+    mutable hermes::arena_offset_t mirror_offset_{};
 };
 
 // ── Statement node payloads ───────────────────────────────────────────────
@@ -620,7 +620,7 @@ struct SDrop {
 
 struct LStmt {
     uint32_t line = 0;             // source line (0 = unknown)
-    mutable hermes2::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 
     LStmt() = default;
     LStmt(const LStmt&) = default;
@@ -633,7 +633,7 @@ struct LStmt {
 
 struct LBlock {
     std::vector<LStmt> stmts;
-    mutable hermes2::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
+    mutable hermes::arena_offset_t mirror_offset_{};  // Stage 3g.2 back-pointer
 };
 
 // ── Top-level declarations ────────────────────────────────────────────────
@@ -754,7 +754,7 @@ struct LFunction {
     // available cross-arena (e.g. generic templates).
     // Phase 4.B will resolve the target obj_id via the library's name→obj_id
     // export table; Phase 4.C will teach mono/codegen to traverse it.
-    hermes2::ExternalRef body_external_ref{};
+    hermes::ExternalRef body_external_ref{};
 
     // Absolute path of the source file this function was lowered from.
     // Empty for fns reconstructed from binary modules. Used by the
@@ -1328,7 +1328,7 @@ inline std::string_view bare_fn_name(std::string_view nm) noexcept {
 
 // ── Entry point ───────────────────────────────────────────────────────────
 
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
 namespace logos::compiler {
 
@@ -1398,7 +1398,7 @@ struct SemaOptions {
 // `lowering lazy` archive. Lazy fns get LFunction.from_lazy_module=true and
 // participate in post-mono reach analysis (mlir-gen skips unreached lazy
 // bodies). Default: empty → no lazy modules (back-compat).
-lir::LProgram sema_lower(const std::vector<hermes2::Hermes>& asts,
+lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
                           SemaOptions opts = {},

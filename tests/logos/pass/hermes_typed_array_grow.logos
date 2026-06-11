@@ -1,8 +1,8 @@
 // Typed-array growth in the never-move arena (hermes2): elements survive the
 // data-buffer re-allocation; the header address never changes.
 package hermes_typed_array_grow;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

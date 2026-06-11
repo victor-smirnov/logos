@@ -2,9 +2,9 @@
 // code 102): value = (neg?-1:1)*coeff/10^scale. Round-trips 3.14 (coeff 314,
 // scale 2) and -0.5, checking scale/coeff/sign/to_f64 + the 102 tag.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.decimal;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(256i64);
     let d: HAny = h.decimal(314u64, 2u32, false);    // 3.14

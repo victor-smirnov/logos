@@ -1,9 +1,9 @@
 // HDecimal accessor surface (hermes2): scale/coeff/is_neg/tag + container
 // membership + is_decimal discrimination.
 package hermes_decimal_methods;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.decimal;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

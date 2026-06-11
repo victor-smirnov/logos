@@ -1,9 +1,9 @@
 // @Decimal(P,S) validation rejections (hermes2: a malformed typed value
 // parses to a null handle): missing/short/non-int params, S>P, non-string init.
 package hermes_typed_decimal_validation_errors;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

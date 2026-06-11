@@ -2,8 +2,8 @@
 // a Hermes2 container owns its arena; values live until the holder drops at
 // scope end (RAII Drop), including through an Rc share.
 package mem_holder_custom_destroyer;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
 use logos.mem.rc;
 
 struct Blob { sentinel: u8, n: i64 }

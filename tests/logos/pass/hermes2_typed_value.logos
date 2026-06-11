@@ -2,10 +2,10 @@
 // (Hermes1 TypedValue, code 4115). Build one with + without params; read back the
 // type name, the (round-tripped) init value, and params presence; check dispatch.
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.typed_value;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.typed_value;
+use logos.lang.hermes.array;
 use logos.lang.str;
 
 fn main() -> i32 {

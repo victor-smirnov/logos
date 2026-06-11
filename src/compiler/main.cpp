@@ -23,18 +23,18 @@
 #include <logos/compiler/ast.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/mono.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
 
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
-#include <logos/hermes2/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
+#include <logos/hermes/compat.hpp>
 #include <logos/compiler/ast.hpp>
 
 // MLIR
@@ -100,11 +100,11 @@
 //
 // Splicing whole documents (vs in-place mutation of asts[0]) reuses
 // the parser, sidesteps cross-arena pointer concerns, and stays
-// trivially compactable via per-document hermes2::clone().
+// trivially compactable via per-document hermes::clone().
 namespace {
 std::set<std::string>*               g_emit_seen   = nullptr;
 bool*                                g_any_emitted = nullptr;
-std::vector<logos::hermes2::Hermes>*  g_asts        = nullptr;
+std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
 size_t                               g_user_root_idx = 0;
@@ -207,7 +207,7 @@ extern "C" void logos_get_module_ast_oview(void**           out_holder,
 
 extern "C" void logos_holder_release(void* h) {
     if (!h) return;
-    static_cast<logos::hermes2::MemHolder*>(h)->unref();
+    static_cast<logos::hermes::MemHolder*>(h)->unref();
 }
 
 // Phase 7 diagnostics: structured error from a metaprog hook.
@@ -238,7 +238,7 @@ extern "C" void logos_metaprog_error_at(uint32_t target_offset,
         && g_asts && g_asts->size() > g_user_root_idx
         && g_filenames && g_filenames->size() > g_user_root_idx) {
         auto* base = (*g_asts)[g_user_root_idx].holder()->base();
-        auto* tom = reinterpret_cast<const logos::hermes2::TinyObjectMap*>(
+        auto* tom = reinterpret_cast<const logos::hermes::TinyObjectMap*>(
             base + target_offset);
         // SRC_LINE = key 24, u32 inline.
         auto line_av = tom->get(24);
@@ -295,7 +295,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     static std::set<std::string> blob_seen;
     std::string key(reinterpret_cast<const char*>(data), size);
     if (!blob_seen.insert(key).second) return 0;
-    auto doc = logos::hermes2::from_bytes_copy(data, size);
+    auto doc = logos::hermes::from_bytes_copy(data, size);
     if (!doc) {
         std::fprintf(stderr, "logos_emit_item_blob: from_bytes_copy failed\n");
         blob_seen.erase(key);
@@ -329,13 +329,13 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         || !blob_ptr) return 0;
 
     namespace la = logos::compiler::ast;
-    using logos::hermes2::AnyVal;
-    using logos::hermes2::ArenaString;
-    using logos::hermes2::HermesAccess;
-    using logos::hermes2::ObjectArray;
-    using logos::hermes2::TinyObjectMap;
-    using logos::hermes2::arena_offset_t;
-    using logos::hermes2::copy_object_into;
+    using logos::hermes::AnyVal;
+    using logos::hermes::ArenaString;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::copy_object_into;
 
     struct IdentPod { const uint8_t* ptr; uint64_t len; };
     struct BlobEntry { uint64_t offset; uint64_t size; };
@@ -410,7 +410,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return 0;
     }
 
-    auto doc_e = logos::hermes2::from_bytes_copy(blob->template_ptr,
+    auto doc_e = logos::hermes::from_bytes_copy(blob->template_ptr,
                                                 blob->template_size);
     if (!doc_e) {
         std::fprintf(stderr,
@@ -431,7 +431,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     // replaced by NAME(string) drawn from idents[idx]. Mirrors the dst
     // walker in lower_quote_item, so placeholders at any nesting depth
     // (struct field name, fn arg name, type ref name, …) are resolved.
-    namespace lh = logos::hermes2;
+    namespace lh = logos::hermes;
     bool subst_failed = false;
 
     // Splice helper: if `child_off` is a TOM placeholder with NAME_VAR(neg
@@ -465,7 +465,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 (unsigned long long)bidx);
             subst_failed = true; return true;
         }
-        auto inner_e = logos::hermes2::from_bytes_copy(
+        auto inner_e = logos::hermes::from_bytes_copy(
             blob->blobs_blob + be.offset, be.size);
         if (!inner_e) {
             std::fprintf(stderr,
@@ -893,7 +893,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         if (user_root_pkg.has_key(la::NAME.code)) {
             AnyVal nm_av = user_root_pkg.get(la::NAME.code);
             if (!nm_av.is_null() && nm_av.is_pointer()) {
-                auto user_name = logos::hermes2::StringView(
+                auto user_name = logos::hermes::StringView(
                     nm_av, user_holder_pkg).view();
                 auto sv_e = ArenaString::create(arena, std::string_view(user_name));
                 if (sv_e) {
@@ -991,7 +991,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     if (unode->has_key(la::NAME.code)) {
                         AnyVal nm_av = unode->get(la::NAME.code);
                         if (!nm_av.is_null() && nm_av.is_pointer()) {
-                            dotted = std::string(logos::hermes2::StringView(
+                            dotted = std::string(logos::hermes::StringView(
                                 nm_av, user_holder).view());
                         }
                     }
@@ -1009,7 +1009,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                 AnyVal nv = part->get(la::NAME.code);
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 if (!dotted.empty()) dotted += '.';
-                                dotted += std::string(logos::hermes2::StringView(
+                                dotted += std::string(logos::hermes::StringView(
                                     nv, user_holder).view());
                             }
                         }
@@ -1029,7 +1029,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         AnyVal sn_av = snode->get(la::NAME.code,
                                                   HermesAccess::base(doc));
                         if (sn_av.is_null() || !sn_av.is_pointer()) continue;
-                        std::string s_existing(logos::hermes2::StringView(
+                        std::string s_existing(logos::hermes::StringView(
                             sn_av, doc.holder()).view());
                         if (s_existing == dotted) { already = true; break; }
                     }
@@ -1290,7 +1290,7 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
 // the prefix — the same wire shape as HermesStatic; driver reads *(ptr-8)).
 extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
-    using logos::hermes2::AnyVal;
+    using logos::hermes::AnyVal;
     // The Logos side passes the VALUE-form word (Pod tagged / ABSOLUTE pointer).
     // C++ AnyVal is the AT-REST form (self-relative Ref) — from_raw(absolute)
     // would resolve relative to the stack slot. Re-anchor Refs via set_ref.
@@ -1300,7 +1300,7 @@ extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
     } else if (root_word != 0) {
         root.set_ref(reinterpret_cast<const void*>(root_word));     // Ref: re-anchor
     }
-    auto packed_r = logos::hermes2::compactify_root(root);
+    auto packed_r = logos::hermes::compactify_root(root);
     if (!packed_r) return nullptr;
     auto& arena = packed_r->arena();
     const uint8_t* data = arena.head().data();
@@ -1336,14 +1336,14 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         const uint8_t* tpl, uint64_t tpl_size,
         const void* idents_ptr, uint64_t idents_count) {
     namespace la = logos::compiler::ast;
-    using logos::hermes2::AnyVal;
-    using logos::hermes2::ArenaString;
-    using logos::hermes2::HermesAccess;
-    using logos::hermes2::ObjectArray;
-    using logos::hermes2::TinyObjectMap;
-    using logos::hermes2::arena_offset_t;
-    using logos::hermes2::clone;
-    using logos::hermes2::make_doc;
+    using logos::hermes::AnyVal;
+    using logos::hermes::ArenaString;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ObjectArray;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::clone;
+    using logos::hermes::make_doc;
 
     if (!tpl || tpl_size == 0) return nullptr;
 
@@ -1370,7 +1370,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         };
     };
 
-    auto src_e = logos::hermes2::from_bytes_copy(tpl, tpl_size);
+    auto src_e = logos::hermes::from_bytes_copy(tpl, tpl_size);
     if (!src_e) {
         std::fprintf(stderr,
             "logos_quote_expr_subst: from_bytes_copy failed\n");
@@ -1401,7 +1401,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // by base(doc)+off; a MultiChunk doc would scatter that across chunks once the
     // expansion outgrows the first chunk. Pre-size past any realloc (lazy-zero → cheap).
     auto dst_e = make_doc(std::max<size_t>(tpl_size + 256, size_t(8) * 1024 * 1024),
-                          logos::hermes2::ArenaMode::GrowableSingleChunk);
+                          logos::hermes::ArenaMode::GrowableSingleChunk);
     if (!dst_e) return nullptr;
     auto dst_doc = std::move(dst_e).get();
     auto& dst_arena = HermesAccess::arena(dst_doc);
@@ -1434,7 +1434,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // Used by REPEAT_GROUP body to determine N before expansion.
     std::function<uint64_t(uint32_t)> find_cursor_count;
     find_cursor_count = [&](uint32_t off) -> uint64_t {
-        auto tag0 = logos::hermes2::TypeTag::read_before(src_base + off);
+        auto tag0 = logos::hermes::TypeTag::read_before(src_base + off);
         uint64_t tc0 = tag0.type_code();
         if (tc0 == 100) {
             const auto* arr = reinterpret_cast<const ObjectArray*>(
@@ -1487,7 +1487,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
     // ExprBlob into the outer template at a `#name` placeholder.
     std::function<uint32_t(const uint8_t*, uint32_t)> copy_node_raw;
     copy_node_raw = [&](const uint8_t* sb, uint32_t off) -> uint32_t {
-        auto tag = logos::hermes2::TypeTag::read_before(sb + off);
+        auto tag = logos::hermes::TypeTag::read_before(sb + off);
         uint64_t tc = tag.type_code();
         if (tc == 130) {
             const auto* s = reinterpret_cast<const ArenaString*>(sb + off);
@@ -1559,7 +1559,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
     // Inner ExprBlob docs deserialised at splice time must outlive the
     // copy_node_raw recursion (their bytes back the src_base pointer).
-    std::vector<logos::hermes2::Hermes> inner_blob_docs;
+    std::vector<logos::hermes::Hermes> inner_blob_docs;
 
     // Expand REPEAT_GROUP body into a left-leaning BinOp tree of "&&".
     // For N==0 returns 0 (caller treats as null). For N==1 returns the
@@ -1595,7 +1595,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             (void)bin()->put(la::RHS.code,
                 AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(rhs)), dst_arena);
             bin()->set_schema_type_code(
-                logos::hermes2::schema::ast(la::BINOP.code));
+                logos::hermes::schema::ast(la::BINOP.code));
             acc = bin_off;
         }
         cursor_i = -1;
@@ -1685,7 +1685,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
                         }
                         uint64_t blob_size = 0;
                         std::memcpy(&blob_size, blob_data - 8, 8);
-                        auto inner_e = logos::hermes2::from_bytes_copy(
+                        auto inner_e = logos::hermes::from_bytes_copy(
                             blob_data, blob_size);
                         if (!inner_e) {
                             std::fprintf(stderr,
@@ -1804,7 +1804,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             }
             uint32_t child_off =
                 static_cast<uint32_t>(av.to_offset(src_base).value());
-            auto tag = logos::hermes2::TypeTag::read_before(
+            auto tag = logos::hermes::TypeTag::read_before(
                 src_base + child_off);
             uint64_t tc = tag.type_code();
 
@@ -1942,7 +1942,7 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 // logos_emit_item_blob with those bytes. Goes away once Slice 4's
 // quote_item! lands and produces the same shape from in-Logos code.
 namespace {
-std::vector<logos::hermes2::Hermes> g_test_blob_keepalive;
+std::vector<logos::hermes::Hermes> g_test_blob_keepalive;
 }
 extern "C" int32_t logos_metaprog_test_module_blob(
         const char* src, uint64_t src_len,
@@ -1972,18 +1972,18 @@ extern "C" int32_t logos_metaprog_test_module_blob(
 // ExprBlob (returns ptr past an 8-byte size prefix). The buffer is leaked
 // intentionally — single-shot per metacall, lifetime is the compile run.
 extern "C" const uint8_t* logos_test_make_bin_op_blob() {
-    using logos::hermes2::HermesAccess;
-    using logos::hermes2::ArenaString;
-    using logos::hermes2::AnyVal;
-    using logos::hermes2::TinyObjectMap;
-    using logos::hermes2::arena_offset_t;
-    using logos::hermes2::clone;
+    using logos::hermes::HermesAccess;
+    using logos::hermes::ArenaString;
+    using logos::hermes::AnyVal;
+    using logos::hermes::TinyObjectMap;
+    using logos::hermes::arena_offset_t;
+    using logos::hermes::clone;
     namespace la = logos::compiler::ast;
 
     // GrowableSingleChunk (single segment for base(doc)+off addressing), pre-sized
     // past any realloc — lazy-zero keeps the reserve cheap.
-    auto doc_e = logos::hermes2::make_doc(size_t(8) * 1024 * 1024,
-                                          logos::hermes2::ArenaMode::GrowableSingleChunk);
+    auto doc_e = logos::hermes::make_doc(size_t(8) * 1024 * 1024,
+                                          logos::hermes::ArenaMode::GrowableSingleChunk);
     if (!doc_e) return nullptr;
     auto doc = std::move(doc_e).get();
     auto& arena = HermesAccess::arena(doc);
@@ -2008,7 +2008,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
         (void)tm()->put(la::SRC_LINE.code,
                         AnyVal::from_value<int32_t>(1), arena);
         tm()->set_schema_type_code(
-            logos::hermes2::schema::ast(la::LIT_INT.code));
+            logos::hermes::schema::ast(la::LIT_INT.code));
         return tm_off;
     };
 
@@ -2040,7 +2040,7 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     (void)root()->put(la::SRC_LINE.code,
                       AnyVal::from_value<int32_t>(1), arena);
     root()->set_schema_type_code(
-        logos::hermes2::schema::ast(la::BINOP.code));
+        logos::hermes::schema::ast(la::BINOP.code));
 
     HermesAccess::set_root_offset(doc, arena_offset_t(root_off));
 
@@ -2148,7 +2148,7 @@ namespace logos::compiler {
 // g_any_emitted/g_metaprog_diags/g_ast_provenance from the args;
 // restores prior values on exit.
 int run_metaprog_dispatch(
-    std::vector<hermes2::Hermes>& asts,
+    std::vector<hermes::Hermes>& asts,
     std::vector<std::string>&    filenames,
     std::vector<bool>&           from_binary,
     std::size_t                  entry_ast_idx,
@@ -2168,7 +2168,7 @@ int run_metaprog_dispatch(
     auto* prev_any_emitted    = g_any_emitted;
     struct ScopedRestore {
         std::set<std::string>**             es;
-        std::vector<hermes2::Hermes>**       a;
+        std::vector<hermes::Hermes>**       a;
         std::vector<std::string>**          fn;
         std::vector<bool>**                 fb;
         size_t*                             uri;
@@ -2176,7 +2176,7 @@ int run_metaprog_dispatch(
         std::vector<std::optional<EmitProvenance>>** ap;
         bool**                              ae;
         std::set<std::string>*              p_es;
-        std::vector<hermes2::Hermes>*        p_a;
+        std::vector<hermes::Hermes>*        p_a;
         std::vector<std::string>*           p_fn;
         std::vector<bool>*                  p_fb;
         size_t                              p_uri;
@@ -2548,14 +2548,14 @@ int run_metaprog_dispatch(
                     if (tgt.ast_idx < asts.size()) {
                         auto* h    = asts[tgt.ast_idx].holder();
                         auto* base = h->base();
-                        auto* tom  = reinterpret_cast<hermes2::TinyObjectMap*>(
+                        auto* tom  = reinterpret_cast<hermes::TinyObjectMap*>(
                                         base + tgt.item_offset);
                         auto av = tom->get(ast::SRC_LINE.code);
                         if (!av.is_null() && av.is_value())
                             line = static_cast<int>(av.as_value<uint32_t>());
                         auto nm_av = tom->get(ast::NAME.code);
                         if (!nm_av.is_null()) {
-                            auto sv = hermes2::StringView(
+                            auto sv = hermes::StringView(
                                 nm_av, h).view();
                             target_name = std::string(sv);
                         }
@@ -2593,11 +2593,11 @@ int run_metaprog_dispatch(
             auto& doc = asts[site.ast_idx];
             auto* h    = doc.holder();
             auto* base = h->base();
-            auto* tom  = reinterpret_cast<hermes2::TinyObjectMap*>(
+            auto* tom  = reinterpret_cast<hermes::TinyObjectMap*>(
                             base + site.expr_offset);
             if (auto r = tom->put(
                     ast::CODE.code,
-                    hermes2::AnyVal::from_value<int32_t>(
+                    hermes::AnyVal::from_value<int32_t>(
                         ast::METACALL_ITEM_DONE.code),
                     h->arena()); !r) {
                 std::fprintf(stderr,
@@ -2632,7 +2632,7 @@ int main(int argc, char** argv) {
 
     // Initialize Hermes TypeOps registry; the @-literal builder uses
     // clone() which dispatches per-type via this registry.
-    logos::hermes2::hermes_init();
+    logos::hermes::hermes_init();
 
     const char* input_path = nullptr;
     const char* output_path = "output.o";
@@ -2887,7 +2887,7 @@ int main(int argc, char** argv) {
     }
 
     // Collect ASTs and source paths.
-    std::vector<logos::hermes2::Hermes> asts;
+    std::vector<logos::hermes::Hermes> asts;
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
     std::vector<bool> is_lazy;
@@ -3025,10 +3025,10 @@ int main(int argc, char** argv) {
 
     if (test_mode) {
         namespace la = logos::compiler::ast;
-        using logos::hermes2::AnyVal;
-        using logos::hermes2::TinyMapView;
-        using logos::hermes2::ArrayView;
-        using logos::hermes2::StringView;
+        using logos::hermes::AnyVal;
+        using logos::hermes::TinyMapView;
+        using logos::hermes::ArrayView;
+        using logos::hermes::StringView;
 
         auto entry_idx = asts.empty() ? 0 : asts.size() - 1;
         // Helper: compute the dotted package name of a parsed module AST.
@@ -3317,7 +3317,7 @@ int main(int argc, char** argv) {
         std::string entry_body;
         if (entry_idx < asts.size()) {
             auto* h = asts[entry_idx].holder();
-            auto root_off = logos::hermes2::HermesAccess::root_offset(asts[entry_idx]);
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[entry_idx]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             split_rendered(r, entry_header, entry_uses, entry_body);
             strip_consumed_annots(entry_body);
@@ -3332,7 +3332,7 @@ int main(int argc, char** argv) {
             const std::string& fn = filenames[i];
             if (fn != "<metaprog-blob-subst>" && fn != "<metaprog>") continue;
             auto* h = asts[i].holder();
-            auto root_off = logos::hermes2::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
             std::string r = logos::compiler::render_module_source_for_dump(h, root_off);
             std::string s_hdr, s_body;
             std::vector<std::string> s_uses;
@@ -3623,7 +3623,7 @@ int main(int argc, char** argv) {
                         if (site.ast_idx < asts.size()) {
                             auto* h    = asts[site.ast_idx].holder();
                             auto* base = h->base();
-                            auto* tom  = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
+                            auto* tom  = reinterpret_cast<logos::hermes::TinyObjectMap*>(
                                             base + site.expr_offset);
                             auto av = tom->get(logos::compiler::ast::SRC_LINE.code);
                             if (!av.is_null() && av.is_value())
@@ -3640,7 +3640,7 @@ int main(int argc, char** argv) {
                     auto& doc = asts[site.ast_idx];
                     auto* h   = doc.holder();
                     auto* base = h->base();
-                    auto* tom = reinterpret_cast<logos::hermes2::TinyObjectMap*>(
+                    auto* tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(
                                     base + site.expr_offset);
                     // Determine the DONE marker from the current CODE
                     // — metacall_item and fn_macro_call_item share the
@@ -3658,7 +3658,7 @@ int main(int argc, char** argv) {
                     }
                     if (auto r = tom->put(
                             logos::compiler::ast::CODE.code,
-                            logos::hermes2::AnyVal::from_value<int32_t>(done_code),
+                            logos::hermes::AnyVal::from_value<int32_t>(done_code),
                             h->arena()); !r) {
                         std::fprintf(stderr,
                             "logosc: metacall item-splice: CODE put failed\n");
@@ -3757,11 +3757,11 @@ int main(int argc, char** argv) {
                 auto& doc = asts[site.ast_idx];
                 auto* h = doc.holder();
                 auto* base = h->base();
-                auto* tom = reinterpret_cast<logos::hermes2::TinyObjectMap*>(base + site.expr_offset);
+                auto* tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
 
-                logos::hermes2::AnyVal value_av;
+                logos::hermes::AnyVal value_av;
                 if (is_bool) {
-                    value_av = logos::hermes2::AnyVal::from_value<uint8_t>(b_val ? 1 : 0);
+                    value_av = logos::hermes::AnyVal::from_value<uint8_t>(b_val ? 1 : 0);
                 } else {
                     auto str_exp = doc.make_string(lit_text);
                     if (!str_exp) {
@@ -3770,19 +3770,19 @@ int main(int argc, char** argv) {
                     }
                     value_av = str_exp->to_anyval();
                     base = h->base();
-                    tom = reinterpret_cast<logos::hermes2::TinyObjectMap*>(base + site.expr_offset);
+                    tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
                 }
 
                 if (auto r = tom->put(logos::compiler::ast::CODE.code,
-                                      logos::hermes2::AnyVal::from_value<int32_t>(new_code),
+                                      logos::hermes::AnyVal::from_value<int32_t>(new_code),
                                       h->arena()); !r) {
                     std::fprintf(stderr, "logosc: metacall splice: CODE put failed\n");
                     return 1;
                 }
                 base = h->base();
-                tom = reinterpret_cast<logos::hermes2::TinyObjectMap*>(base + site.expr_offset);
+                tom = reinterpret_cast<logos::hermes::TinyObjectMap*>(base + site.expr_offset);
                 tom->set_schema_type_code(
-                    logos::hermes2::schema::ast(static_cast<int32_t>(new_code)));
+                    logos::hermes::schema::ast(static_cast<int32_t>(new_code)));
                 if (auto r = tom->put(logos::compiler::ast::VALUE.code, value_av, h->arena()); !r) {
                     std::fprintf(stderr, "logosc: metacall splice: VALUE put failed\n");
                     return 1;
@@ -4071,7 +4071,7 @@ int main(int argc, char** argv) {
             mkdir_p(dir);
 
             auto* h = asts[i].holder();
-            auto root_off = logos::hermes2::HermesAccess::root_offset(asts[i]);
+            auto root_off = logos::hermes::HermesAccess::root_offset(asts[i]);
             std::string body =
                 logos::compiler::render_module_source_for_dump(h, root_off);
             auto fn_names =

@@ -1,13 +1,13 @@
 // TypedValue across the trait walkers (hermes2): stringify + equal + hash +
 // clone all traverse @Type values.
 package hermes_typed_datatype_trait_coverage;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.mem.hermes2.parser;
-use logos.mem.hermes2.stringify;
-use logos.mem.hermes2.equal;
-use logos.mem.hermes2.hashing;
-use logos.mem.hermes2.clone;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.equal;
+use logos.mem.hermes.hashing;
+use logos.mem.hermes.clone;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

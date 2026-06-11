@@ -12,7 +12,7 @@ namespace logos::compiler::ctfe {
 
 namespace {
 
-using namespace logos::hermes2;
+using namespace logos::hermes;
 using K = LogosType::Kind;
 using namespace logos::compiler::sema_detail;  // la::*
 
@@ -274,7 +274,7 @@ do_eval(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
 } // namespace
 
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes2::TinyMapView node, hermes2::MemHolder* holder,
+eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
           ConstResolver* resolver) noexcept {
     return do_eval(node, holder, resolver);
 }

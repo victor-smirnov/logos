@@ -1,7 +1,7 @@
 package reflect_api;
 
 use logos.mem.any;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 #[annotation]
 #[zoned] struct Deprecated {

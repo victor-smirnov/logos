@@ -1,9 +1,9 @@
 // Decimal addition on hermes2 (u64-coefficient model; successor of the limb
 // bignum test): digit-boundary carries, scale alignment, signs, overflow guard.
 package dec_arithmetic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.decimal;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.decimal;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {

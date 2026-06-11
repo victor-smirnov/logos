@@ -10,15 +10,15 @@
 //   9. Pattern matching   — scalar @-patterns, structural, rest
 package hermes_showcase;
 
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.typed_arr;
-use logos.lang.hermes2.tmpl;
-use logos.lang.hermes2.comp_builder;
-use logos.lang.hermes2.pat;
-use logos.lang.hermes2.static_view;
-use logos.mem.hermes2.stringify;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.typed_arr;
+use logos.lang.hermes.tmpl;
+use logos.lang.hermes.comp_builder;
+use logos.lang.hermes.pat;
+use logos.lang.hermes.static_view;
+use logos.mem.hermes.stringify;
 use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;

@@ -13,16 +13,16 @@
 namespace ast = logos::peg_gen::ast;
 
 namespace logos::peg_gen {
-using logos::hermes2::AnyVal;
-using logos::hermes2::Hermes;
-using logos::hermes2::HermesView;
-using logos::hermes2::ArrayView;
-using logos::hermes2::MapView;
-using logos::hermes2::TinyMapView;
-using TinyMap = logos::hermes2::TinyMapView;   // view handle (raw node + holder)
-using Array   = logos::hermes2::ObjectArray;
-using Map     = logos::hermes2::MapView;
-using String  = logos::hermes2::StringView;
+using logos::hermes::AnyVal;
+using logos::hermes::Hermes;
+using logos::hermes::HermesView;
+using logos::hermes::ArrayView;
+using logos::hermes::MapView;
+using logos::hermes::TinyMapView;
+using TinyMap = logos::hermes::TinyMapView;   // view handle (raw node + holder)
+using Array   = logos::hermes::ObjectArray;
+using Map     = logos::hermes::MapView;
+using String  = logos::hermes::StringView;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Lexer
@@ -252,7 +252,7 @@ public:
         // TinyObjectMap::put for grammars that pushed it over the
         // initial-chunk boundary, e.g. anything large enough to need
         // pub_struct_def to grow).
-        , doc_(logos::hermes2::make_doc(524288).get()) {}
+        , doc_(logos::hermes::make_doc(524288).get()) {}
 
     Hermes parse() {
         // Root is a string-keyed ObjectMap with named sections.
@@ -327,7 +327,7 @@ private:
         return s;
     }
 
-    logos::hermes2::StringView make_str(std::string_view s) { return doc_.make_string(s).get(); }
+    logos::hermes::StringView make_str(std::string_view s) { return doc_.make_string(s).get(); }
     TinyMap make_tm(uint64_t cap) {
         return TinyMap(doc_.make_tiny_map(cap).get(), doc_.holder());
     }

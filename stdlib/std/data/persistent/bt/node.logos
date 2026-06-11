@@ -25,7 +25,7 @@ use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.drop;
 use logos.lang.fabric;
-use logos.lang.hermes2.hstatic;
+use logos.lang.hermes.hstatic;
 
 // ── Public aliases for STORE_CFG slot types ───────────────────────────
 // `SnpId<STORE_CFG>` / `BlockId<STORE_CFG>` get used

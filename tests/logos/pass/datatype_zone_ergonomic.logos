@@ -1,7 +1,7 @@
 // Ergonomic typed writes through the arena pointer (hermes2 successor of the
 // DataRef mut_ptr auto-deref test): plain *mut T field writes, never-move reads.
 package datatype_zone_ergonomic;
-use logos.lang.hermes2.container;
+use logos.lang.hermes.container;
 use logos.mem.rc;
 
 struct Point { x: i32, y: i32 }

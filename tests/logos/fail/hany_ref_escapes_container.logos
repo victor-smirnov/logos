@@ -5,9 +5,9 @@
 // tie the result to the container, so returning it past the container's scope is
 // rejected. (To escape safely, launder through a holder: hold_any → HeldAny.)
 package hany_ref_escapes_container;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 fn make_elem() -> HAny {
     let h: Hermes2 = hermes2_new(64i64);
     let nested: &mut HArray<HVal> = h.array(2i64);

@@ -5,9 +5,9 @@
 // carrying argument taints the receiver's provenance, so a later `return v` sees
 // the local borrow. docs/internals/borrow-escape-analysis-design.md §8.
 package hany_in_vec_escapes;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
 fn make() -> Vec<HAny> {
     let h: Hermes2 = hermes2_new(64i64);
     let nested: &mut HArray<HVal> = h.array(2i64);

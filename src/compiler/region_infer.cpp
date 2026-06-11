@@ -202,7 +202,7 @@ void RegionInferer::walk_block(const lir::LBlock& blk, uint32_t blk_id,
         walk_stmt(s, cur, local_idx, prog);
 
         // Detect branching / loop statements that need sub-blocks.
-        if (s.mirror_offset_ == hermes2::arena_offset_t{}) continue;
+        if (s.mirror_offset_ == hermes::arena_offset_t{}) continue;
         StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
         if (!sr) continue;
 
@@ -324,7 +324,7 @@ void RegionInferer::walk_stmt(const lir::LStmt& s,
     using namespace lir_view;
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
-    if (s.mirror_offset_ == hermes2::arena_offset_t{}) return;
+    if (s.mirror_offset_ == hermes::arena_offset_t{}) return;
     StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
     if (!sr) return;
     StmtPoint origin{blk_id, idx};
@@ -585,7 +585,7 @@ void RegionInferer::use_def_for_stmt(const lir::LStmt& s,
     using ECode = lir_schema::expr::Code;
     using SCode = lir_schema::stmt::Code;
     (void)blk_id; (void)idx;
-    if (s.mirror_offset_ == hermes2::arena_offset_t{}) return;
+    if (s.mirror_offset_ == hermes::arena_offset_t{}) return;
     StmtRef sr(prog.type_pool.arena(), s.mirror_offset_);
     if (!sr) return;
 

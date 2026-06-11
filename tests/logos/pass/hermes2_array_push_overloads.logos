@@ -2,10 +2,10 @@
 // of `a.push(HAny::from(x))`: i64/bool inline Pods, &HString / &HArray<HVal> Refs,
 // and `str` (interned into the array's own arena as an HString, then a Ref).
 package test;
-use logos.lang.hermes2.container;
-use logos.lang.hermes2.anyval;
-use logos.lang.hermes2.array;
-use logos.lang.hermes2.hstring;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Hermes2 = hermes2_new(64i64);
