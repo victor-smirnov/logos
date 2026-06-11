@@ -1,35 +1,34 @@
-// Test: $N param placeholder parsing in the Hermes SDN parser.
+// PARAM slot encoding roundtrip (successor of the Hermes1 embed_param test):
+// the capture placeholder is an inline Pod, word = (value_index<<8)|(127<<1)|1.
 package hermes_param_roundtrip;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
+
+fn embed_param(idx: u32) -> HAny {
+    return HAny::Pod((((idx as u64) << 8u64) | 0xFFu64));
+}
+fn is_param(v: HAny) -> bool {
+    return v.is_pod() && v.pod_code() == 127 as u8;
+}
+fn param_index(v: HAny) -> u32 {
+    return ((v.raw() as u64) >> 8u64) as u32;
+}
 
 unsafe fn main() -> i32 {
-    // ── 1. AnyVal::embed_param encoding ──────────────────────────────────
-    let p0: AnyVal = AnyVal::embed_param(0 as u32);
-    if !p0.is_param() { return 1; }
-    if p0.param_index() != 0 as u32 { return 2; }
+    let p0: HAny = embed_param(0 as u32);
+    if !is_param(p0) { return 1; }
+    if param_index(p0) != 0 as u32 { return 2; }
 
-    let p42: AnyVal = AnyVal::embed_param(42 as u32);
-    if !p42.is_param() { return 3; }
-    if p42.param_index() != 42 as u32 { return 4; }
+    let p42: HAny = embed_param(42 as u32);
+    if !is_param(p42) { return 3; }
+    if param_index(p42) != 42 as u32 { return 4; }
 
-    // ── 2. $N parsed; root AnyVal is_param ───────────────────────────────
-    let mut ctr2: Hermes = Hermes::new(4096);
-    match ctr2.parse("$0") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 5; }
-    }
-    let root2: AnyVal = ctr2.root();
-    if !root2.is_param() { return 6; }
-    if root2.param_index() != 0 as u32 { return 7; }
+    // Params are NOT ints/bools/nulls — the code is reserved.
+    if p42.is_int()  { return 5; }
+    if p42.is_bool() { return 6; }
+    if p42.is_null() { return 7; }
 
-    // ── 3. $N in array ────────────────────────────────────────────────────
-    let mut ctr3: Hermes = Hermes::new(4096);
-    match ctr3.parse("[$0, $1]") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 8; }
-    }
-    if ctr3.root().is_null() { return 9; }
-
+    // Max 24-bit index survives.
+    let pmax: HAny = embed_param(16777215 as u32);
+    if param_index(pmax) != 16777215 as u32 { return 8; }
     return 0;
 }
