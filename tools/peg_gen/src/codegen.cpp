@@ -17,12 +17,12 @@
 namespace fs  = std::filesystem;
 namespace ast = logos::peg_gen::ast;
 
-using logos::hermes::AnyVal;
-using logos::hermes::ArrayView;
-using logos::hermes::MapView;
-using logos::hermes::TinyMapView;
-using logos::hermes::StringView;
-using logos::hermes::MemHolder;
+using logos::hermes2::AnyVal;
+using logos::hermes2::ArrayView;
+using logos::hermes2::MapView;
+using logos::hermes2::TinyMapView;
+using logos::hermes2::StringView;
+using logos::hermes2::MemHolder;
 
 namespace logos::peg_gen {
 
@@ -108,7 +108,7 @@ struct GrammarInfo {
 
 static std::string read_str(AnyVal val, MemHolder* h) {
     if (val.is_null() || !val.is_pointer()) return {};
-    return std::string(StringView(val.to_offset(), h).view());
+    return std::string(StringView(val, h).view());
 }
 
 static int32_t read_int(AnyVal val) {
@@ -128,7 +128,7 @@ static std::string to_pascal(const std::string& snake) {
 
 class GrammarReader {
 public:
-    static GrammarInfo read(const logos::hermes::HermesView& doc,
+    static GrammarInfo read(const logos::hermes2::HermesView& doc,
                             const std::vector<ResolvedModule>&  all_modules) {
         GrammarInfo g;
         MemHolder* h = doc.holder();
@@ -152,7 +152,7 @@ private:
     static void read_meta(MapView& root, MemHolder* h, GrammarInfo& g) {
         AnyVal meta_val = root.get("meta");
         if (meta_val.is_null()) return;
-        TinyMapView meta(meta_val.to_offset(), h);
+        TinyMapView meta(meta_val, h);
         g.name          = read_str(meta.get(uint8_t(ast::NAME)),      h);
         g.cxx_namespace = read_str(meta.get(uint8_t(ast::NAMESPACE)), h);
         g.output        = read_str(meta.get(uint8_t(ast::OUTPUT)),    h);
@@ -161,7 +161,7 @@ private:
     static void read_exports(MapView& root, MemHolder* h, GrammarInfo& g) {
         AnyVal arr_val = root.get("exports");
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (!elem.is_null()) g.exports.push_back(read_str(elem, h));
@@ -172,22 +172,22 @@ private:
                                 std::vector<NameDecl>& out) {
         AnyVal arr_val = root.get(key);
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
-            TinyMapView node(elem.to_offset(), h);
+            TinyMapView node(elem, h);
             int32_t code = read_int(node.get(uint8_t(ast::CODE)));
             if (code == int32_t(ast::GROUP_DECL)) {
                 // Group block: recurse into FIELDS, tag each entry with the group name.
                 std::string gname = read_str(node.get(uint8_t(ast::NAME)), h);
                 AnyVal fields_av = node.get(uint8_t(ast::FIELDS));
                 if (fields_av.is_null()) continue;
-                ArrayView fields(fields_av.to_offset(), h);
+                ArrayView fields(fields_av, h);
                 for (uint64_t j = 0; j < fields.size(); ++j) {
                     AnyVal fe = fields.get(j);
                     if (fe.is_null()) continue;
-                    TinyMapView fn(fe.to_offset(), h);
+                    TinyMapView fn(fe, h);
                     out.push_back({
                         read_str(fn.get(uint8_t(ast::NAME)), h),
                         read_int(fn.get(uint8_t(ast::VALUE))),
@@ -207,11 +207,11 @@ private:
     static void read_tokens(MapView& root, MemHolder* h, GrammarInfo& g) {
         AnyVal arr_val = root.get("tokens");
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
-            TinyMapView node(elem.to_offset(), h);
+            TinyMapView node(elem, h);
             g.tokens.push_back({
                 read_str(node.get(uint8_t(ast::NAME)),    h),
                 read_int(node.get(uint8_t(ast::KIND))),
@@ -223,16 +223,16 @@ private:
     static void read_prec(MapView& root, MemHolder* h, GrammarInfo& g) {
         AnyVal arr_val = root.get("prec");
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
-            TinyMapView node(elem.to_offset(), h);
+            TinyMapView node(elem, h);
             PrecLevel level;
             level.assoc = read_int(node.get(uint8_t(ast::ASSOC)));
             AnyVal toks_val = node.get(uint8_t(ast::TOKENS));
             if (!toks_val.is_null()) {
-                ArrayView toks(toks_val.to_offset(), h);
+                ArrayView toks(toks_val, h);
                 for (uint64_t j = 0; j < toks.size(); ++j)
                     level.tokens.push_back(read_str(toks.get(j), h));
             }
@@ -242,7 +242,7 @@ private:
 
     static ActionExpr read_action_expr(AnyVal val, MemHolder* h) {
         if (val.is_null() || !val.is_pointer()) return {};
-        TinyMapView node(val.to_offset(), h);
+        TinyMapView node(val, h);
         int32_t kind = read_int(node.get(uint8_t(ast::CODE)));
         ActionExpr e;
         e.kind = kind;
@@ -259,12 +259,12 @@ private:
     static std::optional<Action> read_action(AnyVal val, MemHolder* h) {
         if (val.is_null() || !val.is_pointer()) return std::nullopt;
         // Action is an ObjectMap: field_name → action_expr
-        MapView action_map(val.to_offset(), h);
+        MapView action_map(val, h);
         Action a;
-        action_map.for_each([&](logos::hermes::ArenaString* key, AnyVal* expr_slot) {
+        action_map.ptr()->for_each([&](std::string_view key, AnyVal expr) {
             a.fields.push_back({
-                std::string(key->view()),
-                read_action_expr(*expr_slot, h)
+                std::string(key),
+                read_action_expr(expr, h)
             });
         });
         return a;
@@ -272,12 +272,12 @@ private:
 
     static Item::Alt read_alt(AnyVal val, MemHolder* h) {
         Item::Alt alt;
-        TinyMapView node(val.to_offset(), h);
+        TinyMapView node(val, h);
         AnyVal seq_val    = node.get(uint8_t(ast::SEQ));
         AnyVal action_val = node.get(uint8_t(ast::ACTION));
 
         if (!seq_val.is_null()) {
-            ArrayView seq(seq_val.to_offset(), h);
+            ArrayView seq(seq_val, h);
             for (uint64_t i = 0; i < seq.size(); ++i)
                 alt.seq.push_back(read_item(seq.get(i), h));
         }
@@ -288,7 +288,7 @@ private:
     static Item read_item(AnyVal val, MemHolder* h) {
         Item item;
         if (val.is_null() || !val.is_pointer()) return item;
-        TinyMapView node(val.to_offset(), h);
+        TinyMapView node(val, h);
         item.kind          = read_int(node.get(uint8_t(ast::CODE)));
         item.name          = read_str(node.get(uint8_t(ast::NAME)),    h);
         item.grammar_alias = read_str(node.get(uint8_t(ast::GRAMMAR)), h);
@@ -302,7 +302,7 @@ private:
         // Sub-alts (GROUP)
         AnyVal alts_val = node.get(uint8_t(ast::ALTS));
         if (!alts_val.is_null()) {
-            ArrayView alts(alts_val.to_offset(), h);
+            ArrayView alts(alts_val, h);
             for (uint64_t i = 0; i < alts.size(); ++i)
                 item.sub_alts.push_back(read_alt(alts.get(i), h));
         }
@@ -312,17 +312,17 @@ private:
     static void read_rules(MapView& root, MemHolder* h, GrammarInfo& g) {
         AnyVal arr_val = root.get("rules");
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
-            TinyMapView node(elem.to_offset(), h);
+            TinyMapView node(elem, h);
             Rule rule;
             rule.name = read_str(node.get(uint8_t(ast::NAME)), h);
             rule.group = read_str(node.get(uint8_t(ast::GROUP_NAME)), h);
             AnyVal alts_val = node.get(uint8_t(ast::ALTS));
             if (!alts_val.is_null()) {
-                ArrayView alts(alts_val.to_offset(), h);
+                ArrayView alts(alts_val, h);
                 for (uint64_t j = 0; j < alts.size(); ++j)
                     rule.alts.push_back(read_alt(alts.get(j), h));
             }
@@ -335,11 +335,11 @@ private:
                              GrammarInfo& g) {
         AnyVal arr_val = root.get("imports");
         if (arr_val.is_null()) return;
-        ArrayView arr(arr_val.to_offset(), h);
+        ArrayView arr(arr_val, h);
         for (uint64_t i = 0; i < arr.size(); ++i) {
             AnyVal elem = arr.get(i);
             if (elem.is_null()) continue;
-            TinyMapView node(elem.to_offset(), h);
+            TinyMapView node(elem, h);
             std::string alias = read_str(node.get(uint8_t(ast::ALIAS)), h);
             std::string path  = read_str(node.get(uint8_t(ast::PATH)),  h);
             // Find the output name from the resolved module list.
@@ -347,13 +347,13 @@ private:
             for (const auto& m : all_modules) {
                 if (m.alias == alias) {
                     // Read output from that module's meta.
-                    if (m.grammar.has_root()) {
+                    if (!m.grammar.root().is_null()) {
                         auto robj = m.grammar.root_object();
                         if (!robj.is_null()) {
                             auto rmap = robj.as_map();
                             AnyVal meta_v = rmap.get("meta");
                             if (!meta_v.is_null()) {
-                                TinyMapView meta(meta_v.to_offset(), m.grammar.holder());
+                                TinyMapView meta(meta_v, m.grammar.holder());
                                 out_name = read_str(meta.get(uint8_t(ast::OUTPUT)),
                                                     m.grammar.holder());
                             }
@@ -1347,9 +1347,38 @@ private:
                 const bool flt_sfx = pat_has_float_suffix(float_pat);
 
                 w.fmt("// {} = /{}/", t.name, pat);
-                // Entry condition: digit or negative-digit. Dot-digit (.5) is NOT used
-                // because '.' is already the DOT token and t.1.0 would otherwise be
-                // lexed as FLOAT(".1") instead of DOT + INTEGER("1") + DOT + INTEGER("0").
+                // Leading-dot floats (.5): emitted ONLY when the grammar has no "."
+                // literal token (e.g. the hermes SDN grammar) AND the FLOAT pattern
+                // allows an empty integer part ([0-9]*\.). With a DOT token (logos),
+                // t.1.0 must stay DOT + INTEGER + DOT + INTEGER.
+                bool grammar_has_dot_literal = false;
+                for (const auto& lt : g_.tokens) {
+                    if (lt.kind == int32_t(ast::TOKEN_LITERAL) &&
+                        (lt.pattern == "\".\"" || lt.pattern == ".")) {
+                        grammar_has_dot_literal = true;
+                        break;
+                    }
+                }
+                const bool leading_dot_float =
+                    !float_pat.empty() && !grammar_has_dot_literal &&
+                    float_pat.find("[0-9]*\\.") != std::string_view::npos;
+                if (leading_dot_float) {
+                    w.line("if (c == '.' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])) {");
+                    w.indent();
+                    w.line("++pos_; // consume '.'");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
+                    w.line("    ++pos_;");
+                    w.line("    if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && std::isdigit(source_[pos_])) ++pos_;");
+                    w.line("}");
+                    if (flt_sfx)
+                        w.line("if (pos_ < source_.size() && (source_[pos_] == 'f' || source_[pos_] == 'd')) ++pos_;");
+                    w.line("return {TK::FLOAT, source_.substr(start, pos_ - start), start_line_};");
+                    w.dedent();
+                    w.line("}");
+                }
+                // Entry condition: digit or negative-digit.
                 if (!float_tok.empty()) {
                     w.fmt("if (std::isdigit(c) || (c == '-' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1]))) {{");
                 } else {
@@ -1371,16 +1400,16 @@ private:
                     w.line("}");
                     // Consume digits per base.
                     w.line("if (base == 16) {");
-                    w.line("    while (pos_ < source_.size() && (std::isxdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isxdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isxdigit(source_[pos_+1])))) ++pos_;");
                     w.line("} else if (base == 2) {");
-                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1' || source_[pos_] == '_')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1' || (source_[pos_] == '_' && pos_+1 < source_.size() && (source_[pos_+1] == '0' || source_[pos_+1] == '1')))) ++pos_;");
                     w.line("} else if (base == 8) {");
-                    w.line("    while (pos_ < source_.size() && ((source_[pos_] >= '0' && source_[pos_] <= '7') || source_[pos_] == '_')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && ((source_[pos_] >= '0' && source_[pos_] <= '7') || (source_[pos_] == '_' && pos_+1 < source_.size() && source_[pos_+1] >= '0' && source_[pos_+1] <= '7'))) ++pos_;");
                     w.line("} else {");
-                    w.line("    while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
                     w.line("}");
                 } else {
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
                 }
 
                 if (!float_tok.empty()) {
@@ -1395,12 +1424,12 @@ private:
                     w.line("    && !(start > 0 && source_[start - 1] == '.')) {");
                     w.indent();
                     w.line("++pos_; // consume '.'");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
                     w.indent();
                     w.line("++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
                     w.dedent();
                     w.line("}");
                     if (flt_sfx) {
@@ -1426,7 +1455,7 @@ private:
                     w.indent();
                     w.line("++pos_; // consume 'e'/'E'");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
                     if (flt_sfx) {
                         w.line("if (pos_ + 3 <= source_.size() &&");
                         w.line("    (source_.substr(pos_, 3) == \"f32\" || source_.substr(pos_, 3) == \"f64\")) {");

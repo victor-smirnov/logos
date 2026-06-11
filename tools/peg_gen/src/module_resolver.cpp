@@ -13,11 +13,11 @@
 namespace fs  = std::filesystem;
 namespace ast = logos::peg_gen::ast;
 
-using logos::hermes::AnyVal;
-using logos::hermes::ArrayView;
-using logos::hermes::TinyMapView;
-using logos::hermes::StringView;
-using logos::hermes::MemHolder;
+using logos::hermes2::AnyVal;
+using logos::hermes2::ArrayView;
+using logos::hermes2::TinyMapView;
+using logos::hermes2::StringView;
+using logos::hermes2::MemHolder;
 
 namespace logos::peg_gen {
 
@@ -34,13 +34,13 @@ struct ImportEntry {
 };
 
 static std::string_view read_str(AnyVal val, MemHolder* h) {
-    return StringView(val.to_offset(), h).view();
+    return StringView(val, h).view();
 }
 
 static std::vector<ImportEntry>
-collect_imports(const logos::hermes::HermesView& grammar) {
+collect_imports(const logos::hermes2::HermesView& grammar) {
     std::vector<ImportEntry> result;
-    if (!grammar.has_root()) return result;
+    if (grammar.root().is_null()) return result;
 
     MemHolder* h = grammar.holder();
 
@@ -52,12 +52,12 @@ collect_imports(const logos::hermes::HermesView& grammar) {
     AnyVal imports_val = root_map.get("imports");
     if (imports_val.is_null()) return result;
 
-    ArrayView imports(imports_val.to_offset(), h);
+    ArrayView imports(imports_val, h);
     for (uint64_t i = 0; i < imports.size(); ++i) {
         AnyVal elem = imports.get(i);
         if (elem.is_null() || !elem.is_pointer()) continue;
 
-        TinyMapView node(elem.to_offset(), h);
+        TinyMapView node(elem, h);
 
         // Use unchecked get(uint8_t) — avoid hard assert on possibly partial nodes.
         AnyVal path_val  = node.get(uint8_t(ast::PATH));

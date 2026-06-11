@@ -20,14 +20,15 @@
 #include <string>
 #include <vector>
 #include <optional>
-#include <logos/hermes/view.hpp>
+#include <logos/hermes2/view.hpp>
+#include <logos/hermes2/compat.hpp>
 
 namespace logos::peg_gen {
 
 struct ResolvedModule {
     std::string  path;           // absolute path to the .peg file
     std::string  alias;          // import alias (empty for the root module)
-    logos::hermes::Hermes grammar;  // parsed grammar document
+    logos::hermes2::Hermes grammar;  // parsed grammar document
 };
 
 // Resolve all imports starting from root_path.

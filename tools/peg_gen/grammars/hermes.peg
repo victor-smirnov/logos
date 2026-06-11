@@ -10,7 +10,7 @@
 %meta {
     name:      "hermes"
     version:   "1.0"
-    namespace: "logos::hermes"
+    namespace: "logos::hermes2"
     output:    "hermes_parser"
 }
 

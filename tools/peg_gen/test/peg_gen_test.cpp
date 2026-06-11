@@ -9,7 +9,7 @@
 #include "grammar_ast.hpp"
 
 #include <logos/verification/assert.hpp>
-#include <logos/hermes/view.hpp>
+#include <logos/hermes2/view.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -19,11 +19,11 @@
 namespace fs  = std::filesystem;
 namespace ast = logos::peg_gen::ast;
 
-using logos::hermes::AnyVal;
-using logos::hermes::ArrayView;
-using logos::hermes::TinyMapView;
-using logos::hermes::StringView;
-using logos::hermes::MemHolder;
+using logos::hermes2::AnyVal;
+using logos::hermes2::ArrayView;
+using logos::hermes2::TinyMapView;
+using logos::hermes2::StringView;
+using logos::hermes2::MemHolder;
 using logos::peg_gen::parse_grammar_string;
 using logos::peg_gen::resolve_modules;
 using logos::peg_gen::codegen;
@@ -35,7 +35,7 @@ using logos::peg_gen::CodegenOptions;
 
 static std::string_view str_field(AnyVal v, MemHolder* h) {
     if (v.is_null() || !v.is_pointer()) return {};
-    return StringView(v.to_offset(), h).view();
+    return StringView(v, h).view();
 }
 
 static int32_t int_field(AnyVal v) {
@@ -44,23 +44,23 @@ static int32_t int_field(AnyVal v) {
 }
 
 // Get top-level section (root is ObjectMap, string-keyed).
-static AnyVal section(const logos::hermes::Hermes& doc, std::string_view key) {
+static AnyVal section(const logos::hermes2::Hermes& doc, std::string_view key) {
     if (!doc.has_root()) return AnyVal{};
     return doc.root_object().as_map().get(key);
 }
 
 // Section helpers that return typed views.
-static TinyMapView meta_of(const logos::hermes::Hermes& doc) {
+static TinyMapView meta_of(const logos::hermes2::Hermes& doc) {
     return TinyMapView(section(doc, "meta").to_offset(), doc.holder());
 }
 
-static ArrayView array_section(const logos::hermes::Hermes& doc, std::string_view key) {
+static ArrayView array_section(const logos::hermes2::Hermes& doc, std::string_view key) {
     AnyVal v = section(doc, key);
     LOGOS_ASSERT(!v.is_null(), "PEGEN-TEST-NAV", "section '{}' missing", key);
     return ArrayView(v.to_offset(), doc.holder());
 }
 
-static TinyMapView tiny_elem(const logos::hermes::Hermes& doc, AnyVal v) {
+static TinyMapView tiny_elem(const logos::hermes2::Hermes& doc, AnyVal v) {
     return TinyMapView(v.to_offset(), doc.holder());
 }
 
@@ -215,7 +215,7 @@ static void test_prec() {
         auto lv = tiny_elem(*doc, prec.get(0));
         LOGOS_ASSERT(int_field(lv.get(uint8_t(ast::ASSOC))) == int32_t(ast::ASSOC_LEFT),
             "PEGEN-TEST-PREC-001", "level[0] assoc");
-        auto toks = ArrayView(lv.get(uint8_t(ast::TOKENS)).to_offset(), h);
+        auto toks = ArrayView(lv.get(uint8_t(ast::TOKENS)), h);
         LOGOS_ASSERT(toks.size() == 1, "PEGEN-TEST-PREC-001", "level[0] 1 token");
         LOGOS_ASSERT(str_field(toks.get(0), h) == "OR", "PEGEN-TEST-PREC-001", "level[0] token name");
     }
@@ -228,7 +228,7 @@ static void test_prec() {
     // Level 3: left PLUS MINUS
     {
         auto lv = tiny_elem(*doc, prec.get(3));
-        auto toks = ArrayView(lv.get(uint8_t(ast::TOKENS)).to_offset(), h);
+        auto toks = ArrayView(lv.get(uint8_t(ast::TOKENS)), h);
         LOGOS_ASSERT(toks.size() == 2, "PEGEN-TEST-PREC-001", "level[3] 2 tokens");
         LOGOS_ASSERT(str_field(toks.get(0), h) == "PLUS",  "PEGEN-TEST-PREC-001", "PLUS");
         LOGOS_ASSERT(str_field(toks.get(1), h) == "MINUS", "PEGEN-TEST-PREC-001", "MINUS");
@@ -254,11 +254,11 @@ static void test_rule_single_alt() {
     LOGOS_ASSERT(str_field(rule.get(uint8_t(ast::NAME)), h) == "expr",
         "PEGEN-TEST-RULE-001", "rule.name");
 
-    auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     LOGOS_ASSERT(alts.size() == 1, "PEGEN-TEST-RULE-001", "1 alt");
 
     auto alt = tiny_elem(*doc, alts.get(0));
-    auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+    auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
     LOGOS_ASSERT(seq.size() == 3, "PEGEN-TEST-RULE-001", "seq len 3");
 
     // Item 0: TOKEN_REF NUMBER
@@ -283,14 +283,14 @@ static void test_rule_multiple_alts() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     LOGOS_ASSERT(alts.size() == 3, "PEGEN-TEST-RULE-002",
         "expected 3 alts, got {}", alts.size());
 
     // Alt 0: RULE_REF map
     {
         auto alt  = tiny_elem(*doc, alts.get(0));
-        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
         auto item = tiny_elem(*doc, seq.get(0));
         LOGOS_ASSERT(int_field(item.get(uint8_t(ast::CODE))) == int32_t(ast::RULE_REF),
             "PEGEN-TEST-RULE-002", "alt0 is RULE_REF");
@@ -300,7 +300,7 @@ static void test_rule_multiple_alts() {
     // Alt 2: TOKEN_REF STRING
     {
         auto alt  = tiny_elem(*doc, alts.get(2));
-        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
         auto item = tiny_elem(*doc, seq.get(0));
         LOGOS_ASSERT(int_field(item.get(uint8_t(ast::CODE))) == int32_t(ast::TOKEN_REF),
             "PEGEN-TEST-RULE-002", "alt2 is TOKEN_REF");
@@ -325,9 +325,9 @@ static void test_item_opt_rep_literal() {
     // rule "list": "[" item+ "]"
     {
         auto rule = tiny_elem(*doc, rules.get(0));
-        auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+        auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
         auto alt  = tiny_elem(*doc, alts.get(0));
-        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
         LOGOS_ASSERT(seq.size() == 3, "PEGEN-TEST-ITEM-001", "list seq=3");
 
         // item0: LITERAL "["
@@ -348,9 +348,9 @@ static void test_item_opt_rep_literal() {
     // rule "item": IDENT ","?
     {
         auto rule = tiny_elem(*doc, rules.get(1));
-        auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+        auto alts = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
         auto alt  = tiny_elem(*doc, alts.get(0));
-        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+        auto seq  = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
         LOGOS_ASSERT(seq.size() == 2, "PEGEN-TEST-ITEM-001", "item seq=2");
 
         // item1: OPT ","?
@@ -379,9 +379,9 @@ static void test_item_star_rep() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt   = tiny_elem(*doc, alts.get(0));
-    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
     LOGOS_ASSERT(seq.size() == 1, "PEGEN-TEST-ITEM-002", "seq=1");
 
     auto rep = tiny_elem(*doc, seq.get(0));
@@ -403,15 +403,15 @@ static void test_item_group() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt   = tiny_elem(*doc, alts.get(0));
-    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
 
     auto grp = tiny_elem(*doc, seq.get(0));
     LOGOS_ASSERT(int_field(grp.get(uint8_t(ast::CODE))) == int32_t(ast::GROUP),
         "PEGEN-TEST-ITEM-003", "group item");
 
-    auto sub_alts = ArrayView(grp.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto sub_alts = ArrayView(grp.get(uint8_t(ast::ALTS)), h);
     LOGOS_ASSERT(sub_alts.size() == 2, "PEGEN-TEST-ITEM-003",
         "group 2 alts, got {}", sub_alts.size());
     std::println("  [OK] test_item_group");
@@ -429,9 +429,9 @@ static void test_item_lookahead_neg_ahead() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt   = tiny_elem(*doc, alts.get(0));
-    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
     LOGOS_ASSERT(seq.size() == 2, "PEGEN-TEST-ITEM-004", "seq=2");
 
     auto neg = tiny_elem(*doc, seq.get(0));
@@ -457,9 +457,9 @@ static void test_item_cross_grammar_ref() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt   = tiny_elem(*doc, alts.get(0));
-    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)).to_offset(), h);
+    auto seq   = ArrayView(alt.get(uint8_t(ast::SEQ)), h);
 
     auto item = tiny_elem(*doc, seq.get(0));
     LOGOS_ASSERT(int_field(item.get(uint8_t(ast::CODE))) == int32_t(ast::RULE_REF),
@@ -487,7 +487,7 @@ static void test_action_captures() {
     auto h = doc->holder();
     auto rules = array_section(*doc, "rules");
     auto rule  = tiny_elem(*doc, rules.get(0));
-    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts  = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt   = tiny_elem(*doc, alts.get(0));
 
     // Action must be present.
@@ -495,7 +495,7 @@ static void test_action_captures() {
     AnyVal action_val = alt.get(uint8_t(ast::ACTION));
     LOGOS_ASSERT(!action_val.is_null(), "PEGEN-TEST-ACT-001", "action present");
 
-    auto action = logos::hermes::MapView(action_val.to_offset(), h);
+    auto action = logos::hermes2::MapView(action_val, h);
     LOGOS_ASSERT(action.size() == 3, "PEGEN-TEST-ACT-001",
         "action 3 fields, got {}", action.size());
 
@@ -536,9 +536,9 @@ static void test_action_array_capture() {
     auto h = doc->holder();
     auto rules  = array_section(*doc, "rules");
     auto rule   = tiny_elem(*doc, rules.get(0));
-    auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt    = tiny_elem(*doc, alts.get(0));
-    auto action = logos::hermes::MapView(alt.get(uint8_t(ast::ACTION)).to_offset(), h);
+    auto action = logos::hermes2::MapView(alt.get(uint8_t(ast::ACTION)), h);
 
     AnyVal items_v = action.get("ITEMS");
     LOGOS_ASSERT(!items_v.is_null(), "PEGEN-TEST-ACT-002", "ITEMS field present");
@@ -561,9 +561,9 @@ static void test_action_literal_node_code() {
     auto h = doc->holder();
     auto rules  = array_section(*doc, "rules");
     auto rule   = tiny_elem(*doc, rules.get(0));
-    auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto alts   = ArrayView(rule.get(uint8_t(ast::ALTS)), h);
     auto alt    = tiny_elem(*doc, alts.get(0));
-    auto action = logos::hermes::MapView(alt.get(uint8_t(ast::ACTION)).to_offset(), h);
+    auto action = logos::hermes2::MapView(alt.get(uint8_t(ast::ACTION)), h);
 
     AnyVal code_v = action.get("CODE");
     LOGOS_ASSERT(!code_v.is_null(), "PEGEN-TEST-ACT-003", "CODE field present");
@@ -677,7 +677,7 @@ static void test_multiple_rules() {
     auto value_rule = tiny_elem(*doc, rules.get(0));
     LOGOS_ASSERT(str_field(value_rule.get(uint8_t(ast::NAME)), h) == "value",
         "PEGEN-TEST-MULTI-001", "first rule is value");
-    auto value_alts = ArrayView(value_rule.get(uint8_t(ast::ALTS)).to_offset(), h);
+    auto value_alts = ArrayView(value_rule.get(uint8_t(ast::ALTS)), h);
     LOGOS_ASSERT(value_alts.size() == 7, "PEGEN-TEST-MULTI-001",
         "value has 7 alts, got {}", value_alts.size());
 

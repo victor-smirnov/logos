@@ -6,19 +6,19 @@
 #include "hermes_parser.hpp"
 
 #include <logos/verification/assert.hpp>
-#include <logos/hermes/view.hpp>
+#include <logos/hermes2/view.hpp>
 
 #include <print>
 #include <string_view>
 
-using logos::hermes::HermesParser;
-using logos::hermes::Hermes;
-using logos::hermes::TinyMapView;
-using logos::hermes::ArrayView;
-using logos::hermes::StringView;
-using logos::hermes::MemHolder;
-using logos::hermes::AnyVal;
-namespace ha = logos::hermes::hermes_ast;
+using logos::hermes2::HermesParser;
+using logos::hermes2::Hermes;
+using logos::hermes2::TinyMapView;
+using logos::hermes2::ArrayView;
+using logos::hermes2::StringView;
+using logos::hermes2::MemHolder;
+using logos::hermes2::AnyVal;
+namespace ha = logos::hermes2::hermes_ast;
 
 // ── Navigation helpers ───────────────────────────────────────────────────────
 
@@ -36,13 +36,13 @@ static int32_t node_code(TinyMapView n) {
 static std::string_view node_str(TinyMapView n, logos::NamedCode<uint8_t> field, MemHolder* h) {
     AnyVal v = n.get(field);
     if (v.is_null() || !v.is_pointer()) return {};
-    return StringView(v.to_offset(), h).view();
+    return StringView(v, h).view();
 }
 
 // ITEMS array from a MAP or ARRAY node.
 static ArrayView node_items(TinyMapView n, MemHolder* h) {
     AnyVal v = n.get(ha::ITEMS);
-    return ArrayView(v.to_offset(), h);
+    return ArrayView(v, h);
 }
 
 // ── Scalar tests ─────────────────────────────────────────────────────────────
@@ -150,11 +150,11 @@ static void test_single_entry_map() {
     auto items = node_items(root, h);
     LOGOS_ASSERT(items.size() == 1, "ROUND-011", "1 entry, got {}", items.size());
 
-    auto entry = TinyMapView(items.get(0).to_offset(), h);
+    auto entry = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_code(entry) == int32_t(ha::MAP_ENTRY), "ROUND-011", "entry code");
     LOGOS_ASSERT(node_str(entry, ha::KEY, h) == R"("x")", "ROUND-011", "key");
 
-    auto val = TinyMapView(entry.get(ha::VALUE).to_offset(), h);
+    auto val = TinyMapView(entry.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(val) == int32_t(ha::INTEGER), "ROUND-011", "value is INTEGER");
     LOGOS_ASSERT(node_str(val, ha::VALUE, h) == "1", "ROUND-011", "value=1");
     std::println("  [OK] single-entry map");
@@ -170,9 +170,9 @@ static void test_multi_entry_map() {
     std::string_view keys[] = {R"("a")", R"("b")", R"("c")"};
     std::string_view vals[] = {"1", "2", "3"};
     for (uint64_t i = 0; i < 3; ++i) {
-        auto entry = TinyMapView(items.get(i).to_offset(), h);
+        auto entry = TinyMapView(items.get(i), h);
         LOGOS_ASSERT(node_str(entry, ha::KEY, h) == keys[i], "ROUND-012", "key[{}]", i);
-        auto val = TinyMapView(entry.get(ha::VALUE).to_offset(), h);
+        auto val = TinyMapView(entry.get(ha::VALUE), h);
         LOGOS_ASSERT(node_str(val, ha::VALUE, h) == vals[i], "ROUND-012", "val[{}]", i);
     }
     std::println("  [OK] multi-entry map");
@@ -185,12 +185,12 @@ static void test_ident_key_map() {
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 2, "ROUND-013", "2 entries");
 
-    auto e0 = TinyMapView(items.get(0).to_offset(), h);
+    auto e0 = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_str(e0, ha::KEY, h) == "x", "ROUND-013", "key[0]=x");
 
-    auto e1 = TinyMapView(items.get(1).to_offset(), h);
+    auto e1 = TinyMapView(items.get(1), h);
     LOGOS_ASSERT(node_str(e1, ha::KEY, h) == "y", "ROUND-013", "key[1]=y");
-    auto v1 = TinyMapView(e1.get(ha::VALUE).to_offset(), h);
+    auto v1 = TinyMapView(e1.get(ha::VALUE), h);
     LOGOS_ASSERT(node_str(v1, ha::VALUE, h) == "-1", "ROUND-013", "val[1]=-1");
     std::println("  [OK] ident-key map");
 }
@@ -212,8 +212,8 @@ static void test_map_mixed_value_types() {
     LOGOS_ASSERT(items.size() == 4, "ROUND-015", "4 entries");
 
     auto check_code = [&](uint64_t i, int32_t expected_code) {
-        auto entry = TinyMapView(items.get(i).to_offset(), h);
-        auto val = TinyMapView(entry.get(ha::VALUE).to_offset(), h);
+        auto entry = TinyMapView(items.get(i), h);
+        auto val = TinyMapView(entry.get(ha::VALUE), h);
         LOGOS_ASSERT(node_code(val) == expected_code, "ROUND-015", "entry[{}] code", i);
     };
     check_code(0, int32_t(ha::INTEGER));
@@ -244,7 +244,7 @@ static void test_integer_array() {
 
     std::string_view expected[] = {"1", "2", "3"};
     for (uint64_t i = 0; i < 3; ++i) {
-        auto elem = TinyMapView(items.get(i).to_offset(), h);
+        auto elem = TinyMapView(items.get(i), h);
         LOGOS_ASSERT(node_code(elem) == int32_t(ha::INTEGER), "ROUND-021", "elem[{}] INTEGER", i);
         LOGOS_ASSERT(node_str(elem, ha::VALUE, h) == expected[i], "ROUND-021", "elem[{}]", i);
     }
@@ -271,7 +271,7 @@ static void test_mixed_array() {
         int32_t(ha::BOOLEAN), int32_t(ha::NULL_VAL)
     };
     for (uint64_t i = 0; i < 4; ++i) {
-        auto elem = TinyMapView(items.get(i).to_offset(), h);
+        auto elem = TinyMapView(items.get(i), h);
         LOGOS_ASSERT(node_code(elem) == expected_codes[i], "ROUND-023", "elem[{}] code", i);
     }
     std::println("  [OK] mixed array");
@@ -286,12 +286,12 @@ static void test_nested_map_in_array() {
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 2, "ROUND-030", "2 map items in array");
 
-    auto m0 = TinyMapView(items.get(0).to_offset(), h);
+    auto m0 = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_code(m0) == int32_t(ha::MAP), "ROUND-030", "elem[0] is MAP");
     auto m0_items = node_items(m0, h);
     LOGOS_ASSERT(m0_items.size() == 1, "ROUND-030", "map[0] has 1 entry");
 
-    auto e0 = TinyMapView(m0_items.get(0).to_offset(), h);
+    auto e0 = TinyMapView(m0_items.get(0), h);
     LOGOS_ASSERT(node_str(e0, ha::KEY, h) == R"("x")", "ROUND-030", "key=x");
     std::println("  [OK] nested map-in-array");
 }
@@ -303,13 +303,13 @@ static void test_array_in_map() {
     auto top = node_items(root_node(doc), h);
     LOGOS_ASSERT(top.size() == 2, "ROUND-031", "2 top entries");
 
-    auto e0 = TinyMapView(top.get(0).to_offset(), h);
+    auto e0 = TinyMapView(top.get(0), h);
     LOGOS_ASSERT(node_str(e0, ha::KEY, h) == R"("items")", "ROUND-031", "key=items");
-    auto arr = TinyMapView(e0.get(ha::VALUE).to_offset(), h);
+    auto arr = TinyMapView(e0.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(arr) == int32_t(ha::ARRAY), "ROUND-031", "value is ARRAY");
     LOGOS_ASSERT(node_items(arr, h).size() == 2, "ROUND-031", "array has 2 elems");
 
-    auto e1 = TinyMapView(top.get(1).to_offset(), h);
+    auto e1 = TinyMapView(top.get(1), h);
     LOGOS_ASSERT(node_str(e1, ha::KEY, h) == R"("count")", "ROUND-031", "key=count");
     std::println("  [OK] array-in-map");
 }
@@ -323,11 +323,11 @@ static void test_typed_value_simple() {
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::TYPED_VALUE), "ROUND-040", "code=TYPED_VALUE");
 
-    auto name_node = TinyMapView(root.get(ha::NAME).to_offset(), h);
+    auto name_node = TinyMapView(root.get(ha::NAME), h);
     LOGOS_ASSERT(node_code(name_node) == int32_t(ha::DATATYPE), "ROUND-040", "NAME is DATATYPE");
     LOGOS_ASSERT(node_str(name_node, ha::NAME, h) == "Date", "ROUND-040", "typename=Date");
 
-    auto val_node = TinyMapView(root.get(ha::VALUE).to_offset(), h);
+    auto val_node = TinyMapView(root.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(val_node) == int32_t(ha::STRING), "ROUND-040", "value is STRING");
     std::println("  [OK] typed value Date(...)");
 }
@@ -339,10 +339,10 @@ static void test_typed_value_integer_arg() {
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::TYPED_VALUE), "ROUND-041", "TYPED_VALUE");
 
-    auto name_node = TinyMapView(root.get(ha::NAME).to_offset(), h);
+    auto name_node = TinyMapView(root.get(ha::NAME), h);
     LOGOS_ASSERT(node_str(name_node, ha::NAME, h) == "Meters", "ROUND-041", "typename=Meters");
 
-    auto val_node = TinyMapView(root.get(ha::VALUE).to_offset(), h);
+    auto val_node = TinyMapView(root.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(val_node) == int32_t(ha::INTEGER), "ROUND-041", "value is INTEGER");
     LOGOS_ASSERT(node_str(val_node, ha::VALUE, h) == "100", "ROUND-041", "value=100");
     std::println("  [OK] typed value Meters(100)");
@@ -384,7 +384,7 @@ static void test_block_comment_inline() {
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 1, "ROUND-053", "1 entry despite inline block comments");
-    auto entry = TinyMapView(items.get(0).to_offset(), h);
+    auto entry = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_str(entry, ha::KEY, h) == R"("k")", "ROUND-053", "key=k");
     std::println("  [OK] block comment inline");
 }
@@ -560,7 +560,7 @@ static void test_keyword_prefix_ident() {
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 1, "ROUND-070", "1 entry");
-    auto entry = TinyMapView(items.get(0).to_offset(), h);
+    auto entry = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_str(entry, ha::KEY, h) == "trueish", "ROUND-070", "key=trueish");
     std::println("  [OK] keyword-prefix ident 'trueish'");
 }
@@ -572,7 +572,7 @@ static void test_keyword_prefix_null() {
     auto h = doc.holder();
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 1, "ROUND-071", "1 entry");
-    auto entry = TinyMapView(items.get(0).to_offset(), h);
+    auto entry = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_str(entry, ha::KEY, h) == "nullify", "ROUND-071", "key=nullify");
     std::println("  [OK] keyword-prefix ident 'nullify'");
 }
@@ -587,15 +587,15 @@ static void test_typed_value_single_param() {
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::TYPED_VALUE), "ROUND-080", "TYPED_VALUE");
 
-    auto dt = TinyMapView(root.get(ha::NAME).to_offset(), h);
+    auto dt = TinyMapView(root.get(ha::NAME), h);
     LOGOS_ASSERT(node_str(dt, ha::NAME, h) == "List", "ROUND-080", "name=List");
 
     auto params_val = dt.get(ha::PARAMS);
     LOGOS_ASSERT(!params_val.is_null() && params_val.is_pointer(), "ROUND-080", "PARAMS exists");
-    auto params = ArrayView(params_val.to_offset(), h);
+    auto params = ArrayView(params_val, h);
     LOGOS_ASSERT(params.size() == 1, "ROUND-080", "1 type param, got {}", params.size());
 
-    auto p0 = TinyMapView(params.get(0).to_offset(), h);
+    auto p0 = TinyMapView(params.get(0), h);
     LOGOS_ASSERT(node_code(p0) == int32_t(ha::DATATYPE), "ROUND-080", "param[0] is DATATYPE");
     LOGOS_ASSERT(node_str(p0, ha::NAME, h) == "Int", "ROUND-080", "param[0]=Int");
     std::println("  [OK] typed value List<Int>(42)");
@@ -609,15 +609,15 @@ static void test_typed_value_multi_param() {
     auto root = root_node(doc);
     LOGOS_ASSERT(node_code(root) == int32_t(ha::TYPED_VALUE), "ROUND-081", "TYPED_VALUE");
 
-    auto dt = TinyMapView(root.get(ha::NAME).to_offset(), h);
+    auto dt = TinyMapView(root.get(ha::NAME), h);
     LOGOS_ASSERT(node_str(dt, ha::NAME, h) == "Map", "ROUND-081", "name=Map");
 
-    auto params = ArrayView(dt.get(ha::PARAMS).to_offset(), h);
+    auto params = ArrayView(dt.get(ha::PARAMS), h);
     LOGOS_ASSERT(params.size() == 2, "ROUND-081", "2 type params, got {}", params.size());
 
-    auto p0 = TinyMapView(params.get(0).to_offset(), h);
+    auto p0 = TinyMapView(params.get(0), h);
     LOGOS_ASSERT(node_str(p0, ha::NAME, h) == "String", "ROUND-081", "param[0]=String");
-    auto p1 = TinyMapView(params.get(1).to_offset(), h);
+    auto p1 = TinyMapView(params.get(1), h);
     LOGOS_ASSERT(node_str(p1, ha::NAME, h) == "Int", "ROUND-081", "param[1]=Int");
     std::println("  [OK] typed value Map<String, Int>(...)");
 }
@@ -629,19 +629,19 @@ static void test_typed_value_nested_param() {
     auto h = doc.holder();
     auto root = root_node(doc);
 
-    auto dt = TinyMapView(root.get(ha::NAME).to_offset(), h);
+    auto dt = TinyMapView(root.get(ha::NAME), h);
     LOGOS_ASSERT(node_str(dt, ha::NAME, h) == "Map", "ROUND-082", "name=Map");
 
-    auto params = ArrayView(dt.get(ha::PARAMS).to_offset(), h);
+    auto params = ArrayView(dt.get(ha::PARAMS), h);
     LOGOS_ASSERT(params.size() == 2, "ROUND-082", "2 type params");
 
     // Second param: List<Int>
-    auto p1 = TinyMapView(params.get(1).to_offset(), h);
+    auto p1 = TinyMapView(params.get(1), h);
     LOGOS_ASSERT(node_str(p1, ha::NAME, h) == "List", "ROUND-082", "param[1]=List");
 
-    auto inner_params = ArrayView(p1.get(ha::PARAMS).to_offset(), h);
+    auto inner_params = ArrayView(p1.get(ha::PARAMS), h);
     LOGOS_ASSERT(inner_params.size() == 1, "ROUND-082", "List has 1 param");
-    auto inner_p0 = TinyMapView(inner_params.get(0).to_offset(), h);
+    auto inner_p0 = TinyMapView(inner_params.get(0), h);
     LOGOS_ASSERT(node_str(inner_p0, ha::NAME, h) == "Int", "ROUND-082", "inner param=Int");
     std::println("  [OK] typed value Map<String, List<Int>>(...)");
 }
@@ -655,12 +655,12 @@ static void test_typed_value_in_map() {
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 2, "ROUND-090", "2 entries");
 
-    auto e0 = TinyMapView(items.get(0).to_offset(), h);
-    auto v0 = TinyMapView(e0.get(ha::VALUE).to_offset(), h);
+    auto e0 = TinyMapView(items.get(0), h);
+    auto v0 = TinyMapView(e0.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(v0) == int32_t(ha::TYPED_VALUE), "ROUND-090", "val[0] TYPED_VALUE");
 
-    auto e1 = TinyMapView(items.get(1).to_offset(), h);
-    auto v1 = TinyMapView(e1.get(ha::VALUE).to_offset(), h);
+    auto e1 = TinyMapView(items.get(1), h);
+    auto v1 = TinyMapView(e1.get(ha::VALUE), h);
     LOGOS_ASSERT(node_code(v1) == int32_t(ha::INTEGER), "ROUND-090", "val[1] INTEGER");
     std::println("  [OK] typed value in map");
 }
@@ -672,9 +672,9 @@ static void test_typed_value_in_array() {
     auto items = node_items(root_node(doc), h);
     LOGOS_ASSERT(items.size() == 2, "ROUND-091", "2 elements");
 
-    auto e0 = TinyMapView(items.get(0).to_offset(), h);
+    auto e0 = TinyMapView(items.get(0), h);
     LOGOS_ASSERT(node_code(e0) == int32_t(ha::TYPED_VALUE), "ROUND-091", "elem[0] TYPED_VALUE");
-    auto e1 = TinyMapView(items.get(1).to_offset(), h);
+    auto e1 = TinyMapView(items.get(1), h);
     LOGOS_ASSERT(node_code(e1) == int32_t(ha::TYPED_VALUE), "ROUND-091", "elem[1] TYPED_VALUE");
     std::println("  [OK] typed values in array");
 }
