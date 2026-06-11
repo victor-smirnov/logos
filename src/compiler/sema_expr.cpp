@@ -625,23 +625,23 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             }
             // Pick the stdlib builder function name.
             std::string build_fn;
-            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes2_build_array_i8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes2_build_array_u8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes2_build_array_i16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes2_build_array_u16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes2_build_array_u32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes2_build_array_i32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes2_build_array_i64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes2_build_array_u64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes2_build_array_f32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes2_build_array_f64";
+            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
             else {
                 error(std::format("'as <T>[]': unsupported element type '{}'; "
                                   "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
                                   type_str(elem_t)));
                 return error_expr();
             }
-            // Result type: Rc<Hermes2> (the builder fn's return type).
+            // Result type: Rc<Hermes> (the builder fn's return type).
             TypeRef ctr_t = nullptr;
             for (auto* c : find_func_candidates(build_fn))
                 if (c->param_types.size() == 2) { ctr_t = c->ret_type; break; }
@@ -657,7 +657,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             return error_expr();
         }
         // hermes2: MapSlice* sources carry value-form &[HAny] values
-        // (lang.hermes.typed_arr); builders return Rc<Hermes2>.
+        // (lang.hermes.typed_arr); builders return Rc<Hermes>.
         // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
             auto src = inner->type;
@@ -675,10 +675,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             std::string map_fn;
             struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
             static const MapVariant map_variants[] = {
-                {LogosType::Kind::I32, "MapSliceI32", "hermes2_build_map_i32_anyval"},
-                {LogosType::Kind::U32, "MapSliceU32", "hermes2_build_map_u32_anyval"},
-                {LogosType::Kind::I64, "MapSliceI64", "hermes2_build_map_i64_anyval"},
-                {LogosType::Kind::U64, "MapSliceU64", "hermes2_build_map_u64_anyval"},
+                {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
+                {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
+                {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
+                {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
             };
             bool found_map = false;
             if (val_is_anyval) {
@@ -10214,9 +10214,9 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // hermes2 builder: yields Rc<Hermes2> (see lang.hermes.comp_builder).
-    auto new_cands  = find_func_candidates("hermes2_list_comp_new");
-    auto push_cands = find_func_candidates("hermes2_list_comp_push");
+    // hermes2 builder: yields Rc<Hermes> (see lang.hermes.comp_builder).
+    auto new_cands  = find_func_candidates("hermes_list_comp_new");
+    auto push_cands = find_func_candidates("hermes_list_comp_push");
     const SemaFuncInfo* new_fi  = nullptr;
     const SemaFuncInfo* push_fi = nullptr;
     for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
@@ -10226,7 +10226,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // The container type is whatever the builder returns (Rc<Hermes2>).
+    // The container type is whatever the builder returns (Rc<Hermes>).
     TypeRef ctr_t = new_fi->ret_type;
 
     std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
@@ -10264,7 +10264,7 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     }
 
     // SLet: let mut __hlc_c = hermes_list_comp_new(128);
-    std::string new_sym = new_fi->symbol_name.empty() ? "hermes2_list_comp_new"
+    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_list_comp_new"
                                                       : new_fi->symbol_name;
     std::vector<lir::LExprPtr> new_args;
     int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
@@ -10277,9 +10277,9 @@ lir::LExprPtr SemaChecker::lower_hermes_list_comp(TinyMapView node) {
     let_c.value  = std::move(call_new);
 
     // hermes_list_comp_push(&mut __hlc_c, val);
-    std::string push_sym = push_fi->symbol_name.empty() ? "hermes2_list_comp_push"
+    std::string push_sym = push_fi->symbol_name.empty() ? "hermes_list_comp_push"
                                                         : push_fi->symbol_name;
-    // push takes `&Rc<Hermes2>` (shared) — was `&mut Hermes`.
+    // push takes `&Rc<Hermes>` (shared) — was `&mut Hermes`.
     auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));
     std::vector<lir::LExprPtr> push_args;
     push_args.push_back(std::move(recv));
@@ -10346,9 +10346,9 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // hermes2 builder: yields Rc<Hermes2> (see lang.hermes.comp_builder).
-    auto new_cands = find_func_candidates("hermes2_map_comp_new");
-    auto put_cands = find_func_candidates("hermes2_map_comp_put");
+    // hermes2 builder: yields Rc<Hermes> (see lang.hermes.comp_builder).
+    auto new_cands = find_func_candidates("hermes_map_comp_new");
+    auto put_cands = find_func_candidates("hermes_map_comp_put");
     const SemaFuncInfo* new_fi = nullptr;
     const SemaFuncInfo* put_fi = nullptr;
     for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
@@ -10358,7 +10358,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         return error_expr();
     }
 
-    // The container type is whatever the builder returns (Rc<Hermes2>).
+    // The container type is whatever the builder returns (Rc<Hermes>).
     TypeRef ctr_t = new_fi->ret_type;
 
     std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
@@ -10408,7 +10408,7 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
         }
     }
 
-    std::string new_sym = new_fi->symbol_name.empty() ? "hermes2_map_comp_new"
+    std::string new_sym = new_fi->symbol_name.empty() ? "hermes_map_comp_new"
                                                       : new_fi->symbol_name;
     // Byte-cap hint for zone, and slot-count hint for map buckets.
     // For slices (arr_size==0 at compile time) we don't know iter length, so
@@ -10426,9 +10426,9 @@ lir::LExprPtr SemaChecker::lower_hermes_map_comp(TinyMapView node) {
     let_c.is_mut = true;
     let_c.value  = std::move(call_new);
 
-    std::string put_sym = put_fi->symbol_name.empty() ? "hermes2_map_comp_put"
+    std::string put_sym = put_fi->symbol_name.empty() ? "hermes_map_comp_put"
                                                       : put_fi->symbol_name;
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes2>
+    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes>
     std::vector<lir::LExprPtr> put_args;
     put_args.push_back(std::move(recv));
     put_args.push_back(std::move(key_expr));
@@ -10497,20 +10497,20 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
     bool needs_ctr = false;
     using K = LogosType::Kind;
     switch (TypeRef(t).kind()) {
-        case K::Bool: helper = "hermes2_coerce_bool"; break;
-        case K::I8:   helper = "hermes2_coerce_i8";   break;
-        case K::I16:  helper = "hermes2_coerce_i16";  break;
+        case K::Bool: helper = "hermes_coerce_bool"; break;
+        case K::I8:   helper = "hermes_coerce_i8";   break;
+        case K::I16:  helper = "hermes_coerce_i16";  break;
         case K::I32:  case K::IntLit:
-                      helper = "hermes2_coerce_i32"; break;
-        case K::U8:   helper = "hermes2_coerce_u8";   break;
-        case K::U16:  helper = "hermes2_coerce_u16";  break;
-        case K::U32:  helper = "hermes2_coerce_u32"; break;
+                      helper = "hermes_coerce_i32"; break;
+        case K::U8:   helper = "hermes_coerce_u8";   break;
+        case K::U16:  helper = "hermes_coerce_u16";  break;
+        case K::U32:  helper = "hermes_coerce_u32"; break;
         // i64/u64/i24/u24/i56/u56/i128/u128 intentionally omitted: embedding
         // them via i32 would silently truncate high bits.  User must cast
         // explicitly (e.g. `x as i32`) or wrap with HAny::from.
         case K::Slice:
             if (TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) {
-                helper = "hermes2_coerce_str";
+                helper = "hermes_coerce_str";
                 needs_ctr = true;
             }
             break;
@@ -10540,7 +10540,7 @@ lir::LExprPtr SemaChecker::coerce_to_hermes_anyval(
 
     std::vector<lir::LExprPtr> args;
     if (needs_ctr) {
-        auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes2>
+        auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t));  // &Rc<Hermes>
         args.push_back(std::move(recv));
     }
     args.push_back(std::move(val));
@@ -14416,11 +14416,11 @@ lir::LExprPtr SemaChecker::lower_hermes_lit(TinyMapView node) {
         lit.capture_types = std::move(ctx.types);
         lit.capture_param_count = ctx.next_slot;
     }
-    // Type: HermesStatic for static blobs; Rc<Hermes2> for captures (the hermes2
+    // Type: HermesStatic for static blobs; Rc<Hermes> for captures (the hermes2
     // template-patch path — probe the builder fn for the concrete Rc type).
     TypeRef result_type = nullptr;
     if (lit.has_captures) {
-        for (auto* c : find_func_candidates("hermes2_build_from_template"))
+        for (auto* c : find_func_candidates("hermes_build_from_template"))
             if (c->ret_type) { result_type = c->ret_type; break; }
         if (!result_type) {
             error("@-literal with $-captures requires `use logos.lang.hermes.tmpl;`");
@@ -16382,10 +16382,10 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto rt = lowered ? lowered->type : nullptr;
     auto rk = TypeRef(rt).kind();
     bool rt_is_hermes_static = is_hermes_static(rt);
-    // hermes2: the runtime container is Rc<Hermes2> (capture-@{} / comprehensions);
+    // hermes2: the runtime container is Rc<Hermes> (capture-@{} / comprehensions);
     // it freezes to a HermesStatic blob exactly like the legacy Hermes.
     bool rt_is_hermes        = is_hermes(rt)
-        || (is_named_struct(rt, "Rc") && type_str(rt).find("Hermes2") != std::string::npos);
+        || (is_named_struct(rt, "Rc") && type_str(rt).find("Hermes") != std::string::npos);
     // Slice 7 of metaprog-quote: ExprBlob is a HermesStatic-shaped marker
     // signalling that the metafunction returns an AST expression fragment.
     // Driver splices identically (CODE→HERMES_BLOB, VALUE=bytes); pass-2
@@ -16538,7 +16538,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     ok = false;
                 }
                 if (ok) {
-                    // hermes2: the callee returns Rc<Hermes2>; freeze via the
+                    // hermes2: the callee returns Rc<Hermes>; freeze via the
                     // host shim logos_metacall_freeze2 (deep-copy the root into
                     // a malloc'd [u64 size][bytes] compact blob, ptr past the
                     // prefix — same wire shape as HermesStatic).
@@ -16549,8 +16549,8 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                         "use logos.mem.rc;\n"
                         "extern fn logos_metacall_freeze2(w: u64) -> *const u8;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
-                        "    let __h: Rc<Hermes2> = {};\n"
-                        "    let __hh: &Hermes2 = __h.deref();\n"
+                        "    let __h: Rc<Hermes> = {};\n"
+                        "    let __hh: &Hermes = __h.deref();\n"
                         "    return logos_metacall_freeze2(__hh.root().raw() as u64);\n"
                         "}}\n",
                         pkg, site.thunk_name, call_text);

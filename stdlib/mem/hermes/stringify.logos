@@ -1,8 +1,8 @@
-// Logos Hermes2 stdlib — mem.hermes2.stringify
+// Logos Hermes stdlib — mem.hermes2.stringify
 //
-// Text rendering of a Hermes2 document — the read-only walk that turns an HAny
+// Text rendering of a Hermes document — the read-only walk that turns an HAny
 // (and everything it transitively references in the arena) into a JSON-ish
-// String. The Hermes2 port of hermes.stringify, and the first end-to-end
+// String. The Hermes port of hermes.stringify, and the first end-to-end
 // verifier of the container model: it dispatches purely on `HAny::type_code`
 // (null / i56 / bool / string / array / map), so it exercises the type-tag
 // system, the containers' iteration surfaces, and HString read-back together.

@@ -2952,7 +2952,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // fix3: dispatch by function name prefix, not arg count — getNumArguments() is fragile
         // (any future 3-arg array builder would silently take the wrong path).
         if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0 ||
-            hermes_build_fn.rfind("hermes2_build_map_", 0) == 0) {
+            hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
             // Slice fields are stored INLINE (16-byte {ptr,len} fat pairs), so
             // the LLVM layout is { {ptr,i64}, {ptr,i64} } — keys_slice IS the
@@ -5597,7 +5597,7 @@ struct HermesZoneBuild {
 // Build a HermesVal into the live `doc`, returning the raw AnyVal u32.
 // For PARAM (HVCapture), returns the inline PARAM raw; the caller writes it
 // into the slot, and clone() will pick it up via its out_params bookkeeping.
-// Returns a proper Hermes2 SELF-relative AnyVal (Pod for scalars/captures, Ref for
+// Returns a proper Hermes SELF-relative AnyVal (Pod for scalars/captures, Ref for
 // strings/arrays/maps/types). NOT the Hermes1 u32 base-relative "raw" — that made
 // from_raw(off) resolve to &slot+off = garbage.
 static AnyVal build_hermes_val(lir_view::HermesValRef v,
@@ -5956,7 +5956,7 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
 // hermes2 capture coercion: scalar capture value -> 8-byte VALUE-FORM HAny word.
 // Pod = (v<<8)|(code<<1)|1 (bool code HA_BOOL=2 -> |5; ints as i56 code HA_I56=1
 // -> |3). HAny captures pass their niche word through. Zone-alloc kinds
-// (strings/floats/ptrs) are handled by the hermes2_ctr_alloc_* path, not here.
+// (strings/floats/ptrs) are handled by the hermes_ctr_alloc_* path, not here.
 mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
     auto i64_mlir = builder_.getIntegerType(64);
     auto zero64 = [&]() {
@@ -6252,11 +6252,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
 
     // ── Zone-alloc path (C5): one or more captures need varchar/f64 in the zone. ─
     if (any_zone_alloc) {
-        auto new_fn    = find_func_op(parent_mod, "hermes2_template_ctr_new");
-        auto patch_fn  = find_func_op(parent_mod, "hermes2_template_install");
-        auto alloc_f64_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_f64");
-        auto alloc_str_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_str");
-        auto alloc_cstr_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_cstr");
+        auto new_fn    = find_func_op(parent_mod, "hermes_template_ctr_new");
+        auto patch_fn  = find_func_op(parent_mod, "hermes_template_install");
+        auto alloc_f64_fn = find_func_op(parent_mod, "hermes_ctr_alloc_f64");
+        auto alloc_str_fn = find_func_op(parent_mod, "hermes_ctr_alloc_str");
+        auto alloc_cstr_fn = find_func_op(parent_mod, "hermes_ctr_alloc_cstr");
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
             std::fprintf(stderr, "mlir_gen: hermes2 zone-alloc helpers not found — "
@@ -6280,8 +6280,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         mlir::Value extra_cap_v = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, extra_cap_bytes, 64);
 
-        // Create the Rc<Hermes2> sized for template + captures (the template is
-        // copied + patched later by hermes2_template_install, which keeps the
+        // Create the Rc<Hermes> sized for template + captures (the template is
+        // copied + patched later by hermes_template_install, which keeps the
         // blob base local).
         auto new_call = builder_.create<mlir::func::CallOp>(
             loc_, new_fn,
@@ -6290,7 +6290,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         mlir::Value ctr_val  = new_call.getResult(0);
         mlir::Type  ctr_type = new_fn.getFunctionType().getResult(0);
 
-        // Alloca the Rc so we can pass &Rc<Hermes2> to the alloc helpers.
+        // Alloca the Rc so we can pass &Rc<Hermes> to the alloc helpers.
         mlir::Value ctr_alloca = create_entry_alloca(ctr_type);
         builder_.create<mlir::LLVM::StoreOp>(loc_, ctr_val, ctr_alloca);
 
@@ -6377,7 +6377,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
             mlir::ValueRange{ctr_alloca, tmpl_ptr_v, tmpl_size_v,
                              slots_ptr_v, n_slots_v, resolved_ptr, n_values_v});
 
-        // Return the Rc<Hermes2> by value (load from alloca).
+        // Return the Rc<Hermes> by value (load from alloca).
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ctr_type, ctr_alloca);
     }
 
@@ -6398,9 +6398,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
     }
 
-    auto build_fn = find_func_op(parent_mod, "hermes2_build_from_template");
+    auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
     if (!build_fn) {
-        std::fprintf(stderr, "mlir_gen: hermes2_build_from_template not found — "
+        std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
                      "add 'use logos.lang.hermes.tmpl;' to your file\n");
         return nullptr;
     }

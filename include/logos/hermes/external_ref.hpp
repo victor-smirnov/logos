@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ExternalRef (Hermes2) — the cross-arena reference handle for the multi-arena IR.
+// ExternalRef (Hermes) — the cross-arena reference handle for the multi-arena IR.
 //
 // HERMES2 CHANGE vs Hermes1: an ExternalRef is now an AnyVal **Pod niche**, not a
 // separately-allocated 7-byte tagged arena object. The 8-byte self-relative AnyVal

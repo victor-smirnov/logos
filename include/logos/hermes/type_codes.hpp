@@ -6,7 +6,7 @@
 
 namespace logos::hermes {
 
-// Hermes2 wire/in-band type codes — the SINGLE source of truth shared with the
+// Hermes wire/in-band type codes — the SINGLE source of truth shared with the
 // Logos stdlib (stdlib/lang/hermes2/anyval.logos H2_*/HA_*/HT_* and the container
 // HArrTag/HIntKeyTag codes). C++ and Logos read the same bytes, so these MUST stay
 // identical to the Logos constants.

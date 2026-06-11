@@ -851,7 +851,7 @@ struct LStructDef {
     // The struct itself is unsized; `&Self` / `*const Self` etc. are fat
     // pointers `{*const u8, i64 tail_len}` (same shape as Slice fat-ptr).
     bool                     is_dst        = false;
-    // Hermes2 / RefRepr: `#[self_describing]` — this DST struct recovers its
+    // Hermes / RefRepr: `#[self_describing]` — this DST struct recovers its
     // tail length from an in-band prefix field (e.g. Segment's `cap`), so a
     // `*const Self` / `*mut Self` raw pointer stays THIN (8B, kind=Ptr) rather
     // than fattening to a 16B DstRef. `&Self` / `&mut Self` / `Box<Self>` keep

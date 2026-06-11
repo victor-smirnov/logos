@@ -114,8 +114,8 @@ fn h2io_get(root: HAny, key: str) -> HAny {
 
 pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     unsafe {
-    let ctr: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = ctr.deref();
+    let ctr: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = ctr.deref();
     let root: HAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));

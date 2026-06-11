@@ -1,0 +1,34 @@
+// HArray<T> — typed packed primitive array (Hermes port of Hermes1 Array<T>, codes
+// ArrayU8=2101..ArrayF64=2110). Homogeneous plain T (no HAny), plain-copy grow,
+// per-T wire tag via the HArrTag trait. Exercises u8 through several grows, f64
+// and i32 round-trips, and that the >222 element codes (2101/2110) carry through
+// the in-band VARINT tag.
+package test;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+fn main() -> i32 {
+    let h: Hermes = hermes_new(512i64);
+    // u8 packed array, forced through several grows
+    let a: &mut HArray<u8> = h.tarray::<u8>(4i64);
+    let mut i: i64 = 0i64;
+    while i < 300i64 { a.push((i & 0xFFi64) as u8); i = i + 1i64; }
+    if a.len() != 300i64 { return 1i32; }
+    if a.get(0i64) != 0u8 { return 2i32; }
+    if a.get(255i64) != 255u8 { return 3i32; }
+    if a.get(256i64) != 0u8 { return 4i32; }      // 256 & 0xFF == 0 (survived grows)
+    // f64 packed array
+    let b: &mut HArray<f64> = h.tarray::<f64>(2i64);
+    b.push(1.5f64); b.push(2.5f64); b.push(3.5f64);   // grows past cap 2
+    if b.len() != 3i64 || b.get(2i64) != 3.5f64 { return 5i32; }
+    // i32 packed array (exact values, incl negative + near-i32-max)
+    let c: &mut HArray<i32> = h.tarray::<i32>(2i64);
+    c.push(-7i32); c.push(2000000000i32);
+    if c.get(0i64) != -7i32 || c.get(1i64) != 2000000000i32 { return 6i32; }
+    // wire tag: the u8 array's header carries ArrayU8 = 2101 (a >222 varint code)
+    let hdr: *const u8 = a as *const HArray<u8> as *const u8;
+    if unsafe { h2_type_code(hdr) } != 2101u64 { return 7i32; }
+    let fhdr: *const u8 = b as *const HArray<f64> as *const u8;
+    if unsafe { h2_type_code(fhdr) } != 2110u64 { return 8i32; }   // ArrayF64
+    return 0i32;
+}

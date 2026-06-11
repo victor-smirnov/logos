@@ -8,15 +8,15 @@ use logos.mem.hermes.parser;
 use logos.mem.rc;
 use logos.lang.str;
 
-unsafe fn get_str(h: &Hermes2, text: str) -> str {
+unsafe fn get_str(h: &Hermes, text: str) -> str {
     let v: HAny = parse(h, text);
     let hs: &HString = &*(v.resolve() as *const HString);
     return hs.as_str();
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
 
     let s1: str = get_str(h, "\"a\\\"b\"");        // a"b
     if s1.len() != 3i64 { return 1; }

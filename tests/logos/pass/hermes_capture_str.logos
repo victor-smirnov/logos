@@ -12,8 +12,8 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     // Capture a string into a map.
     let s: str = "hello";
-    let doc: Rc<Hermes2> = @{"msg": $s};
-    let h: &Hermes2 = doc.deref();
+    let doc: Rc<Hermes> = @{"msg": $s};
+    let h: &Hermes = doc.deref();
     let root: HAny = h.root();
     if root.is_null() { return 1; }
     // Verify the map contains the expected string value.
@@ -22,8 +22,8 @@ unsafe fn main() -> i32 {
 
     // Capture strings in an array.
     let key: str = "world";
-    let arr_doc: Rc<Hermes2> = @[$key, $s];
-    let ah: &Hermes2 = arr_doc.deref();
+    let arr_doc: Rc<Hermes> = @[$key, $s];
+    let ah: &Hermes = arr_doc.deref();
     let arr_root: HAny = ah.root();
     if arr_root.is_null() { return 3; }
     let t2: String = stringify(arr_root);
@@ -32,8 +32,8 @@ unsafe fn main() -> i32 {
     // Mix: scalar + string capture in same literal.
     let id: i32 = 7;
     let label: str = "item";
-    let mix: Rc<Hermes2> = @{"id": $id, "label": $label};
-    let mh: &Hermes2 = mix.deref();
+    let mix: Rc<Hermes> = @{"id": $id, "label": $label};
+    let mh: &Hermes = mix.deref();
     let mix_root: HAny = mh.root();
     if mix_root.is_null() { return 5; }
     let t3: String = stringify(mix_root);

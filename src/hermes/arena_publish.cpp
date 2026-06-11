@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Arena publish helpers (Hermes2) — implementation. See arena_publish.hpp.
+// Arena publish helpers (Hermes) — implementation. See arena_publish.hpp.
 
 #include <logos/hermes/arena_publish.hpp>
 #include <logos/hermes/lir_arena_root.hpp>

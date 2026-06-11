@@ -10,19 +10,19 @@ use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-unsafe fn roundtrip(h: &Hermes2, text: str) -> bool {
+unsafe fn roundtrip(h: &Hermes, text: str) -> bool {
     let v1: HAny = parse(h, text);
     let s1: String = stringify(v1);
     let v2: HAny = parse(h, s1.as_str());
-    if !hermes2_equal(v1, v2) { return false; }
+    if !hermes_equal(v1, v2) { return false; }
     // Second render must be byte-identical (canonical form is stable).
     let s2: String = stringify(v2);
     return s1.eq_str(s2.as_str());
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(65536);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(65536);
+    let h: &Hermes = rc.deref();
 
     if !roundtrip(h, "null") { return 1; }
     if !roundtrip(h, "true") { return 2; }

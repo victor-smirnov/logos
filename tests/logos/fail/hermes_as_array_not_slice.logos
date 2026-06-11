@@ -7,6 +7,6 @@ use logos.mem.rc;
 
 unsafe fn main() -> i32 {
     let x: i32 = 5;
-    let ctr: Rc<Hermes2> = x as <I32>[];
+    let ctr: Rc<Hermes> = x as <I32>[];
     return 0;
 }

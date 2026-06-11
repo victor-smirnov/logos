@@ -20,7 +20,7 @@ namespace logos::hermes {
 // dst pointers are stable (no realloc) and the map stores them directly — no
 // AddrResolver needed. (The single-segment-immutable variant that reallocs the dst
 // will swap this map's value for an AddrResolver<void>, re-resolved after each
-// alloc; see project_hermes2_cpp_migration.)
+// alloc; see project_hermes_cpp_migration.)
 class DeepCopyState {
 public:
     explicit DeepCopyState(MemHolder* dst) noexcept : dst_(dst) {}
@@ -67,7 +67,7 @@ struct ClonedDoc {
 [[nodiscard]] logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept;
 
 // Compactify the tree reachable from a bare value-form root (no source container
-// needed — the root may live in any arena, e.g. a metacall JIT's Rc<Hermes2>).
+// needed — the root may live in any arena, e.g. a metacall JIT's Rc<Hermes>).
 // Clone once to measure the live set, then copy right-sized.
 [[nodiscard]] logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept;
 

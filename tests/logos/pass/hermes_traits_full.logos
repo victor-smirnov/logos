@@ -13,21 +13,21 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = rc.deref();
 
     let r1: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
     let r2: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
     let r3: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 4]}");
 
     // equal: r1 == r2, r1 != r3.
-    if !hermes2_equal(r1, r2) { return 1; }
-    if hermes2_equal(r1, r3)  { return 2; }
+    if !hermes_equal(r1, r2) { return 1; }
+    if hermes_equal(r1, r3)  { return 2; }
 
     // hash: equal docs hash equal; the different doc differs.
-    let h1: u64 = hermes2_hash(r1);
-    let h2: u64 = hermes2_hash(r2);
-    let h3: u64 = hermes2_hash(r3);
+    let h1: u64 = hermes_hash(r1);
+    let h2: u64 = hermes_hash(r2);
+    let h3: u64 = hermes_hash(r3);
     if h1 != h2 { return 3; }
     if h1 == h3 { return 4; }
 

@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 multi-arena conformance: the cross-module reference substrate that
+// Hermes multi-arena conformance: the cross-module reference substrate that
 // logosc's `.hermes0` LIR blobs ride on. Covers
 //   • ExternalRef as an AnyVal Pod niche — encode/decode (incl. 24+32-bit maxima),
 //     detection, and clone-preserves-verbatim (a cross-arena id must NOT be followed

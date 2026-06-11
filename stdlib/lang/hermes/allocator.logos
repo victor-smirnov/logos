@@ -1,8 +1,8 @@
-// Logos Hermes2 stdlib — hermes2.allocator
+// Logos Hermes stdlib — hermes2.allocator
 //
-// Allocator: the never-move segment arena that owns a Hermes2 container's bytes.
+// Allocator: the never-move segment arena that owns a Hermes container's bytes.
 //
-// Hermes2 never relocates live data. Growth does NOT realloc/move: when the
+// Hermes never relocates live data. Growth does NOT realloc/move: when the
 // current segment is full, a fresh segment is malloc'd and APPENDED. Existing
 // segments — and every object in them — stay exactly where they are, so a
 // resolved pointer (and every self-relative zoned reference) remains valid for
@@ -145,9 +145,9 @@ pub unsafe fn allocator_free(a: *mut Allocator) {
 }
 
 // RAII: the Allocator owns its segments; dropping it frees them en masse. A
-// `Hermes2` container holds the Allocator by value, so dropping the container
+// `Hermes` container holds the Allocator by value, so dropping the container
 // (scope exit) auto-frees the whole never-move arena — no manual free needed.
-// Composes with an explicit `allocator_free`/`hermes2_free`: that call nulls
+// Composes with an explicit `allocator_free`/`hermes_free`: that call nulls
 // `head`, so this drop then walks an empty list (idempotent — no double-free).
 impl Drop for Allocator {
     fn drop(self: Allocator) {

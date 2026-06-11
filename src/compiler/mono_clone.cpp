@@ -4927,11 +4927,11 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.pkg  = tmpl.pkg;
     nd.is_zoned = tmpl.is_zoned;
     nd.is_dst   = tmpl.is_dst;  // Phase 1B-15: preserved; possibly upgraded below.
-    nd.self_describing = tmpl.self_describing;  // Hermes2: thin-*Self marker preserved.
+    nd.self_describing = tmpl.self_describing;  // Hermes: thin-*Self marker preserved.
     nd.rel_ptr = tmpl.rel_ptr;                  // RefRepr RelOffset marker preserved.
     nd.borrow_carrying = tmpl.borrow_carrying;  // HAny escape-tracking marker preserved.
-    nd.zone_mut = tmpl.zone_mut;                // Hermes2: fat-`&mut` zone marker preserved.
-    nd.zoned2 = tmpl.zoned2;                    // Hermes2: auto-relative ptr-field marker preserved.
+    nd.zone_mut = tmpl.zone_mut;                // Hermes: fat-`&mut` zone marker preserved.
+    nd.zoned2 = tmpl.zoned2;                    // Hermes: auto-relative ptr-field marker preserved.
     nd.borrow_carrying = tmpl.borrow_carrying;  // HAny: escape-tracked value marker preserved.
     nd.is_union = tmpl.is_union;  // §6.1: preserved through mono clone.
     // type_params cleared: result is monomorphic.

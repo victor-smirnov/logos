@@ -1,0 +1,43 @@
+// HTVM — HTinyValMap (Hermes port of Hermes1 TinyObjectMap, code 98): a fixed-cap
+// bitmap-indexed map of u8 keys (0..51) → HAny. O(1) popcount lookup, value array
+// kept in key order. Exercises out-of-order insert (shift), get/contains/overwrite,
+// absent + out-of-range keys, and a nested tiny map referenced from another.
+package test;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.hmap;
+fn main() -> i32 {
+    let h: Hermes = hermes_new(256i64);
+    let m: &mut HTinyValMap = h.tinymap(8i64);
+    if m.cap() != 8i64 || m.size() != 0i64 { return 1i32; }
+    // insert OUT of key order — value array must stay sorted by key (popcount pos)
+    m.set(5u8,  HAny::from(105i8));
+    m.set(2u8,  HAny::from(102i8));
+    m.set(40u8, HAny::from(40i8));
+    m.set(0u8,  HAny::from(0i8));
+    if m.size() != 4i64 { return 2i32; }
+    if !m.contains(2u8) || !m.contains(40u8) || m.contains(3u8) { return 3i32; }
+    if m.get(0u8).as_i8()  != 0i8   { return 4i32; }
+    if m.get(2u8).as_i8()  != 102i8 { return 5i32; }
+    if m.get(5u8).as_i8()  != 105i8 { return 6i32; }
+    if m.get(40u8).as_i8() != 40i8  { return 7i32; }
+    if !m.get(7u8).is_null()  { return 8i32; }    // absent
+    if !m.get(60u8).is_null() { return 9i32; }    // out of range
+    // overwrite — value changes, size does not
+    m.set(5u8, HAny::from(55i8));
+    if m.get(5u8).as_i8() != 55i8 || m.size() != 4i64 { return 10i32; }
+    // nested: a tiny map referenced from another
+    let inner: &mut HTinyValMap = h.tinymap(2i64);
+    inner.set(1u8, HAny::from(999i16));
+    m.set(10u8, HAny::from(&*inner));
+    let got: HAny = m.get(10u8);
+    if !got.is_tinymap() { return 11i32; }
+    let back: &HTinyValMap = unsafe { &*(got.resolve() as *const HTinyValMap) };
+    if back.get(1u8).as_i16() != 999i16 { return 12i32; }
+    // schema_type_code — first-class node-class discriminator (byte-shared with C++ TOM)
+    if m.schema_type_code() != 0u64 { return 13i32; }   // default: none
+    m.set_schema_type_code(5002u64);                    // LirArenaRoot-style tag
+    if m.schema_type_code() != 5002u64 { return 14i32; }
+    if m.get(5u8).as_i8() != 55i8 || m.size() != 5i64 { return 15i32; }  // unaffected by schema (size 5: keys 0,2,5,10,40)
+    return 0i32;
+}

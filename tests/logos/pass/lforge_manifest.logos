@@ -51,7 +51,7 @@ unsafe fn read_str_field(m: &HMap<HString, HVal>, key: str) -> Result<String, Ma
     return Result::Ok(out);
 }
 
-pub unsafe fn parse_manifest(h: &Hermes2, text: str) -> Result<Manifest, ManifestError> {
+pub unsafe fn parse_manifest(h: &Hermes, text: str) -> Result<Manifest, ManifestError> {
     let root: HAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
@@ -82,8 +82,8 @@ pub unsafe fn parse_manifest(h: &Hermes2, text: str) -> Result<Manifest, Manifes
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = rc.deref();
 
     // 1. Well-formed manifest.
     let s1: str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";

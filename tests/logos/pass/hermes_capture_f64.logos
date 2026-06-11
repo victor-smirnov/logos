@@ -12,8 +12,8 @@ unsafe fn main() -> i32 {
 
     // Capture an f64 into a map.
     let price: f64 = 3.14;
-    let doc: Rc<Hermes2> = @{"price": $price};
-    let h: &Hermes2 = doc.deref();
+    let doc: Rc<Hermes> = @{"price": $price};
+    let h: &Hermes = doc.deref();
     let root: HAny = h.root();
     if root.is_null() { return 1; }
     if !root.is_ref() { return 2; }
@@ -23,8 +23,8 @@ unsafe fn main() -> i32 {
     if pv.as_f64() != 3.14 { return 32; }
 
     // Capture f64 in an array.
-    let arr: Rc<Hermes2> = @[$price, ${1.5 + 0.5}];
-    let ah: &Hermes2 = arr.deref();
+    let arr: Rc<Hermes> = @[$price, ${1.5 + 0.5}];
+    let ah: &Hermes = arr.deref();
     let arr_root: HAny = ah.root();
     if arr_root.is_null() { return 4; }
     if !arr_root.is_ref() { return 5; }
@@ -36,8 +36,8 @@ unsafe fn main() -> i32 {
     // Mix: i32 + f64 in same literal (mixed zone-alloc + inline).
     let count: i32 = 42;
     let ratio: f64 = 0.5;
-    let mix: Rc<Hermes2> = @{"n": $count, "r": $ratio};
-    let mh: &Hermes2 = mix.deref();
+    let mix: Rc<Hermes> = @{"n": $count, "r": $ratio};
+    let mh: &Hermes = mix.deref();
     let mix_root: HAny = mh.root();
     if mix_root.is_null() { return 7; }
     if !mix_root.is_ref() { return 8; }

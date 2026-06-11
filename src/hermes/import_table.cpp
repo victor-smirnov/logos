@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ImportTable builder (Hermes2) — see import_table.hpp.
+// ImportTable builder (Hermes) — see import_table.hpp.
 
 #include <logos/hermes/import_table.hpp>
 #include <logos/hermes/document.hpp>

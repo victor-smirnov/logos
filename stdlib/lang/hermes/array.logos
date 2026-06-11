@@ -1,4 +1,4 @@
-// Logos Hermes2 stdlib — hermes2.array
+// Logos Hermes stdlib — hermes2.array
 //
 // HArray<HVal> — a heterogeneous zoned array of HAny. Elements live AT-REST as HAny
 // words in a `*zoned mut HAny` buffer (no distinct `HAnyRel` type — the at-rest-ness
@@ -81,11 +81,11 @@ unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *zoned mut HAny {
 // Raw core (internal). Create an empty array header + buffer in `h`'s zone and
 // return the raw `*mut`. The zone is NOT stored in the object — the public
 // `array()` wraps this in a fat `&mut` that carries it (zone_mut_ref).
-unsafe fn array_new(h: *mut Hermes2, cap: i64) -> *mut HArray<HVal> {
+unsafe fn array_new(h: *mut Hermes, cap: i64) -> *mut HArray<HVal> {
     // The header is HAny-Ref'd (nesting / array_of) → tag it for dispatch.
     let hdr: *mut HArray<HVal>    =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<HVal>>() as i64, H2_ARRAY) as *mut HArray<HVal>;
-    let buf: *zoned mut HAny  = hermes2_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
+    let buf: *zoned mut HAny  = hermes_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
     hdr.data  = buf;            // #[zoned2]: lowers to a self-relative offset
@@ -134,13 +134,13 @@ unsafe fn array_get(a: *const HArray<HVal>, i: i64) -> HAny {
 // Nesting: `parent.push(HAny::from(child))`; read back `c.array_of(ref)`.
 // (The residency `holder` for ESCAPING references, and the enforced borrow-tie
 // ref ≤ holder + mutation-exclusivity, are the next steps of this model.)
-impl Hermes2 {
+impl Hermes {
     // Create an empty array; returns a fresh `&mut` to it. `&self` allocation
     // (interior-mut): the returned `&mut` is to brand-new never-move storage, so
     // multiple `array(&self)` calls coexist (each &mut is a distinct object).
-    pub fn array<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HArray<HVal> {
+    pub fn array<'a>(self: &'a Hermes, cap: i64) -> &'a mut HArray<HVal> {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             // Fat `&mut` carrying this container's zone (the allocator) — push/grow
             // recover it via zone_of(self); the object stores no allocator.
             return zone_mut_ref::<HArray<HVal>>(array_new(h, cap), &mut h.allocator as *mut u8);
@@ -148,7 +148,7 @@ impl Hermes2 {
     }
     // Resolve a Ref element back to the array it points at, tied to THIS container
     // (the returned `&HArray<HVal>` may not outlive the container).
-    pub fn array_of<'a>(self: &'a Hermes2, e: HAny) -> &'a HArray<HVal> {
+    pub fn array_of<'a>(self: &'a Hermes, e: HAny) -> &'a HArray<HVal> {
         return unsafe { &*(e.resolve() as *const HArray<HVal>) };
     }
 }
@@ -248,10 +248,10 @@ impl HArrTag for i64 { fn arr_code() -> u64 { return 2108u64; } }
 impl HArrTag for f32 { fn arr_code() -> u64 { return 2109u64; } }
 impl HArrTag for f64 { fn arr_code() -> u64 { return 2110u64; } }
 
-unsafe fn harr_new<T: HArrTag>(h: *mut Hermes2, cap: i64) -> *mut HArray<T> {
+unsafe fn harr_new<T: HArrTag>(h: *mut Hermes, cap: i64) -> *mut HArray<T> {
     let hdr: *mut HArray<T> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<T>>() as i64, T::arr_code()) as *mut HArray<T>;
-    let buf: *mut T = hermes2_alloc_n::<T>(h, cap);
+    let buf: *mut T = hermes_alloc_n::<T>(h, cap);
     hdr.len  = 0i64;
     hdr.cap  = cap;
     hdr.data = buf;            // #[zoned2]: lowers to a self-relative offset
@@ -285,12 +285,12 @@ impl<T: HArrTag> HArray<T> {
     }
 }
 
-impl Hermes2 {
+impl Hermes {
     // Create an empty typed array; returns a fresh fat `&mut` carrying this
     // container's zone (interior-mut `&self` allocation, like `array`).
-    pub fn tarray<'a, T: HArrTag>(self: &'a Hermes2, cap: i64) -> &'a mut HArray<T> {
+    pub fn tarray<'a, T: HArrTag>(self: &'a Hermes, cap: i64) -> &'a mut HArray<T> {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             return zone_mut_ref::<HArray<T>>(harr_new::<T>(h, cap), &mut h.allocator as *mut u8);
         }
     }

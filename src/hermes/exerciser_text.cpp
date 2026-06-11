@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 text conformance — stringify + text_parse round-trip on the JSON core.
+// Hermes text conformance — stringify + text_parse round-trip on the JSON core.
 
 #include <logos/hermes/document.hpp>
 #include <logos/hermes/stringify.hpp>

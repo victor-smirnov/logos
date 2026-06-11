@@ -12,9 +12,9 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let c: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = c.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let c: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = c.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
 
     let big_i: i64 = 9000000000i64;             // beyond i24/i32

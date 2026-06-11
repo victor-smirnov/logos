@@ -10,8 +10,8 @@ use logos.lang.str;
 use logos.std.io;
 
 fn main() -> i32 {
-    let ctr: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = ctr.deref();
+    let ctr: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = ctr.deref();
     let text: str = r#"
         {
             name:"widget",

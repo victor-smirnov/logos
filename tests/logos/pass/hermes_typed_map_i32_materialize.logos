@@ -9,8 +9,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
     let root: HAny = parse(h, "<I32,AnyVal>{1:10,2:20}");
     if root.is_null() { return 1; }
     if h2_type_code(root.resolve()) != 3101u64 { return 2; }

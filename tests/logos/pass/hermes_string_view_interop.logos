@@ -12,8 +12,8 @@ use logos.lang.str;
 unsafe fn views_eq(a: str, b: str) -> bool { return str_eq(a, b); }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(16384);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(16384);
+    let h: &Hermes = rc.deref();
     let root: HAny = parse(h, "[\"hello\", \"\", \"world!\"]");
     if !root.is_array() { return 1; }
     let arr: &HArray<HVal> = &*(root.resolve() as *const HArray<HVal>);

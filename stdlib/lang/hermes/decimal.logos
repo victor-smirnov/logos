@@ -1,6 +1,6 @@
-// Logos Hermes2 stdlib — hermes2.decimal
+// Logos Hermes stdlib — hermes2.decimal
 //
-// HDecimal — a fixed-precision signed decimal (the Hermes2 port of Hermes1's
+// HDecimal — a fixed-precision signed decimal (the Hermes port of Hermes1's
 // Decimal, wire code 102). The value is `(neg ? -1 : 1) * coeff / 10^scale`, with a
 // u64 coefficient magnitude. `spec` packs the Hermes1 layout: scale in bits[0:11]
 // (0..4095), sign in bit[31]. Fixed size (no inline tail), so it's a plain tagged
@@ -12,7 +12,7 @@
 
 package logos.lang.hermes.decimal;
 
-use logos.lang.hermes.container;   // Hermes2, alloc_tagged, H2_DECIMAL
+use logos.lang.hermes.container;   // Hermes, alloc_tagged, H2_DECIMAL
 use logos.lang.hermes.anyval;      // HAny, h2_type_code
 use logos.lang.hermes.allocator;   // Allocator
 
@@ -25,7 +25,7 @@ pub struct HDecimal {
 const DEC_SCALE_MASK: u32 = 0xFFFu32;        // bits[0:11] — scale 0..4095
 const DEC_SIGN_BIT:   u32 = 0x80000000u32;   // bit[31] — 1 = negative
 
-unsafe fn decimal_new(h: *mut Hermes2, coeff: u64, scale: u32, neg: bool) -> *mut HDecimal {
+unsafe fn decimal_new(h: *mut Hermes, coeff: u64, scale: u32, neg: bool) -> *mut HDecimal {
     let obj: *mut HDecimal =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HDecimal>() as i64, H2_DECIMAL) as *mut HDecimal;
     let mut spec: u32 = scale & DEC_SCALE_MASK;
@@ -50,12 +50,12 @@ impl HDecimal {
     }
 }
 
-impl Hermes2 {
+impl Hermes {
     // Build a decimal in THIS arena; returns a Ref HAny to it.
-    pub fn decimal(self: &Hermes2, coeff: u64, scale: u32, neg: bool) -> HAny {
+    pub fn decimal(self: &Hermes, coeff: u64, scale: u32, neg: bool) -> HAny {
         if scale > 4095u32 { return HAny::ref_to(0i64 as *const u8); }   // spec field ceiling
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             return HAny::ref_to(decimal_new(h, coeff, scale, neg) as *const u8);
         }
     }
@@ -76,7 +76,7 @@ impl HAny {
 // Parse "[-]digits[.digits]" into a zone decimal. Null HAny on: empty digits,
 // >19 significant digits (u64 overflow guard), a second point, junk bytes,
 // scale > 4095.
-pub unsafe fn hdec_from_str(h: &Hermes2, s: str) -> HAny {
+pub unsafe fn hdec_from_str(h: &Hermes, s: str) -> HAny {
     let n: i64 = s.len();
     let p: *const u8 = s.as_ptr();
     let mut i: i64 = 0;
@@ -127,7 +127,7 @@ pub unsafe fn hdec_cmp(x: HAny, y: HAny) -> i32 {
 }
 
 // add with scale alignment + sign handling; null HAny on u64 overflow.
-pub unsafe fn hdec_add(h: &Hermes2, x: HAny, y: HAny) -> HAny {
+pub unsafe fn hdec_add(h: &Hermes, x: HAny, y: HAny) -> HAny {
     let dx: &HDecimal = x.as_decimal();
     let dy: &HDecimal = y.as_decimal();
     let mut cx: u64 = dx.coeff(); let mut cy: u64 = dy.coeff();

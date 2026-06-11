@@ -48,7 +48,7 @@ public:
         if (index < size_) elements()[index] = value;
     }
 
-    // Concrete Hermes2 wire code per T (ArrayU8..ArrayF64 = 2101..2110).
+    // Concrete Hermes wire code per T (ArrayU8..ArrayF64 = 2101..2110).
     static constexpr uint64_t type_code_for() noexcept {
         if constexpr (std::is_same_v<T, uint8_t>)  return tc::ARRAY_U8;
         if constexpr (std::is_same_v<T, uint16_t>) return tc::ARRAY_U16;

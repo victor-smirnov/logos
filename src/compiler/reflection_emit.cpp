@@ -39,7 +39,7 @@ namespace {
 
 static AnyVal hval_str(Hermes& doc, std::string_view s) {
     auto* as = ArenaString::create(HermesAccess::arena(doc), s).get();
-    // Hermes2 AnyVal is SELF-relative: build the Ref via set_ref(absolute ptr), NOT
+    // Hermes AnyVal is SELF-relative: build the Ref via set_ref(absolute ptr), NOT
     // from_raw(offset) (the Hermes1 base-relative convention — resolve() would then be
     // &slot+offset = garbage). The returned temporary re-anchors when stored.
     AnyVal r; r.set_ref(as); return r;

@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Arena publish helpers (Hermes2) — build a LirArenaRoot in a document, publish
+// Arena publish helpers (Hermes) — build a LirArenaRoot in a document, publish
 // externally-visible objects to its DIRECTORY (obj_id = index) + EXPORTS (name →
 // obj_id), then finalize (set as doc root + seal). After finalize the arena is
 // immutable; consumer arenas reference {arena_id, obj_id} via an ExternalRef Pod.

@@ -10,12 +10,12 @@
 
 namespace logos::hermes {
 
-// MemHolder — reference-counted owner of a Hermes2 container's segment set (the
+// MemHolder — reference-counted owner of a Hermes container's segment set (the
 // `Rc<dyn Resident>` residency root of the design: while a holder lives, its
 // version's immutable data is alive and its resolved views are valid). When the
 // refcount hits zero the holder and its arena (all segments) are freed.
 //
-// Unlike Hermes1, Hermes2 VIEWS ARE OWNING (they carry a holder ref — see view.hpp),
+// Unlike Hermes1, Hermes VIEWS ARE OWNING (they carry a holder ref — see view.hpp),
 // because without a borrow checker C++ cannot otherwise prove the holder outlives a
 // view. So there is no separate non-owning view / Own<View> split: a view holds +1.
 class MemHolder {

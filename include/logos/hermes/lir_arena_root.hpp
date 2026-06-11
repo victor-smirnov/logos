@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// LirArenaRoot (Hermes2) — per-arena metadata anchor for the multi-arena IR.
+// LirArenaRoot (Hermes) — per-arena metadata anchor for the multi-arena IR.
 //
 // A TinyObjectMap whose schema_type_code == lir_arena_root::SCHEMA_CODE (the
 // first-class TOM discriminator, byte-shared with the Logos HMap<Hu6,HVal>). The

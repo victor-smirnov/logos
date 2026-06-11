@@ -11,35 +11,35 @@ fn main() -> i32 {
     let xs: [i32; 4] = [1, 2, 3, 4];
 
     // List comprehension with raw i32 value (auto-coerced to HAny).
-    let la: Rc<Hermes2> = @[x * x for x in xs];
+    let la: Rc<Hermes> = @[x * x for x in xs];
 
     // Bool value, auto-coerced.
-    let lb: Rc<Hermes2> = @[(x % 2) == 0 for x in xs];
+    let lb: Rc<Hermes> = @[(x % 2) == 0 for x in xs];
 
     // Map with string values — auto-coerced to HString in the zone.
     let keys: [str; 3] = ["a", "b", "c"];
     let idx:  [i32; 3] = [0, 1, 2];
-    let md: Rc<Hermes2> = @{keys[x as i64]: "val" for x in idx};
+    let md: Rc<Hermes> = @{keys[x as i64]: "val" for x in idx};
 
     unsafe {
         let v0: HView2 = HView2 { base: 0 as *const u8 };
 
         // la: [1, 4, 9, 16]
-        let ha: &Hermes2 = la.deref();
+        let ha: &Hermes = la.deref();
         let ra: HAny = ha.root();
         if v0.array_len(ra) != 4u64 { return 1; }
         if v0.get_int(v0.array_get(ra, 2u64)) != 9i64 { return 2; }
         if v0.get_int(v0.array_get(ra, 3u64)) != 16i64 { return 3; }
 
         // lb: [false, true, false, true]
-        let hb: &Hermes2 = lb.deref();
+        let hb: &Hermes = lb.deref();
         let rb: HAny = hb.root();
         if v0.array_len(rb) != 4u64 { return 4; }
         if !v0.get_bool(v0.array_get(rb, 1u64)) { return 5; }
         if v0.get_bool(v0.array_get(rb, 0u64)) { return 6; }
 
         // md: {"a": "val", "b": "val", "c": "val"}
-        let hm: &Hermes2 = md.deref();
+        let hm: &Hermes = md.deref();
         let rm: HAny = hm.root();
         if !rm.is_map() { return 7; }
         let v: HAny = v0.map_get(rm, "b");

@@ -31,7 +31,7 @@ unsafe fn elem_width(tc: u64) -> i64 {
     return 8i64;
 }
 
-pub fn hermes2_equal(a: HAny, b: HAny) -> bool {
+pub fn hermes_equal(a: HAny, b: HAny) -> bool {
     if a.is_null() { return b.is_null(); }
     if b.is_null() { return false; }
 
@@ -62,7 +62,7 @@ pub fn hermes2_equal(a: HAny, b: HAny) -> bool {
             if n != ab.len() { return false; }
             let mut i: i64 = 0;
             while i < n {
-                if !hermes2_equal(aa.get(i), ab.get(i)) { return false; }
+                if !hermes_equal(aa.get(i), ab.get(i)) { return false; }
                 i = i + 1;
             }
             return true;
@@ -81,7 +81,7 @@ pub fn hermes2_equal(a: HAny, b: HAny) -> bool {
                 let k: HAny = ma.key_at(i);
                 if !k.is_null() {
                     let ks: &HString = &*(k.resolve() as *const HString);
-                    if !hermes2_equal(ma.val_at(i), mb.get(ks.as_str())) { return false; }
+                    if !hermes_equal(ma.val_at(i), mb.get(ks.as_str())) { return false; }
                 }
                 i = i + 1;
             }
@@ -134,7 +134,7 @@ pub fn hermes2_equal(a: HAny, b: HAny) -> bool {
                     let key_j: i64 = if kw == 4 { *((keys_b + j * 4) as *const i32) as i64 }
                                      else       { *((keys_b + j * 8) as *const i64) };
                     if key_j == key_i {
-                        if !hermes2_equal(ha_at(vals_a + i * 8), ha_at(vals_b + j * 8)) { return false; }
+                        if !hermes_equal(ha_at(vals_a + i * 8), ha_at(vals_b + j * 8)) { return false; }
                         found = true;
                         break;
                     }
@@ -151,7 +151,7 @@ pub fn hermes2_equal(a: HAny, b: HAny) -> bool {
             while f < 3 {
                 let sa: i64 = (pa as i64) + f * 8;
                 let sb: i64 = (pb as i64) + f * 8;
-                if !hermes2_equal(ha_at(sa), ha_at(sb)) { return false; }
+                if !hermes_equal(ha_at(sa), ha_at(sb)) { return false; }
                 f = f + 1;
             }
             return true;

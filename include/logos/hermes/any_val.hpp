@@ -9,7 +9,7 @@
 
 namespace logos::hermes {
 
-// AnyVal — the Hermes2 heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
+// AnyVal — the Hermes heterogeneous slot. ONE 8-byte word, BYTE-IDENTICAL to the
 // Logos stdlib `HAny` (stdlib/lang/hermes2/anyval.logos) — both sides read the same
 // bytes (shared wire/disk layout). The 4-byte base-relative AnyVal of Hermes1 is
 // replaced by this 8-byte self-relative niche.
@@ -43,7 +43,7 @@ public:
     // ── constructors ──────────────────────────────────────────────────────────
     static AnyVal null() noexcept { return AnyVal{}; }
 
-    // Inline primitive: `code` is the 7-bit Hermes2 type code (1..127); `v` must fit
+    // Inline primitive: `code` is the 7-bit Hermes type code (1..127); `v` must fit
     // 56 signed bits (wider primitives box into a Ref).
     static AnyVal pod(int64_t v, uint8_t code) noexcept {
         AnyVal a;

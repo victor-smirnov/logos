@@ -7,8 +7,8 @@ use logos.lang.hermes.array;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(16384);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(16384);
+    let h: &Hermes = rc.deref();
     let arr: &mut HArray<i64> = h.tarray::<i64>(2);   // tiny cap: forces grows
     let mut i: i64 = 0;
     while i < 30 {

@@ -9,8 +9,8 @@ use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(256);     // deliberately tiny
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(256);     // deliberately tiny
+    let h: &Hermes = rc.deref();
     let a: HAny = parse(h, "@I64=1");
     if a.is_null() { return 1; }
     if !str_eq(a.as_typed_value().type_name_str(), "I64") { return 2; }

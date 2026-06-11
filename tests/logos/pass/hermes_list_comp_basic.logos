@@ -1,5 +1,5 @@
-// Hermes list comprehensions: plain + guarded (hermes2 Rc<Hermes2> builder).
-// Scalars coerce implicitly (hermes2_coerce_*); reads via HView2 helpers.
+// Hermes list comprehensions: plain + guarded (hermes2 Rc<Hermes> builder).
+// Scalars coerce implicitly (hermes_coerce_*); reads via HView2 helpers.
 package hermes_list_comp_basic;
 
 use logos.lang.hermes.comp_builder;
@@ -12,21 +12,21 @@ fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];
 
     // Plain: square each element.
-    let doc: Rc<Hermes2> = @[x * x for x in arr];
+    let doc: Rc<Hermes> = @[x * x for x in arr];
 
     // Guarded: even elements, times 10.
-    let evens: Rc<Hermes2> = @[x * 10 for x in arr if (x % 2) == 0];
+    let evens: Rc<Hermes> = @[x * 10 for x in arr if (x % 2) == 0];
 
     unsafe {
         let v0: HView2 = HView2 { base: 0 as *const u8 };
-        let h: &Hermes2 = doc.deref();
+        let h: &Hermes = doc.deref();
         let root1: HAny = h.root();
         if !root1.is_array() { return 1; }
         if v0.array_len(root1) != 5u64 { return 2; }
         if v0.get_int(v0.array_get(root1, 2u64)) != 9i64 { return 3; }    // 3*3
         if v0.get_int(v0.array_get(root1, 4u64)) != 25i64 { return 4; }   // 5*5
 
-        let eh: &Hermes2 = evens.deref();
+        let eh: &Hermes = evens.deref();
         let root2: HAny = eh.root();
         if !root2.is_array() { return 50; }
         if v0.array_len(root2) != 2u64 { return 5; }

@@ -16,8 +16,8 @@ unsafe fn main() -> i32 {
     let ksu: &[u64] = &ku;
     let vsu: &[HAny] = &vu;
     let mu: MapSliceU64 = MapSliceU64 { keys: ksu, vals: vsu };
-    let cu: Rc<Hermes2> = mu as <U64, AnyVal>{};
-    let hu: &Hermes2 = cu.deref();
+    let cu: Rc<Hermes> = mu as <U64, AnyVal>{};
+    let hu: &Hermes = cu.deref();
     if h2_type_code(hu.root().resolve()) != 3104u64 { return 1; }
     let su: String = stringify(hu.root());
     if !su.eq_str("<U64, AnyVal> {100: 1, 200: 2}") { return 2; }
@@ -28,21 +28,21 @@ unsafe fn main() -> i32 {
     let ksi: &[i64] = &ki;
     let vsi: &[HAny] = &vi;
     let mi: MapSliceI64 = MapSliceI64 { keys: ksi, vals: vsi };
-    let ci: Rc<Hermes2> = mi as <I64, AnyVal>{};
-    let hi: &Hermes2 = ci.deref();
+    let ci: Rc<Hermes> = mi as <I64, AnyVal>{};
+    let hi: &Hermes = ci.deref();
     if h2_type_code(hi.root().resolve()) != 3103u64 { return 3; }
 
     // U32 keys; a Ref value (string from ANOTHER container re-anchors).
-    let other: Rc<Hermes2> = hermes2_rc(4096);
-    let oh: &Hermes2 = other.deref();
+    let other: Rc<Hermes> = hermes_rc(4096);
+    let oh: &Hermes = other.deref();
     let sref: HAny = HAny::from(&*(oh.hstring("zone-str") as *const HString));
     let k3: [u32; 1] = [7];
     let v3: [HAny; 1] = [sref];
     let ks3: &[u32] = &k3;
     let vs3: &[HAny] = &v3;
     let m3: MapSliceU32 = MapSliceU32 { keys: ks3, vals: vs3 };
-    let c3: Rc<Hermes2> = m3 as <U32, AnyVal>{};
-    let h3: &Hermes2 = c3.deref();
+    let c3: Rc<Hermes> = m3 as <U32, AnyVal>{};
+    let h3: &Hermes = c3.deref();
     if h2_type_code(h3.root().resolve()) != 3102u64 { return 4; }
     let s3: String = stringify(h3.root());
     if !s3.eq_str("<U32, AnyVal> {7: \"zone-str\"}") { return 5; }

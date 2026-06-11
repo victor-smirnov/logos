@@ -23,8 +23,8 @@ unsafe fn main() -> i32 {
     if proot.as_i64() != 42i64 { return 5; }
 
     // Runtime container: root() reconstructs the stored form.
-    let c: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = c.deref();
+    let c: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = c.deref();
     if !h.root().is_null() { return 6; }        // fresh container → null root
     h.set_root(HAny::from(7 as i56));
     if h.root().as_i64() != 7i64 { return 7; }

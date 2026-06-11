@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 clone / compaction conformance — deep_copy + DeepCopyState dedup. The two
+// Hermes clone / compaction conformance — deep_copy + DeepCopyState dedup. The two
 // things that must hold: SHARED subgraphs stay shared in the clone (copied once),
 // and CYCLES terminate (and stay cycles). Plus independence (a separate holder).
 

@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 views conformance — OWNING views carrying the MemHolder refcount, and
+// Hermes views conformance — OWNING views carrying the MemHolder refcount, and
 // navigation that shares the holder across child views. Returns 0 on success.
 
 #include <logos/hermes/mem_holder.hpp>

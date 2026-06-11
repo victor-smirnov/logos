@@ -1,13 +1,13 @@
-// Logos Hermes2 stdlib — hermes2.anyval
+// Logos Hermes stdlib — hermes2.anyval
 //
-// HAny — the Hermes2 heterogeneous slot (the AnyVal analog): a niche-packed
+// HAny — the Hermes heterogeneous slot (the AnyVal analog): a niche-packed
 // `#[zoned2] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
 // 8-byte word that is either an inline primitive (Pod) or a reference to a
 // type-tagged zone object (Ref). The storage/compute split is now COMPILER-OWNED:
 //
 //   VALUE form  — Ref = an ABSOLUTE pointer to the tagged object. Movable, lives
 //                 on the stack / in registers / by-value; dispatch resolves it
-//                 through Hermes2TagSystem. This is the plain `HAny`.
+//                 through HermesTagSystem. This is the plain `HAny`.
 //   AT-REST     — the same HAny stored in an arena slot reached through a
 //                 `*zoned HAny` (e.g. HArray/HMap buffers). Ref = a SELF-RELATIVE
 //                 delta `target − &slot`; `*slot` materialises it to the value
@@ -24,7 +24,7 @@ package logos.lang.hermes.anyval;
 
 use logos.lang.ptr;
 
-// HAny — the heterogeneous Hermes2 slot, a niche-packed `#[zoned2]` enum (F3).
+// HAny — the heterogeneous Hermes slot, a niche-packed `#[zoned2]` enum (F3).
 // ONE 8-byte word: `Ref` = a type-erased pointer to a tagged zone object
 // (low-bit-0; self-relative at-rest via #[zoned2], absolute as a value), `Pod`
 // = an inline tagged word `(value<<8)|(code<<1)|1` (low-bit-1, position-
@@ -64,7 +64,7 @@ impl HAny {
     // ── constructors (value form) ─────────────────────────────────────────────
     pub fn null() -> HAny { return HAny::Ref(0i64 as *const u8); }
 
-    // Inline primitive: `code` is the 7-bit Hermes2 type code (1..127); `v` must
+    // Inline primitive: `code` is the 7-bit Hermes type code (1..127); `v` must
     // fit in 56 signed bits (wider primitives box into a Ref — later). The Pod arm
     // holds the FULL tagged word (low-bit-1), stored verbatim by the raw niche.
     pub fn pod(v: i64, code: u8) -> HAny {
@@ -92,7 +92,7 @@ impl HAny {
     pub fn resolve(self: &HAny) -> *const u8 { return self.raw() as *const u8; }
 }
 
-// Hermes2 HAny Pod primitive type codes (7-bit; identify the inline value).
+// Hermes HAny Pod primitive type codes (7-bit; identify the inline value).
 // The inline integer is i56 (56-bit signed — bits[63:8]); a full i64 does NOT fit
 // inline (wider values box into a Ref — H2_I64), so the name is `i56`, not `i64`.
 // `HA_I56` is the generic inline-int fallback (no exact Hermes width tag — e.g. a
@@ -110,7 +110,7 @@ pub const HT_I24: u8 = 23u8;
 pub const HT_U16: u8 = 24u8;
 pub const HT_U24: u8 = 25u8;
 
-// Hermes2 REF type codes — the in-band tag of an arena object (the Hermes1 datatag
+// Hermes REF type codes — the in-band tag of an arena object (the Hermes1 datatag
 // VARINT before the object). A Ref HAny's pointee carries one so `HAny::type_code` /
 // `is_string` / `is_array` / `is_map` dispatch on what it points at. Codes are u64
 // (the full Hermes1 HermesTag range): codes ≤222 take one byte at obj[-1], >222 a

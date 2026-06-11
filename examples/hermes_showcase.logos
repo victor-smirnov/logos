@@ -1,6 +1,6 @@
 // hermes_showcase — a tour of the hermes2 document features:
 //   1. Static @-literals  — blob in rodata, zero runtime cost (HermesStatic)
-//   2. Scalar capture     — $ident and ${expr} → Rc<Hermes2>
+//   2. Scalar capture     — $ident and ${expr} → Rc<Hermes>
 //   3. String capture     — str captured as a zone HString
 //   4. Mixed capture      — scalars + strings + expressions
 //   5. Typed array cast   — &[i32] as <I32>[]
@@ -59,15 +59,15 @@ unsafe fn main() -> i32 {
     // ── 2-4. Captures: scalars, strings, expressions ──────────────────────
     let id: i32 = 42;
     let label: str = "item";
-    let doc: Rc<Hermes2> = @{"id": $id, "label": $label, "sum": ${id + 1}};
-    let h: &Hermes2 = doc.deref();
+    let doc: Rc<Hermes> = @{"id": $id, "label": $label, "sum": ${id + 1}};
+    let h: &Hermes = doc.deref();
     show("captures", h.root());
 
     // ── 5. Typed array cast ───────────────────────────────────────────────
     let nums: [i32; 4] = [10, 20, 30, 40];
     let ns: &[i32] = &nums;
-    let tarr: Rc<Hermes2> = ns as <I32>[];
-    let th: &Hermes2 = tarr.deref();
+    let tarr: Rc<Hermes> = ns as <I32>[];
+    let th: &Hermes = tarr.deref();
     show("typed-array", th.root());
 
     // ── 6. Typed map cast ─────────────────────────────────────────────────
@@ -76,8 +76,8 @@ unsafe fn main() -> i32 {
     let ks: &[i32] = &keys;
     let vs: &[HAny] = &vals;
     let ms: MapSliceI32 = MapSliceI32 { keys: ks, vals: vs };
-    let tmap: Rc<Hermes2> = ms as <I32, AnyVal>{};
-    let mh: &Hermes2 = tmap.deref();
+    let tmap: Rc<Hermes> = ms as <I32, AnyVal>{};
+    let mh: &Hermes = tmap.deref();
     show("typed-map", mh.root());
 
     // ── 7. Live-container reads ───────────────────────────────────────────
@@ -87,8 +87,8 @@ unsafe fn main() -> i32 {
 
     // ── 8. Comprehensions ─────────────────────────────────────────────────
     let arr: [i32; 5] = [1, 2, 3, 4, 5];
-    let squares: Rc<Hermes2> = @[x * x for x in arr if (x % 2) == 1];
-    let sh: &Hermes2 = squares.deref();
+    let squares: Rc<Hermes> = @[x * x for x in arr if (x % 2) == 1];
+    let sh: &Hermes = squares.deref();
     show("comprehension", sh.root());
 
     // ── 9. Pattern matching ───────────────────────────────────────────────

@@ -10,8 +10,8 @@ use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(65536);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(65536);
+    let h: &Hermes = rc.deref();
 
     // ── TinyObjectMap basic ─────────────────────────────────────────────────
     let tm: &mut HMap<Hu6, HVal> = h.tinymap(8);

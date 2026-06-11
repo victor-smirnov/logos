@@ -9,7 +9,7 @@
 
 namespace logos::hermes {
 
-// Render a Hermes2 document (or a single value) to a JSON-compatible text form:
+// Render a Hermes document (or a single value) to a JSON-compatible text form:
 //   null / true / false / <int> / <float> / "string" / [array] / {"k": v}
 // The JSON core (null, bool, integer, float, string, array, map) round-trips
 // exactly through text_parse(); the Hermes extension types (tiny/typed maps, typed

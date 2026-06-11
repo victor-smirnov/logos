@@ -11,8 +11,8 @@ use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(16384);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(16384);
+    let h: &Hermes = rc.deref();
 
     // 1. Integer root.
     let v1: HAny = parse(h, "12345");

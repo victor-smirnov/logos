@@ -1,0 +1,39 @@
+// Hermes — never-move segment Allocator: bump-alloc, append-on-full, and the
+// invariant that growth (a new segment) NEVER invalidates earlier pointers.
+package test;
+
+use logos.lang.hermes.allocator;
+
+fn main() -> i32 {
+    unsafe {
+        // small segments (32 data bytes) so a third 8-byte alloc forces append
+        let mut h: Allocator = allocator_new(32);
+
+        let p0: *mut i64 = allocator_alloc(&mut h, 8, 8) as *mut i64;
+        *p0 = 100;
+        let p1: *mut i64 = allocator_alloc(&mut h, 8, 8) as *mut i64;
+        *p1 = 200;
+
+        let seg_after_two: *mut Segment = h.current;
+
+        // 32 bytes can't fit (used is 16) — forces a fresh segment
+        let big: *mut i64 = allocator_alloc(&mut h, 32, 8) as *mut i64;
+        *big = 300;
+
+        // an append must have happened
+        if h.current == seg_after_two { return 1; }
+
+        // never-move: pointers handed out BEFORE the append are still valid
+        if *p0 != 100 { return 2; }
+        if *p1 != 200 { return 3; }
+        if *big != 300 { return 4; }
+
+        // write through the old pointers again, read back — still the same cells
+        *p0 = 111;
+        if *p0 != 111 { return 5; }
+        if *p1 != 200 { return 6; }
+
+        allocator_free(&mut h);
+    }
+    return 42;
+}

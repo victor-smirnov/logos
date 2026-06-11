@@ -11,8 +11,8 @@ use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(16384);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(16384);
+    let h: &Hermes = rc.deref();
 
     // Scalars.
     if parse(h, "42").as_i64() != 42i64 { return 1; }

@@ -1,5 +1,5 @@
 package relany;
-// any_object_ptr (RelAny) PROOF: a SELF-RELATIVE (Hermes2) pointer to a TYPE-
+// any_object_ptr (RelAny) PROOF: a SELF-RELATIVE (Hermes) pointer to a TYPE-
 // TAGGED object, dispatching through the EXISTING Hermes1 tag tables unchanged.
 // The object lives in a never-move arena with a vlen tag header (write_tag); the
 // RelAny field stores `target − &field` (RelOffset descriptor) and materialises
@@ -11,7 +11,7 @@ extern fn malloc(size: i64) -> *mut u8;
 // ── the any_object_ptr type: self-relative, materialises to *const u8 ──────────
 #[rel_ptr] struct RelAny { _o: i64 }
 
-// ── Hermes2 never-move arena ──────────────────────────────────────────────────
+// ── Hermes never-move arena ──────────────────────────────────────────────────
 struct Arena { base: *mut u8, used: i64 }
 unsafe fn arena_new(cap: i64) -> Arena { return Arena { base: malloc(cap), used: 0i64 }; }
 unsafe fn arena_alloc(a: *mut Arena, bytes: i64) -> *mut u8 {
@@ -28,14 +28,14 @@ unsafe fn arena_alloc_tagged(a: *mut Arena, size: i64, code: u64) -> *mut u8 {
     return obj;
 }
 
-// ── two tagged Hermes2 object types ───────────────────────────────────────────
+// ── two tagged Hermes object types ───────────────────────────────────────────
 #[tag_dispatch(DataTypeTagSystem)] trait Checksum { unsafe fn checksum(self: *const Self) -> i32; }
 #[type_code=151] #[zoned] struct Point { x: i32, y: i32 }
 #[type_code=152] #[zoned] struct Color { r: u8, g: u8, b: u8, a: u8 }
 impl Checksum for Point { pub unsafe fn checksum(self: *const Point) -> i32 { return self.x + self.y; } }
 impl Checksum for Color { pub unsafe fn checksum(self: *const Color) -> i32 { return self.r as i32 + self.g as i32 + self.b as i32 + self.a as i32; } }
 
-// ── a Hermes2 container holding a self-relative any_object_ptr (pin: in arena) ──
+// ── a Hermes container holding a self-relative any_object_ptr (pin: in arena) ──
 struct Holder { any: RelAny }
 
 unsafe fn dispatch(o: *const u8) -> i32 {

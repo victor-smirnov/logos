@@ -9,15 +9,15 @@ use logos.mem.rc;
 struct Slot { pub val: i32 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
     // ── Self-relative link (the hermes2 RelPtr) ─────────────────────────────
-    let na: *mut Slot = hermes2_alloc::<Slot>(hp);
-    let nb: *mut Slot = hermes2_alloc::<Slot>(hp);
+    let na: *mut Slot = hermes_alloc::<Slot>(hp);
+    let nb: *mut Slot = hermes_alloc::<Slot>(hp);
     na.val = 10; nb.val = 99;
-    let link_slot: *mut i64 = hermes2_alloc::<i64>(hp);
+    let link_slot: *mut i64 = hermes_alloc::<i64>(hp);
     *link_slot = (nb as i64) - (link_slot as i64);          // store
     let res: *const Slot = ((link_slot as i64) + *link_slot) as *const Slot;  // resolve
     if res as i64 != nb as i64                                  { return 1; }
@@ -42,7 +42,7 @@ unsafe fn main() -> i32 {
     if vneg.as_i64() != -1i64                                   { return 9; }
 
     // ── vlen datatag raw byte layout ────────────────────────────────────────
-    let obj: *mut u8 = (hermes2_alloc_bytes(hp, 32) as i64 + 16) as *mut u8;
+    let obj: *mut u8 = (hermes_alloc_bytes(hp, 32) as i64 + 16) as *mut u8;
     write_tag(obj, 130u64);                  // single byte: obj[-1] = 130
     if *((obj as i64 - 1) as *const u8) != 130 as u8            { return 10; }
     write_tag(obj, 2107u64);                 // multi: header 224, LE bytes follow

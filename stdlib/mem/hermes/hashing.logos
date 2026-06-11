@@ -1,6 +1,6 @@
 // logos.mem.hermes.hashing — structural FNV-1a hashing over hermes2 documents.
 //
-// hermes2_hash(v) folds the VALUE-SEMANTIC content of the tree (the same
+// hermes_hash(v) folds the VALUE-SEMANTIC content of the tree (the same
 // equivalence classes as mem.hermes2.equal: inline and boxed ints hash alike;
 // map entry order does not matter — entries are XOR-folded). Equal documents
 // hash equal; the converse is best-effort (FNV).
@@ -34,7 +34,7 @@ fn fnv_mix_byte(h: u64, b: u8) -> u64 {
 }
 
 // Per-kind salts keep cross-kind collisions away (array vs map vs string...).
-pub fn hermes2_hash(v: HAny) -> u64 {
+pub fn hermes_hash(v: HAny) -> u64 {
     if v.is_null()  { return fnv_mix_u64(fnv_init(), 0u64); }
     if v.is_bool()  { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 2u64), if v.as_bool() { 1u64 } else { 0u64 }); }
     if v.is_int()   { return fnv_mix_u64(fnv_mix_u64(fnv_init(), 3u64), v.as_i64() as u64); }
@@ -61,7 +61,7 @@ pub fn hermes2_hash(v: HAny) -> u64 {
             h = fnv_mix_u64(h, n as u64);
             let mut i: i64 = 0;
             while i < n {
-                h = fnv_mix_u64(h, hermes2_hash(a.get(i)));
+                h = fnv_mix_u64(h, hermes_hash(a.get(i)));
                 i = i + 1;
             }
             return h;
@@ -79,7 +79,7 @@ pub fn hermes2_hash(v: HAny) -> u64 {
             while i < slots {
                 let k: HAny = m.key_at(i);
                 if !k.is_null() {
-                    let eh: u64 = fnv_mix_u64(hermes2_hash(k), hermes2_hash(m.val_at(i)));
+                    let eh: u64 = fnv_mix_u64(hermes_hash(k), hermes_hash(m.val_at(i)));
                     acc = acc ^ eh;
                 }
                 i = i + 1;
@@ -121,7 +121,7 @@ pub fn hermes2_hash(v: HAny) -> u64 {
                 let key_i: i64 = if kw == 4 { *((keys + i * 4) as *const i32) as i64 }
                                  else       { *((keys + i * 8) as *const i64) };
                 acc = acc ^ fnv_mix_u64(fnv_mix_u64(fnv_init(), key_i as u64),
-                                        hermes2_hash(h2h_at(vals + i * 8)));
+                                        hermes_hash(h2h_at(vals + i * 8)));
                 i = i + 1;
             }
             return fnv_mix_u64(fnv_mix_u64(fnv_init(), tc), acc);
@@ -131,7 +131,7 @@ pub fn hermes2_hash(v: HAny) -> u64 {
             let mut h: u64 = fnv_mix_u64(fnv_init(), tc);
             let mut f: i64 = 0;
             while f < 3 {
-                h = fnv_mix_u64(h, hermes2_hash(h2h_at((p as i64) + f * 8)));
+                h = fnv_mix_u64(h, hermes_hash(h2h_at((p as i64) + f * 8)));
                 f = f + 1;
             }
             return h;

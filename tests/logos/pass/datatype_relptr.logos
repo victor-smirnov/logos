@@ -23,12 +23,12 @@ unsafe fn get_next(n: *const Node) -> *const Node {
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
-    let a: *mut Node = hermes2_alloc::<Node>(hp);
-    let b: *mut Node = hermes2_alloc::<Node>(hp);
+    let a: *mut Node = hermes_alloc::<Node>(hp);
+    let b: *mut Node = hermes_alloc::<Node>(hp);
     a.value = 7; b.value = 23;
     b.next = 0i64;
     set_next(a, b as *const Node);

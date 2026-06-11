@@ -12,8 +12,8 @@ unsafe fn close(a: f64, b: f64) -> bool {
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
 
     if hdec_from_str(h, "0.00").as_decimal().to_f64() != 0.0 { return 1; }
     if hdec_from_str(h, "42").as_decimal().to_f64() != 42.0 { return 2; }

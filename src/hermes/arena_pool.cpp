@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// InMemoryArenaPool (Hermes2) — see arena_pool.hpp. Ported from the Hermes1
+// InMemoryArenaPool (Hermes) — see arena_pool.hpp. Ported from the Hermes1
 // implementation onto the hermes2 MemHolder + self-relative root AnyVal.
 
 #include <logos/hermes/arena_pool.hpp>

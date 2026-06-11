@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 foundation smoke test — the conformance gate for the bottom layer:
+// Hermes foundation smoke test — the conformance gate for the bottom layer:
 // self-relative RelativePtr, the AnyVal niche (byte-identical to Logos HAny), and
 // the multi-chunk never-move Arena. Returns 0 on success, non-zero on the first
 // failed check (the code identifies which).

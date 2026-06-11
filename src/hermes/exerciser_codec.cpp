@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 binary codec conformance — encode a document to a portable byte stream and
+// Hermes binary codec conformance — encode a document to a portable byte stream and
 // decode it into a FRESH holder, verifying the tree round-trips intact (including a
 // re-encode producing identical bytes).
 

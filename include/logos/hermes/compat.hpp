@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 SPELLING-compat surface for the logosc cut-over (Phase B). Provides the
+// Hermes SPELLING-compat surface for the logosc cut-over (Phase B). Provides the
 // Hermes1 NAMES the compiler uses (type code constants, the doc-handle / Object
 // spellings, a HermesAccess shim) mapped onto NATIVE hermes2 — NO base/offset model
 // is reintroduced (self-relative throughout). Transitional: these spellings can be

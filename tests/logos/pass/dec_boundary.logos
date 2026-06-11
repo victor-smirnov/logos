@@ -6,8 +6,8 @@ use logos.lang.hermes.decimal;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
 
     // Valid forms.
     if hdec_from_str(h, "0").is_null() { return 1; }

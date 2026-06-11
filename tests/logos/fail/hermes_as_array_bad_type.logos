@@ -8,6 +8,6 @@ use logos.mem.rc;
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];
     let s: &[i32] = &arr;
-    let ctr: Rc<Hermes2> = s as <Bool>[];
+    let ctr: Rc<Hermes> = s as <Bool>[];
     return 0;
 }

@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 PRODUCER conformance: builds a schema-tagged AST-like node tree exactly the
+// Hermes PRODUCER conformance: builds a schema-tagged AST-like node tree exactly the
 // way the logosc parser does — make_doc → make_tiny_map (schema_type_code set) →
 // put(field, AnyVal) → set_ref to wire children → set_root — then reads it back via
 // the owning views + schema_codes category decode. De-risks the §6.2 cut-over of the

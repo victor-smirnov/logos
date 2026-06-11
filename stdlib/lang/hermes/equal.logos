@@ -1,6 +1,6 @@
-// Logos Hermes2 stdlib — hermes2.equal
+// Logos Hermes stdlib — hermes2.equal
 //
-// Structural (deep) equality of two Hermes2 values — the port of hermes.equal.
+// Structural (deep) equality of two Hermes values — the port of hermes.equal.
 // Same type_code-dispatched recursive walk as stringify/compactify, but folding
 // two trees into a bool. Equality is by VALUE, not identity: two docs in
 // different arenas (e.g. an original and its compactified / round-tripped copy)

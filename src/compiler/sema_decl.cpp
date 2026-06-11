@@ -1029,10 +1029,10 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     sd.lifetime_params = sinfo->lifetime_params;
     // Phase 1B-14: propagate custom-DST flag from sema info to LIR.
     sd.is_dst = sinfo->is_dst;
-    // Hermes2 / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
+    // Hermes / RefRepr: propagate `#[self_describing]` so the Ptr→DstRef
     // canonicalisation in mono_subst can keep `*Self` thin for this struct.
     sd.self_describing = sinfo->self_describing;
-    // Hermes2: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
+    // Hermes: propagate `#[zone_mut]` so ref_repr_of makes `&mut T` a fat
     // {data, zone} reference carrying its allocator.
     sd.zone_mut = sinfo->zone_mut;
     sd.zoned2 = sinfo->zoned2;   // hermes2: auto-relative pointer fields (RelOffset)

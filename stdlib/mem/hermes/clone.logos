@@ -2,8 +2,8 @@
 // container (the Logos-level clone/compactify: only the live, reachable set
 // is copied, so dead source space is dropped).
 //
-// hermes2_clone(v) -> Rc<Hermes2> with the copy as its root;
-// hermes2_clone_into(h, v) -> HAny copies into an existing container.
+// hermes_clone(v) -> Rc<Hermes> with the copy as its root;
+// hermes_clone_into(h, v) -> HAny copies into an existing container.
 //
 // Direct-walker foundation (stringify/equal/hashing siblings). Pods copy
 // verbatim (position-independent); strings/arrays/maps/typed payloads
@@ -13,7 +13,7 @@ package logos.mem.hermes.clone;
 
 use logos.lang.hermes.anyval;       // HAny, h2_type_code
 use logos.lang.hermes.allocator;    // Allocator
-use logos.lang.hermes.container;    // Hermes2, hermes2_rc, alloc_tagged, box_*
+use logos.lang.hermes.container;    // Hermes, hermes_rc, alloc_tagged, box_*
 use logos.lang.hermes.array;        // HArray<HVal>
 use logos.lang.hermes.hmap;         // HMap<HString, HVal>
 use logos.lang.hermes.hstring;      // HString, hstring_in_alloc
@@ -21,11 +21,11 @@ use logos.mem.rc;                    // Rc
 use logos.lang.str;
 
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.
-pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
+pub unsafe fn hermes_clone_into(h: &Hermes, v: HAny) -> HAny {
     if v.is_null() { return HAny::Ref(0 as *const u8); }
     if v.is_pod()  { return v; }                       // position-independent
 
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
     let p: *const u8 = v.resolve();
     let tc: u64 = h2_type_code(p);
@@ -50,7 +50,7 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
         let dst: &mut HArray<HVal> = h.array(cap);
         let mut i: i64 = 0;
         while i < n {
-            dst.push(hermes2_clone_into(h, src.get(i)));
+            dst.push(hermes_clone_into(h, src.get(i)));
             i = i + 1;
         }
         let dp: *const HArray<HVal> = dst as *const HArray<HVal>;
@@ -68,7 +68,7 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
             let k: HAny = src.key_at(i);
             if !k.is_null() {
                 let ks: &HString = &*(k.resolve() as *const HString);
-                dst.set(ks.as_str(), hermes2_clone_into(h, src.val_at(i)));
+                dst.set(ks.as_str(), hermes_clone_into(h, src.val_at(i)));
             }
             i = i + 1;
         }
@@ -86,7 +86,7 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
         let bytes: i64 = (n as i64) * w;
         let mut buf: *mut u8 = 0 as *mut u8;
         if bytes > 0 {
-            buf = hermes2_alloc_bytes(hp, bytes);
+            buf = hermes_alloc_bytes(hp, bytes);
             let sf: i64 = (p as i64) + 16;
             let selems: i64 = sf + *(sf as *const i64);
             let mut i: i64 = 0;
@@ -111,8 +111,8 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
         let mut kbuf: i64 = 0i64;
         let mut vbuf: i64 = 0i64;
         if n > 0i64 {
-            kbuf = hermes2_alloc_bytes(hp, n * kw) as i64;
-            vbuf = hermes2_alloc_bytes(hp, n * 8i64) as i64;
+            kbuf = hermes_alloc_bytes(hp, n * kw) as i64;
+            vbuf = hermes_alloc_bytes(hp, n * 8i64) as i64;
             let skf: i64 = (p as i64) + 16i64; let skeys: i64 = skf + *(skf as *const i64);
             let svf: i64 = (p as i64) + 24i64; let svals: i64 = svf + *(svf as *const i64);
             let mut i: i64 = 0i64;
@@ -122,7 +122,7 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
             }
             i = 0i64;
             while i < n {
-                let c2: HAny = hermes2_clone_into(h, h2c_at(svals + i * 8i64));
+                let c2: HAny = hermes_clone_into(h, h2c_at(svals + i * 8i64));
                 let slot: i64 = vbuf + i * 8i64;
                 let w2: i64 = c2.raw();
                 if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
@@ -146,7 +146,7 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
         let mut f: i64 = 0;
         while f < 3 {
             let src_slot: i64 = (p as i64) + f * 8;
-            let c: HAny = hermes2_clone_into(h, h2c_at(src_slot));
+            let c: HAny = hermes_clone_into(h, h2c_at(src_slot));
             let dst_slot: i64 = (obj as i64) + f * 8;
             let cw: i64 = c.raw();
             if cw == 0i64 || (cw & 1i64) == 1i64 { *(dst_slot as *mut i64) = cw; }
@@ -162,10 +162,10 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
 
 // Deep-copy `v` into a fresh right-sized container (the compactify effect:
 // only live objects come along).
-pub unsafe fn hermes2_clone(v: HAny) -> Rc<Hermes2> {
-    let rc: Rc<Hermes2> = hermes2_rc(16384);
-    let h: &Hermes2 = rc.deref();
-    let c: HAny = hermes2_clone_into(h, v);
+pub unsafe fn hermes_clone(v: HAny) -> Rc<Hermes> {
+    let rc: Rc<Hermes> = hermes_rc(16384);
+    let h: &Hermes = rc.deref();
+    let c: HAny = hermes_clone_into(h, v);
     h.set_root(c);
     return rc;
 }

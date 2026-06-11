@@ -12,8 +12,8 @@ use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = rc.deref();
 
     let root: HAny = parse(h,
         "{\"a\": @I64 = 42, \"b\": \"123.45\" @Decimal(10,2), \"c\": @Point({\"fmt\": \"xy\"})={\"x\": 1, \"y\": 2}}");

@@ -7,14 +7,14 @@ use logos.lang.hermes.pat;
 use logos.lang.hermes.container;
 use logos.mem.rc;
 
-unsafe fn mk(v: HAny) -> Rc<Hermes2> {
-    let rc: Rc<Hermes2> = hermes2_rc(1024);
-    let h: &Hermes2 = rc.deref();
+unsafe fn mk(v: HAny) -> Rc<Hermes> {
+    let rc: Rc<Hermes> = hermes_rc(1024);
+    let h: &Hermes = rc.deref();
     h.set_root(v);
     return rc;
 }
 
-unsafe fn classify(d: &Rc<Hermes2>) -> i32 {
+unsafe fn classify(d: &Rc<Hermes>) -> i32 {
     match d {
         @null  => { return 1; }
         @true  => { return 2; }
@@ -26,12 +26,12 @@ unsafe fn classify(d: &Rc<Hermes2>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Rc<Hermes2> = mk(HAny::Ref(0 as *const u8));
-    let b: Rc<Hermes2> = mk(HAny::from(true));
-    let c: Rc<Hermes2> = mk(HAny::from(false));
-    let d: Rc<Hermes2> = mk(HAny::from(42 as i56));
-    let e: Rc<Hermes2> = mk(HAny::from(-7 as i56));
-    let f: Rc<Hermes2> = mk(HAny::from(99 as i56));
+    let a: Rc<Hermes> = mk(HAny::Ref(0 as *const u8));
+    let b: Rc<Hermes> = mk(HAny::from(true));
+    let c: Rc<Hermes> = mk(HAny::from(false));
+    let d: Rc<Hermes> = mk(HAny::from(42 as i56));
+    let e: Rc<Hermes> = mk(HAny::from(-7 as i56));
+    let f: Rc<Hermes> = mk(HAny::from(99 as i56));
 
     // 1+2+3+4+5+0 = 15
     return classify(&a) + classify(&b) + classify(&c)

@@ -18,10 +18,10 @@ unsafe fn root_of(hs: &HermesStatic) -> HAny {
 }
 
 unsafe fn check_clone(src: HAny) -> bool {
-    let c: Rc<Hermes2> = hermes2_clone(src);
-    let h: &Hermes2 = c.deref();
+    let c: Rc<Hermes> = hermes_clone(src);
+    let h: &Hermes = c.deref();
     let croot: HAny = h.root();
-    if !hermes2_equal(src, croot) { return false; }
+    if !hermes_equal(src, croot) { return false; }
     // Independent storage: a Ref clone resolves to a DIFFERENT address.
     if src.is_ref() && !src.is_null() {
         if croot.resolve() == src.resolve() { return false; }
@@ -52,8 +52,8 @@ unsafe fn main() -> i32 {
 
     // 6. Null root.
     let nul: HAny = HAny::Ref(0 as *const u8);
-    let c6: Rc<Hermes2> = hermes2_clone(nul);
-    let h6: &Hermes2 = c6.deref();
+    let c6: Rc<Hermes> = hermes_clone(nul);
+    let h6: &Hermes = c6.deref();
     if !h6.root().is_null() { return 6; }
 
     return 0;

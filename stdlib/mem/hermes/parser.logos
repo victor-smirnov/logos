@@ -1,8 +1,8 @@
-// Logos Hermes2 stdlib — mem.hermes2.parser
+// Logos Hermes stdlib — mem.hermes2.parser
 //
-// Text → document: a recursive-descent JSON-ish reader that builds a Hermes2 doc
+// Text → document: a recursive-descent JSON-ish reader that builds a Hermes doc
 // (HMap<HString, HVal> / Array / HString / i56 / bool / null) in a caller-supplied arena — the
-// inverse of stringify, and the Hermes2 port of hermes.parser (much smaller: the
+// inverse of stringify, and the Hermes port of hermes.parser (much smaller: the
 // grammar here is plain JSON-with-integers).
 //
 // Grammar:  value := object | array | string | number | 'true' | 'false' | 'null'
@@ -17,7 +17,7 @@
 package logos.mem.hermes.parser;
 
 use logos.lang.hermes.allocator;   // Allocator
-use logos.lang.hermes.container;   // Hermes2, alloc_tagged, hermes2_alloc_bytes
+use logos.lang.hermes.container;   // Hermes, alloc_tagged, hermes_alloc_bytes
 use logos.lang.hermes.anyval;      // HAny, HA_I56
 use logos.lang.hermes.array;       // HArray<HVal>
 use logos.lang.hermes.hmap;        // HMap<HString, HVal>
@@ -76,7 +76,7 @@ unsafe fn parse_ident_raw(p: *mut P) -> String {
 
 // Parse a number token. Integers (possibly wide) → `h.int`; anything with a
 // fractional '.' or exponent 'e'/'E' → f64 via `h.float`.
-unsafe fn parse_number(h: &Hermes2, p: *mut P) -> HAny {
+unsafe fn parse_number(h: &Hermes, p: *mut P) -> HAny {
     let start: i64 = (*p).pos;
     let neg: bool = peek(p) == 45u8;
     if neg { advance(p); }                                  // -
@@ -111,7 +111,7 @@ unsafe fn kw(p: *mut P, s: str) -> bool {
 }
 
 // `<T>[e,...]` typed dense array / `<K[,AnyVal]>{k: v,...}` typed dense map.
-unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
+unsafe fn parse_typed(h: &Hermes, p: *mut P) -> HAny {
     advance(p);                                   // '<'
     skip_ws(p);
     // <Varchar[,AnyVal]>{...} is the plain ObjectMap spelled with a key type.
@@ -137,7 +137,7 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
     }
     if peek(p) == 62u8 { advance(p); }            // '>'
     skip_ws(p);
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let ap: *mut Allocator = &mut hp.allocator as *mut Allocator;
 
     if peek(p) == 123u8 {                         // typed MAP
@@ -174,8 +174,8 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
         let mut kbuf: i64 = 0i64;
         let mut vbuf: i64 = 0i64;
         if n > 0i64 {
-            kbuf = hermes2_alloc_bytes(hp, n * kwid) as i64;
-            vbuf = hermes2_alloc_bytes(hp, n * 8i64) as i64;
+            kbuf = hermes_alloc_bytes(hp, n * kwid) as i64;
+            vbuf = hermes_alloc_bytes(hp, n * 8i64) as i64;
             let mut i: i64 = 0i64;
             while i < n {
                 if kwid == 4i64 { *((kbuf + i * 4i64) as *mut i32) = keys[i] as i32; }
@@ -234,7 +234,7 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
         else { 8i64 };
     let mut buf: i64 = 0i64;
     if n2 > 0i64 {
-        buf = hermes2_alloc_bytes(hp, n2 * w2) as i64;
+        buf = hermes_alloc_bytes(hp, n2 * w2) as i64;
         let mut i: i64 = 0i64;
         while i < n2 {
             if tc == 2110u64      { *((buf + i * 8i64) as *mut f64) = fels[i]; }
@@ -257,7 +257,7 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
 
 // `@Name(params)? = value` typed-value prefix. Returns null HAny on malformed
 // forms (trailing comma, >32 params, @Decimal rule violations).
-unsafe fn parse_tv_prefix(h: &Hermes2, p: *mut P) -> HAny {
+unsafe fn parse_tv_prefix(h: &Hermes, p: *mut P) -> HAny {
     advance(p);                                   // '@'
     let name: String = parse_ident_raw(p);
     if name.len() == 0i64 { return HAny::ref_to(0i64 as *const u8); }
@@ -296,7 +296,7 @@ unsafe fn parse_tv_prefix(h: &Hermes2, p: *mut P) -> HAny {
 }
 
 // Build + validate the HTypedValue (shared by prefix and postfix forms).
-unsafe fn tv_build(h: &Hermes2, name: str, params_arr: [i64; 32], n_params: i64,
+unsafe fn tv_build(h: &Hermes, name: str, params_arr: [i64; 32], n_params: i64,
                    had_parens: bool, init: HAny) -> HAny {
     // @Decimal(P,S): exactly two canonical ints, S <= P, string init that
     // parses as a decimal with digits <= P and scale <= S.
@@ -335,7 +335,7 @@ unsafe fn tv_build(h: &Hermes2, name: str, params_arr: [i64; 32], n_params: i64,
     return h.typed_value(name, params, init);
 }
 
-unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
+unsafe fn parse_value(h: &Hermes, p: *mut P) -> HAny {
     skip_ws(p);
     let c: u8 = peek(p);
     if c == 60u8 { return parse_typed(h, p); }   // <  typed dense container
@@ -421,7 +421,7 @@ unsafe fn parse_value(h: &Hermes2, p: *mut P) -> HAny {
 }
 
 // Parse JSON-ish `text` into a fresh document rooted in `h`.
-pub fn parse(h: &Hermes2, text: str) -> HAny {
+pub fn parse(h: &Hermes, text: str) -> HAny {
     unsafe {
         let mut p: P = P { data: text.as_ptr(), len: text.len(), pos: 0i64 };
         return parse_value(h, &mut p as *mut P);

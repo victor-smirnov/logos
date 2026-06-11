@@ -6,7 +6,7 @@
 
 namespace logos::hermes {
 
-// RelativePtr<T> — SELF-relative pointer (Hermes2).
+// RelativePtr<T> — SELF-relative pointer (Hermes).
 //
 // Ported from Memoria's memoria::arena::RelativePtr (the original self-relative
 // design; Logos's Hermes1 RelativePtr was a base-relative u32 SIMPLIFICATION of
@@ -18,7 +18,7 @@ namespace logos::hermes {
 //     read:     T* = (&this) + offset
 //     write:    offset = target − (&this)
 //
-// Sound precisely because Hermes2 segments NEVER MOVE (multi-chunk arena): a
+// Sound precisely because Hermes segments NEVER MOVE (multi-chunk arena): a
 // populated RelativePtr is meaningful at its storage location. Copy / move / `=`
 // **re-anchor** — they recompute the offset relative to the destination's address
 // so the copy points at the SAME target from its new location (this is what lets

@@ -1,6 +1,6 @@
 // logos.mem.hermes.check — structural validation of a hermes2 value tree.
 //
-// hermes2_check(v) walks the reachable graph and verifies the structural
+// hermes_check(v) walks the reachable graph and verifies the structural
 // invariants every reader relies on:
 //   - Pod codes are known (bool/int/i24-family/PARAM);
 //   - Refs resolve to objects with a KNOWN type tag;
@@ -17,7 +17,7 @@ use logos.lang.hermes.array;      // HArray<HVal>
 use logos.lang.hermes.hmap;       // HMap<HString, HVal>
 use logos.lang.hermes.hstring;    // HString
 
-pub fn hermes2_check(v: HAny) -> bool {
+pub fn hermes_check(v: HAny) -> bool {
     if v.is_null() { return true; }
     if v.is_pod() {
         let c: u8 = v.pod_code();
@@ -42,7 +42,7 @@ pub fn hermes2_check(v: HAny) -> bool {
             if n < 0i64 { return false; }
             let mut i: i64 = 0;
             while i < n {
-                if !hermes2_check(a.get(i)) { return false; }
+                if !hermes_check(a.get(i)) { return false; }
                 i = i + 1;
             }
             return true;
@@ -56,7 +56,7 @@ pub fn hermes2_check(v: HAny) -> bool {
                 let k: HAny = m.key_at(i);
                 if !k.is_null() {
                     if !k.is_string() { return false; }      // keys must be strings
-                    if !hermes2_check(m.val_at(i)) { return false; }
+                    if !hermes_check(m.val_at(i)) { return false; }
                 }
                 i = i + 1;
             }
@@ -79,7 +79,7 @@ pub fn hermes2_check(v: HAny) -> bool {
             let vals: i64 = vf + *(vf as *const i64);
             let mut i: i64 = 0;
             while i < sz {
-                if !hermes2_check(h2k_at(vals + i * 8)) { return false; }
+                if !hermes_check(h2k_at(vals + i * 8)) { return false; }
                 i = i + 1;
             }
             return true;
@@ -88,7 +88,7 @@ pub fn hermes2_check(v: HAny) -> bool {
         if tc == 4115u64 {
             let mut f: i64 = 0;
             while f < 3 {
-                if !hermes2_check(h2k_at((p as i64) + f * 8)) { return false; }
+                if !hermes_check(h2k_at((p as i64) + f * 8)) { return false; }
                 f = f + 1;
             }
             return true;

@@ -13,8 +13,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
     let a: HAny = parse(h, "@I64=42");
     let b: HAny = parse(h, "@I64()=42");
     let c: HAny = parse(h, "@I64( )=42");
@@ -24,8 +24,8 @@ unsafe fn main() -> i32 {
     if b.as_typed_value().has_params() { return 3; }
     if c.as_typed_value().has_params() { return 4; }
 
-    if !hermes2_equal(a, b) || !hermes2_equal(a, c) { return 5; }
-    if hermes2_hash(a) != hermes2_hash(b) { return 6; }
+    if !hermes_equal(a, b) || !hermes_equal(a, c) { return 5; }
+    if hermes_hash(a) != hermes_hash(b) { return 6; }
 
     let sa: String = stringify(a);
     let sb: String = stringify(b);

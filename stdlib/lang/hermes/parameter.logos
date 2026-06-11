@@ -1,7 +1,7 @@
-// Logos Hermes2 stdlib — hermes2.parameter
+// Logos Hermes stdlib — hermes2.parameter
 //
 // HParameter — a Hermes SDN query-parameter capture slot, wire code 127 (the
-// Hermes2 port of Hermes1's Parameter). The textual forms `?name` (a named
+// Hermes port of Hermes1's Parameter). The textual forms `?name` (a named
 // placeholder, filled at query time) and an `@`-literal capture both reduce to a
 // NAME plus an optional bound VALUE (null when the parameter is still unbound).
 //
@@ -11,7 +11,7 @@
 
 package logos.lang.hermes.parameter;
 
-use logos.lang.hermes.container;   // Hermes2, alloc_tagged, H2_PARAMETER
+use logos.lang.hermes.container;   // Hermes, alloc_tagged, H2_PARAMETER
 use logos.lang.hermes.anyval;      // HAny, h2_type_code
 use logos.lang.hermes.allocator;   // Allocator
 use logos.lang.hermes.hstring;     // HString, hstring_in_alloc
@@ -32,7 +32,7 @@ unsafe fn param_slot_c(p: *const HParameter, off: i64) -> *zoned HAny {
     return (p as *const u8).byte_add(off) as *zoned HAny;
 }
 
-unsafe fn param_new(h: *mut Hermes2, name: HAny, value: HAny) -> *mut HParameter {
+unsafe fn param_new(h: *mut Hermes, name: HAny, value: HAny) -> *mut HParameter {
     let obj: *mut HParameter =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HParameter>() as i64, H2_PARAMETER) as *mut HParameter;
     *(param_slot(obj, 0i64)) = name;    // *zoned write: lowers to a self-relative delta
@@ -54,12 +54,12 @@ impl HParameter {
     pub fn is_bound(self: &HParameter) -> bool { return !self.value().is_null(); }
 }
 
-impl Hermes2 {
+impl Hermes {
     // Build a query parameter `?name` in THIS arena (name interned as an HString).
     // Pass a null HAny for `value` to leave it unbound.
-    pub fn parameter(self: &Hermes2, name: str, value: HAny) -> HAny {
+    pub fn parameter(self: &Hermes, name: str, value: HAny) -> HAny {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             let hs: *mut HString = hstring_in_alloc(&mut h.allocator as *mut Allocator, name);
             let nm: HAny = HAny::ref_to(hs as *const u8);
             return HAny::ref_to(param_new(h, nm, value) as *const u8);

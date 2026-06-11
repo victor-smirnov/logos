@@ -15,17 +15,17 @@ use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // 1. Source document with a nested array.
-    let rc1: Rc<Hermes2> = hermes2_rc(16384);
-    let src_h: &Hermes2 = rc1.deref();
+    let rc1: Rc<Hermes> = hermes_rc(16384);
+    let src_h: &Hermes = rc1.deref();
     let src_root: HAny = parse(src_h, "{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}");
     let sm: &HMap<HString, HVal> = &*(src_root.resolve() as *const HMap<HString, HVal>);
     let arr_val: HAny = sm.get("arr");
     if arr_val.is_null() { return 2; }
 
     // 2. Import the array subtree into a fresh container.
-    let rc2: Rc<Hermes2> = hermes2_rc(16384);
-    let dst_h: &Hermes2 = rc2.deref();
-    let imported: HAny = hermes2_clone_into(dst_h, arr_val);
+    let rc2: Rc<Hermes> = hermes_rc(16384);
+    let dst_h: &Hermes = rc2.deref();
+    let imported: HAny = hermes_clone_into(dst_h, arr_val);
     if imported.is_null() { return 4; }
     if !imported.is_array() { return 5; }
     let ia: &HArray<HVal> = &*(imported.resolve() as *const HArray<HVal>);
@@ -33,12 +33,12 @@ unsafe fn main() -> i32 {
     if ia.get(2).as_i64() != 3i64 { return 7; }
 
     // 3. The copy is structurally equal but physically separate.
-    if !hermes2_equal(arr_val, imported) { return 8; }
+    if !hermes_equal(arr_val, imported) { return 8; }
     if imported.resolve() == arr_val.resolve() { return 9; }
 
     // 4. Import a string leaf too.
     let s_val: HAny = sm.get("s");
-    let s_imp: HAny = hermes2_clone_into(dst_h, s_val);
+    let s_imp: HAny = hermes_clone_into(dst_h, s_val);
     if !s_imp.is_string() { return 10; }
     let hs: &HString = &*(s_imp.resolve() as *const HString);
     if !str_eq(hs.as_str(), "hello") { return 11; }

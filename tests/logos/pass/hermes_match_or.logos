@@ -7,14 +7,14 @@ use logos.lang.hermes.pat;
 use logos.lang.hermes.container;
 use logos.mem.rc;
 
-unsafe fn mk(v: HAny) -> Rc<Hermes2> {
-    let rc: Rc<Hermes2> = hermes2_rc(1024);
-    let h: &Hermes2 = rc.deref();
+unsafe fn mk(v: HAny) -> Rc<Hermes> {
+    let rc: Rc<Hermes> = hermes_rc(1024);
+    let h: &Hermes = rc.deref();
     h.set_root(v);
     return rc;
 }
 
-unsafe fn check(d: &Rc<Hermes2>) -> i32 {
+unsafe fn check(d: &Rc<Hermes>) -> i32 {
     match d {
         @null | @42 => 1,
         @true | @-7 => 2,
@@ -23,10 +23,10 @@ unsafe fn check(d: &Rc<Hermes2>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Rc<Hermes2> = mk(HAny::Ref(0 as *const u8));        // 1
-    let b: Rc<Hermes2> = mk(HAny::from(42 as i56));     // 1
-    let c: Rc<Hermes2> = mk(HAny::from(true));  // 2
-    let d: Rc<Hermes2> = mk(HAny::from(-7 as i56));     // 2
-    let e: Rc<Hermes2> = mk(HAny::from(100 as i56));    // 0
+    let a: Rc<Hermes> = mk(HAny::Ref(0 as *const u8));        // 1
+    let b: Rc<Hermes> = mk(HAny::from(42 as i56));     // 1
+    let c: Rc<Hermes> = mk(HAny::from(true));  // 2
+    let d: Rc<Hermes> = mk(HAny::from(-7 as i56));     // 2
+    let e: Rc<Hermes> = mk(HAny::from(100 as i56));    // 0
     return check(&a) + check(&b) + check(&c) + check(&d) + check(&e); // 6
 }

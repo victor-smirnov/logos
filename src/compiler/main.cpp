@@ -1285,7 +1285,7 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
     return p;
 }
 
-// hermes2 metacall freeze: the Hermes-returning thunk passes the Rc<Hermes2>'s
+// hermes2 metacall freeze: the Hermes-returning thunk passes the Rc<Hermes>'s
 // root as a VALUE-FORM HAny word; deep-copy the reachable tree into a compact
 // single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
 // the prefix — the same wire shape as HermesStatic; driver reads *(ptr-8)).

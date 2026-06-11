@@ -7,8 +7,8 @@ use logos.mem.hermes.parser;
 use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
     if !parse(h, "<I32>[1,\"x\",3]").is_null() { return 1; }
     if !parse(h, "<I32>[true]").is_null() { return 2; }
     if !parse(h, "<I32>[1.25]").is_null() { return 3; }

@@ -3,27 +3,27 @@
 package hermes_match_str;
 
 use logos.lang.hermes.anyval;
-use logos.lang.hermes.pat;   // hermes2_pat_eq_str — `@"str"` pattern helper
+use logos.lang.hermes.pat;   // hermes_pat_eq_str — `@"str"` pattern helper
 use logos.lang.hermes.container;
 use logos.lang.hermes.hstring;
 use logos.mem.rc;
 
-unsafe fn mk_str(s: str) -> Rc<Hermes2> {
-    let rc: Rc<Hermes2> = hermes2_rc(1024);
-    let h: &Hermes2 = rc.deref();
+unsafe fn mk_str(s: str) -> Rc<Hermes> {
+    let rc: Rc<Hermes> = hermes_rc(1024);
+    let h: &Hermes = rc.deref();
     let hs: &HString = h.hstring(s);
     h.set_root(HAny::from(hs));
     return rc;
 }
 
-unsafe fn mk_i(i: i32) -> Rc<Hermes2> {
-    let rc: Rc<Hermes2> = hermes2_rc(1024);
-    let h: &Hermes2 = rc.deref();
+unsafe fn mk_i(i: i32) -> Rc<Hermes> {
+    let rc: Rc<Hermes> = hermes_rc(1024);
+    let h: &Hermes = rc.deref();
     h.set_root(HAny::from(i as i56));
     return rc;
 }
 
-unsafe fn classify(d: &Rc<Hermes2>) -> i32 {
+unsafe fn classify(d: &Rc<Hermes>) -> i32 {
     match d {
         @"hello" => 1,
         @"world" => 2,
@@ -33,10 +33,10 @@ unsafe fn classify(d: &Rc<Hermes2>) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Rc<Hermes2> = mk_str("hello");
-    let b: Rc<Hermes2> = mk_str("world");
-    let c: Rc<Hermes2> = mk_i(42);
-    let d: Rc<Hermes2> = mk_str("other");
+    let a: Rc<Hermes> = mk_str("hello");
+    let b: Rc<Hermes> = mk_str("world");
+    let c: Rc<Hermes> = mk_i(42);
+    let d: Rc<Hermes> = mk_str("other");
     // 1+2+3+0 = 6
     return classify(&a) + classify(&b) + classify(&c) + classify(&d);
 }

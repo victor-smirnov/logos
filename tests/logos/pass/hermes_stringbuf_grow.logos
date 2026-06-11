@@ -11,8 +11,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(65536);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(65536);
+    let h: &Hermes = rc.deref();
     let arr: &mut HArray<HVal> = h.array(8);
     let mut i: i64 = 0;
     while i < 100 {

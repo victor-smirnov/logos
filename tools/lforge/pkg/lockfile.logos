@@ -27,8 +27,8 @@ fn lf_get(root: HAny, key: str) -> HAny {
 
 pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
     unsafe {
-    let ctr: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = ctr.deref();
+    let ctr: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = ctr.deref();
     let root: HAny = parse(h, text);
     if !root.is_map() { return vec_new::<LockEntry>(); }
     let pinned_av: HAny = lf_get(root, "pinned");

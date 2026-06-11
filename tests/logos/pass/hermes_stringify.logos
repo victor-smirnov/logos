@@ -45,9 +45,9 @@ unsafe fn main() -> i32 {
     rc = check(&l11, "<I64, AnyVal> {5: 50}", 11); if rc != 0 { return rc; }
 
     // Boxed wide int renders by value.
-    let c: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = c.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let c: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = c.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let big: HAny = box_i64(&mut hp.allocator as *mut Allocator, 9000000000i64);
     let bs: String = stringify(big);
     if !bs.eq_str("9000000000") { return 12; }

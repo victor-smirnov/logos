@@ -1,7 +1,7 @@
-// Logos Hermes2 stdlib — hermes2.document
+// Logos Hermes stdlib — hermes2.document
 //
-// Document traversal over the heterogeneous Hermes2 tree. A "document" is a
-// `Hermes2` container plus its ROOT HAny (`h.set_root` / `h.root`); the walkers
+// Document traversal over the heterogeneous Hermes tree. A "document" is a
+// `Hermes` container plus its ROOT HAny (`h.set_root` / `h.root`); the walkers
 // here recurse the tree from any HAny, dispatching on `type_code()` exactly like
 // `equal` / `stringify`. `node_count` (every scalar/string/array/map node) is the
 // canonical demonstrator — the same shape extends to stringify / binary / fold.

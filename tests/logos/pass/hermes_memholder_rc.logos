@@ -1,5 +1,5 @@
 // Holder refcount semantics (hermes2 successor of the Hermes1 MemHolder RC
-// test): Rc<Hermes2> clones share ONE container; data written through one
+// test): Rc<Hermes> clones share ONE container; data written through one
 // handle is visible through the other; drops release in any order.
 package hermes_memholder_rc;
 use logos.lang.hermes.container;
@@ -11,18 +11,18 @@ struct Counter {
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
-    let c0: *mut Counter = hermes2_alloc::<Counter>(hp);
-    let c1: *mut Counter = hermes2_alloc::<Counter>(hp);
-    let c2: *mut Counter = hermes2_alloc::<Counter>(hp);
+    let c0: *mut Counter = hermes_alloc::<Counter>(hp);
+    let c1: *mut Counter = hermes_alloc::<Counter>(hp);
+    let c2: *mut Counter = hermes_alloc::<Counter>(hp);
     c0.value = 10; c1.value = 13; c2.value = 19;
 
     // A second handle to the same container (holder RC 1 -> 2).
-    let rc2: Rc<Hermes2> = rc.clone();
-    let h2: &Hermes2 = rc2.deref();
+    let rc2: Rc<Hermes> = rc.clone();
+    let h2: &Hermes = rc2.deref();
     // Same arena: the root set through one handle reads through the other.
     h2.set_root(HAny::from(99 as i56));
     if h.root().as_i64() != 99i64 { return 1; }

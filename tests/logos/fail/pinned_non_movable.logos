@@ -1,4 +1,4 @@
-// #[pinned] — a location-anchored at-rest type (the Hermes2 HAnyRel pattern):
+// #[pinned] — a location-anchored at-rest type (the Hermes HAnyRel pattern):
 // its bits are anchored to its storage slot (a self-relative delta), so it must
 // NEVER be moved by value (memcpy would break the anchor). It lives only behind a
 // pointer (`*mut`), accessed in place + materialised explicitly to its movable

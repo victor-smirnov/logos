@@ -17,14 +17,14 @@
 
 namespace logos::hermes {
 
-// DocumentHeader — the untagged header at OFFSET 0 of every Hermes2 document arena:
+// DocumentHeader — the untagged header at OFFSET 0 of every Hermes document arena:
 // it holds the document root (an at-rest AnyVal). Putting it at offset 0 means a
 // loaded blob always finds the root at the start.
 struct DocumentHeader {
     AnyVal root;
 };
 
-// HermesCtr — an OWNING handle to a Hermes2 document: the MemHolder (residency) plus
+// HermesCtr — an OWNING handle to a Hermes document: the MemHolder (residency) plus
 // its in-arena DocumentHeader (the root slot). Move-only (a unique owning Rc); the
 // holder's refcount is released on destruction.
 class HermesCtr {

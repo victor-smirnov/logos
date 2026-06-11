@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// ArenaPool (Hermes2 port) — process-global registry mapping arena_id → MemHolder.
+// ArenaPool (Hermes port) — process-global registry mapping arena_id → MemHolder.
 // The lookup substrate for the multi-arena IR. Ported from src/hermes/arena_pool.*
 // onto the hermes2 MemHolder; the API + invariants are unchanged so logosc's
 // call-sites move with a `hermes::` → `hermes::` rename.

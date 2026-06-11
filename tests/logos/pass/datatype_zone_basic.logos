@@ -6,10 +6,10 @@ use logos.mem.rc;
 struct Point { x: i32, y: i32 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
-    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    let rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
+    let p: *mut Point = hermes_alloc::<Point>(hp);
     p.x = 18;
     p.y = 12;
     return p.x + p.y;   // 30

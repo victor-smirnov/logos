@@ -1,5 +1,5 @@
 // Hermes map comprehension: fixed key per iteration (put path, last-write-wins)
-// + guard. hermes2 Rc<Hermes2> builder.
+// + guard. hermes2 Rc<Hermes> builder.
 package hermes_map_comp_basic;
 
 use logos.lang.hermes.comp_builder;
@@ -12,19 +12,19 @@ fn main() -> i32 {
     let arr: [i32; 4] = [10, 20, 30, 40];
 
     // All-same-key — tests the put path, last-write-wins.
-    let doc: Rc<Hermes2> = @{"k": x for x in arr};
+    let doc: Rc<Hermes> = @{"k": x for x in arr};
 
     // Guarded: keep only x divisible by 20.
-    let doc2: Rc<Hermes2> = @{"k": x * 2 for x in arr if (x % 20) == 0};
+    let doc2: Rc<Hermes> = @{"k": x * 2 for x in arr if (x % 20) == 0};
 
     unsafe {
         let v0: HView2 = HView2 { base: 0 as *const u8 };
-        let h1: &Hermes2 = doc.deref();
+        let h1: &Hermes = doc.deref();
         let r1: HAny = h1.root();
         if !r1.is_map() { return 1; }
         if v0.get_int(v0.map_get(r1, "k")) != 40i64 { return 2; }   // last wins
 
-        let h2: &Hermes2 = doc2.deref();
+        let h2: &Hermes = doc2.deref();
         let r2: HAny = h2.root();
         if !r2.is_map() { return 3; }
         if v0.get_int(v0.map_get(r2, "k")) != 80i64 { return 4; }   // 20,40 → last 80

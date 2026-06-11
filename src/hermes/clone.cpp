@@ -165,7 +165,7 @@ logos::expected<ClonedDoc> clone(AnyVal root) noexcept {
 
 logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept {
     // No source container to size from (the root may live in any arena —
-    // e.g. a metacall JIT's Rc<Hermes2>), so clone once to measure the live
+    // e.g. a metacall JIT's Rc<Hermes>), so clone once to measure the live
     // set, then compact into a right-sized single chunk.
     LOGOS_TRY(auto first, clone(root));
     size_t live = first.holder->arena().total_used();

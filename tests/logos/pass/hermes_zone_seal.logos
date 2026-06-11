@@ -13,13 +13,13 @@ struct Pair {
 }
 
 unsafe fn main() -> i32 {
-    let mut rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let mut rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
     // Two typed allocations in the never-move arena.
-    let p1: *mut Pair = hermes2_alloc::<Pair>(hp);
-    let p2: *mut Pair = hermes2_alloc::<Pair>(hp);
+    let p1: *mut Pair = hermes_alloc::<Pair>(hp);
+    let p2: *mut Pair = hermes_alloc::<Pair>(hp);
     p1.a = 7;  p1.b = 3;
     p2.a = 20; p2.b = 12;
 

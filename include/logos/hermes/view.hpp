@@ -18,7 +18,7 @@ namespace logos::hermes {
 
 // View<Obj> — an OWNING typed view over an arena object. It carries a +1 ref on the
 // MemHolder (the residency root) plus the RESOLVED absolute pointer to the object —
-// valid because nothing in a Hermes2 segment ever moves while the holder lives.
+// valid because nothing in a Hermes segment ever moves while the holder lives.
 //
 // Owning (not the Hermes1 non-owning view + Own<> split): without a borrow checker
 // C++ cannot prove the holder outlives the view, so the view must keep it alive.

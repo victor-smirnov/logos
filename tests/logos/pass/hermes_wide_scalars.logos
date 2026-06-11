@@ -1,0 +1,52 @@
+// Hermes wide scalars — values that don't fit the 56-bit inline Pod are boxed in
+// the segment by Ref: full i64 (H2_I64) and f64 (H2_F64). Verifies box/read,
+// dispatch (is_int covers Pod i56 + boxed i64; is_float), and round-trips through
+// parser / HBS / compactify.
+package test;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.compactify;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.hbs;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+fn main() -> i32 {
+    let h: Hermes = hermes_new(2048i64);
+    let big: i64 = 9000000000000000000i64;     // > 2^55 → boxed
+    let a: &mut HArray<HVal> = h.array(8i64);
+    a.push(7i64); a.push(big); a.push(3.14f64); a.push(-2.5f64);
+
+    // dispatch + read-back
+    if !a.get(0i64).is_int() || a.get(0i64).as_i64() != 7i64 { return 1; }       // Pod i56
+    if !a.get(1i64).is_int() || a.get(1i64).as_i64() != big { return 2; }        // boxed i64
+    if a.get(1i64).is_pod() { return 3; }                                        // big one is a Ref
+    if !a.get(2i64).is_float() || a.get(2i64).as_f64() != 3.14f64 { return 4; }  // boxed f64
+    if !a.get(3i64).is_float() || a.get(3i64).as_f64() != -2.5f64 { return 5; }
+
+    // stringify
+    if !str_eq(stringify(HAny::from(&*a)).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 6; }
+
+    // parser → big int + float
+    let d: HAny = parse(&h, "[9000000000000000000, 3.14, -2.5]");
+    let pa: &HArray<HVal> = unsafe { &*(d.resolve() as *const HArray<HVal>) };
+    if pa.get(0i64).as_i64() != big { return 7; }
+    if pa.get(1i64).as_f64() != 3.14f64 { return 8; }
+
+    // HBS round-trip
+    let bytes: Vec<u8> = hbs_write(HAny::from(&*a));
+    let h2: Hermes = hermes_new(2048i64);
+    let back: HAny = hbs_read(&h2, bytes.as_slice().as_ptr(), bytes.len());
+    if !str_eq(stringify(back).as_str(), "[7, 9000000000000000000, 3.14, -2.5]") { return 9; }
+
+    // compactify (boxed scalars re-boxed into the fresh arena)
+    let h3: Hermes = hermes_new(2048i64);
+    let comp: HAny = compactify(&h3, HAny::from(&*a));
+    let ca: &HArray<HVal> = unsafe { &*(comp.resolve() as *const HArray<HVal>) };
+    if ca.get(1i64).as_i64() != big { return 10; }
+    if ca.get(2i64).as_f64() != 3.14f64 { return 11; }
+    return 0;
+}

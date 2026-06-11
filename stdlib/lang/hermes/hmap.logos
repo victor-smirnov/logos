@@ -1,7 +1,7 @@
-// Logos Hermes2 stdlib — hermes2.objectmap
+// Logos Hermes stdlib — hermes2.objectmap
 //
 // HMap<HString, HVal> — a string-keyed hash map (the JSON "object") over the never-move
-// arena, the Hermes2 port of hermes.objectmap. Open-addressing with linear
+// arena, the Hermes port of hermes.objectmap. Open-addressing with linear
 // probing + FNV-1a (logos.lang.hash); keys are interned HStrings, values HAny.
 //
 // Unlike Hermes1's fixed-capacity zone map (which dropped inserts when full),
@@ -18,7 +18,7 @@
 
 package logos.lang.hermes.hmap;
 
-use logos.lang.hermes.container;   // Hermes2, hermes2_alloc / _n
+use logos.lang.hermes.container;   // Hermes, hermes_alloc / _n
 use logos.lang.hermes.allocator;   // Allocator, allocator_alloc
 use logos.lang.hermes.anyval;      // HAny (niche enum), HAnyMut, HA_I56 — at-rest via *zoned
 use logos.lang.hermes.hstring;     // HString, hstring_in_alloc
@@ -84,11 +84,11 @@ fn round_pow2(n: i64) -> i64 {
     return c;
 }
 
-unsafe fn om_new(h: *mut Hermes2, cap: i64) -> *mut HMap<HString, HVal> {
+unsafe fn om_new(h: *mut Hermes, cap: i64) -> *mut HMap<HString, HVal> {
     // The header is HAny-Ref'd (HAny::from(&HMap<HString, HVal>)) → tag it for dispatch.
     let hdr: *mut HMap<HString, HVal> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap<HString, HVal>>() as i64, H2_MAP) as *mut HMap<HString, HVal>;
-    let buf: *mut HMapEntry  = hermes2_alloc_n::<HMapEntry>(h, cap);
+    let buf: *mut HMapEntry  = hermes_alloc_n::<HMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
     hdr.data  = buf;            // #[zoned2]: lowers to self-relative offset
@@ -201,12 +201,12 @@ unsafe fn om_get_slot(m: *mut HMap<HString, HVal>, key: str) -> *zoned mut HAny 
 }
 
 // ── Direct-reference surface (like HArray<HVal>) ────────────────────────────────
-impl Hermes2 {
+impl Hermes {
     // Create an empty string-keyed map with at least `cap` slots (rounded to a
     // power of two, min 8). `&self` interior-mut allocation into never-move storage.
-    pub fn map<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HMap<HString, HVal> {
+    pub fn map<'a>(self: &'a Hermes, cap: i64) -> &'a mut HMap<HString, HVal> {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             // Fat `&mut` carrying this container's zone (the allocator); set/grow/
             // intern recover it via zone_of(self).
             return zone_mut_ref::<HMap<HString, HVal>>(om_new(h, round_pow2(cap)), &mut h.allocator as *mut u8);
@@ -310,11 +310,11 @@ pub type HTinyValMap = HMap<Hu6, HVal>;
 
 const HTV_BITMAP_MASK: u64 = 0x000FFFFFFFFFFFFFu64;   // bits[0:51] presence bitmap
 
-unsafe fn htv_new(h: *mut Hermes2, cap: i64) -> *mut HMap<Hu6, HVal> {
+unsafe fn htv_new(h: *mut Hermes, cap: i64) -> *mut HMap<Hu6, HVal> {
     let c: i64 = if cap > 52i64 { 52i64 } else { if cap < 0i64 { 0i64 } else { cap } };
     let hdr: *mut HMap<Hu6, HVal> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap<Hu6, HVal>>() as i64, H2_TINYMAP) as *mut HMap<Hu6, HVal>;
-    let buf: *zoned mut HAny = hermes2_alloc_n::<HAny>(h, c) as *zoned mut HAny;
+    let buf: *zoned mut HAny = hermes_alloc_n::<HAny>(h, c) as *zoned mut HAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
     hdr.schema = 0u64;                  // no schema by default
     hdr.data   = buf;                   // #[zoned2]: lowers to a self-relative offset
@@ -369,11 +369,11 @@ impl HMap<Hu6, HVal> {
     }
 }
 
-impl Hermes2 {
+impl Hermes {
     // Create an empty bitmap-indexed tiny map; thin `&mut` (fixed capacity → no zone).
-    pub fn tinymap<'a>(self: &'a Hermes2, cap: i64) -> &'a mut HMap<Hu6, HVal> {
+    pub fn tinymap<'a>(self: &'a Hermes, cap: i64) -> &'a mut HMap<Hu6, HVal> {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             return &mut *htv_new(h, cap);
         }
     }
@@ -415,11 +415,11 @@ pub struct HMap<K, HVal> {
 // The dense int-keyed map (Hermes1 Map<K,AnyVal>); was the standalone HIntMap<K>.
 pub type HIntMap<K> = HMap<K, HVal>;
 
-unsafe fn him_new<K: HIntKeyTag>(h: *mut Hermes2, cap: i64) -> *mut HMap<K, HVal> {
+unsafe fn him_new<K: HIntKeyTag>(h: *mut Hermes, cap: i64) -> *mut HMap<K, HVal> {
     let hdr: *mut HMap<K, HVal> =
         alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HMap<K, HVal>>() as i64, K::map_code()) as *mut HMap<K, HVal>;
-    let kbuf: *mut K          = hermes2_alloc_n::<K>(h, cap);
-    let vbuf: *zoned mut HAny = hermes2_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
+    let kbuf: *mut K          = hermes_alloc_n::<K>(h, cap);
+    let vbuf: *zoned mut HAny = hermes_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.size = 0i64;
     hdr.cap  = cap;
     hdr.keys = kbuf;            // #[zoned2]: lower to self-relative offsets
@@ -471,11 +471,11 @@ impl<K: HIntKeyTag> HMap<K, HVal> {
     }
 }
 
-impl Hermes2 {
+impl Hermes {
     // Create an empty int-keyed map; thin `&mut` (fixed capacity → no carried zone).
-    pub fn intmap<'a, K: HIntKeyTag>(self: &'a Hermes2, cap: i64) -> &'a mut HMap<K, HVal> {
+    pub fn intmap<'a, K: HIntKeyTag>(self: &'a Hermes, cap: i64) -> &'a mut HMap<K, HVal> {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             return &mut *him_new::<K>(h, cap);
         }
     }

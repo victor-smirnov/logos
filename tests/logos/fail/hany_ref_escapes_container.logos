@@ -1,4 +1,4 @@
-// HAny escape safety: an HAny may be a Ref (absolute ptr) into a Hermes2 arena.
+// HAny escape safety: an HAny may be a Ref (absolute ptr) into a Hermes arena.
 // Returning one derived from a LOCAL container is dangling (the container drops →
 // arena freed → the Ref dangles). Caught because HAny is `#[borrow_carrying]`: the
 // borrow checker escape-tracks it like a reference — `arr.get(i)` / `HAny::from(&x)`
@@ -9,7 +9,7 @@ use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.array;
 fn make_elem() -> HAny {
-    let h: Hermes2 = hermes2_new(64i64);
+    let h: Hermes = hermes_new(64i64);
     let nested: &mut HArray<HVal> = h.array(2i64);
     nested.push(HAny::from(99i64));
     return HAny::from(&*nested);   // ERROR: Ref into local container's arena, escapes

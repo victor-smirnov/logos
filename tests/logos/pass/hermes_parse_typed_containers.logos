@@ -9,7 +9,7 @@ use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-unsafe fn check(h: &Hermes2, text: str, expected: str, err: i32) -> i32 {
+unsafe fn check(h: &Hermes, text: str, expected: str, err: i32) -> i32 {
     let v: HAny = parse(h, text);
     let s: String = stringify(v);
     if !s.eq_str(expected) { return err; }
@@ -17,8 +17,8 @@ unsafe fn check(h: &Hermes2, text: str, expected: str, err: i32) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(32768);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(32768);
+    let h: &Hermes = rc.deref();
     let mut r: i32 = 0;
 
     r = check(h, "<I32>[1,2,3]", "<I32> [1, 2, 3]", 1);             if r != 0 { return r; }

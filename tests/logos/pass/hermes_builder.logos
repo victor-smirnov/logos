@@ -11,8 +11,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
 
     // Root map with 8 slots; fill via typed set overloads + explicit HAny.
     let m: &mut HMap<HString, HVal> = h.map(8);

@@ -1,12 +1,12 @@
-// Logos Hermes2 stdlib — hermes2.container
+// Logos Hermes stdlib — hermes2.container
 //
-// Hermes2: the owned, mutable root container (Vec/Box-like) for a never-move
+// Hermes: the owned, mutable root container (Vec/Box-like) for a never-move
 // zoned document. It owns an Allocator (the never-move segment arena) and places
 // typed objects into it. A placed object NEVER moves, so a pointer to it — and
 // any self-relative zoned reference into it — stays valid for the container's
 // lifetime; growth appends a fresh segment rather than reallocating.
 //
-// This layer is monomorphic (typed) placement: `hermes2_alloc::<T>()` reserves
+// This layer is monomorphic (typed) placement: `hermes_alloc::<T>()` reserves
 // storage for a T and returns a raw pointer to it. The heterogeneous /
 // self-describing (type_code-tagged, AnyVal) layer is built on top of this
 // later, together with Array<AnyVal> and the document root.
@@ -21,7 +21,7 @@ use logos.mem.rc;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).
-pub struct Hermes2 {
+pub struct Hermes {
     pub allocator: Allocator,
     // The document ROOT — the top-level HAny, stored as its raw 8-byte word (0 =
     // null/unset). The Hermes1 DocumentHeader analogue, folded into the root
@@ -32,43 +32,43 @@ pub struct Hermes2 {
 // Create a container whose segments default to `seg_size` data bytes. SAFE: the
 // returned container is a sound owned root (RAII-freed on drop); the segment
 // malloc is the only unsafe step and is fully encapsulated here.
-pub fn hermes2_new(seg_size: i64) -> Hermes2 {
-    return Hermes2 { allocator: unsafe { allocator_new(seg_size) }, root: 0i64 };
+pub fn hermes_new(seg_size: i64) -> Hermes {
+    return Hermes { allocator: unsafe { allocator_new(seg_size) }, root: 0i64 };
 }
 
-impl Hermes2 {
+impl Hermes {
     // The document root value (the top-level HAny). `set_root` is interior-mutable
     // (`&self`, like `array`/`map`) — writing the root word neither moves nor
     // invalidates anything in the never-move arena, so it coexists with live
     // references into the container. `root()` reconstructs the HAny from the stored
     // word (branchless: a Pod word reads back Pod, a Ref word reads back Ref).
-    pub fn set_root(self: &Hermes2, v: HAny) {
-        unsafe { let p: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2; p.root = v.raw(); }
+    pub fn set_root(self: &Hermes, v: HAny) {
+        unsafe { let p: *mut Hermes = self as *const Hermes as *mut Hermes; p.root = v.raw(); }
     }
-    pub fn root(self: &Hermes2) -> HAny { return HAny::ref_to(self.root as *const u8); }
+    pub fn root(self: &Hermes) -> HAny { return HAny::ref_to(self.root as *const u8); }
 }
 
 // Free the container and all its segments en masse. Must not be used after.
-pub unsafe fn hermes2_free(h: *mut Hermes2) {
+pub unsafe fn hermes_free(h: *mut Hermes) {
     allocator_free(&mut h.allocator);
 }
 
 // Place one uninitialised `T` into a never-move segment; return a pointer to it.
 // The caller initialises the storage. The pointer is stable for the container's
 // lifetime. Returns null on OOM.
-pub unsafe fn hermes2_alloc<T>(h: *mut Hermes2) -> *mut T {
+pub unsafe fn hermes_alloc<T>(h: *mut Hermes) -> *mut T {
     return allocator_alloc(&mut h.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` contiguous uninitialised `T` (array backing) in one segment; return
 // a pointer to element 0. Stable for the container's lifetime. Null on OOM.
-pub unsafe fn hermes2_alloc_n<T>(h: *mut Hermes2, n: i64) -> *mut T {
+pub unsafe fn hermes_alloc_n<T>(h: *mut Hermes, n: i64) -> *mut T {
     return allocator_alloc(&mut h.allocator, (sizeof::<T>() as i64) * n, align_of::<T>() as i64) as *mut T;
 }
 
 // Place `n` raw bytes (for self-describing blobs — Varchar payloads, etc.).
 // Stable for the container's lifetime. Null on OOM.
-pub unsafe fn hermes2_alloc_bytes(h: *mut Hermes2, n: i64) -> *mut u8 {
+pub unsafe fn hermes_alloc_bytes(h: *mut Hermes, n: i64) -> *mut u8 {
     return allocator_alloc(&mut h.allocator, n, 8i64);   // conservative: callers may place 8-aligned data
 }
 
@@ -97,7 +97,7 @@ pub unsafe fn h2_write_tag(obj: *mut u8, code: u64) {
 // 0 — and write the (varint) type `code` ending at obj[-1]. Returns the object
 // pointer; `h2_type_code(obj)` reads the code back. Takes `*mut Allocator` so
 // containers holding only an allocator back-pointer (HArray<HVal>, HMap<HString,
-// HVal>, HTinyValMap) can tag-allocate without the full Hermes2.
+// HVal>, HTinyValMap) can tag-allocate without the full Hermes.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;
@@ -135,14 +135,14 @@ pub unsafe fn make_int(a: *mut Allocator, v: i64) -> HAny {
     return box_i64(a, v);
 }
 
-impl Hermes2 {
+impl Hermes {
     // Build a scalar HAny in THIS arena (boxing wide values). For walkers that
-    // hold a `&Hermes2` (parse / hbs_read / compactify).
-    pub fn int(self: &Hermes2, v: i64) -> HAny {
-        unsafe { return make_int(&mut (self as *const Hermes2 as *mut Hermes2).allocator as *mut Allocator, v); }
+    // hold a `&Hermes` (parse / hbs_read / compactify).
+    pub fn int(self: &Hermes, v: i64) -> HAny {
+        unsafe { return make_int(&mut (self as *const Hermes as *mut Hermes).allocator as *mut Allocator, v); }
     }
-    pub fn float(self: &Hermes2, v: f64) -> HAny {
-        unsafe { return box_f64(&mut (self as *const Hermes2 as *mut Hermes2).allocator as *mut Allocator, v); }
+    pub fn float(self: &Hermes, v: f64) -> HAny {
+        unsafe { return box_f64(&mut (self as *const Hermes as *mut Hermes).allocator as *mut Allocator, v); }
     }
 }
 
@@ -152,18 +152,18 @@ impl Hermes2 {
 // pointer (the object never moves). The user cannot dereference it directly (the
 // field is private); the only way to read it is `container.get(slot)`, which
 // returns a `&'a T` tied to `&'a self`. The borrow checker therefore enforces,
-// with NO Hermes2-specific machinery:
+// with NO Hermes-specific machinery:
 //   • a view may not outlive the container it borrows from (E0716 / return-of-
 //     local), and
 //   • mutation excludes views — `get_mut` (or another `&mut self` placement) and
 //     a live `&self` view cannot coexist.
-// The raw `hermes2_alloc*` above stay `unsafe`; this layer is the safe surface.
+// The raw `hermes_alloc*` above stay `unsafe`; this layer is the safe surface.
 pub struct Slot<T> { p: *mut T }
 
-impl Hermes2 {
+impl Hermes {
     // Place `v` into a never-move segment; return an opaque handle. `&mut self`:
     // placement is an exclusive operation. (Internally unsafe; the API is safe.)
-    pub fn put<T>(self: &mut Hermes2, v: T) -> Slot<T> {
+    pub fn put<T>(self: &mut Hermes, v: T) -> Slot<T> {
         unsafe {
             let p: *mut T = allocator_alloc(&mut self.allocator, sizeof::<T>() as i64, align_of::<T>() as i64) as *mut T;
             *p = v;
@@ -173,13 +173,13 @@ impl Hermes2 {
 
     // Borrow the slot's value, tied to the container's lifetime: the returned
     // `&'a T` may not outlive `&'a self`. Many shared views may coexist.
-    pub fn get<'a, T>(self: &'a Hermes2, s: Slot<T>) -> &'a T {
+    pub fn get<'a, T>(self: &'a Hermes, s: Slot<T>) -> &'a T {
         unsafe { return &*(s.p as *const T); }
     }
 
     // Exclusive borrow: `&'a mut self` → `&'a mut T`. While it lives, no other
     // view (shared or mutable) of the container is allowed.
-    pub fn get_mut<'a, T>(self: &'a mut Hermes2, s: Slot<T>) -> &'a mut T {
+    pub fn get_mut<'a, T>(self: &'a mut Hermes, s: Slot<T>) -> &'a mut T {
         unsafe { return &mut *(s.p); }
     }
 }
@@ -187,29 +187,29 @@ impl Hermes2 {
 // ── Residency: holder (Rc) + escaping held references ─────────────────────────
 //
 // A reference into the container is valid only while the container's segments are
-// alive. For an in-scope reference the borrow checker keeps the owning `Hermes2`
+// alive. For an in-scope reference the borrow checker keeps the owning `Hermes`
 // alive; a reference that ESCAPES that scope must carry a residency *holder* — an
-// `Rc<Hermes2>` whose clone keeps the segments alive. `hermes2_rc` creates the
+// `Rc<Hermes>` whose clone keeps the segments alive. `hermes_rc` creates the
 // refcounted (held) container; `hold(&mut h, r)` pairs a reference with a holder
 // clone into a `Held<T>` that can be returned/stored. When the last holder drops,
 // the container drops (Drop frees all segments). (`dyn Resident` type-erasure of
 // the holder + the enforced ref ≤ holder borrow-tie are the next steps.)
-pub fn hermes2_rc(seg_size: i64) -> Rc<Hermes2> { return rc_new(hermes2_new(seg_size)); }
+pub fn hermes_rc(seg_size: i64) -> Rc<Hermes> { return rc_new(hermes_new(seg_size)); }
 
 // `Resident` — a residency root (a segment set), type-erased behind `dyn Resident`
-// so a holder is OPAQUE: it does not name `Hermes2`, and any future container type
+// so a holder is OPAQUE: it does not name `Hermes`, and any future container type
 // is held uniformly. Dropping the last `Rc<dyn Resident>` runs the concrete
 // container's Drop (frees its segments).
 pub trait Resident { }
-impl Resident for Hermes2 { }
+impl Resident for Hermes { }
 
 pub struct Held<T> { holder: Rc<dyn Resident>, ptr: *const T }
 
 // Pair a reference with a holder clone — the escape form of the reference. The
-// `Rc<Hermes2>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
+// `Rc<Hermes>` clone unsize-coerces to the opaque `Rc<dyn Resident>` holder at
 // the type-annotated let (Logos coerces Rc<T>→Rc<dyn> at an annotated let / call
 // arg, not yet at a struct-literal field).
-pub fn hold<T>(h: &mut Rc<Hermes2>, r: &T) -> Held<T> {
+pub fn hold<T>(h: &mut Rc<Hermes>, r: &T) -> Held<T> {
     let holder: Rc<dyn Resident> = h.clone_ref();
     return Held { holder: holder, ptr: r as *const T };
 }
@@ -222,23 +222,23 @@ impl<T> Held<T> {
 // ── Escaping HAny: bind to the HERMES2 arena, not the parent container ─────────
 //
 // An `HAny` is a value (movable), but a Ref `HAny` is an ABSOLUTE pointer into the
-// Hermes2 arena. The object it points at is owned by the ARENA (Hermes2) — NOT by
+// Hermes arena. The object it points at is owned by the ARENA (Hermes) — NOT by
 // the `Array`/`Map`/… it was read from: that parent is just the read site, and the
 // Ref may point anywhere in the same arena. So an escaping `HAny` must carry a
 // holder of the HERMES2 (the residency that keeps the arena's segments alive),
 // independent of any parent container. `HeldAny` is that escape package: it stores
-// the value BY VALUE (no `*const`, unlike `Held<T>`) + a Hermes2 holder; while the
+// the value BY VALUE (no `*const`, unlike `Held<T>`) + a Hermes holder; while the
 // HeldAny lives the arena is alive, so `val()`/`resolve()` are well-defined.
 pub struct HeldAny { holder: Rc<dyn Resident>, val: HAny }
 
 // Pair an HAny with a clone of the container's residency holder.
-pub fn hold_any(h: &mut Rc<Hermes2>, v: HAny) -> HeldAny {
+pub fn hold_any(h: &mut Rc<Hermes>, v: HAny) -> HeldAny {
     let holder: Rc<dyn Resident> = h.clone_ref();
     return HeldAny { holder: holder, val: v };
 }
 
 impl HeldAny {
-    // The held value; valid while this HeldAny (hence its Hermes2 holder) lives.
+    // The held value; valid while this HeldAny (hence its Hermes holder) lives.
     pub fn val(self: &HeldAny) -> HAny { return self.val; }
     pub fn resolve(self: &HeldAny) -> *const u8 { return self.val.resolve(); }
 }

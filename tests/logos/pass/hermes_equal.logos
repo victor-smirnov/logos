@@ -1,0 +1,42 @@
+// Hermes structural equality + clone. Equality by value (across arenas); int/
+// float not cross-equal; maps order-independent; clone/compactify preserve it.
+package test;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.hermes.equal;
+use logos.lang.hermes.compactify;
+use logos.mem.hermes.parser;
+fn main() -> i32 {
+    let h: Hermes = hermes_new(4096i64);
+    let src: str = "[1, \"x\", [2, 3], {\"k\": true}, 9000000000000000000, 3.14]";
+    let a1: HAny = parse(&h, src);
+    let a2: HAny = parse(&h, src);
+    if !equal(a1, a2) { return 1; }                       // equal, distinct objects
+
+    let a3: HAny = parse(&h, "[1, \"x\", [2, 4], {\"k\": true}, 9000000000000000000, 3.14]");
+    if equal(a1, a3) { return 2; }                        // one element differs
+
+    // clone → equal + independent
+    let c: HAny = clone(&h, a1);
+    if !equal(a1, c) { return 3; }
+
+    // compactify (fresh arena) preserves equality
+    let h2: Hermes = hermes_new(4096i64);
+    if !equal(a1, compactify(&h2, a1)) { return 4; }
+
+    // map key-order independence
+    let m1: &mut HMap<HString, HVal> = h.map(8i64); m1.set("a", 1i64); m1.set("b", 2i64); m1.set("c", 3i64);
+    let m2: &mut HMap<HString, HVal> = h.map(8i64); m2.set("c", 3i64); m2.set("a", 1i64); m2.set("b", 2i64);
+    if !equal(HAny::from(&*m1), HAny::from(&*m2)) { return 5; }
+    m2.set("b", 99i64);
+    if equal(HAny::from(&*m1), HAny::from(&*m2)) { return 6; }   // value differs now
+
+    // int vs float are not cross-equal; null/bool distinct
+    if equal(h.int(3i64), h.float(3.0f64)) { return 7; }
+    if equal(HAny::from(true), HAny::ref_to(0i64 as *const u8)) { return 8; }
+    if !equal(h.int(5i64), h.int(5i64)) { return 9; }
+    return 0;
+}

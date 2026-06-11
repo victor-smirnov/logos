@@ -1,0 +1,45 @@
+// Hermes compactify — copy a multi-segment doc into a fresh arena (copying GC).
+// Build a doc in a TINY-segment source (forcing many segments), compactify into a
+// fresh arena, and verify the compacted copy stringifies identically + is fully
+// independent (round-trips through HBS on its own).
+package test;
+use logos.lang.hermes.container;
+use logos.lang.hermes.anyval;
+use logos.lang.hermes.array;
+use logos.lang.hermes.hmap;
+use logos.lang.hermes.hstring;
+use logos.lang.hermes.compactify;
+use logos.mem.hermes.parser;
+use logos.mem.hermes.stringify;
+use logos.mem.hermes.hbs;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+fn main() -> i32 {
+    let src: str = "{\"a\": [1, 2, 3], \"b\": {\"c\": \"deep\", \"d\": [true, false, null]}, \"n\": -42}";
+    // parse into a TINY-segment arena → the doc spans many never-move segments
+    let small: Hermes = hermes_new(32i64);
+    let doc: HAny = parse(&small, src);
+    let before: String = stringify(doc);
+
+    // compactify into a fresh arena (one big segment → single rigid block)
+    let big: Hermes = hermes_new(4096i64);
+    let comp: HAny = compactify(&big, doc);
+    if !str_eq(stringify(comp).as_str(), before.as_str()) { return 1; }   // identical content
+
+    // the compacted copy is fully independent — round-trips through HBS by itself
+    let bytes: Vec<u8> = hbs_write(comp);
+    let h3: Hermes = hermes_new(4096i64);
+    let back: HAny = hbs_read(&h3, bytes.as_slice().as_ptr(), bytes.len());
+    if !str_eq(stringify(back).as_str(), before.as_str()) { return 2; }
+
+    // spot-check structure of the compacted map
+    let m: &HMap<HString, HVal> = unsafe { &*(comp.resolve() as *const HMap<HString, HVal>) };
+    if m.get("n").as_i56() != (0i64 - 42i64) { return 3; }
+    let inner: &HMap<HString, HVal> = unsafe { &*(m.get("b").resolve() as *const HMap<HString, HVal>) };
+    if !str_eq(h3.hstring_of(inner.get("c")).as_str(), "deep") {
+        // note: inner is in `big`, resolve via any arena (hstring_of ignores self)
+        if !str_eq(big.hstring_of(inner.get("c")).as_str(), "deep") { return 4; }
+    }
+    return 0;
+}

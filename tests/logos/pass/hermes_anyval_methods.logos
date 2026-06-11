@@ -29,9 +29,9 @@ unsafe fn main() -> i32 {
     if vu.as_i64() != 255i64 { return 9; }
 
     // --- boxed wide scalars live in a zone; accessors see through the box ---
-    let rc: Rc<Hermes2> = hermes2_rc(4096);
-    let h: &Hermes2 = rc.deref();
-    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let rc: Rc<Hermes> = hermes_rc(4096);
+    let h: &Hermes = rc.deref();
+    let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let big: HAny = box_i64(&mut hp.allocator as *mut Allocator, 1311768467463790320i64);
     if !big.is_int()   { return 10; }
     if big.is_pod()    { return 11; }                       // boxed → Ref, not Pod

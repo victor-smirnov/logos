@@ -1,6 +1,6 @@
-// Logos Hermes2 stdlib — hermes2.compactify
+// Logos Hermes stdlib — hermes2.compactify
 //
-// Copy-compaction (the copying-GC half of design §6). A live Hermes2 document may
+// Copy-compaction (the copying-GC half of design §6). A live Hermes document may
 // be spread across MANY never-move segments (growth appends; nothing is reclaimed
 // in place). `compactify` walks the doc from its root and rebuilds it wholesale in
 // a FRESH arena `dst` — every string/array/map re-allocated, every Pod copied by
@@ -16,7 +16,7 @@
 
 package logos.lang.hermes.compactify;
 
-use logos.lang.hermes.container;   // Hermes2
+use logos.lang.hermes.container;   // Hermes
 use logos.lang.hermes.anyval;      // HAny
 use logos.lang.hermes.array;       // HArray<HVal>
 use logos.lang.hermes.hmap;        // HMap<HString, HVal>
@@ -27,7 +27,7 @@ use logos.lang.ptr;
 // Deep-copy `v` (and everything it transitively references) into `dst`; return the
 // new root HAny. Pods/null are position-independent (copied by value); Refs are
 // rebuilt and re-anchored.
-pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
+pub fn compactify(dst: &Hermes, v: HAny) -> HAny {
     if v.is_null() { return HAny::ref_to(0i64 as *const u8); }
     if v.is_pod()  { return v; }                       // i56 / bool — position-independent
     if v.is_float() { return dst.float(v.as_f64()); }  // boxed wide scalars → re-box in dst
@@ -66,4 +66,4 @@ pub fn compactify(dst: &Hermes2, v: HAny) -> HAny {
 // compaction (a full structural copy, re-anchoring every reference) — `clone` is
 // the same operation named for the by-value-copy intent (Hermes1's clone). Copy
 // into the SAME arena to duplicate a subtree; into a FRESH arena to compact.
-pub fn clone(dst: &Hermes2, v: HAny) -> HAny { return compactify(dst, v); }
+pub fn clone(dst: &Hermes, v: HAny) -> HAny { return compactify(dst, v); }

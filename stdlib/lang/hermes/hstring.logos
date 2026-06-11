@@ -1,4 +1,4 @@
-// Logos Hermes2 stdlib — hermes2.hstring
+// Logos Hermes stdlib — hermes2.hstring
 //
 // HString — a UTF-8 string living in the never-move arena as a REAL custom-DST
 // with NO separate length field: the layout is exactly HermesString's wire shape,
@@ -18,7 +18,7 @@
 
 package logos.lang.hermes.hstring;
 
-use logos.lang.hermes.container;   // Hermes2, hermes2_alloc_bytes
+use logos.lang.hermes.container;   // Hermes, hermes_alloc_bytes
 use logos.lang.hermes.allocator;   // Allocator, allocator_alloc
 use logos.lang.hermes.anyval;      // HAny (heterogeneous element)
 use logos.lang.str;                 // str_from_raw
@@ -43,7 +43,7 @@ impl SelfDescribing for HString {
 // Intern `s` THROUGH AN ALLOCATOR (the shared core): allocate
 // `vlen_encode_size(n) + n` bytes in ONE arena chunk, write the vlen length
 // prefix, then copy the payload right after it. Taking `*mut Allocator` (rather
-// than the whole `Hermes2`) lets an arena container that holds only its allocator
+// than the whole `Hermes`) lets an arena container that holds only its allocator
 // back-pointer — e.g. `HArray<HVal>` — intern strings without the full handle.
 pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
     let n: u64 = s.len() as u64;
@@ -54,21 +54,21 @@ pub unsafe fn hstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut HString {
     return raw as *mut HString;
 }
 
-unsafe fn hstring_new(h: *mut Hermes2, s: str) -> *mut HString {
+unsafe fn hstring_new(h: *mut Hermes, s: str) -> *mut HString {
     return hstring_in_alloc(&mut h.allocator as *mut Allocator, s);
 }
 
-impl Hermes2 {
+impl Hermes {
     // Intern a string into the arena; return a borrowed `&HString` into never-move
     // storage (valid for the container's lifetime). Read it back with `as_str`.
-    pub fn hstring<'a>(self: &'a Hermes2, s: str) -> &'a HString {
+    pub fn hstring<'a>(self: &'a Hermes, s: str) -> &'a HString {
         unsafe {
-            let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
+            let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             return &*hstring_new(h, s);
         }
     }
     // Resolve a Ref `HAny` back to the `HString` it points at.
-    pub fn hstring_of<'a>(self: &'a Hermes2, e: HAny) -> &'a HString {
+    pub fn hstring_of<'a>(self: &'a Hermes, e: HAny) -> &'a HString {
         return unsafe { &*(e.resolve() as *const HString) };
     }
 }

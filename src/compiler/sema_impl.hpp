@@ -3703,7 +3703,7 @@ private:
             (inner.struct_name() == "Hermes" ||
              inner.struct_name() == "HermesView" ||
              inner.struct_name() == "HermesStatic" ||
-             inner.struct_name() == "Rc"))   // hermes2 runtime container Rc<Hermes2>
+             inner.struct_name() == "Rc"))   // hermes2 runtime container Rc<Hermes>
             return inner;
         return nullptr;
     }

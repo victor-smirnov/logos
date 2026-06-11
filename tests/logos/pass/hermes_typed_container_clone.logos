@@ -20,17 +20,17 @@ unsafe fn main() -> i32 {
     // 1. Typed array.
     let s1: HermesStatic = @<I32>[1, 2, 3];
     let r1: HAny = root_of(&s1);
-    let c1: Rc<Hermes2> = hermes2_clone(r1);
-    let h1: &Hermes2 = c1.deref();
-    if !hermes2_equal(r1, h1.root()) { return 1; }
+    let c1: Rc<Hermes> = hermes_clone(r1);
+    let h1: &Hermes = c1.deref();
+    if !hermes_equal(r1, h1.root()) { return 1; }
     if h1.root().resolve() == r1.resolve() { return 2; }
 
     // 2. Typed map with mixed values — wait, typed maps hold AnyVal values.
     let s2: HermesStatic = @<I64, AnyVal>{5: 50, 6: "six"};
     let r2: HAny = root_of(&s2);
-    let c2: Rc<Hermes2> = hermes2_clone(r2);
-    let h2: &Hermes2 = c2.deref();
-    if !hermes2_equal(r2, h2.root()) { return 3; }
+    let c2: Rc<Hermes> = hermes_clone(r2);
+    let h2: &Hermes = c2.deref();
+    if !hermes_equal(r2, h2.root()) { return 3; }
 
     // 3. Mutating the clone leaves the (rodata) source untouched & unequal.
     let croot: HAny = h1.root();
@@ -38,7 +38,7 @@ unsafe fn main() -> i32 {
     let df: i64 = (p as i64) + 16;
     let elems: i64 = df + *(df as *const i64);
     *(elems as *mut i32) = 99;
-    if hermes2_equal(r1, croot) { return 4; }
+    if hermes_equal(r1, croot) { return 4; }
 
     return 0;
 }

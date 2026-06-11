@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes2 document + compaction-to-blob + reload conformance. The headline test is
+// Hermes document + compaction-to-blob + reload conformance. The headline test is
 // RIGID RELOCATION: compactify packs the doc into a single segment; dumping its
 // bytes and reloading them at a DIFFERENT address must still resolve every self-
 // relative pointer (the block moved rigidly, so all internal deltas stay valid).

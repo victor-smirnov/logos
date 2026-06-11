@@ -10,8 +10,8 @@ use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    let rc: Rc<Hermes2> = hermes2_rc(8192);
-    let h: &Hermes2 = rc.deref();
+    let rc: Rc<Hermes> = hermes_rc(8192);
+    let h: &Hermes = rc.deref();
 
     let v1: HAny = parse(h, "@Decimal(10,2)=\"123.45\"");
     if v1.is_null() { return 1; }
