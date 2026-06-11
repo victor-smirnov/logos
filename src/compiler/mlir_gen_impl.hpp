@@ -1068,6 +1068,8 @@ private:
     mlir::Value gen_expr_kind(lir_view::EReflectOfView v, TypeRef);
     // Coerce a Logos runtime value to AnyVal.raw (u32) for hermes capture substitution.
     mlir::Value coerce_to_anyval_raw(mlir::Value v, TypeRef t);
+    // hermes2: coerce a scalar capture to an 8-byte value-form HAny word.
+    mlir::Value coerce_to_hany_raw(mlir::Value v, TypeRef t);
 
     // ── Struct helpers ────────────────────────────────────────────
     mlir::Value get_struct_ptr(const std::string& name);

@@ -5784,12 +5784,89 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
 //      alike — AnyVal bit0 disambiguates on read; see Task 1 in clone.cpp).
 //   4. clone() → packed arena + PARAM slot list.
 //   5. Extract bytes from packed head() chunk.
+// Collect PARAM slots (inline Pod code 127: word = (value_idx<<8)|0xFF) by
+// walking every at-rest AnyVal slot reachable from the root of a COMPACTIFIED
+// single-segment hermes2 blob. hermes2's compactify (unlike Hermes1's clone)
+// has no out_params channel, so the capture-patch slot list is rebuilt here.
+static void collect_param_slots(
+        const uint8_t* base, size_t used, uint64_t slot_off,
+        std::vector<std::pair<uint32_t, uint32_t>>& out) {
+    if (slot_off + 8 > used) return;
+    int64_t w = *reinterpret_cast<const int64_t*>(base + slot_off);
+    if (w == 0) return;
+    if (w & 1) {  // Pod
+        uint64_t uw = static_cast<uint64_t>(w);
+        if (((uw >> 1) & 0x7F) == 127)
+            out.emplace_back(static_cast<uint32_t>(slot_off),
+                             static_cast<uint32_t>(uw >> 8));
+        return;
+    }
+    // Ref: object at slot + w; type tag immediately before it (datatag varint).
+    uint64_t obj = slot_off + static_cast<uint64_t>(w);
+    if (obj == 0 || obj + 8 > used) return;
+    uint8_t hb = base[obj - 1];
+    uint64_t tc = 0;
+    if (hb >= 1 && hb <= 222) {
+        tc = hb;
+    } else if (hb >= 223 && hb <= 230) {
+        size_t n = static_cast<size_t>(hb) - 223 + 1;
+        for (size_t i = 0; i < n && obj >= 2 + i; ++i)
+            tc |= static_cast<uint64_t>(base[obj - 2 - i]) << (i * 8);
+    } else {
+        return;
+    }
+    auto walk_elems = [&](uint64_t relptr_field_off, uint64_t n, uint64_t stride,
+                          uint64_t first_elem_delta) {
+        if (relptr_field_off + 8 > used) return;
+        int64_t rel = *reinterpret_cast<const int64_t*>(base + relptr_field_off);
+        if (rel == 0) return;
+        uint64_t elems = relptr_field_off + static_cast<uint64_t>(rel);
+        for (uint64_t i = 0; i < n; ++i)
+            collect_param_slots(base, used,
+                                elems + i * stride + first_elem_delta, out);
+    };
+    using namespace logos::hermes2;
+    switch (tc) {
+    case tc::ARRAY: {  // ObjectArray {size,cap,data→AnyVal[]}
+        uint64_t n = *reinterpret_cast<const uint64_t*>(base + obj);
+        walk_elems(obj + 16, n, 8, 0);
+        break;
+    }
+    case tc::MAP: {    // ObjectMap {count,cap,data→MapEntry{key,val}[]} — walk vals of ALL cap slots
+        uint64_t cap = *reinterpret_cast<const uint64_t*>(base + obj + 8);
+        walk_elems(obj + 16, cap, 16, 8);
+        break;
+    }
+    case tc::TINYMAP: {  // TinyObjectMap {header,schema,data→AnyVal[]}; size = header bits[58:63]
+        uint64_t hdr = *reinterpret_cast<const uint64_t*>(base + obj);
+        walk_elems(obj + 16, hdr >> 58, 8, 0);
+        break;
+    }
+    case tc::TYPEDVALUE:  // 3 at-rest words {type_name,params,init}
+        collect_param_slots(base, used, obj, out);
+        collect_param_slots(base, used, obj + 8, out);
+        collect_param_slots(base, used, obj + 16, out);
+        break;
+    case tc::PARAMETER:   // Parameter object: {name,value}
+        collect_param_slots(base, used, obj, out);
+        collect_param_slots(base, used, obj + 8, out);
+        break;
+    case tc::MAP_I32: case tc::MAP_U32:
+    case tc::MAP_I64: case tc::MAP_U64: {  // TypedMap {size,cap,keys,vals→AnyVal[]}
+        uint64_t n = *reinterpret_cast<const uint64_t*>(base + obj);
+        walk_elems(obj + 24, n, 8, 0);
+        break;
+    }
+    default:  // strings, boxed scalars, typed arrays, Decimal — leaves
+        break;
+    }
+}
+
 static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
     auto doc = logos::hermes2::make_doc_single_chunk().get();
     AnyVal root_av = build_hermes_val(e.root(), doc);
     HermesAccess::set_root_offset(doc, root_av);   // AnyVal overload (no offset)
 
-    std::vector<logos::hermes2::ParamSlot> params;
     auto packed = logos::hermes2::compactify(doc).get();
 
     auto& packed_arena = HermesAccess::arena(packed);
@@ -5798,9 +5875,8 @@ static HermesZoneBuild build_hermes_zone(lir_view::EHermesLitView e) {
 
     HermesZoneBuild out;
     out.blob.assign(data, data + used);
-    out.param_slots.reserve(params.size());
-    for (auto& p : params)
-        out.param_slots.emplace_back(p.offset, p.value_index);
+    // The document root word lives at blob offset 0 — walk from it.
+    collect_param_slots(out.blob.data(), used, 0, out.param_slots);
     return out;
 }
 }  // namespace (zone builder helpers)
@@ -5864,6 +5940,58 @@ mlir::Value MLIRGenImpl::coerce_to_anyval_raw(mlir::Value v, TypeRef t) {
             break;
     }
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+}
+
+// hermes2 capture coercion: scalar capture value -> 8-byte VALUE-FORM HAny word.
+// Pod = (v<<8)|(code<<1)|1 (bool code HA_BOOL=2 -> |5; ints as i56 code HA_I56=1
+// -> |3). HAny captures pass their niche word through. Zone-alloc kinds
+// (strings/floats/ptrs) are handled by the hermes2_ctr_alloc_* path, not here.
+mlir::Value MLIRGenImpl::coerce_to_hany_raw(mlir::Value v, TypeRef t) {
+    auto i64_mlir = builder_.getIntegerType(64);
+    auto zero64 = [&]() {
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
+    };
+    if (!v || !t) return zero64();
+    using K = LogosType::Kind;
+    switch (TypeRef(t).kind()) {
+        case K::Bool: {
+            mlir::Value b = coerce_numeric(v, i64_mlir);
+            mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, b,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64));
+            return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 5, 64));
+        }
+        case K::I8:  case K::I16: case K::I32: case K::I64:
+        case K::U8:  case K::U16: case K::U32: case K::U64:
+        case K::I24: case K::U24: {
+            mlir::Value iv = coerce_numeric(v, i64_mlir);
+            mlir::Value shifted = builder_.create<mlir::arith::ShLIOp>(loc_, iv,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64));
+            return builder_.create<mlir::arith::OrIOp>(loc_, shifted,
+                builder_.create<mlir::arith::ConstantIntOp>(loc_, 3, 64));
+        }
+        case K::Enum:
+            if (TypeRef(t).enum_name() == "HAny") {
+                if (v.getType() == i64_mlir) return v;
+                if (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+                    return builder_.create<mlir::LLVM::ExtractValueOp>(
+                        loc_, v, mlir::ArrayRef<int64_t>{0});
+                return coerce_numeric(v, i64_mlir);
+            }
+            break;
+        case K::Struct:
+            if (TypeRef(t).struct_name() == "AnyVal") {
+                // Legacy 4-byte AnyVal word zero-extended (i24/bool Pod encodings
+                // coincide with hermes2 in the low 32 bits).
+                mlir::Value w = builder_.create<mlir::LLVM::ExtractValueOp>(
+                    loc_, v, mlir::ArrayRef<int64_t>{0});
+                return coerce_numeric(w, i64_mlir);
+            }
+            break;
+        default:
+            break;
+    }
+    return zero64();
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EReflectOfView v, TypeRef) {
@@ -6094,11 +6222,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
     mlir::Value n_values_v = builder_.create<mlir::arith::ConstantIntOp>(
         loc_, static_cast<int64_t>(n_values), 64);
 
-    // Allocate resolved[] on stack: n_values × u32.
+    // Allocate resolved[] on stack: n_values × u64 (value-form HAny words).
     mlir::Value resolved_ptr = nullptr;
-    auto u32_mlir = builder_.getIntegerType(32);
+    auto u64_mlir = builder_.getIntegerType(64);
     if (n_values > 0) {
-        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u64_mlir, n_values);
         resolved_ptr = create_entry_alloca(arr_t);
     } else {
         mlir::Value zero64 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
@@ -6107,15 +6235,15 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
 
     // ── Zone-alloc path (C5): one or more captures need varchar/f64 in the zone. ─
     if (any_zone_alloc) {
-        auto new_fn    = find_func_op(parent_mod, "hermes_template_ctr_new");
-        auto patch_fn  = find_func_op(parent_mod, "hermes_template_patch");
-        auto alloc_f64_fn = find_func_op(parent_mod, "hermes_ctr_alloc_f64");
-        auto alloc_str_fn = find_func_op(parent_mod, "hermes_ctr_alloc_str");
-        auto alloc_cstr_fn = find_func_op(parent_mod, "hermes_ctr_alloc_cstr");
+        auto new_fn    = find_func_op(parent_mod, "hermes2_template_ctr_new");
+        auto patch_fn  = find_func_op(parent_mod, "hermes2_template_install");
+        auto alloc_f64_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_f64");
+        auto alloc_str_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_str");
+        auto alloc_cstr_fn = find_func_op(parent_mod, "hermes2_ctr_alloc_cstr");
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
-            std::fprintf(stderr, "mlir_gen: hermes zone-alloc helpers not found — "
-                         "add 'use logos.mem.hermes.ctr;' to your file\n");
+            std::fprintf(stderr, "mlir_gen: hermes2 zone-alloc helpers not found — "
+                         "add 'use logos.lang.hermes2.tmpl;' to your file\n");
             return nullptr;
         }
 
@@ -6135,15 +6263,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         mlir::Value extra_cap_v = builder_.create<mlir::arith::ConstantIntOp>(
             loc_, extra_cap_bytes, 64);
 
-        // Create the Hermes with template pre-loaded.
+        // Create the Rc<Hermes2> sized for template + captures (the template is
+        // copied + patched later by hermes2_template_install, which keeps the
+        // blob base local).
         auto new_call = builder_.create<mlir::func::CallOp>(
             loc_, new_fn,
-            mlir::ValueRange{tmpl_ptr_v, tmpl_size_v, extra_cap_v});
+            mlir::ValueRange{tmpl_size_v, extra_cap_v});
         if (new_call.getNumResults() == 0) return nullptr;
         mlir::Value ctr_val  = new_call.getResult(0);
         mlir::Type  ctr_type = new_fn.getFunctionType().getResult(0);
 
-        // Alloca Hermes so we can take its address for alloc helpers.
+        // Alloca the Rc so we can pass &Rc<Hermes2> to the alloc helpers.
         mlir::Value ctr_alloca = create_entry_alloca(ctr_type);
         builder_.create<mlir::LLVM::StoreOp>(loc_, ctr_val, ctr_alloca);
 
@@ -6209,51 +6339,52 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
                 }
             } else {
-                raw_u32 = coerce_to_anyval_raw(cap_val, ct);
+                raw_u32 = coerce_to_hany_raw(cap_val, ct);
             }
 
-            if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+            if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 
             // Store to resolved[i].
             llvm::SmallVector<mlir::Value> gep_idx{
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
                 builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
-            auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+            auto arr_t = mlir::LLVM::LLVMArrayType::get(u64_mlir, n_values);
             auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
                 loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
             builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
         }
 
-        // Patch PARAM slots in the cloned zone.
+        // Copy the template into the zone, patch PARAM slots, set the root.
         builder_.create<mlir::func::CallOp>(
             loc_, patch_fn,
-            mlir::ValueRange{ctr_alloca, slots_ptr_v, n_slots_v, resolved_ptr, n_values_v});
+            mlir::ValueRange{ctr_alloca, tmpl_ptr_v, tmpl_size_v,
+                             slots_ptr_v, n_slots_v, resolved_ptr, n_values_v});
 
-        // Return the Hermes by value (load from alloca).
+        // Return the Rc<Hermes2> by value (load from alloca).
         return builder_.create<mlir::LLVM::LoadOp>(loc_, ctr_type, ctr_alloca);
     }
 
-    // ── Scalar-only path (C4): all captures are inline AnyVal (no zone alloc). ──
+    // ── Scalar-only path (C4): all captures are inline HAny Pods (no zone alloc). ──
     for (size_t i = 0; i < n_values; ++i) {
         mlir::Value cap_val = gen_expr(*capture_exprs[i]);
         if (!cap_val) cap_val = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
 
-        mlir::Value raw_u32 = coerce_to_anyval_raw(cap_val, capture_types[i]);
-        if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        mlir::Value raw_u32 = coerce_to_hany_raw(cap_val, capture_types[i]);
+        if (!raw_u32) raw_u32 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64);
 
         llvm::SmallVector<mlir::Value> gep_idx{
             builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 64),
             builder_.create<mlir::arith::ConstantIntOp>(loc_, static_cast<int64_t>(i), 64)};
-        auto arr_t = mlir::LLVM::LLVMArrayType::get(u32_mlir, n_values);
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(u64_mlir, n_values);
         auto slot_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), arr_t, resolved_ptr, gep_idx);
         builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
     }
 
-    auto build_fn = find_func_op(parent_mod, "hermes_build_from_template");
+    auto build_fn = find_func_op(parent_mod, "hermes2_build_from_template");
     if (!build_fn) {
-        std::fprintf(stderr, "mlir_gen: hermes_build_from_template not found — "
-                     "add 'use logos.mem.hermes.ctr;' to your file\n");
+        std::fprintf(stderr, "mlir_gen: hermes2_build_from_template not found — "
+                     "add 'use logos.lang.hermes2.tmpl;' to your file\n");
         return nullptr;
     }
     llvm::SmallVector<mlir::Value> build_args{
