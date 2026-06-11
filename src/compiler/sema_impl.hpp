@@ -1219,7 +1219,8 @@ private:
         if (name == "type_code")
             return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype) |
                    bit(AttrTarget::Enum)   | bit(AttrTarget::Trait);
-        if (name == "zoned")           return bit(AttrTarget::Struct);
+        if (name == "zoned")           return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
+        if (name == "datatype")        return bit(AttrTarget::Struct);
         // A custom-DST (`[T]` tail) marked self-describing: its tail length /
         // metadata is recoverable from its own bytes (a prefix field / header),
         // so a RAW pointer to it (`*mut/*const T`) is THIN (8B) and the fat
@@ -1230,7 +1231,6 @@ private:
         if (name == "rel_ptr")         return bit(AttrTarget::Struct);
         if (name == "pinned")          return bit(AttrTarget::Struct);
         if (name == "zone_mut")        return bit(AttrTarget::Struct);
-        if (name == "zoned2")          return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         if (name == "borrow_carrying") return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);

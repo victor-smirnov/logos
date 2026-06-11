@@ -5,7 +5,7 @@ package zoned_buffer;
 // DIFFERENT at-rest deltas, both materialising back to the same absolute ref —
 // so the whole buffer can relocate en-masse with every offset still valid.
 use logos.lang.ptr;
-#[zoned2] enum Z { Ref(&i64), Val(i32) }
+#[zoned] enum Z { Ref(&i64), Val(i32) }
 fn main() -> i32 {
     let x: i64 = 99i64;
     let mut buf: [i64; 2] = [0i64, 0i64];

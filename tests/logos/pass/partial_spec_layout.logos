@@ -4,21 +4,21 @@
 //   1. sizeof / layout_of resolved the empty base (find_any_struct) instead of the
 //      best-matching spec — `mono_abi_size`/`mono_dst_prefix_field` now route through
 //      `resolve_struct_layout` (find_best_struct_spec first).
-//   2. `lower_spec_struct` dropped struct-level flags (#[zone_mut]/#[zoned2]/…) on
+//   2. `lower_spec_struct` dropped struct-level flags (#[zone_mut]/#[zoned]/…) on
 //      a specialisation — now applied via `apply_struct_flags`.
 // Both reachable only when a concrete spec instantiation is actually emitted, so we
 // force instantiation by accessing the spec's fields through a pointer.
 package test;
 
-#[zoned2] pub struct Base<K, V> {}
+#[zoned] pub struct Base<K, V> {}
 
-#[zoned2] pub struct KeyA { pub junk: i64 }
-#[zoned2] pub struct Base<KeyA, V> { pub a: i64, pub b: i64, pub c: i64 }   // 24 bytes
+#[zoned] pub struct KeyA { pub junk: i64 }
+#[zoned] pub struct Base<KeyA, V> { pub a: i64, pub b: i64, pub c: i64 }   // 24 bytes
 
-#[zoned2] pub struct Marker {}
-#[zoned2] pub struct Base<Marker, V> { pub x: i64, pub y: i64 }             // 16 bytes
+#[zoned] pub struct Marker {}
+#[zoned] pub struct Base<Marker, V> { pub x: i64, pub y: i64 }             // 16 bytes
 
-#[zoned2] pub struct Val { pub v: i64 }
+#[zoned] pub struct Val { pub v: i64 }
 
 // Force instantiation + field-offset resolution against the chosen spec.
 fn read_a(p: *const Base<KeyA, Val>) -> i64 { return unsafe { p.a + p.b + p.c }; }

@@ -3,7 +3,7 @@
 // MATERIALISES it back absolute. The `*zoned` pointer TYPE (not the pointee) is
 // what marks at-rest storage, so a value-form `*Enum` is unaffected.
 package ze2;
-#[zoned2] enum Z { Ref(&i64), Val(i32) }
+#[zoned] enum Z { Ref(&i64), Val(i32) }
 fn main() -> i32 {
     let x: i64 = 99i64;
     let mut buf: [i64; 1] = [0i64];

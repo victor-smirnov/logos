@@ -1,6 +1,6 @@
 package datatype_basic;
 
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: f64,
     y: f64,
 }

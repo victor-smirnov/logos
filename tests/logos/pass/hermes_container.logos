@@ -1,7 +1,7 @@
 // Hermes — root container + typed placement. Demonstrates never-move: a plain
 // cross-object pointer keeps resolving even when the objects land in DIFFERENT
 // never-move segments (growth appended a segment; nothing moved). (Self-relative
-// zoned pointers are compiler-derived for #[zoned2] fields — see
+// zoned pointers are compiler-derived for #[zoned] fields — see
 // ref-repr-design.md §6 — and are not exercised here; this is the raw-pointer base.)
 package test;
 

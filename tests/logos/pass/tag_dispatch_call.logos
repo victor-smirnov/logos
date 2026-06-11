@@ -19,13 +19,13 @@ trait Checksum {
 }
 
 #[type_code=128]
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: i32,
     y: i32,
 }
 
 #[type_code=129]
-#[zoned] struct Color {
+#[datatype] struct Color {
     r: u8,
     g: u8,
     b: u8,

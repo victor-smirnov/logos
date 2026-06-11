@@ -1,7 +1,7 @@
 package datatype_impl;
-// Phase 5: impl blocks on #[zoned] struct types — methods with explicit pointer self.
+// Phase 5: impl blocks on #[datatype] struct types — methods with explicit pointer self.
 
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: i32,
     y: i32,
 }

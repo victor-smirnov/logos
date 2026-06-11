@@ -1,10 +1,10 @@
-// F3 Phase-3 mechanism: an HAny-shaped `#[zoned2]` niche enum with a RAW u64
+// F3 Phase-3 mechanism: an HAny-shaped `#[zoned]` niche enum with a RAW u64
 // Pod arm. The Pod word is stored VERBATIM `(value<<8)|(code<<1)|1` (low-bit-1
 // baked in by the producer, no niche shift); the Ref arm is a type-erased
 // `*const u8` (low-bit-0, trusted aligned). Value form keeps the Ref absolute;
 // through a `*zoned` slot the Ref stores self-relative and materialises back.
 package hany_niche_enum;
-#[zoned2] enum HAny { Ref(*const u8), Pod(u64) }
+#[zoned] enum HAny { Ref(*const u8), Pod(u64) }
 fn main() -> i32 {
     let obj: i64 = 7i64;
     let absobj: i64 = &obj as *const i64 as i64;

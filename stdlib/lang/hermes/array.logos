@@ -5,7 +5,7 @@
 // is in the POINTER: each `*(buf.add(i))` materialises the slot Ref-delta → absolute,
 // `*(buf.add(i)) = v` lowers it; the compiler owns the bridge). The header is
 // `#[pinned]` (in-arena, accessed via `*mut`, never moved). `data` is itself a
-// self-relative delta from the header to the element buffer (#[zoned2] field) —
+// self-relative delta from the header to the element buffer (#[zoned] field) —
 // header and buffer may sit in DIFFERENT never-move segments, and the delta stays
 // valid (nothing moves).
 //
@@ -39,13 +39,13 @@ use logos.lang.ptr;
 //
 // Shared shape: `#[zone_mut]` makes a `&mut` a FAT ref {data, zone} carrying its
 // allocator (push/grow recover it via zone_of(self); read `&` stays thin —
-// hermes2-design §9.4). `#[pinned]` header in the never-move arena. `#[zoned2]`
+// hermes2-design §9.4). `#[pinned]` header in the never-move arena. `#[zoned]`
 // stores `data` SELF-RELATIVE (RelOffset, anchored to its slot; ref-repr §6).
 
 // ── Typed generic base: packed primitive elements (HArray<T>, T: HArrTag) ──────
 #[zone_mut]
 #[pinned]
-#[zoned2]
+#[zoned]
 pub struct HArray<T> {
     pub len:  i64,
     pub cap:  i64,
@@ -55,14 +55,14 @@ pub struct HArray<T> {
 // ── Heterogeneous spec: AT-REST HAny elements (HArray<HVal>) ───────────────────
 #[zone_mut]
 #[pinned]
-#[zoned2]
+#[zoned]
 pub struct HArray<HVal> {
     pub len:   i64,
     pub cap:   i64,
     // Element buffer of AT-REST HAny words. `*zoned mut HAny`: each `*(buf.add(i))`
     // materialises the slot (Ref delta → absolute) and `*(buf.add(i)) = v` lowers
     // it — the compiler owns the at-rest↔value bridge (no HAnyRel, no ha_*). The
-    // pointer ITSELF is also auto-relative (#[zoned2] field → RelOffset).
+    // pointer ITSELF is also auto-relative (#[zoned] field → RelOffset).
     pub data:  *zoned mut HAny,
 }
 
@@ -72,7 +72,7 @@ pub type HValArray = HArray<HVal>;
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
 // split — a `*const` header yields a `*const` buffer, never laundering const→mut).
 unsafe fn array_buf(a: *const HArray<HVal>) -> *zoned HAny {
-    return a.data as *zoned HAny;   // #[zoned2]: materialises to absolute on read
+    return a.data as *zoned HAny;   // #[zoned]: materialises to absolute on read
 }
 unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *zoned mut HAny {
     return a.data;
@@ -88,7 +88,7 @@ unsafe fn array_new(h: *mut Hermes, cap: i64) -> *mut HArray<HVal> {
     let buf: *zoned mut HAny  = hermes_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
-    hdr.data  = buf;            // #[zoned2]: lowers to a self-relative offset
+    hdr.data  = buf;            // #[zoned]: lowers to a self-relative offset
     return hdr;
 }
 
@@ -110,7 +110,7 @@ unsafe fn array_push(a: *mut HArray<HVal>, alloc: *mut Allocator, v: HAny) {
             *(nbuf.add(i)) = *(obuf.add(i));
             i = i + 1i64;
         }
-        a.data = nbuf;          // #[zoned2]: lowers to a self-relative offset
+        a.data = nbuf;          // #[zoned]: lowers to a self-relative offset
         a.cap  = newcap;
     }
     let buf: *zoned mut HAny = array_buf_mut(a);
@@ -231,7 +231,7 @@ impl HAny {
 // Homogeneous packed array of a primitive `T` (u8..f64). Elements are plain values
 // (no Refs, no per-element zoning); growth is a plain element copy (position-
 // independent — no self-relative re-anchor that HArray<HVal> needs). `data` is the
-// element buffer: #[zoned2] self-relative as a POINTER, plain `T` as elements, so
+// element buffer: #[zoned] self-relative as a POINTER, plain `T` as elements, so
 // `*(buf.add(i))` is an ordinary load/store.
 
 // Per-element Hermes wire tag (HermesTag ArrayU8=2101 .. ArrayF64=2110) so a typed
@@ -254,7 +254,7 @@ unsafe fn harr_new<T: HArrTag>(h: *mut Hermes, cap: i64) -> *mut HArray<T> {
     let buf: *mut T = hermes_alloc_n::<T>(h, cap);
     hdr.len  = 0i64;
     hdr.cap  = cap;
-    hdr.data = buf;            // #[zoned2]: lowers to a self-relative offset
+    hdr.data = buf;            // #[zoned]: lowers to a self-relative offset
     return hdr;
 }
 

@@ -1,5 +1,5 @@
 // `#[type_code=N] pub genos Array<Arg>;` — explicit genos specialization
-// decl.  An #[zoned] struct implementing the specialized genos inherits the code.
+// decl.  An #[datatype] struct implementing the specialized genos inherits the code.
 package genos_inst_type_code;
 
 pub trait Bag<T> {
@@ -9,7 +9,7 @@ pub trait Bag<T> {
 #[type_code=200]
 pub trait Bag<i32>;
 
-#[zoned] pub struct IntBag {
+#[datatype] pub struct IntBag {
     pub n: u64,
 }
 

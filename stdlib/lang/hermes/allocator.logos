@@ -11,7 +11,7 @@
 // Segment plumbing (the `next` links, the head/current cursor) uses ABSOLUTE
 // pointers: segments never move, so absolute pointers between them are stable.
 // Object references stored in the data are self-relative (compiler-derived for
-// #[zoned2] fields — see docs/internals/ref-repr-design.md §6).
+// #[zoned] fields — see docs/internals/ref-repr-design.md §6).
 //
 // (Renamed from `Holder` 2026-06-04: "Allocator" is the accurate name for the
 // segment arena, and frees "holder" for the residency root of hermes2 §5-6.)

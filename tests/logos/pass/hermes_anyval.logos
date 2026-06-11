@@ -5,7 +5,7 @@ use logos.lang.hermes.anyval;        // HAny (niche enum); at-rest via `*zoned H
 use logos.lang.ptr;
 
 #[tag_dispatch(HermesTagSystem)] trait Sum2 { unsafe fn s(self: *const Self) -> i64; }
-#[type_code=160] #[zoned] struct Pair { a: i64, b: i64 }
+#[type_code=160] #[datatype] struct Pair { a: i64, b: i64 }
 impl Sum2 for Pair { pub unsafe fn s(self: *const Pair) -> i64 { return self.a + self.b; } }
 
 unsafe fn dispatch(za: HAny) -> i64 {

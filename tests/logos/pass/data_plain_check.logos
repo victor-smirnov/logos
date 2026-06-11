@@ -11,24 +11,24 @@ package data_plain_check;
 
 
 // Only primitive fields → DataPlain.
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: i32,
     y: i32,
 }
 
 // Embeds a concrete DataPlain type (Point) → DataPlain after Bug 2 fix.
-#[zoned] struct Segment {
+#[datatype] struct Segment {
     a: Point,
     b: Point,
     length: f64,
 }
 
 // Contains a generic Datatype field → DataNode (conservative rule).
-#[zoned] struct Cell<T> {
+#[datatype] struct Cell<T> {
     v: T,
 }
 
-#[zoned] struct Node {
+#[datatype] struct Node {
     value: i32,
     next:  Cell<i64>,
 }

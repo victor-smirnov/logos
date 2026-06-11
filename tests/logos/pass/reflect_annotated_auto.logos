@@ -6,7 +6,7 @@ use logos.mem.any;
 use logos.lang.hermes.hstatic;
 
 #[annotation]
-#[zoned] struct Deprecated {
+#[datatype] struct Deprecated {
     msg: str,
     since: str,
 }
@@ -14,7 +14,7 @@ use logos.lang.hermes.hstatic;
 // MyData is annotated but we never call reflect::<MyData>() explicitly before main.
 // reflection_emit should still emit its TypeInfo because it has annotations.
 #[Deprecated(msg="legacy", since="1.0")]
-#[zoned] struct MyData {
+#[datatype] struct MyData {
     value: i32,
 }
 

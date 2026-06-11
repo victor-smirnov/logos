@@ -1,4 +1,4 @@
-package attr_zoned_on_enum;
-#[zoned]
+package attr_datatype_on_enum;
+#[datatype]
 enum E { A, B }
 fn main() -> i32 { return 0; }

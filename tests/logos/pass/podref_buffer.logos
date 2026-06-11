@@ -1,11 +1,11 @@
-// PodRef: a POD #[zoned] struct too large for by-value transfer gets its Datatype +
+// PodRef: a POD #[datatype] struct too large for by-value transfer gets its Datatype +
 // Container through the stdlib blanket — View = *const DT, Buffer<DT> stores
 // values in a PrimVec<DT>, reads hand back pointers into the store.
 package podref_buffer;
 
 use logos.lang.fabric;
 
-#[zoned] pub struct Vec3 {
+#[datatype] pub struct Vec3 {
     pub x: i64,
     pub y: i64,
     pub z: i64,

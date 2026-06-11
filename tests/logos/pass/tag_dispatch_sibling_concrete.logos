@@ -1,5 +1,5 @@
 // Sibling impls in one DataTypeTagSystem dispatch space (hermes2 successor of
-// the TinyObjectMap-sibling test): two concrete #[zoned] datatypes register in
+// the TinyObjectMap-sibling test): two concrete #[datatype] datatypes register in
 // the SAME tagged-trait table; codes are distinct and impls resolve directly.
 package tag_dispatch_sibling_concrete;
 use logos.lang.hermes.anyval;
@@ -13,8 +13,8 @@ pub trait Sibling {
     unsafe fn sib_value(self: *const Self) -> i32;
 }
 
-#[zoned] struct Alpha { v: i32 }
-#[zoned] struct Beta  { v: i32, w: i32 }
+#[datatype] struct Alpha { v: i32 }
+#[datatype] struct Beta  { v: i32, w: i32 }
 
 impl Sibling for Alpha {
     pub unsafe fn sib_value(self: *const Alpha) -> i32 { return self.v; }

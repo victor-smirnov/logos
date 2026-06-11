@@ -2,7 +2,7 @@ package datatag_typecode;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.tag_system;
 // Tests:
-// 1. type_code_of::<T>() — compile-time type_code for a concrete #[zoned] struct
+// 1. type_code_of::<T>() — compile-time type_code for a concrete #[datatype] struct
 // 2. hermes.datatag write_tag / read_type_code roundtrip
 // 3. tag_size for single-byte and multi-byte codes
 
@@ -10,12 +10,12 @@ use logos.mem.hermes.tag_system;
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);
 
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: i32,
     y: i32,
 }
 
-#[zoned] struct Color {
+#[datatype] struct Color {
     r: u8,
     g: u8,
     b: u8,

@@ -4,43 +4,43 @@ package annotation_declare_and_apply;
 // this test only verifies the compiler accepts the forms.
 
 #[annotation]
-#[zoned] struct Deprecated {
+#[datatype] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[annotation]
-#[zoned] struct Flags {
+#[datatype] struct Flags {
     mask: i64,
     enabled: bool,
 }
 
 #[annotation]
-#[zoned] struct Empty {
+#[datatype] struct Empty {
 }
 
 // Named args
 #[Deprecated(msg="use v2", since="0.3")]
-#[zoned] struct OldApi {
+#[datatype] struct OldApi {
     x: i32,
 }
 
 // Positional args
 #[Flags(7, true)]
-#[zoned] struct Feature {
+#[datatype] struct Feature {
     y: i32,
 }
 
 // No-arg annotation
 #[Empty]
-#[zoned] struct Marker {
+#[datatype] struct Marker {
     z: i32,
 }
 
 // Multiple annotations
 #[Deprecated(msg="gone", since="0.2")]
 #[Flags(mask=15, enabled=false)]
-#[zoned] struct Combo {
+#[datatype] struct Combo {
     w: i32,
 }
 

@@ -19,12 +19,12 @@ trait Checksum {
 }
 
 // No explicit type_code — auto-hash assigns a 56-bit code >= 223.
-#[zoned] struct Widget {
+#[datatype] struct Widget {
     a: i32,
     b: i32,
 }
 
-#[zoned] struct Gadget {
+#[datatype] struct Gadget {
     x: i32,
     y: i32,
     z: i32,

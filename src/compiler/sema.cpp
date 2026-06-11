@@ -6705,7 +6705,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         for (auto& ann : pending_annots) {
             auto aname = std::string(str_of(ann.get(la::NAME.code)));
             if      (aname == "zone_mut")        sd.zone_mut        = true;
-            else if (aname == "zoned2")          sd.zoned2          = true;
+            else if (aname == "zoned")           sd.zoned2          = true;
             else if (aname == "rel_ptr")         sd.rel_ptr         = true;
             else if (aname == "self_describing") sd.self_describing = true;
             else if (aname == "borrow_carrying") sd.borrow_carrying = true;
@@ -6969,7 +6969,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             bool has_zoned = false;
             for (auto& ann : pending_annots) {
                 auto aname = std::string(str_of(ann.get(la::NAME.code)));
-                if (aname == "zoned") { has_zoned = true; break; }
+                if (aname == "datatype" || aname == "annotation") { has_zoned = true; break; }
             }
             std::string struct_doc = take_pending_doc();
             if (is_specialization_struct(item)) {

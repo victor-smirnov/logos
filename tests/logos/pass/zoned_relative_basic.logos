@@ -1,18 +1,18 @@
-// #[zoned2]: a struct whose THIN POINTER fields are stored SELF-RELATIVE (RelOffset
+// #[zoned]: a struct whose THIN POINTER fields are stored SELF-RELATIVE (RelOffset
 // i64, anchored to the field's own slot) and materialise to absolute pointers in
 // compute — the untagged zoned-reference case (ref-repr-design §6). No RelPtr<T>
 // wrapper; the relativity is derived from the containing struct's attribute. The
 // field is an ORDINARY `*mut i64` — the auto-conversion is the whole point.
-package zoned2_basic;
+package zoned_relative_basic;
 use logos.lang.ptr;
 extern fn malloc(size: i64) -> *mut u8;
 
-#[zoned2] struct Node { next: *mut i64, tag: i64 }
+#[zoned] struct Node { next: *mut i64, tag: i64 }
 
 unsafe fn main() -> i32 {
     let mem: *mut u8 = malloc(64i64);
     let target: *mut i64 = mem.byte_add(24i64) as *mut i64;  *target = 777i64;
-    let nd: *mut Node = malloc(16i64) as *mut Node;          // #[zoned2] → heap, not stack
+    let nd: *mut Node = malloc(16i64) as *mut Node;          // #[zoned] → heap, not stack
     nd.next = target;                                         // lower: store self-relative offset
     let back: *mut i64 = nd.next;                             // materialize: absolute ptr
     if *back != 777i64 { return 1; }                          // round-trips through deref

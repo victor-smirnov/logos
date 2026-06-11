@@ -1,14 +1,14 @@
-// Explicit instantiation declaration `#[type_code=N] #[zoned] pub struct Foo<T>;`
-// assigns a specific type_code to a generic-#[zoned] struct specialization.  Other
+// Explicit instantiation declaration `#[type_code=N] #[datatype] pub struct Foo<T>;`
+// assigns a specific type_code to a generic-#[datatype] struct specialization.  Other
 // instantiations fall back to the hash-derived auto-code.
 package generic_inst_type_code;
 
-#[zoned] pub struct Foo<T> {
+#[datatype] pub struct Foo<T> {
     pub x: u32,
 }
 
 #[type_code=200]
-#[zoned] pub struct Foo<i32>;
+#[datatype] pub struct Foo<i32>;
 
 unsafe fn main() -> i32 {
     let c: u64 = type_code_of::<Foo<i32>>();

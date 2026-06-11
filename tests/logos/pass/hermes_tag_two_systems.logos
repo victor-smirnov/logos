@@ -10,11 +10,11 @@ extern fn malloc(size: i64) -> *mut u8;
 
 #[rel_ptr] struct RelAny { _o: i64 }                 // type-erased self-relative ptr
 
-#[type_code=170] #[zoned] struct Leaf { v: i32 }
+#[type_code=170] #[datatype] struct Leaf { v: i32 }
 
 // ── Hermes1 world: inner pointer = base-relative u32 offset ───────────────────
 #[tag_dispatch(HermesTypeTagSystem)] trait SumH1 { unsafe fn total(self: *const Self, base: *const u8) -> i32; }
-#[type_code=171] #[zoned] struct NodeH1 { val: i32, leaf_off: u32 }
+#[type_code=171] #[datatype] struct NodeH1 { val: i32, leaf_off: u32 }
 impl SumH1 for NodeH1 {
     pub unsafe fn total(self: *const NodeH1, base: *const u8) -> i32 {
         let leaf: *const Leaf = base.byte_add(self.leaf_off as i64) as *const Leaf;  // base + off
@@ -24,7 +24,7 @@ impl SumH1 for NodeH1 {
 
 // ── Hermes world: inner pointer = self-relative RelAny — SAME type_code 171 ───
 #[tag_dispatch(HermesTagSystem)] trait SumH2 { unsafe fn total(self: *const Self) -> i32; }
-#[type_code=171] #[zoned] struct NodeH2 { val: i32, leaf: RelAny }
+#[type_code=171] #[datatype] struct NodeH2 { val: i32, leaf: RelAny }
 impl SumH2 for NodeH2 {
     pub unsafe fn total(self: *const NodeH2) -> i32 {
         let lp: *const u8 = self.leaf;               // self-relative materialise (&self.leaf + off)

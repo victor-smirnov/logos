@@ -1,10 +1,10 @@
 package datanode_param_value;
-// Sema fail: passing a DataNode #[zoned] struct by bare value to a function.
+// Sema fail: passing a DataNode #[datatype] struct by bare value to a function.
 // FakePtr<T> is a generic Datatype field → Node.is_data_plain = false.
 
-#[zoned] pub struct FakePtr<T> { offset: u32 }
+#[datatype] pub struct FakePtr<T> { offset: u32 }
 
-#[zoned] struct Node {
+#[datatype] struct Node {
     value: i32,
     next:  FakePtr<Node>,
 }

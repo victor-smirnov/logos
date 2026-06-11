@@ -5,13 +5,13 @@ use logos.lang.hermes.static_view;  // HView2 — hermes2 reader for the blob
 use logos.lang.hermes.anyval;       // HAny
 
 #[annotation]
-#[zoned] struct Deprecated {
+#[datatype] struct Deprecated {
     msg: str,
     since: str,
 }
 
 #[Deprecated(msg="old", since="0.1")]
-#[zoned] struct MyPoint {
+#[datatype] struct MyPoint {
     x: i32,
     y: i32,
 }

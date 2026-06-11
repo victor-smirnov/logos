@@ -331,14 +331,17 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                 pass0_pending.push_back(item);
                 continue;
             }
-            bool is_zoned_struct = false;
+            // `#[datatype]` promotes a STRUCT-syntax item into the datatype
+            // pipeline (type_code/reflect/dispatch); `#[zoned]` is the hermes
+            // self-relative-fields marker and does NOT promote.
+            bool is_datatype_struct = false;
             if (ic == la::STRUCT) {
                 for (auto& ann : pass0_pending) {
-                    if (str_of(ann.get(la::NAME.code)) == "zoned") { is_zoned_struct = true; break; }
+                    if (str_of(ann.get(la::NAME.code)) == "datatype") { is_datatype_struct = true; break; }
                 }
             }
             pass0_pending.clear();
-            if (ic == la::STRUCT && !is_zoned_struct) {
+            if (ic == la::STRUCT && !is_datatype_struct) {
                 if (!item.has_key(la::NAME.code)) continue;  // struct_inst — skip name registration
                 if (is_specialization_struct(item)) continue;  // specs registered later
                 auto sname = std::string(str_of(item.get(la::NAME.code)));
@@ -379,7 +382,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                     structs_[key] = {};
                     first_struct[key] = {holder_, item_off(item)};
                 }
-            } else if ((ic == la::STRUCT && is_zoned_struct) || ic == la::DATATYPE) {
+            } else if ((ic == la::STRUCT && is_datatype_struct) || ic == la::DATATYPE) {
                 // Explicit instantiation declarations have no NAME key — skip name registration.
                 if (!item.has_key(la::NAME.code)) continue;
                 if (is_specialization_struct(item)) continue;  // partial/full specs registered later
@@ -1525,18 +1528,22 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 else {
                     auto sname = std::string(str_of(item.get(la::NAME.code)));
                     bool htp = item_has_type_params(item);
-                    // STRUCT-syntax items: `#[zoned]` is the syntactic switch
-                    // that promotes to datatype, so the syntactic target is
-                    // always Struct here.
+                    // `#[zoned]` = self-relative pointer fields (no promotion);
+                    // `#[datatype]` (or #[annotation]) promotes to the datatype
+                    // pipeline (type_code/reflect/dispatch).
                     check_annotations(AttrTarget::Struct, sname, htp, pending_annots);
+                    bool pending_is_annot_type = false;
+                    bool pending_is_datatype = false;
+                    for (auto& ann : pending_annots) {
+                        auto an = str_of(ann.get(la::NAME.code));
+                        if (an == "annotation") pending_is_annot_type = true;
+                        if (an == "datatype")   pending_is_datatype = true;
+                    }
                     if (is_specialization_struct(item)) collect_struct_spec(item);
-                    else if (is_zoned) {
-                        bool pending_is_annot_type = false;
-                        for (auto& ann : pending_annots) {
-                            if (str_of(ann.get(la::NAME.code)) == "annotation") { pending_is_annot_type = true; break; }
-                        }
+                    else if (pending_is_annot_type || pending_is_datatype) {
                         collect_datatype(item, pending_is_annot_type);
                     } else {
+                        (void)is_zoned;
                         collect_struct(item);
                         // `#[no_auto_drop]`: opt the struct out of compiler
                         // auto-Drop (no user-drop call, no field-drop). The
@@ -1591,9 +1598,10 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 if (sit != structs_.end()) sit->second.zone_mut = true;
                                 break;
                             }
-                        // `#[zoned2]`: all thin ptr fields stored self-relative (RelOffset).
+                        // `#[zoned]`: all thin ptr fields stored self-relative (RelOffset).
+                        // (The hermes2-era spelling `zoned2` merged into `zoned`.)
                         for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "zoned2") {
+                            if (str_of(ann.get(la::NAME.code)) == "zoned") {
                                 auto skey = sema_key(cur_package_, sname);
                                 auto sit = structs_.find(skey);
                                 if (sit == structs_.end()) sit = structs_.find(sname);
@@ -1713,14 +1721,14 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                       item_has_type_params(item), pending_annots);
                 }
                 collect_enum(item);
-                // `#[zoned2]` on an enum — the niche enum's Ref arm stores
+                // `#[zoned]` on an enum — the niche enum's Ref arm stores
                 // SELF-RELATIVE at-rest (RelOffset) and absolute as a value (the
                 // storage/compute split; F3, ref-repr-design §8). Mirrors the
-                // struct `#[zoned2]` at the field-collection path above.
+                // struct `#[zoned]` at the field-collection path above.
                 if (item.has_key(la::NAME.code)) {
                     std::string ename(str_of(item.get(la::NAME.code)));
                     for (auto& ann : pending_annots)
-                        if (str_of(ann.get(la::NAME.code)) == "zoned2") {
+                        if (str_of(ann.get(la::NAME.code)) == "zoned") {
                             auto eit = enums_.find(sema_key(cur_package_, ename));
                             if (eit == enums_.end()) eit = enums_.find(ename);
                             if (eit != enums_.end()) eit->second.zoned2 = true;

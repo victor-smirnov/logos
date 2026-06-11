@@ -30,8 +30,8 @@ unsafe fn arena_alloc_tagged(a: *mut Arena, size: i64, code: u64) -> *mut u8 {
 
 // ── two tagged Hermes object types ───────────────────────────────────────────
 #[tag_dispatch(DataTypeTagSystem)] trait Checksum { unsafe fn checksum(self: *const Self) -> i32; }
-#[type_code=151] #[zoned] struct Point { x: i32, y: i32 }
-#[type_code=152] #[zoned] struct Color { r: u8, g: u8, b: u8, a: u8 }
+#[type_code=151] #[datatype] struct Point { x: i32, y: i32 }
+#[type_code=152] #[datatype] struct Color { r: u8, g: u8, b: u8, a: u8 }
 impl Checksum for Point { pub unsafe fn checksum(self: *const Point) -> i32 { return self.x + self.y; } }
 impl Checksum for Color { pub unsafe fn checksum(self: *const Color) -> i32 { return self.r as i32 + self.g as i32 + self.b as i32 + self.a as i32; } }
 

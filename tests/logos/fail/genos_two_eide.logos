@@ -1,4 +1,4 @@
-// Violates the "one #[zoned] struct per (genos, tag-system)" invariant:
+// Violates the "one #[datatype] struct per (genos, tag-system)" invariant:
 // two different zone eide (FooA, FooB) both claim the same genos Thingy,
 // which in turn dispatches methods through Behave.  The compiler must
 // surface a single clear diagnostic rather than waiting for the linker.
@@ -14,8 +14,8 @@ pub trait Behave {
 
 pub struct TsSystem {}
 
-#[zoned] pub struct FooA { pub first: u8 }
-#[zoned] pub struct FooB { pub first: u8 }
+#[datatype] pub struct FooA { pub first: u8 }
+#[datatype] pub struct FooB { pub first: u8 }
 
 impl Thingy for FooA {}
 impl Thingy for FooB {}

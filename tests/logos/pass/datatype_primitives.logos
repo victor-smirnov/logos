@@ -1,8 +1,8 @@
 package datatype_primitives;
-// Exercises all primitive scalar types as #[zoned] struct fields.
+// Exercises all primitive scalar types as #[datatype] struct fields.
 // Verifies that is_datatype_safe accepts every primitive Kind.
 
-#[zoned] struct Scalars {
+#[datatype] struct Scalars {
     a: i8,
     b: u8,
     c: i16,
@@ -18,13 +18,13 @@ package datatype_primitives;
     n: bool,
 }
 
-#[zoned] struct WithArrays {
+#[datatype] struct WithArrays {
     bytes: [u8; 4],
     words: [i32; 2],
     flags: [bool; 8],
 }
 
-#[zoned] struct Nested {
+#[datatype] struct Nested {
     s: Scalars,
     x: i32,
 }

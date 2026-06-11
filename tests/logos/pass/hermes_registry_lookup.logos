@@ -14,7 +14,7 @@ pub trait Describe {
     unsafe fn describe(self: *const Self) -> i32;
 }
 
-#[zoned] struct Imp { v: i32 }
+#[datatype] struct Imp { v: i32 }
 
 impl Describe for Imp {
     pub unsafe fn describe(self: *const Imp) -> i32 { return self.v + 1; }

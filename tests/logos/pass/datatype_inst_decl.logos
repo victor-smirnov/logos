@@ -1,20 +1,20 @@
 package datatype_inst_decl;
 // Tests explicit instantiation declaration syntax:
-//   #[type_code=N] #[zoned] struct SomeGeneric<T>;
+//   #[type_code=N] #[datatype] struct SomeGeneric<T>;
 // This binds a short type_code to a generic instantiation without
 // redefining the type.
 
-#[zoned] struct Pair<T> {
+#[datatype] struct Pair<T> {
     first:  T,
     second: T,
 }
 
 // Explicit instantiation declarations — bind type_codes to concrete instances.
 #[type_code = 200]
-#[zoned] struct Pair<i32>;
+#[datatype] struct Pair<i32>;
 
 #[type_code = 201]
-#[zoned] struct Pair<i64>;
+#[datatype] struct Pair<i64>;
 
 fn main() -> i32 {
     // The explicit instantiation declarations above must parse and lower without error.

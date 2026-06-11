@@ -52,7 +52,7 @@ fn yn(label: str, b: bool) {
 
 // ── a tagged, dispatchable object that lives IN the arena ─────────────────────
 #[tag_dispatch(HermesTagSystem)] trait Area { unsafe fn area(self: *const Self) -> i64; }
-#[type_code=170] #[zoned] struct Rect { w: i64, h: i64 }
+#[type_code=170] #[datatype] struct Rect { w: i64, h: i64 }
 impl Area for Rect { pub unsafe fn area(self: *const Rect) -> i64 { return self.w * self.h; } }
 
 // Resolve a Ref HAny to a tagged object and dispatch through HermesTagSystem.

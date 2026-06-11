@@ -18,12 +18,12 @@ trait Checksum {
     fn checksum(self: &Self) -> i32;
 }
 
-#[zoned] struct Point {
+#[datatype] struct Point {
     x: i32,
     y: i32,
 }
 
-#[zoned] struct Color {
+#[datatype] struct Color {
     r: u8,
     g: u8,
     b: u8,

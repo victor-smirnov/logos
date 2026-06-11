@@ -38,21 +38,21 @@ pub struct HMapEntry {
 
 // HMap<K, V> — empty base; per-key-shape partial SPECIALISATIONS attach layout +
 // impl (mirrors Hermes1 Map<K,V>). Never instantiated directly.
-#[zoned2]
+#[zoned]
 pub struct HMap<K, V> {}
 
 // ── Open-addressing spec: string keys (HMap<HString, V>) ──────────────────────
 // `#[zone_mut]`: a `&mut` is a FAT ref {data, zone} carrying its Hermes zone (the
 // allocator) — grow/intern reach it via zone_of(self); read `&` stays thin.
-// `#[zoned2]`: `data` is stored SELF-RELATIVE and materialises to the absolute
+// `#[zoned]`: `data` is stored SELF-RELATIVE and materialises to the absolute
 // entry buffer on read (ref-repr-design §6). No manual delta.
 #[zone_mut]
 #[pinned]
-#[zoned2]
+#[zoned]
 pub struct HMap<HString, V> {
     pub count: i64,             // occupied slots
     pub cap:   i64,             // number of slots (power of 2)
-    pub data:  *mut HMapEntry,  // entry buffer (auto-relative via #[zoned2])
+    pub data:  *mut HMapEntry,  // entry buffer (auto-relative via #[zoned])
 }
 
 // Ergonomic alias for the heterogeneous string-keyed map (the only instantiation
@@ -60,7 +60,7 @@ pub struct HMap<HString, V> {
 pub type HValMap = HMap<HString, HVal>;
 
 // Absolute entry buffer (header + delta).
-// #[zoned2]: `m.data` materialises to the absolute entry buffer on read.
+// #[zoned]: `m.data` materialises to the absolute entry buffer on read.
 unsafe fn om_buf(m: *const HMap<HString, HVal>) -> *const HMapEntry { return m.data as *const HMapEntry; }
 unsafe fn om_buf_mut(m: *mut HMap<HString, HVal>) -> *mut HMapEntry { return m.data; }
 
@@ -91,7 +91,7 @@ unsafe fn om_new(h: *mut Hermes, cap: i64) -> *mut HMap<HString, HVal> {
     let buf: *mut HMapEntry  = hermes_alloc_n::<HMapEntry>(h, cap);
     hdr.count = 0i64;
     hdr.cap   = cap;
-    hdr.data  = buf;            // #[zoned2]: lowers to self-relative offset
+    hdr.data  = buf;            // #[zoned]: lowers to self-relative offset
     om_zero(buf, cap);
     return hdr;
 }
@@ -130,7 +130,7 @@ unsafe fn om_grow(m: *mut HMap<HString, HVal>, alloc: *mut Allocator) {
         }
         i = i + 1i64;
     }
-    m.data = nbuf;          // #[zoned2]: lowers to self-relative offset
+    m.data = nbuf;          // #[zoned]: lowers to self-relative offset
     m.cap  = newcap;
 }
 
@@ -295,10 +295,10 @@ impl HAny {
 
 // Hu6 — a pure type-level label for the 6-bit key (keys 0..51): the bitmap-indexed
 // map is `HMap<Hu6, HVal>`, aliased HTinyValMap.
-#[zoned2] pub struct Hu6 {}
+#[zoned] pub struct Hu6 {}
 
 #[pinned]
-#[zoned2]
+#[zoned]
 pub struct HMap<Hu6, V> {
     pub header: u64,               // bitmap[0:51] | cap[52:57] | size[58:63]
     pub schema: u64,               // node-class discriminator (0 = none); byte-shared with C++ TOM
@@ -317,7 +317,7 @@ unsafe fn htv_new(h: *mut Hermes, cap: i64) -> *mut HMap<Hu6, HVal> {
     let buf: *zoned mut HAny = hermes_alloc_n::<HAny>(h, c) as *zoned mut HAny;
     hdr.header = (c as u64) << 52u64;   // cap bits; bitmap = 0, size = 0
     hdr.schema = 0u64;                  // no schema by default
-    hdr.data   = buf;                   // #[zoned2]: lowers to a self-relative offset
+    hdr.data   = buf;                   // #[zoned]: lowers to a self-relative offset
     let mut i: i64 = 0i64;
     while i < c { *(buf.add(i)) = HAny::ref_to(0i64 as *const u8); i = i + 1i64; }
     return hdr;
@@ -404,7 +404,7 @@ impl HIntKeyTag for i64 { fn map_code() -> u64 { return 3103u64; } }
 impl HIntKeyTag for u64 { fn map_code() -> u64 { return 3104u64; } }
 
 #[pinned]
-#[zoned2]
+#[zoned]
 pub struct HMap<K, HVal> {
     pub size: i64,
     pub cap:  i64,
@@ -422,7 +422,7 @@ unsafe fn him_new<K: HIntKeyTag>(h: *mut Hermes, cap: i64) -> *mut HMap<K, HVal>
     let vbuf: *zoned mut HAny = hermes_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.size = 0i64;
     hdr.cap  = cap;
-    hdr.keys = kbuf;            // #[zoned2]: lower to self-relative offsets
+    hdr.keys = kbuf;            // #[zoned]: lower to self-relative offsets
     hdr.vals = vbuf;
     return hdr;
 }

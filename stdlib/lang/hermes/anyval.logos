@@ -1,7 +1,7 @@
 // Logos Hermes stdlib — hermes2.anyval
 //
 // HAny — the Hermes heterogeneous slot (the AnyVal analog): a niche-packed
-// `#[zoned2] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
+// `#[zoned] enum { Ref(*const u8) | Pod(u64) }` (F3, ref-repr-design §6/§8). ONE
 // 8-byte word that is either an inline primitive (Pod) or a reference to a
 // type-tagged zone object (Ref). The storage/compute split is now COMPILER-OWNED:
 //
@@ -24,14 +24,14 @@ package logos.lang.hermes.anyval;
 
 use logos.lang.ptr;
 
-// HAny — the heterogeneous Hermes slot, a niche-packed `#[zoned2]` enum (F3).
+// HAny — the heterogeneous Hermes slot, a niche-packed `#[zoned]` enum (F3).
 // ONE 8-byte word: `Ref` = a type-erased pointer to a tagged zone object
-// (low-bit-0; self-relative at-rest via #[zoned2], absolute as a value), `Pod`
+// (low-bit-0; self-relative at-rest via #[zoned], absolute as a value), `Pod`
 // = an inline tagged word `(value<<8)|(code<<1)|1` (low-bit-1, position-
 // independent). `null` = `Ref(0)`. The compiler owns the at-rest↔value bridge
 // (materialise/lower on a `*zoned HAny` access) — no hand-rolled relative math.
 #[borrow_carrying]
-#[zoned2]
+#[zoned]
 pub enum HAny {
     Ref(*const u8),   // tagged zone object (low-bit-0; zoned)
     Pod(u64),         // inline tagged word (low-bit-1; position-independent)
@@ -74,7 +74,7 @@ impl HAny {
         return HAny::pod(if b { 1i64 } else { 0i64 }, code);
     }
     // Reference to a tagged zone object — absolute in the value form, self-relative
-    // at-rest (the #[zoned2] Ref arm; the compiler bridges).
+    // at-rest (the #[zoned] Ref arm; the compiler bridges).
     pub fn ref_to(obj: *const u8) -> HAny { return HAny::Ref(obj); }
 
     // ── accessors ─ pure reads of the value form: safe `&self` (no `unsafe` at
