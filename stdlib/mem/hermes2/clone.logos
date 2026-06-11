@@ -104,6 +104,42 @@ pub unsafe fn hermes2_clone_into(h: &Hermes2, v: HAny) -> HAny {
         return HAny::ref_to(hdr as *const u8);
     }
 
+    // Typed dense maps (3101..3104): keys buffer raw; vals re-anchored at-rest.
+    if tc >= 3101u64 && tc <= 3104u64 {
+        let n: i64 = *(p as *const i64);
+        let kw: i64 = if tc == 3101u64 || tc == 3102u64 { 4i64 } else { 8i64 };
+        let mut kbuf: i64 = 0i64;
+        let mut vbuf: i64 = 0i64;
+        if n > 0i64 {
+            kbuf = hermes2_alloc_bytes(hp, n * kw) as i64;
+            vbuf = hermes2_alloc_bytes(hp, n * 8i64) as i64;
+            let skf: i64 = (p as i64) + 16i64; let skeys: i64 = skf + *(skf as *const i64);
+            let svf: i64 = (p as i64) + 24i64; let svals: i64 = svf + *(svf as *const i64);
+            let mut i: i64 = 0i64;
+            while i < n * kw {
+                *((kbuf + i) as *mut u8) = *((skeys + i) as *const u8);
+                i = i + 1i64;
+            }
+            i = 0i64;
+            while i < n {
+                let c2: HAny = hermes2_clone_into(h, h2c_at(svals + i * 8i64));
+                let slot: i64 = vbuf + i * 8i64;
+                let w2: i64 = c2.raw();
+                if w2 == 0i64 || (w2 & 1i64) == 1i64 { *(slot as *mut i64) = w2; }
+                else { *(slot as *mut i64) = w2 - slot; }
+                i = i + 1i64;
+            }
+        }
+        let hdr: *mut u8 = alloc_tagged(ap, 32, tc);
+        *(hdr as *mut i64) = n;
+        *(((hdr as i64) + 8i64) as *mut i64) = n;
+        let kf2: i64 = (hdr as i64) + 16i64;
+        let vf2: i64 = (hdr as i64) + 24i64;
+        if kbuf == 0i64 { *(kf2 as *mut i64) = 0i64; *(vf2 as *mut i64) = 0i64; }
+        else { *(kf2 as *mut i64) = kbuf - kf2; *(vf2 as *mut i64) = vbuf - vf2; }
+        return HAny::ref_to(hdr as *const u8);
+    }
+
     // TypedValue: 24-byte object of three at-rest fields, each deep-copied.
     if tc == 4115u64 {
         let obj: *mut u8 = alloc_tagged(ap, 24, tc);
