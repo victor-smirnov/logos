@@ -5,6 +5,7 @@ package h2tag;
 // resolves it SELF-RELATIVE (RelAny materialise). Dispatch is keyed by
 // (system, type_code), so both coexist and each resolves its inner pointer right.
 use logos.lang.ptr;
+use logos.mem.hermes2.tag_system;
 extern fn malloc(size: i64) -> *mut u8;
 
 #[rel_ptr] struct RelAny { _o: i64 }                 // type-erased self-relative ptr

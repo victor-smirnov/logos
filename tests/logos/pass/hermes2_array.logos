@@ -3,6 +3,7 @@
 // Ref survives the re-anchoring grow and dispatches through Hermes2TagSystem.
 package test;
 use logos.lang.hermes2.container;
+use logos.mem.hermes2.tag_system;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
 use logos.lang.ptr;

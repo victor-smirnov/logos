@@ -6,7 +6,11 @@
 
 package hermes_as_array_variants;
 
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
@@ -14,74 +18,82 @@ pub unsafe fn main() -> i32 {
     // 1. i8 slice → Array<i8>
     let buf1: [i8; 3] = [-10, 20, -30];
     let s1: &[i8] = &buf1;
-    let ctr1: Hermes = s1 as <I8>[];
-    if ctr1.root().is_null() { return 1; }
-    if !ctr1.root().is_ptr() { return 2; }
-    let t1: String = ctr1.to_string();
-    if !t1.eq_str("<I8> [-10,20,-30]") { return 3; }
+    let ctr1: Rc<Hermes2> = s1 as <I8>[];
+    let h_ctr1: &Hermes2 = ctr1.deref();
+    if h_ctr1.root().is_null() { return 1; }
+    if !h_ctr1.root().is_ref() { return 2; }
+    let t1: String = stringify(h_ctr1.root());
+    if !t1.eq_str("<I8> [-10, 20, -30]") { return 3; }
 
     // 2. u8 slice → Array<u8>
     let buf2: [u8; 3] = [0, 128, 255];
     let s2: &[u8] = &buf2;
-    let ctr2: Hermes = s2 as <U8>[];
-    if ctr2.root().is_null() { return 4; }
-    if !ctr2.root().is_ptr() { return 5; }
-    let t2: String = ctr2.to_string();
-    if !t2.eq_str("<U8> [0,128,255]") { return 6; }
+    let ctr2: Rc<Hermes2> = s2 as <U8>[];
+    let h_ctr2: &Hermes2 = ctr2.deref();
+    if h_ctr2.root().is_null() { return 4; }
+    if !h_ctr2.root().is_ref() { return 5; }
+    let t2: String = stringify(h_ctr2.root());
+    if !t2.eq_str("<U8> [0, 128, 255]") { return 6; }
 
     // 3. i16 slice → Array<i16>
     let buf3: [i16; 3] = [-1000, 0, 1000];
     let s3: &[i16] = &buf3;
-    let ctr3: Hermes = s3 as <I16>[];
-    if ctr3.root().is_null() { return 7; }
-    if !ctr3.root().is_ptr() { return 8; }
-    let t3: String = ctr3.to_string();
-    if !t3.eq_str("<I16> [-1000,0,1000]") { return 9; }
+    let ctr3: Rc<Hermes2> = s3 as <I16>[];
+    let h_ctr3: &Hermes2 = ctr3.deref();
+    if h_ctr3.root().is_null() { return 7; }
+    if !h_ctr3.root().is_ref() { return 8; }
+    let t3: String = stringify(h_ctr3.root());
+    if !t3.eq_str("<I16> [-1000, 0, 1000]") { return 9; }
 
     // 4. u16 slice → Array<u16>
     let buf4: [u16; 3] = [100, 200, 300];
     let s4: &[u16] = &buf4;
-    let ctr4: Hermes = s4 as <U16>[];
-    if ctr4.root().is_null() { return 10; }
-    if !ctr4.root().is_ptr() { return 11; }
-    let t4: String = ctr4.to_string();
-    if !t4.eq_str("<U16> [100,200,300]") { return 12; }
+    let ctr4: Rc<Hermes2> = s4 as <U16>[];
+    let h_ctr4: &Hermes2 = ctr4.deref();
+    if h_ctr4.root().is_null() { return 10; }
+    if !h_ctr4.root().is_ref() { return 11; }
+    let t4: String = stringify(h_ctr4.root());
+    if !t4.eq_str("<U16> [100, 200, 300]") { return 12; }
 
     // 5. u32 slice → Array<u32>
     let buf5: [u32; 3] = [10, 20, 30];
     let s5: &[u32] = &buf5;
-    let ctr5: Hermes = s5 as <U32>[];
-    if ctr5.root().is_null() { return 13; }
-    if !ctr5.root().is_ptr() { return 14; }
-    let t5: String = ctr5.to_string();
-    if !t5.eq_str("<U32> [10,20,30]") { return 15; }
+    let ctr5: Rc<Hermes2> = s5 as <U32>[];
+    let h_ctr5: &Hermes2 = ctr5.deref();
+    if h_ctr5.root().is_null() { return 13; }
+    if !h_ctr5.root().is_ref() { return 14; }
+    let t5: String = stringify(h_ctr5.root());
+    if !t5.eq_str("<U32> [10, 20, 30]") { return 15; }
 
     // 6. i64 slice → Array<i64>
     let buf6: [i64; 3] = [-100000, 0, 100000];
     let s6: &[i64] = &buf6;
-    let ctr6: Hermes = s6 as <I64>[];
-    if ctr6.root().is_null() { return 16; }
-    if !ctr6.root().is_ptr() { return 17; }
-    let t6: String = ctr6.to_string();
-    if !t6.eq_str("<I64> [-100000,0,100000]") { return 18; }
+    let ctr6: Rc<Hermes2> = s6 as <I64>[];
+    let h_ctr6: &Hermes2 = ctr6.deref();
+    if h_ctr6.root().is_null() { return 16; }
+    if !h_ctr6.root().is_ref() { return 17; }
+    let t6: String = stringify(h_ctr6.root());
+    if !t6.eq_str("<I64> [-100000, 0, 100000]") { return 18; }
 
     // 7. f32 slice → Array<f32> (elements truncated to i64 in stringify)
     let buf7: [f32; 3] = [1, 2, 3];
     let s7: &[f32] = &buf7;
-    let ctr7: Hermes = s7 as <F32>[];
-    if ctr7.root().is_null() { return 19; }
-    if !ctr7.root().is_ptr() { return 20; }
-    let t7: String = ctr7.to_string();
-    if !t7.eq_str("<F32> [1,2,3]") { return 21; }
+    let ctr7: Rc<Hermes2> = s7 as <F32>[];
+    let h_ctr7: &Hermes2 = ctr7.deref();
+    if h_ctr7.root().is_null() { return 19; }
+    if !h_ctr7.root().is_ref() { return 20; }
+    let t7: String = stringify(h_ctr7.root());
+    if !t7.eq_str("<F32> [1, 2, 3]") { return 21; }
 
     // 8. f64 slice → Array<f64> (elements truncated to i64 in stringify)
     let buf8: [f64; 3] = [10, 20, 30];
     let s8: &[f64] = &buf8;
-    let ctr8: Hermes = s8 as <F64>[];
-    if ctr8.root().is_null() { return 22; }
-    if !ctr8.root().is_ptr() { return 23; }
-    let t8: String = ctr8.to_string();
-    if !t8.eq_str("<F64> [10,20,30]") { return 24; }
+    let ctr8: Rc<Hermes2> = s8 as <F64>[];
+    let h_ctr8: &Hermes2 = ctr8.deref();
+    if h_ctr8.root().is_null() { return 22; }
+    if !h_ctr8.root().is_ref() { return 23; }
+    let t8: String = stringify(h_ctr8.root());
+    if !t8.eq_str("<F64> [10, 20, 30]") { return 24; }
 
     return 0;
 }

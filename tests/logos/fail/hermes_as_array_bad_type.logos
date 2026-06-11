@@ -1,10 +1,13 @@
 // Fail: as <T>[] with unsupported element type.
 package hermes_as_array_bad_type;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];
     let s: &[i32] = &arr;
-    let ctr: Hermes = s as <Bool>[];
+    let ctr: Rc<Hermes2> = s as <Bool>[];
     return 0;
 }

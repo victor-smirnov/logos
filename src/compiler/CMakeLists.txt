@@ -118,7 +118,6 @@ target_include_directories(logosc PRIVATE
 # MLIR/LLVM libraries for the pipeline:
 #   func dialect → arith dialect → scf/cf → LLVM dialect → LLVM IR → target
 target_link_libraries(logosc PRIVATE
-    logos_hermes
     logos_hermes2
     logos_jit
 

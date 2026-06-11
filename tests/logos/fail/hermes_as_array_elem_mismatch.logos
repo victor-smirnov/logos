@@ -1,10 +1,13 @@
 // Fail: &[u64] slice cast to <I32>[] — element type mismatch.
 package hermes_as_array_elem_mismatch;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
     let arr: [u64; 2] = [1, 2];
     let s: &[u64] = &arr;
-    let ctr: Hermes = s as <I32>[];
+    let ctr: Rc<Hermes2> = s as <I32>[];
     return 0;
 }

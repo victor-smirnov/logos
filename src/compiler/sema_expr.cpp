@@ -625,25 +625,30 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             }
             // Pick the stdlib builder function name.
             std::string build_fn;
-            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes_build_array_i8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes_build_array_u8";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes_build_array_i16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes_build_array_u16";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes_build_array_u32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes_build_array_i32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes_build_array_i64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes_build_array_u64";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes_build_array_f32";
-            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes_build_array_f64";
+            if      (TypeRef(elem_t).kind() == LogosType::Kind::I8)  build_fn = "hermes2_build_array_i8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U8)  build_fn = "hermes2_build_array_u8";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I16) build_fn = "hermes2_build_array_i16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U16) build_fn = "hermes2_build_array_u16";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U32) build_fn = "hermes2_build_array_u32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I32) build_fn = "hermes2_build_array_i32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::I64) build_fn = "hermes2_build_array_i64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::U64) build_fn = "hermes2_build_array_u64";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F32) build_fn = "hermes2_build_array_f32";
+            else if (TypeRef(elem_t).kind() == LogosType::Kind::F64) build_fn = "hermes2_build_array_f64";
             else {
                 error(std::format("'as <T>[]': unsupported element type '{}'; "
                                   "supported: i8/u8/i16/u16/i32/u32/i64/u64/f32/f64",
                                   type_str(elem_t)));
                 return error_expr();
             }
-            // Result type: Hermes.
-            auto ctr_t = lookup_type_by_name("Hermes");
-            if (!ctr_t) ctr_t = make_struct_type("Hermes");
+            // Result type: Rc<Hermes2> (the builder fn's return type).
+            TypeRef ctr_t = nullptr;
+            for (auto* c : find_func_candidates(build_fn))
+                if (c->param_types.size() == 2) { ctr_t = c->ret_type; break; }
+            if (!ctr_t) {
+                error("'as <T>[]' requires `use logos.lang.hermes2.typed_arr;`");
+                return error_expr();
+            }
             return builder().hermes_cast(std::move(inner), std::move(build_fn), ctr_t);
         }
         // fix5: explicit guard — outer if allows HermesArr||HermesMap; must be HermesMap here.
@@ -651,6 +656,11 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             error("internal: unexpected hermes container type in map cast path");
             return error_expr();
         }
+        // hermes2 cut-over: the map-cast source shapes (MapSlice* over 4-byte
+        // &[AnyVal]) were Hermes1; the feature awaits a value-form &[HAny]
+        // re-design. See docs/hermes2/retired-hermes1-tests.md.
+        error("'as <K,V>{}' map casts are retired with Hermes1 (pending hermes2 re-port)");
+        return error_expr();
         // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
             auto src = inner->type;
@@ -16551,9 +16561,9 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                 // ExprBlob ret additionally needs std.compiler.metaprog.
                 const char* extra_uses =
                     (site.ret_tag == RT2::HermesStatic)
-                    ? "use logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
+                    ? "use logos.lang.hermes2.hstatic;\n"
                     : (site.ret_tag == RT2::ExprBlob)
-                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.hermes.view;\nuse logos.mem.hermes.view;\n"
+                    ? "use logos.std.compiler.metaprog;\nuse logos.lang.hermes2.hstatic;\n"
                     : "";
                 // Body shape:
                 //   call/expr forms → `{ return <text>; }`

@@ -1,9 +1,12 @@
 // Fail: as <I32>[] with non-slice source.
 package hermes_as_array_not_slice;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
     let x: i32 = 5;
-    let ctr: Hermes = x as <I32>[];
+    let ctr: Rc<Hermes2> = x as <I32>[];
     return 0;
 }
