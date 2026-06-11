@@ -1,0 +1,85 @@
+package datatag_typecode;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.tag_system;
+// Tests:
+// 1. type_code_of::<T>() — compile-time type_code for a concrete #[zoned] struct
+// 2. hermes.datatag write_tag / read_type_code roundtrip
+// 3. tag_size for single-byte and multi-byte codes
+
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[zoned] struct Point {
+    x: i32,
+    y: i32,
+}
+
+#[zoned] struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+unsafe fn main() -> i32 {
+    // 1. type_code_of returns a non-zero value for concrete datatypes.
+    let code_point: u64 = type_code_of::<Point>();
+    let code_color: u64 = type_code_of::<Color>();
+
+    // Codes must be >= 128 (reserved range 1-127 is inline AnyVal only).
+    if code_point < 128 as u64 { return 1; }
+    if code_color < 128 as u64 { return 2; }
+
+    // Different datatypes have different codes.
+    if code_point == code_color { return 3; }
+
+    // 2. tag_size: single-byte for codes <= 222.
+    let tsz_small: i64 = h2_tag_size(200 as u64);
+    if tsz_small != 1 { return 4; }
+
+    // tag_size: 2 bytes for codes 223 (header + 1 code byte).
+    let tsz_223: i64 = h2_tag_size(223 as u64);
+    if tsz_223 != 2 { return 5; }
+
+    // tag_size: 2 bytes for codes 223-255.
+    let tsz_255: i64 = h2_tag_size(255 as u64);
+    if tsz_255 != 2 { return 6; }
+
+    // tag_size: 3 bytes for code 256 (needs 2 code bytes).
+    let tsz_256: i64 = h2_tag_size(256 as u64);
+    if tsz_256 != 3 { return 7; }
+
+    // 3. Write/read roundtrip for a single-byte code.
+    // Use malloc for the buffer so pointer arithmetic is reliable.
+    let buf: *mut u8 = malloc(64);
+    // Zero the buffer.
+    let mut zi: i64 = 0;
+    loop {
+        if zi >= 64 { break; }
+        *((buf as i64 + zi) as *mut u8) = 0 as u8;
+        zi = zi + 1;
+    }
+
+    let obj_ptr: *mut u8 = (buf as i64 + 8) as *mut u8;
+
+    write_tag(obj_ptr, 200 as u64);
+    let read_back: u64 = h2_type_code(obj_ptr as *const u8);
+    if read_back != 200 as u64 { free(buf); return 8; }
+
+    // 4. Write/read roundtrip for code 256 (multi-byte).
+    let obj2: *mut u8 = (buf as i64 + 24) as *mut u8;
+    write_tag(obj2, 256 as u64);
+    let read_back2: u64 = h2_type_code(obj2 as *const u8);
+    if read_back2 != 256 as u64 { free(buf); return 9; }
+
+    // 5. type_code_of roundtrip via write_tag + read_type_code.
+    // If code_point <= 222: single-byte tag; else multi-byte.
+    let obj3: *mut u8 = (buf as i64 + 48) as *mut u8;
+    write_tag(obj3, code_point);
+    let read_point: u64 = h2_type_code(obj3 as *const u8);
+    if read_point != code_point { free(buf); return 10; }
+
+    free(buf);
+    return 0;  // all checks passed
+}

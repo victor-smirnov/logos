@@ -1,0 +1,42 @@
+// Decimals nested inside documents on hermes2: array/map members, clone +
+// equal walkers see through, value-compare ignores representation.
+package dec_deep;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.lang.hermes2.decimal;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+
+    // Decimals as container members.
+    let arr: &mut HArray<HVal> = h.array(4);
+    arr.push(hdec_from_str(h, "1.25"));
+    arr.push(hdec_from_str(h, "-300"));
+    let m: &mut HMap<HString, HVal> = h.map(8);
+    let ap2: *const HArray<HVal> = arr as *const HArray<HVal>;
+    m.set("prices", HAny::ref_to(ap2 as *const u8));
+
+    let got: HAny = m.get("prices");
+    if !got.is_array() { return 1; }
+    let ga: &HArray<HVal> = &*(got.resolve() as *const HArray<HVal>);
+    let d0: HAny = ga.get(0);
+    if !d0.is_decimal() { return 2; }
+    if d0.as_decimal().coeff() != 125u64 { return 3; }
+    if d0.as_decimal().scale() != 2u32 { return 4; }
+    let d1: HAny = ga.get(1);
+    if !d1.as_decimal().is_neg() { return 5; }
+
+    // Representation-blind compare: 1.50 == 1.5; ordering crosses scales.
+    if hdec_cmp(hdec_from_str(h, "1.50"), hdec_from_str(h, "1.5")) != 0 { return 6; }
+    if hdec_cmp(hdec_from_str(h, "1.49"), hdec_from_str(h, "1.5")) != -1 { return 7; }
+    if hdec_cmp(hdec_from_str(h, "-1.5"), hdec_from_str(h, "1.5")) != -1 { return 8; }
+    if hdec_cmp(hdec_from_str(h, "0.00"), hdec_from_str(h, "0")) != 0 { return 9; }
+
+    return 0;
+}

@@ -1,0 +1,39 @@
+// parse -> stringify -> parse fixed point on hermes2 (successor of the Hermes1
+// round-trip test): the second parse is structurally equal to the first.
+package hermes_round_trip;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.stringify;
+use logos.mem.hermes2.equal;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn roundtrip(h: &Hermes2, text: str) -> bool {
+    let v1: HAny = parse(h, text);
+    let s1: String = stringify(v1);
+    let v2: HAny = parse(h, s1.as_str());
+    if !hermes2_equal(v1, v2) { return false; }
+    // Second render must be byte-identical (canonical form is stable).
+    let s2: String = stringify(v2);
+    return s1.eq_str(s2.as_str());
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(65536);
+    let h: &Hermes2 = rc.deref();
+
+    if !roundtrip(h, "null") { return 1; }
+    if !roundtrip(h, "true") { return 2; }
+    if !roundtrip(h, "42") { return 3; }
+    if !roundtrip(h, "-8388608") { return 4; }
+    if !roundtrip(h, "9000000000") { return 5; }
+    if !roundtrip(h, "\"hello\"") { return 6; }
+    if !roundtrip(h, "[1, 2, 3]") { return 7; }
+    if !roundtrip(h, "{\"k\": [true, null, \"s\"], \"n\": {\"deep\": 1}}") { return 8; }
+    if !roundtrip(h, "<I32> [1, 2, 3]") { return 9; }
+    if !roundtrip(h, "<I64, AnyVal> {5: 50, 6: 60}") { return 10; }
+
+    return 0;
+}

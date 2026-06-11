@@ -1,0 +1,17 @@
+// Typed-map key type errors -> null (hermes2): quoted/bare/float keys in an
+// integer-keyed map.
+package hermes_typed_map_key_type_errors;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    if !parse(h, "<I32>{\"a\":1}").is_null() { return 1; }
+    if !parse(h, "<I32>{abc:1}").is_null() { return 2; }
+    if !parse(h, "<I32>{1.5:1}").is_null() { return 3; }
+    if parse(h, "<I32>{1:1}").is_null() { return 4; }
+    return 0;
+}

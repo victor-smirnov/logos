@@ -1,0 +1,39 @@
+// String escapes through the hermes2 SDN parser (successor of the Hermes1
+// escape test): \" \\ \n \t \r decode to single bytes.
+package hermes_escape_strings;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn get_str(h: &Hermes2, text: str) -> str {
+    let v: HAny = parse(h, text);
+    let hs: &HString = &*(v.resolve() as *const HString);
+    return hs.as_str();
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    let s1: str = get_str(h, "\"a\\\"b\"");        // a"b
+    if s1.len() != 3i64 { return 1; }
+    if *((s1.as_ptr() as i64 + 1) as *const u8) != 34 as u8 { return 2; }
+
+    let s2: str = get_str(h, "\"a\\\\b\"");        // a\b
+    if s2.len() != 3i64 { return 3; }
+    if *((s2.as_ptr() as i64 + 1) as *const u8) != 92 as u8 { return 4; }
+
+    let s3: str = get_str(h, "\"l1\\nl2\"");       // newline
+    if s3.len() != 5i64 { return 5; }
+    if *((s3.as_ptr() as i64 + 2) as *const u8) != 10 as u8 { return 6; }
+
+    let s4: str = get_str(h, "\"a\\tb\\rc\"");     // tab + CR
+    if s4.len() != 5i64 { return 7; }
+    if *((s4.as_ptr() as i64 + 1) as *const u8) != 9 as u8 { return 8; }
+    if *((s4.as_ptr() as i64 + 3) as *const u8) != 13 as u8 { return 9; }
+
+    return 42;
+}

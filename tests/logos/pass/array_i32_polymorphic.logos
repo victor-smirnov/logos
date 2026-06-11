@@ -1,0 +1,30 @@
+// One generic array shape, several element types (successor of the Hermes1
+// polymorphic Array<T> test): i32 / i64 / u8 instantiations behave alike.
+package array_i32_polymorphic;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    let ai: &mut HArray<i32> = h.tarray::<i32>(4);
+    ai.push(-5); ai.push(7);
+    if ai.len() != 2i64 { return 1; }
+    if ai.get(0) != -5 { return 2; }
+
+    let al: &mut HArray<i64> = h.tarray::<i64>(4);
+    al.push(9000000000i64);
+    if al.get(0) != 9000000000i64 { return 3; }
+
+    let ab: &mut HArray<u8> = h.tarray::<u8>(4);
+    ab.push(255 as u8); ab.push(0 as u8);
+    if ab.get(0) != 255 as u8 { return 4; }
+    if ab.get(1) != 0 as u8 { return 5; }
+
+    // Interleaved use: instances are independent.
+    ai.push(100);
+    if ai.len() != 3i64 || al.len() != 1i64 || ab.len() != 2i64 { return 6; }
+    return 0;
+}

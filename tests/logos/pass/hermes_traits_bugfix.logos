@@ -1,0 +1,41 @@
+// Trait-walker edge regressions on hermes2: empty containers, null inside
+// containers, key-order independence of equal/hash, scalar/container kind walls.
+package hermes_traits_bugfix;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.hashing;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
+
+    // Empty containers equal themselves, not each other.
+    let ea: HAny = parse(h, "[]");
+    let eb: HAny = parse(h, "[]");
+    let em: HAny = parse(h, "{}");
+    if !hermes2_equal(ea, eb) { return 1; }
+    if hermes2_equal(ea, em)  { return 2; }
+
+    // null inside a container participates in equality.
+    let n1: HAny = parse(h, "[null]");
+    let n2: HAny = parse(h, "[null]");
+    let n3: HAny = parse(h, "[0]");
+    if !hermes2_equal(n1, n2) { return 3; }
+    if hermes2_equal(n1, n3)  { return 4; }
+
+    // Key order does not matter for equal OR hash.
+    let m1: HAny = parse(h, "{a: 1, b: 2}");
+    let m2: HAny = parse(h, "{b: 2, a: 1}");
+    if !hermes2_equal(m1, m2) { return 5; }
+    if hermes2_hash(m1) != hermes2_hash(m2) { return 6; }
+
+    // Scalar / container kind walls.
+    let s: HAny = parse(h, "1");
+    if hermes2_equal(s, ea) { return 7; }
+    if hermes2_equal(s, HAny::from(true)) { return 8; }
+
+    return 0;
+}

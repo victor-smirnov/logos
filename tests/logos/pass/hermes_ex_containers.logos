@@ -1,0 +1,62 @@
+// Container-kit exerciser on hermes2 (successor of the Hermes1 ex_containers):
+// tinymap basic/update/52-key stress, array push/read, map basic/update.
+package hermes_ex_containers;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(65536);
+    let h: &Hermes2 = rc.deref();
+
+    // ── TinyObjectMap basic ─────────────────────────────────────────────────
+    let tm: &mut HMap<Hu6, HVal> = h.tinymap(8);
+    tm.set(0 as u8, HAny::from(1 as i56));
+    tm.set(5 as u8, HAny::from(55 as i56));
+    if tm.get(0 as u8).as_i64() != 1i64                          { return 1; }
+    if tm.get(5 as u8).as_i64() != 55i64                         { return 2; }
+    if !tm.get(9 as u8).is_null()                                { return 3; }
+
+    // ── TinyObjectMap update ────────────────────────────────────────────────
+    tm.set(5 as u8, HAny::from(66 as i56));
+    if tm.get(5 as u8).as_i64() != 66i64                         { return 4; }
+    if tm.size() != 2i64                                         { return 5; }
+
+    // ── TinyObjectMap stress: all 52 keys ───────────────────────────────────
+    let big: &mut HMap<Hu6, HVal> = h.tinymap(52);
+    let mut k: i64 = 0;
+    while k < 52 {
+        big.set(k as u8, HAny::from((k * 10) as i56));
+        k = k + 1;
+    }
+    if big.size() != 52i64                                       { return 6; }
+    if big.get(0 as u8).as_i64() != 0i64                         { return 7; }
+    if big.get(31 as u8).as_i64() != 310i64                      { return 8; }
+    if big.get(51 as u8).as_i64() != 510i64                      { return 9; }
+
+    // ── ObjectArray ─────────────────────────────────────────────────────────
+    let arr: &mut HArray<HVal> = h.array(4);
+    arr.push(HAny::from(11 as i56));
+    arr.push(HAny::from(&*(h.hstring("mid") as *const HString)));
+    arr.push(HAny::from(false));
+    if arr.len() != 3i64                                         { return 10; }
+    if arr.get(0).as_i64() != 11i64                              { return 11; }
+    if !arr.get(1).is_string()                                   { return 12; }
+    if arr.get(2).as_bool()                                      { return 13; }
+
+    // ── ObjectMap basic + update ────────────────────────────────────────────
+    let m: &mut HMap<HString, HVal> = h.map(8);
+    m.set("x", 1i64);
+    m.set("y", 2i64);
+    if m.get("x").as_i64() != 1i64                               { return 14; }
+    m.set("x", 100i64);
+    if m.get("x").as_i64() != 100i64                             { return 15; }
+    if m.len() != 2i64                                           { return 16; }
+    if !m.get("zz").is_null()                                    { return 17; }
+
+    return 42;
+}

@@ -1,0 +1,16 @@
+// Typed allocation in a hermes2 arena (successor of the Hermes1 zone basic test).
+package datatype_zone_basic;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+struct Point { x: i32, y: i32 }
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    p.x = 18;
+    p.y = 12;
+    return p.x + p.y;   // 30
+}

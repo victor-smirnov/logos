@@ -1,0 +1,19 @@
+// Ergonomic typed writes through the arena pointer (hermes2 successor of the
+// DataRef mut_ptr auto-deref test): plain *mut T field writes, never-move reads.
+package datatype_zone_ergonomic;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+struct Point { x: i32, y: i32 }
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    p.x = 40;
+    p.y = 2;
+    p.x = p.x + p.y;        // read-modify-write through the same pointer
+    let r: &Point = &*p;    // shared read view of the same never-move object
+    return r.x;             // 42
+}

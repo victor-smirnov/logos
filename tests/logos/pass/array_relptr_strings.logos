@@ -1,0 +1,29 @@
+// Array of zone strings (successor of the Hermes1 RelPtr-string-array test):
+// HArray<HVal> holds self-relative refs to HStrings; reads survive array growth.
+package array_relptr_strings;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hstring;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<HVal> = h.array(2);     // grows past 2
+
+    arr.push(HAny::from(&*(h.hstring("alpha") as *const HString)));
+    arr.push(HAny::from(&*(h.hstring("beta") as *const HString)));
+    arr.push(HAny::from(&*(h.hstring("gamma-long-enough-string") as *const HString)));
+
+    if arr.len() != 3i64 { return 1; }
+    let v0: HAny = arr.get(0);
+    if !v0.is_string() { return 2; }
+    let s0: &HString = &*(v0.resolve() as *const HString);
+    if !str_eq(s0.as_str(), "alpha") { return 3; }
+    let s2: &HString = &*(arr.get(2).resolve() as *const HString);
+    if s2.len() != 24i64 { return 4; }
+    if !str_eq(s2.as_str(), "gamma-long-enough-string") { return 5; }
+    return 0;
+}

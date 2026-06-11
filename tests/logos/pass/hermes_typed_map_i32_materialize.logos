@@ -1,0 +1,34 @@
+// Parsed typed maps materialize for reads + render (hermes2).
+package hermes_typed_map_i32_materialize;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    let root: HAny = parse(h, "<I32,AnyVal>{1:10,2:20}");
+    if root.is_null() { return 1; }
+    if h2_type_code(root.resolve()) != 3101u64 { return 2; }
+
+    // Dense reads: size, keys, at-rest values.
+    let p: *const u8 = root.resolve();
+    if *(p as *const i64) != 2i64 { return 3; }
+    let kf: i64 = (p as i64) + 16;
+    let keys: i64 = kf + *(kf as *const i64);
+    if *(keys as *const i32) != 1 { return 4; }
+    if *((keys + 4) as *const i32) != 2 { return 5; }
+    let vf: i64 = (p as i64) + 24;
+    let vals: i64 = vf + *(vf as *const i64);
+    let w0: i64 = *(vals as *const i64);
+    if HAny::Pod(w0 as u64).as_i64() != 10i64 { return 6; }
+
+    // Render.
+    let s: String = stringify(root);
+    if !s.eq_str("<I32, AnyVal> {1: 10, 2: 20}") { return 7; }
+    return 0;
+}

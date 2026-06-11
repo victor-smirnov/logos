@@ -1,0 +1,21 @@
+// @Decimal(P,S) validation rejections (hermes2: a malformed typed value
+// parses to a null handle): missing/short/non-int params, S>P, non-string init.
+package hermes_typed_decimal_validation_errors;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    if !parse(h, "@Decimal=\"1\"").is_null() { return 1; }            // no params
+    if !parse(h, "@Decimal(10)=\"1\"").is_null() { return 2; }        // one param
+    if !parse(h, "@Decimal(\"10\",2)=\"1\"").is_null() { return 3; }  // non-int P
+    if !parse(h, "@Decimal(2,3)=\"1\"").is_null() { return 4; }       // S > P
+    if !parse(h, "@Decimal(10,2)=123").is_null() { return 5; }        // non-string init
+    if !parse(h, "@Decimal(10,2)=\"12a\"").is_null() { return 6; }    // junk digits
+    if !parse(h, "@Decimal(10,1)=\"1.23\"").is_null() { return 7; }   // scale over S
+    return 0;
+}

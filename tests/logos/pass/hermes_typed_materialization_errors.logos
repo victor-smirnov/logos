@@ -1,0 +1,17 @@
+// Typed-container materialization errors -> null (hermes2): wrong key kinds,
+// non-numeric elements; a valid doc follows fine.
+package hermes_typed_materialization_errors;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    if parse(h, "<U64>[1]").is_null() { return 1; }                    // fine
+    if !parse(h, "<I32,AnyVal>{\"a\":1}").is_null() { return 2; }      // string key in int map
+    if !parse(h, "<I32>[\"x\"]").is_null() { return 3; }               // string element
+    if parse(h, "<I32>[1,2]").is_null() { return 4; }                  // recovery
+    return 0;
+}

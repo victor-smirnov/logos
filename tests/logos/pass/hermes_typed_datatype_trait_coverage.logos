@@ -1,0 +1,39 @@
+// TypedValue across the trait walkers (hermes2): stringify + equal + hash +
+// clone all traverse @Type values.
+package hermes_typed_datatype_trait_coverage;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.stringify;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.hashing;
+use logos.mem.hermes2.clone;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let v1: HAny = parse(h, "@I64=42");
+    let v2: HAny = parse(h, "@I64=42");
+    let v3: HAny = parse(h, "@I64=43");
+    if v1.is_null() { return 1; }
+
+    // stringify
+    let s: String = stringify(v1);
+    if !s.eq_str("42@I64") { return 2; }
+    // equal
+    if !hermes2_equal(v1, v2) { return 3; }
+    if hermes2_equal(v1, v3)  { return 4; }
+    // hash
+    if hermes2_hash(v1) != hermes2_hash(v2) { return 5; }
+    if hermes2_hash(v1) == hermes2_hash(v3) { return 6; }
+    // clone
+    let c: Rc<Hermes2> = hermes2_clone(v1);
+    let ch: &Hermes2 = c.deref();
+    if !hermes2_equal(v1, ch.root()) { return 7; }
+    let cs: String = stringify(ch.root());
+    if !cs.eq_str("42@I64") { return 8; }
+    return 0;
+}

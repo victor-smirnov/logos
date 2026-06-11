@@ -1,0 +1,17 @@
+// Generic typed array API on hermes2 (successor of Array<i32>::init/push/get):
+// h.tarray::<i32>() + push/len/get.
+package array_i32_generic_api;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<i32> = h.tarray::<i32>(4);
+    arr.push(10);
+    arr.push(20);
+    arr.push(30);
+    if arr.len() != 3i64 { return 1; }
+    return arr.get(0) + arr.get(1) + arr.get(2);   // 60
+}

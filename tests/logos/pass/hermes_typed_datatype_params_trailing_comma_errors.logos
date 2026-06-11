@@ -1,0 +1,15 @@
+// Trailing commas in @Type params are rejected in both spellings (hermes2).
+package hermes_typed_datatype_params_trailing_comma_errors;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    if !parse(h, "@I64(1,)=42").is_null() { return 1; }
+    if !parse(h, "\"x\"@I64(1,)").is_null() { return 2; }
+    if parse(h, "@I64(1)=42").is_null() { return 3; }
+    return 0;
+}

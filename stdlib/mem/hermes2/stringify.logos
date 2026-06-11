@@ -78,6 +78,10 @@ unsafe fn write_val(out: &mut String, v: HAny) {
             write_typed_map(out, p, tcv);
             return;
         }
+        if tcv == 4115u64 {                    // TypedValue: init@Name(params)
+            write_typed_value(out, p);
+            return;
+        }
     }
     out.push_u8(63u8);                      // ? — unknown tag
 }
@@ -174,4 +178,37 @@ pub fn stringify(v: HAny) -> String {
     let mut out: String = String::new();
     unsafe { write_val(&mut out, v); }
     return out;
+}
+
+// TypedValue render: `init@Name(p1,p2)` (postfix form; no parens when the
+// params slot is null). Fields are at-rest words at obj+0/8/16.
+unsafe fn write_typed_value(out: &mut String, p: *const u8) {
+    let tn: HAny = h2s_at((p as i64) + 0i64);
+    let pr: HAny = h2s_at((p as i64) + 8i64);
+    let iv: HAny = h2s_at((p as i64) + 16i64);
+    write_val(out, iv);
+    out.push_u8(64u8);                          // '@'
+    if tn.is_string() {
+        let hs: &HString = &*(tn.resolve() as *const HString);
+        out.push_str(hs.as_str());
+    }
+    if !pr.is_null() {
+        out.push_u8(40u8);                      // '('
+        let pa: &HArray<HVal> = &*(pr.resolve() as *const HArray<HVal>);
+        let mut i: i64 = 0;
+        while i < pa.len() {
+            if i > 0i64 { out.push_u8(44u8); }  // ','
+            write_val(out, pa.get(i));
+            i = i + 1;
+        }
+        out.push_u8(41u8);                      // ')'
+    }
+}
+
+// Materialize the at-rest HAny word at `slot_addr`.
+unsafe fn h2s_at(slot_addr: i64) -> HAny {
+    let w: i64 = *(slot_addr as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((slot_addr + w) as *const u8);
 }

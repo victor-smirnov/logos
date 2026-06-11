@@ -2951,7 +2951,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         }
         // fix3: dispatch by function name prefix, not arg count — getNumArguments() is fragile
         // (any future 3-arg array builder would silently take the wrong path).
-        if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0) {
+        if (hermes_build_fn.rfind("hermes_build_map_", 0) == 0 ||
+            hermes_build_fn.rfind("hermes2_build_map_", 0) == 0) {
             // Map source: alloca ptr to MapSliceI32 { &[i32], &[AnyVal] }.
             // Slice fields are stored INLINE (16-byte {ptr,len} fat pairs), so
             // the LLVM layout is { {ptr,i64}, {ptr,i64} } — keys_slice IS the

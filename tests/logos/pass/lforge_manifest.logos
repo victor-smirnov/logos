@@ -1,0 +1,130 @@
+// B0.3: SDN manifest schema for lforge, on the hermes2 parser.
+// { name: "...", version: "...", src: "...", entry: "..." } — required string
+// fields; unknown fields ignored; missing/badly-typed fields are errors.
+package lforge_manifest;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.result;
+
+pub struct Manifest {
+    pub name:    String,
+    pub version: String,
+    pub src:     String,
+    pub entry:   String,
+}
+
+pub struct ManifestError {
+    pub message: String,
+}
+
+unsafe fn err_msg(msg: str) -> ManifestError {
+    let mut s: String = String::new();
+    s.push_str(msg);
+    return ManifestError { message: s };
+}
+
+unsafe fn read_str_field(m: &HMap<HString, HVal>, key: str) -> Result<String, ManifestError> {
+    let v: HAny = m.get(key);
+    if v.is_null() {
+        let mut e: String = String::new();
+        e.push_str("manifest: missing required field '");
+        e.push_str(key);
+        e.push_str("'");
+        return Result::Err(ManifestError { message: e });
+    }
+    if !v.is_string() {
+        let mut e: String = String::new();
+        e.push_str("manifest: field '");
+        e.push_str(key);
+        e.push_str("' must be a string");
+        return Result::Err(ManifestError { message: e });
+    }
+    let hs: &HString = &*(v.resolve() as *const HString);
+    let mut out: String = String::new();
+    out.push_str(hs.as_str());
+    return Result::Ok(out);
+}
+
+pub unsafe fn parse_manifest(h: &Hermes2, text: str) -> Result<Manifest, ManifestError> {
+    let root: HAny = parse(h, text);
+    if !root.is_map() {
+        return Result::Err(err_msg("manifest: top-level value must be a map"));
+    }
+    let m: &HMap<HString, HVal> = &*(root.resolve() as *const HMap<HString, HVal>);
+    let name_s: String = match read_str_field(m, "name") {
+        Result::Ok(s) => s,
+        Result::Err(e) => { return Result::Err(e); }
+    };
+    let version_s: String = match read_str_field(m, "version") {
+        Result::Ok(s) => s,
+        Result::Err(e) => { return Result::Err(e); }
+    };
+    let src_s: String = match read_str_field(m, "src") {
+        Result::Ok(s) => s,
+        Result::Err(e) => { return Result::Err(e); }
+    };
+    let entry_s: String = match read_str_field(m, "entry") {
+        Result::Ok(s) => s,
+        Result::Err(e) => { return Result::Err(e); }
+    };
+    return Result::Ok(Manifest {
+        name:    name_s,
+        version: version_s,
+        src:     src_s,
+        entry:   entry_s,
+    });
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
+
+    // 1. Well-formed manifest.
+    let s1: str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";
+    match parse_manifest(h, s1) {
+        Result::Err(_) => { return 1; }
+        Result::Ok(m) => {
+            if !m.name.eq_str("my-project")  { return 2; }
+            if !m.version.eq_str("0.1.0")    { return 3; }
+            if !m.src.eq_str("src")          { return 4; }
+            if !m.entry.eq_str("main")       { return 5; }
+        }
+    }
+
+    // 2. Unknown fields are ignored (forward compatibility).
+    let s2: str = "{ name: \"p\", version: \"v\", src: \"s\", entry: \"e\", future: 42 }";
+    match parse_manifest(h, s2) {
+        Result::Err(_) => { return 10; }
+        Result::Ok(m) => {
+            if !m.name.eq_str("p") { return 11; }
+        }
+    }
+
+    // 3. Missing required field → error.
+    let s3: str = "{ name: \"p\", src: \"s\", entry: \"e\" }";
+    match parse_manifest(h, s3) {
+        Result::Ok(_) => { return 20; }
+        Result::Err(_) => {}
+    }
+
+    // 4. Wrong field type → error.
+    let s4: str = "{ name: 7, version: \"v\", src: \"s\", entry: \"e\" }";
+    match parse_manifest(h, s4) {
+        Result::Ok(_) => { return 30; }
+        Result::Err(_) => {}
+    }
+
+    // 5. Non-map top level → error.
+    match parse_manifest(h, "[1, 2]") {
+        Result::Ok(_) => { return 40; }
+        Result::Err(_) => {}
+    }
+
+    return 0;
+}

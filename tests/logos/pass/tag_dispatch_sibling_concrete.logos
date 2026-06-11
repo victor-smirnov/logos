@@ -1,0 +1,50 @@
+// Sibling impls in one DataTypeTagSystem dispatch space (hermes2 successor of
+// the TinyObjectMap-sibling test): two concrete #[zoned] datatypes register in
+// the SAME tagged-trait table; codes are distinct and impls resolve directly.
+package tag_dispatch_sibling_concrete;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.tag_system;
+
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[tag_dispatch(DataTypeTagSystem)]
+pub trait Sibling {
+    unsafe fn sib_value(self: *const Self) -> i32;
+}
+
+#[zoned] struct Alpha { v: i32 }
+#[zoned] struct Beta  { v: i32, w: i32 }
+
+impl Sibling for Alpha {
+    pub unsafe fn sib_value(self: *const Alpha) -> i32 { return self.v; }
+}
+impl Sibling for Beta {
+    pub unsafe fn sib_value(self: *const Beta) -> i32 { return self.v + self.w; }
+}
+
+unsafe fn main() -> i32 {
+    // Codes are distinct, both registered (>=129 user range).
+    let ta: u64 = type_code_of::<Alpha>();
+    let tb: u64 = type_code_of::<Beta>();
+    if ta == tb { return 1; }
+    if ta < 129u64 || tb < 129u64 { return 2; }
+
+    // Tagged objects in a malloc arena; read back through the vlen tag.
+    let buf: *mut u8 = malloc(128);
+    let a: *mut Alpha = (buf as i64 + 16) as *mut Alpha;
+    write_tag(a as *mut u8, ta);
+    a.v = 30;
+    let b: *mut Beta = (buf as i64 + 64) as *mut Beta;
+    write_tag(b as *mut u8, tb);
+    b.v = 5; b.w = 7;
+
+    if h2_type_code(a as *const u8) != ta { return 3; }
+    if h2_type_code(b as *const u8) != tb { return 4; }
+
+    // Direct sibling-impl calls resolve per type.
+    let got: i32 = a.sib_value() + b.sib_value();   // 30 + 12 = 42
+    if got != 42 { return 5; }
+    free(buf);
+    return 0;
+}

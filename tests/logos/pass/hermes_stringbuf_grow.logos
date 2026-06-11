@@ -1,0 +1,32 @@
+// String buffer growth during stringify (successor of the Hermes1 StringBuf
+// grow test): render a document much larger than the initial String capacity.
+package hermes_stringbuf_grow;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(65536);
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<HVal> = h.array(8);
+    let mut i: i64 = 0;
+    while i < 100 {
+        arr.push(HAny::from(&*(h.hstring("growing-element-payload") as *const HString)));
+        i = i + 1;
+    }
+    let ap: *const HArray<HVal> = arr as *const HArray<HVal>;
+    let text: String = stringify(HAny::ref_to(ap as *const u8));
+    // 100 * ("growing-element-payload"+quotes=25) + 99*", " + "[]" = 2500+198+2.
+    if text.len() != 2700i64 { return 1; }
+    let tp: *const u8 = text.as_str().as_ptr();
+    if *tp != 91 as u8 { return 2; }                       // '['
+    if *((tp as i64 + 1) as *const u8) != 34 as u8 { return 3; }   // '"'
+    if *((tp as i64 + 2) as *const u8) != 103 as u8 { return 4; }  // 'g'
+
+    return 42;
+}

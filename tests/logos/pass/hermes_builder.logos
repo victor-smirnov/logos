@@ -1,0 +1,36 @@
+// Runtime document building (hermes2 successor of the Hermes1 builder test):
+// fresh container, root map, string + int values, stringify check.
+package hermes_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+
+    // Root map with 8 slots; fill via typed set overloads + explicit HAny.
+    let m: &mut HMap<HString, HVal> = h.map(8);
+    m.set("greet", HAny::from(&*(h.hstring("hello") as *const HString)));
+    m.set("n", 42i64);
+    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    h.set_root(HAny::ref_to(mp as *const u8));
+
+    let root: HAny = h.root();
+    if root.is_null() { return 1; }
+    if !root.is_map() { return 2; }
+
+    let g: HAny = (&*mp).get("greet");
+    if !g.is_string() { return 3; }
+    let n: HAny = (&*mp).get("n");
+    if n.as_i64() != 42i64 { return 4; }
+
+    let text: String = stringify(root);
+    if text.len() != 27i64 { return 5; }   // {"greet": "hello", "n": 42} (key order hash-dependent)
+    return 0;
+}

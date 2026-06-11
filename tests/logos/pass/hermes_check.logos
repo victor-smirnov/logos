@@ -1,0 +1,53 @@
+// Structural validation (successor of the Hermes1 Hermes::check test):
+// well-formed documents pass; a corrupted tag fails.
+package hermes_check;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.check;
+use logos.mem.hermes2.clone;
+use logos.mem.rc;
+
+unsafe fn root_of(hs: &HermesStatic) -> HAny {
+    let base: *const u8 = hs.ptr;
+    let w: i64 = *(base as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((base as i64 + w) as *const u8);
+}
+
+unsafe fn main() -> i32 {
+    // 1. Null root validates.
+    if !hermes2_check(HAny::Ref(0 as *const u8)) { return 1; }
+
+    // 2. Scalar roots.
+    if !hermes2_check(HAny::from(42 as i56)) { return 2; }
+    if !hermes2_check(HAny::from(true)) { return 3; }
+
+    // 3. Static literals of every shape.
+    let s1: HermesStatic = @{"a": [1, "two", true], "n": {"deep": 7}};
+    if !hermes2_check(root_of(&s1)) { return 4; }
+    let s2: HermesStatic = @<I32>[1, 2, 3];
+    if !hermes2_check(root_of(&s2)) { return 5; }
+    let s3: HermesStatic = @<I64, AnyVal>{5: 50};
+    if !hermes2_check(root_of(&s3)) { return 6; }
+
+    // 4. Runtime container (clone of a static doc) validates.
+    let c: Rc<Hermes2> = hermes2_clone(root_of(&s1));
+    let h: &Hermes2 = c.deref();
+    if !hermes2_check(h.root()) { return 7; }
+
+    // 5. Corruption: zero the tag byte of a runtime map -> check fails.
+    let rc2: Rc<Hermes2> = hermes2_rc(4096);
+    let h2: &Hermes2 = rc2.deref();
+    let m: &mut HMap<HString, HVal> = h2.map(8);
+    m.set("k", 1i64);
+    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    let obj: *mut u8 = mp as *mut u8;
+    *((obj as i64 - 1) as *mut u8) = 0 as u8;        // clobber the vlen tag
+    if hermes2_check(HAny::ref_to(obj as *const u8)) { return 8; }
+
+    return 0;
+}

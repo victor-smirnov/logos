@@ -1,0 +1,28 @@
+// Owned holder handle (hermes2 successor of DataOwn): the Held<T> couples the
+// object's lifetime to the holder Rc; reads stay valid as handles move around.
+package datatype_own;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+struct Point { x: i32, y: i32 }
+
+unsafe fn read_pt(held: &Held<Point>) -> i32 {
+    let r: &Point = held.get();
+    return r.x + r.y;
+}
+
+unsafe fn main() -> i32 {
+    let mut rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    p.x = 11;
+    p.y = 22;
+    // The own-handle: holder Rc + typed pointer travel together.
+    let own: Held<Point> = hold::<Point>(&mut rc, &*p);
+    let v1: i32 = read_pt(&own);
+    if v1 != 33 { return 1; }
+    // Move the handle; the never-move object stays put.
+    let own2: Held<Point> = own;
+    return read_pt(&own2);   // 33
+}

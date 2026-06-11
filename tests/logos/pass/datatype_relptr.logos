@@ -1,0 +1,41 @@
+// Self-relative links inside a hermes2 arena (successor of the Hermes1
+// RelPtr<Node> test): node.next stores (target - &field) as i64; resolving is
+// pure pointer math — valid because the arena never moves.
+package datatype_relptr;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+struct Node {
+    value: i32,
+    next:  i64,   // self-relative offset to the next Node (0 = null)
+}
+
+unsafe fn set_next(n: *mut Node, target: *const Node) {
+    let f: i64 = (&mut n.next as *mut i64) as i64;
+    n.next = (target as i64) - f;
+}
+
+unsafe fn get_next(n: *const Node) -> *const Node {
+    let f: i64 = (&n.next as *const i64) as i64;
+    let d: i64 = n.next;
+    if d == 0i64 { return 0 as *const Node; }
+    return (f + d) as *const Node;
+}
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+
+    let a: *mut Node = hermes2_alloc::<Node>(hp);
+    let b: *mut Node = hermes2_alloc::<Node>(hp);
+    a.value = 7; b.value = 23;
+    b.next = 0i64;
+    set_next(a, b as *const Node);
+
+    // Walk the chain through the self-relative link.
+    let n2: *const Node = get_next(a as *const Node);
+    if n2 == (0 as *const Node) { return 1; }
+    if get_next(n2) != (0 as *const Node) { return 2; }
+    return a.value + n2.value;   // 30
+}

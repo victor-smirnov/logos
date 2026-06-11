@@ -152,3 +152,15 @@ impl TagSystem for TomTagSystem {
 pub unsafe fn write_tag(obj: *mut u8, type_code: u64) {
     h2_write_tag(obj, type_code);
 }
+
+// Byte length of the vlen datatag for `code` (0 = unset; 1 for 1..222;
+// 1 header + N little-endian code bytes for >222).
+pub fn h2_tag_size(code: u64) -> i64 {
+    if code == 0u64 { return 0i64; }
+    if code <= 222u64 { return 1i64; }
+    let mut n: i64 = 0;
+    let mut v: u64 = code;
+    while v > 0u64 { v = v >> 8u64; n = n + 1; }
+    if n > 8 { n = 8; }
+    return 1 + n;
+}

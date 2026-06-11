@@ -1,0 +1,52 @@
+// @Type typed values inside documents (hermes2): prefix/postfix forms as map
+// members; reads through HTypedValue accessors.
+package hermes_typed_datatype_values;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.lang.hermes2.typed_value;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
+
+    let root: HAny = parse(h,
+        "{\"a\": @I64 = 42, \"b\": \"123.45\" @Decimal(10,2), \"c\": @Point({\"fmt\": \"xy\"})={\"x\": 1, \"y\": 2}}");
+    if !root.is_map() { return 1; }
+    let m: &HMap<HString, HVal> = &*(root.resolve() as *const HMap<HString, HVal>);
+
+    // a: @I64 = 42 — no params, int init.
+    let a: HAny = m.get("a");
+    if !a.is_typed_value() { return 2; }
+    let atv: &HTypedValue = a.as_typed_value();
+    if !str_eq(atv.type_name_str(), "I64") { return 3; }
+    if atv.has_params() { return 4; }
+    if atv.init().as_i64() != 42i64 { return 5; }
+
+    // b: postfix decimal annotation, string init.
+    let b: HAny = m.get("b");
+    if !b.is_typed_value() { return 6; }
+    let btv: &HTypedValue = b.as_typed_value();
+    if !str_eq(btv.type_name_str(), "Decimal") { return 7; }
+    if !btv.has_params() { return 8; }
+    if !btv.init().is_string() { return 9; }
+
+    // c: structured params + map initializer.
+    let c: HAny = m.get("c");
+    if !c.is_typed_value() { return 10; }
+    let ctv: &HTypedValue = c.as_typed_value();
+    if !str_eq(ctv.type_name_str(), "Point") { return 11; }
+    let prm: HAny = ctv.params();
+    if !prm.is_array() { return 12; }
+    let init: HAny = ctv.init();
+    if !init.is_map() { return 13; }
+    let im: &HMap<HString, HVal> = &*(init.resolve() as *const HMap<HString, HVal>);
+    if im.get("y").as_i64() != 2i64 { return 14; }
+
+    return 0;
+}

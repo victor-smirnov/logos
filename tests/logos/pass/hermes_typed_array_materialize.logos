@@ -1,0 +1,31 @@
+// Parsed typed arrays materialize for reads + render (hermes2: the walker
+// replaces the Hermes1 dispatch-table path).
+package hermes_typed_array_materialize;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    let root: HAny = parse(h, "<I32>[10,20,30]");
+    if root.is_null() { return 1; }
+    if h2_type_code(root.resolve()) != 2107u64 { return 2; }
+
+    // Dense reads: size + raw elements.
+    let p: *const u8 = root.resolve();
+    if *(p as *const u64) != 3u64 { return 3; }
+    let df: i64 = (p as i64) + 16;
+    let elems: i64 = df + *(df as *const i64);
+    if *(elems as *const i32) != 10 { return 4; }
+    if *((elems + 8) as *const i32) != 30 { return 5; }
+
+    // Render.
+    let s: String = stringify(root);
+    if !s.eq_str("<I32> [10, 20, 30]") { return 6; }
+    return 0;
+}

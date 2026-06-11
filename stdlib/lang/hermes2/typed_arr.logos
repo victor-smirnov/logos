@@ -12,6 +12,7 @@ package logos.lang.hermes2.typed_arr;
 use logos.lang.hermes2.anyval;       // HAny
 use logos.lang.hermes2.allocator;    // Allocator
 use logos.lang.hermes2.container;    // Hermes2, hermes2_rc, alloc_tagged, hermes2_alloc_bytes
+use logos.lang.hermes2.compactify;  // clone (Ref values re-anchor)
 use logos.mem.rc;                    // Rc
 
 // Core: copy `len` elements of `width` bytes, build the tagged header, set root.
@@ -81,4 +82,71 @@ pub unsafe fn hermes2_build_array_f32(vals: *const f32, len: i64) -> Rc<Hermes2>
 }
 pub unsafe fn hermes2_build_array_f64(vals: *const f64, len: i64) -> Rc<Hermes2> {
     return h2_build_typed_array_raw(vals as *const u8, len, 8, 2110u64);
+}
+
+// ── `(keys, vals) as <K, AnyVal>{}` map-cast sources + builders ───────────────
+//
+// MapSlice*: parallel key/value slices. Values are VALUE-FORM HAny (the
+// hermes2 re-design of the Hermes1 4-byte &[AnyVal]): Pods copy verbatim,
+// Refs deep-copy into the result zone (lang.hermes2.compactify).
+
+pub struct MapSliceI32 { pub keys: &[i32], pub vals: &[HAny] }
+pub struct MapSliceU32 { pub keys: &[u32], pub vals: &[HAny] }
+pub struct MapSliceI64 { pub keys: &[i64], pub vals: &[HAny] }
+pub struct MapSliceU64 { pub keys: &[u64], pub vals: &[HAny] }
+
+unsafe fn h2_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
+                                 kw: i64, mtc: u64) -> Rc<Hermes2> {
+    let mut n: i64 = len;
+    if n < 0 { n = 0; }
+    let rc: Rc<Hermes2> = hermes2_rc(n * 64 + 4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+
+    let mut kbuf: i64 = 0;
+    let mut vbuf: i64 = 0;
+    if n > 0 {
+        kbuf = hermes2_alloc_bytes(hp, n * kw) as i64;
+        vbuf = hermes2_alloc_bytes(hp, n * 8) as i64;
+        let mut i: i64 = 0;
+        while i < n * kw {
+            *((kbuf + i) as *mut u8) = *((keys as i64 + i) as *const u8);
+            i = i + 1;
+        }
+        i = 0;
+        while i < n {
+            let w: i64 = *((vals as i64 + i * 8) as *const i64);
+            let src: HAny = if w == 0i64 { HAny::ref_to(0i64 as *const u8) }
+                            else if (w & 1i64) == 1i64 { HAny::Pod(w as u64) }
+                            else { HAny::Ref(w as *const u8) };
+            let c: HAny = clone(h, src);          // Refs re-anchor in this zone
+            let slot: i64 = vbuf + i * 8;
+            let cw: i64 = c.raw();
+            if cw == 0i64 || (cw & 1i64) == 1i64 { *(slot as *mut i64) = cw; }
+            else { *(slot as *mut i64) = cw - slot; }
+            i = i + 1;
+        }
+    }
+    let hdr: *mut u8 = alloc_tagged(&mut hp.allocator as *mut Allocator, 32, mtc);
+    *(hdr as *mut i64) = n;
+    *(((hdr as i64) + 8) as *mut i64) = n;
+    let kf: i64 = (hdr as i64) + 16;
+    let vf: i64 = (hdr as i64) + 24;
+    if kbuf == 0 { *(kf as *mut i64) = 0i64; *(vf as *mut i64) = 0i64; }
+    else { *(kf as *mut i64) = kbuf - kf; *(vf as *mut i64) = vbuf - vf; }
+    h.set_root(HAny::ref_to(hdr as *const u8));
+    return rc;
+}
+
+pub unsafe fn hermes2_build_map_i32_anyval(keys: *const i32, vals: *const i64, len: i64) -> Rc<Hermes2> {
+    return h2_build_typed_map_raw(keys as *const u8, vals, len, 4, 3101u64);
+}
+pub unsafe fn hermes2_build_map_u32_anyval(keys: *const u32, vals: *const i64, len: i64) -> Rc<Hermes2> {
+    return h2_build_typed_map_raw(keys as *const u8, vals, len, 4, 3102u64);
+}
+pub unsafe fn hermes2_build_map_i64_anyval(keys: *const i64, vals: *const i64, len: i64) -> Rc<Hermes2> {
+    return h2_build_typed_map_raw(keys as *const u8, vals, len, 8, 3103u64);
+}
+pub unsafe fn hermes2_build_map_u64_anyval(keys: *const u64, vals: *const i64, len: i64) -> Rc<Hermes2> {
+    return h2_build_typed_map_raw(keys as *const u8, vals, len, 8, 3104u64);
 }

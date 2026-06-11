@@ -1,0 +1,40 @@
+// Decimal edge cases on hermes2: zero forms, negative zero, max coefficient,
+// deep fractional scales, add identities.
+package dec_edge_cases;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.decimal;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    // Zero in several spellings — all value-equal.
+    let z1: HAny = hdec_from_str(h, "0");
+    let z2: HAny = hdec_from_str(h, "0.000");
+    let z3: HAny = hdec_from_str(h, "-0");
+    if hdec_cmp(z1, z2) != 0 { return 1; }
+    if hdec_cmp(z1, z3) != 0 { return 2; }
+
+    // x + 0 = x.
+    let x: HAny = hdec_from_str(h, "12.34");
+    let s: HAny = hdec_add(h, x, z1);
+    if hdec_cmp(s, x) != 0 { return 3; }
+
+    // Max u64 coefficient survives storage.
+    let mx: HAny = h.decimal(18446744073709551615u64, 0u32, false);
+    if mx.as_decimal().coeff() != 18446744073709551615u64 { return 4; }
+
+    // Deep fractional scale.
+    let tiny: HAny = hdec_from_str(h, "0.0000000001");      // scale 10
+    if tiny.as_decimal().scale() != 10u32 { return 5; }
+    if tiny.as_decimal().coeff() != 1u64 { return 6; }
+
+    // (-x) + (-y) accumulates the sign.
+    let nn: HAny = hdec_add(h, hdec_from_str(h, "-1"), hdec_from_str(h, "-2"));
+    if !nn.as_decimal().is_neg() { return 7; }
+    if nn.as_decimal().coeff() != 3u64 { return 8; }
+
+    return 0;
+}

@@ -1,0 +1,35 @@
+// Empty-params canonicalization (hermes2): @T=x == @T()=x == @T( )=x — all
+// parse to a null params slot, render identically, compare/hash equal.
+package hermes_typed_datatype_empty_params_canonical;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.typed_value;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.hashing;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
+use logos.mem.string;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    let a: HAny = parse(h, "@I64=42");
+    let b: HAny = parse(h, "@I64()=42");
+    let c: HAny = parse(h, "@I64( )=42");
+    if a.is_null() || b.is_null() || c.is_null() { return 1; }
+
+    if a.as_typed_value().has_params() { return 2; }
+    if b.as_typed_value().has_params() { return 3; }
+    if c.as_typed_value().has_params() { return 4; }
+
+    if !hermes2_equal(a, b) || !hermes2_equal(a, c) { return 5; }
+    if hermes2_hash(a) != hermes2_hash(b) { return 6; }
+
+    let sa: String = stringify(a);
+    let sb: String = stringify(b);
+    if !sa.eq_str("42@I64") { return 7; }
+    if !sa.eq_str(sb.as_str()) { return 8; }
+    return 0;
+}

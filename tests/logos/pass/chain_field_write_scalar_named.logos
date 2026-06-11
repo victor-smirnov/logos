@@ -1,0 +1,28 @@
+// Regression: chain write through a SINGLE-WORD named mid-field (the hermes2
+// successor of the Hermes1 AnyVal scalar-named case): `h.root.w = v.w` through
+// a raw pointer must write the real field, not a temp copy.
+package chain_field_write_scalar_named;
+use logos.lang.hermes2.anyval;
+
+struct Word { w: i64 }
+struct Hdr { root: Word }
+
+unsafe fn set_via_chain(h: *mut Hdr, v: Word) {
+    h.root.w = v.w;          // 2-level chain through the single-word mid-field
+}
+
+unsafe fn main() -> i32 {
+    let mut a: Hdr = Hdr { root: Word { w: 0 } };
+    let p: *mut Hdr = &mut a as *mut Hdr;
+    set_via_chain(p, Word { w: 512 });
+    if a.root.w != 512i64 { return 1; }
+    // Overwrite once more to confirm the address is stable, not a temp copy.
+    set_via_chain(p, Word { w: 256 });
+    if a.root.w != 256i64 { return 2; }
+    // The same chain through a niche-enum (HAny) field: the at-rest word writes.
+    let mut hv: HAny = HAny::from(1 as i56);
+    let hp: *mut HAny = &mut hv as *mut HAny;
+    *hp = HAny::from(42 as i56);
+    if hv.as_i64() != 42i64 { return 3; }
+    return 42;
+}

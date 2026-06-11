@@ -656,11 +656,8 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             error("internal: unexpected hermes container type in map cast path");
             return error_expr();
         }
-        // hermes2 cut-over: the map-cast source shapes (MapSlice* over 4-byte
-        // &[AnyVal]) were Hermes1; the feature awaits a value-form &[HAny]
-        // re-design. See docs/hermes2/retired-hermes1-tests.md.
-        error("'as <K,V>{}' map casts are retired with Hermes1 (pending hermes2 re-port)");
-        return error_expr();
+        // hermes2: MapSlice* sources carry value-form &[HAny] values
+        // (lang.hermes2.typed_arr); builders return Rc<Hermes2>.
         // HermesMap: source must be MapSliceI32 for <I32,AnyVal>{}.
         {
             auto src = inner->type;
@@ -678,10 +675,10 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
             std::string map_fn;
             struct MapVariant { LogosType::Kind key_kind; const char* slice_name; const char* fn_name; };
             static const MapVariant map_variants[] = {
-                {LogosType::Kind::I32, "MapSliceI32", "hermes_build_map_i32_anyval"},
-                {LogosType::Kind::U32, "MapSliceU32", "hermes_build_map_u32_anyval"},
-                {LogosType::Kind::I64, "MapSliceI64", "hermes_build_map_i64_anyval"},
-                {LogosType::Kind::U64, "MapSliceU64", "hermes_build_map_u64_anyval"},
+                {LogosType::Kind::I32, "MapSliceI32", "hermes2_build_map_i32_anyval"},
+                {LogosType::Kind::U32, "MapSliceU32", "hermes2_build_map_u32_anyval"},
+                {LogosType::Kind::I64, "MapSliceI64", "hermes2_build_map_i64_anyval"},
+                {LogosType::Kind::U64, "MapSliceU64", "hermes2_build_map_u64_anyval"},
             };
             bool found_map = false;
             if (val_is_anyval) {
@@ -710,8 +707,13 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
                     key_str, val_str));
                 return error_expr();
             }
-            auto ctr_t = lookup_type_by_name("Hermes");
-            if (!ctr_t) ctr_t = make_struct_type("Hermes");
+            TypeRef ctr_t = nullptr;
+            for (auto* c : find_func_candidates(map_fn))
+                if (c->param_types.size() == 3) { ctr_t = c->ret_type; break; }
+            if (!ctr_t) {
+                error("'as <K,AnyVal>{}' requires `use logos.lang.hermes2.typed_arr;`");
+                return error_expr();
+            }
             return builder().hermes_cast(std::move(inner), std::move(map_fn), ctr_t);
         }
     }

@@ -1,0 +1,32 @@
+// Decimal construction boundaries on hermes2: parse rejections + scale limits.
+package dec_boundary;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.decimal;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    // Valid forms.
+    if hdec_from_str(h, "0").is_null() { return 1; }
+    if hdec_from_str(h, "0.001").is_null() { return 2; }
+    if hdec_from_str(h, "-0.5").is_null() { return 3; }
+    // 19 significant digits is the u64 ceiling — accepted.
+    if hdec_from_str(h, "9999999999999999999").is_null() { return 4; }
+
+    // Rejections.
+    if !hdec_from_str(h, "").is_null() { return 5; }                     // empty
+    if !hdec_from_str(h, "-").is_null() { return 6; }                    // sign only
+    if !hdec_from_str(h, "1.2.3").is_null() { return 7; }                // two points
+    if !hdec_from_str(h, "12a").is_null() { return 8; }                  // junk byte
+    if !hdec_from_str(h, "99999999999999999999").is_null() { return 9; } // 20 digits
+
+    // Spec packing edges.
+    let d: HAny = h.decimal(1u64, 4095u32, false);                       // max scale
+    if d.is_null() { return 10; }
+    if d.as_decimal().scale() != 4095u32 { return 11; }
+
+    return 0;
+}

@@ -1,0 +1,25 @@
+// Typed-array growth past capacity (successor of the Hermes1 push_grow test):
+// the hermes2 HArray<T> grows its element buffer in the never-move arena;
+// old elements survive the re-buffer (copy, not move).
+package array_generic_push_grow;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<i64> = h.tarray::<i64>(2);   // tiny cap: forces grows
+    let mut i: i64 = 0;
+    while i < 30 {
+        arr.push(i);
+        i = i + 1;
+    }
+    if arr.len() != 30i64 { return 1; }
+    // Spot-check across the growth boundaries (2 -> 4 -> 8 -> 16 -> 32).
+    if arr.get(0) != 0i64 { return 2; }
+    if arr.get(1) != 1i64 { return 3; }
+    if arr.get(15) != 15i64 { return 4; }
+    if arr.get(29) != 29i64 { return 5; }
+    return (arr.get(10) + arr.get(20) + arr.get(29) + 1i64) as i32;   // 10+20+29+1 = 60
+}

@@ -1,0 +1,19 @@
+// Typed holder handle (hermes2 successor of DataRef): Held<T> pins the
+// container while reads flow through a plain &T.
+package datatype_zone_ref;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
+
+struct Point { x: i32, y: i32 }
+
+unsafe fn main() -> i32 {
+    let mut rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    p.x = 19;
+    p.y = 23;
+    let held: Held<Point> = hold::<Point>(&mut rc, &*p);
+    let r: &Point = held.get();
+    return r.x + r.y;   // 42
+}

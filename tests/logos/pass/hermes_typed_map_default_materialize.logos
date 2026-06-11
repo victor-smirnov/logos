@@ -1,0 +1,26 @@
+// <Varchar[,AnyVal]>{...} is the ObjectMap spelled with a key type (hermes2).
+package hermes_typed_map_default_materialize;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+
+    let m1: HAny = parse(h, "<Varchar>{\"a\":1,\"b\":2}");
+    if !m1.is_map() { return 1; }
+    let mm1: &HMap<HString, HVal> = &*(m1.resolve() as *const HMap<HString, HVal>);
+    if mm1.get("a").as_i64() != 1i64 { return 2; }
+    if mm1.get("b").as_i64() != 2i64 { return 3; }
+
+    let m2: HAny = parse(h, "<Varchar,AnyVal>{\"x\":7}");
+    if !m2.is_map() { return 4; }
+    let mm2: &HMap<HString, HVal> = &*(m2.resolve() as *const HMap<HString, HVal>);
+    if mm2.get("x").as_i64() != 7i64 { return 5; }
+    return 0;
+}

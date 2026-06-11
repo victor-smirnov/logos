@@ -1,0 +1,52 @@
+// SDN text parsing on hermes2 (successor of Hermes::parse): scalars, strings,
+// arrays, maps (quoted + bare keys), nesting; parse -> read/verify.
+package hermes_parse;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+
+    // Scalars.
+    if parse(h, "42").as_i64() != 42i64 { return 1; }
+    if parse(h, "-7").as_i64() != -7i64 { return 2; }
+    if !parse(h, "true").as_bool() { return 3; }
+    if !parse(h, "null").is_null() { return 4; }
+
+    // Wide int boxes transparently.
+    if parse(h, "9000000000").as_i64() != 9000000000i64 { return 5; }
+
+    // String.
+    let s: HAny = parse(h, "\"hello\"");
+    if !s.is_string() { return 6; }
+    let hs: &HString = &*(s.resolve() as *const HString);
+    if !str_eq(hs.as_str(), "hello") { return 7; }
+
+    // Array.
+    let a: HAny = parse(h, "[10, 20, 30]");
+    if !a.is_array() { return 8; }
+    let arr: &HArray<HVal> = &*(a.resolve() as *const HArray<HVal>);
+    if arr.len() != 3i64 { return 9; }
+    if arr.get(1).as_i64() != 20i64 { return 10; }
+
+    // Map with quoted AND bare keys + nesting.
+    let m: HAny = parse(h, "{\"a\": 1, b: [true, null], c: {x: 55}}");
+    if !m.is_map() { return 11; }
+    let mm: &HMap<HString, HVal> = &*(m.resolve() as *const HMap<HString, HVal>);
+    if mm.get("a").as_i64() != 1i64 { return 12; }
+    let bv: HAny = mm.get("b");
+    if !bv.is_array() { return 13; }
+    let cv: HAny = mm.get("c");
+    if !cv.is_map() { return 14; }
+    let cm: &HMap<HString, HVal> = &*(cv.resolve() as *const HMap<HString, HVal>);
+    if cm.get("x").as_i64() != 55i64 { return 15; }
+
+    return 42;
+}
