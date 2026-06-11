@@ -1,93 +1,40 @@
-// Decimal edge case tests
+// Decimal edge cases on hermes2: zero forms, negative zero, max coefficient,
+// deep fractional scales, add identities.
 package dec_edge_cases;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.mem.string;
-use logos.lang.str;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.decimal;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // ── 1. 2-limb subtract with result limb[0]=0 ─────────────────────────────
-    let mut d1: Hermes = Hermes::builder(8192);
-    let a1: AnyVal = d1.decimal_from(10 as i32, 0 as i32, "2000000001");
-    let b1: AnyVal = d1.decimal_from(10 as i32, 0 as i32, "1000000001");
-    if a1.is_null() { return 1; }
-    if b1.is_null() { return 2; }
-    let r1: AnyVal = d1.decimal_sub(a1, b1);  // = 1000000000
-    if r1.is_null() { return 3; }
-    let s1: String = d1.decimal_to_string(r1);
-    if !s1.eq_str("1000000000") { return 4; }
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
 
-    // ── 2. Zero with S=0 → "0" ────────────────────────────────────────────────
-    let mut d2: Hermes = Hermes::builder(4096);
-    let z0: AnyVal = d2.decimal_from(5 as i32, 0 as i32, "0");
-    if z0.is_null() { return 5; }
-    let sz0: String = d2.decimal_to_string(z0);
-    if !sz0.eq_str("0") { return 6; }
+    // Zero in several spellings — all value-equal.
+    let z1: HAny = hdec_from_str(h, "0");
+    let z2: HAny = hdec_from_str(h, "0.000");
+    let z3: HAny = hdec_from_str(h, "-0");
+    if hdec_cmp(z1, z2) != 0 { return 1; }
+    if hdec_cmp(z1, z3) != 0 { return 2; }
 
-    // ── 3. Zero with S=3 → "0.000" ───────────────────────────────────────────
-    let mut d3: Hermes = Hermes::builder(4096);
-    let z3: AnyVal = d3.decimal_from(5 as i32, 3 as i32, "0.000");
-    if z3.is_null() { return 7; }
-    let sz3: String = d3.decimal_to_string(z3);
-    if !sz3.eq_str("0.000") { return 8; }
+    // x + 0 = x.
+    let x: HAny = hdec_from_str(h, "12.34");
+    let s: HAny = hdec_add(h, x, z1);
+    if hdec_cmp(s, x) != 0 { return 3; }
 
-    // ── 4. decimal_len/limb of 1000000000 (2 limbs: [0,1]) ───────────────────
-    let mut d4: Hermes = Hermes::builder(4096);
-    let big: AnyVal = d4.decimal_from(10 as i32, 0 as i32, "1000000000");
-    if big.is_null() { return 9; }
-    if d4.decimal_len(big) != 2 as u32 { return 10; }
-    if d4.decimal_limb(big, 0 as u32) != 0 as u32 { return 11; }
-    if d4.decimal_limb(big, 1 as u32) != 1 as u32 { return 12; }
+    // Max u64 coefficient survives storage.
+    let mx: HAny = h.decimal(18446744073709551615u64, 0u32, false);
+    if mx.as_decimal().coeff() != 18446744073709551615u64 { return 4; }
 
-    // ── 5. Add 1000000001 + 1000000001 = 2000000002 ──────────────────────────
-    let mut d5: Hermes = Hermes::builder(4096);
-    let c5: AnyVal = d5.decimal_from(10 as i32, 0 as i32, "1000000001");
-    if c5.is_null() { return 13; }
-    let sum5: AnyVal = d5.decimal_add(c5, c5);
-    if sum5.is_null() { return 14; }
-    let ssum5: String = d5.decimal_to_string(sum5);
-    if !ssum5.eq_str("2000000002") { return 15; }
+    // Deep fractional scale.
+    let tiny: HAny = hdec_from_str(h, "0.0000000001");      // scale 10
+    if tiny.as_decimal().scale() != 10u32 { return 5; }
+    if tiny.as_decimal().coeff() != 1u64 { return 6; }
 
-    // ── 6. Negative 2-limb: -12345678.90 ─────────────────────────────────────
-    let mut d6: Hermes = Hermes::builder(4096);
-    let neg6: AnyVal = d6.decimal_from(10 as i32, 2 as i32, "-12345678.90");
-    if neg6.is_null() { return 16; }
-    if !d6.decimal_is_negative(neg6) { return 17; }
-    let sneg6: String = d6.decimal_to_string(neg6);
-    if !sneg6.eq_str("-12345678.90") { return 18; }
-
-    // ── 7. S=P=3, value "0.123" → "0.123" ────────────────────────────────────
-    let mut d7: Hermes = Hermes::builder(4096);
-    let v7: AnyVal = d7.decimal_from(3 as i32, 3 as i32, "0.123");
-    if v7.is_null() { return 19; }
-    let s7: String = d7.decimal_to_string(v7);
-    if !s7.eq_str("0.123") { return 20; }
-
-    // ── 8. S=P boundary: "0.999" valid, "1.000" rejected (4 sig digits > P=3) ─
-    let mut d8: Hermes = Hermes::builder(4096);
-    let ok8: AnyVal = d8.decimal_from(3 as i32, 3 as i32, "0.999");
-    if ok8.is_null() { return 21; }
-    let bad8: AnyVal = d8.decimal_from(3 as i32, 3 as i32, "1.000");
-    if !bad8.is_null() { return 22; }
-
-    // ── 9. 12.000000001 with P=11, S=9 ───────────────────────────────────────
-    let mut d9: Hermes = Hermes::builder(4096);
-    let v9: AnyVal = d9.decimal_from(11 as i32, 9 as i32, "12.000000001");
-    if v9.is_null() { return 23; }
-    let s9: String = d9.decimal_to_string(v9);
-    if !s9.eq_str("12.000000001") { return 24; }
-
-    // ── 10. Subtraction: 1 - 1000000001 = -1000000000 ────────────────────────
-    let mut d10: Hermes = Hermes::builder(4096);
-    let x10: AnyVal = d10.decimal_from(10 as i32, 0 as i32, "1");
-    let y10: AnyVal = d10.decimal_from(10 as i32, 0 as i32, "1000000001");
-    if x10.is_null() { return 25; }
-    if y10.is_null() { return 26; }
-    let diff10: AnyVal = d10.decimal_sub(x10, y10);
-    if diff10.is_null() { return 27; }
-    if !d10.decimal_is_negative(diff10) { return 28; }
-    let sdiff10: String = d10.decimal_to_string(diff10);
-    if !sdiff10.eq_str("-1000000000") { return 29; }
+    // (-x) + (-y) accumulates the sign.
+    let nn: HAny = hdec_add(h, hdec_from_str(h, "-1"), hdec_from_str(h, "-2"));
+    if !nn.as_decimal().is_neg() { return 7; }
+    if nn.as_decimal().coeff() != 3u64 { return 8; }
 
     return 0;
 }

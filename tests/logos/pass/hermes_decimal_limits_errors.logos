@@ -1,45 +1,30 @@
-// Decimal limits/null safety checks.
-// Repro cases for:
-// 1) parser accepted @Decimal with precision above engine budget
-// 2) parser accepted @Decimal with huge precision
-// 3) parser accepted @Decimal with huge scale
-// 4) ctr.decimal_from_string accepted unsupported precision
-// 5) ctr.decimal_from_cstr crashed on null pointer
+// Decimal limit violations return null handles (hermes2): coefficient
+// overflow, malformed text, scale ceiling, add overflow.
 package hermes_decimal_limits_errors;
-
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.decimal;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // 1) precision above engine budget (1143) must be rejected by parser.
-    let mut d1: Hermes = Hermes::new(4096);
-    match d1.parse("@Decimal(2000,2)=\"1\"") {
-        Result::Ok(())  => { return 1; }
-        Result::Err(_)  => {}
-    }
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
 
-    // 2) huge precision must be rejected by parser.
-    let mut d2: Hermes = Hermes::new(4096);
-    match d2.parse("@Decimal(5000,2)=\"1\"") {
-        Result::Ok(())  => { return 2; }
-        Result::Err(_)  => {}
-    }
-
-    // 3) huge scale must be rejected by parser.
-    let mut d3: Hermes = Hermes::new(4096);
-    match d3.parse("@Decimal(5000,5000)=\"1\"") {
-        Result::Ok(())  => { return 3; }
-        Result::Err(_)  => {}
-    }
-
-    // 4) API constructor must reject unsupported precision.
-    let mut b1: Hermes = Hermes::builder(4096);
-    let v_bad: AnyVal = b1.decimal_from(2000 as i32, 2 as i32, "1.00");
-    if !v_bad.is_null() { return 4; }
-
-    // 5) Null c-string must not crash and must return null.
-    let v_null: AnyVal = b1.decimal_from(10 as i32, 2 as i32, 0 as *const u8);
-    if !v_null.is_null() { return 5; }
+    // 20+ digits → null (u64 ceiling).
+    if !hdec_from_str(h, "12345678901234567890").is_null() { return 1; }
+    // Junk → null.
+    if !hdec_from_str(h, "1,5").is_null() { return 2; }
+    if !hdec_from_str(h, " 1").is_null() { return 3; }
+    // Scale > 4095 via direct construction → null.
+    if !h.decimal(1u64, 4096u32, false).is_null() { return 4; }
+    // Aligned-add overflow → null.
+    let wide: HAny = hdec_from_str(h, "9999999999999999999");
+    let frac: HAny = hdec_from_str(h, "0.1");
+    if !hdec_add(h, wide, frac).is_null() { return 5; }
+    // Errors do not poison the container: a good value still works.
+    let ok: HAny = hdec_from_str(h, "1.5");
+    if ok.is_null() { return 6; }
+    if ok.as_decimal().coeff() != 15u64 { return 7; }
 
     return 0;
 }

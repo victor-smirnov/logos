@@ -53,6 +53,7 @@ impl HDecimal {
 impl Hermes2 {
     // Build a decimal in THIS arena; returns a Ref HAny to it.
     pub fn decimal(self: &Hermes2, coeff: u64, scale: u32, neg: bool) -> HAny {
+        if scale > 4095u32 { return HAny::ref_to(0i64 as *const u8); }   // spec field ceiling
         unsafe {
             let h: *mut Hermes2 = self as *const Hermes2 as *mut Hermes2;
             return HAny::ref_to(decimal_new(h, coeff, scale, neg) as *const u8);
@@ -68,4 +69,83 @@ impl HAny {
     pub fn as_decimal(self: &HAny) -> &HDecimal { return unsafe { &*(self.resolve() as *const HDecimal) }; }
     // A decimal as a heterogeneous value (Ref to it).
     pub fn from(d: &HDecimal) -> HAny { return HAny::ref_to(d as *const HDecimal as *const u8); }
+}
+
+// ── parse / arithmetic / compare (the dec_* surface) ──────────────────────────
+
+// Parse "[-]digits[.digits]" into a zone decimal. Null HAny on: empty digits,
+// >19 significant digits (u64 overflow guard), a second point, junk bytes,
+// scale > 4095.
+pub unsafe fn hdec_from_str(h: &Hermes2, s: str) -> HAny {
+    let n: i64 = s.len();
+    let p: *const u8 = s.as_ptr();
+    let mut i: i64 = 0;
+    let mut neg: bool = false;
+    if i < n && *((p as i64 + i) as *const u8) == 45u8 { neg = true; i = i + 1; }
+    let mut coeff: u64 = 0u64;
+    let mut digits: i64 = 0;
+    let mut scale: i64 = 0 - 1;          // -1 = no point seen yet
+    while i < n {
+        let c: u8 = *((p as i64 + i) as *const u8);
+        if c == 46u8 {
+            if scale >= 0i64 { return HAny::ref_to(0i64 as *const u8); }
+            scale = 0;
+            i = i + 1;
+            continue;
+        }
+        if c < 48u8 || c > 57u8 { return HAny::ref_to(0i64 as *const u8); }
+        if digits >= 19 { return HAny::ref_to(0i64 as *const u8); }
+        coeff = coeff * 10u64 + ((c - 48u8) as u64);
+        digits = digits + 1;
+        if scale >= 0i64 { scale = scale + 1; }
+        i = i + 1;
+    }
+    if digits == 0 { return HAny::ref_to(0i64 as *const u8); }
+    if scale < 0i64 { scale = 0; }
+    if scale > 4095 { return HAny::ref_to(0i64 as *const u8); }
+    return h.decimal(coeff, scale as u32, neg);
+}
+
+// Value compare ignoring representation (1.50 == 1.5): -1 / 0 / 1.
+pub unsafe fn hdec_cmp(x: HAny, y: HAny) -> i32 {
+    let a: &HDecimal = x.as_decimal();
+    let b: &HDecimal = y.as_decimal();
+    let az: bool = a.coeff() == 0u64;
+    let bz: bool = b.coeff() == 0u64;
+    if az && bz { return 0; }
+    if (a.is_neg() && !az) != (b.is_neg() && !bz) {
+        return if a.is_neg() && !az { -1 } else { 1 };
+    }
+    let mut ca: u64 = a.coeff(); let mut cb: u64 = b.coeff();
+    let mut sa: u32 = a.scale(); let mut sb: u32 = b.scale();
+    while sa < sb { ca = ca * 10u64; sa = sa + 1u32; }
+    while sb < sa { cb = cb * 10u64; sb = sb + 1u32; }
+    let mut r: i32 = 0;
+    if ca < cb { r = -1; } else if ca > cb { r = 1; }
+    if a.is_neg() && !az { r = 0 - r; }
+    return r;
+}
+
+// add with scale alignment + sign handling; null HAny on u64 overflow.
+pub unsafe fn hdec_add(h: &Hermes2, x: HAny, y: HAny) -> HAny {
+    let dx: &HDecimal = x.as_decimal();
+    let dy: &HDecimal = y.as_decimal();
+    let mut cx: u64 = dx.coeff(); let mut cy: u64 = dy.coeff();
+    let mut sx: u32 = dx.scale(); let mut sy: u32 = dy.scale();
+    while sx < sy {
+        if cx > 1844674407370955161u64 { return HAny::ref_to(0i64 as *const u8); }
+        cx = cx * 10u64; sx = sx + 1u32;
+    }
+    while sy < sx {
+        if cy > 1844674407370955161u64 { return HAny::ref_to(0i64 as *const u8); }
+        cy = cy * 10u64; sy = sy + 1u32;
+    }
+    let nx: bool = dx.is_neg() && cx != 0u64;
+    let ny: bool = dy.is_neg() && cy != 0u64;
+    if nx == ny {
+        if cx > 18446744073709551615u64 - cy { return HAny::ref_to(0i64 as *const u8); }
+        return h.decimal(cx + cy, sx, nx);
+    }
+    if cx >= cy { return h.decimal(cx - cy, sx, nx); }
+    return h.decimal(cy - cx, sx, ny);
 }
