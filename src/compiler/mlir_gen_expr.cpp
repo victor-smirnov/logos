@@ -5922,8 +5922,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EHermesLitView v, TypeRef ret_t
         mlir::Value offset8 = builder_.create<mlir::arith::ConstantIntOp>(loc_, 8, 64);
         auto blob_ptr = builder_.create<mlir::LLVM::GEPOp>(
             loc_, ptr_type(), i8, global_ptr, mlir::ValueRange{offset8});
-        auto sit = struct_types_.find("HermesStatic");
-        if (sit == struct_types_.end()) return blob_ptr;
+        // Materialize as the HermesLit's RESULT struct (HermesStatic OR the
+        // ABI-compatible ExprBlob — both a single `{ptr}`). A fn-macro quote
+        // result is ExprBlob and may not import lang.hermes.view, so HermesStatic
+        // can be registered-by-name but unlaid-out (null llvm_type) → prefer the
+        // ret_type's registered struct, fall back to HermesStatic.
+        std::string sname = "HermesStatic";
+        if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::Struct) {
+            std::string rn(TypeRef(ret_type).struct_name());
+            if (!rn.empty()) {
+                auto rit = struct_types_.find(rn);
+                if (rit != struct_types_.end() && rit->second.llvm_type) sname = rn;
+            }
+        }
+        auto sit = struct_types_.find(sname);
+        if (sit == struct_types_.end() || !sit->second.llvm_type) return blob_ptr;
         auto alloca = create_entry_alloca(sit->second.llvm_type);
         auto gep = gep_field(alloca, sit->second, "ptr");
         if (!gep) return blob_ptr;
