@@ -1,81 +1,25 @@
-# Hermes1 test retirement register (step 6 of the hermes2 cut-over)
+# Hermes1 test adaptation log (step 6 of the hermes2 cut-over)
 
-Tests retired together with the Hermes1 subsystem (stdlib lang.hermes / mem.hermes).
-Each tested Hermes1-specific API; the hermes2 replacements are covered by the
-hermes2/\* + hermes_\* (migrated) suites. Features worth re-porting on the hermes2
-base are marked. Retired on 2026-06-10, branch hermes2-cutover.
+UPDATE 2026-06-11: per Victor's direction, NO tests were retired — all 78
+Hermes1-era tests were ADAPTED to hermes2 equivalents preserving their
+coverage intent. The adaptation built these hermes2 surfaces:
 
-- anyval_basic
-- array_generic_push_grow
-- array_i32_generic_api
-- array_i32_polymorphic
-- array_relptr_strings
-- chain_field_write_scalar_named — regression for the Hermes1 AnyVal scalar-named representation (representation retired)
-- datatag_typecode
-- datatype_own
-- datatype_relptr
-- datatype_zone_ergonomic
-- datatype_zone_ref
-- dec_arithmetic — **re-port: Decimal arithmetic (hermes2 Decimal C++ type exists; no Logos surface)**
-- dec_boundary — **re-port: Decimal**
-- dec_deep — **re-port: Decimal**
-- dec_edge_cases — **re-port: Decimal**
-- hermes_anyval_methods
-- hermes_as_map / hermes_as_map_variants — **re-port: `as <K,AnyVal>{}` map casts need a value-form &[HAny] design**
-- hermes_buffer_string
-- hermes_builder
-- hermes_check
-- hermes_clone — **covered: hermes2 clone/compactify_root (C++) + metacall freeze tests**
-- hermes_compactify — **covered: same**
-- hermes_containers
-- hermes_ctr_traversal
-- hermes_decimal_f64 — **re-port: Decimal**
-- hermes_decimal_limits_errors — **re-port: Decimal**
-- hermes_decimal_methods — **re-port: Decimal**
-- hermes_document
-- hermes_escape_strings — **re-port: SDN text parser (string escapes)**
-- hermes_ex_arena
-- hermes_ex_containers
-- hermes_hbs — **re-port: HBS wire codec (hermes2 binary_codec.hpp exists; no Logos surface)**
-- hermes_import_export — **re-port: import/export over the wire codec**
-- hermes_memholder_rc
-- hermes_objectmap
-- hermes_param_roundtrip
-- hermes_parse — **re-port: SDN text parser (hermes2 C++ text_parser.hpp exists; no Logos surface yet)**
-- hermes_parse_typed_containers — **re-port: SDN text parser (typed containers)**
-- hermes_registry_lookup — **re-port: type registry lookup on hermes2 tags**
-- hermes_round_trip
-- hermes_scalar
-- hermes_string
-- hermes_string_view_interop — Hermes1 string/parser/tag_system interop
-- hermes_stringbuf_grow
-- hermes_stringify — **covered: mem.hermes2.stringify suite**
-- hermes_traits_bugfix
-- hermes_traits_full
-- hermes_typed_array_element_type_errors
-- hermes_typed_array_grow
-- hermes_typed_array_materialize
-- hermes_typed_container_clone — **covered: hermes2 clone**
-- hermes_typed_container_equal — **re-port: deep equality over hermes2 docs**
-- hermes_typed_datatype_empty_params_canonical
-- hermes_typed_datatype_empty_params_small_zone
-- hermes_typed_datatype_params_overflow
-- hermes_typed_datatype_params_trailing_comma_errors
-- hermes_typed_datatype_trait_coverage
-- hermes_typed_datatype_values
-- hermes_typed_datatype_values_errors
-- hermes_typed_decimal_validation_errors
-- hermes_typed_decimal_validation_pass
-- hermes_typed_map_default_materialize
-- hermes_typed_map_i32_materialize
-- hermes_typed_map_key_type_errors
-- hermes_typed_materialization_errors
-- hermes_typed_push
-- hermes_typetag
-- hermes_zone_seal
-- lforge_manifest — **re-port: lforge manifest schema NEEDS the hermes2 SDN parser surface**
-- mem_holder_custom_destroyer
-- tag_dispatch_sibling_concrete — **re-port: TypeTagSystem dispatch -> Hermes2TagSystem covers (hermes2 container suite)**
-- tag_dispatch_table — **re-port: same**
-- datatype_zone_basic — Hermes1 HermesZone API
-- hermes_buffer_i64 — fabric Buffer<I64> over the Hermes1 I64 scalar datatype (re-port: fabric Buffer on hermes2 zone datatypes)
+- mem.hermes2.equal / hashing / clone / check — direct HAny walkers (the
+  stringify foundation pattern; the Hermes1 tag_dispatch tables stay retired).
+- mem.hermes2.parser — extended with bare-ident keys, typed dense containers
+  (<T>[...] / <K[,AnyVal]>{...} incl strictness rules), @Type(params)?=init
+  prefix + "init"@Type(params) postfix typed values with @Decimal(P,S)
+  validation; stringify renders the canonical postfix form.
+- lang.hermes2.decimal — hdec_from_str / hdec_cmp / hdec_add on the
+  u64-coefficient model (the limb bignum is gone; overflow is an error).
+- lang.hermes2.typed_arr — MapSlice* + hermes2_build_map_*_anyval revive the
+  `as <K,AnyVal>{}` casts on value-form &[HAny] (Refs re-anchor via clone).
+- lang.fabric.string_store — the SoA string storage (Buffer<StrDt>); bare
+  scalars ride the Primitive blanket (Buffer<i64>).
+- mem.hermes2.tag_system — h2_tag_size; registry lookups verified live.
+
+Semantic shifts (hermes2 model differences, intentional):
+- parse errors -> null handles (the lenient parser has no Result channel);
+- clone IS compactify (live-set copy);
+- holder model: Zone/DataRef/DataOwn -> Rc<Hermes2> + Held<T> + RAII;
+- HBS wire = the mem.hermes2.hbs codec (tag-by-tag), import = clone_into.
