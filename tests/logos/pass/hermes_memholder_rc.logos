@@ -1,50 +1,33 @@
+// Holder refcount semantics (hermes2 successor of the Hermes1 MemHolder RC
+// test): Rc<Hermes2> clones share ONE container; data written through one
+// handle is visible through the other; drops release in any order.
 package hermes_memholder_rc;
-// Phase 7: MemHolder RC lifecycle — multiple DataRefs into the same zone,
-// released in arbitrary order.  Zone buffer must stay alive until the last
-// reference is released.
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.rc;
 
-use logos.lang.hermes.zone;
-use logos.lang.hermes.mem_holder;
-
-#[zoned] struct Counter {
+struct Counter {
     value: i32,
 }
 
 unsafe fn main() -> i32 {
-    // Create zone: holder RC = 1.
-    let mut z: Zone<Mutable> = zone_create(4096);
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
 
-    // Allocate three Counter objects; each zone_alloc_typed retains → holder RC becomes 4.
-    let r0: DataRef<Counter> = zone_alloc_typed::<Counter>(&mut z);
-    let r1: DataRef<Counter> = zone_alloc_typed::<Counter>(&mut z);
-    let r2: DataRef<Counter> = zone_alloc_typed::<Counter>(&mut z);
+    let c0: *mut Counter = hermes2_alloc::<Counter>(hp);
+    let c1: *mut Counter = hermes2_alloc::<Counter>(hp);
+    let c2: *mut Counter = hermes2_alloc::<Counter>(hp);
+    c0.value = 10; c1.value = 13; c2.value = 19;
 
-    // Initialise.
-    let w0: *mut Counter = r0.mut_ptr();
-    let w1: *mut Counter = r1.mut_ptr();
-    let w2: *mut Counter = r2.mut_ptr();
-    w0.value = 10;
-    w1.value = 20;
-    w2.value = 12;
+    // A second handle to the same container (holder RC 1 -> 2).
+    let rc2: Rc<Hermes2> = rc.clone();
+    let h2: &Hermes2 = rc2.deref();
+    // Same arena: the root set through one handle reads through the other.
+    h2.set_root(HAny::from(99 as i56));
+    if h.root().as_i64() != 99i64 { return 1; }
 
-    // Read RC through the holder (should be 4: zone + r0 + r1 + r2).
-    let rc_before: i32 = z.holder.rc;   // 4
-
-    // Release zone handle first (out-of-order is fine): holder RC → 3.
-    z.release();
-
-    // Data is still accessible via DataRefs (holder still alive, RC=3).
-    let v0: i32 = (r0.ptr() as *const Counter).value;
-    let v1: i32 = (r1.ptr() as *const Counter).value;
-    let v2: i32 = (r2.ptr() as *const Counter).value;
-    let sum: i32 = v0 + v1 + v2;  // 42
-
-    // Release the remaining DataRefs.
-    r0.release();  // RC → 2
-    r1.release();  // RC → 1
-    r2.release();  // RC → 0, memory freed
-
-    // rc_before=4, sum=42 → return 4 * 10 + 2 = 42? No: return sum + (rc_before - 4 + 1) = 43?
-    // Just return sum to keep it simple.
-    return sum;  // 42
+    let sum: i32 = c0.value + c1.value + c2.value;   // 42
+    if sum != 42 { return 2; }
+    return sum;   // both Rcs drop at scope end → holder freed once
 }

@@ -1,50 +1,33 @@
+// hermes2 document header (successor of the Hermes1 DocumentHeader test):
+// the root word lives at blob offset 0, self-relative; null/Pod/Ref forms.
 package hermes_document;
-// Phase 13: DocumentHeader — 8-byte root descriptor at zone offset 0.
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.document;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let base: *mut u8 = zone.base;
+    // Static blob: the header IS the first word.
+    let s: HermesStatic = @{"k": 1};
+    let w: i64 = *(s.ptr as *const i64);
+    if w == 0i64 { return 1; }                  // non-null root
+    if (w & 1i64) != 0i64 { return 2; }         // a map root is a Ref (even delta)
+    let root: HAny = HAny::Ref((s.ptr as i64 + w) as *const u8);
+    if !root.is_map() { return 3; }
 
-    // First alloc → zone offset 0 → DocumentHeader.
-    let raw: *mut u8 = zone.alloc_raw(8);
-    let doc: *mut DocumentHeader = document_create(raw);
+    // Pod root blob: the word is the Pod itself.
+    let p: HermesStatic = @42;
+    let wp: i64 = *(p.ptr as *const i64);
+    if (wp & 1i64) != 1i64 { return 4; }
+    let proot: HAny = HAny::Pod(wp as u64);
+    if proot.as_i64() != 42i64 { return 5; }
 
-    // Initially null (root_lo = 0, root_hi = 0).
-    let r0: AnyVal = document_get_root(doc as *const DocumentHeader);
-    if !r0.is_null()                             { return 1; }
+    // Runtime container: root() reconstructs the stored form.
+    let c: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = c.deref();
+    if !h.root().is_null() { return 6; }        // fresh container → null root
+    h.set_root(HAny::from(7 as i56));
+    if h.root().as_i64() != 7i64 { return 7; }
 
-    // Set root to a pointer-mode offset.
-    document_set_root(doc, AnyVal::from_offset(512 as u32));
-    let r1: AnyVal = document_get_root(doc as *const DocumentHeader);
-    if !r1.is_ptr()                              { return 2; }
-    if r1.as_offset() != 512 as u32             { return 3; }
-
-    // Set root to an embedded i32.
-    document_set_root(doc, AnyVal::embed_i24(99));
-    let r2: AnyVal = document_get_root(doc as *const DocumentHeader);
-    if r2.is_ptr()                               { return 4; }
-    if r2.as_i24() != 99                         { return 5; }
-
-    // document_header: derive DocumentHeader pointer from zone base.
-    let doc2: *mut DocumentHeader = document_header(base);
-    let r3: AnyVal = document_get_root(doc2 as *const DocumentHeader);
-    if r3.as_i24() != 99                         { return 6; }
-
-    // Set root back to null explicitly.
-    document_set_root(doc, AnyVal::null_ptr());
-    let r4: AnyVal = document_get_root(doc as *const DocumentHeader);
-    if !r4.is_null()                             { return 7; }
-
-    // embed_bool round-trip through document root.
-    document_set_root(doc, AnyVal::embed_bool(true));
-    let r5: AnyVal = document_get_root(doc as *const DocumentHeader);
-    if r5.is_ptr()                               { return 8; }
-    if !r5.as_bool()                             { return 9; }
-
-    zone.destroy();
     return 42;
 }
