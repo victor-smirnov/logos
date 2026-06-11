@@ -88,25 +88,8 @@ add_test(NAME trait_engine_test COMMAND trait_engine_test
          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp")
 
-# ---------------------------------------------------------------------------
-# exerciser_cross_arena_view — Phase 2.B multi-arena IR exerciser.
 # Verifies TypeRef/lir_view cross-arena dispatch (ExternalRef detection +
 # ArenaPool resolution end-to-end). See docs/internals/multi-arena-ir.md.
-# ---------------------------------------------------------------------------
-# TODO(hermes2-cutover): this DEV-TEST is written against the Hermes1 multi-arena API
-# (logos::hermes:: access/arena_value, base+offset AnyVals, owning-view TOMs with
-# .offset()). The cut-over moved TypeRef/ExprRef to hermes2 (native, no base/offset
-# model; raw-ptr TOMs; HermesAccess in compat.hpp without offset_of), so it no longer
-# compiles. The cross-arena IR FEATURE itself (TypeRef.arena_id/is_external, ExprRef
-# ExternalRef following, resolve_child, ArenaPool) is present in hermes2 — only this
-# exerciser needs porting to the compat API. Excluded to keep the full build green;
-# re-port + re-enable as part of finishing the hermes2 multi-arena work / step 6.
-# add_executable(exerciser_cross_arena_view exerciser_cross_arena_view.cpp)
-# target_link_libraries(exerciser_cross_arena_view PRIVATE logos_hermes2 logos_verification)
-# target_include_directories(exerciser_cross_arena_view PRIVATE ${CMAKE_SOURCE_DIR}/include)
-# add_test(NAME exerciser_cross_arena_view COMMAND exerciser_cross_arena_view
-#          WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-# set_tests_properties(exerciser_cross_arena_view PROPERTIES LABELS "hermes;cpp;multi_arena")
 
 target_include_directories(logosc PRIVATE
     ${CMAKE_SOURCE_DIR}/include
