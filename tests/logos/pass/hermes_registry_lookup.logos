@@ -1,62 +1,50 @@
+// Dispatch-table registry lookup (hermes2 successor of the Hermes1 registry
+// test): #[tag_dispatch] generates a (type_code -> impl fn-ptr) table; the
+// __logos_dispatch_lookup__ entry point resolves registered codes and returns
+// null for unregistered ones.
 package hermes_registry_lookup;
-// Verifies hermes.registry: the registry path (code → fn_ptr → indirect
-// call) yields the same output as direct tagged-trait dispatch.
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.tag_system;
 
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes.string;
-use logos.lang.hermes.typetag;
-use logos.mem.hermes.tag_system;
-use logos.mem.hermes.stringify;
-use logos.mem.hermes.registry;
-use logos.mem.string;
-use logos.lang.str;
+extern fn malloc(size: i64) -> *mut u8;
+extern fn free(ptr: *mut u8);
+
+#[tag_dispatch(DataTypeTagSystem)]
+pub trait Describe {
+    unsafe fn describe(self: *const Self) -> i32;
+}
+
+#[zoned] struct Imp { v: i32 }
+
+impl Describe for Imp {
+    pub unsafe fn describe(self: *const Imp) -> i32 { return self.v + 1; }
+}
+
+extern fn __logos_dispatch_lookup__DataTypeTagSystem__Describe__describe(
+    code: u64) -> *const u8;
 
 unsafe fn main() -> i32 {
-    let mut zone: Zone<Mutable> = zone_create(4096);
+    let tc: u64 = type_code_of::<Imp>();
+    if tc < 129u64 { return 1; }
 
-    // Allocate a HermesString "ok".
-    let msg: str = "ok";
-    let prefix_sz: i64 = vlen_encode_size(2 as u64) as i64;
-    let total: i64 = prefix_sz + 2;
-    let raw: *mut u8 = zone_m_alloc_tagged(&mut zone, total,
-        hermes_tag_string());
-    HermesString::init(raw, msg, 2 as u64);
+    // Registered code resolves to a non-null impl pointer.
+    let f_raw: *const u8 =
+        __logos_dispatch_lookup__DataTypeTagSystem__Describe__describe(tc);
+    if f_raw == (0 as *const u8) { return 2; }
 
-    // Build a StringifyCtx.
-    let mut buf_trait: String = String::new();
-    let mut ctx_trait: StringifyCtx = StringifyCtx {
-        out:   &mut buf_trait as *mut String,
-        base:  zone.holder.base as *const u8,
-        opts:  StringifyOpts::compact(),
-        depth: 0 as i64,
-    };
+    // Unregistered code returns null.
+    let miss: *const u8 =
+        __logos_dispatch_lookup__DataTypeTagSystem__Describe__describe(99999u64);
+    if miss != (0 as *const u8) { return 3; }
 
-    // ── Path A: trait method call (type-safe).
-    let tagged_hs: &tagged<HermesTypeTagSystem> HermesStringify = raw as *const u8;
-    tagged_hs.stringify(&mut ctx_trait);
-
-    // ── Path B: registry lookup + indirect call.
-    let mut buf_reg: String = String::new();
-    let mut ctx_reg: StringifyCtx = StringifyCtx {
-        out:   &mut buf_reg as *mut String,
-        base:  zone.holder.base as *const u8,
-        opts:  StringifyOpts::compact(),
-        depth: 0 as i64,
-    };
-    let code: u64 = 28 as u64;   // HermesString type_code
-    let f: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(code);
-    if (f as *const u8) == 0 as *const u8 { return 1; }
-    f(raw as *const u8, &mut ctx_reg);
-
-    // ── Out-of-table code returns null.
-    let none: fn(*const u8, *mut StringifyCtx) -> () = hermes_fn_stringify(200 as u64);
-    if (none as *const u8) != 0 as *const u8 { return 2; }
-
-    // Both buffers must equal `"ok"`.
-    if !buf_trait.eq_str("\"ok\"") { return 3; }
-    if !buf_reg.eq_str("\"ok\"")   { return 4; }
-
+    // The resolved pointer is callable with the impl ABI.
+    let buf: *mut u8 = malloc(64);
+    let obj: *mut Imp = (buf as i64 + 16) as *mut Imp;
+    write_tag(obj as *mut u8, tc);
+    obj.v = 41;
+    let f: fn(*const u8) -> i32 = f_raw as fn(*const u8) -> i32;
+    let got: i32 = f(obj as *const u8);
+    free(buf);
+    if got != 42 { return 4; }
     return 0;
 }
