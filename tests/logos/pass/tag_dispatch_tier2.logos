@@ -1,4 +1,6 @@
 package tag_dispatch_tier2;
+
+use logos.mem.hermes2.tag_system;
 // Tests Layer 6 tier-2: &tagged<TS> Trait dispatch for auto-hash type_codes
 // (type_code >= 223 — multi-byte TypeTag, binary-search lookup table).
 //
@@ -7,8 +9,6 @@ package tag_dispatch_tier2;
 // first 56 bits of their SHA-256 hash as the type_code.  That value is
 // always >> 222, so tier-2 dispatch is exercised.
 
-use logos.lang.hermes.datatag;
-use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

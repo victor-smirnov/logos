@@ -1,28 +1,29 @@
+// Map comprehension with 10 distinct keys — stresses map-slots allocation in
+// hermes2_map_comp_new (hermes2 Rc<Hermes2> builder).
 package hermes_map_comp_multi;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.rc;
 
 fn main() -> i32 {
-    // 10 distinct keys — stresses the map-slots allocation in hermes_map_comp_new.
     let keys: [str; 10] =
         ["k0","k1","k2","k3","k4","k5","k6","k7","k8","k9"];
     let idx: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-    let doc: Hermes =
-        @{keys[x as i64]: AnyVal::embed_i24(x * 100) for x in idx};
+    let doc: Rc<Hermes2> = @{keys[x as i64]: x * 100 for x in idx};
 
     unsafe {
-        let r: AnyVal = doc.root();
-        let b: *const u8 = doc.base();
-        if !r.is_map(b) { return 1; }
-        if doc.map_get(r, "k0").as_i24() !=   0 { return 2; }
-        if doc.map_get(r, "k3").as_i24() != 300 { return 3; }
-        if doc.map_get(r, "k7").as_i24() != 700 { return 4; }
-        if doc.map_get(r, "k9").as_i24() != 900 { return 5; }
+        let v0: HView2 = HView2 { base: 0 as *const u8 };
+        let h: &Hermes2 = doc.deref();
+        let r: HAny = h.root();
+        if !r.is_map() { return 1; }
+        if v0.get_int(v0.map_get(r, "k0")) !=   0i64 { return 2; }
+        if v0.get_int(v0.map_get(r, "k3")) != 300i64 { return 3; }
+        if v0.get_int(v0.map_get(r, "k7")) != 700i64 { return 4; }
+        if v0.get_int(v0.map_get(r, "k9")) != 900i64 { return 5; }
     }
 
     return 42;

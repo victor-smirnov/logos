@@ -3,8 +3,7 @@
 package reflect_annotated_auto;
 
 use logos.mem.any;
-use logos.lang.hermes.view;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.hstatic;
 
 #[annotation]
 #[zoned] struct Deprecated {

@@ -9,9 +9,7 @@
 //   3. HermesStatic-keyed instantiation works the same way.
 package generic_ref_registry_shape;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.hstatic;
 
 // (1) Const-generic thunks — distinct N values yield distinct functions.
 fn add_n<const N: i64>(x: i32) -> i32 {

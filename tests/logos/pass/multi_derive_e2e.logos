@@ -9,10 +9,8 @@
 
 package main;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.anyval;
 use logos.std.compiler.metaprog;
 use logos.std.fmt;
 use logos.mem.string;
@@ -24,8 +22,8 @@ fn derive_dbg_md_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
 
     let mut em: Emitter = Emitter::new();
@@ -45,8 +43,8 @@ fn derive_size_md_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
 
     let n: u64 = view.ast_struct_field_count(item);

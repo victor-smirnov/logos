@@ -1,10 +1,11 @@
 // Fail: &[i32] slice cast to <I32,AnyVal>{} — wrong source type (need MapSliceI32).
 package hermes_as_map_wrong_src;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];
     let s: &[i32] = &arr;
-    let ctr: Hermes = s as <I32, AnyVal>{};
+    let ctr: Rc<Hermes2> = s as <I32, AnyVal>{};
     return 0;
 }

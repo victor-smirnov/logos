@@ -1,24 +1,38 @@
 package metacall_hermes;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.hstatic;
+use logos.mem.rc;
 
-unsafe fn build_cfg() -> Hermes {
+unsafe fn build_cfg() -> Rc<Hermes2> {
     let arr: [i32; 4] = [10, 20, 30, 40];
-    return @{"k": AnyVal::embed_i24(x) for x in arr};
+    return @{"k": x for x in arr};
 }
 
 unsafe fn main() -> i32 {
+    // Compile-time: metacall JITs build_cfg, freezes the Rc<Hermes2> into a
+    // HermesStatic rodata blob.
     let cfg_meta: HermesStatic = metacall build_cfg();
-    let view_meta = cfg_meta.as_view();
+    let vm: HView2 = hview2_from_ptr(cfg_meta.ptr);
+    let mroot: HAny = vm.root();
+    if mroot.is_null() { return 1; }
+    let mk: HAny = vm.map_get(mroot, "k");
+    if !mk.is_int() { return 2; }
 
-    let cfg_rt: Hermes = build_cfg();
-    let view_rt = cfg_rt.as_view();
+    // Runtime: same builder, read through the container.
+    let cfg_rt: Rc<Hermes2> = build_cfg();
+    let h: &Hermes2 = cfg_rt.deref();
+    let rroot: HAny = h.root();
+    if rroot.is_null() { return 3; }
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    let rk: HAny = v0.map_get(rroot, "k");
+    if !rk.is_int() { return 4; }
 
-    if view_meta.size() == 0u64 { return 1; }
-    if view_rt.size() == 0u64 { return 2; }
-    if view_meta.size() != view_rt.size() { return 3; }
+    // The comprehension's constant key overwrites per iteration -> k == 40 both sides.
+    if vm.get_int(mk) != 40i64 { return 5; }
+    if v0.get_int(rk) != 40i64 { return 6; }
 
     return 42;
 }

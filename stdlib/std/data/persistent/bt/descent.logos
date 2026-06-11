@@ -10,10 +10,10 @@ package logos.std.data.persistent.bt.descent;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.static_view;   // HView2 — hermes2 reader for @{} blobs
+use logos.lang.hermes2.anyval;        // HAny
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.cow;
@@ -21,11 +21,13 @@ use logos.std.data.persistent.bt.shuttle;
 
 // ── CFG fanout readers ────────────────────────────────────────────────
 unsafe fn cfg_int_or<const CFG: HermesStatic>(key: str, dflt: u64) -> u64 {
-    let v = CFG.as_view();
-    let av: AnyVal = v.map_get(v.root(), key);
+    // The compiler emits @{}/HermesStatic blobs in hermes2 format, so read them
+    // with the matching hermes2 reader (HView2), not the Hermes1 HermesView.
+    let v: HView2 = hview2_from_ptr(CFG.ptr);
+    let av: HAny = v.map_get(v.root(), key);
     if av.is_null() { return dflt; }
-    if !av.is_int() { return dflt; }
-    return av.as_i64() as u64;
+    if !av.is_pod() { return dflt; }   // hermes2 inline scalar = Pod
+    return v.get_int(av) as u64;
 }
 
 pub unsafe fn max_keys_branch<const CFG: HermesStatic>() -> u64 {

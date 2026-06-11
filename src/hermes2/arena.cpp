@@ -16,7 +16,10 @@ logos::expected<Chunk> Chunk::make(size_t cap) noexcept {
     if (!mem) [[unlikely]]
         return std::unexpected(logos::err(ErrCode::out_of_memory));
 
-    std::memset(mem, 0, cap);
+    // NOT zeroed here — allocate()/allocate_raw() zero each [old_used, new_used)
+    // region on demand. This keeps a large pre-sized chunk LAZY (only touched pages
+    // commit), which lets the mirror/TypePool reserve a big single segment up front
+    // so it never reallocs (a realloc would dangle the live container `this` ptrs).
 
     Chunk c;
     c.memory.reset(mem);
@@ -94,13 +97,16 @@ Arena::allocate(size_t size, size_t alignment, TypeTag tag) noexcept {
             "Arena allocation failed after grow for size={}, alignment={}", size, alignment);
     }
 
-    // Write the type tag in the bytes before the object.
-    tag.write_before(addr);
-
     // Advance the used pointer past the object.
     Chunk& chunk = tail();
     size_t offset_in_chunk = static_cast<size_t>(addr - chunk.data());
-    chunk.used = offset_in_chunk + size;
+    size_t end = offset_in_chunk + size;
+    // Zero the freshly-claimed region (alignment padding + tag gap + object), then
+    // write the tag (after the memset, which would clobber it). Chunk memory is no
+    // longer pre-zeroed — this keeps a large pre-sized chunk lazy.
+    std::memset(chunk.data() + chunk.used, 0, end - chunk.used);
+    tag.write_before(addr);
+    chunk.used = end;
 
     return addr;
 }
@@ -121,7 +127,9 @@ Arena::allocate_raw(size_t size, size_t alignment) noexcept {
 
     Chunk& chunk = tail();
     size_t offset_in_chunk = static_cast<size_t>(addr - chunk.data());
-    chunk.used = offset_in_chunk + size;
+    size_t end = offset_in_chunk + size;
+    std::memset(chunk.data() + chunk.used, 0, end - chunk.used);   // lazy zero (see allocate)
+    chunk.used = end;
 
     return addr;
 }
@@ -168,7 +176,8 @@ logos::expected<void> Arena::grow(size_t needed) noexcept {
         if (!new_mem) [[unlikely]]
             return std::unexpected(logos::err(ErrCode::out_of_memory));
 
-        std::memset(new_mem, 0, new_cap);
+        // Not zeroed — per-allocation memset handles [old_used, new_used). Only the
+        // copied live prefix matters; the tail commits lazily as it's allocated into.
         std::memcpy(new_mem, chunk.data(), chunk.used);
 
         chunk.memory.reset(new_mem);

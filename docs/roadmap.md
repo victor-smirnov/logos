@@ -1,77 +1,67 @@
 # Roadmap
 
-Snapshot of where Logos is, where it's going, and how it gets there. Hand-updated, not a contract.
-
-The canonical, machine-readable plan lives in `MEMORY.md` (out of tree). This page is a human-readable summary that points back to it.
+Snapshot of where Logos is, where it's going, and how. Hand-updated, not a contract. The canonical machine-readable plan lives in `MEMORY.md` (out of tree); this is a human-readable summary.
 
 ## Where We Are (2026-05-07)
 
-**Toolchain MVP reached.** `lforge` is functionally complete enough that external collaboration works: B0..B5 all shipped (multi-file projects, native C/asm sources, incremental + parallel build, transitive git deps, MVS conflict detection, lockfile, content-addressed build cache, `replace:`, `requires_logos:`). The first external `.logos` package — `github.com/victor-smirnov/lforge-hello-world` — is live and consumes via all three URL forms (bare / https / SCP-ssh) which canonicalise to the same display id and share the cache.
+**Toolchain MVP reached.** `lforge` is complete enough for external collaboration: B0..B5 shipped (multi-file projects, native C/asm sources, incremental + parallel build, transitive git deps, MVS conflict detection, lockfile, content-addressed build cache, `replace:`, `requires_logos:`). The first external `.logos` package — `github.com/victor-smirnov/lforge-hello-world` — is live and consumed via all three URL forms (bare / https / SCP-ssh), which canonicalise to one display id and share the cache. The compiler also gained `--version`, an `if/while/for cond` no-struct-lit grammar fix, and smaller bug fixes from writing lforge in Logos. Baseline 1013+ tests green.
 
-The compiler also picked up `--version`, an `if/while/for cond` no-struct-lit grammar fix, and several smaller bugs that fell out of writing lforge in Logos. Baseline 1013+ tests green (depending on suite).
+**Strategic shift:** the toolchain hole is closed; the next phase scales **wide**. Memoria, the persistent collections package, metaprog phase 2, and the http-garden differential harness can each become their own GitHub project consumed via `lforge.hermes`, rather than living in-tree under `stdlib/` or `examples/`. See [internals/lforge.md](internals/lforge.md).
 
-**Strategic shift:** the toolchain hole is closed, and the next phase scales **wide** — Memoria, the persistent collections package, the metaprog phase 2 work, and the http-garden differential harness can each become their own GitHub project consumed via `lforge.hermes`, instead of living in-tree under `stdlib/` or `examples/`. See [internals/lforge.md](internals/lforge.md) for the live build-system state.
-
-Logos develops in alternating multi-month cycles — feature phase, then refactoring phase, then feature again. The two phases are not run in parallel; refactoring is closed before feature work resumes, and vice versa. See [ADR 0006](adr/0006-lir-hermes-cutover.md) for the closing of the most recent refactor.
+Logos develops in alternating multi-month cycles — feature, then refactoring, then feature — never in parallel; each phase closes before the other resumes. See [ADR 0006](adr/0006-lir-hermes-cutover.md) for the most recent refactor close.
 
 ## Strategic Direction
 
-Three threads converge on a single milestone: **Memoria, ported to Logos, used inside the Logos build system itself.** This is the focal point that organizes the next several phases.
+Three threads converge on one milestone: **Memoria, ported to Logos, used inside the Logos build system itself.**
 
 ### Metaprogramming in three phases (MP1 / MP2 / MP3)
 
-The metaprogramming model is generative-first: a metaprogram is the primary thing, the user's code is data the metaprogram consumes to build the final program. The DF-graph of metafunctions runs to a fixed point; declarations existing before that cycle are immutable. See [internals/metaprog.md](internals/metaprog.md), [ADR 0003](adr/0003-metafunctions.md), and [ADR 0004](adr/0004-definition-centric-tu.md) for the model in depth.
+Generative-first: a metaprogram is the primary thing, the user's code is data it consumes to build the final program. The DF-graph of metafunctions runs to a fixed point; declarations existing before that cycle are immutable. See [internals/metaprog.md](internals/metaprog.md), [ADR 0003](adr/0003-metafunctions.md), [ADR 0004](adr/0004-definition-centric-tu.md).
 
 **MP1 — targeted application + templates + type-level metaprog.**
 - `template struct/enum/impl` keyword: declarations as data.
 - `#[apply(metafn)]` at declaration sites; linear composition.
 - Typed `quote_*!` forms (`quote_item!`, `quote_expr!`, `quote_stmt!`, …) with `#expr` antiquotation and `#(...)*` repetition.
 - Type-level computation as ordinary Logos run at compile time.
-- Coverage: roughly Rust's `macro_rules!` and proc-macros, but through the generative model rather than token rewriting.
+- Coverage ≈ Rust's `macro_rules!` and proc-macros, but through the generative model rather than token rewriting.
 
 **MP2 — build system `lforge` with MCP/LSP integration.**
-- A new build system written in Logos, replacing make/ninja for production builds. **Toolchain MVP shipped 2026-05-07** — see [internals/lforge.md](internals/lforge.md). B0..B5 cover `build` / `run` / `update` / `clean` / `test` / `install` / `version` over multi-target projects, transitive git deps, MVS, lockfile, content-addressed cache, `replace:`, `requires_logos:`. Daemon mode + LSP/MCP integration are the remaining open pieces.
-- Build graph aware of the MP1 DF-graph; incremental on Hermes content hashes. The B4 build cache is keyed on `logosc` mtime + sub-dep cache_keys, giving transitive invalidation on compiler upgrades and source edits.
-- MCP server for AI authors as first-class users. LSP server for IDEs. A VS Code plugin is a candidate.
-- Single integration surface: model and IDE talk to one service that knows build state, semantic state, and metaprog state simultaneously.
+- A Logos-written build system replacing make/ninja for production builds. **Toolchain MVP shipped 2026-05-07** — see [internals/lforge.md](internals/lforge.md). B0..B5 cover `build`/`run`/`update`/`clean`/`test`/`install`/`version` over multi-target projects, transitive git deps, MVS, lockfile, content-addressed cache, `replace:`, `requires_logos:`. Daemon mode + LSP/MCP remain open.
+- Build graph aware of the MP1 DF-graph; incremental on Hermes content hashes. B4 cache keyed on `logosc` mtime + sub-dep cache_keys → transitive invalidation on compiler upgrades and source edits.
+- MCP server for AI authors as first-class users; LSP server for IDEs; VS Code plugin candidate.
+- Single integration surface: model and IDE talk to one service holding build + semantic + metaprog state simultaneously.
 
 **MP3 — transformative phase on top of `logos`.**
-- The transformative half of metaprogramming: AOP-style passes, BC, escape analysis, lints — all implemented as `Pass<Rewrites, Diagnostics>` plugins in `logos`.
-- Identity table (`Map<U32, AnyVal>` reachable from the zone root) plus parent links for stable, compactification-surviving AST identity. See `feat_metaprog_phases.md` for the design.
+- Transformative metaprogramming: AOP-style passes, BC, escape analysis, lints — all `Pass<Rewrites, Diagnostics>` plugins in `logos`.
+- Identity table (`Map<U32, AnyVal>` reachable from the zone root) plus parent links for stable, compactification-surviving AST identity. See `feat_metaprog_phases.md`.
 - Datalog over a fact-base as the universal pointcut mechanism, shared by user passes, the borrow checker, and trait resolution.
 
 ### The build system as the new center of gravity
 
-Until now the compiler was the central artifact. The strategic shift: **the build system `logos` becomes the center**, and the compiler is decomposed into services that plug into it. This is the named orchestrator the SOA-compiler vision (see [ADR 0004](adr/0004-definition-centric-tu.md), the broader argument in [ai-platform](ai-platform/README.md)) was always implying.
-
-Why the build system is the right center:
-- Incremental analysis, content-hash caching, dependency tracking — these are build-system primitives, and the metaprog DF-graph naturally lives at this layer.
-- AI-via-MCP and IDE-via-LSP both want a single point of contact that holds the whole project state. The build system is the only candidate.
-- SOA services without an orchestrator are a set of components without a host. `logos` is the host.
+The strategic shift: **the build system `logos` becomes the center**, and the compiler is decomposed into services plugging into it — the named orchestrator the SOA-compiler vision ([ADR 0004](adr/0004-definition-centric-tu.md), [ai-platform](ai-platform/README.md)) always implied. Why it is the right center:
+- Incremental analysis, content-hash caching, dependency tracking are build-system primitives, and the metaprog DF-graph lives at this layer.
+- AI-via-MCP and IDE-via-LSP both want a single contact point holding whole-project state; the build system is the only candidate.
+- SOA services without an orchestrator are components without a host. `logos` is the host.
 
 ### Memoria as the only driving use case
 
-Logos's metaprogramming is **out of distribution** — there is no comparable existing model to copy. C++ TMP, Rust `macro_rules!`/proc-macros, Zig `comptime`, Sutter's metaclasses (P0707), AspectJ, Lisp macros — each contributes a fragment, none gives the whole picture (generative + transformative + DF-graph + build-system-integrated). The existing precedents are mostly negative examples.
-
-Because of that, design happens through practice, not on paper. Memoria is the practical task that drives MP1 (derives for schemas, indices, serialization, Hermes zones) and later MP3 (instrumentation for query planning, persistence boundaries, transactional wrapping). Logos and Memoria are co-developed, the way Hermes and Logos already are.
+Logos's metaprogramming is **out of distribution** — no comparable model to copy. C++ TMP, Rust `macro_rules!`/proc-macros, Zig `comptime`, Sutter's metaclasses (P0707), AspectJ, Lisp macros each contribute a fragment; none gives the whole (generative + transformative + DF-graph + build-system-integrated). Precedents are mostly negative examples. So design happens through practice: Memoria drives MP1 (derives for schemas, indices, serialization, Hermes zones) and later MP3 (instrumentation for query planning, persistence boundaries, transactional wrapping). Logos and Memoria are co-developed, like Hermes and Logos.
 
 ## Self-Hosting Plan
 
-The compiler is written in C++ today and stays in C++ for the foreseeable future. Porting the compiler to Logos is gated on **two preconditions**:
+The compiler is C++ today and stays C++ for the foreseeable future. Porting it to Logos is gated on two preconditions:
 
-1. The Logos language has stabilized — type system, the full metaprog model (MP1+MP2+MP3), the borrow checker, and stdlib APIs all settled enough that porting is not chasing a moving target.
-2. Executable Logos compilers (or cross-compilers) are available for all major target platforms. Without that, "build from source" stops working for users on platforms where there is no pre-built Logos compiler — a distribution-level bootstrap problem distinct from the local-dev one.
+1. The Logos language has stabilized — type system, full metaprog model (MP1+MP2+MP3), borrow checker, and stdlib APIs settled enough that porting is not chasing a moving target.
+2. Executable Logos compilers (or cross-compilers) exist for all major target platforms. Without that, "build from source" breaks on platforms with no pre-built Logos compiler — a distribution-level bootstrap problem distinct from local-dev.
 
-When both hold, almost everything moves to Logos: frontend, sema, metaprog runtime, BC, stdlib, build system, Memoria. **Codegen stays in C++** — MLIR/LLVM bindings are a C++ API, and rewriting them in Logos is neither realistic nor useful. Codegen becomes one of the SOA services in `logos`. This is the right shape: Logos as a language for application code and data engines, not for systems-level work that C++ already covers natively.
+When both hold, almost everything moves to Logos: frontend, sema, metaprog runtime, BC, stdlib, build system, Memoria. **Codegen stays C++** — MLIR/LLVM bindings are a C++ API; rewriting them in Logos is neither realistic nor useful. Codegen becomes an SOA service in `logos`. Logos is for application code and data engines, not systems-level work C++ already covers.
 
 ### Two-stage bootstrap
 
-To dodge the chicken-and-egg problem at build time:
+- **Stage 1 (bootstrap):** cmake + ninja, builds `logos` (build system + compiler) from a clean machine. Permanent — the only path not requiring a pre-existing Logos toolchain.
+- **Stage 2 (`logos`):** every other build — stdlib, Memoria, user projects, future compiler refactorings.
 
-- **Stage 1 (bootstrap):** cmake + ninja. Used to build `logos` (the build system + the compiler) from a clean machine. Stays around permanently — it is the only path that does not require a pre-existing Logos toolchain.
-- **Stage 2 (`logos`):** every other build. Once `logos` is built, it handles stdlib, Memoria, user projects, future refactorings of the compiler itself.
-
-Cmake/ninja are not improved or replaced — they stay as a minimal-surface service tool.
+Cmake/ninja stay as a minimal-surface service tool, neither improved nor replaced.
 
 ## Implemented
 
@@ -100,62 +90,62 @@ Cmake/ninja are not improved or replaced — they stay as a minimal-surface serv
 ### Metacall (early metaprog)
 - Expression-position `metacall foo(...)` for primitive returns and `HermesStatic`. Mode A (JIT-compile L-IR) + Mode B (link symbol from `.a`).
 - `Hermes` (mutable) return with auto-freeze via `__metacall_freeze` shim.
-- Deduplication of `@`-literal blob globals via `unnamed_addr` and ConstantMerge.
-- See `feat_metacall_arch.md` for the full model.
+- Dedup of `@`-literal blob globals via `unnamed_addr` and ConstantMerge.
+- See `feat_metacall_arch.md`.
 
 ### Compiler IR refactor (just closed)
-- Hermes adopted as the format for L-IR. `LExpr`/`LStmt`/`Pattern`/`HermesVal` are POD shells with a `mirror_offset_` into a Hermes document; `lir_view` is the typed accessor.
-- Why it mattered: the bytes *are* the IR, which makes content-hash, cross-process exchange, and a future SOA split tractable.
+- Hermes adopted as the L-IR format. `LExpr`/`LStmt`/`Pattern`/`HermesVal` are POD shells with a `mirror_offset_` into a Hermes document; `lir_view` is the typed accessor.
+- Why: the bytes *are* the IR, making content-hash, cross-process exchange, and a future SOA split tractable.
 
 ### Tooling and Tests
 - `logosc` driver, end-to-end build via CMake + VCPKG.
-- `lforge` build system, toolchain-MVP complete — `build` / `run` / `update` / `clean` / `test` / `install` / `version` from a Hermes-SDN manifest, with multi-target projects, native C/asm sources, parallel per-file compile, mtime-based incremental, transitive git deps via clone cache, lockfile + MVS, content-addressed build cache, `replace:` overrides, `requires_logos:` ABI floor. Split across an entry point + 15 sub-packages (`tools/lforge/main.logos` + `tools/lforge/pkg/`). See [internals/lforge.md](internals/lforge.md) and [internals/package-manager.md](internals/package-manager.md).
-- `logosc --version` / `-V` — single source of truth for the compiler version string.
-- `logosc --diag-format=json` — NDJSON diagnostics + structured exit codes (`EXIT_USER_ERROR` / `EXIT_USAGE` / `EXIT_LINK_IO` / …) for programmatic consumption by lforge and IDEs.
-- Stdlib gap-fill for build-system orchestration: `path::normalize`, `str_*` predicates + `Splitter`, `fs::walk_dir`/`mkdir_p`/`rm_rf`/`canonical`, `Child.stdout_lines() : Iterator<String>`, JSON parser, sha256 + sha256_hex, FS-CAS primitives.
-- Grammar: no-struct-lit cond expression chain (`if a < b { ... }` parses without parentheses); UTF-8 codepoints in char literals.
-- Test suite: 1013+ unit/integration/diag tests, plus 16 `lforge` shell-driven scenarios.
+- `lforge` build system, toolchain-MVP complete — `build`/`run`/`update`/`clean`/`test`/`install`/`version` from a Hermes-SDN manifest, with multi-target projects, native C/asm sources, parallel per-file compile, mtime-based incremental, transitive git deps via clone cache, lockfile + MVS, content-addressed build cache, `replace:` overrides, `requires_logos:` ABI floor. Split across an entry point + 15 sub-packages (`tools/lforge/main.logos` + `tools/lforge/pkg/`). See [internals/lforge.md](internals/lforge.md), [internals/package-manager.md](internals/package-manager.md).
+- `logosc --version` / `-V` — single source of truth for the version string.
+- `logosc --diag-format=json` — NDJSON diagnostics + structured exit codes (`EXIT_USER_ERROR` / `EXIT_USAGE` / `EXIT_LINK_IO` / …) for lforge and IDEs.
+- Stdlib gap-fill for build orchestration: `path::normalize`, `str_*` predicates + `Splitter`, `fs::walk_dir`/`mkdir_p`/`rm_rf`/`canonical`, `Child.stdout_lines() : Iterator<String>`, JSON parser, sha256 + sha256_hex, FS-CAS primitives.
+- Grammar: no-struct-lit cond expression chain (`if a < b { ... }` without parens); UTF-8 codepoints in char literals.
+- Test suite: 1013+ unit/integration/diag tests, plus 16 `lforge` shell scenarios.
 - HRPC, reactor (io_uring + green fibers), verification subsystems.
 
 ## In Progress (Current Feature Phase)
 
-Toolchain hole is closed; the phase is now scaling **wide** — using the toolchain to build real things in their own repos, instead of in-tree. Direction is set by Memoria's needs and the MP1 plan. Consult `MEMORY.md` for the live picture.
+Toolchain hole closed; scaling **wide** — building real things in their own repos. Direction set by Memoria's needs and the MP1 plan. See `MEMORY.md` for the live picture.
 
-- **Memoria-on-Logos as a first external project.** Driving use case for MP1 derives + the persistent collections package; consumed via `lforge.hermes` from a separate repository.
-- **lforge cache prune.** GC for `~/.cache/lforge/build/` entries; the only piece of the original v1 list still pending.
-- **Daemon mode + file watcher; LSP / MCP servers.** Single integration surface for AI and IDE clients on top of the existing build state.
-- Foundations for MP1 (templates, `#[apply]`, typed quote, identity table groundwork).
-- Continued shake-out of metacall slices: `Hermes`-return parity, blob dedup, capture roadmap (`feat_metacall_arch.md` §"Captures").
+- **Memoria-on-Logos as a first external project.** Driving use case for MP1 derives + persistent collections; consumed via `lforge.hermes` from a separate repo.
+- **lforge cache prune.** GC for `~/.cache/lforge/build/`; the only original v1 item still pending.
+- **Daemon mode + file watcher; LSP / MCP servers.** Single integration surface for AI and IDE clients.
+- Foundations for MP1 (templates, `#[apply]`, typed quote, identity-table groundwork).
+- Continued metacall shake-out: `Hermes`-return parity, blob dedup, capture roadmap (`feat_metacall_arch.md` §"Captures").
 - Datatype × Storage × View Hermes refactor — GAT-style relations, `UnsizedPayload`, `Meta + Atom` for small objects.
 - Decimal View — moving `to_f64`/`to_string_value` from `*const Decimal` onto a `DecimalView` carrying `base + ptr`.
-- HTTP differential harness via http-garden continues to find RFC 7230 parser bugs.
+- HTTP differential harness via http-garden continues finding RFC 7230 parser bugs.
 
 ## Near-Term
 
 - **Auto traits** — Send/Sync-like markers, compiler-derived from field types. Required for the concurrency model.
 - **Bitwise intrinsics** — `popcount`, `clz`, `ctz`, `bswap` via LLVM intrinsics. ~10× speedup expected for `TinyObjectMap` hot paths.
 - **`pub const` end-to-end** — grammar, sema, import. Today blocked behind a `pub fn` accessor workaround.
-- **Unicode in source** — currently parser is ASCII-only, comments included.
-- **Multi-clause / nested-for comprehensions** — chained `for`/`if` clauses (Python's `[x for xs in mat for x in xs]`).
+- **Unicode in source** — parser is ASCII-only today, comments included.
+- **Multi-clause / nested-for comprehensions** — chained `for`/`if` clauses (`[x for xs in mat for x in xs]`).
 - **`Set<T>`** — until then, `Map<K, ()>` / `ObjectMap<K, null>` carries set semantics.
 - **`if let`** — `match` with a wildcard arm is the workaround.
-- **Iterator surface — finish the chain story.** `Iterator`/`IntoIterator` traits and `for x in iter`/`vec`/`&vec`/`&mut vec` desugar are landed (closed 2026-05-07). What's still missing for Rust-style iterator chains:
+- **Iterator surface — finish the chain story.** `Iterator`/`IntoIterator` traits and `for x in iter`/`vec`/`&vec`/`&mut vec` desugar landed (2026-05-07). Still missing:
     - `lo..hi` as a free expression (today only legal in for-head; `(0..10).rev()` doesn't parse — must write `range_i32(0, 10).rev()`).
-    - `.enumerate()` / `.map()` / `.filter()` as methods on `Iterator` (today only as free functions `iter_enumerate`/`iter_map`/`iter_filter`).
-    - Tuple-destructure binding in for-head: `for (i, x) in it { }` — grammar only accepts a single IDENT.
+    - `.enumerate()` / `.map()` / `.filter()` as `Iterator` methods (today only free functions `iter_enumerate`/`iter_map`/`iter_filter`).
+    - Tuple-destructure binding in for-head: `for (i, x) in it { }` — grammar accepts only a single IDENT.
     - Deref-pattern in for-binding (`for &item in xs { }`) and slice `.iter()` so `bytes.iter().enumerate()` works on `&[u8]`.
-- **Constraint solving via Z3** — clean isolated solver layer; for trait resolution and reward signals.
+- **Constraint solving via Z3** — clean isolated solver layer for trait resolution and reward signals.
 
 ## Longer-Term
 
-- **MP2 build system `lforge`** continued — daemon mode, file watcher, MCP and LSP servers, VS Code plugin candidate. (Toolchain MVP closed 2026-05-07; B6+ pending: cache prune, more `replace` forms, `requires_logos` inheritance, cross-compile, vendoring, signing.)
-- **MP3 transformative phase** with `Pass<Rewrites, Diagnostics>`, identity table, parent links, Datalog fact-base.
-- **Datalog / Rete engine in Logos** — native, on Hermes; for application-level queries (the compiler internally uses Souffle).
+- **MP2 build system `lforge`** continued — daemon mode, file watcher, MCP and LSP servers, VS Code plugin. (MVP closed 2026-05-07; B6+ pending: cache prune, more `replace` forms, `requires_logos` inheritance, cross-compile, vendoring, signing.)
+- **MP3 transformative phase** — `Pass<Rewrites, Diagnostics>`, identity table, parent links, Datalog fact-base.
+- **Datalog / Rete engine in Logos** — native, on Hermes, for application-level queries (the compiler internally uses Souffle).
 - **Coroutines / FSM optimization** — stackful fibers by default with implicit suspend; lower to FSMs via `llvm.coro.*` where escape analysis permits.
 - **Module binary delivery format** — `libfoo.a = foo.o + foo.hermes` (interfaces + full template bodies + metadata).
-- **Three-implementation Hermes** — Logos as reference, Rust derived, C++ as follower. Conformance tooling per language; no FFI; pass zone pointers.
+- **Three-implementation Hermes** — Logos reference, Rust derived, C++ follower. Per-language conformance tooling; no FFI; pass zone pointers.
 - **Layer 2 schema sync and link-time collision detection** — deferred until the Logos Hermes API stabilizes.
-- **Compiler ported to Logos**, gated on the two preconditions in [Self-Hosting Plan](#self-hosting-plan). Codegen stays C++.
+- **Compiler ported to Logos**, gated on the two [Self-Hosting Plan](#self-hosting-plan) preconditions. Codegen stays C++.
 - **Genos** — schema × API × algorithm as a structured inductive programming target.
 
 ## Known Bugs and Quirks
@@ -164,17 +154,15 @@ Tracked items, not surprises. Most have memory entries with reproducers.
 
 - Associated-fn generic-impl monomorphization gap: `T::assoc_fn(...)` for a generic trait impl can fail; workaround via self-method with phantom argument.
 - `Map<K, V>` concrete-impl dispatch: sibling concrete specializations can suppress each other's tag-dispatch registration; use a blanket `impl<V>` instead.
-- Struct-array literal stride: `[Struct; N] = [...]` uses an 8-byte stride instead of `sizeof(T)`; workaround via raw `[i64; 2*N]`.
-- Shadowed `let` + `==`: an inner `let X: i64` shadowing an outer match binding `X` causes `==` to compare an alloca pointer against an `i64`. Rename to work around.
-- Struct field separator is `;` rather than `,`. Cosmetic; will likely change.
+- Struct-array literal stride: `[Struct; N] = [...]` uses 8-byte stride instead of `sizeof(T)`; workaround via raw `[i64; 2*N]`.
+- Shadowed `let` + `==`: an inner `let X: i64` shadowing an outer match binding `X` makes `==` compare an alloca pointer against an `i64`. Rename to work around.
+- Struct field separator is `;` not `,`. Cosmetic; likely to change.
 
 ## Source of Truth
 
-The canonical, machine-readable plan lives in `MEMORY.md` (out of tree at `~/.claude/projects/-home-victor-devel-logos/memory/MEMORY.md`) and `~/.claude/plans/validated-tinkering-spring.md`. The deprecated `openspec/`, the older `docs/datatypes.md`, and the in-tree `sandbox/` are not authoritative.
-
-For the strategic context behind this roadmap:
-- `project_mp_roadmap.md` — the MP1/MP2/MP3 split and the build-system pivot.
-- `project_self_hosting.md` — the self-hosting plan, two-stage bootstrap, codegen exception.
+The canonical machine-readable plan lives in `MEMORY.md` (`~/.claude/projects/-home-victor-devel-logos/memory/MEMORY.md`) and `~/.claude/plans/validated-tinkering-spring.md`. The deprecated `openspec/`, the older `docs/datatypes.md`, and in-tree `sandbox/` are not authoritative. Strategic context:
+- `project_mp_roadmap.md` — the MP1/MP2/MP3 split and build-system pivot.
+- `project_self_hosting.md` — self-hosting plan, two-stage bootstrap, codegen exception.
 - `project_dev_cadence.md` — the feature ↔ refactor rhythm.
 - `feat_metaprog_inversion.md` — generative model, single syntax, metacall and template/quote as the only world boundaries.
-- `feat_metaprog_phases.md` — Phase 1 vs Phase 2, identity table, parent links, the trade-off summary.
+- `feat_metaprog_phases.md` — Phase 1 vs Phase 2, identity table, parent links, trade-off summary.

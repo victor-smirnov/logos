@@ -52,6 +52,12 @@ public:
     Arena&       arena()       noexcept { return arena_; }
     const Arena& arena() const noexcept { return arena_; }
 
+    // The single-segment base (head chunk start) — Hermes1 spelling kept for the
+    // mirror/TypePool handles, which address their GrowableSingleChunk by offset.
+    uint8_t* base() const noexcept {
+        return const_cast<uint8_t*>(arena_.head().data());
+    }
+
 private:
     std::atomic<int32_t> ref_count_{0};
     Arena                arena_;

@@ -232,7 +232,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // prog is const; use the const arena() accessor (returns nullptr if
         // the pool was never initialised — in that case there are no bodies
         // to walk, so we early-out below).
-        const hermes::Arena* walk_arena_p = prog.type_pool.arena();
+        const hermes2::Arena* walk_arena_p = prog.type_pool.arena();
         std::function<void(lir_view::BlockRef)> walk_block;
         std::function<void(lir_view::StmtRef)>  walk_stmt;
         std::function<void(lir_view::ExprRef)>  walk_expr;
@@ -294,13 +294,13 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 // recurse so nested calls inside arithmetic / struct lits /
                 // match arms etc. get visited.
                 auto recurse_arr = [&](uint8_t key) {
-                    auto av = e.mirror()->get(key, e.base());
+                    auto av = e.mirror()->get(key);
                     if (av.is_null()) return;
-                    auto* arr = av.as_ptr<const hermes::ObjectArray>(e.base());
+                    auto* arr = av.as_ptr<const hermes2::ObjectArray>();
                     for (uint64_t i = 0; i < arr->size(); ++i) {
-                        auto el = arr->get(i, e.base());
+                        auto el = arr->get(i);
                         if (!el.is_null())
-                            walk_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el.to_offset()));
+                            walk_expr(lir_view::detail::make_sub_ref<lir_view::ExprRef>(e, el));
                     }
                 };
                 auto recurse_sub = [&](uint8_t key) {
@@ -321,14 +321,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                 recurse_arr(ek::PAYLOAD.code);
                 // Match arms: each arm has (pat, guard, value).
                 {
-                    auto av = e.mirror()->get(ek::ARMS.code, e.base());
+                    auto av = e.mirror()->get(ek::ARMS.code);
                     if (!av.is_null()) {
-                        auto* arr = av.as_ptr<const hermes::ObjectArray>(e.base());
+                        auto* arr = av.as_ptr<const hermes2::ObjectArray>();
                         for (uint64_t i = 0; i < arr->size(); ++i) {
-                            auto el = arr->get(i, e.base());
+                            auto el = arr->get(i);
                             if (el.is_null()) continue;
                             lir_view::EMatchArmRef arm =
-                                lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el.to_offset());
+                                lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
                             walk_expr(arm.guard());
                             walk_expr(arm.value());
                             walk_block(arm.body());
@@ -397,7 +397,7 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             auto it = by_name.find(name);
             if (it == by_name.end()) continue;
             auto& fn = *it->second;
-            if (fn.body.mirror_offset_ == hermes::arena_offset_t{}) continue;
+            if (fn.body.mirror_offset_ == hermes2::arena_offset_t{}) continue;
             walk_block(lir_view::BlockRef(walk_arena_p, fn.body.mirror_offset_));
         }
 

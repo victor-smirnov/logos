@@ -17,25 +17,20 @@
 package hermes_type_lit_roundtrip;
 
 use logos.std.compiler.metaprog;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typetag;
-use logos.lang.hermes.datatag;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.static_view;  // HView2
+use logos.lang.hermes2.anyval;       // HAny
 
 unsafe fn main() -> i32 {
     let cfg: HermesStatic = @{"t": <type:i32>};
-    let v = cfg.as_view();
-    let root: AnyVal = v.root();
-    let inner: AnyVal = v.map_get(root, "t");
+    let v: HView2 = hview2_from_ptr(cfg.ptr);
+    let root: HAny = v.root();
+    let inner: HAny = v.map_get(root, "t");
 
     if inner.is_null() { return 1; }
-    if !inner.is_ptr() { return 2; }
+    if !inner.is_ref() { return 2; }
 
-    let t: Type = type_from_anyval(v.base(), inner);
+    let t: Type = type_from_anyval(inner);
 
     // i32 → LogosType::Kind::I32 = 1 (cf. logos.std.compiler.metaprog.kind_name).
     if t.kind != (1 as u32) { return 3; }
@@ -45,25 +40,17 @@ unsafe fn main() -> i32 {
     // (Surfacing this onto t.name itself is blocked on the fat-ptr field
     // ABI bug — see type_from_anyval.)
     unsafe {
-        let obj: *const u8 = (v.base() as i64 + inner.as_offset() as i64) as *const u8;
-        let tom: *const Map<Bitmap, AnyVal> = obj as *const Map<Bitmap, AnyVal>;
-        let nav: AnyVal = tom.get(v.base(), 2 as u8);
+        let nav: HAny = v.tiny_map_get(inner, 2 as u8);   // NAME key in the type TOM
         if nav.is_null() { return 60; }
-        if !nav.is_ptr() { return 61; }
-        let nobj: *const u8 = (v.base() as i64 + nav.as_offset() as i64) as *const u8;
-        let tc: u64 = read_type_code(nobj);
-        if tc != hermes_tag_string() { return 70 + (tc as i32); }
-        let hs: *const HermesString = nobj as *const HermesString;
-        if hs.len() != (3 as u64) { return 81; }
-        let manual: &[u8] = str_from_raw(hs.bytes(), hs.len() as i64);
-        if manual.len() != 3 { return 90; }
-        let mp: *const u8 = manual.as_ptr();
-        if *mp != 105 as u8 { return 91; }  // 'i'
+        if !nav.is_ref() { return 61; }
+        let sv: SView2 = v.get_str_view(nav);
+        if sv.len != (3 as u64) { return 81; }
+        if *(sv.ptr) != 105 as u8 { return 91; }          // 'i'
     }
 
     // Empty-fallback path: a non-Type AnyVal returns kind=0.
-    let other: AnyVal = v.map_get(root, "missing");
-    let empty: Type = type_from_anyval(v.base(), other);
+    let other: HAny = v.map_get(root, "missing");
+    let empty: Type = type_from_anyval(other);
     if empty.kind != (0 as u32) { return 9; }
     if empty.uid != (0 as u64)  { return 10; }
 

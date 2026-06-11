@@ -34,6 +34,8 @@ public:
         if (index >= size_) return AnyVal{};
         return elements()[index];
     }
+    // CUT-OVER VESTIGIAL (base ignored) — lets logosc base-threading sites compile.
+    AnyVal get(uint64_t index, const void*) const noexcept { return get(index); }
 
     AnyVal* slot(uint64_t index) noexcept {
         return index < size_ ? &elements()[index] : nullptr;

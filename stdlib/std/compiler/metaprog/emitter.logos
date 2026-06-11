@@ -18,8 +18,6 @@ package logos.std.compiler.metaprog;
 
 use logos.mem.string;
 use logos.lang.str;
-use logos.lang.hermes.view;
-use logos.lang.hermes.string;
 use logos.mem.collections.vec;
 
 extern fn logos_emit_source(src: *const u8) -> i32;
@@ -172,9 +170,9 @@ impl Emitter {
         self.buf.push_str(s);
     }
 
-    // Push the bytes of a StringView verbatim, hiding the unsafe push_bytes
+    // Push the bytes of a SView verbatim, hiding the unsafe push_bytes
     // ceremony that hooks otherwise repeat per AST-name reference.
-    pub fn push_view(&mut self, v: StringView) {
+    pub fn push_view(&mut self, v: SView) {
         unsafe { self.buf.push_bytes(v.ptr, v.len as i64); }
     }
 
@@ -193,10 +191,10 @@ impl Emitter {
     //   * `$ident` unknown → left as-is (`$ident` literal)
     //   * `$<non-ident>`   → literal `$` then continue
     //
-    // ident chars: [A-Za-z_][A-Za-z0-9_]*. Values are StringView so they can
+    // ident chars: [A-Za-z_][A-Za-z0-9_]*. Values are SView so they can
     // come from AST nodes directly (`view.ast_node_name(item)`); use
     // view_of_str() to bind a literal str.
-    pub fn tpl1(&mut self, tmpl: str, k1: str, v1: StringView) {
+    pub fn tpl1(&mut self, tmpl: str, k1: str, v1: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -206,8 +204,8 @@ impl Emitter {
     }
 
     pub fn tpl2(&mut self, tmpl: str,
-                k1: str, v1: StringView,
-                k2: str, v2: StringView) {
+                k1: str, v1: SView,
+                k2: str, v2: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -217,9 +215,9 @@ impl Emitter {
     }
 
     pub fn tpl3(&mut self, tmpl: str,
-                k1: str, v1: StringView,
-                k2: str, v2: StringView,
-                k3: str, v3: StringView) {
+                k1: str, v1: SView,
+                k2: str, v2: SView,
+                k3: str, v3: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -229,19 +227,19 @@ impl Emitter {
     }
 }
 
-// Wrap a str as a StringView for use as a tpl* binding value.
-pub fn view_of_str(s: str) -> StringView {
-    return StringView { ptr: s.as_ptr(), len: s.len() as u64 };
+// Wrap a str as a SView for use as a tpl* binding value.
+pub fn view_of_str(s: str) -> SView {
+    return SView { ptr: s.as_ptr(), len: s.len() as u64 };
 }
 
-// Wrap a String as a StringView (borrows the string's buffer; valid only
+// Wrap a String as a SView (borrows the string's buffer; valid only
 // while the source String is alive and unmodified).
-pub fn view_of_string(s: &String) -> StringView {
-    return StringView { ptr: s.as_ptr(), len: s.len() as u64 };
+pub fn view_of_string(s: &String) -> SView {
+    return SView { ptr: s.as_ptr(), len: s.len() as u64 };
 }
 
-fn view_empty() -> StringView {
-    return StringView { ptr: 0 as *const u8, len: 0 };
+fn view_empty() -> SView {
+    return SView { ptr: 0 as *const u8, len: 0 };
 }
 
 fn str_empty() -> str {
@@ -272,7 +270,7 @@ fn is_ident_cont(c: u8) -> bool {
     return false;
 }
 
-unsafe fn match_key(p: *const u8, n: i64, k: str, v: StringView,
+unsafe fn match_key(p: *const u8, n: i64, k: str, v: SView,
                     out_buf: &mut String) -> bool {
     let kn: i64 = k.len();
     if kn != n { return false; }
@@ -285,9 +283,9 @@ unsafe fn match_key(p: *const u8, n: i64, k: str, v: StringView,
 // Internal: render `tmpl` into `out`, substituting up to three
 // (key, value) bindings. Empty keys (k.len() == 0) are skipped.
 unsafe fn tpl_render_into(out: &mut String, tmpl: str,
-                          k1: str, v1: StringView,
-                          k2: str, v2: StringView,
-                          k3: str, v3: StringView) {
+                          k1: str, v1: SView,
+                          k2: str, v2: SView,
+                          k3: str, v3: SView) {
     let p: *const u8 = tmpl.as_ptr();
     let len: i64 = tmpl.len();
     let dollar: u8 = 36u8;   // '$'

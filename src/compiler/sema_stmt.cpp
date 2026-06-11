@@ -4,7 +4,7 @@
 #include "ctfe.hpp"
 #include "logos/compiler/subtype.hpp"
 
-#include <logos/hermes/type_registry.hpp>
+#include <logos/hermes2/compat.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -16,11 +16,11 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using hermes2::TinyMapView;
+using hermes2::ArrayView;
+using hermes2::StringView;
+using hermes2::AnyVal;
+using hermes2::MemHolder;
 
 // Statement lowering methods
 
@@ -31,7 +31,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     // through. Hand-recognised by callee name today since Logos has no
     // `!`/Never type kind. Returning true from stmt_always_returns makes
     // the fn-body return-reachability check accept a `panic(msg)` tail.
-    auto is_divergent_call = [&](hermes::TinyMapView node) -> bool {
+    auto is_divergent_call = [&](hermes2::TinyMapView node) -> bool {
         int32_t cc = code_of(node);
         // Direct call `panic(...)` or macro-style `panic!(...)`. The macro
         // shape parses to FN_MACRO_CALL with CALLEE = "panic" before
@@ -944,7 +944,7 @@ lir::LStmt SemaChecker::lower_destructure_assign(TinyMapView node) {
                 else pos = arity - trailing + (i - (size_t)rest_idx - 1);
                 if (arity && pos >= arity) continue;
                 TypeRef elem_t = error_t();
-                lir::LExprPtr acc;
+                lir::LExprPtr acc = nullptr;
                 if (src_is_array && TypeRef(src_ty).elem()) {
                     elem_t = TypeRef(src_ty).elem();
                     acc = builder().index_read(
@@ -1172,7 +1172,7 @@ lir::LStmt SemaChecker::lower_let_pat(TinyMapView node) {
     if (is_array_slice_pat) {
         auto elem_t = TypeRef(rhs_type).elem();
         size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
-        std::vector<hermes::TinyMapView> sub_pats;
+        std::vector<hermes2::TinyMapView> sub_pats;
         bool has_rest = false;
         if (pat_node.has_key(la::ITEMS)) {
             auto items_av = pat_node.get(la::ITEMS.code);
@@ -2196,7 +2196,7 @@ lir::LStmt SemaChecker::lower_compound_assign(TinyMapView node) {
 // Render a place AST node to its source-like form (`p.x`, `arr[i]`, `t.0`,
 // `b.data[i]`, `(*p).x`) for diagnostics. Mirrors the names the former per-shape
 // compound lowerings produced.
-std::string SemaChecker::render_place_node(hermes::TinyMapView n) {
+std::string SemaChecker::render_place_node(hermes2::TinyMapView n) {
     if (n.is_null()) return "<place>";
     int32_t c = code_of(n);
     if (c == la::PAREN_EXPR && n.has_key(la::VALUE))
@@ -2268,7 +2268,7 @@ lir::LStmt SemaChecker::lower_place_compound_assign(
                             !types_compatible(rhs2->type, out_t))
                             error(std::format("compound assignment to '{}[i]': type mismatch — expected {}, got {}",
                                   arr_name, type_str(out_t), type_str(rhs2->type)));
-                        lir::LExprPtr cur;
+                        lir::LExprPtr cur = nullptr;
                         if (fit_rd) {
                             std::vector<lir::LExprPtr> ra;
                             ra.push_back(builder().addr_of(arr_name, make_ref(false, arr_type)));
@@ -3288,7 +3288,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         if (sc == la::PAT_WILD && !explicit_name.empty() &&
             (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
             return synth;
-        lir::LExprPtr value;
+        lir::LExprPtr value = nullptr;
         // G172-1: nested string-literal pattern (`Some("foo")`, `("foo", _)`).
         // Bind the element to `synth`, gate with `str_eq(synth, "foo")` (a raw
         // `==` would pointer-compare the slices).
@@ -4124,7 +4124,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // `(a, .., c)` with arity 4 becomes `(a, _, _, c)`.
         size_t tuple_arity = TypeRef(tst).tuple_elems().size();
         AnyVal items_av = pnode.get(la::ITEMS.code);
-        std::vector<hermes::TinyMapView> raw_elems;
+        std::vector<hermes2::TinyMapView> raw_elems;
         size_t rest_pos = SIZE_MAX;
         if (!items_av.is_null() && items_av.is_pointer()) {
             auto items_arr = arr_of(items_av);
@@ -4143,7 +4143,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         }
         // Build the final element list. If rest is present, pad with
         // PAT_WILD("_") at rest_pos to reach tuple_arity.
-        std::vector<std::optional<hermes::TinyMapView>> expanded;
+        std::vector<std::optional<hermes2::TinyMapView>> expanded;
         if (rest_pos == SIZE_MAX) {
             for (auto& e : raw_elems) expanded.push_back(e);
         } else {
@@ -4532,7 +4532,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 TypeRef ft = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                                     ? ftype : prim(LogosType::Kind::I64);
                                 define(syn, ft);
-                                lir::LExprPtr value;
+                                lir::LExprPtr value = nullptr;
                                 if (sknode == la::PAT_INT && sub_node.has_key(la::VALUE))
                                     value = builder().lit_int(parse_int_literal(str_of(sub_node.get(la::VALUE.code))), ft);
                                 else if (sknode == la::PAT_NEG_INT && sub_node.has_key(la::VALUE))
@@ -4785,7 +4785,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             "__byte_{}", tmp_var_count_++);
                         auto u8t = prim(LogosType::Kind::U8);
                         auto i64t = prim(LogosType::Kind::I64);
-                        lir::LExprPtr guard;
+                        lir::LExprPtr guard = nullptr;
                         for (size_t k = 0; k < arr_n; ++k) {
                             auto lhs = builder().slice_index(
                                 builder().var_ref(syn, scrut_type),
@@ -4901,15 +4901,15 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         size_t want_arity = 1;
         std::vector<lir::LExprPtr> extra_args;
         if (pc == la::PAT_HERMES_NULL) {
-            helper = "hermes_pat_is_null";
+            helper = "hermes2_pat_is_null";
         } else if (pc == la::PAT_HERMES_BOOL) {
-            helper = "hermes_pat_eq_bool";
+            helper = "hermes2_pat_eq_bool";
             want_arity = 2;
             AnyVal bv = p.get(la::VALUE.code);
             bool bval = !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>();
             extra_args.push_back(builder().lit_bool(bval, bool_t()));
         } else if (pc == la::PAT_HERMES_INT) {
-            helper = "hermes_pat_eq_i24";
+            helper = "hermes2_pat_eq_i24";
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
             int64_t v = parse_int_literal(sv);
@@ -4924,9 +4924,9 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 v = 0;
             }
             extra_args.push_back(builder().lit_int(v, i32_t()));
-        } else {  // PAT_HERMES_STR — hermes_pat_eq_str(*av, base, str)
-            helper = "hermes_pat_eq_str";
-            want_arity = 3;
+        } else {  // PAT_HERMES_STR — hermes2_pat_eq_str(*node, str)
+            helper = "hermes2_pat_eq_str";
+            want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
             extra_args.push_back(builder().lit_str(std::move(lit), make_slice_type(prim(LogosType::Kind::U8))));
@@ -4941,7 +4941,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             // logos.lang.hermes.anyval; the str-eq helper (one HermesString
             // user) lives in std.hermes.pat.
             const char* hint =
-                std::strcmp(helper, "hermes_pat_eq_str") == 0
+                std::strcmp(helper, "hermes2_pat_eq_str") == 0
                 ? "use logos.mem.hermes.pat;"
                 : "use logos.lang.hermes.anyval;";
             error(std::format(
@@ -4951,9 +4951,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t));
-        if (pc == la::PAT_HERMES_STR) {
-            args.push_back(builder().var_ref(base_var, u8_ptr_t));
-        }
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -4977,7 +4974,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(parent_av, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         auto call = builder().call(sym, {}, std::move(args), scrut_type);
@@ -4990,67 +4986,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     };
     // Emit `hermes_pat_array_len_eq(&sv, base, n)` as a bool expr.
     auto emit_array_len_eq = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_array_len_eq";
-        auto cands = find_func_candidates(helper);
-        const SemaFuncInfo* fi = nullptr;
-        for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
-        if (!fi) {
-            error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
-                helper));
-            return builder().lit_bool(false, bool_t());
-        }
-        std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
-        args.push_back(builder().lit_int((int64_t)n, u64_t));
-        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return builder().call(sym, {}, std::move(args), bool_t());
-    };
-    // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
-    auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_array_len_ge";
-        auto cands = find_func_candidates(helper);
-        const SemaFuncInfo* fi = nullptr;
-        for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
-        if (!fi) {
-            error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
-                helper));
-            return builder().lit_bool(false, bool_t());
-        }
-        std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
-        args.push_back(builder().lit_int((int64_t)n, u64_t));
-        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return builder().call(sym, {}, std::move(args), bool_t());
-    };
-    // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
-    auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_has_type_code";
-        auto cands = find_func_candidates(helper);
-        const SemaFuncInfo* fi = nullptr;
-        for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
-        if (!fi) {
-            error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
-                helper));
-            return builder().lit_bool(false, bool_t());
-        }
-        std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
-        args.push_back(builder().lit_int((int64_t)tc, u64_t));
-        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return builder().call(sym, {}, std::move(args), bool_t());
-    };
-    // Emit `hermes_pat_is_map(&sv, base)` bool expr.
-    auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_is_map";
+        const char* helper = "hermes2_pat_array_len_eq";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5063,13 +4999,69 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
+        args.push_back(builder().lit_int((int64_t)n, u64_t));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return builder().call(sym, {}, std::move(args), bool_t());
+    };
+    // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
+    auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
+        const char* helper = "hermes2_pat_array_len_ge";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
+                helper));
+            return builder().lit_bool(false, bool_t());
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().lit_int((int64_t)n, u64_t));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return builder().call(sym, {}, std::move(args), bool_t());
+    };
+    // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
+    auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
+        const char* helper = "hermes2_pat_has_type_code";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
+                helper));
+            return builder().lit_bool(false, bool_t());
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().lit_int((int64_t)tc, u64_t));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return builder().call(sym, {}, std::move(args), bool_t());
+    };
+    // Emit `hermes_pat_is_map(&sv, base)` bool expr.
+    auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
+        const char* helper = "hermes2_pat_is_map";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 1) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
+                helper));
+            return builder().lit_bool(false, bool_t());
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
     };
     // Emit `hermes_pat_is_present(&sv)` bool expr.
     auto emit_present = [&](const std::string& sv) -> lir::LExprPtr {
-        const char* helper = "hermes_pat_is_present";
+        const char* helper = "hermes2_pat_is_present";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5111,7 +5103,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
                     std::string child = emit_child_let(
-                        "hermes_pat_map_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_map_slot", sv, std::move(xargs), 2);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -5132,7 +5124,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         if (pc == la::PAT_HERMES_ARR) {
             uint64_t n_total = 0;
             bool has_rest = false;
-            hermes::TinyMapView arr_wrap;
+            hermes2::TinyMapView arr_wrap;
             if (p.has_key(la::ITEMS)) {
                 arr_wrap = map_of(p.get(la::ITEMS.code));
                 auto items = arr_of(arr_wrap.get(la::ITEMS.code));
@@ -5157,7 +5149,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_int((int64_t)i, u64_t));
                     std::string child = emit_child_let(
-                        "hermes_pat_array_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_array_slot", sv, std::move(xargs), 2);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -5168,7 +5160,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return acc;
         }
         if (pc == la::PAT_HERMES_TYPED_ARR) {
-            namespace th = logos::hermes::type_hash;
+            namespace th = logos::hermes2::type_hash;
             auto tname = std::string(str_of(p.get(la::TYPE.code)));
             static const std::map<std::string, uint64_t> arr_tcs = {
                 {"I8",     th::ArrayI8},
@@ -5194,7 +5186,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
             return emit_has_type_code(sv, it->second);
         }
         if (pc == la::PAT_HERMES_TYPED_MAP) {
-            namespace th = logos::hermes::type_hash;
+            namespace th = logos::hermes2::type_hash;
             auto kname = std::string(str_of(p.get(la::TYPE.code)));
             std::string vname;
             if (p.has_key(la::RET_TYPE))
@@ -5939,7 +5931,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     // Bind a synthetic element var and destructure the pattern from it as a
     // body prologue (see emit_for_pattern_destructure + the per-path wiring).
     bool for_has_pat = false;
-    hermes::TinyMapView for_pat{};
+    hermes2::TinyMapView for_pat{};
     std::string var_name;
     if (node.has_key(la::PAT)) {
         for_pat = map_of(node.get(la::PAT.code));
@@ -5978,7 +5970,9 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
     // the for-loop, build a mutable slice over the array and iterate yielding
     // `&mut T` (the shared `&arr` form already slices + yields `&T`).
     bool for_mut_ref = false;
-    lir::LExprPtr iter;
+    lir::LExprPtr iter = nullptr;   // LExprPtr is a RAW ptr (ADR 0007) — must init,
+                                    // else `if (!iter)` below reads an indeterminate
+                                    // value and skips lowering the iterable.
     if (node.has_key(la::ITER)) {
         auto inode = map_of(node.get(la::ITER.code));
         if (code_of(inode) == la::ADDR_OF_MUT && inode.has_key(la::VALUE)) {
@@ -6082,7 +6076,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             TypeRef slice_ty = make_slice_type(elem_t);
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(iter));
-            lir::LExprPtr slice_call;
+            lir::LExprPtr slice_call = nullptr;
             if (!as_slice_fn->type_params.empty())
                 slice_call = finish_generic_call(
                     as_slice_fn->symbol_name.empty() ? std::string("Vec__as_slice")
@@ -6147,7 +6141,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
                                                            : iif->symbol_name;
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(iter));
-                lir::LExprPtr it_call;
+                lir::LExprPtr it_call = nullptr;
                 if (!iif->type_params.empty())
                     it_call = finish_generic_call(sym, *iif, std::move(targs), std::move(pargs));
                 else
@@ -6475,12 +6469,12 @@ lir::LStmt SemaChecker::lower_loop(TinyMapView node) {
 // limitation, so they're rejected with a clean diagnostic instead of a crash.
 // Strip a `( … )` PAREN_EXPR wrapper (the lowered LExpr is transparent, but
 // the AST keeps the grouping node — e.g. `(*p).0` is TUPLE_INDEX(PAREN_EXPR(*p))).
-hermes::TinyMapView SemaChecker::unwrap_paren_node(hermes::TinyMapView n) {
+hermes2::TinyMapView SemaChecker::unwrap_paren_node(hermes2::TinyMapView n) {
     while (code_of(n) == la::PAREN_EXPR && n.has_key(la::VALUE))
         n = map_of(n.get(la::VALUE.code));
     return n;
 }
-bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
+bool SemaChecker::place_recv_is_simple(hermes2::TinyMapView recv) {
     int32_t code = code_of(unwrap_paren_node(recv));
     return code == la::VAR_REF || code == la::DEREF;
 }
@@ -6489,7 +6483,7 @@ bool SemaChecker::place_recv_is_simple(hermes::TinyMapView recv) {
 // struct-ARRAY element (`a[i].x`, `g.rows[i].cells[j].v`). The struct-element
 // stride is now handled (gen_lvalue_addr + gen_index_read inline slot), so
 // index-then-field places lower correctly.
-bool SemaChecker::place_field_base_ok(hermes::TinyMapView recv) {
+bool SemaChecker::place_field_base_ok(hermes2::TinyMapView recv) {
     recv = unwrap_paren_node(recv);
     int32_t c = code_of(recv);
     if (c == la::VAR_REF || c == la::DEREF) return true;
@@ -6625,7 +6619,7 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
 // Best-effort static type of an AST place expression (read-only; mirrors the
 // type logic in lower_expr without emitting LIR). Used by check_place_writable
 // to decide whether a field/index access crosses a pointer boundary.
-TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
+TypeRef SemaChecker::resolve_place_type(hermes2::TinyMapView place) {
     place = unwrap_paren_node(place);
     int32_t c = code_of(place);
     if (c == la::VAR_REF)
@@ -6671,7 +6665,7 @@ TypeRef SemaChecker::resolve_place_type(hermes::TinyMapView place) {
 
 std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
     const std::string& arr_name, TypeRef arr_type,
-    hermes::TinyMapView idx_node, hermes::TinyMapView val_node) {
+    hermes2::TinyMapView idx_node, hermes2::TinyMapView val_node) {
     if (!arr_type || TypeRef(arr_type).kind() != LogosType::Kind::Struct)
         return std::nullopt;
     auto type_name = concrete_struct_name(arr_type);
@@ -6735,7 +6729,7 @@ std::optional<lir::LStmt> SemaChecker::try_index_mut_assign(
 // lower_field_write.
 std::optional<lir::LStmt> SemaChecker::try_dataref_field_write(
     const std::string& recv_name, const std::string& field_name,
-    hermes::TinyMapView val_node) {
+    hermes2::TinyMapView val_node) {
     TypeRef recv_type = lookup(recv_name);
     if (!recv_type || TypeRef(recv_type).kind() != LogosType::Kind::Struct ||
         !is_dataref(recv_type) || TypeRef(recv_type).type_args().size() != 1)
@@ -7058,7 +7052,7 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
 
 void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                                               TypeRef scrut_type,
-                                              hermes::TinyMapView node) {
+                                              hermes2::TinyMapView node) {
     namespace ec = lir_schema::expr;
     // The scrutinee may be a plain VAR (`match o`) or a PLACE — a struct field
     // (`match s.o`) / tuple element (`match a.1`). Enum value-repr makes the
@@ -7200,7 +7194,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                 // A `_` or `ref` binding moves nothing. (G156-2 enum-half.)
                 if (code_of(lhs) == la::PAT_VARIANT_DATA) {
                     bool moves = false;
-                    auto scan_subs = [&](hermes::AnyVal items_av) {
+                    auto scan_subs = [&](hermes2::AnyVal items_av) {
                         if (items_av.is_null()) return;
                         auto subs = arr_of(items_av);
                         for (uint64_t si = 0; si < subs.size() && !moves; ++si) {
@@ -7247,7 +7241,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
 
 void SemaChecker::emit_nested_variant_lets(
         const std::string& synth_name, TypeRef synth_t,
-        hermes::TinyMapView sub_pat, std::vector<lir::LStmt>& out) {
+        hermes2::TinyMapView sub_pat, std::vector<lir::LStmt>& out) {
     namespace ps = lir_schema::pat;
     // Build `let <sub_pat> = synth else { loop {} }`. Capture any DEEPER
     // refutable-inner guards / nested subs locally — the guards are dead
@@ -7311,7 +7305,7 @@ void SemaChecker::emit_nested_variant_lets(
 }
 
 bool SemaChecker::ast_patterns_exhaustive(
-        std::vector<hermes::TinyMapView> pats, TypeRef ty) {
+        std::vector<hermes2::TinyMapView> pats, TypeRef ty) {
     using K = LogosType::Kind;
     // Peel references.
     TypeRef t = ty;
@@ -7446,9 +7440,9 @@ void SemaChecker::emit_nested_pat_destructure(
         // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
         // so a tuple-payload binding was left undefined.
         if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-            std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+            std::function<void(lir::LExprPtr, TypeRef, hermes2::TinyMapView)>
             emit_tuple_lets =
-                [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                [&](lir::LExprPtr src, TypeRef tty, hermes2::TinyMapView tnode) {
                 if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
                 if (!tnode.has_key(la::ITEMS)) return;
                 auto items = arr_of(tnode.get(la::ITEMS.code));
@@ -7538,7 +7532,7 @@ void SemaChecker::emit_nested_pat_destructure(
 }
 
 bool SemaChecker::emit_for_pattern_destructure(
-        hermes::TinyMapView pat, const std::string& src_var, TypeRef src_type,
+        hermes2::TinyMapView pat, const std::string& src_var, TypeRef src_type,
         std::vector<lir::LStmt>& out) {
     // Unwrap the grammar's single-alt PAT_OR wrapper.
     if (code_of(pat) == la::PAT_OR && pat.has_key(la::ITEMS)) {
@@ -7753,11 +7747,27 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             sl.value = std::move(scrut);
             hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
-        anyval_t = make_datatype_type("AnyVal");
+        // hermes2: the node type is HAny (the helper's return type); the root is
+        // hermes2_pat_root(view) (static blob) or hermes2_pat_root_rc(&Rc<Hermes2>)
+        // (runtime container) — every leaf/slot helper takes *HAny + ignores base.
+        TypeRef scrut_inner = hermes_view_inner(scrut_type);
+        const char* root_helper =
+            (scrut_inner && TypeRef(scrut_inner).struct_name() == "Rc")
+            ? "hermes2_pat_root_rc" : "hermes2_pat_root";
+        {
+            auto root_cands = find_func_candidates(root_helper);
+            const SemaFuncInfo* root_fi = nullptr;
+            for (auto* c : root_cands) if (c->param_types.size() == 1) { root_fi = c; break; }
+            anyval_t = root_fi ? root_fi->ret_type : make_datatype_type("AnyVal");
+            if (!root_fi)
+                error("match with Hermes patterns requires `use logos.lang.hermes2.pat;`");
+        }
         root_var = "__hmatch_root_" + std::to_string(tmp_var_count_++);
         {
             auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto root_call = builder().method_call(std::move(view_ref), "root", "", {}, {}, -1, anyval_t);
+            std::vector<lir::LExprPtr> ra;
+            ra.push_back(std::move(view_ref));
+            auto root_call = builder().call(root_helper, {}, std::move(ra), anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);
@@ -7765,12 +7775,11 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
-            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
-            auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
+            // hermes2: no base is threaded (HAny is self-relative); keep a dead
+            // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
-            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
-            sl.value = std::move(base_call);
+            sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
+            sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
             hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;
@@ -7847,7 +7856,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // normal single-arm path with its own refutable-inner guard
         // and payload extraction. Scalar-only or-patterns (`1 | 2 | 3`)
         // and same-variant-with-bindings or-patterns stay merged.
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { hermes2::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         // An or-pattern alternative is "merge-safe" only if it is a pure
         // scalar literal that binds nothing (PAT_INT / PAT_BOOL / PAT_CHAR).
         // The merged PatOr codegen treats each alt as a scalar discriminant
@@ -7860,7 +7869,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
-        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+        auto or_needs_fanout = [&](hermes2::TinyMapView lhs) -> bool {
             if (code_of(lhs) != la::PAT_OR) return false;
             if (!lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
@@ -7877,7 +7886,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         // a single payload arg (the realistic class); a multi-arg variant with
         // ors in several positions would need a cartesian product — out of
         // scope, left to the merged path / a clean reject downstream.
-        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+        auto variant_payload_or_alts = [&](hermes2::TinyMapView lhs) -> int {
             // The grammar wraps a whole arm pattern in a single-alt PAT_OR
             // (`pat_single (PIPE …)*`); unwrap it to reach the variant.
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
@@ -7925,7 +7934,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             }
             eff_arms.push_back({arm, -1});
         }
-        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+        auto effective_lhs = [&](hermes2::TinyMapView arm, int32_t alt_idx) {
             if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
             auto lhs = map_of(arm.get(la::LHS.code));
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
@@ -7993,7 +8002,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             lir::LExprPtr str_arm_guard = nullptr;
             lir::Pattern pat;
             // Unwrap a single-alt PAT_OR (the grammar wraps each arm pattern).
-            hermes::TinyMapView str_eff;
+            hermes2::TinyMapView str_eff;
             bool is_str_arm = false;
             if (has_str_hoist && arm.has_key(la::LHS)) {
                 str_eff = effective_lhs(arm, alt_idx);
@@ -8226,7 +8235,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
     // since the desugar's synth guards defeat the LIR-level variant check.
     bool ast_exh = false;
     if (node.has_key(la::ITEMS)) {
-        std::vector<hermes::TinyMapView> lhs_pats;
+        std::vector<hermes2::TinyMapView> lhs_pats;
         auto arms_l = arr_of(node.get(la::ITEMS.code));
         for (uint64_t i = 0; i < arms_l.size(); ++i) {
             auto arm = map_of(arms_l.get(i));
@@ -8413,12 +8422,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
         base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
         {
-            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
-            auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
+            // hermes2: no base is threaded (HAny is self-relative); keep a dead
+            // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
-            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
-            sl.value = std::move(base_call);
+            sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
+            sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
             hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;
@@ -8474,11 +8482,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // or-patterns (`1|2|3`) stay merged. Without this, the merged tuple/
         // variant codegen mishandled bindings — e.g. dispatched on the
         // scrutinee pointer (`arith.cmpi ptr, 0`).
-        struct EffArm { hermes::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
+        struct EffArm { hermes2::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; };
         auto alt_is_merge_safe = [](int32_t c) -> bool {
             return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
         };
-        auto or_needs_fanout = [&](hermes::TinyMapView lhs) -> bool {
+        auto or_needs_fanout = [&](hermes2::TinyMapView lhs) -> bool {
             if (code_of(lhs) != la::PAT_OR) return false;
             if (!lhs.has_key(la::ITEMS)) return false;
             auto a = arr_of(lhs.get(la::ITEMS.code));
@@ -8489,7 +8497,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         };
         // B170-E: variant whose single payload arg is a multi-alt PAT_OR — see
         // the lower_match twin for the rationale (or-distribution fan-out).
-        auto variant_payload_or_alts = [&](hermes::TinyMapView lhs) -> int {
+        auto variant_payload_or_alts = [&](hermes2::TinyMapView lhs) -> int {
             if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
                 auto a = arr_of(lhs.get(la::ITEMS.code));
                 if (a.size() == 1) lhs = map_of(a.get(0));
@@ -8530,7 +8538,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
             eff_arms.push_back({arm, -1});
         }
-        auto effective_lhs = [&](hermes::TinyMapView arm, int32_t alt_idx) {
+        auto effective_lhs = [&](hermes2::TinyMapView arm, int32_t alt_idx) {
             if (alt_idx < 0) return map_of(arm.get(la::LHS.code));
             auto lhs = map_of(arm.get(la::LHS.code));
             return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
@@ -8583,7 +8591,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // G172-1: top-level string-literal arm → wildcard + str_eq guard.
             lir::LExprPtr str_arm_guard = nullptr;
             lir::Pattern pat;
-            hermes::TinyMapView str_eff;
+            hermes2::TinyMapView str_eff;
             bool is_str_arm = false;
             if (has_str_hoist && arm.has_key(la::LHS)) {
                 str_eff = effective_lhs(arm, alt_idx);
@@ -8642,9 +8650,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
                 // so a tuple-payload binding was left undefined.
                 if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-                    std::function<void(lir::LExprPtr, TypeRef, hermes::TinyMapView)>
+                    std::function<void(lir::LExprPtr, TypeRef, hermes2::TinyMapView)>
                     emit_tuple_lets =
-                        [&](lir::LExprPtr src, TypeRef tty, hermes::TinyMapView tnode) {
+                        [&](lir::LExprPtr src, TypeRef tty, hermes2::TinyMapView tnode) {
                         if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
                         if (!tnode.has_key(la::ITEMS)) return;
                         auto items = arr_of(tnode.get(la::ITEMS.code));
@@ -8986,7 +8994,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         // K4: prove nested-enum-pattern exhaustiveness at the AST level.
         bool ast_exh = false;
         if (node.has_key(la::ITEMS)) {
-            std::vector<hermes::TinyMapView> lhs_pats;
+            std::vector<hermes2::TinyMapView> lhs_pats;
             auto arms_l = arr_of(node.get(la::ITEMS.code));
             for (uint64_t i = 0; i < arms_l.size(); ++i) {
                 auto arm = map_of(arms_l.get(i));

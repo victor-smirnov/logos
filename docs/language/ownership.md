@@ -1,6 +1,6 @@
 # Ownership and Borrowing
 
-Logos has an ownership and borrow-checking system in the same family as Rust's. The borrow checker is implemented in [src/compiler/borrow_check.cpp](../../src/compiler/borrow_check.cpp) and runs after semantic analysis, before code generation.
+Ownership and borrow checking in the same family as Rust's. Implemented in [src/compiler/borrow_check.cpp](../../src/compiler/borrow_check.cpp); runs after sema, before codegen.
 
 ## The Three Rules
 

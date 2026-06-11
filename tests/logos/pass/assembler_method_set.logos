@@ -36,10 +36,9 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 
 pub trait HasId    { fn id()    -> i64; }
 pub trait HasName  { fn name()  -> str; }
@@ -59,8 +58,8 @@ fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
 fn assemble<const CFG: HermesStatic>() -> QuoteItemBlob {
     unsafe {
-        let v = CFG.as_view();
-        let arr: AnyVal = v.map_get(v.root(), "parts");
+        let v: HView2 = hview2_from_ptr(CFG.ptr);
+        let arr: HAny = v.map_get(v.root(), "parts");
         let n: u64 = v.array_len(arr);
 
         // Inlined pick: closures-over-HermesView aren't usable inside
@@ -73,17 +72,17 @@ fn assemble<const CFG: HermesStatic>() -> QuoteItemBlob {
         let mut count_part: Ident = Ident { ptr: 0 as *const u8, len: 0u64 };
         let mut i: i64 = (n as i64) - 1i64;
         while i >= 0i64 {
-            let part: AnyVal = v.array_get(arr, i as u64);
-            let methods: AnyVal = v.map_get(part, "methods");
+            let part: HAny = v.array_get(arr, i as u64);
+            let methods: HAny = v.map_get(part, "methods");
             if !methods.is_null() {
                 let m: u64 = v.array_len(methods);
-                let pt: AnyVal = v.map_get(part, "type");
-                let pt_sv: StringView = v.get_str_view(pt);
+                let pt: HAny = v.map_get(part, "type");
+                let pt_sv: SView2 = v.get_str_view(pt);
                 let pt_id: Ident = Ident { ptr: pt_sv.ptr, len: pt_sv.len };
                 let mut j: u64 = 0u64;
                 while j < m {
-                    let mn: AnyVal = v.array_get(methods, j);
-                    let mn_sv: StringView = v.get_str_view(mn);
+                    let mn: HAny = v.array_get(methods, j);
+                    let mn_sv: SView2 = v.get_str_view(mn);
                     // Reverse-walk + first-match = last-wins.
                     if mn_sv.len == 2u64
                         && *((mn_sv.ptr as i64 + 0i64) as *const u8) == 105u8

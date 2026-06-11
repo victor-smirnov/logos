@@ -10,11 +10,11 @@
 namespace logos::compiler {
 
 namespace la = ast;
-using hermes::TinyMapView;
-using hermes::ArrayView;
-using hermes::StringView;
-using hermes::AnyVal;
-using hermes::MemHolder;
+using hermes2::TinyMapView;
+using hermes2::ArrayView;
+using hermes2::StringView;
+using hermes2::AnyVal;
+using hermes2::MemHolder;
 
 // Declaration lowering methods
 

@@ -66,4 +66,9 @@ struct ClonedDoc {
 // blob_data()/blob_size() can be dumped and reloaded with HermesCtr::from_bytes.
 [[nodiscard]] logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept;
 
+// Compactify the tree reachable from a bare value-form root (no source container
+// needed — the root may live in any arena, e.g. a metacall JIT's Rc<Hermes2>).
+// Clone once to measure the live set, then copy right-sized.
+[[nodiscard]] logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept;
+
 } // namespace logos::hermes2

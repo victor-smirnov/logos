@@ -1,33 +1,37 @@
-// Hermes C6: Logos &[T] slice → typed Hermes array via `as <T>[]` cast.
-// C7-fix3/fix5: added content verification via stringify.
+// Hermes C6: Logos &[T] slice → typed hermes2 array via `as <T>[]` cast.
+// The result is an Rc<Hermes2> whose root is a TypedArray<T>; verify content
+// via hermes2 stringify.
 package hermes_as_array;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // Build an i32 slice from a local array and cast to Array<i32> Hermes.
+    // Build an i32 slice from a local array and cast to a typed hermes2 array.
     let arr: [i32; 3] = [10, 20, 30];
     let s: &[i32] = &arr;
-    let ctr: Hermes = s as <I32>[];
-    let root: AnyVal = ctr.root();
+    let ctr: Rc<Hermes2> = s as <I32>[];
+    let h: &Hermes2 = ctr.deref();
+    let root: HAny = h.root();
     if root.is_null() { return 1; }
-    // C7-fix3: verify root is a zone pointer (not inline) → Array<i32> object.
-    if !root.is_ptr() { return 2; }
-    // C7-fix5: verify stringify produces expected text.
-    let text: String = ctr.to_string();
-    if !text.eq_str("<I32> [10,20,30]") { return 3; }
+    if !root.is_ref() { return 2; }
+    let text: String = stringify(root);
+    if !text.eq_str("<I32> [10, 20, 30]") { return 3; }
 
-    // u64 slice → Array<u64> Hermes.
+    // u64 slice → TypedArray<u64>.
     let arr2: [u64; 2] = [100, 200];
     let s2: &[u64] = &arr2;
-    let ctr2: Hermes = s2 as <U64>[];
-    let root2: AnyVal = ctr2.root();
+    let ctr2: Rc<Hermes2> = s2 as <U64>[];
+    let h2: &Hermes2 = ctr2.deref();
+    let root2: HAny = h2.root();
     if root2.is_null() { return 4; }
-    if !root2.is_ptr() { return 5; }
-    let text2: String = ctr2.to_string();
-    if !text2.eq_str("<U64> [100,200]") { return 6; }
+    if !root2.is_ref() { return 5; }
+    let text2: String = stringify(root2);
+    if !text2.eq_str("<U64> [100, 200]") { return 6; }
 
     return 0;
 }

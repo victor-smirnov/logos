@@ -1,10 +1,10 @@
 package tag_system_basic;
+
+use logos.mem.hermes2.tag_system;
 // Tests:
 // 1. DataTypeTagSystem::read_tag roundtrip (matches write_tag from datatag)
 // 2. TomTagSystem::read_tag reads first 8 bytes as LE u64
 
-use logos.lang.hermes.datatag;
-use logos.mem.hermes.tag_system;
 
 extern fn malloc(size: i64) -> *mut u8;
 extern fn free(ptr: *mut u8);

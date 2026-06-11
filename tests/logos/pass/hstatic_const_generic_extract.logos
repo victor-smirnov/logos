@@ -26,15 +26,15 @@
 package hstatic_const_generic_extract;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 
 unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
-    let v = CFG.as_view();
-    let r: AnyVal = v.root();
+    let v: HView2 = hview2_from_ptr(CFG.ptr);
+    let r: HAny = v.root();
     if r.is_null() { return -1i64; }
-    let kv: AnyVal = v.map_get(r, "k");
+    let kv: HAny = v.map_get(r, "k");
     if kv.is_null() { return -2i64; }
     if !kv.is_int() { return -3i64; }
     return kv.as_i64();

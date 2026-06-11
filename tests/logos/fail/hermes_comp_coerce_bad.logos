@@ -1,11 +1,13 @@
 package hermes_comp_coerce_bad;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.rc;
 
 fn main() -> i32 {
     let xs: [i64; 2] = [1 as i64, 2 as i64];
     // i64 is intentionally not auto-coerced to AnyVal (silent truncation).
-    let doc: Hermes = @[x for x in xs];
+    let doc: Rc<Hermes2> = @[x for x in xs];
     return 0;
 }

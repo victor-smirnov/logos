@@ -12,9 +12,8 @@ package main;
 use logos.std.compiler.metaprog;
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.shuttle;
-use logos.lang.hermes.fabric;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 use logos.lang.mem;
 
 pub const StoreCfg: HermesStatic = @{

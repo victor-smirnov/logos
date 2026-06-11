@@ -1,10 +1,6 @@
 # Logos — git-history retrospective (snapshot 2026-05-19)
 
-This analysis is built from commit messages on `main`. The goal is to
-understand **what problems arose and how they were solved**, relying on commit
-text (messages in this project are detailed: 62% have a body >10 lines, and
-nearly every fix commit carries a "symptom → root cause → fix → verification
-ctest N/N" narrative).
+Built from `main` commit messages to reconstruct **what problems arose and how they were solved**. Messages are detailed: 62% have a body >10 lines, and nearly every fix carries a "symptom → root cause → fix → verification ctest N/N" narrative.
 
 > Reproducibility: every number here comes from `git log` at commit
 > `0d981302` (the latest at snapshot time). Commands are in the
@@ -50,10 +46,7 @@ Subsystem = normalized subject prefix before the colon (`sema:`, `mono_clone:`�
 | lir | 47 | 12 | 25% |
 | grammar | 18 | 11 | 61% |
 
-**Reading:** the highest bug ratios belong to the youngest code
-(`persistent` 67%, `compiler` 66%, `mono` 58%): it caught errors immediately
-on hard semantics. `lir`/`mlir-gen` (25-34%) are steadier — they more often
-received already-finished changes rather than active debugging.
+**Reading:** highest bug ratios belong to the youngest code (`persistent` 67%, `compiler` 66%, `mono` 58%) — errors caught immediately on hard semantics. `lir`/`mlir-gen` (25-34%) are steadier: more often receiving finished changes than active debugging.
 
 ### Chains of related bugs
 
@@ -79,9 +72,7 @@ loops) spawned several bugs — and the fixes note it.
 
 ## Slice 2 — Long-running epics
 
-B-numbers close **fast** (1-4 days) — they are tactical batches. The real epics
-are cross-cutting thematic lines running through almost the whole project
-(commit counts measured by thematic regexes over the subject):
+B-numbers close **fast** (1-4 days) — tactical batches. The real epics are cross-cutting thematic lines running through almost the whole project (commit counts measured by thematic regexes over the subject):
 
 | Theme | Commits | Active days | Span |
 |---|---:|---:|---|
@@ -97,17 +88,13 @@ are cross-cutting thematic lines running through almost the whole project
 | multi-arena IR | 31 | 49 | 03-28 → 05-16 |
 | fmt/Formatter | 31 | 49 | 03-30 → 05-19 |
 
-`Phase` labels confirm the length: Phase 1A span 52 days, Phase 4 — 38 commits
-over 40 days. **Architectural phases run long; point bugs do not.**
-persistent was laid down on day one and runs the whole project (foundation of
-the co-development with Memoria).
+`Phase` labels confirm the length: Phase 1A span 52 days, Phase 4 — 38 commits over 40 days. **Architectural phases run long; point bugs do not.** persistent was laid down on day one and runs the whole project — the foundation of the Memoria co-development.
 
 ---
 
 ## Slice 3 — Workaround vs fundamental fix
 
-The standing policy is "fix the root, don't route around it." The message
-lexicon bears this out:
+Policy is "fix the root, don't route around it." The message lexicon bears it out:
 
 | Workaround / deferral | × | | Fundamental | × |
 |---|---:|---|---|---:|
@@ -118,10 +105,7 @@ lexicon bears this out:
 | TODO/FIXME | 17 | | revert | 43 |
 | hack | 3 | | rescind | 6 |
 
-**~172 "workaround" vs ~474 "fundamental"** (defer counted separately — it is
-deliberate prioritization, not technical debt). The key health signal:
-workarounds **don't accrete** — there's a distinct class of commits that
-*retire* a workaround with a fundamental fix. Examples:
+**~172 "workaround" vs ~474 "fundamental"** (defer counted separately — deliberate prioritization, not debt). Health signal: workarounds **don't accrete** — a distinct class of commits *retires* a workaround with a fundamental fix. Examples:
 
 - `a6a04330` — match-arm pattern bindings now fire Drop at arm exit
 - `9856866f` — quote-walk no longer dereferences CALL.CALLEE as a TOM
@@ -129,10 +113,7 @@ workarounds **don't accrete** — there's a distinct class of commits that
 - `a202bbc3` — Slice is 16 bytes: fixed variant-payload truncation
 - `33693de8` — generic-struct Drop dispatch (replacing a manual workaround)
 
-`hack`=3, `FIXME`=0 against 210 `refactor` — the fingerprint of "fix the root,
-not the symptom." 6 `rescind`s mark places where a previously declared *gap*
-turned out to be already closed and the label was withdrawn (i.e. the gap
-catalog is actively reconciled against reality).
+`hack`=3, `FIXME`=0 against 210 `refactor` — the fingerprint of "fix the root, not the symptom." 6 `rescind`s mark previously-declared *gaps* found already closed and withdrawn — the gap catalog is actively reconciled against reality.
 
 ---
 
@@ -164,28 +145,16 @@ Phase-shaped waves of focus:
   lived here, closed by `cce5c2f6`).
 - **W21:** cooling down on traits/sema/mono polish.
 
-**Layering over time:** Hermes is the foundation (early, dominated April);
-metaprog and persistent are middle layers; imports + core-port is the late mass
-layer that appeared once the language was mature enough to run third-party
-tests.
+**Layering over time:** Hermes is the foundation (early, dominated April); metaprog and persistent are middle layers; imports + core-port is the late mass layer, appearing once the language could run third-party tests.
 
 ---
 
 ## Takeaways
 
-1. **The history is self-documenting.** Detailed messages + bug-ID series +
-   references to related commits make it possible to reconstruct "what broke
-   and how it was fixed" almost without external sources. (Some deep
-   investigation context still lives in out-of-repo memory files
-   `baghunt_*.md` — commits reference them.)
-2. **Healthy debt balance:** ~2.7× more fundamental fixes than workarounds, and
-   workarounds are actively retired rather than accumulated.
-3. **A clear layered architectural trajectory:** foundation (Hermes,
-   persistent) → semantics (sema/mono/traits) → metaprogramming → maturity
-   layer (imports + core-port). Each layer produces its own wave in the weekly
-   chart.
-4. **Point bugs are cheap, architecture is expensive:** the B series closes in
-   days; Phase series live 40-52 days — expected and healthy.
+1. **History is self-documenting.** Detailed messages + bug-ID series + related-commit references reconstruct "what broke and how it was fixed" almost without external sources. (Some deep investigation context lives in out-of-repo `baghunt_*.md`, which commits reference.)
+2. **Healthy debt balance:** ~2.7× more fundamental fixes than workarounds, actively retired rather than accumulated.
+3. **Clear layered trajectory:** foundation (Hermes, persistent) → semantics (sema/mono/traits) → metaprogramming → maturity layer (imports + core-port). Each layer makes its own weekly-chart wave.
+4. **Point bugs cheap, architecture expensive:** B series closes in days; Phase series live 40-52 days — expected and healthy.
 
 ---
 

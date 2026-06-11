@@ -45,6 +45,10 @@ struct ExternalRef {
 
     static ExternalRef make(arena_id_t a, uint32_t o) noexcept { return ExternalRef{a, o}; }
 
+    // Hermes1-spelling accessors.
+    arena_id_t arena_id() const noexcept { return aid; }
+    uint32_t   obj_id()   const noexcept { return oid; }
+
     constexpr bool operator==(const ExternalRef&) const noexcept = default;
 };
 
@@ -77,6 +81,8 @@ struct ExternalRefResolved {
     const uint8_t* obj = nullptr;
 
     constexpr bool ok() const noexcept { return mem != nullptr; }
+    // The target's within-arena offset (the resolved arena is single-segment).
+    arena_offset_t offset() const noexcept;
 };
 
 // Resolve a GLOBAL-arena-id ExternalRef via pool dispatch: arena_id → MemHolder →

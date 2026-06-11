@@ -2,18 +2,19 @@
 
 package hermes_match_or;
 
-use logos.lang.hermes.anyval;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.pat;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
-unsafe fn mk(v: AnyVal) -> Hermes {
-    let mut c: Hermes = Hermes::builder(128 as i64);
-    c.set_root(v);
-    return c;
+unsafe fn mk(v: HAny) -> Rc<Hermes2> {
+    let rc: Rc<Hermes2> = hermes2_rc(1024);
+    let h: &Hermes2 = rc.deref();
+    h.set_root(v);
+    return rc;
 }
 
-unsafe fn check(d: &Hermes) -> i32 {
+unsafe fn check(d: &Rc<Hermes2>) -> i32 {
     match d {
         @null | @42 => 1,
         @true | @-7 => 2,
@@ -22,10 +23,10 @@ unsafe fn check(d: &Hermes) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let a: Hermes = mk(AnyVal::null_ptr());        // 1
-    let b: Hermes = mk(AnyVal::embed_i24(42));     // 1
-    let c: Hermes = mk(AnyVal::embed_bool(true));  // 2
-    let d: Hermes = mk(AnyVal::embed_i24(-7));     // 2
-    let e: Hermes = mk(AnyVal::embed_i24(100));    // 0
+    let a: Rc<Hermes2> = mk(HAny::Ref(0 as *const u8));        // 1
+    let b: Rc<Hermes2> = mk(HAny::from(42 as i56));     // 1
+    let c: Rc<Hermes2> = mk(HAny::from(true));  // 2
+    let d: Rc<Hermes2> = mk(HAny::from(-7 as i56));     // 2
+    let e: Rc<Hermes2> = mk(HAny::from(100 as i56));    // 0
     return check(&a) + check(&b) + check(&c) + check(&d) + check(&e); // 6
 }

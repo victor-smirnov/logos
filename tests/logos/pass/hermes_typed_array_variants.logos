@@ -6,17 +6,15 @@
 
 package hermes_typed_array_variants;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.mem.hermes.stringify;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.lang.hermes2.hstatic;
+use logos.mem.hermes2.stringify;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }
@@ -26,7 +24,7 @@ pub unsafe fn main() -> i32 {
 
     // 1. Array<i8>
     let a1: HermesStatic = @<I8>[-1, 2, -3];
-    rc = check(&a1, "<I8> [-1,2,-3]", 1);
+    rc = check(&a1, "<I8> [-1, 2, -3]", 1);
     if rc != 0 { return rc; }
 
     // 2. Array<i8> empty
@@ -36,7 +34,7 @@ pub unsafe fn main() -> i32 {
 
     // 3. Array<u8>
     let a3: HermesStatic = @<U8>[0, 255, 128];
-    rc = check(&a3, "<U8> [0,255,128]", 3);
+    rc = check(&a3, "<U8> [0, 255, 128]", 3);
     if rc != 0 { return rc; }
 
     // 4. Array<u8> empty
@@ -46,32 +44,32 @@ pub unsafe fn main() -> i32 {
 
     // 5. Array<i16>
     let a5: HermesStatic = @<I16>[-100, 200, -300];
-    rc = check(&a5, "<I16> [-100,200,-300]", 5);
+    rc = check(&a5, "<I16> [-100, 200, -300]", 5);
     if rc != 0 { return rc; }
 
     // 6. Array<u16>
     let a6: HermesStatic = @<U16>[1000, 2000, 65535];
-    rc = check(&a6, "<U16> [1000,2000,65535]", 6);
+    rc = check(&a6, "<U16> [1000, 2000, 65535]", 6);
     if rc != 0 { return rc; }
 
     // 7. Array<u32>
     let a7: HermesStatic = @<U32>[10, 20, 30];
-    rc = check(&a7, "<U32> [10,20,30]", 7);
+    rc = check(&a7, "<U32> [10, 20, 30]", 7);
     if rc != 0 { return rc; }
 
     // 8. Array<i64>
     let a8: HermesStatic = @<I64>[-1000000, 0, 1000000];
-    rc = check(&a8, "<I64> [-1000000,0,1000000]", 8);
+    rc = check(&a8, "<I64> [-1000000, 0, 1000000]", 8);
     if rc != 0 { return rc; }
 
     // 9. Array<f32> — HermesStringify casts f32 to i64; use whole-number values.
     let a9: HermesStatic = @<F32>[1, 2, 3];
-    rc = check(&a9, "<F32> [1,2,3]", 9);
+    rc = check(&a9, "<F32> [1, 2, 3]", 9);
     if rc != 0 { return rc; }
 
     // 10. Array<f64> — same truncation behaviour.
     let a10: HermesStatic = @<F64>[10, 20, 30];
-    rc = check(&a10, "<F64> [10,20,30]", 10);
+    rc = check(&a10, "<F64> [10, 20, 30]", 10);
     if rc != 0 { return rc; }
 
     return 0;

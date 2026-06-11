@@ -3,6 +3,9 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
+#include <logos/hermes2/config.hpp>     // arena_offset_t (for the mirror's base+offset handles)
+#include <logos/hermes2/type_codes.hpp> // tc::* (Pod code deduction for from_value<T>)
 
 namespace logos::hermes2 {
 
@@ -77,6 +80,27 @@ public:
         return pod(static_cast<int64_t>(v), code);
     }
 
+    // 1-arg from_value — deduce the Pod type code from T (the Hermes1 overload that
+    // read TypeTraits<T>::hash). Readers narrow via as_value<T>() so the exact code is
+    // not load-bearing, but match the natural width for fidelity.
+    template <typename T>
+    static constexpr uint8_t code_for() noexcept {
+        if constexpr (std::is_same_v<T, bool>)         return uint8_t(tc::HA_BOOL);
+        else if constexpr (std::is_same_v<T, uint8_t>) return uint8_t(tc::HT_U8);
+        else if constexpr (std::is_same_v<T, int8_t>)  return uint8_t(tc::HT_I8);
+        else if constexpr (std::is_same_v<T, uint16_t>)return uint8_t(tc::HT_U16);
+        else if constexpr (std::is_same_v<T, int16_t>) return uint8_t(tc::HT_I16);
+        else if constexpr (std::is_unsigned_v<T>)      return uint8_t(tc::HT_U24);
+        else                                           return uint8_t(tc::HT_I24);
+    }
+    template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
+    static AnyVal from_value(T v) noexcept { return pod(static_cast<int64_t>(v), code_for<T>()); }
+
+    // NamedCode-like (a `.code` integral member, e.g. logos::NamedCode<int32_t>) —
+    // duck-typed so any_val.hpp needs no NamedCode include.
+    template <typename NC, typename = decltype(NC::code), typename = std::enable_if_t<!std::is_integral_v<NC>>>
+    static AnyVal from_value(NC nc) noexcept { return from_value(nc.code); }
+
     // ── Ref access ──────────────────────────────────────────────────────────────
     // Lower an absolute pointer into this slot's self-relative Ref (absolute → rel).
     void set_ref(const void* target) noexcept {
@@ -89,8 +113,34 @@ public:
         return is_ref() ? (my_addr() + word_) : nullptr;
     }
 
+    // Native typed pointer to the Ref target (NO base — self-relative resolves in
+    // place). The Hermes1 cut-over drops the old `base` argument at every call site.
+    template <typename T> T* as_ptr() const noexcept {
+        return reinterpret_cast<T*>(const_cast<uint8_t*>(resolve()));
+    }
+    // CUT-OVER VESTIGIAL (base ignored) — lets logosc as_ptr(base) sites compile.
+    template <typename T> T* as_ptr(const void*) const noexcept { return as_ptr<T>(); }
+
+    // Lower an absolute pointer into this slot's Ref (the cut-over successor of the
+    // Hermes1 base-relative `set_pointer(target, base)` — base no longer needed).
+    void set_pointer(const void* target) noexcept { set_ref(target); }
+
+    // The single-segment (GrowableSingleChunk) arena offset of this Ref's target,
+    // relative to `base` (= arena.head().data()). Used by the LIR mirror / TypePool
+    // handles, which store realloc-safe arena_offset_t (not absolute pointers, which
+    // would dangle when the single chunk reallocs on grow). Resolve the inverse with
+    // `from_offset(base, off)`.
+    arena_offset_t to_offset(const uint8_t* base) const noexcept {
+        return arena_offset_t(static_cast<uint32_t>(resolve() - base));
+    }
+    // Build a Ref AnyVal from a (base, offset) pair (the inverse of to_offset(base)).
+    static AnyVal from_offset(const uint8_t* base, arena_offset_t off) noexcept {
+        AnyVal a; a.set_ref(base + off.value()); return a;
+    }
+
     // The raw at-rest word (for serialization / niche inspection).
     int64_t raw() const noexcept { return word_; }
+    static AnyVal from_raw(int64_t w) noexcept { AnyVal a; a.word_ = w; return a; }
 
 private:
     void assign(const AnyVal& o) noexcept {

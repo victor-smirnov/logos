@@ -583,7 +583,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     TypeRef u8p = mk_ptr(u8t);
                     LogosTypeBuilder i64b; i64b.kind = LogosType::Kind::I64;
                     TypeRef i64t = out_.type_pool.alloc(std::move(i64b));
-                    auto mk_node = [&](TypeRef ty, hermes::arena_offset_t mo) {
+                    auto mk_node = [&](TypeRef ty, hermes2::arena_offset_t mo) {
                         auto* e = lir::alloc_expr(out_);
                         e->type = ty; e->mirror_offset_ = mo; return e;
                     };
@@ -2321,7 +2321,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         rb.kind    = LogosType::Kind::Ref;
                         rb.pointee = et;
                         TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
-                        lir::LExprPtr cmp;
+                        lir::LExprPtr cmp = nullptr;
                         if (et.kind() == LogosType::Kind::Tuple) {
                             // Nested — inline the inner chain. Use the
                             // field refs as the new receivers.
@@ -2454,7 +2454,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         }
                         TypeRef et = es[i];
                         auto field = lb.tuple_index(selfr, (uint32_t)i, et);
-                        lir::LExprPtr fld;
+                        lir::LExprPtr fld = nullptr;
                         if (et.kind() == LogosType::Kind::Tuple) {
                             LogosTypeBuilder rb; rb.kind = LogosType::Kind::Ref; rb.pointee = et;
                             TypeRef et_ref = out_.type_pool.alloc(std::move(rb));
@@ -4497,13 +4497,13 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     // Falls back to the local body_ref when body_external_ref is INVALID
     // (the legacy path: body was lowered locally by this run's sema).
     lir_view::BlockRef src_body;
-    const hermes::Arena* saved_src_arena = src_arena_;
+    const hermes2::Arena* saved_src_arena = src_arena_;
     if (fn.body_external_ref.arena_id().is_valid()) {
-        auto resolved = hermes::resolve_external_ref(fn.body_external_ref);
+        auto resolved = hermes2::resolve_external_ref(fn.body_external_ref);
         if (resolved.ok()) {
             src_arena_ = &resolved.mem->arena();
             src_body = lir_view::BlockRef(
-                src_arena_, resolved.offset,
+                src_arena_, resolved.offset(),
                 fn.body_external_ref.arena_id());
         }
     }
@@ -5074,7 +5074,7 @@ void Mono::collect_struct_needs_from_output() {
     for (auto& fn : out_.functions) {
         collect_type_for_structs(fn->ret_type);
         for (auto& p : fn->params) collect_type_for_structs(p.type);
-        if (fn->body.mirror_offset_ != hermes::arena_offset_t{})
+        if (fn->body.mirror_offset_ != hermes2::arena_offset_t{})
             collect_struct_needs_from_block(
                 lir_view::BlockRef(&arena, fn->body.mirror_offset_));
     }

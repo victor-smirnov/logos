@@ -12,7 +12,7 @@ namespace logos::compiler::ctfe {
 
 namespace {
 
-using namespace logos::hermes;
+using namespace logos::hermes2;
 using K = LogosType::Kind;
 using namespace logos::compiler::sema_detail;  // la::*
 
@@ -24,12 +24,12 @@ inline int32_t code_of(TinyMapView node) noexcept {
 
 inline std::string_view str_of(AnyVal av, MemHolder* h) noexcept {
     if (av.is_null()) return {};
-    return StringView(av.to_offset(), h).view();
+    return StringView(av, h).view();
 }
 
 inline TinyMapView map_of(AnyVal av, MemHolder* h) noexcept {
     if (av.is_null()) return TinyMapView{};
-    return TinyMapView(av.to_offset(), h);
+    return TinyMapView(av, h);
 }
 
 inline bool is_signed_int(K k) noexcept {
@@ -274,7 +274,7 @@ do_eval(TinyMapView node, MemHolder* h, ConstResolver* resolver) noexcept {
 } // namespace
 
 logos::expected<CtfeValue, CtfeError>
-eval_expr(hermes::TinyMapView node, hermes::MemHolder* holder,
+eval_expr(hermes2::TinyMapView node, hermes2::MemHolder* holder,
           ConstResolver* resolver) noexcept {
     return do_eval(node, holder, resolver);
 }

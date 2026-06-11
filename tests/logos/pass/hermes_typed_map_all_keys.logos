@@ -1,22 +1,20 @@
 // hermes_typed_map_all_keys.logos — end-to-end stringify coverage for all 4
-// typed Map<K,AnyVal> key types via @<K,AnyVal>{...} literals.
+// typed Map<K, AnyVal> key types via @<K, AnyVal>{...} literals.
 //
 // Covers: i32, u32, i64, u64 keys.
 // (Varchar/default map is covered by hermes_typed_map_lit.)
 
 package hermes_typed_map_all_keys;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.mem.hermes.stringify;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.lang.hermes2.hstatic;
+use logos.mem.hermes2.stringify;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) { return err_code; }
     return 0;
 }
@@ -25,48 +23,48 @@ pub unsafe fn main() -> i32 {
     let mut rc: i32 = 0;
 
     // ── Map<i32, AnyVal> (error offset 10) ───────────────────────────────────
-    let m_i32: HermesStatic = @<I32,AnyVal>{1: 10, 2: 20, 3: 30};
-    rc = check(&m_i32, "<I32,AnyVal> {1:10,2:20,3:30}", 10);
+    let m_i32: HermesStatic = @<I32, AnyVal>{1: 10, 2: 20, 3: 30};
+    rc = check(&m_i32, "<I32, AnyVal> {1: 10, 2: 20, 3: 30}", 10);
     if rc != 0 { return rc; }
 
     // empty i32 map
-    let e_i32: HermesStatic = @<I32,AnyVal>{};
-    rc = check(&e_i32, "<I32,AnyVal> {}", 11);
+    let e_i32: HermesStatic = @<I32, AnyVal>{};
+    rc = check(&e_i32, "<I32, AnyVal> {}", 11);
     if rc != 0 { return rc; }
 
     // negative i32 keys
-    let n_i32: HermesStatic = @<I32,AnyVal>{-2: true, -1: false, 0: 42};
-    rc = check(&n_i32, "<I32,AnyVal> {-2:true,-1:false,0:42}", 12);
+    let n_i32: HermesStatic = @<I32, AnyVal>{-2: true, -1: false, 0: 42};
+    rc = check(&n_i32, "<I32, AnyVal> {-2: true, -1: false, 0: 42}", 12);
     if rc != 0 { return rc; }
 
     // ── Map<u32, AnyVal> (error offset 20) ───────────────────────────────────
-    let m_u32: HermesStatic = @<U32,AnyVal>{10: 1, 20: 2, 30: 3};
-    rc = check(&m_u32, "<U32,AnyVal> {10:1,20:2,30:3}", 20);
+    let m_u32: HermesStatic = @<U32, AnyVal>{10: 1, 20: 2, 30: 3};
+    rc = check(&m_u32, "<U32, AnyVal> {10: 1, 20: 2, 30: 3}", 20);
     if rc != 0 { return rc; }
 
     // empty u32 map
-    let e_u32: HermesStatic = @<U32,AnyVal>{};
-    rc = check(&e_u32, "<U32,AnyVal> {}", 21);
+    let e_u32: HermesStatic = @<U32, AnyVal>{};
+    rc = check(&e_u32, "<U32, AnyVal> {}", 21);
     if rc != 0 { return rc; }
 
     // ── Map<i64, AnyVal> (error offset 30) ───────────────────────────────────
-    let m_i64: HermesStatic = @<I64,AnyVal>{-1: 100, 0: 200, 1: 300};
-    rc = check(&m_i64, "<I64,AnyVal> {-1:100,0:200,1:300}", 30);
+    let m_i64: HermesStatic = @<I64, AnyVal>{-1: 100, 0: 200, 1: 300};
+    rc = check(&m_i64, "<I64, AnyVal> {-1: 100, 0: 200, 1: 300}", 30);
     if rc != 0 { return rc; }
 
     // empty i64 map
-    let e_i64: HermesStatic = @<I64,AnyVal>{};
-    rc = check(&e_i64, "<I64,AnyVal> {}", 31);
+    let e_i64: HermesStatic = @<I64, AnyVal>{};
+    rc = check(&e_i64, "<I64, AnyVal> {}", 31);
     if rc != 0 { return rc; }
 
     // ── Map<u64, AnyVal> (error offset 40) ───────────────────────────────────
-    let m_u64: HermesStatic = @<U64,AnyVal>{100: 10, 200: 20, 300: 30};
-    rc = check(&m_u64, "<U64,AnyVal> {100:10,200:20,300:30}", 40);
+    let m_u64: HermesStatic = @<U64, AnyVal>{100: 10, 200: 20, 300: 30};
+    rc = check(&m_u64, "<U64, AnyVal> {100: 10, 200: 20, 300: 30}", 40);
     if rc != 0 { return rc; }
 
     // empty u64 map
-    let e_u64: HermesStatic = @<U64,AnyVal>{};
-    rc = check(&e_u64, "<U64,AnyVal> {}", 41);
+    let e_u64: HermesStatic = @<U64, AnyVal>{};
+    rc = check(&e_u64, "<U64, AnyVal> {}", 41);
     if rc != 0 { return rc; }
 
     return 0;

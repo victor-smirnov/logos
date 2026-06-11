@@ -1,10 +1,12 @@
 package hermes_map_comp_guard_bad;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.rc;
 
 fn main() -> i32 {
     let xs: [i32; 2] = [1, 2];
-    let d: Hermes = @{"k": AnyVal::embed_i24(x) for x in xs if x + 1};
+    let d: Rc<Hermes2> = @{"k": x for x in xs if x + 1};
     return 0;
 }

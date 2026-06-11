@@ -8,17 +8,15 @@
 
 package hermes_sdn_lit;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.zone;
-use logos.lang.hermes.document;
-use logos.mem.hermes.stringify;
-use logos.lang.hermes.mem_holder;
+use logos.lang.hermes2.hstatic;
+use logos.mem.hermes2.stringify;       // stringify(HAny)
+use logos.lang.hermes2.static_view;  // HView2
+use logos.lang.hermes2.anyval;       // HAny
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn check(hs: &HermesStatic, expected: str, err_code: i32) -> i32 {
-    let s: String = hs.to_string();
+    let s: String = stringify(hview2_from_ptr(hs.ptr).root());
     if !s.eq_str(expected) {
         return err_code;
     }
@@ -60,24 +58,21 @@ pub unsafe fn main() -> i32 {
 
     // 6. array [1, 2, 3]
     let lit6: HermesStatic = @[1, 2, 3];
-    rc = check(&lit6, "[1,2,3]", 6);
+    rc = check(&lit6, "[1, 2, 3]", 6);
     if rc != 0 { return rc; }
 
     // 7. single-key map
     let lit7: HermesStatic = @{"k": 99};
-    rc = check(&lit7, "{\"k\":99}", 7);
+    rc = check(&lit7, "{\"k\": 99}", 7);
     if rc != 0 { return rc; }
 
-    // 8. hermes_static_zone: wrap blob via .ptr and stringify via zone base.
-    //    Also verifies that hermes_static_size reads the size prefix correctly.
+    // 8. size-prefix + nested stringify via the hermes2 reader.
+    //    hermes_static_size reads *(ptr-8); HView2 reads the blob.
     let lit8: HermesStatic = @{"x": true};
     let sz: u64 = lit8.size();
-    let mut z: Zone<Immutable> = hermes_static_zone(lit8.ptr, sz as i64);
-    let zbase: *const u8 = z.holder.base as *const u8;
-    let mut buf: String = String::with_capacity(64);
-    stringify_document(zbase, &mut buf, StringifyOpts::compact());
-    if !buf.eq_str("{\"x\":true}") { return 8; }
-    z.release();
+    if sz == 0u64 { return 80; }
+    let s8: String = stringify(hview2_from_ptr(lit8.ptr).root());
+    if !s8.eq_str("{\"x\": true}") { return 8; }
 
     return 0;
 }

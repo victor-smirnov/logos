@@ -1,6 +1,9 @@
 // Fail: capture a non-capturable type (struct with no coercion).
 package hermes_capture_bad_type;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
 pub struct Point {
     x: i32,
@@ -9,6 +12,6 @@ pub struct Point {
 
 unsafe fn main() -> i32 {
     let p: Point = Point { x: 1, y: 2 };
-    let doc: Hermes = @{"pt": $p};
+    let doc: Rc<Hermes2> = @{"pt": $p};
     return 0;
 }

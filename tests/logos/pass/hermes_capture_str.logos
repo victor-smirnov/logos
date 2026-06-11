@@ -1,37 +1,43 @@
-// Hermes capture: *const u8 (C-string) captured as varchar into @-literals.
+// Hermes capture: str captured as HString into @-literals (hermes2 template path).
 // C7-fix2: added stringify verification of captured string values.
 package hermes_capture_str;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // Capture a C-string pointer into a map.
+    // Capture a string into a map.
     let s: str = "hello";
-    let doc: Hermes = @{"msg": $s};
-    let root: AnyVal = doc.root();
+    let doc: Rc<Hermes2> = @{"msg": $s};
+    let h: &Hermes2 = doc.deref();
+    let root: HAny = h.root();
     if root.is_null() { return 1; }
     // Verify the map contains the expected string value.
-    let t1: String = doc.to_string();
-    if !t1.eq_str("{\"msg\":\"hello\"}") { return 2; }
+    let t1: String = stringify(root);
+    if !t1.eq_str("{\"msg\": \"hello\"}") { return 2; }
 
-    // Capture C-string in an array.
+    // Capture strings in an array.
     let key: str = "world";
-    let arr_doc: Hermes = @[$key, $s];
-    let arr_root: AnyVal = arr_doc.root();
+    let arr_doc: Rc<Hermes2> = @[$key, $s];
+    let ah: &Hermes2 = arr_doc.deref();
+    let arr_root: HAny = ah.root();
     if arr_root.is_null() { return 3; }
-    let t2: String = arr_doc.to_string();
-    if !t2.eq_str("[\"world\",\"hello\"]") { return 4; }
+    let t2: String = stringify(arr_root);
+    if !t2.eq_str("[\"world\", \"hello\"]") { return 4; }
 
     // Mix: scalar + string capture in same literal.
     let id: i32 = 7;
     let label: str = "item";
-    let mix: Hermes = @{"id": $id, "label": $label};
-    let mix_root: AnyVal = mix.root();
+    let mix: Rc<Hermes2> = @{"id": $id, "label": $label};
+    let mh: &Hermes2 = mix.deref();
+    let mix_root: HAny = mh.root();
     if mix_root.is_null() { return 5; }
-    let t3: String = mix.to_string();
-    if !t3.eq_str("{\"id\":7,\"label\":\"item\"}") { return 6; }
+    let t3: String = stringify(mix_root);
+    if !t3.eq_str("{\"id\": 7, \"label\": \"item\"}") { return 6; }
 
     return 0;
 }

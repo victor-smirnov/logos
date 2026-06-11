@@ -110,9 +110,9 @@ protected:
     // body_external_ref points into stdlib's published arena), it sets this
     // to that arena's pointer for the duration of the body walk.
     // nullptr → "use out_.type_pool.arena()" (legacy default).
-    const hermes::Arena* src_arena_ = nullptr;
+    const hermes2::Arena* src_arena_ = nullptr;
 
-    const hermes::Arena* effective_src_arena() const noexcept {
+    const hermes2::Arena* effective_src_arena() const noexcept {
         return src_arena_ ? src_arena_ : out_.type_pool.arena();
     }
 
@@ -125,19 +125,19 @@ protected:
         return lir_view::PatRef(effective_src_arena(), it->second);
     }
     lir_view::ExprRef expr_ref_of(const lir::LExpr& e) const noexcept {
-        if (e.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (e.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::ExprRef(effective_src_arena(), e.mirror_offset_);
     }
     lir_view::StmtRef stmt_ref_of(const lir::LStmt& s) const noexcept {
-        if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (s.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::StmtRef(effective_src_arena(), s.mirror_offset_);
     }
     lir_view::BlockRef block_ref_of(const lir::LBlock& b) const noexcept {
-        if (b.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (b.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::BlockRef(effective_src_arena(), b.mirror_offset_);
     }
     lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
-        if (v.mirror_offset_ == hermes::arena_offset_t{}) return {};
+        if (v.mirror_offset_ == hermes2::arena_offset_t{}) return {};
         return lir_view::HermesValRef(effective_src_arena(), v.mirror_offset_);
     }
     // Reverse maps: ref → variant pointer. Used by subst_* to look up the

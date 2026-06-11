@@ -1,6 +1,6 @@
 // Typed-sugar form `template_of::<X>()` — sema-side intrinsic that
 // resolves X to a top-level item in the current AST and bakes the
-// node's arena offset into a `Template { raw: AnyVal { raw: <off> } }`
+// node's arena offset into a `Template { raw: HAny { raw: <off> } }`
 // literal. Drops the runtime byte-compare walk that
 // `OView::find_template_decl` performs. Step 5 cosmetic from the
 // typelevel-metaprog taxonomy.
@@ -8,9 +8,8 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.anyval;
 
 #[metaprog_handler("template_of_typed_probe")]
 fn template_of_typed_hook(_target_offset: u32) -> () {
@@ -19,7 +18,7 @@ fn template_of_typed_hook(_target_offset: u32) -> () {
 
     // Typed sugar — no manual `find_template_decl` + wrap.
     let tpl: Template = template_of::<Bar>();
-    if tpl.raw.raw == 0 { return; }
+    if tpl.raw.is_null() { return; }
 
     // name() must read back as "Bar".
     let nm: Ident = tpl.name(&view);

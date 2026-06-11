@@ -7,9 +7,7 @@
 // CTFE-equivalent of the runtime call.
 package metacall_hermes_static;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.hermes2.hstatic;
 
 fn build_cfg() -> HermesStatic {
     return @{"x": 42, "y": "hello"};
@@ -18,20 +16,20 @@ fn build_cfg() -> HermesStatic {
 unsafe fn main() -> i32 {
     // Compile-time: blob is spliced into rodata as HERMES_BLOB.
     let cfg_meta: HermesStatic = metacall build_cfg();
-    let view_meta = cfg_meta.as_view();
+    
 
     // Runtime: same callee, ordinary call.
     let cfg_rt: HermesStatic = build_cfg();
-    let view_rt = cfg_rt.as_view();
+    
 
-    if view_meta.size() == 0u64 {
+    if cfg_meta.size() == 0u64 {
         return 1;
     }
-    if view_rt.size() == 0u64 {
+    if cfg_rt.size() == 0u64 {
         return 2;
     }
     // Both paths build the same blob — sizes must match byte-for-byte.
-    if view_meta.size() != view_rt.size() {
+    if cfg_meta.size() != cfg_rt.size() {
         return 3;
     }
     return 42;

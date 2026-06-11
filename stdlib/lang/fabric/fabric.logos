@@ -1,0 +1,524 @@
+// Logos stdlib — logos.lang.datatypes
+//
+// Datatype — the bridge between a #[zoned] struct's *processing* format
+// (what code sees and works with: `StringView`, `I64View`, …) and its
+// *storage* format (how it lives in a typed homogeneous container like
+// `Buffer<DT>`).
+
+package logos.lang.fabric;
+
+use logos.lang.drop;
+use logos.lang.cmp;
+use logos.lang.mem;
+
+// ---------------------------------------------------------------------------
+// Storage hierarchy — three orthogonal axes factored into a trait hierarchy.
+//
+//   Storage            — base capability: length, element-type, indexed read.
+//   OwningStorage      — holds its own lifetime; must be explicitly dropped.
+//   DynamicStorage     — OwningStorage + grows (push, clear).
+//   BorrowedStorage    — read-only view, no ownership, safe to discard.
+//
+// Concrete implementations pick one leaf:
+//   PrimVec<T>         : DynamicStorage<Elem = T>            (Vec-like)
+//   ZoneSlice<T>       : OwningStorage<Elem = T>             (zone-scoped)
+//   MmapView<T>        : BorrowedStorage<Elem = T>           (read-only)
+//
+// A `Datatype` will select one of these leaves per context and derive its
+// `View<S>` from the leaf's capabilities (see Datatype trait below).
+// ---------------------------------------------------------------------------
+
+pub trait Storage {
+    type Elem;
+    fn storage_len(s: *const Self) -> u64;
+    fn storage_get(s: *const Self, idx: u64) -> Self::Elem;
+}
+
+pub trait OwningStorage: Storage {
+    fn storage_drop(s: *mut Self);
+}
+
+pub trait DynamicStorage: OwningStorage {
+    fn storage_new()  -> Self;
+    fn storage_push(s: *mut Self, v: Self::Elem);
+    fn storage_clear(s: *mut Self);
+    fn storage_set(s: *mut Self, idx: u64, v: Self::Elem);
+    fn storage_insert_at(s: *mut Self, idx: u64, v: Self::Elem);
+    fn storage_remove_at(s: *mut Self, idx: u64);
+}
+
+pub trait BorrowedStorage: Storage {
+    // Read-only view; no drop, no grow. Marker-like, relies on Storage.
+}
+
+// ---------------------------------------------------------------------------
+// Datatype — representation/processing bridge.
+//
+// A Datatype describes how to *interpret* bytes held by a Storage.  `View<S>`
+// is the processing form derived from an S-shaped backing store; e.g. the
+// same `HermesString` #[zoned] struct yields StringView over either a zone slab
+// (AOS) or a packed SoA buffer.
+//
+// Datatype itself owns no storage logic — that lives in the Storage
+// hierarchy.  The Container trait below pairs a #[zoned] struct with a canonical
+// container-Storage for use by Buffer<DT>.
+// ---------------------------------------------------------------------------
+
+pub trait Datatype {
+    type View<S: Storage>;
+}
+
+// ---------------------------------------------------------------------------
+// Container — a Datatype paired with its canonical DynamicStorage.
+//
+// Buffer<DT: Container> uses `DT::Store` as the backing store and funnels
+// all element-level operations through the per-type `container_push` /
+// `container_get` hooks.  Each Datatype chooses how to materialise its
+// view from the container-store layout.
+// ---------------------------------------------------------------------------
+
+pub trait Container: Datatype {
+    // Container-Store's Elem matches View<Store>.  Thin bridge methods
+    // forward to the Store's DynamicStorage impl.  `ViewInStore` is the
+    // monomorphic view when this #[zoned] struct uses its canonical Store —
+    // declared explicitly to side-step the GAT-instantiation comparison
+    // inside generic code (Buffer<DT> sees a plain assoc type, not a GAT).
+    type Store: DynamicStorage;
+    type ViewInStore;
+    fn new_store() -> Self::Store;
+    fn drop_store(s: *mut Self::Store);
+    fn store_len(s: *const Self::Store) -> u64;
+    fn store_push(s: *mut Self::Store, v: Self::ViewInStore);
+    fn store_get(s: *const Self::Store, idx: u64) -> Self::ViewInStore;
+    fn store_set(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    fn store_insert_at(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
+    fn store_remove_at(s: *mut Self::Store, idx: u64);
+}
+
+// ---------------------------------------------------------------------------
+// Buffer<DT> — typed homogeneous container.
+//
+// Callers push/get the view form `DT::ViewInStore`.  Drop delegates to
+// the store's `storage_drop`.
+// ---------------------------------------------------------------------------
+
+pub struct Buffer<DT: Container> {
+    storage: DT::Store,
+}
+
+impl<DT: Container> Buffer<DT> {
+    pub static fn new() -> Buffer<DT> {
+        return Buffer { storage: DT::new_store() };
+    }
+
+    pub fn len(&self) -> u64 {
+        unsafe {
+            let sp: *const DT::Store = &self.storage as *const DT::Store;
+            return DT::store_len(sp);
+        }
+    }
+
+    pub fn push(&mut self, v: DT::ViewInStore) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_push(sp, v);
+        }
+    }
+
+    pub fn get(&self, idx: u64) -> DT::ViewInStore {
+        unsafe {
+            let sp: *const DT::Store = &self.storage as *const DT::Store;
+            return DT::store_get(sp, idx);
+        }
+    }
+
+    pub fn set(&mut self, idx: u64, v: DT::ViewInStore) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_set(sp, idx, v);
+        }
+    }
+
+    pub fn insert_at(&mut self, idx: u64, v: DT::ViewInStore) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_insert_at(sp, idx, v);
+        }
+    }
+
+    pub fn remove_at(&mut self, idx: u64) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::store_remove_at(sp, idx);
+        }
+    }
+
+    // Pointer-receiver counterpart to `Drop::drop` — releases the backing
+    // storage without consuming the Buffer struct.  Required when a Buffer
+    // lives as a field inside a heap-allocated record that's deallocated
+    // through a raw pointer (e.g. an intrusive-RC node), since by-value
+    // Drop can't be invoked through `*mut`.  After this call the Buffer
+    // header's storage is in moved-from state; do not call again.
+    pub unsafe fn drop_in_place(self: *mut Buffer<DT>) {
+        let sp: *mut DT::Store = &mut self.storage as *mut DT::Store;
+        DT::drop_store(sp);
+    }
+}
+
+impl<DT: Container> Drop for Buffer<DT> {
+    fn drop(self: Buffer<DT>) {
+        unsafe {
+            let sp: *mut DT::Store =
+                (&self.storage as *const DT::Store) as *mut DT::Store;
+            DT::drop_store(sp);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// View convention for POD eide
+// ---------------------------------------------------------------------------
+//
+// POD eide (no relative pointers, fixed layout) have two size regimes:
+//
+//   ≤ 16 bytes  → `impl Primitive for DT { type Prim = …; }` — value view,
+//                 copied in/out.  DT is essentially an alias for its Prim
+//                 type at the processing level.
+//
+//   > 16 bytes  → `impl PodRef for DT;` — reference view.  Read-side yields
+//                 `*const DT`, write-side yields `*mut DT`; neither copies.
+//
+// Object eide (relptrs, variable layout) — HermesString, ObjectArray, …
+// — carry their own custom fat-pointer view (StringView, etc.) and do not
+// participate in either blanket.  They declare `impl Datatype` directly.
+//
+// ---------------------------------------------------------------------------
+// Primitive — ≤16B POD, value view
+// ---------------------------------------------------------------------------
+
+pub trait Primitive {
+    type Prim;
+}
+
+// Reflexive impls for bare integer scalars + bool: Prim = self. Lets
+// users plug `u64`/`i32`/etc. directly into APIs that take `T:
+// Container` / `T: Container + ContainerOrd` (Buffer<T>, pmap K/V,
+// …) without an explicit POD-wrapper struct. The Container blanket
+// below picks them up automatically, and ContainerOrd follows from
+// each scalar's existing `Ord` impl. Floats are intentionally skipped
+// (NaN breaks total order).
+impl Primitive for u8   { type Prim = u8;   }
+impl Primitive for u16  { type Prim = u16;  }
+impl Primitive for u32  { type Prim = u32;  }
+impl Primitive for u64  { type Prim = u64;  }
+impl Primitive for i8   { type Prim = i8;   }
+impl Primitive for i16  { type Prim = i16;  }
+impl Primitive for i32  { type Prim = i32;  }
+impl Primitive for i64  { type Prim = i64;  }
+impl Primitive for bool { type Prim = bool; }
+
+// ---------------------------------------------------------------------------
+// PodRef — >16B POD, reference view
+//
+// Marker trait: declares that DT is a plain byte layout with no internal
+// pointer relocation needed, but large enough that by-value transfer
+// through a Buffer<DT> would be wasteful.  The blanket impl of Datatype
+// below gives:
+//     type View<S: Storage> = *const DT;
+// and the container-side write path uses `*mut DT`.
+// ---------------------------------------------------------------------------
+
+pub trait PodRef {}
+
+// ---------------------------------------------------------------------------
+// PrimVec<T> — generic Vec-like backing store for primitives.
+//
+// Own heap buffer, grow-on-push.  Used by the Primitive blanket impl below;
+// also usable directly for typed arrays.
+// ---------------------------------------------------------------------------
+
+pub struct PrimVec<T> {
+    pub data: *mut T,
+    pub len:  u64,
+    pub cap:  u64,
+}
+
+impl<T> PrimVec<T> {
+    pub static fn empty() -> PrimVec<T> {
+        return PrimVec { data: 0 as *mut T, len: 0 as u64, cap: 0 as u64 };
+    }
+
+    pub fn push(&mut self, v: T) {
+        unsafe {
+            let stride: i64 = sizeof::<T>();
+            if self.len == self.cap {
+                let new_cap: u64 = if self.cap == 0 as u64 { 4 as u64 } else { self.cap * 2 as u64 };
+                let bytes: i64 = (new_cap as i64) * stride;
+                let new_buf: *mut u8 = if self.data == 0 as *mut T {
+                    alloc(bytes)
+                } else {
+                    realloc_buf(self.data as *mut u8, bytes)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                self.data = new_buf as *mut T;
+                self.cap  = new_cap;
+            }
+            let slot: *mut T = (self.data as i64 + (self.len as i64) * stride) as *mut T;
+            *slot = v;
+            self.len = self.len + 1 as u64;
+        }
+    }
+
+    pub fn get(&self, idx: u64) -> T {
+        unsafe {
+            let stride: i64 = sizeof::<T>();
+            let slot: *const T = (self.data as i64 + (idx as i64) * stride) as *const T;
+            return *slot;
+        }
+    }
+
+    pub fn clear(&mut self) {
+        unsafe {
+            if self.data != 0 as *mut T {
+                dealloc(self.data as *mut u8);
+                self.data = 0 as *mut T;
+                self.len  = 0 as u64;
+                self.cap  = 0 as u64;
+            }
+        }
+    }
+
+    // Overwrite the slot at `idx` with `v`.  Out-of-range is a programmer
+    // error and silently no-ops here (caller validates).
+    pub fn set(&mut self, idx: u64, v: T) {
+        unsafe {
+            if idx >= self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            let slot: *mut T = (self.data as i64 + (idx as i64) * stride) as *mut T;
+            *slot = v;
+        }
+    }
+
+    // Insert `v` at `idx`, shifting the tail right by one slot.  `idx`
+    // may equal `len` (append at end).  Out-of-range silently no-ops.
+    pub fn insert_at(&mut self, idx: u64, v: T) {
+        unsafe {
+            if idx > self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            // Grow if at capacity (same shape as push).
+            if self.len == self.cap {
+                let new_cap: u64 = if self.cap == 0u64 { 4u64 } else { self.cap * 2u64 };
+                let bytes: i64 = (new_cap as i64) * stride;
+                let new_buf: *mut u8 = if self.data == 0 as *mut T {
+                    alloc(bytes)
+                } else {
+                    realloc_buf(self.data as *mut u8, bytes)
+                };
+                if new_buf == 0 as *mut u8 { return; }
+                self.data = new_buf as *mut T;
+                self.cap  = new_cap;
+            }
+            // Shift slots [idx..len) right by one (high to low).
+            let mut i: u64 = self.len;
+            while i > idx {
+                let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
+                let src: *const T = (self.data as i64 + ((i - 1u64) as i64) * stride) as *const T;
+                *dst = *src;
+                i = i - 1u64;
+            }
+            let slot: *mut T = (self.data as i64 + (idx as i64) * stride) as *mut T;
+            *slot = v;
+            self.len = self.len + 1u64;
+        }
+    }
+
+    // Remove the element at `idx`, shifting the tail left by one slot.
+    // Capacity is preserved.  Out-of-range silently no-ops.
+    pub fn remove_at(&mut self, idx: u64) {
+        unsafe {
+            if idx >= self.len { return; }
+            let stride: i64 = sizeof::<T>();
+            let mut i: u64 = idx;
+            while i + 1u64 < self.len {
+                let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
+                let src: *const T = (self.data as i64 + ((i + 1u64) as i64) * stride) as *const T;
+                *dst = *src;
+                i = i + 1u64;
+            }
+            self.len = self.len - 1u64;
+        }
+    }
+}
+
+// PrimVec<T> plugs into the Storage hierarchy as a DynamicStorage<Elem=T>.
+// This lets generic code request any dynamic backing store via the trait
+// rather than naming PrimVec directly.
+
+impl<T> Storage for PrimVec<T> {
+    type Elem = T;
+    fn storage_len(s: *const PrimVec<T>) -> u64 {
+        unsafe { return s.len; }
+    }
+    fn storage_get(s: *const PrimVec<T>, idx: u64) -> T {
+        unsafe { return s.get(idx); }
+    }
+}
+
+impl<T> OwningStorage for PrimVec<T> {
+    fn storage_drop(s: *mut PrimVec<T>) {
+        unsafe { s.clear(); }
+    }
+}
+
+impl<T> DynamicStorage for PrimVec<T> {
+    fn storage_new() -> PrimVec<T> {
+        return PrimVec::<T>::empty();
+    }
+    fn storage_push(s: *mut PrimVec<T>, v: T) {
+        unsafe { s.push(v); }
+    }
+    fn storage_clear(s: *mut PrimVec<T>) {
+        unsafe { s.clear(); }
+    }
+    fn storage_set(s: *mut PrimVec<T>, idx: u64, v: T) {
+        unsafe { s.set(idx, v); }
+    }
+    fn storage_insert_at(s: *mut PrimVec<T>, idx: u64, v: T) {
+        unsafe { s.insert_at(idx, v); }
+    }
+    fn storage_remove_at(s: *mut PrimVec<T>, idx: u64) {
+        unsafe { s.remove_at(idx); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Blankets: every `Primitive` #[zoned] struct gets `Datatype` + `Container` for free.
+// The view of a Primitive is always its Prim type regardless of storage —
+// a `PrimVec<i64>` hands back i64, a future shared-memory slab also i64.
+// ---------------------------------------------------------------------------
+
+impl<DT: Primitive> Datatype for DT {
+    type View<S: Storage> = DT::Prim;
+}
+
+impl<DT: Primitive> Container for DT {
+    type Store       = PrimVec<DT::Prim>;
+    type ViewInStore = DT::Prim;
+    fn new_store() -> PrimVec<DT::Prim> { return PrimVec::<DT::Prim>::empty(); }
+    fn drop_store(s: *mut PrimVec<DT::Prim>) { unsafe { s.clear(); } }
+    fn store_len(s: *const PrimVec<DT::Prim>) -> u64 { unsafe { return s.len; } }
+    fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
+    fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
+    fn store_set(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.set(idx, v); } }
+    fn store_insert_at(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.insert_at(idx, v); } }
+    fn store_remove_at(s: *mut PrimVec<DT::Prim>, idx: u64) { unsafe { s.remove_at(idx); } }
+}
+
+// ---------------------------------------------------------------------------
+// Blankets: every `PodRef` #[zoned] struct gets `Datatype` + `Container` for free.
+// Read side hands back `*const DT`; push takes a source `*const DT` and
+// copies the value into the store.  Mutable access goes through explicit
+// per-#[zoned] struct accessors on top of the store pointer.
+// ---------------------------------------------------------------------------
+
+impl<DT: PodRef> Datatype for DT {
+    type View<S: Storage> = *const DT;
+}
+
+impl<DT: PodRef> Container for DT {
+    type Store       = PrimVec<DT>;
+    type ViewInStore = *const DT;
+    fn new_store() -> PrimVec<DT> { return PrimVec::<DT>::empty(); }
+    fn drop_store(s: *mut PrimVec<DT>) { unsafe { s.clear(); } }
+    fn store_len(s: *const PrimVec<DT>) -> u64 { unsafe { return s.len; } }
+    fn store_push(s: *mut PrimVec<DT>, v: *const DT) {
+        unsafe { s.push(*v); }
+    }
+    fn store_get(s: *const PrimVec<DT>, idx: u64) -> *const DT {
+        unsafe {
+            let stride: i64 = sizeof::<DT>();
+            return (s.data as i64 + (idx as i64) * stride) as *const DT;
+        }
+    }
+    fn store_set(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
+        unsafe { s.set(idx, *v); }
+    }
+    fn store_insert_at(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
+        unsafe { s.insert_at(idx, *v); }
+    }
+    fn store_remove_at(s: *mut PrimVec<DT>, idx: u64) {
+        unsafe { s.remove_at(idx); }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContainerOrd — Container + 3-way comparison through ViewInStore.
+//
+// Ordered collections (B+tree-backed Map, Set) need to compare a stored
+// key (in `ViewInStore` shape) against a query key (passed as `*const Self`)
+// without exposing how the view relates to Self.  Each Container picks the
+// right adapter for its view shape; the blanket below covers the PodRef
+// path (ViewInStore = *const DT).  Primitive-path keys (ViewInStore =
+// DT::Prim by value) need a `*const DT → DT::Prim` load helper that lives
+// outside Container today; once that lands, a parallel Primitive blanket
+// becomes possible.
+//
+// `cmp_view_key` is declared as a self-method (with a `*const Self`
+// receiver dereferenced nowhere) instead of an associated fn — established
+// workaround for the assoc-fn-on-type-param mono gap.  Callers do
+// `let phantom: *const K = 0 as *const K; phantom.cmp_view_key(kv, key)`.
+// ---------------------------------------------------------------------------
+
+pub trait ContainerOrd: Container {
+    unsafe fn cmp_view_key(self: *const Self, stored: Self::ViewInStore, query: *const Self) -> Ordering;
+}
+
+impl<DT: PodRef + Ord> ContainerOrd for DT {
+    unsafe fn cmp_view_key(self: *const DT, stored: *const DT, query: *const DT) -> Ordering {
+        return (&*stored).cmp(&*query);
+    }
+}
+
+// Primitive path: ViewInStore = DT::Prim (by value).  DT and DT::Prim are
+// byte-equivalent (Primitive POD wrapper contract), so we place the
+// stored Prim on the stack and reinterpret as *const DT to dispatch
+// through DT's existing `Ord` impl uniformly with the PodRef path.
+impl<DT: Primitive + Ord> ContainerOrd for DT {
+    unsafe fn cmp_view_key(self: *const DT, stored: DT::Prim, query: *const DT) -> Ordering {
+        let s: DT::Prim = stored;
+        let sp: *const DT = (&s) as *const DT::Prim as *const DT;
+        return (&*sp).cmp(&*query);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UnsizedPayload — abstraction over "fixed meta + variable tail" datatypes.
+//
+// The class of Hermes datatypes that share a common SoA-friendly shape:
+// each element has a small fixed-size metadata record (`Meta`) plus a
+// contiguous run of `Atom` values whose length is not compile-time fixed
+// (string bytes, bignum limbs, array AnyVal slots, blob bytes).
+//
+// Meta is the constant portion — for HermesString this is `()`, for a
+// BigDecimal it could be `{precision: u8, scale: u8}`, for BigInteger
+// `()`, and so on.  `Atom` is the unit of the tail (u8 for string bytes,
+// u32 for bigint limbs, AnyVal for array slots).
+//
+// A blanket impl for UnsizedPayload provides `Datatype + Container` so
+// that a new Hermes #[zoned] struct needs only declare `Meta` and `Atom` to
+// inherit a Buffer<DT> via a SoA backing store.  (The concrete blanket
+// impl for Container/Store over UnsizedPayload is left out of this first
+// landing — it requires richer multi-assoc-type-argument machinery in
+// the monomorphizer than is available today.  The trait is still useful
+// as a class-marker and as the stable interface that future blankets
+// plug into.)
+// ---------------------------------------------------------------------------
+
+pub trait UnsizedPayload {
+    type Meta;
+    type Atom;
+}

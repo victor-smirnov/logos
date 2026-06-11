@@ -5,10 +5,10 @@
 package template_item_handle_smoke;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.anyval;
 
 fn make_item() -> Item {
-    return Item { raw: AnyVal::null_ptr() };
+    return Item { raw: HAny::Ref(0i64 as *const u8) };
 }
 
 fn main() -> i32 {

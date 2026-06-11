@@ -9,8 +9,7 @@
 package main;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.hermes2.hstatic;
 
 #[metaprog_handler("quote_inject")]
 fn quote_inject_hook(target_offset: u32) -> () {

@@ -3,10 +3,9 @@
 // Ref survives the re-anchoring grow and dispatches through Hermes2TagSystem.
 package test;
 use logos.lang.hermes2.container;
+use logos.mem.hermes2.tag_system;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.array;
-use logos.lang.hermes.datatag;       // write_tag, type_code_of
-use logos.mem.hermes.tag_system;     // Hermes2TagSystem
 use logos.lang.ptr;
 
 #[tag_dispatch(Hermes2TagSystem)] trait Sum2 { unsafe fn s(self: *const Self) -> i64; }

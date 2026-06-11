@@ -1,49 +1,43 @@
+// List-comprehension edges: empty result, no-op guard, growth past 8/16
+// (hermes2 Rc<Hermes2> builder; HArray grow path).
 package hermes_list_comp_edge;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.rc;
 
 fn main() -> i32 {
     // Edge 1: empty result via always-false guard.
     let arr: [i32; 3] = [1, 2, 3];
-    let empty_doc: Hermes =
-        @[AnyVal::embed_i24(x) for x in arr if x > 100];
+    let empty_doc: Rc<Hermes2> = @[x for x in arr if x > 100];
 
     // Edge 2: guard that filters nothing (all pass).
     let v: [i32; 4] = [10, 20, 30, 40];
-    let slice_doc: Hermes =
-        @[AnyVal::embed_i24(x + 1) for x in v if x >= 0];
+    let slice_doc: Rc<Hermes2> = @[x + 1 for x in v if x >= 0];
 
-    // Edge 3: many elements (forces Array<AnyVal> grow 8 → 16 → 32).
+    // Edge 3: many elements (forces HArray grow 8 → 16 → 32).
     let big: [i32; 20] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
-    let big_doc: Hermes =
-        @[AnyVal::embed_i24(x) for x in big];
+    let big_doc: Rc<Hermes2> = @[x for x in big];
 
     unsafe {
-        let r1: AnyVal = empty_doc.root();
-        let b1: *const u8 = empty_doc.base();
-        let oa1: *const ObjectArray =
-            (b1 as i64 + r1.as_offset() as i64) as *const ObjectArray;
-        if oa1.len() != 0 as u64 { return 1; }
+        let v0: HView2 = HView2 { base: 0 as *const u8 };
 
-        let r2: AnyVal = slice_doc.root();
-        let b2: *const u8 = slice_doc.base();
-        let oa2: *const ObjectArray =
-            (b2 as i64 + r2.as_offset() as i64) as *const ObjectArray;
-        if oa2.len() != 4 as u64 { return 2; }
-        if oa2.get(b2, 3 as u64).as_i24() != 41 { return 3; }
+        let h1: &Hermes2 = empty_doc.deref();
+        if v0.array_len(h1.root()) != 0u64 { return 1; }
 
-        let r3: AnyVal = big_doc.root();
-        let b3: *const u8 = big_doc.base();
-        let oa3: *const ObjectArray =
-            (b3 as i64 + r3.as_offset() as i64) as *const ObjectArray;
-        if oa3.len() != 20 as u64 { return 4; }
-        if oa3.get(b3, 0 as u64).as_i24() != 0 { return 5; }
-        if oa3.get(b3, 19 as u64).as_i24() != 19 { return 6; }
-        if oa3.get(b3, 10 as u64).as_i24() != 10 { return 7; }
+        let h2: &Hermes2 = slice_doc.deref();
+        let r2: HAny = h2.root();
+        if v0.array_len(r2) != 4u64 { return 2; }
+        if v0.get_int(v0.array_get(r2, 3u64)) != 41i64 { return 3; }
+
+        let h3: &Hermes2 = big_doc.deref();
+        let r3: HAny = h3.root();
+        if v0.array_len(r3) != 20u64 { return 4; }
+        if v0.get_int(v0.array_get(r3, 0u64)) != 0i64 { return 5; }
+        if v0.get_int(v0.array_get(r3, 19u64)) != 19i64 { return 6; }
+        if v0.get_int(v0.array_get(r3, 10u64)) != 10i64 { return 7; }
     }
 
     return 42;
