@@ -21,7 +21,7 @@
 package blanket_impl_sibling_bound_resolution;
 
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
+use logos.lang.fabric;
 
 pub struct U64Key { pub x: u64, }
 impl Primitive for U64Key { type Prim = u64; }

@@ -8,7 +8,7 @@
 package metacall_hermes_static;
 
 use logos.mem.hermes.ctr;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.mem.hermes.view;
 
 fn build_cfg() -> HermesStatic {

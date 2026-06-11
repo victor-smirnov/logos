@@ -15,10 +15,8 @@
 //     marker.
 package generic_ref_registry_dispatch;
 
-use logos.lang.hermes.fabric;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 
 // ── Per-CFG release thunk. Mono produces one symbol per (K, V, CFG); for
 // the test we just embed a CFG-derived marker into a side-channel via the

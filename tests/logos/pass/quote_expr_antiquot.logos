@@ -11,8 +11,7 @@
 package quote_expr_antiquot;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.hermes2.hstatic;
 
 fn build_expr() -> ExprBlob {
     let s: str = "y";

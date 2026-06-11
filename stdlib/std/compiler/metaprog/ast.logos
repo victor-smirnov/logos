@@ -11,7 +11,7 @@
 
 package logos.std.compiler.metaprog;
 
-use logos.lang.hermes.view;        // HermesStatic — the quote/metacall splice handle ({ptr})
+use logos.lang.hermes2.hstatic;    // HermesStatic — the quote/metacall splice handle ({ptr})
 use logos.lang.hermes2.anyval;     // HAny
 use logos.lang.hermes2.hmap;       // HMap<Hu6,HVal> (for schema_type_code on type_from_anyval)
 use logos.lang.hermes2.hstring;

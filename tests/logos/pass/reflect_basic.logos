@@ -1,6 +1,6 @@
 package reflect_basic;
 
-use logos.lang.hermes.view;          // HermesStatic (reflect::<T>() return type)
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes2.static_view;  // HView2 — hermes2 reader for the blob
 use logos.lang.hermes2.anyval;       // HAny
 

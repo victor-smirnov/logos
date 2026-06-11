@@ -1,8 +1,6 @@
 package test;
 use logos.lang.hermes2.container;     // Hermes2, hermes2_alloc*, hermes2_new
 use logos.lang.hermes2.anyval;        // HAny (niche enum); at-rest via `*zoned HAny`
-use logos.lang.hermes.datatag;        // write_tag, type_code_of
-use logos.mem.hermes.tag_system;      // Hermes2TagSystem
 use logos.lang.ptr;
 
 #[tag_dispatch(Hermes2TagSystem)] trait Sum2 { unsafe fn s(self: *const Self) -> i64; }

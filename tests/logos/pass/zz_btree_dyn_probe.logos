@@ -24,8 +24,8 @@ package zz_btree_dyn_probe;
 use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.drop;
-use logos.lang.cmp; use logos.lang.cmp; use logos.lang.hermes.fabric;
-use logos.lang.hermes.view; use logos.mem.hermes.view; use logos.lang.hermes.anyval;
+use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 
 // ── StoreCfg sketch ─────────────────────────────────────────────────────
 // v1 minimal: ctr_id / snp_id / block_id all u64. Pulled into NodeBase

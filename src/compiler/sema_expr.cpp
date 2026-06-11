@@ -14142,15 +14142,9 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
                 "I8, U8, I16, U16, I32, U32, I64, U64, F32, F64", type_name));
             return nullptr;
         }
-        // Accept either the original eidos name or a type-alias pointing
-        // at the generic instantiation (e.g. `pub type ArrayI32 = Array<i32>;`).
-        if (!datatypes_.count(kit->second.struct_name) &&
-            !type_aliases_.count(kit->second.struct_name)) {
-            error(std::format(
-                "typed array @<{}>[...] requires '{}' in scope — add 'use logos.lang.hermes.array;'",
-                type_name, kit->second.struct_name));
-            return nullptr;
-        }
+        // hermes2: the blob is built by the C++ hermes2 TypedArray writer —
+        // no stdlib struct needs to be in scope (the Hermes1 ArrayI32-eidos
+        // scope probe is retired with Hermes1).
         lir::HVArray a;
         a.elem_type = type_name;
         if (node.has_key(la::ITEMS)) {
@@ -14220,18 +14214,8 @@ lir::HermesValPtr SemaChecker::lower_hermes_val(TinyMapView node) {
         };
         std::string lir_key_type;
         if (auto kit = known_keys.find(key_type); kit != known_keys.end()) {
-            // Check if Map<K, AnyVal> is available in any form:
-            // - concrete `pub eidos Map<i32, AnyVal> { ... }` → Map$G2$i32$AnyVal
-            // - generic `pub eidos Map<K, AnyVal> { ... }` → Map$G2$K$AnyVal (K is TypeVar name)
-            // Either form satisfies the availability requirement.
-            bool map_available = struct_specs_sema_.count(kit->second.mangled) != 0
-                              || struct_specs_sema_.count("Map$G2$K$AnyVal") != 0;
-            if (!map_available) {
-                error(std::format(
-                    "typed map @<{}>{{...}} requires 'use logos.lang.hermes.map;'",
-                    key_type));
-                return nullptr;
-            }
+            // hermes2: the blob is built by the C++ hermes2 TypedMap writer —
+            // no stdlib Map eidos needs to be in scope (Hermes1 probe retired).
             lir_key_type = kit->second.lir;
         } else if (key_type == "Varchar") {
             lir_key_type = "";  // same as untyped ObjectMap

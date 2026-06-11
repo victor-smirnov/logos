@@ -10,7 +10,7 @@ use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.relptr;
 use logos.mem.hermes.relptr_traits;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.mem.hermes.stringify;

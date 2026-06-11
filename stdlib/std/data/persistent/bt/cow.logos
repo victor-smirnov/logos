@@ -28,10 +28,8 @@ package logos.std.data.persistent.bt.cow;
 use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 
 use logos.std.data.persistent.bt.node;
 use logos.std.data.persistent.bt.shuttle;  // ShuttleResult — derive emits per-op shuttle wrapper

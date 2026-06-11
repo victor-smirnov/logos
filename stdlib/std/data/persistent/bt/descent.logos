@@ -10,10 +10,8 @@ package logos.std.data.persistent.bt.descent;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
-use logos.lang.hermes.view;           // HermesStatic (the STORE_CFG/CFG type)
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes2.static_view;   // HView2 — hermes2 reader for @{} blobs
 use logos.lang.hermes2.anyval;        // HAny
 

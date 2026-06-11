@@ -16,7 +16,7 @@ use logos.lang.hermes2.hmap;         // HMap<HString, HVal>
 use logos.lang.hermes2.hstring;      // HString
 use logos.lang.hermes2.static_view;  // HView2 / hview2_from_ptr
 use logos.lang.hermes2.container;    // Hermes2 (runtime scrutinee)
-use logos.lang.hermes.view;          // HermesStatic (the scrutinee handle)
+use logos.lang.hermes2.hstatic;     // HermesStatic (the scrutinee handle)
 use logos.mem.rc;                    // Rc — runtime container scrutinee
 use logos.lang.str;                  // str, str_eq
 

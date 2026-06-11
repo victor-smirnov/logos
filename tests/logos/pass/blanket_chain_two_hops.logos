@@ -23,7 +23,7 @@
 
 package blanket_chain_two_hops;
 
-use logos.lang.hermes.fabric;
+use logos.lang.fabric;
 
 pub trait Foo { fn foo_id(&self) -> i32; }
 impl<DT: Container> Foo for DT { fn foo_id(&self) -> i32 { return 42; } }

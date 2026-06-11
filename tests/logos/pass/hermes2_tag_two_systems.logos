@@ -4,8 +4,6 @@ package h2tag;
 // the Hermes1 impl resolves it BASE-RELATIVE (base + offset), the Hermes2 impl
 // resolves it SELF-RELATIVE (RelAny materialise). Dispatch is keyed by
 // (system, type_code), so both coexist and each resolves its inner pointer right.
-use logos.lang.hermes.datatag;       // write_tag, type_code_of
-use logos.mem.hermes.tag_system;     // HermesTypeTagSystem, Hermes2TagSystem
 use logos.lang.ptr;
 extern fn malloc(size: i64) -> *mut u8;
 

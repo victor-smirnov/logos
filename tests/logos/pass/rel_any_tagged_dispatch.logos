@@ -4,8 +4,6 @@ package relany;
 // The object lives in a never-move arena with a vlen tag header (write_tag); the
 // RelAny field stores `target − &field` (RelOffset descriptor) and materialises
 // to *const u8, which the standard `&tagged<TS> Trait` coercion dispatches on.
-use logos.lang.hermes.datatag;       // write_tag, type_code_of
-use logos.mem.hermes.tag_system;     // DataTypeTagSystem
 use logos.lang.ptr;
 extern fn malloc(size: i64) -> *mut u8;
 

@@ -23,7 +23,7 @@
 package hstatic_const_generic_alias;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes2.static_view;
 use logos.lang.hermes2.anyval;
 

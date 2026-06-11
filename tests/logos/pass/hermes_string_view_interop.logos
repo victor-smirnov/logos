@@ -6,7 +6,7 @@ package hermes_string_view_interop;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.mem.hermes.tag_system;
@@ -18,7 +18,7 @@ use logos.lang.hermes.document;
 use logos.mem.hermes.ctr;
 use logos.mem.hermes.stringify;
 use logos.mem.hermes.parser;
-use logos.lang.hermes.fabric;
+use logos.lang.fabric;
 
 unsafe fn views_eq(a: StringView, b: StringView) -> bool {
     if a.len != b.len { return false; }

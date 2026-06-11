@@ -23,11 +23,9 @@ package logos.std.data.persistent.bt.node;
 
 use logos.lang.mem;
 use logos.lang.cmp;
-use logos.lang.hermes.fabric;
 use logos.lang.drop;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 
 // ── Public aliases for STORE_CFG slot types ───────────────────────────
 // `SnpId<STORE_CFG>` / `BlockId<STORE_CFG>` get used

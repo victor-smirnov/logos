@@ -17,7 +17,7 @@
 package hermes_type_lit_roundtrip;
 
 use logos.std.compiler.metaprog;
-use logos.lang.hermes.view;          // HermesStatic
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes2.static_view;  // HView2
 use logos.lang.hermes2.anyval;       // HAny
 

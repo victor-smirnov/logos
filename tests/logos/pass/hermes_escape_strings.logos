@@ -13,7 +13,7 @@ package hermes_escape_strings;
 
 use logos.lang.hermes.zone;
 use logos.lang.hermes.anyval;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes.string;
 use logos.lang.hermes.typetag;
 use logos.lang.hermes.array;

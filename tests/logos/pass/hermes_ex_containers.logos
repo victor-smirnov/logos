@@ -13,7 +13,7 @@ use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.lang.hermes.objectmap;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.lang.hermes.string;
 
 unsafe fn main() -> i32 {

@@ -18,11 +18,9 @@
 
 package logos.std.data.persistent.bt.shuttle;
 
-use logos.lang.hermes.fabric;
 use logos.lang.cmp;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+use logos.lang.hermes2.hstatic;
 
 pub struct ShuttleResult {
     pub idx:       u64,   // child index to descend into

@@ -3,7 +3,7 @@ use logos.lang.hermes2.comp_builder;
 use logos.lang.hermes2.container;
 use logos.lang.hermes2.anyval;
 use logos.lang.hermes2.static_view;
-use logos.lang.hermes.view;
+use logos.lang.hermes2.hstatic;
 use logos.mem.rc;
 
 unsafe fn build_cfg() -> Rc<Hermes2> {

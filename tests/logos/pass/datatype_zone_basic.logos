@@ -1,7 +1,6 @@
 package datatype_zone_basic;
 // Phase 2: allocate a #[zoned] struct in a HermesZone, write and read fields.
 
-use logos.lang.hermes.zone;
 
 #[zoned] struct Point {
     x: i32,
