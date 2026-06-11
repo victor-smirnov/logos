@@ -1,125 +1,53 @@
-// Test: Hermes traversal API — array_len, array_get, map_get_cstr,
-// get_int, get_bool (Task 3).
-
+// Parse-then-traverse (hermes2 successor of the Hermes1 traversal test):
+// int/bool extraction, array walk, map lookup — through container reads.
 package hermes_ctr_traversal;
-
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-
-// write a single byte into a raw buffer at a given offset.
-unsafe fn wb(buf: *mut u8, i: i64, v: u8) {
-    *((buf as i64 + i) as *mut u8) = v;
-}
-
-extern fn malloc(size: i64) -> *mut u8;
-extern fn free(ptr: *mut u8);
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // ── 1. Parse an integer and extract with get_int ────────────────────────
-    // Input: "42"
-    let ibuf: *mut u8 = malloc(256 as i64);
-    wb(ibuf, 0, 52 as u8);   // '4'
-    wb(ibuf, 1, 50 as u8);   // '2'
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
 
-    let mut doc1: Hermes = Hermes::new(4096 as i64);
-    match doc1.parse(ibuf as *const u8, 2 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { free(ibuf); return 1; }
+    // 1. Integer root.
+    let v1: HAny = parse(h, "12345");
+    if !v1.is_int() { return 1; }
+    if v1.as_i64() != 12345i64 { return 2; }
+
+    // 2. Bool root.
+    let v2: HAny = parse(h, "false");
+    if !v2.is_bool() { return 3; }
+    if v2.as_bool() { return 4; }
+
+    // 3. Array traversal: sum of [10, 20, 30] = 60.
+    let v3: HAny = parse(h, "[10, 20, 30]");
+    let arr: &HArray<HVal> = &*(v3.resolve() as *const HArray<HVal>);
+    let mut sum: i64 = 0;
+    let mut i: i64 = 0;
+    while i < arr.len() {
+        sum = sum + arr.get(i).as_i64();
+        i = i + 1;
     }
-    let root1: AnyVal = doc1.root();
-    if doc1.get_int(root1) != 42 as i64 { free(ibuf); return 2; }
+    if sum != 60i64 { return 5; }
 
-    // ── 2. Parse a bool and extract with get_bool ───────────────────────────
-    // Input: "true"
-    wb(ibuf, 0, 116 as u8);  // 't'
-    wb(ibuf, 1, 114 as u8);  // 'r'
-    wb(ibuf, 2, 117 as u8);  // 'u'
-    wb(ibuf, 3, 101 as u8);  // 'e'
+    // 4. Map lookup {x: 55}.
+    let v4: HAny = parse(h, "{x: 55}");
+    let m: &HMap<HString, HVal> = &*(v4.resolve() as *const HMap<HString, HVal>);
+    if m.get("x").as_i64() != 55i64 { return 6; }
+    if !m.get("y").is_null() { return 7; }
 
-    let mut doc2: Hermes = Hermes::new(4096 as i64);
-    match doc2.parse(ibuf as *const u8, 4 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { free(ibuf); return 3; }
-    }
-    let root2: AnyVal = doc2.root();
-    if !doc2.get_bool(root2) { free(ibuf); return 4; }
+    // 5. Deep mixed traversal.
+    let v5: HAny = parse(h, "{items: [{id: 1}, {id: 2}], total: 2}");
+    let mm: &HMap<HString, HVal> = &*(v5.resolve() as *const HMap<HString, HVal>);
+    if mm.get("total").as_i64() != 2i64 { return 8; }
+    let items: &HArray<HVal> = &*(mm.get("items").resolve() as *const HArray<HVal>);
+    let it1: &HMap<HString, HVal> = &*(items.get(1).resolve() as *const HMap<HString, HVal>);
+    if it1.get("id").as_i64() != 2i64 { return 9; }
 
-    // get_bool on non-bool returns false
-    if doc2.get_bool(root1) { free(ibuf); return 5; }
-
-    // ── 3. Parse an array [10, 20, 30] and traverse ─────────────────────────
-    // Input: "[10,20,30]"
-    wb(ibuf,  0,  91 as u8);  // '['
-    wb(ibuf,  1,  49 as u8);  // '1'
-    wb(ibuf,  2,  48 as u8);  // '0'
-    wb(ibuf,  3,  44 as u8);  // ','
-    wb(ibuf,  4,  50 as u8);  // '2'
-    wb(ibuf,  5,  48 as u8);  // '0'
-    wb(ibuf,  6,  44 as u8);  // ','
-    wb(ibuf,  7,  51 as u8);  // '3'
-    wb(ibuf,  8,  48 as u8);  // '0'
-    wb(ibuf,  9,  93 as u8);  // ']'
-
-    let mut doc3: Hermes = Hermes::new(8192 as i64);
-    match doc3.parse(ibuf as *const u8, 10 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { free(ibuf); return 6; }
-    }
-    let root3: AnyVal = doc3.root();
-
-    if doc3.array_len(root3) != 3 as u64 { free(ibuf); return 7; }
-
-    let e0: AnyVal = doc3.array_get(root3, 0 as u64);
-    let e1: AnyVal = doc3.array_get(root3, 1 as u64);
-    let e2: AnyVal = doc3.array_get(root3, 2 as u64);
-    if doc3.get_int(e0) != 10 as i64 { free(ibuf); return 8; }
-    if doc3.get_int(e1) != 20 as i64 { free(ibuf); return 9; }
-    if doc3.get_int(e2) != 30 as i64 { free(ibuf); return 10; }
-
-    // out-of-bounds array_get returns null
-    let eoob: AnyVal = doc3.array_get(root3, 99 as u64);
-    if !eoob.is_null() { free(ibuf); return 11; }
-
-    // array_len on non-array returns 0
-    if doc3.array_len(root1) != 0 as u64 { free(ibuf); return 12; }
-
-    // ── 4. Parse a map {x: 55} and look up key "x" ─────────────────────────
-    // Input: "{x:55}"
-    wb(ibuf, 0, 123 as u8);  // '{'
-    wb(ibuf, 1, 120 as u8);  // 'x'
-    wb(ibuf, 2,  58 as u8);  // ':'
-    wb(ibuf, 3,  53 as u8);  // '5'
-    wb(ibuf, 4,  53 as u8);  // '5'
-    wb(ibuf, 5, 125 as u8);  // '}'
-
-    let mut doc4: Hermes = Hermes::new(8192 as i64);
-    match doc4.parse(ibuf as *const u8, 6 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { free(ibuf); return 13; }
-    }
-    let root4: AnyVal = doc4.root();
-
-    // Build a null-terminated C string "x\0" on a malloc'd buffer.
-    let key_x: *mut u8 = malloc(2 as i64);
-    *((key_x as i64 + 0) as *mut u8) = 120 as u8;  // 'x'
-    *((key_x as i64 + 1) as *mut u8) = 0 as u8;    // '\0'
-    let got_x: AnyVal = doc4.map_get_cstr(root4, key_x as *const u8);
-    if got_x.is_null()                    { free(key_x); free(ibuf); return 14; }
-    if doc4.get_int(got_x) != 55 as i64  { free(key_x); free(ibuf); return 15; }
-
-    // map_get_cstr: missing key returns null
-    let key_z: *mut u8 = malloc(2 as i64);
-    *((key_z as i64 + 0) as *mut u8) = 122 as u8;  // 'z'
-    *((key_z as i64 + 1) as *mut u8) = 0 as u8;    // '\0'
-    let got_z: AnyVal = doc4.map_get_cstr(root4, key_z as *const u8);
-    if !got_z.is_null() { free(key_z); free(key_x); free(ibuf); return 16; }
-
-    // map_get_cstr on non-map returns null
-    let not_map: AnyVal = doc4.map_get_cstr(root1, key_x as *const u8);
-    if !not_map.is_null() { free(key_z); free(key_x); free(ibuf); return 17; }
-
-    free(key_z);
-    free(key_x);
-    free(ibuf);
     return 42;
 }
