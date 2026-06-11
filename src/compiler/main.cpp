@@ -1285,6 +1285,33 @@ extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
     return p;
 }
 
+// hermes2 metacall freeze: the Hermes-returning thunk passes the Rc<Hermes2>'s
+// root as a VALUE-FORM HAny word; deep-copy the reachable tree into a compact
+// single-segment blob and return a malloc'd [u64 size][bytes] buffer (ptr past
+// the prefix — the same wire shape as HermesStatic; driver reads *(ptr-8)).
+extern "C" const uint8_t* logos_metacall_freeze2(uint64_t root_word) {
+    using logos::hermes2::AnyVal;
+    // The Logos side passes the VALUE-form word (Pod tagged / ABSOLUTE pointer).
+    // C++ AnyVal is the AT-REST form (self-relative Ref) — from_raw(absolute)
+    // would resolve relative to the stack slot. Re-anchor Refs via set_ref.
+    AnyVal root;
+    if (root_word & 1) {
+        root = AnyVal::from_raw(static_cast<int64_t>(root_word));   // Pod: verbatim
+    } else if (root_word != 0) {
+        root.set_ref(reinterpret_cast<const void*>(root_word));     // Ref: re-anchor
+    }
+    auto packed_r = logos::hermes2::compactify_root(root);
+    if (!packed_r) return nullptr;
+    auto& arena = packed_r->arena();
+    const uint8_t* data = arena.head().data();
+    uint64_t size = arena.total_used();
+    auto* buf = static_cast<uint8_t*>(std::malloc(8 + size));
+    if (!buf) return nullptr;
+    std::memcpy(buf, &size, 8);
+    std::memcpy(buf + 8, data, size);
+    return buf + 8;
+}
+
 // Slice 5c+8 of metaprog-quote: substitution + repetition shim for
 // `quote_expr!`. lower_quote_expr packs a wrapper Hermes doc whose
 // root TOM has VALUE=expr_offset and ITEMS=placeholder-offsets array.
@@ -2459,6 +2486,7 @@ int run_metaprog_dispatch(
             if (!bind_sym("logos_qib_pack_cursors",           reinterpret_cast<void*>(&logos_qib_pack_cursors))) return 1;
             if (!bind_sym("logos_qib_free_cursors",           reinterpret_cast<void*>(&logos_qib_free_cursors))) return 1;
             if (!bind_sym("logos_metaprog_gensym",            reinterpret_cast<void*>(&logos_metaprog_gensym))) return 1;
+            if (!bind_sym("logos_metacall_freeze2",           reinterpret_cast<void*>(&logos_metacall_freeze2))) return 1;
             if (!bind_sym("logos_metaprog_test_module_blob",  reinterpret_cast<void*>(&logos_metaprog_test_module_blob))) return 1;
             if (!bind_sym("logos_test_make_bin_op_blob",      reinterpret_cast<void*>(&logos_test_make_bin_op_blob))) return 1;
             if (!bind_sym("logos_quote_expr_subst",           reinterpret_cast<void*>(&logos_quote_expr_subst))) return 1;
@@ -3542,6 +3570,12 @@ int main(int argc, char** argv) {
             if (!mc_jit->define_symbol("logos_metaprog_gensym",
                     reinterpret_cast<void*>(&logos_metaprog_gensym))) {
                 std::fprintf(stderr, "logosc: bind logos_metaprog_gensym (mc_jit): %s\n",
+                             mc_jit->error_str().c_str());
+                return 1;
+            }
+            if (!mc_jit->define_symbol("logos_metacall_freeze2",
+                    reinterpret_cast<void*>(&logos_metacall_freeze2))) {
+                std::fprintf(stderr, "logosc: bind logos_metacall_freeze2 (mc_jit): %s\n",
                              mc_jit->error_str().c_str());
                 return 1;
             }

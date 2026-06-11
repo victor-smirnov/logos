@@ -16380,7 +16380,10 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
     auto rt = lowered ? lowered->type : nullptr;
     auto rk = TypeRef(rt).kind();
     bool rt_is_hermes_static = is_hermes_static(rt);
-    bool rt_is_hermes        = is_hermes(rt);
+    // hermes2: the runtime container is Rc<Hermes2> (capture-@{} / comprehensions);
+    // it freezes to a HermesStatic blob exactly like the legacy Hermes.
+    bool rt_is_hermes        = is_hermes(rt)
+        || (is_named_struct(rt, "Rc") && type_str(rt).find("Hermes2") != std::string::npos);
     // Slice 7 of metaprog-quote: ExprBlob is a HermesStatic-shaped marker
     // signalling that the metafunction returns an AST expression fragment.
     // Driver splices identically (CODE→HERMES_BLOB, VALUE=bytes); pass-2
@@ -16533,12 +16536,20 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     ok = false;
                 }
                 if (ok) {
+                    // hermes2: the callee returns Rc<Hermes2>; freeze via the
+                    // host shim logos_metacall_freeze2 (deep-copy the root into
+                    // a malloc'd [u64 size][bytes] compact blob, ptr past the
+                    // prefix — same wire shape as HermesStatic).
                     site.thunk_source = std::format(
                         "package {};\n"
-                        "use logos.mem.hermes.ctr;\n"
+                        "use logos.lang.hermes2.container;\n"
+                        "use logos.lang.hermes2.anyval;\n"
+                        "use logos.mem.rc;\n"
+                        "extern fn logos_metacall_freeze2(w: u64) -> *const u8;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
-                        "    let __h: Hermes = {};\n"
-                        "    return __metacall_freeze(&__h);\n"
+                        "    let __h: Rc<Hermes2> = {};\n"
+                        "    let __hh: &Hermes2 = __h.deref();\n"
+                        "    return logos_metacall_freeze2(__hh.root().raw() as u64);\n"
                         "}}\n",
                         pkg, site.thunk_name, call_text);
                 }

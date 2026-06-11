@@ -163,6 +163,22 @@ logos::expected<ClonedDoc> clone(AnyVal root) noexcept {
     return ClonedDoc{holder, new_root};
 }
 
+logos::expected<HermesCtr> compactify_root(AnyVal root) noexcept {
+    // No source container to size from (the root may live in any arena —
+    // e.g. a metacall JIT's Rc<Hermes2>), so clone once to measure the live
+    // set, then compact into a right-sized single chunk.
+    LOGOS_TRY(auto first, clone(root));
+    size_t live = first.holder->arena().total_used();
+    first.holder->unref();
+    LOGOS_TRY(auto dst, HermesCtr::make(live * 2 + 4096, ArenaMode::GrowableSingleChunk));
+    DeepCopyState dedup(dst.holder());
+    AnyVal new_root = deep_copy_anyval(root, dedup);
+    dst.set_root(new_root);
+    if (dst.arena().chunk_count() != 1) [[unlikely]]
+        return std::unexpected(logos::err(ErrCode::out_of_memory));
+    return dst;
+}
+
 logos::expected<HermesCtr> compactify(const HermesCtr& src) noexcept {
     // Upper bound: the compact result (live objects, tight buffers) is ≤ the source's
     // used bytes; 2× + slack is a safe over-estimate, so the single chunk never reallocs.
