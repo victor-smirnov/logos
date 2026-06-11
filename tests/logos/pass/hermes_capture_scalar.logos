@@ -1,28 +1,38 @@
-// Hermes capture: scalar values captured from variables into @-literals.
+// Hermes capture: scalar values captured from variables into @-literals (hermes2).
 package hermes_capture_scalar;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
     let id: i32 = 42;
 
     // Capture i32 scalar into untyped map.
-    let doc: Hermes = @{"id": $id};
-    let root: AnyVal = doc.root();
+    let doc: Rc<Hermes2> = @{"id": $id};
+    let h: &Hermes2 = doc.deref();
+    let root: HAny = h.root();
     if root.is_null() { return 1; }
+    if v0.get_int(v0.map_get(root, "id")) != 42i64 { return 10; }
 
     // Capture bool scalar.
     let flag: bool = true;
-    let doc2: Hermes = @{"ok": $flag};
-    let root2: AnyVal = doc2.root();
+    let doc2: Rc<Hermes2> = @{"ok": $flag};
+    let h2: &Hermes2 = doc2.deref();
+    let root2: HAny = h2.root();
     if root2.is_null() { return 2; }
+    if !v0.get_bool(v0.map_get(root2, "ok")) { return 20; }
 
     // Capture expression.
     let a: i32 = 10;
     let b: i32 = 5;
-    let doc3: Hermes = @{"sum": ${a + b}};
-    let root3: AnyVal = doc3.root();
+    let doc3: Rc<Hermes2> = @{"sum": ${a + b}};
+    let h3: &Hermes2 = doc3.deref();
+    let root3: HAny = h3.root();
     if root3.is_null() { return 3; }
+    if v0.get_int(v0.map_get(root3, "sum")) != 15i64 { return 30; }
 
     return 0;
 }

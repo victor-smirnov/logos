@@ -3702,7 +3702,8 @@ private:
              inner.kind() == LogosType::Kind::ZonedStruct) &&
             (inner.struct_name() == "Hermes" ||
              inner.struct_name() == "HermesView" ||
-             inner.struct_name() == "HermesStatic"))
+             inner.struct_name() == "HermesStatic" ||
+             inner.struct_name() == "Rc"))   // hermes2 runtime container Rc<Hermes2>
             return inner;
         return nullptr;
     }

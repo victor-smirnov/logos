@@ -86,6 +86,14 @@ pub fn hermes2_map_comp_put(c: &Rc<Hermes2>, k: str, v: HAny) {
     }
 }
 
+// String coercion allocates an HString in the CONTAINER's zone (needs_ctr form:
+// the compiler passes &Rc<Hermes2> first).
+pub fn hermes2_coerce_str(c: &Rc<Hermes2>, s: str) -> HAny {
+    let h: &Hermes2 = c.deref();
+    let hs: &HString = h.hstring(s);
+    return HAny::from(hs);
+}
+
 // ── Scalar → HAny coercion (compiler auto-wraps the element expr by Logos type) ─
 pub fn hermes2_coerce_bool(v: bool) -> HAny { return HAny::from(v); }
 pub fn hermes2_coerce_i8(v: i8)   -> HAny { return HAny::from(v); }

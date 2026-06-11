@@ -1,51 +1,51 @@
+// Hermes comprehension auto-coercion: i32, bool, str values (hermes2).
 package hermes_comp_coerce;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.rc;
 
 fn main() -> i32 {
     let xs: [i32; 4] = [1, 2, 3, 4];
 
-    // List comprehension with raw i32 value (auto-coerced to AnyVal).
-    let la: Hermes = @[x * x for x in xs];
+    // List comprehension with raw i32 value (auto-coerced to HAny).
+    let la: Rc<Hermes2> = @[x * x for x in xs];
 
     // Bool value, auto-coerced.
-    let lb: Hermes = @[(x % 2) == 0 for x in xs];
+    let lb: Rc<Hermes2> = @[(x % 2) == 0 for x in xs];
 
-    // Map with string values — auto-coerced to Varchar in the zone.
+    // Map with string values — auto-coerced to HString in the zone.
     let keys: [str; 3] = ["a", "b", "c"];
     let idx:  [i32; 3] = [0, 1, 2];
-    let md: Hermes = @{keys[x as i64]: "val" for x in idx};
+    let md: Rc<Hermes2> = @{keys[x as i64]: "val" for x in idx};
 
     unsafe {
-        // la: [1, 4, 9, 16]
-        let ra: AnyVal = la.root();
-        let ba: *const u8 = la.base();
-        let oa: *const ObjectArray =
-            (ba as i64 + ra.as_offset() as i64) as *const ObjectArray;
-        if oa.len() != 4 as u64 { return 1; }
-        if oa.get(ba, 2 as u64).as_i24() != 9 { return 2; }
-        if oa.get(ba, 3 as u64).as_i24() != 16 { return 3; }
+        let v0: HView2 = HView2 { base: 0 as *const u8 };
 
-        // lb: [false, true, false, true] — check first two via AnyVal method
-        let rb: AnyVal = lb.root();
-        let bb: *const u8 = lb.base();
-        let ob: *const ObjectArray =
-            (bb as i64 + rb.as_offset() as i64) as *const ObjectArray;
-        if ob.len() != 4 as u64 { return 4; }
-        if ob.get(bb, 1 as u64).as_bool() != true  { return 5; }
-        if ob.get(bb, 0 as u64).as_bool() != false { return 6; }
+        // la: [1, 4, 9, 16]
+        let ha: &Hermes2 = la.deref();
+        let ra: HAny = ha.root();
+        if v0.array_len(ra) != 4u64 { return 1; }
+        if v0.get_int(v0.array_get(ra, 2u64)) != 9i64 { return 2; }
+        if v0.get_int(v0.array_get(ra, 3u64)) != 16i64 { return 3; }
+
+        // lb: [false, true, false, true]
+        let hb: &Hermes2 = lb.deref();
+        let rb: HAny = hb.root();
+        if v0.array_len(rb) != 4u64 { return 4; }
+        if !v0.get_bool(v0.array_get(rb, 1u64)) { return 5; }
+        if v0.get_bool(v0.array_get(rb, 0u64)) { return 6; }
 
         // md: {"a": "val", "b": "val", "c": "val"}
-        let rm: AnyVal = md.root();
-        let bm: *const u8 = md.base();
-        if !rm.is_map(bm) { return 7; }
-        let v: AnyVal = md.map_get(rm, "b");
-        let pv: *const AnyVal = &v as *const AnyVal;
-        if !pv.is_string(bm) { return 8; }
+        let hm: &Hermes2 = md.deref();
+        let rm: HAny = hm.root();
+        if !rm.is_map() { return 7; }
+        let v: HAny = v0.map_get(rm, "b");
+        if !v.is_string() { return 8; }
+        let sv: SView2 = v0.get_str_view(v);
+        if sv.len != 3u64 { return 9; }
     }
 
     return 42;

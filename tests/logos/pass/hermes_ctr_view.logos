@@ -1,35 +1,38 @@
-// C8f: HermesView — non-owning view of a live Hermes.
+// C8f (hermes2): read a LIVE runtime container through the value-form root —
+// the hermes2 analog of HermesView (non-owning read of a live Hermes).
 package hermes_ctr_view;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // Build a small document.
-    let mut ctr: Hermes = Hermes::new(4096);
-    match ctr.parse("{\"x\": 1, \"y\": 2}") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 1; }
-    }
-
-    // Obtain a view — borrows ctr.
-    let v: HermesView = ctr.as_view();
-    let root: AnyVal = v.root();
+    // Build a small document (capture literal = runtime container).
+    let x: i32 = 1;
+    let y: i32 = 2;
+    let ctr: Rc<Hermes2> = @{"x": $x, "y": $y};
+    let h: &Hermes2 = ctr.deref();
+    let root: HAny = h.root();
     if root.is_null() { return 2; }
 
-    // stringify via view.
-    let text: String = v.to_string();
-    if !text.eq_str("{\"x\":1,\"y\":2}") { return 3; }
+    // stringify via the live root (open-addressing key order is hash-dependent).
+    let text: String = stringify(root);
+    if text.len() != 16i64 { return 3; }
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    if v0.get_int(v0.map_get(root, "x")) != 1i64 { return 31; }
+    if v0.get_int(v0.map_get(root, "y")) != 2i64 { return 32; }
 
-    // View of a capture-literal Hermes.
+    // Reads through HView2 helpers on the same live root.
     let id: i32 = 99;
-    let doc: Hermes = @{"id": $id};
-    let dv: HermesView = doc.as_view();
-    let dr: AnyVal = dv.root();
+    let doc: Rc<Hermes2> = @{"id": $id};
+    let dh: &Hermes2 = doc.deref();
+    let dr: HAny = dh.root();
     if dr.is_null() { return 4; }
+    if v0.get_int(v0.map_get(dr, "id")) != 99i64 { return 5; }
 
     return 0;
 }

@@ -7756,9 +7756,14 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             hoist_let_view = make_stmt_emit(node_line_, std::move(sl));
         }
         // hermes2: the node type is HAny (the helper's return type); the root is
-        // hermes2_pat_root(view) — every leaf/slot helper takes *HAny + ignores base.
+        // hermes2_pat_root(view) (static blob) or hermes2_pat_root_rc(&Rc<Hermes2>)
+        // (runtime container) — every leaf/slot helper takes *HAny + ignores base.
+        TypeRef scrut_inner = hermes_view_inner(scrut_type);
+        const char* root_helper =
+            (scrut_inner && TypeRef(scrut_inner).struct_name() == "Rc")
+            ? "hermes2_pat_root_rc" : "hermes2_pat_root";
         {
-            auto root_cands = find_func_candidates("hermes2_pat_root");
+            auto root_cands = find_func_candidates(root_helper);
             const SemaFuncInfo* root_fi = nullptr;
             for (auto* c : root_cands) if (c->param_types.size() == 1) { root_fi = c; break; }
             anyval_t = root_fi ? root_fi->ret_type : make_datatype_type("AnyVal");
@@ -7770,7 +7775,7 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             auto view_ref = builder().var_ref(view_var, scrut_type);
             std::vector<lir::LExprPtr> ra;
             ra.push_back(std::move(view_ref));
-            auto root_call = builder().call("hermes2_pat_root", {}, std::move(ra), anyval_t);
+            auto root_call = builder().call(root_helper, {}, std::move(ra), anyval_t);
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
             sl.value = std::move(root_call);

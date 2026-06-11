@@ -1,39 +1,49 @@
-// Hermes capture: f64 value captured as zone-allocated F64 object.
-// C7-fix1: added is_ptr() checks — confirms root is a zone object (not inline/null).
+// Hermes capture: f64 value captured as zone-allocated F64 object (hermes2).
+// C7-fix1: is_ref/is_map checks — confirms root is a zone object (not inline/null).
 package hermes_capture_f64;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.static_view;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+
     // Capture an f64 into a map.
     let price: f64 = 3.14;
-    let doc: Hermes = @{"price": $price};
-    let root: AnyVal = doc.root();
+    let doc: Rc<Hermes2> = @{"price": $price};
+    let h: &Hermes2 = doc.deref();
+    let root: HAny = h.root();
     if root.is_null() { return 1; }
-    // Map root must be a zone pointer (ObjectMap), not inline.
-    if !root.is_ptr() { return 2; }
-    // Verify root points to a map object.
-    let base: *const u8 = doc.base();
-    if !root.is_map(base) { return 3; }
+    if !root.is_ref() { return 2; }
+    if !root.is_map() { return 3; }
+    let pv: HAny = v0.map_get(root, "price");
+    if !pv.is_float() { return 31; }
+    if pv.as_f64() != 3.14 { return 32; }
 
     // Capture f64 in an array.
-    let arr: Hermes = @[$price, ${1.5 + 0.5}];
-    let arr_root: AnyVal = arr.root();
+    let arr: Rc<Hermes2> = @[$price, ${1.5 + 0.5}];
+    let ah: &Hermes2 = arr.deref();
+    let arr_root: HAny = ah.root();
     if arr_root.is_null() { return 4; }
-    // Array root must be a zone pointer (ObjectArray), not inline.
-    if !arr_root.is_ptr() { return 5; }
-    let arr_base: *const u8 = arr.base();
-    if !arr_root.is_array(arr_base) { return 6; }
+    if !arr_root.is_ref() { return 5; }
+    if !arr_root.is_array() { return 6; }
+    if v0.array_len(arr_root) != 2u64 { return 61; }
+    let e1: HAny = v0.array_get(arr_root, 1u64);
+    if e1.as_f64() != 2.0 { return 62; }
 
     // Mix: i32 + f64 in same literal (mixed zone-alloc + inline).
     let count: i32 = 42;
     let ratio: f64 = 0.5;
-    let mix: Hermes = @{"n": $count, "r": $ratio};
-    let mix_root: AnyVal = mix.root();
+    let mix: Rc<Hermes2> = @{"n": $count, "r": $ratio};
+    let mh: &Hermes2 = mix.deref();
+    let mix_root: HAny = mh.root();
     if mix_root.is_null() { return 7; }
-    if !mix_root.is_ptr() { return 8; }
-    let mix_base: *const u8 = mix.base();
-    if !mix_root.is_map(mix_base) { return 9; }
+    if !mix_root.is_ref() { return 8; }
+    if !mix_root.is_map() { return 9; }
+    if v0.get_int(v0.map_get(mix_root, "n")) != 42i64 { return 91; }
+    if v0.map_get(mix_root, "r").as_f64() != 0.5 { return 92; }
 
     return 0;
 }

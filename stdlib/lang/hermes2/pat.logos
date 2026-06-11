@@ -15,7 +15,9 @@ use logos.lang.hermes2.array;        // HArray<HVal>
 use logos.lang.hermes2.hmap;         // HMap<HString, HVal>
 use logos.lang.hermes2.hstring;      // HString
 use logos.lang.hermes2.static_view;  // HView2 / hview2_from_ptr
+use logos.lang.hermes2.container;    // Hermes2 (runtime scrutinee)
 use logos.lang.hermes.view;          // HermesStatic (the scrutinee handle)
+use logos.mem.rc;                    // Rc — runtime container scrutinee
 use logos.lang.str;                  // str, str_eq
 
 fn null_hany() -> HAny { return HAny::Ref(0i64 as *const u8); }
@@ -29,6 +31,12 @@ pub fn hermes2_pat_root(view: &HermesStatic) -> HAny {
     if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
     if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
     return HAny::Ref((base as i64 + w) as *const u8);
+}
+
+// Root HAny of a RUNTIME Rc<Hermes2> scrutinee (capture/comprehension results).
+pub fn hermes2_pat_root_rc(c: &Rc<Hermes2>) -> HAny {
+    let h: &Hermes2 = c.deref();
+    return h.root();
 }
 
 // ── Scalar leaves (build_leaf passes NO base for these) ─────────────────────

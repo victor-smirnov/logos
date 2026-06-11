@@ -7,7 +7,7 @@ use logos.lang.hermes.array;
 use logos.lang.hermes.map;
 use logos.lang.hermes.typed_value;
 use logos.mem.hermes.ctr;
-use logos.mem.hermes.pat;
+use logos.lang.hermes2.pat;
 use logos.lang.hermes.view;
 use logos.mem.hermes.view;
 
