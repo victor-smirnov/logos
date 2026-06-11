@@ -1,89 +1,54 @@
-// Cross-container import/export of Hermes object graphs.
+// Cross-container subtree import on hermes2 (successor of import_from):
+// clone a SUBTREE of one document into another container; both stay live and
+// independent.
 package hermes_import_export;
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.mem.string;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.clone;
+use logos.mem.hermes2.equal;
+use logos.mem.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // ── 1. Import an array subtree into a fresh builder ──────────────────
-    let mut src: Hermes = Hermes::new(4096);
-    match src.parse("{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 1; }
-    }
-    let src_root: AnyVal = src.root();
-    let arr_val: AnyVal  = src.map_get(src_root, "arr");
+    // 1. Source document with a nested array.
+    let rc1: Rc<Hermes2> = hermes2_rc(16384);
+    let src_h: &Hermes2 = rc1.deref();
+    let src_root: HAny = parse(src_h, "{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}");
+    let sm: &HMap<HString, HVal> = &*(src_root.resolve() as *const HMap<HString, HVal>);
+    let arr_val: HAny = sm.get("arr");
     if arr_val.is_null() { return 2; }
-    if src.array_len(arr_val) != 3 as u64 { return 3; }
 
-    let mut dst: Hermes = Hermes::builder(4096);
-    let imported: AnyVal =
-        dst.import_from(&src as *const Hermes, arr_val);
+    // 2. Import the array subtree into a fresh container.
+    let rc2: Rc<Hermes2> = hermes2_rc(16384);
+    let dst_h: &Hermes2 = rc2.deref();
+    let imported: HAny = hermes2_clone_into(dst_h, arr_val);
     if imported.is_null() { return 4; }
-    dst.set_root(imported);
-    if !dst.check() { return 5; }
-    if dst.array_len(imported) != 3 as u64 { return 6; }
+    if !imported.is_array() { return 5; }
+    let ia: &HArray<HVal> = &*(imported.resolve() as *const HArray<HVal>);
+    if ia.len() != 3i64 { return 6; }
+    if ia.get(2).as_i64() != 3i64 { return 7; }
 
-    // ── 2. export() mirrors import_from + set_root ───────────────────────
-    let exported: Hermes = src.export(arr_val);
-    if !exported.check() { return 7; }
-    let exp_root: AnyVal = exported.root();
-    if exp_root.is_null() { return 8; }
-    if exported.array_len(exp_root) != 3 as u64 { return 9; }
+    // 3. The copy is structurally equal but physically separate.
+    if !hermes2_equal(arr_val, imported) { return 8; }
+    if imported.resolve() == arr_val.resolve() { return 9; }
 
-    // ── 3. Importing the full doc root preserves the nested structure ────
-    let mut full_dst: Hermes = Hermes::builder(4096);
-    let full_imp: AnyVal =
-        full_dst.import_from(&src as *const Hermes, src_root);
-    if full_imp.is_null() { return 10; }
-    full_dst.set_root(full_imp);
-    if !full_dst.check() { return 11; }
+    // 4. Import a string leaf too.
+    let s_val: HAny = sm.get("s");
+    let s_imp: HAny = hermes2_clone_into(dst_h, s_val);
+    if !s_imp.is_string() { return 10; }
+    let hs: &HString = &*(s_imp.resolve() as *const HString);
+    if !str_eq(hs.as_str(), "hello") { return 11; }
 
-    // Same nested array still has 3 elements after cross-container copy.
-    let arr2: AnyVal = full_dst.map_get(full_imp, "arr");
-    if arr2.is_null() { return 12; }
-    if full_dst.array_len(arr2) != 3 as u64 { return 13; }
-
-    // Stringify and compare lengths of source vs. imported: compact form
-    // should match exactly (no garbage, same structure).
-    let mut buf_src: String = String::with_capacity(128);
-    let mut buf_dst: String = String::with_capacity(128);
-    src.stringify(&mut buf_src);
-    full_dst.stringify(&mut buf_dst);
-    if buf_src.len() != buf_dst.len() { return 14; }
-
-    // ── 4. Importing an inline scalar passes through unchanged ───────────
-    let mut src2: Hermes = Hermes::new(4096);
-    match src2.parse("42") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 15; }
-    }
-    let inline_val: AnyVal = src2.root();
-    let mut dst2: Hermes = Hermes::builder(4096);
-    let inl_imp: AnyVal =
-        dst2.import_from(&src2 as *const Hermes, inline_val);
-    if inl_imp.raw != inline_val.raw { return 16; }
-
-    // ── 5. Importing null_ptr returns null_ptr ───────────────────────────
-    let null_imp: AnyVal =
-        dst2.import_from(&src2 as *const Hermes, AnyVal::null_ptr());
-    if !null_imp.is_null() { return 17; }
-
-    // ── 6. import_from a null src_ptr returns null_ptr (safe no-op) ──────
-    let safe_null: AnyVal =
-        dst2.import_from(0 as *const Hermes, inline_val);
-    if !safe_null.is_null() { return 18; }
-
-    // ── 7. export with explicit capacity_hint ────────────────────────────
-    let exp2: Hermes = src.export(arr_val, 1024 as i64);
-    if !exp2.check() { return 19; }
-    if exp2.array_len(exp2.root()) != 3 as u64 { return 20; }
-
-    // ── 8. self-import is rejected (zone-alias would corrupt base_src) ───
-    let self_imp: AnyVal =
-        src.import_from(&src as *const Hermes, arr_val);
-    if !self_imp.is_null() { return 21; }
+    // 5. Mutating the destination does not disturb the source.
+    let dm: &mut HMap<HString, HVal> = dst_h.map(8);
+    dm.set("import", imported);
+    let dmp: *const HMap<HString, HVal> = dm as *const HMap<HString, HVal>;
+    dst_h.set_root(HAny::ref_to(dmp as *const u8));
+    if sm.get("x").as_i64() != 10i64 { return 12; }
 
     return 0;
 }

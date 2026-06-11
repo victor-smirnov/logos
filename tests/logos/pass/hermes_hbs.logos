@@ -1,49 +1,40 @@
-// HBS round-trip test: serialize a Hermes document to HBS binary and
-// deserialize into a fresh container; verify that stringify output matches.
+// HBS binary roundtrip on hermes2: serialize -> bytes -> deserialize ->
+// structurally equal + identical render.
 package hermes_hbs;
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.hbs;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.stringify;
+use logos.mem.collections.vec;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-extern fn write(fd: i32, buf: *const u8, count: i64) -> i32;
-
 unsafe fn main() -> i32 {
-    // ── 1. Parse a document ───────────────────────────────────────────────────
-    let mut src: Hermes = Hermes::new(4096);
-    match src.parse("[1,\"hello\",true,null,42]") {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 1; }
-    }
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
 
-    // ── 2. Stringify original ─────────────────────────────────────────────────
-    let s1: String = src.to_string();
+    // 1. Parse a mixed document.
+    let src: HAny = parse(h, "[1, \"hello\", true, null, 42]");
+    let s1: String = stringify(src);
 
-    // ── 3. Serialize to HBS ───────────────────────────────────────────────────
-    let hbs: String = src.serialize();
-    if hbs.len() < 12 as i64 { return 2; }
+    // 2. Serialize to bytes.
+    let wire: Vec<u8> = hbs_write(src);
+    if wire.len() == 0 { return 1; }
 
-    // ── 4. Deserialize into fresh container ───────────────────────────────────
-    let mut dst: Hermes = Hermes::builder(4096);
-    if !dst.deserialize(hbs.as_ptr(), hbs.len()) { return 3; }
+    // 3. Deserialize into a second container.
+    let rc2: Rc<Hermes2> = hermes2_rc(32768);
+    let h2: &Hermes2 = rc2.deref();
+    let ws: &[u8] = wire.as_slice();
+    let dst: HAny = hbs_read(h2, ws.as_ptr(), wire.len() as i64);
+    if dst.is_null() { return 2; }
 
-    // ── 5. Stringify deserialized ─────────────────────────────────────────────
-    let s2: String = dst.to_string();
-
-    // Print both (they should be identical)
-    write(1 as i32, s1.as_ptr(), s1.len());
-    write(1 as i32, "\n" as *const u8, 1 as i64);
-    write(1 as i32, s2.as_ptr(), s2.len());
-    write(1 as i32, "\n" as *const u8, 1 as i64);
-
-    // Verify content matches
-    if s1.len() != s2.len() { return 4; }
-    let mut i: i64 = 0 as i64;
-    while i < s1.len() {
-        let b1: u8 = *((s1.as_ptr() as i64 + i) as *const u8);
-        let b2: u8 = *((s2.as_ptr() as i64 + i) as *const u8);
-        if b1 != b2 { return 5; }
-        i = i + 1 as i64;
-    }
+    // 4. Structural equality + identical render.
+    if !hermes2_equal(src, dst) { return 3; }
+    let s2: String = stringify(dst);
+    if !s1.eq_str(s2.as_str()) { return 4; }
 
     return 0;
 }
