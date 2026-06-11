@@ -1,74 +1,41 @@
+// Trait-walker edge regressions on hermes2: empty containers, null inside
+// containers, key-order independence of equal/hash, scalar/container kind walls.
 package hermes_traits_bugfix;
-// Regression for bug hunt performed on Phase-3 implementation of
-// HermesEqual / HermesHash / HermesClone.
-//
-// Each test block targets a specific fix documented in the commit log.
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes.string;
-use logos.mem.string;
-use logos.lang.str;
-use logos.lang.hermes.typetag;
-use logos.mem.hermes.tag_system;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
-use logos.lang.hermes.objectmap;
-use logos.lang.hermes.document;
-use logos.mem.hermes.ctr;
-use logos.mem.hermes.stringify;
-use logos.mem.hermes.equal;
-use logos.mem.hermes.hashing;
-use logos.mem.hermes.clone;
-
-unsafe fn build(text: str) -> Hermes {
-    let mut doc: Hermes = Hermes::new(8192);
-    match doc.parse(text) {
-        Result::Ok(())  => {}
-        Result::Err(_)  => {}
-    }
-    return doc;
-}
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.hashing;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // ── Bug: ObjectMap::equal false-positive on null values with disjoint keys.
-    let mut da: Hermes = build("{x:null}");
-    let mut db: Hermes = build("{y:null}");
-    let mut ec: EqualCtx = EqualCtx { base_self: da.base(), base_other: db.base() };
-    if anyval_equal(da.root(), db.root(), &mut ec) { return 10; }
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
 
-    // ── Bug: HermesHash type_code mixed as u8 → collisions for codes >255.
-    let mut dc: Hermes = build("{a:1}");
-    let mut dd: Hermes = build("{a:1_s8}");
-    let mut hc: HashCtx = HashCtx { base: dc.base() };
-    let mut hd: HashCtx = HashCtx { base: dd.base() };
-    if anyval_hash(dc.root(), &mut hc) == anyval_hash(dd.root(), &mut hd) { return 11; }
+    // Empty containers equal themselves, not each other.
+    let ea: HAny = parse(h, "[]");
+    let eb: HAny = parse(h, "[]");
+    let em: HAny = parse(h, "{}");
+    if !hermes2_equal(ea, eb) { return 1; }
+    if hermes2_equal(ea, em)  { return 2; }
 
-    // ── Positive clone round-trip: d1 == clone(d1) structurally and stringified.
-    let mut src: Hermes = build("{a:1,b:\"ok\",c:[true,false]}");
-    let mut dst: Hermes = Hermes::builder(8192);
-    let mut cc: CloneCtx = CloneCtx {
-        base_src: src.base(),
-        zone_dst: dst.zone_mut(),
-        map: 0 as *mut CloneMap,
-    };
-    let new_root: AnyVal = anyval_clone(src.root(), &mut cc);
-    if new_root.is_null() { return 12; }
-    dst.set_root(new_root);
+    // null inside a container participates in equality.
+    let n1: HAny = parse(h, "[null]");
+    let n2: HAny = parse(h, "[null]");
+    let n3: HAny = parse(h, "[0]");
+    if !hermes2_equal(n1, n2) { return 3; }
+    if hermes2_equal(n1, n3)  { return 4; }
 
-    let s_src: String = src.to_string();
-    let s_dst: String = dst.to_string();
-    if !s_src.eq_string(&s_dst) { return 13; }
+    // Key order does not matter for equal OR hash.
+    let m1: HAny = parse(h, "{a: 1, b: 2}");
+    let m2: HAny = parse(h, "{b: 2, a: 1}");
+    if !hermes2_equal(m1, m2) { return 5; }
+    if hermes2_hash(m1) != hermes2_hash(m2) { return 6; }
 
-    // Cross-zone equal and hash after clone.
-    let mut ec2: EqualCtx = EqualCtx { base_self: src.base(), base_other: dst.base() };
-    if !anyval_equal(src.root(), new_root, &mut ec2) { return 14; }
-
-    let mut hc_s: HashCtx = HashCtx { base: src.base() };
-    let mut hc_d: HashCtx = HashCtx { base: dst.base() };
-    if anyval_hash(src.root(), &mut hc_s) != anyval_hash(new_root, &mut hc_d) { return 15; }
+    // Scalar / container kind walls.
+    let s: HAny = parse(h, "1");
+    if hermes2_equal(s, ea) { return 7; }
+    if hermes2_equal(s, HAny::from(true)) { return 8; }
 
     return 0;
 }

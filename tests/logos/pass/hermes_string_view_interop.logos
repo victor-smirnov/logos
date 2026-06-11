@@ -1,74 +1,35 @@
+// Zone-string views from parsed documents (hermes2 successor of the Hermes1
+// StringView interop test): array of strings -> per-element byte views.
 package hermes_string_view_interop;
-// Same StringView type is produced by two different storage formats:
-//   • Hermes (zone/AOS — HermesString with vlen prefix + bytes inline)
-//   • Buffer<HermesString> (heap/SoA — packed bytes + end offsets)
-// Code that consumes StringView doesn't care which one it came from.
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
 
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes.string;
-use logos.lang.hermes.typetag;
-use logos.mem.hermes.tag_system;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
-use logos.lang.hermes.objectmap;
-use logos.lang.hermes.document;
-use logos.mem.hermes.ctr;
-use logos.mem.hermes.stringify;
-use logos.mem.hermes.parser;
-use logos.lang.fabric;
-
-unsafe fn views_eq(a: StringView, b: StringView) -> bool {
-    if a.len != b.len { return false; }
-    let mut i: u64 = 0 as u64;
-    while i < a.len {
-        let ap: *const u8 = (a.ptr as i64 + i as i64) as *const u8;
-        let bp: *const u8 = (b.ptr as i64 + i as i64) as *const u8;
-        if *ap != *bp { return false; }
-        i = i + 1 as u64;
-    }
-    return true;
-}
+unsafe fn views_eq(a: str, b: str) -> bool { return str_eq(a, b); }
 
 unsafe fn main() -> i32 {
-    // Parse a document with three strings in an array.
-    let text: str = r#"["hello", "", "world!"]"#;
-    let mut doc: Hermes = Hermes::new(8192);
-    match doc.parse(text) {
-        Result::Ok(())  => {}
-        Result::Err(_)  => { return 99; }
-    }
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let root: HAny = parse(h, "[\"hello\", \"\", \"world!\"]");
+    if !root.is_array() { return 1; }
+    let arr: &HArray<HVal> = &*(root.resolve() as *const HArray<HVal>);
+    if arr.len() != 3i64 { return 2; }
 
-    let root: AnyVal = doc.root();
-    if doc.array_len(root) != 3 as u64 { return 1; }
+    let s0: &HString = &*(arr.get(0).resolve() as *const HString);
+    if !views_eq(s0.as_str(), "hello") { return 3; }
+    let s1: &HString = &*(arr.get(1).resolve() as *const HString);
+    if s1.len() != 0i64 { return 4; }
+    let s2: &HString = &*(arr.get(2).resolve() as *const HString);
+    if !views_eq(s2.as_str(), "world!") { return 5; }
+    if s2.len() != 6i64 { return 6; }
 
-    // Pull each string as a StringView from the Hermes (AOS).
-    let v0_ctr: StringView = doc.get_str_view(doc.array_get(root, 0 as u64));
-    let v1_ctr: StringView = doc.get_str_view(doc.array_get(root, 1 as u64));
-    let v2_ctr: StringView = doc.get_str_view(doc.array_get(root, 2 as u64));
-
-    // Store the same strings in a Buffer<HermesString> (SoA).
-    let mut b: Buffer<HermesString> = Buffer::<HermesString>::new();
-    b.push(v0_ctr);
-    b.push(v1_ctr);
-    b.push(v2_ctr);
-
-    // Pull each string back out of the Buffer (also a StringView).
-    let v0_buf: StringView = b.get(0 as u64);
-    let v1_buf: StringView = b.get(1 as u64);
-    let v2_buf: StringView = b.get(2 as u64);
-
-    // Cross-storage byte equality — the two views compare equal content-wise
-    // even though the underlying memory layout is different.
-    if !views_eq(v0_ctr, v0_buf) { return 10; }
-    if !views_eq(v1_ctr, v1_buf) { return 11; }
-    if !views_eq(v2_ctr, v2_buf) { return 12; }
-
-    // Sanity: the Buffer copies bytes — pointers should differ even though
-    // contents match.  (Not a correctness requirement, but documents intent.)
-    if v0_ctr.ptr == v0_buf.ptr { return 20; }
+    // Views alias zone bytes — no copies: pointer is inside the arena string.
+    let p: *const u8 = s0.as_str().as_ptr();
+    if *p != 104 as u8 { return 7; }    // 'h'
 
     return 0;
 }

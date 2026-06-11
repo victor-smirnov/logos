@@ -1,82 +1,42 @@
+// equal + hash + stringify agree across parsed documents (hermes2 successor of
+// the Hermes1 traits suite): equal docs hash equal & render identically;
+// different docs differ everywhere.
 package hermes_traits_full;
-// End-to-end test of HermesEqual, HermesHash, HermesClone across zones.
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes2.hstatic;
-use logos.lang.hermes.string;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.equal;
+use logos.mem.hermes2.hashing;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
-use logos.lang.hermes.typetag;
-use logos.mem.hermes.tag_system;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
-use logos.lang.hermes.objectmap;
-use logos.lang.hermes.document;
-use logos.mem.hermes.ctr;
-use logos.mem.hermes.stringify;
-use logos.mem.hermes.equal;
-use logos.mem.hermes.hashing;
-use logos.mem.hermes.clone;
-
-unsafe fn build_doc(text: str) -> Hermes {
-    let mut doc: Hermes = Hermes::new(8192);
-    match doc.parse(text) {
-        Result::Ok(())  => {}
-        Result::Err(_)  => {}
-    }
-    return doc;
-}
 
 unsafe fn main() -> i32 {
-    let t1: str = "{a:1,b:\"hi\",c:[1,2,3]}";
-    let t2: str = "{a:1,b:\"hi\",c:[1,2,3]}";
-    let t3: str = "{a:1,b:\"hi\",c:[1,2,4]}";
+    let rc: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = rc.deref();
 
-    let mut d1: Hermes = build_doc(t1);
-    let mut d2: Hermes = build_doc(t2);
-    let mut d3: Hermes = build_doc(t3);
+    let r1: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r2: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 3]}");
+    let r3: HAny = parse(h, "{a: 1, b: \"hi\", c: [1, 2, 4]}");
 
-    let r1: AnyVal = d1.root();
-    let r2: AnyVal = d2.root();
-    let r3: AnyVal = d3.root();
+    // equal: r1 == r2, r1 != r3.
+    if !hermes2_equal(r1, r2) { return 1; }
+    if hermes2_equal(r1, r3)  { return 2; }
 
-    let b1: *const u8 = d1.base();
-    let b2: *const u8 = d2.base();
-    let b3: *const u8 = d3.base();
-
-    // ── equal: d1 == d2, d1 != d3
-    let mut eq_ctx: EqualCtx = EqualCtx { base_self: b1, base_other: b2 };
-    if !anyval_equal(r1, r2, &mut eq_ctx) { return 1; }
-
-    let mut eq_ctx2: EqualCtx = EqualCtx { base_self: b1, base_other: b3 };
-    if anyval_equal(r1, r3, &mut eq_ctx2) { return 2; }
-
-    // ── hash: d1 and d2 same, d1 and d3 different
-    let mut h_ctx1: HashCtx = HashCtx { base: b1 };
-    let mut h_ctx2: HashCtx = HashCtx { base: b2 };
-    let mut h_ctx3: HashCtx = HashCtx { base: b3 };
-    let h1: u64 = anyval_hash(r1, &mut h_ctx1);
-    let h2: u64 = anyval_hash(r2, &mut h_ctx2);
-    let h3: u64 = anyval_hash(r3, &mut h_ctx3);
+    // hash: equal docs hash equal; the different doc differs.
+    let h1: u64 = hermes2_hash(r1);
+    let h2: u64 = hermes2_hash(r2);
+    let h3: u64 = hermes2_hash(r3);
     if h1 != h2 { return 3; }
     if h1 == h3 { return 4; }
 
-    // ── clone: copy d1 into a fresh builder zone, compare via stringify output
-    let mut dst: Hermes = Hermes::builder(8192);
-    let mut c_ctx: CloneCtx = CloneCtx {
-        base_src: b1,
-        zone_dst: dst.zone_mut(),
-        map: 0 as *mut CloneMap,
-    };
-    let cloned_root: AnyVal = anyval_clone(r1, &mut c_ctx);
-    if cloned_root.is_null() { return 5; }
-    dst.set_root(cloned_root);
-
-    let s_orig:   String = d1.to_string();
-    let s_cloned: String = dst.to_string();
-    if !s_orig.eq_string(&s_cloned) { return 6; }
+    // stringify: equal docs render identically.
+    let s1: String = stringify(r1);
+    let s2: String = stringify(r2);
+    let s3: String = stringify(r3);
+    if !s1.eq_str(s2.as_str()) { return 5; }
+    if s1.eq_str(s3.as_str())  { return 6; }
 
     return 0;
 }

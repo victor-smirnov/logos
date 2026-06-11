@@ -15,6 +15,7 @@ use logos.lang.hermes2.array;      // HArray<HVal>
 use logos.lang.hermes2.hmap;       // HMap<HString, HVal>
 use logos.lang.hermes2.hstring;    // HString
 use logos.lang.str;
+use logos.lang.arith;          // wrapping_mul (FNV intentionally wraps)
 
 pub fn fnv_init() -> u64 { return 14695981039346656037u64; }
 
@@ -22,14 +23,14 @@ pub fn fnv_mix_u64(h: u64, v: u64) -> u64 {
     let mut x: u64 = h;
     let mut i: i64 = 0;
     while i < 8 {
-        x = (x ^ ((v >> ((i as u64) * 8u64)) & 0xFFu64)) * 1099511628211u64;
+        x = wrapping_mul(x ^ ((v >> ((i as u64) * 8u64)) & 0xFFu64), 1099511628211u64);
         i = i + 1;
     }
     return x;
 }
 
 fn fnv_mix_byte(h: u64, b: u8) -> u64 {
-    return (h ^ (b as u64)) * 1099511628211u64;
+    return wrapping_mul(h ^ (b as u64), 1099511628211u64);
 }
 
 // Per-kind salts keep cross-kind collisions away (array vs map vs string...).
