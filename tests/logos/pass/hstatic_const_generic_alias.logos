@@ -24,8 +24,8 @@ package hstatic_const_generic_alias;
 
 use logos.std.compiler.metaprog;
 use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.static_view;
+use logos.lang.hermes2.anyval;
 
 pub struct Foo<const CFG: HermesStatic> { pub x: i32, }
 
@@ -36,8 +36,8 @@ pub type FooA = Foo<CfgA>;
 pub type FooB = Foo<CfgB>;
 
 unsafe fn read_k<const CFG: HermesStatic>() -> i64 {
-    let v = CFG.as_view();
-    let av: AnyVal = v.map_get(v.root(), "k");
+    let v: HView2 = hview2_from_ptr(CFG.ptr);
+    let av: HAny = v.map_get(v.root(), "k");
     if av.is_null() { return -1i64; }
     return av.as_i64();
 }
