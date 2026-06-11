@@ -1,40 +1,17 @@
-// Unsupported typed materializations must return parse error.
+// Typed-container materialization errors -> null (hermes2): wrong key kinds,
+// non-numeric elements; a valid doc follows fine.
 package hermes_typed_materialization_errors;
-
-use logos.mem.hermes.ctr;
-use logos.mem.string;
-use logos.lang.str;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // Unknown typed array materialization.
-    let mut d1: Hermes = Hermes::new(4096);
-    match d1.parse("<U64>[1]" as *const u8, 8 as i64) {
-        Result::Ok(())  => { return 1; }
-        Result::Err(_)  => {}
-    }
-
-    // <I32,AnyVal> must reject non-i32 keys at parse time.
-    let mut d2: Hermes = Hermes::new(4096);
-    match d2.parse("<I32,AnyVal>{\"a\":1}" as *const u8, 19 as i64) {
-        Result::Ok(())  => { return 2; }
-        Result::Err(_)  => {}
-    }
-
-    // Materialized type with wrong payload element kind.
-    let mut d3: Hermes = Hermes::new(4096);
-    match d3.parse("<I32>[\"x\"]" as *const u8, 10 as i64) {
-        Result::Ok(())  => { return 3; }
-        Result::Err(_)  => {}
-    }
-
-    // Baseline (untyped) containers must still work.
-    let mut d4: Hermes = Hermes::new(4096);
-    match d4.parse("[1,2,3]" as *const u8, 7 as i64) {
-        Result::Ok(())  => {}
-        Result::Err(_)  => { return 4; }
-    }
-    let s4: String = d4.to_string();
-    if !s4.eq_str("[1,2,3]") { return 5; }
-
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    if parse(h, "<U64>[1]").is_null() { return 1; }                    // fine
+    if !parse(h, "<I32,AnyVal>{\"a\":1}").is_null() { return 2; }      // string key in int map
+    if !parse(h, "<I32>[\"x\"]").is_null() { return 3; }               // string element
+    if parse(h, "<I32>[1,2]").is_null() { return 4; }                  // recovery
     return 0;
 }

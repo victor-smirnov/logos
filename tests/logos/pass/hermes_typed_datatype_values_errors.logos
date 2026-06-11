@@ -1,29 +1,19 @@
-// Invalid datatype-instantiation syntax must fail parsing.
+// Malformed @Type forms parse to null (hermes2): missing '=', unclosed
+// params, missing name.
 package hermes_typed_datatype_values_errors;
-
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // Missing '=' in prefix form.
-    let mut d1: Hermes = Hermes::new(1024);
-    match d1.parse("@I64 42" as *const u8, 7 as i64) {
-        Result::Ok(()) => { return 1; }
-        Result::Err(_) => {}
-    }
-
-    // Missing closing ')' in postfix params form.
-    let mut d2: Hermes = Hermes::new(1024);
-    match d2.parse("\"12\"@Decimal(10,2" as *const u8, 17 as i64) {
-        Result::Ok(()) => { return 2; }
-        Result::Err(_) => {}
-    }
-
-    // Missing type name after '@'.
-    let mut d3: Hermes = Hermes::new(1024);
-    match d3.parse("@=1" as *const u8, 3 as i64) {
-        Result::Ok(()) => { return 3; }
-        Result::Err(_) => {}
-    }
-
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
+    if !parse(h, "@I64 42").is_null() { return 1; }            // no '='
+    if !parse(h, "\"12\"@Decimal(10,2").is_null() { return 2; } // unclosed '('
+    if !parse(h, "@=1").is_null() { return 3; }                 // no name
+    if !parse(h, "@I64(=1").is_null() { return 4; }             // bad params
+    // A good form still parses after errors.
+    if parse(h, "@I64=1").is_null() { return 5; }
     return 0;
 }

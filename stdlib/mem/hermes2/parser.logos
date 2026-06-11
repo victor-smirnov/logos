@@ -114,6 +114,13 @@ unsafe fn kw(p: *mut P, s: str) -> bool {
 unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
     advance(p);                                   // '<'
     skip_ws(p);
+    // <Varchar[,AnyVal]>{...} is the plain ObjectMap spelled with a key type.
+    if kw(p, "Varchar") {
+        skip_ws(p);
+        if peek(p) == 44u8 { advance(p); skip_ws(p); let _ = kw(p, "AnyVal"); skip_ws(p); }
+        if peek(p) == 62u8 { advance(p); }
+        return parse_value(h, p);                 // expects '{' next
+    }
     let tc: u64 =
         if kw(p, "I16") { 2106u64 } else if kw(p, "U16") { 2102u64 }
         else if kw(p, "I32") { 2107u64 } else if kw(p, "U32") { 2103u64 }
@@ -148,11 +155,13 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
                 skip_ws(p);
                 let neg: bool = peek(p) == 45u8;
                 if neg { advance(p); }
+                if !is_digit(peek(p)) { return HAny::ref_to(0i64 as *const u8); }   // key must be an int
                 let mut kv: i64 = 0i64;
                 while is_digit(peek(p)) { kv = kv * 10i64 + ((advance(p) - 48u8) as i64); }
                 if neg { kv = 0i64 - kv; }
                 skip_ws(p);
-                if peek(p) == 58u8 { advance(p); }      // ':'
+                if peek(p) != 58u8 { return HAny::ref_to(0i64 as *const u8); }      // ':' required (rejects 1.5 keys)
+                advance(p);
                 let v: HAny = parse_value(h, p);
                 if n < 64i64 { keys[n] = kv; vals[n] = v.raw(); n = n + 1i64; }
                 skip_ws(p);
@@ -200,10 +209,14 @@ unsafe fn parse_typed(h: &Hermes2, p: *mut P) -> HAny {
             skip_ws(p);
             let neg: bool = peek(p) == 45u8;
             if neg { advance(p); }
+            if !is_digit(peek(p)) { return HAny::ref_to(0i64 as *const u8); }   // numerals only
             let mut iv: i64 = 0i64;
             while is_digit(peek(p)) { iv = iv * 10i64 + ((advance(p) - 48u8) as i64); }
             let mut fv: f64 = iv as f64;
             if peek(p) == 46u8 {
+                if tc != 2109u64 && tc != 2110u64 {
+                    return HAny::ref_to(0i64 as *const u8);                     // no floats in int arrays
+                }
                 advance(p);
                 let mut scale: f64 = 0.1;
                 while is_digit(peek(p)) { fv = fv + ((advance(p) - 48u8) as f64) * scale; scale = scale * 0.1; }

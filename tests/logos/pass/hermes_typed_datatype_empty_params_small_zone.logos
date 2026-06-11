@@ -1,23 +1,21 @@
-// Empty params must not allocate a params array object.
-// Regression: @Type() used to allocate-and-drop an unused ObjectArray.
+// @Type in a small arena (hermes2: segments grow on demand — the tiny
+// initial capacity is a stress, not a limit).
 package hermes_typed_datatype_empty_params_small_zone;
-
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.typed_value;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
+use logos.lang.str;
 
 unsafe fn main() -> i32 {
-    // This capacity is enough for @I64=1, and should also be enough for @I64()=1
-    // once empty params stop allocating a temporary array.
-    let mut d1: Hermes = Hermes::new(96);
-    match d1.parse("@I64=1" as *const u8, 6 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 1; }
-    }
-
-    let mut d2: Hermes = Hermes::new(96);
-    match d2.parse("@I64()=1" as *const u8, 8 as i64) {
-        Result::Ok(()) => {}
-        Result::Err(_) => { return 2; }
-    }
-
+    let rc: Rc<Hermes2> = hermes2_rc(256);     // deliberately tiny
+    let h: &Hermes2 = rc.deref();
+    let a: HAny = parse(h, "@I64=1");
+    if a.is_null() { return 1; }
+    if !str_eq(a.as_typed_value().type_name_str(), "I64") { return 2; }
+    let b: HAny = parse(h, "@I64()=1");
+    if b.is_null() { return 3; }
+    if b.as_typed_value().has_params() { return 4; }
     return 0;
 }

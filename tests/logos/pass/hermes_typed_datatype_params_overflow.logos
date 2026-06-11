@@ -1,15 +1,19 @@
-// Assoc params list must not truncate silently.
+// Params overflow: 33 parameters exceed the 32-slot bound -> null (hermes2).
 package hermes_typed_datatype_params_overflow;
-
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let mut d: Hermes = Hermes::new(8192);
-    // 33 params (current internal cap is 32). Must fail, not truncate.
-    let txt: str = "@X(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33)=0";
-    match d.parse(txt) {
-        Result::Ok(()) => { return 1; }
-        Result::Err(_) => {}
-    }
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let over: HAny = parse(h,
+        "@X(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33)=0");
+    if !over.is_null() { return 1; }
+    // 32 параметров — на границе, проходит.
+    let ok: HAny = parse(h,
+        "@X(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32)=0");
+    if ok.is_null() { return 2; }
     return 0;
 }

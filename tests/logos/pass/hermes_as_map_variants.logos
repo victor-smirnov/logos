@@ -1,66 +1,51 @@
-// hermes_as_map_variants.logos — MapSlice{U32,I64,U64} → as <K,AnyVal>{} cast.
-//
-// Tests the 3 new map key types: u32, i64, u64.
-// (i32 is covered by hermes_as_map.)
-
+// Map-cast variants on hermes2: all four key widths + Ref values re-anchor.
 package hermes_as_map_variants;
-
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-pub unsafe fn main() -> i32 {
-    // 1. u32 keys → Map<u32, AnyVal>
-    let keys1: [u32; 3] = [10, 20, 30];
-    let vals1: [AnyVal; 3] = [
-        AnyVal::embed_i24(1),
-        AnyVal::embed_i24(2),
-        AnyVal::embed_i24(3),
-    ];
-    let ms1: MapSliceU32 = MapSliceU32 {
-        keys: &keys1,
-        vals: &vals1,
-    };
-    let ctr1: Hermes = ms1 as <U32, AnyVal>{};
-    if ctr1.root().is_null() { return 1; }
-    if !ctr1.root().is_ptr() { return 2; }
-    let t1: String = ctr1.to_string();
-    if !t1.eq_str("<U32,AnyVal> {10:1,20:2,30:3}") { return 3; }
+unsafe fn main() -> i32 {
+    // U64 keys.
+    let ku: [u64; 2] = [100, 200];
+    let vu: [HAny; 2] = [HAny::from(1 as i56), HAny::from(2 as i56)];
+    let ksu: &[u64] = &ku;
+    let vsu: &[HAny] = &vu;
+    let mu: MapSliceU64 = MapSliceU64 { keys: ksu, vals: vsu };
+    let cu: Rc<Hermes2> = mu as <U64, AnyVal>{};
+    let hu: &Hermes2 = cu.deref();
+    if h2_type_code(hu.root().resolve()) != 3104u64 { return 1; }
+    let su: String = stringify(hu.root());
+    if !su.eq_str("<U64, AnyVal> {100: 1, 200: 2}") { return 2; }
 
-    // 2. i64 keys → Map<i64, AnyVal>
-    let keys2: [i64; 3] = [-1, 0, 1];
-    let vals2: [AnyVal; 3] = [
-        AnyVal::embed_i24(100),
-        AnyVal::embed_i24(200),
-        AnyVal::embed_i24(300),
-    ];
-    let ms2: MapSliceI64 = MapSliceI64 {
-        keys: &keys2,
-        vals: &vals2,
-    };
-    let ctr2: Hermes = ms2 as <I64, AnyVal>{};
-    if ctr2.root().is_null() { return 4; }
-    if !ctr2.root().is_ptr() { return 5; }
-    let t2: String = ctr2.to_string();
-    if !t2.eq_str("<I64,AnyVal> {-1:100,0:200,1:300}") { return 6; }
+    // I64 keys with a negative.
+    let ki: [i64; 2] = [-5, 5];
+    let vi: [HAny; 2] = [HAny::from(true), HAny::from(false)];
+    let ksi: &[i64] = &ki;
+    let vsi: &[HAny] = &vi;
+    let mi: MapSliceI64 = MapSliceI64 { keys: ksi, vals: vsi };
+    let ci: Rc<Hermes2> = mi as <I64, AnyVal>{};
+    let hi: &Hermes2 = ci.deref();
+    if h2_type_code(hi.root().resolve()) != 3103u64 { return 3; }
 
-    // 3. u64 keys → Map<u64, AnyVal>
-    let keys3: [u64; 3] = [100, 200, 300];
-    let vals3: [AnyVal; 3] = [
-        AnyVal::embed_i24(10),
-        AnyVal::embed_i24(20),
-        AnyVal::embed_i24(30),
-    ];
-    let ms3: MapSliceU64 = MapSliceU64 {
-        keys: &keys3,
-        vals: &vals3,
-    };
-    let ctr3: Hermes = ms3 as <U64, AnyVal>{};
-    if ctr3.root().is_null() { return 7; }
-    if !ctr3.root().is_ptr() { return 8; }
-    let t3: String = ctr3.to_string();
-    if !t3.eq_str("<U64,AnyVal> {100:10,200:20,300:30}") { return 9; }
+    // U32 keys; a Ref value (string from ANOTHER container re-anchors).
+    let other: Rc<Hermes2> = hermes2_rc(4096);
+    let oh: &Hermes2 = other.deref();
+    let sref: HAny = HAny::from(&*(oh.hstring("zone-str") as *const HString));
+    let k3: [u32; 1] = [7];
+    let v3: [HAny; 1] = [sref];
+    let ks3: &[u32] = &k3;
+    let vs3: &[HAny] = &v3;
+    let m3: MapSliceU32 = MapSliceU32 { keys: ks3, vals: vs3 };
+    let c3: Rc<Hermes2> = m3 as <U32, AnyVal>{};
+    let h3: &Hermes2 = c3.deref();
+    if h2_type_code(h3.root().resolve()) != 3102u64 { return 4; }
+    let s3: String = stringify(h3.root());
+    if !s3.eq_str("<U32, AnyVal> {7: \"zone-str\"}") { return 5; }
 
     return 0;
 }
