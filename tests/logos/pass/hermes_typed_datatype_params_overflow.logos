@@ -3,7 +3,7 @@ package hermes_typed_datatype_params_overflow;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.parser;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     let rc: Rc<Hermes> = hermes_rc(16384);

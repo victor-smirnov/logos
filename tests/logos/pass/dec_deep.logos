@@ -7,7 +7,7 @@ use logos.lang.hermes.array;
 use logos.lang.hermes.hmap;
 use logos.lang.hermes.hstring;
 use logos.lang.hermes.decimal;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {

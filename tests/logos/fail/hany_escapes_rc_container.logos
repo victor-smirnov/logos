@@ -7,7 +7,7 @@ package hany_escapes_rc_container;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.array;
-use logos.mem.rc;
+use logos.lang.rc;
 fn make_elem() -> HAny {
     let mut h: Rc<Hermes> = hermes_rc(64i64);
     let nested: &mut HArray<HVal> = h.array(2i64);

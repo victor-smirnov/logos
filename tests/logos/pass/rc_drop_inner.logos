@@ -2,7 +2,7 @@
 // this fix drop_rc dealloc'd the inner block as raw bytes, leaking T's
 // resources. Clone bumps strong; only the final drop fires Noisy::drop.
 package rc_drop_inner;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.lang.mem;
 struct Noisy { counter: *mut i64, }
 impl Drop for Noisy {

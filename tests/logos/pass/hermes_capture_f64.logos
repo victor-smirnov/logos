@@ -5,7 +5,7 @@ use logos.lang.hermes.tmpl;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.static_view;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     let v0: HView2 = HView2 { base: 0 as *const u8 };

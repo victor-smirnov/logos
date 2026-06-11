@@ -13,7 +13,7 @@
 // dropping mutate the inner.strong counter; the last drop releases
 // the whole block in one dealloc.
 
-package logos.mem.rc;
+package logos.lang.rc;
 
 use logos.lang.mem;
 use logos.lang.drop;

@@ -4,7 +4,7 @@ package hermes_decimal_f64;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.decimal;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn close(a: f64, b: f64) -> bool {
     let d: f64 = if a > b { a - b } else { b - a };

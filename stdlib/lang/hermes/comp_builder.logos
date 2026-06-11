@@ -24,7 +24,7 @@ use logos.lang.hermes.container;    // Hermes, hermes_new
 use logos.lang.hermes.array;        // HArray<HVal>, Hermes.array, HArray.push
 use logos.lang.hermes.hmap;         // HMap<HString,HVal>, Hermes.map, HMap.set
 use logos.lang.hermes.hstring;      // HString (key type in the map annotation)
-use logos.mem.rc;                    // Rc — heap-pin the non-movable Hermes
+use logos.lang.rc;                    // Rc — heap-pin the non-movable Hermes
 use logos.lang.str;
 
 // КОСТЫЛЬ / TODO(deref): we use explicit `rc.deref()` because `*rc` / auto-deref of

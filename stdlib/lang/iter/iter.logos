@@ -9,7 +9,6 @@ use logos.lang.option;
 use logos.lang.result;
 use logos.lang.cmp;
 use logos.lang.ops;
-use logos.mem.uninit;
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
 //

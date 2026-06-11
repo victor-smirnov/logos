@@ -1,7 +1,7 @@
 // Phase 2b: Rc auto-deref unified via the Deref trait — *rc, rc.field, and
 // rc.method() (method defined on the inner type) all resolve through Deref.
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.lang.ops;
 struct A { x: i32 }
 impl A { fn m(&self) -> i32 { return self.x + 1; } }

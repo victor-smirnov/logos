@@ -17,7 +17,7 @@ use logos.lang.hermes.hstring;      // HString
 use logos.lang.hermes.static_view;  // HView2 / hview2_from_ptr
 use logos.lang.hermes.container;    // Hermes (runtime scrutinee)
 use logos.lang.hermes.hstatic;     // HermesStatic (the scrutinee handle)
-use logos.mem.rc;                    // Rc — runtime container scrutinee
+use logos.lang.rc;                    // Rc — runtime container scrutinee
 use logos.lang.str;                  // str, str_eq
 
 fn null_hany() -> HAny { return HAny::Ref(0i64 as *const u8); }

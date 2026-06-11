@@ -8,7 +8,7 @@ use logos.mem.hermes.stringify;
 use logos.mem.hermes.equal;
 use logos.mem.hermes.hashing;
 use logos.mem.hermes.clone;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
 

@@ -13,7 +13,7 @@
 // `.clone()` (the Rust idiom for `Rc`). Returns 42 on full success.
 package test;
 
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.collections.vec;
 use logos.lang.hermes.hstatic;
 

@@ -2,7 +2,7 @@
 // fat pair), NOT a deep copy and NOT a trait-vtable method. Both handles see
 // the same object; the last drop frees the single RcInner once (Arc: atomic).
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.sync;
 use logos.mem.string;
 trait Sp { fn v(&self) -> i64; }

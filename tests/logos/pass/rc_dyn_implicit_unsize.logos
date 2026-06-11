@@ -2,7 +2,7 @@
 // explicit `as`: at a type-annotated let AND at a call arg, `Rc<A>` coerces to
 // `Rc<dyn Sp>` (CoerceUnsized: rebuild the struct, unsize the inner field).
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 trait Sp { fn v(&self) -> i64; }
 struct A { x: i64 }
 impl Sp for A { fn v(&self) -> i64 { return self.x; } }

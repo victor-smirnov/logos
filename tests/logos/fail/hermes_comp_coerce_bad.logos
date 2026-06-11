@@ -3,7 +3,7 @@ package hermes_comp_coerce_bad;
 use logos.lang.hermes.comp_builder;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn main() -> i32 {
     let xs: [i64; 2] = [1 as i64, 2 as i64];

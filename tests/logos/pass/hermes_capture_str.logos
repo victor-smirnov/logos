@@ -5,7 +5,7 @@ use logos.lang.hermes.tmpl;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.stringify;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
 

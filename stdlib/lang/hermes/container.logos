@@ -17,7 +17,7 @@ package logos.lang.hermes.container;
 
 use logos.lang.hermes.allocator;
 use logos.lang.hermes.anyval;
-use logos.mem.rc;
+use logos.lang.rc;
 
 // The root container: owns the segment arena by value (the container is the
 // stable root — it does not move; only never-move segments hang off it).

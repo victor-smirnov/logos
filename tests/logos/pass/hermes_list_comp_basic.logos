@@ -6,7 +6,7 @@ use logos.lang.hermes.comp_builder;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.static_view;
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn main() -> i32 {
     let arr: [i32; 5] = [1, 2, 3, 4, 5];

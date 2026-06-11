@@ -5,7 +5,7 @@ package hermes_match_scalar;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.pat;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn mk(v: HAny) -> Rc<Hermes> {
     let rc: Rc<Hermes> = hermes_rc(1024);

@@ -10,7 +10,7 @@ pub use logos.lang.prelude;
 
 // Owning smart pointers
 pub use logos.mem.boxed;     // Box
-pub use logos.mem.rc;        // Rc
+pub use logos.lang.rc;        // Rc
 pub use logos.mem.sync;      // Arc
 
 // Owning string + conversion traits

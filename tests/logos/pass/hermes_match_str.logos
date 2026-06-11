@@ -6,7 +6,7 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.pat;   // hermes_pat_eq_str — `@"str"` pattern helper
 use logos.lang.hermes.container;
 use logos.lang.hermes.hstring;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn mk_str(s: str) -> Rc<Hermes> {
     let rc: Rc<Hermes> = hermes_rc(1024);

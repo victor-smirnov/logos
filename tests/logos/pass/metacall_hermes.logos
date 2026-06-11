@@ -4,7 +4,7 @@ use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.static_view;
 use logos.lang.hermes.hstatic;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn build_cfg() -> Rc<Hermes> {
     let arr: [i32; 4] = [10, 20, 30, 40];

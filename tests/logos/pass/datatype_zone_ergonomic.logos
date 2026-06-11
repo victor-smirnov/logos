@@ -2,7 +2,7 @@
 // DataRef mut_ptr auto-deref test): plain *mut T field writes, never-move reads.
 package datatype_zone_ergonomic;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 struct Point { x: i32, y: i32 }
 

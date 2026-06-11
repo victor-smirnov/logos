@@ -3,7 +3,7 @@ package hermes_capture_bad_type;
 use logos.lang.hermes.typed_arr;
 use logos.lang.hermes.tmpl;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 pub struct Point {
     x: i32,

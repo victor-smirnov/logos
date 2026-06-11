@@ -4,7 +4,7 @@
 // write). With sizeof derived from layout_of (16, aligned), rc_new/box_new
 // allocate enough and the value round-trips cleanly.
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.boxed;
 struct Pad { strong: i32, val: i64 }   // {i32, pad4, i64} = 16, align 8
 fn main() -> i32 {

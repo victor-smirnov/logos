@@ -3,7 +3,7 @@ package hermes_as_array_bad_type;
 use logos.lang.hermes.typed_arr;
 use logos.lang.hermes.tmpl;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     let arr: [i32; 2] = [1, 2];

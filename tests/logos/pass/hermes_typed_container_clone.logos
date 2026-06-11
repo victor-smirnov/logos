@@ -6,7 +6,7 @@ use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.mem.hermes.clone;
 use logos.mem.hermes.equal;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn root_of(hs: &HermesStatic) -> HAny {
     let base: *const u8 = hs.ptr;

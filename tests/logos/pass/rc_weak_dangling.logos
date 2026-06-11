@@ -1,5 +1,5 @@
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.lang.option;
 
 struct Noisy { tag: i32 }

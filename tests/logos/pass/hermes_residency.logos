@@ -6,7 +6,7 @@ package test;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.array;
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn make_doc() -> Held<HArray<HVal>> {
     let mut h: Rc<Hermes> = hermes_rc(48i64);

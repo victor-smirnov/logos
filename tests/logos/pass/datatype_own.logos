@@ -2,7 +2,7 @@
 // object's lifetime to the holder Rc; reads stay valid as handles move around.
 package datatype_own;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 struct Point { x: i32, y: i32 }
 

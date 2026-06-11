@@ -4,7 +4,7 @@ package hermes_anyval_methods;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.allocator;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     // --- is_null ---

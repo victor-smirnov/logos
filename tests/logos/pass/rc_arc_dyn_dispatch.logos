@@ -3,7 +3,7 @@
 // shared vtable (slot index +3 past drop/size/align); drop decrements the
 // strong count and frees the whole RcInner at the last reference (Arc: atomic).
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.sync;
 use logos.mem.string;
 trait Sp { fn v(&self) -> i64; }

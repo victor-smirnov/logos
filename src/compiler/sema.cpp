@@ -4929,7 +4929,7 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
         TypeRef::OwningKind sp_kind = TypeRef::OwningKind::Borrow;
         std::string_view sp_pkg;
         if      (name == "Box") { sp_kind = TypeRef::OwningKind::Box; sp_pkg = "logos.mem.boxed"; }
-        else if (name == "Rc")  { sp_kind = TypeRef::OwningKind::Rc;  sp_pkg = "logos.mem.rc"; }
+        else if (name == "Rc")  { sp_kind = TypeRef::OwningKind::Rc;  sp_pkg = "logos.lang.rc"; }
         else if (name == "Arc") { sp_kind = TypeRef::OwningKind::Arc; sp_pkg = "logos.mem.sync"; }
         if (sp_kind != TypeRef::OwningKind::Borrow && node.has_key(la::ITEMS) &&
             find_struct_by_name(name).first == sp_pkg) {

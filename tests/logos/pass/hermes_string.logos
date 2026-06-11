@@ -4,7 +4,7 @@ package hermes_string;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.hstring;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.lang.str;
 
 unsafe fn main() -> i32 {

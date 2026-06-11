@@ -6,7 +6,7 @@
 // strong count + copy the fat pair) and are routed through the same repr-aware
 // marker. Previously `r.clone_ref()` failed with "trait has no method".
 package test;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.sync;
 trait Sp { fn v(&self) -> i64; }
 struct A { x: i64 }

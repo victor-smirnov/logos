@@ -35,7 +35,7 @@ use logos.lang.hermes.allocator;   // hermes_alloc_bytes (raw tagged object)
 use logos.mem.hermes.tag_system;   // write_tag, h2_type_code
 
 use logos.lang.ptr;                 // byte_add
-use logos.mem.rc;                   // Rc
+use logos.lang.rc;                   // Rc
 use logos.mem.string;               // i64::to_string
 use logos.lang.str;                 // str_eq
 use logos.std.io;                   // print / println / println_string

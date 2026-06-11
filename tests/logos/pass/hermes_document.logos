@@ -4,7 +4,7 @@ package hermes_document;
 use logos.lang.hermes.hstatic;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     // Static blob: the header IS the first word.

@@ -4,7 +4,7 @@ package hermes_decimal_limits_errors;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.decimal;
-use logos.mem.rc;
+use logos.lang.rc;
 
 unsafe fn main() -> i32 {
     let rc: Rc<Hermes> = hermes_rc(8192);

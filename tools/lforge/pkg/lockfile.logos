@@ -14,7 +14,7 @@ use logos.lang.hermes.array;
 use logos.lang.hermes.hmap;
 use logos.lang.hermes.hstring;
 use logos.mem.hermes.parser;
-use logos.mem.rc;
+use logos.lang.rc;
 
 use lforge.schema;
 use lforge.util;

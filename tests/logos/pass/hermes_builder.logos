@@ -6,7 +6,7 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.hmap;
 use logos.lang.hermes.hstring;
 use logos.mem.hermes.stringify;
-use logos.mem.rc;
+use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
 

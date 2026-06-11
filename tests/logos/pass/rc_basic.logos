@@ -1,7 +1,7 @@
 // pass — Rc<T> reference counting smoke test.
 package test;
 
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn main() -> i32 {
     unsafe {

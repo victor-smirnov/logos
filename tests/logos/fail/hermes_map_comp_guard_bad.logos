@@ -3,7 +3,7 @@ package hermes_map_comp_guard_bad;
 use logos.lang.hermes.comp_builder;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn main() -> i32 {
     let xs: [i32; 2] = [1, 2];

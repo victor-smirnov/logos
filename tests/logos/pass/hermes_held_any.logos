@@ -5,7 +5,7 @@ package t;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
 use logos.lang.hermes.array;
-use logos.mem.rc;
+use logos.lang.rc;
 
 fn make_elem() -> HeldAny {
     let mut h: Rc<Hermes> = hermes_rc(64i64);

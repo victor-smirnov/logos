@@ -4,7 +4,7 @@
 package mem_holder_custom_destroyer;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
-use logos.mem.rc;
+use logos.lang.rc;
 
 struct Blob { sentinel: u8, n: i64 }
 

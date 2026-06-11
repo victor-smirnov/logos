@@ -17,7 +17,7 @@ use logos.lang.hermes.container;    // Hermes, hermes_rc, alloc_tagged, box_*
 use logos.lang.hermes.array;        // HArray<HVal>
 use logos.lang.hermes.hmap;         // HMap<HString, HVal>
 use logos.lang.hermes.hstring;      // HString, hstring_in_alloc
-use logos.mem.rc;                    // Rc
+use logos.lang.rc;                    // Rc
 use logos.lang.str;
 
 // Deep-copy `v` into container `h`; returns the value-form handle of the copy.

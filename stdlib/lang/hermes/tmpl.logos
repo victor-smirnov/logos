@@ -26,7 +26,7 @@ use logos.lang.hermes.anyval;       // HAny
 use logos.lang.hermes.allocator;    // Allocator
 use logos.lang.hermes.container;    // Hermes, hermes_rc, hermes_alloc_bytes, box_f64
 use logos.lang.hermes.hstring;      // hstring_in_alloc
-use logos.mem.rc;                    // Rc
+use logos.lang.rc;                    // Rc
 use logos.lang.str;                  // str, str_from_raw
 
 // Create the container for the zone-alloc capture path. Capacity covers the

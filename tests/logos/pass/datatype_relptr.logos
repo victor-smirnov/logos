@@ -3,7 +3,7 @@
 // pure pointer math — valid because the arena never moves.
 package datatype_relptr;
 use logos.lang.hermes.container;
-use logos.mem.rc;
+use logos.lang.rc;
 
 struct Node {
     value: i32,

@@ -16546,7 +16546,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                         "package {};\n"
                         "use logos.lang.hermes.container;\n"
                         "use logos.lang.hermes.anyval;\n"
-                        "use logos.mem.rc;\n"
+                        "use logos.lang.rc;\n"
                         "extern fn logos_metacall_freeze2(w: u64) -> *const u8;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
                         "    let __h: Rc<Hermes> = {};\n"
