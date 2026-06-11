@@ -17,7 +17,7 @@
 // This avoids needing an extra "forward from local channel to wire" fiber.
 
 #include <logos/hrpc/session.hpp>
-#include <logos/hermes/binary_codec.hpp>
+#include <logos/hermes2/binary_codec.hpp>
 #include <logos/reactor/scheduler.hpp>
 #include <logos/verification/assert.hpp>
 
@@ -25,8 +25,8 @@
 
 namespace logos::hrpc {
 
-using logos::hermes::binary_encode;
-using logos::hermes::binary_decode;
+using logos::hermes2::binary_encode;
+using logos::hermes2::binary_decode;
 using logos::reactor::Scheduler;
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ void Session::run() noexcept {
         if (payload_size > 0 && hdr_size + payload_size <= static_cast<size_t>(msg_size)) {
             auto dec = binary_decode(buf.data() + hdr_size, payload_size);
             if (!dec) break;
-            payload = std::move(*dec);
+            payload = std::move(*dec);   // hermes2 HermesCtr move
         }
 
         if (!handle_message(*hdr, buf.data(), std::move(payload))) break;

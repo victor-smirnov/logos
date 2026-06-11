@@ -1,5 +1,7 @@
-// lforge — typed-field helpers over a Hermes view. Used by the
-// manifest parser, the lockfile parser, and any future SDN reader.
+// lforge.hermes_io — manifest-reading helpers over hermes2 documents.
+//
+// hermes2 HAny is self-relative: no view/base threading — readers take the
+// node handle directly.
 
 package lforge.hermes_io;
 
@@ -7,64 +9,63 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.lang.result;
 use logos.mem.collections.vec;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
-use logos.lang.hermes.map;
-use logos.lang.hermes.array;
-
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.lang.hermes2.array;
 use lforge.schema;
 use lforge.util;
 
-pub fn read_str_field(view: &HermesView<'a>, root: AnyVal, key: str) -> Result<String, ManifestError> {
+fn map_get2(root: HAny, key: str) -> HAny {
+    if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
+    return unsafe { (&*(root.resolve() as *const HMap<HString, HVal>)).get(key) };
+}
+
+pub fn read_str_field(root: HAny, key: str) -> Result<String, ManifestError> {
     unsafe {
-        let v: AnyVal = view.map_get(root, key);
+        let v: HAny = map_get2(root, key);
         if v.is_null() {
             return Result::Err(err_msg2("manifest: missing required field ", key));
         }
-        if !v.is_string(view.base()) {
+        if !v.is_string() {
             return Result::Err(err_msg2("manifest: not a string: ", key));
         }
-        let sv: StringView = view.get_str_view(v);
+        let hs: &HString = &*(v.resolve() as *const HString);
         let mut out: String = String::new();
-        out.push_bytes(sv.ptr, sv.len as i64);
+        out.push_str(hs.as_str());
         return Result::Ok(out);
     }
 }
 
-// Read an optional string field — returns empty String if absent.
-pub fn read_str_opt(view: &HermesView<'a>, root: AnyVal, key: str) -> String {
+pub fn read_str_opt(root: HAny, key: str) -> String {
     let mut out: String = String::new();
     unsafe {
-        let v: AnyVal = view.map_get(root, key);
-        if !v.is_null() && v.is_string(view.base()) {
-            let sv: StringView = view.get_str_view(v);
-            out.push_bytes(sv.ptr, sv.len as i64);
+        let v: HAny = map_get2(root, key);
+        if !v.is_null() && v.is_string() {
+            let hs: &HString = &*(v.resolve() as *const HString);
+            out.push_str(hs.as_str());
         }
     }
     return out;
 }
 
-// Read an array of strings (e.g. `deps: ["a", "b"]`). Returns empty Vec if
-// absent or wrong type.
-pub fn read_str_array(view: &HermesView<'a>, root: AnyVal, key: str) -> Vec<String> {
+pub fn read_str_array(root: HAny, key: str) -> Vec<String> {
     let mut out: Vec<String> = vec_new::<String>();
     unsafe {
-        let v: AnyVal = view.map_get(root, key);
-        let base: *const u8 = view.base();
-        if !v.is_null() && v.is_array(base) {
-            let n: u64 = view.array_len(v);
-            let mut i: u64 = 0 as u64;
+        let v: HAny = map_get2(root, key);
+        if !v.is_null() && v.is_array() {
+            let arr: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
+            let n: i64 = arr.len();
+            let mut i: i64 = 0;
             while i < n {
-                let elem: AnyVal = view.array_get(v, i);
-                if elem.is_string(base) {
-                    let sv: StringView = view.get_str_view(elem);
+                let elem: HAny = arr.get(i);
+                if elem.is_string() {
+                    let hs: &HString = &*(elem.resolve() as *const HString);
                     let mut s: String = String::new();
-                    s.push_bytes(sv.ptr, sv.len as i64);
+                    s.push_str(hs.as_str());
                     out.push(s);
                 }
-                i = i + 1 as u64;
+                i = i + 1;
             }
         }
     }

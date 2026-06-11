@@ -32,8 +32,8 @@ use logos.mem.hermes2.stringify;    // stringify: doc → text
 use logos.mem.hermes2.hbs;          // hbs_write / hbs_read: doc ⇄ bytes
 use logos.mem.collections.vec;      // Vec<u8>
 use logos.lang.hermes2.allocator;   // hermes2_alloc_bytes (raw tagged object)
-use logos.lang.hermes.datatag;      // write_tag, type_code_of
-use logos.mem.hermes.tag_system;    // Hermes2TagSystem
+use logos.mem.hermes2.tag_system;   // write_tag, h2_type_code
+
 use logos.lang.ptr;                 // byte_add
 use logos.mem.rc;                   // Rc
 use logos.mem.string;               // i64::to_string

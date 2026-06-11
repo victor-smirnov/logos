@@ -16,11 +16,8 @@
 
 package logos_showcase;
 
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.string;
 use logos.std.compiler.metaprog;
+use logos.lang.hermes2.anyval;
 use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
@@ -33,8 +30,8 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 
     let nf: u64 = view.ast_struct_field_count(item);
@@ -56,7 +53,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
                 tys.push_str(", ");
                 bounds.push_str(", ");
             }
-            let tp: StringView = view.ast_type_param_name(item, k);
+            let tp: SView = view.ast_type_param_name(item, k);
             unsafe {
                 tys.push_bytes(tp.ptr, tp.len as i64);
                 bounds.push_bytes(tp.ptr, tp.len as i64);
@@ -81,8 +78,8 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0;
     while i < nf {
-        let fld:   AnyVal     = view.ast_struct_field(item, i);
-        let fname: StringView = view.ast_field_name(fld);
+        let fld:   HAny     = view.ast_struct_field(item, i);
+        let fname: SView = view.ast_field_name(fld);
         let lead:  str        = if i == 0 { " " } else { ", " };
         em.tpl2(
             "let _ = __f.write_str(\"$LEAD$F: \"); let _ = fmt_debug(&self.$F, __f); ",
@@ -103,8 +100,8 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 
     let nv: u64 = view.ast_enum_variant_count(item);
@@ -121,8 +118,8 @@ fn derive_show_enum_hook(target_offset: u32) -> () {
 
     let mut i: u64 = 0;
     while i < nv {
-        let v:     AnyVal     = view.ast_enum_variant(item, i);
-        let vname: StringView = view.ast_node_name(v);
+        let v:     HAny     = view.ast_enum_variant(item, i);
+        let vname: SView = view.ast_node_name(v);
         let arity: u64        = view.ast_variant_arity(v);
 
         if arity == 0 {
@@ -161,8 +158,8 @@ fn derive_arity_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }
 
-    let item: AnyVal = AnyVal::from_offset(target_offset);
-    let name: StringView = view.ast_node_name(item);
+    let item: HAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
     if name.len == 0 { return; }
 
     let mut n: u64 = view.ast_struct_field_count(item);

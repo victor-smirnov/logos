@@ -8,42 +8,42 @@ use logos.lang.str;
 use logos.lang.result;
 use logos.mem.collections.vec;
 use logos.std.io.fs;
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.map;
-use logos.lang.hermes.array;
-use logos.mem.hermes.parser;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.lang.hermes2.hmap;
+use logos.lang.hermes2.hstring;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
 
 use lforge.schema;
 use lforge.util;
 use lforge.hermes_io;
 
+fn lf_get(root: HAny, key: str) -> HAny {
+    if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
+    return unsafe { (&*(root.resolve() as *const HMap<HString, HVal>)).get(key) };
+}
+
 pub fn parse_lockfile(text: str) -> Vec<LockEntry> {
     unsafe {
-        let mut z: Zone<Mutable> = zone_create(8192);
-    if !hermes_parse(text.as_ptr(), text.len(), &mut z) { return vec_new::<LockEntry>(); }
-    let view: HermesView<'a> = HermesView {
-        base: z.holder.base as *const u8,
-        size: z.holder.used as u64,
-    };
-    let root: AnyVal = view.root();
-    let base: *const u8 = view.base();
-    if !root.is_map(base) { return vec_new::<LockEntry>(); }
-    let pinned_av: AnyVal = view.map_get(root, "pinned");
-    if !pinned_av.is_array(base) { return vec_new::<LockEntry>(); }
+    let ctr: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = ctr.deref();
+    let root: HAny = parse(h, text);
+    if !root.is_map() { return vec_new::<LockEntry>(); }
+    let pinned_av: HAny = lf_get(root, "pinned");
+    if !pinned_av.is_array() { return vec_new::<LockEntry>(); }
     let mut out: Vec<LockEntry> = vec_new::<LockEntry>();
     let outp: *mut Vec<LockEntry> = (&mut out) as *mut Vec<LockEntry>;
-    let n: u64 = view.array_len(pinned_av);
+    let n: u64 = (&*(pinned_av.resolve() as *const HArray<HVal>)).len() as u64;
     let mut i: u64 = 0 as u64;
     while i < n {
-        let e_av: AnyVal = view.array_get(pinned_av, i);
+        let e_av: HAny = (&*(pinned_av.resolve() as *const HArray<HVal>)).get(i as i64);
         i = i + 1 as u64;
-        if !e_av.is_map(base) { continue; }
-        let proj: String = read_str_opt(&view, e_av, "project");
-        let tag:  String = read_str_opt(&view, e_av, "tag");
-        let sha:  String = read_str_opt(&view, e_av, "sha");
+        if !e_av.is_map() { continue; }
+        let proj: String = read_str_opt(e_av, "project");
+        let tag:  String = read_str_opt(e_av, "tag");
+        let sha:  String = read_str_opt(e_av, "sha");
         if proj.len() == 0 as i64 || sha.len() == 0 as i64 { continue; }
         outp.push(LockEntry { project: proj, tag: tag, sha: sha });
     }

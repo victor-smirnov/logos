@@ -4,8 +4,9 @@
 
 #pragma once
 
-#include <logos/hermes/document.hpp>
-#include <logos/hermes/view.hpp>
+#include <logos/hermes2/document.hpp>
+#include <logos/hermes2/view.hpp>
+#include <logos/hermes2/compat.hpp>
 
 #include <iosfwd>
 #include <set>
@@ -27,19 +28,19 @@ class CodeGen {
 public:
     // ast     — Hermes document returned by HrpcIdlParser::parse_file()
     // src_path — original .hrpc file path (for comment in generated files)
-    CodeGen(logos::hermes::Hermes ast, std::string_view src_path);
+    CodeGen(logos::hermes2::Hermes ast, std::string_view src_path);
 
     void emit_header(std::ostream& out, std::string_view header_guard) const;
     void emit_source(std::ostream& out, std::string_view include_name) const;
 
 private:
-    logos::hermes::Hermes ast_;
+    logos::hermes2::Hermes ast_;
     std::string              src_path_;
     std::string              package_;     // "echo" or "foo.bar"
     std::string              cpp_ns_;      // "echo" or "foo::bar"
 
     // Top-level definitions collected in order.
-    std::vector<logos::hermes::TinyMapView> items_;
+    std::vector<logos::hermes2::TinyMapView> items_;
 
     // Sets of user-defined names (to distinguish message vs enum refs).
     std::set<std::string> message_names_;
@@ -51,22 +52,22 @@ private:
     // --- Low-level AST helpers ---
 
     // Read an arena string from an AnyVal offset.
-    std::string str(logos::hermes::AnyVal av) const;
+    std::string str(logos::hermes2::AnyVal av) const;
 
     // Read a TinyMapView from an AnyVal offset.
-    logos::hermes::TinyMapView map_of(logos::hermes::AnyVal av) const;
+    logos::hermes2::TinyMapView map_of(logos::hermes2::AnyVal av) const;
 
     // Read an ArrayView from an AnyVal offset.
-    logos::hermes::ArrayView arr_of(logos::hermes::AnyVal av) const;
+    logos::hermes2::ArrayView arr_of(logos::hermes2::AnyVal av) const;
 
     // Read CODE field (int32 value).
-    int32_t code_of(logos::hermes::TinyMapView node) const;
+    int32_t code_of(logos::hermes2::TinyMapView node) const;
 
     // Read a string field by raw key code.
-    std::string str_field(logos::hermes::TinyMapView node, uint8_t key) const;
+    std::string str_field(logos::hermes2::TinyMapView node, uint8_t key) const;
 
     // Read a qualified name (TYPE_REF with ITEMS=[ident_node, ...]) → "foo.Bar".
-    std::string qualified_name(logos::hermes::TinyMapView type_ref_node) const;
+    std::string qualified_name(logos::hermes2::TinyMapView type_ref_node) const;
 
     // Resolve a type_ref or stream_type node to a simple C++ type string.
     // Returns the type name for the getter (e.g. "uint32_t", "StringView", "PingRequest").
@@ -83,30 +84,30 @@ private:
         std::string cpp_set;     // C++ param type for setter (e.g. "uint32_t")
         std::string scalar_cpp;  // underlying C++ scalar (e.g. "uint32_t")
     };
-    TypeInfo resolve_type(logos::hermes::TinyMapView type_node) const;
+    TypeInfo resolve_type(logos::hermes2::TinyMapView type_node) const;
 
     // --- Per-definition emitters ---
 
     // Header
-    void emit_enum_decl    (std::ostream& out, logos::hermes::TinyMapView node) const;
-    void emit_message_decl (std::ostream& out, logos::hermes::TinyMapView node) const;
-    void emit_service_decl (std::ostream& out, logos::hermes::TinyMapView node) const;
+    void emit_enum_decl    (std::ostream& out, logos::hermes2::TinyMapView node) const;
+    void emit_message_decl (std::ostream& out, logos::hermes2::TinyMapView node) const;
+    void emit_service_decl (std::ostream& out, logos::hermes2::TinyMapView node) const;
 
     // Source
-    void emit_message_impl (std::ostream& out, logos::hermes::TinyMapView node) const;
-    void emit_service_impl (std::ostream& out, logos::hermes::TinyMapView node) const;
+    void emit_message_impl (std::ostream& out, logos::hermes2::TinyMapView node) const;
+    void emit_service_impl (std::ostream& out, logos::hermes2::TinyMapView node) const;
 
     // Per-field helpers
-    void emit_field_getter_decl (std::ostream& out, logos::hermes::TinyMapView field) const;
-    void emit_field_setter_decl (std::ostream& out, logos::hermes::TinyMapView field) const;
+    void emit_field_getter_decl (std::ostream& out, logos::hermes2::TinyMapView field) const;
+    void emit_field_setter_decl (std::ostream& out, logos::hermes2::TinyMapView field) const;
     void emit_field_getter_impl (std::ostream& out, std::string_view struct_name,
-                                  logos::hermes::TinyMapView field) const;
+                                  logos::hermes2::TinyMapView field) const;
     void emit_field_setter_impl (std::ostream& out, std::string_view struct_name,
-                                  logos::hermes::TinyMapView field) const;
+                                  logos::hermes2::TinyMapView field) const;
 
     // Service handler method signature (used in both decl and impl).
-    std::string rpc_handler_sig(logos::hermes::TinyMapView rpc_node) const;
-    std::string rpc_client_sig (logos::hermes::TinyMapView rpc_node) const;
+    std::string rpc_handler_sig(logos::hermes2::TinyMapView rpc_node) const;
+    std::string rpc_client_sig (logos::hermes2::TinyMapView rpc_node) const;
 
     // Convert package "foo.bar" → C++ namespace "foo::bar".
     static std::string pkg_to_ns(std::string_view pkg);

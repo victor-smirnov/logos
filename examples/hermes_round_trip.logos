@@ -1,34 +1,29 @@
-//
-// Example: parse a Hermes document, stringify it, print to stdout.
-
+// hermes2 SDN round-trip example: parse a document, render it back.
 package hermes_example;
-
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;
 
 fn main() -> i32 {
-    let mut doc: Hermes = Hermes::new(8192);
-
+    let ctr: Rc<Hermes2> = hermes2_rc(32768);
+    let h: &Hermes2 = ctr.deref();
     let text: str = r#"
         {
             name:"widget",
             version:42,
             active:true,
-            count:7_s8,
             tags:["fast","safe"],
             i32_array: <I32> [1,2,3,4]
         }
     "#;
-
-    match doc.parse(text) {
-        Result::Ok(())  => {}
-        Result::Err(_)  => { return 1; }
-    }
-
-    let s: String = doc.to_string();
-    println_string(&s);
-
+    let root: HAny = unsafe { parse(h, text) };
+    if root.is_null() { return 1; }
+    let s: String = stringify(root);
+    println(s.as_str());
     return 0;
 }

@@ -1274,6 +1274,10 @@ private:
     static void emit_int_suffix_matching(CodeWriter& w) {
         // Helper lambda in generated code: try to match a suffix string.
         w.line("// Integer type suffix (longest match).");
+        w.line("// A digit-run-trailing '_' followed by s/u starts a _sNN/_uNN suffix —");
+        w.line("// give it back to the suffix matcher (hermes-style _s64; harmless otherwise).");
+        w.line("if (pos_ > start && source_[pos_-1] == '_' && pos_ < source_.size() &&");
+        w.line("    (source_[pos_] == 's' || source_[pos_] == 'u')) --pos_;");
         w.line("auto try_suffix = [&](std::string_view sfx) -> bool {");
         w.line("    if (pos_ + sfx.size() <= source_.size() &&");
         w.line("        source_.substr(pos_, sfx.size()) == sfx) {");
@@ -1366,7 +1370,7 @@ private:
                     w.line("if (c == '.' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])) {");
                     w.indent();
                     w.line("++pos_; // consume '.'");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
                     w.line("    ++pos_;");
                     w.line("    if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
@@ -1400,16 +1404,16 @@ private:
                     w.line("}");
                     // Consume digits per base.
                     w.line("if (base == 16) {");
-                    w.line("    while (pos_ < source_.size() && (std::isxdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isxdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isxdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("} else if (base == 2) {");
-                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1' || (source_[pos_] == '_' && pos_+1 < source_.size() && (source_[pos_+1] == '0' || source_[pos_+1] == '1')))) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (source_[pos_] == '0' || source_[pos_] == '1' || source_[pos_] == '_')) ++pos_;");
                     w.line("} else if (base == 8) {");
-                    w.line("    while (pos_ < source_.size() && ((source_[pos_] >= '0' && source_[pos_] <= '7') || (source_[pos_] == '_' && pos_+1 < source_.size() && source_[pos_+1] >= '0' && source_[pos_+1] <= '7'))) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && ((source_[pos_] >= '0' && source_[pos_] <= '7') || source_[pos_] == '_')) ++pos_;");
                     w.line("} else {");
-                    w.line("    while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("    while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("}");
                 } else {
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                 }
 
                 if (!float_tok.empty()) {
@@ -1424,12 +1428,12 @@ private:
                     w.line("    && !(start > 0 && source_[start - 1] == '.')) {");
                     w.indent();
                     w.line("++pos_; // consume '.'");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == 'e' || source_[pos_] == 'E')) {");
                     w.indent();
                     w.line("++pos_;");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     w.dedent();
                     w.line("}");
                     if (flt_sfx) {
@@ -1455,7 +1459,7 @@ private:
                     w.indent();
                     w.line("++pos_; // consume 'e'/'E'");
                     w.line("if (pos_ < source_.size() && (source_[pos_] == '+' || source_[pos_] == '-')) ++pos_;");
-                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || (source_[pos_] == '_' && pos_+1 < source_.size() && std::isdigit(source_[pos_+1])))) ++pos_;");
+                    w.line("while (pos_ < source_.size() && (std::isdigit(source_[pos_]) || source_[pos_] == '_')) ++pos_;");
                     if (flt_sfx) {
                         w.line("if (pos_ + 3 <= source_.size() &&");
                         w.line("    (source_.substr(pos_, 3) == \"f32\" || source_.substr(pos_, 3) == \"f64\")) {");

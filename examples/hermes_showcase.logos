@@ -1,352 +1,103 @@
-//
-// Hermes showcase: compile-time literals, runtime capture, typed casts,
-// and the HermesRead/HermesWrite trait API.
-//
-// Demonstrates:
-//   1. Static @-literals  — blob in rodata, zero runtime cost; wrap as HermesStatic
-//   2. Scalar capture     — $ident and ${expr} (i32, bool) → Hermes
-//   3. String capture     — str captured as zone Varchar
+// hermes_showcase — a tour of the hermes2 document features:
+//   1. Static @-literals  — blob in rodata, zero runtime cost (HermesStatic)
+//   2. Scalar capture     — $ident and ${expr} → Rc<Hermes2>
+//   3. String capture     — str captured as a zone HString
 //   4. Mixed capture      — scalars + strings + expressions
-//   5. Typed array cast   — &[i32] → <I32>[] Hermes
-//   6. Typed map cast     — MapSliceI32 → <I32,AnyVal>{} Hermes
-//   7. HermesView      — non-owning borrow of a zone document
-//   8. List/map comprehensions — @[expr for x in iter] / @{k: v for …}
-//   9. Pattern matching  — scalar @-patterns, structural, typed, or, tuple
-
+//   5. Typed array cast   — &[i32] as <I32>[]
+//   6. Typed map cast     — MapSliceI32 as <I32,AnyVal>{}
+//   7. Live-container reads — non-owning HAny views of a runtime document
+//   8. List/map comprehensions — @[expr for x in iter] / @{k: v for ...}
+//   9. Pattern matching   — scalar @-patterns, structural, rest
 package hermes_showcase;
 
-use logos.mem.hermes.ctr;
-use logos.lang.hermes.anyval;
-use logos.mem.hermes.pat;
-use logos.lang.hermes.view;
-use logos.mem.hermes.view;
-use logos.lang.hermes.map;
+use logos.lang.hermes2.hstatic;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.lang.hermes2.typed_arr;
+use logos.lang.hermes2.tmpl;
+use logos.lang.hermes2.comp_builder;
+use logos.lang.hermes2.pat;
+use logos.lang.hermes2.static_view;
+use logos.mem.hermes2.stringify;
+use logos.mem.rc;
 use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;
 
-fn section(title: str) {
-    println("---");
-    println(title);
+unsafe fn show(label: str, root: HAny) {
+    let s: String = stringify(root);
+    let mut line: String = String::new();
+    line.push_str(label);
+    line.push_str(": ");
+    line.push_str(s.as_str());
+    println(line.as_str());
 }
 
-// print_doc — stringify via the HermesRead trait default to_string().
-// Works for Hermes (owning), HermesView<'a> (borrowing),
-// and HermesStatic ('static rodata) — all impl HermesRead.
-fn print_doc(label: str, ctr: &Hermes) {
-    let s: String = ctr.to_string();
-    let mut out: String = String::with_capacity(128);
-    out.push_str("  ");
-    out.push_str(label);
-    out.push_str(": ");
-    out.push_bytes(s.as_ptr(), s.len());
-    println_string(&out);
+unsafe fn root_of(hs: &HermesStatic) -> HAny {
+    let base: *const u8 = hs.ptr;
+    let w: i64 = *(base as *const i64);
+    if w == 0i64 { return HAny::Ref(0i64 as *const u8); }
+    if (w & 1i64) == 1i64 { return HAny::Pod(w as u64); }
+    return HAny::Ref((base as i64 + w) as *const u8);
 }
 
-fn print_static(label: str, hs: &HermesStatic) {
-    let s: String = hs.to_string();
-    let mut out: String = String::with_capacity(128);
-    out.push_str("  ");
-    out.push_str(label);
-    out.push_str(": ");
-    out.push_bytes(s.as_ptr(), s.len());
-    println_string(&out);
-}
-
-// Section-9 helpers: Hermes pattern matching dispatchers.
-
-fn describe(d: &HermesStatic) -> str {
+unsafe fn classify(d: &HermesStatic) -> str {
     match d {
-        @null                            => "null",
-        @<I32>[..] | @<U64>[..]          => "typed-arr(num)",
-        @<Varchar, AnyVal>{..}           => "typed-map(str-to-any)",
-        @[..]                            => "array",
-        @{}                              => "map",
-        @true | @false                   => "bool",
-        @0                               => "zero",
-        @42                              => "the-answer",
-        @"hello"                         => "greeting",
-        _                                => "other",
+        @[a, b, ..] => "array(2+)",
+        @[..]       => "array",
+        @{}         => "map",
+        @42         => "the answer",
+        _           => "other",
     }
 }
 
-unsafe fn sum_first_two(d: &HermesStatic) -> i32 {
-    match d {
-        @[a, b, ..] => a.as_i24() + b.as_i24(),
-        _           => -1,
-    }
-}
+unsafe fn main() -> i32 {
+    // ── 1. Static @-literals ───────────────────────────────────────────────
+    let cfg: HermesStatic = @{"name": "widget", "tags": ["fast", "safe"], "n": 7};
+    show("static", root_of(&cfg));
 
-unsafe fn key_k(d: &HermesStatic) -> i32 {
-    match d {
-        @{"k": x} => x.as_i24(),
-        _         => -1,
-    }
-}
+    // ── 2-4. Captures: scalars, strings, expressions ──────────────────────
+    let id: i32 = 42;
+    let label: str = "item";
+    let doc: Rc<Hermes2> = @{"id": $id, "label": $label, "sum": ${id + 1}};
+    let h: &Hermes2 = doc.deref();
+    show("captures", h.root());
 
-// User guard on a non-Hermes arm, combined with Hermes scalar arms.
-fn sign(d: &HermesStatic, hint: i32) -> str {
-    match d {
-        @0 => "zero",
-        @1 => "one",
-        _ if hint > 0  => "positive-hint",
-        _ if hint < 0  => "negative-hint",
-        _              => "other",
-    }
-}
+    // ── 5. Typed array cast ───────────────────────────────────────────────
+    let nums: [i32; 4] = [10, 20, 30, 40];
+    let ns: &[i32] = &nums;
+    let tarr: Rc<Hermes2> = ns as <I32>[];
+    let th: &Hermes2 = tarr.deref();
+    show("typed-array", th.root());
 
-fn classify(p: (i32, i32)) -> i32 {
-    match p {
-        (0, 0)  => 1,
-        (0, _)  => 2,
-        (_, 0)  => 3,
-        (1, 1)  => 4,
-        (a, b)  => a + b + 100,
-    }
-}
+    // ── 6. Typed map cast ─────────────────────────────────────────────────
+    let keys: [i32; 2] = [1, 2];
+    let vals: [HAny; 2] = [HAny::from(100 as i56), HAny::from(200 as i56)];
+    let ks: &[i32] = &keys;
+    let vs: &[HAny] = &vals;
+    let ms: MapSliceI32 = MapSliceI32 { keys: ks, vals: vs };
+    let tmap: Rc<Hermes2> = ms as <I32, AnyVal>{};
+    let mh: &Hermes2 = tmap.deref();
+    show("typed-map", mh.root());
 
-pub fn main() -> i32 {
-    // ------------------------------------------------------------------ //
-    // 1. Static @-literals                                               //
-    //    Document lives in read-only data — no heap allocation.          //
-    //    @-literal directly returns HermesStatic (blob + 8-byte size     //
-    //    prefix in rodata). HermesRead methods (to_string, root, …)      //
-    //    work on it without any wrapping or allocation.                  //
-    // ------------------------------------------------------------------ //
-    section("1. Static @-literals (HermesStatic / HermesRead)");
+    // ── 7. Live-container reads ───────────────────────────────────────────
+    let v0: HView2 = HView2 { base: 0 as *const u8 };
+    let got: HAny = v0.map_get(h.root(), "label");
+    if !got.is_string() { return 7; }
 
-    // @-literals directly return HermesStatic — no wrapping needed.
-    let hs_arr:  HermesStatic = @[1, 2, 3];
-    let hs_map:  HermesStatic = @{"key": "value", "n": 7};
-    let hs_i32:  HermesStatic = @<I32>[10, 20, 30];
-    let hs_mkv:  HermesStatic = @<I32, AnyVal>{1: 100, 2: 200};
+    // ── 8. Comprehensions ─────────────────────────────────────────────────
+    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    let squares: Rc<Hermes2> = @[x * x for x in arr if (x % 2) == 1];
+    let sh: &Hermes2 = squares.deref();
+    show("comprehension", sh.root());
 
-    print_static("arr  ", &hs_arr);
-    print_static("map  ", &hs_map);
-    print_static("I32[]", &hs_i32);
-    print_static("I32{}", &hs_mkv);
+    // ── 9. Pattern matching ───────────────────────────────────────────────
+    let a: HermesStatic = @[1, 2, 3];
+    let m: HermesStatic = @{"k": 1};
+    let s42: HermesStatic = @42;
+    println(classify(&a));
+    println(classify(&m));
+    println(classify(&s42));
 
-    // HermesView: non-owning borrow of any HermesStatic blob.
-    let view_arr: HermesView = hs_arr.as_view();
-    let s_arr: String = view_arr.to_string();
-    let mut out: String = String::with_capacity(64);
-    out.push_str("  view: ");
-    out.push_bytes(s_arr.as_ptr(), s_arr.len());
-    println_string(&out);
-
-    // ------------------------------------------------------------------ //
-    // 2. Scalar capture — $ident and ${expr}                             //
-    //    Template blob in rodata; values substituted at runtime.         //
-    // ------------------------------------------------------------------ //
-    section("2. Scalar capture  ($ident and ${expr})");
-
-    let user_id: i32  = 42;
-    let active:  bool = true;
-    let score:   i32  = 95;
-
-    let doc_user: Hermes = @{"id": $user_id, "active": $active};
-    print_doc("user", &doc_user);
-
-    let a: i32 = 10;
-    let b: i32 = 7;
-    let doc_expr: Hermes = @{
-        "sum":  ${a + b},
-        "diff": ${a - b},
-        "cond": ${score > 90}
-    };
-    print_doc("expr", &doc_expr);
-
-    let x: i32 = 1;
-    let y: i32 = 2;
-    let z: i32 = 3;
-    let doc_arr: Hermes = @[$x, $y, ${x + y + z}];
-    print_doc("arr", &doc_arr);
-
-    // ------------------------------------------------------------------ //
-    // 3. String capture — str becomes zone Varchar                       //
-    // ------------------------------------------------------------------ //
-    section("3. String capture  (str → zone Varchar)");
-
-    let name:  str = "Alice";
-    let lang:  str = "Logos";
-    let doc_str: Hermes = @{"name": $name, "lang": $lang};
-    print_doc("strings", &doc_str);
-
-    let greeting: str = "hello";
-    let farewell: str = "bye";
-    let doc_strarr: Hermes = @[$greeting, $farewell];
-    print_doc("str arr", &doc_strarr);
-
-    // ------------------------------------------------------------------ //
-    // 4. Mixed capture — scalars + strings + expressions                 //
-    // ------------------------------------------------------------------ //
-    section("4. Mixed capture");
-
-    let item_id:    i32 = 101;
-    let item_name:  str = "widget";
-    let qty:        i32 = 5;
-    let unit_price: i32 = 20;
-
-    let doc_order: Hermes = @{
-        "id":    $item_id,
-        "name":  $item_name,
-        "qty":   $qty,
-        "total": ${qty * unit_price},
-        "ready": ${qty > 0}
-    };
-    print_doc("order", &doc_order);
-
-    // ------------------------------------------------------------------ //
-    // 5. Typed array cast — &[T] as <T>[]                                //
-    //    Produces a dense Array<i32>/Array<u64> Hermes.                   //
-    // ------------------------------------------------------------------ //
-    section("5. Typed array cast  (&[T] as <T>[])");
-
-    let raw_i32: [i32; 5] = [2, 3, 5, 7, 11];
-    let slice_i32: &[i32] = &raw_i32;
-    let arr_ctr: Hermes = slice_i32 as <I32>[];
-    print_doc("Array<i32>", &arr_ctr);
-
-    let raw_u64: [u64; 3] = [1000000, 2000000, 3000000];
-    let slice_u64: &[u64] = &raw_u64;
-    let arr_u64_ctr: Hermes = slice_u64 as <U64>[];
-    print_doc("Array<u64>", &arr_u64_ctr);
-
-    // ------------------------------------------------------------------ //
-    // 6. Typed map cast — MapSliceI32 as <I32,AnyVal>{}                  //
-    //    Keys: dense i32 array; values: AnyVal (inline embed_i24).       //
-    // ------------------------------------------------------------------ //
-    section("6. Typed map cast  (MapSliceI32 as <I32,AnyVal>{})");
-
-    let keys: [i32; 4]    = [1, 2, 3, 4];
-    let vals: [AnyVal; 4] = [
-        AnyVal::embed_i24(10),
-        AnyVal::embed_i24(20),
-        AnyVal::embed_i24(30),
-        AnyVal::embed_i24(40),
-    ];
-    let ms: MapSliceI32 = MapSliceI32 { keys: &keys, vals: &vals };
-    let map_ctr: Hermes = ms as <I32, AnyVal>{};
-    print_doc("Map<i32, AnyVal>", &map_ctr);
-
-    // ------------------------------------------------------------------ //
-    // 7. HermesView — non-owning borrow over an existing Hermes    //
-    //    Borrows the zone without copying; HermesRead methods work on it.//
-    // ------------------------------------------------------------------ //
-    section("7. HermesView  (non-owning borrow)");
-
-    let view: HermesView = HermesView {
-        base: doc_order.base(),
-        size: doc_order.size(),
-    };
-    let s_view: String = view.to_string();
-    let mut vout: String = String::with_capacity(64);
-    vout.push_str("  view: ");
-    vout.push_bytes(s_view.as_ptr(), s_view.len());
-    println_string(&vout);
-
-    // ------------------------------------------------------------------ //
-    // 8. Comprehensions — @[expr for x in iter] and @{k: v for x in …}   //
-    //    Scalars (i32/u32/i16/…, bool, str) auto-coerced to AnyVal;      //
-    //    AnyVal values pass through. `if guard` optional.                //
-    // ------------------------------------------------------------------ //
-    section("8. Comprehensions  (auto-coerce scalars/bool/str)");
-
-    let nums: [i32; 6] = [1, 2, 3, 4, 5, 6];
-
-    // Plain list comprehension — i32 auto-coerced.
-    let squares: Hermes = @[x * x for x in nums];
-    print_doc("squares", &squares);
-
-    // Guarded list comprehension — keep evens, double them.
-    let evens: Hermes = @[x * 2 for x in nums if (x % 2) == 0];
-    print_doc("evens*2", &evens);
-
-    // Bool values auto-coerced.
-    let flags: Hermes = @[(x % 2) == 0 for x in nums];
-    print_doc("is_even", &flags);
-
-    // Map comprehension with dynamic str keys and i32 values.
-    let labels: [str; 4] = ["a", "b", "c", "d"];
-    let idx:    [i32; 4] = [0, 1, 2, 3];
-    let lookup: Hermes = @{labels[x as i64]: x * 100 for x in idx};
-    print_doc("lookup", &lookup);
-
-    // Map comprehension with string values (copied into zone as Varchar).
-    let tags: Hermes = @{labels[x as i64]: "on" for x in idx if x < 2};
-    print_doc("tags", &tags);
-
-    // ------------------------------------------------------------------ //
-    // 9. Pattern matching  — match over Hermes values and tuples         //
-    //    Scalar (@null/@true/@42/@"s"), structural (@[..]/@{..}), typed  //
-    //    (@<T>[..]/@<K,V>{..}), or-patterns, rest bindings, user guards, //
-    //    and tuple patterns with literal sub-patterns.                   //
-    // ------------------------------------------------------------------ //
-    section("9. Pattern matching");
-
-    // See `describe` above — classifies a Hermes value by shape / type.
-    let m_null:  HermesStatic = @null;
-    let m_arr:   HermesStatic = @[1, 2, 3];
-    let m_map:   HermesStatic = @{"k": 1};
-    let m_ti32:  HermesStatic = @<I32>[7, 8, 9];
-    let m_tu64:  HermesStatic = @<U64>[100, 200];
-    let m_tmap:  HermesStatic = @<Varchar, AnyVal>{"a": 1};
-    let m_true:  HermesStatic = @true;
-    let m_42:    HermesStatic = @42;
-    let m_hi:    HermesStatic = @"hello";
-    let m_other: HermesStatic = @3.14;
-
-    let mut shapes_line: String = String::with_capacity(96);
-    shapes_line.push_str("  shapes:");
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_null));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_arr));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_map));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_ti32));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_tu64));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_tmap));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_true));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_42));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_hi));
-    shapes_line.push_str(" "); shapes_line.push_str(describe(&m_other));
-    println_string(&shapes_line);
-
-    // Structural destructuring with @-patterns:
-    //   @[a, b, ..] binds the first two elements as AnyVal;
-    //   @{"k": x}   binds value at key "k".
-    let s12: i32 = unsafe { sum_first_two(&m_arr) };   // 1 + 2 = 3
-    let vk:  i32 = unsafe { key_k(&m_map) };           // 1
-    let mut bind_line: String = String::with_capacity(64);
-    bind_line.push_str("  bind: a+b=");
-    bind_line.push_str(s12.to_string().as_str());
-    bind_line.push_str(", k=");
-    bind_line.push_str(vk.to_string().as_str());
-    println_string(&bind_line);
-
-    // User guard combined with Hermes scalar arms — see `sign` above.
-    let hs_z: HermesStatic = @0;
-    let hs_o: HermesStatic = @1;
-    let hs_n: HermesStatic = @null;
-    let mut sign_line: String = String::with_capacity(80);
-    sign_line.push_str("  sign: ");
-    sign_line.push_str(sign(&hs_z,  0)); sign_line.push_str(" ");
-    sign_line.push_str(sign(&hs_o,  0)); sign_line.push_str(" ");
-    sign_line.push_str(sign(&hs_n,  5)); sign_line.push_str(" ");
-    sign_line.push_str(sign(&hs_n, -5)); sign_line.push_str(" ");
-    sign_line.push_str(sign(&hs_n,  0));
-    println_string(&sign_line);
-
-    // Tuple patterns with literal sub-patterns — see `classify` above.
-    let classify_sum: i32 = classify((0, 0))
-                          + classify((0, 9))
-                          + classify((5, 0))
-                          + classify((1, 1))
-                          + classify((2, 3));   // 1 + 2 + 3 + 4 + 105 = 115
-    let mut tuple_line: String = String::with_capacity(64);
-    tuple_line.push_str("  tuple: classify sum = ");
-    tuple_line.push_str(classify_sum.to_string().as_str());
-    println_string(&tuple_line);
-
-    println("---");
-    println("done.");
     return 0;
 }

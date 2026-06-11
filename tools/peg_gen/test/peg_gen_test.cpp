@@ -45,23 +45,23 @@ static int32_t int_field(AnyVal v) {
 
 // Get top-level section (root is ObjectMap, string-keyed).
 static AnyVal section(const logos::hermes2::Hermes& doc, std::string_view key) {
-    if (!doc.has_root()) return AnyVal{};
+    if (doc.root().is_null()) return AnyVal{};
     return doc.root_object().as_map().get(key);
 }
 
 // Section helpers that return typed views.
 static TinyMapView meta_of(const logos::hermes2::Hermes& doc) {
-    return TinyMapView(section(doc, "meta").to_offset(), doc.holder());
+    return TinyMapView(section(doc, "meta"), doc.holder());
 }
 
 static ArrayView array_section(const logos::hermes2::Hermes& doc, std::string_view key) {
     AnyVal v = section(doc, key);
     LOGOS_ASSERT(!v.is_null(), "PEGEN-TEST-NAV", "section '{}' missing", key);
-    return ArrayView(v.to_offset(), doc.holder());
+    return ArrayView(v, doc.holder());
 }
 
 static TinyMapView tiny_elem(const logos::hermes2::Hermes& doc, AnyVal v) {
-    return TinyMapView(v.to_offset(), doc.holder());
+    return TinyMapView(v, doc.holder());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
