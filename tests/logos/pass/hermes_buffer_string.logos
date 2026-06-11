@@ -1,9 +1,11 @@
 package hermes_buffer_string;
-// Buffer<HermesString>: SoA storage (packed bytes + end offsets).  Push three
+use logos.lang.fabric;
+use logos.lang.fabric.string_store;
+use logos.lang.hermes2.hstatic;
+// Buffer<StrDt>: SoA storage (packed bytes + end offsets).  Push three
 // strings, read them back via StringView, verify each byte.
 
 use logos.lang.hermes2.hstatic;
-use logos.lang.hermes.string;
 use logos.lang.fabric;
 
 unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {
@@ -22,7 +24,7 @@ unsafe fn sv(s: str, n: u64) -> StringView {
 }
 
 unsafe fn main() -> i32 {
-    let mut b: Buffer<HermesString> = Buffer::<HermesString>::new();
+    let mut b: Buffer<StrDt> = Buffer::<StrDt>::new();
     if b.len() != 0 as u64 { return 1; }
 
     b.push(sv("alpha",  5 as u64));
