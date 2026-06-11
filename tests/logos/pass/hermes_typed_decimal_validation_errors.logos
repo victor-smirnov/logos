@@ -1,43 +1,21 @@
-// Decimal typed-value validation: must reject invalid Decimal(P,S) forms.
+// @Decimal(P,S) validation rejections (hermes2: a malformed typed value
+// parses to a null handle): missing/short/non-int params, S>P, non-string init.
 package hermes_typed_decimal_validation_errors;
-
-use logos.mem.hermes.ctr;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.anyval;
+use logos.mem.hermes2.parser;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    // 1) Missing params.
-    let mut d1: Hermes = Hermes::new(2048);
-    match d1.parse("@Decimal=\"1\"") {
-        Result::Ok(()) => { return 1; }
-        Result::Err(_) => {}
-    }
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
 
-    // 2) Wrong arity.
-    let mut d2: Hermes = Hermes::new(2048);
-    match d2.parse("@Decimal(10)=\"1\"") {
-        Result::Ok(()) => { return 2; }
-        Result::Err(_) => {}
-    }
-
-    // 3) Non-integer params.
-    let mut d3: Hermes = Hermes::new(2048);
-    match d3.parse("@Decimal(\"10\",2)=\"1\"") {
-        Result::Ok(()) => { return 3; }
-        Result::Err(_) => {}
-    }
-
-    // 4) Invalid range: S > P.
-    let mut d4: Hermes = Hermes::new(2048);
-    match d4.parse("@Decimal(2,3)=\"1\"") {
-        Result::Ok(()) => { return 4; }
-        Result::Err(_) => {}
-    }
-
-    // 5) Prefix initializer must be string.
-    let mut d5: Hermes = Hermes::new(2048);
-    match d5.parse("@Decimal(10,2)=123") {
-        Result::Ok(()) => { return 5; }
-        Result::Err(_) => {}
-    }
-
+    if !parse(h, "@Decimal=\"1\"").is_null() { return 1; }            // no params
+    if !parse(h, "@Decimal(10)=\"1\"").is_null() { return 2; }        // one param
+    if !parse(h, "@Decimal(\"10\",2)=\"1\"").is_null() { return 3; }  // non-int P
+    if !parse(h, "@Decimal(2,3)=\"1\"").is_null() { return 4; }       // S > P
+    if !parse(h, "@Decimal(10,2)=123").is_null() { return 5; }        // non-string init
+    if !parse(h, "@Decimal(10,2)=\"12a\"").is_null() { return 6; }    // junk digits
+    if !parse(h, "@Decimal(10,1)=\"1.23\"").is_null() { return 7; }   // scale over S
     return 0;
 }
