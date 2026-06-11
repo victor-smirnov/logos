@@ -4924,9 +4924,9 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                 v = 0;
             }
             extra_args.push_back(builder().lit_int(v, i32_t()));
-        } else {  // PAT_HERMES_STR — hermes_pat_eq_str(*av, base, str)
+        } else {  // PAT_HERMES_STR — hermes2_pat_eq_str(*node, str)
             helper = "hermes2_pat_eq_str";
-            want_arity = 3;
+            want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
             extra_args.push_back(builder().lit_str(std::move(lit), make_slice_type(prim(LogosType::Kind::U8))));
@@ -4951,9 +4951,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t));
-        if (pc == la::PAT_HERMES_STR) {
-            args.push_back(builder().var_ref(base_var, u8_ptr_t));
-        }
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -4977,7 +4974,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(parent_av, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         for (auto& a : extra_args) args.push_back(std::move(a));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         auto call = builder().call(sym, {}, std::move(args), scrut_type);
@@ -4994,7 +4990,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
+            if (c->param_types.size() == 2) { fi = c; break; }
         if (!fi) {
             error(std::format(
                 "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
@@ -5003,7 +4999,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
         args.push_back(builder().lit_int((int64_t)n, u64_t));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
@@ -5011,46 +5006,6 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
     // Emit `hermes_pat_array_len_ge(&sv, base, n)` as a bool expr.
     auto emit_array_len_ge = [&](const std::string& sv, uint64_t n) -> lir::LExprPtr {
         const char* helper = "hermes2_pat_array_len_ge";
-        auto cands = find_func_candidates(helper);
-        const SemaFuncInfo* fi = nullptr;
-        for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
-        if (!fi) {
-            error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
-                helper));
-            return builder().lit_bool(false, bool_t());
-        }
-        std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
-        args.push_back(builder().lit_int((int64_t)n, u64_t));
-        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return builder().call(sym, {}, std::move(args), bool_t());
-    };
-    // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
-    auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
-        const char* helper = "hermes2_pat_has_type_code";
-        auto cands = find_func_candidates(helper);
-        const SemaFuncInfo* fi = nullptr;
-        for (auto* c : cands)
-            if (c->param_types.size() == 3) { fi = c; break; }
-        if (!fi) {
-            error(std::format(
-                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
-                helper));
-            return builder().lit_bool(false, bool_t());
-        }
-        std::vector<lir::LExprPtr> args;
-        args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
-        args.push_back(builder().lit_int((int64_t)tc, u64_t));
-        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
-        return builder().call(sym, {}, std::move(args), bool_t());
-    };
-    // Emit `hermes_pat_is_map(&sv, base)` bool expr.
-    auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
-        const char* helper = "hermes2_pat_is_map";
         auto cands = find_func_candidates(helper);
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5063,7 +5018,44 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
         }
         std::vector<lir::LExprPtr> args;
         args.push_back(builder().addr_of(sv, ptr_t_outer));
-        args.push_back(builder().var_ref(base_var, u8_ptr_t_outer));
+        args.push_back(builder().lit_int((int64_t)n, u64_t));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return builder().call(sym, {}, std::move(args), bool_t());
+    };
+    // Emit `hermes_pat_has_type_code(&sv, base, tc)` bool expr.
+    auto emit_has_type_code = [&](const std::string& sv, uint64_t tc) -> lir::LExprPtr {
+        const char* helper = "hermes2_pat_has_type_code";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 2) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
+                helper));
+            return builder().lit_bool(false, bool_t());
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
+        args.push_back(builder().lit_int((int64_t)tc, u64_t));
+        std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
+        return builder().call(sym, {}, std::move(args), bool_t());
+    };
+    // Emit `hermes_pat_is_map(&sv, base)` bool expr.
+    auto emit_is_map = [&](const std::string& sv) -> lir::LExprPtr {
+        const char* helper = "hermes2_pat_is_map";
+        auto cands = find_func_candidates(helper);
+        const SemaFuncInfo* fi = nullptr;
+        for (auto* c : cands)
+            if (c->param_types.size() == 1) { fi = c; break; }
+        if (!fi) {
+            error(std::format(
+                "Hermes pattern needs stdlib helper `{}`; `use logos.mem.hermes.pat;`",
+                helper));
+            return builder().lit_bool(false, bool_t());
+        }
+        std::vector<lir::LExprPtr> args;
+        args.push_back(builder().addr_of(sv, ptr_t_outer));
         std::string sym = fi->symbol_name.empty() ? helper : fi->symbol_name;
         return builder().call(sym, {}, std::move(args), bool_t());
     };
@@ -5111,7 +5103,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
                     std::string child = emit_child_let(
-                        "hermes2_pat_map_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_map_slot", sv, std::move(xargs), 2);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -5157,7 +5149,7 @@ lir::LExprPtr SemaChecker::build_hermes_pat_guard(
                     std::vector<lir::LExprPtr> xargs;
                     xargs.push_back(builder().lit_int((int64_t)i, u64_t));
                     std::string child = emit_child_let(
-                        "hermes2_pat_array_slot", sv, std::move(xargs), 3);
+                        "hermes2_pat_array_slot", sv, std::move(xargs), 2);
                     if (child.empty()) {
                         return builder().lit_bool(false, bool_t());
                     }
@@ -7783,12 +7775,11 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);
         {
-            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
-            auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
+            // hermes2: no base is threaded (HAny is self-relative); keep a dead
+            // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
-            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
-            sl.value = std::move(base_call);
+            sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
+            sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
             hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;
@@ -8431,12 +8422,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         }
         base_var = "__hmatche_base_" + std::to_string(tmp_var_count_++);
         {
-            TypeRef u8_ptr_t = make_ptr(false, prim(LogosType::Kind::U8));
-            auto view_ref = builder().var_ref(view_var, scrut_type);
-            auto base_call = builder().method_call(std::move(view_ref), "base", "", {}, {}, -1, u8_ptr_t);
+            // hermes2: no base is threaded (HAny is self-relative); keep a dead
+            // zero anchor so the hoist block shape is unchanged.
             lir::SLet sl;
-            sl.name = base_var; sl.type = u8_ptr_t; sl.is_mut = false;
-            sl.value = std::move(base_call);
+            sl.name = base_var; sl.type = prim(LogosType::Kind::I64); sl.is_mut = false;
+            sl.value = builder().lit_int(0, prim(LogosType::Kind::I64));
             hoist_let_base = make_stmt_emit(node_line_, std::move(sl));
         }
         has_hoist_let = true;

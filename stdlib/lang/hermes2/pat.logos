@@ -2,7 +2,7 @@
 // patterns. The hermes2 port of mem.hermes.pat.
 //
 // To keep build_hermes_pat_guard's call shape IDENTICAL (it passes `&node` + a
-// `base` ptr), every helper takes `(node: *const HAny, base: *const u8, ...)`
+// `base` ptr), every helper takes `(node: *const HAny, ...)`
 // and IGNORES base — hermes2 HAny is self-relative (value-form), so the node
 // word alone resolves (no base needed). Only the helper NAMES (hermes_pat_* ->
 // hermes2_pat_*) + the node type (AnyVal -> HAny) + the root entry change in the
@@ -39,7 +39,7 @@ pub fn hermes2_pat_root_rc(c: &Rc<Hermes2>) -> HAny {
     return h.root();
 }
 
-// ── Scalar leaves (build_leaf passes NO base for these) ─────────────────────
+// ── Scalar leaves ─────────────────────
 pub unsafe fn hermes2_pat_is_null(node: *const HAny) -> bool {
     return (*node).is_null();
 }
@@ -51,7 +51,7 @@ pub unsafe fn hermes2_pat_eq_i24(node: *const HAny, v: i32) -> bool {
     let n: HAny = *node;
     return n.is_int() && n.as_i64() == (v as i64);
 }
-pub unsafe fn hermes2_pat_eq_str(node: *const HAny, base: *const u8, s: str) -> bool {
+pub unsafe fn hermes2_pat_eq_str(node: *const HAny, s: str) -> bool {
     let n: HAny = *node;
     if !n.is_string() { return false; }
     let hs: &HString = &*(n.resolve() as *const HString);
@@ -63,31 +63,31 @@ pub unsafe fn hermes2_pat_is_present(node: *const HAny) -> bool {
     return !(*node).is_null();
 }
 
-// ── Containers (base ignored) ──────────────────────────────────────────────
-pub unsafe fn hermes2_pat_is_map(node: *const HAny, base: *const u8) -> bool {
+// ── Containers ──────────────────────────────────────────────
+pub unsafe fn hermes2_pat_is_map(node: *const HAny) -> bool {
     return (*node).is_map();
 }
-pub unsafe fn hermes2_pat_map_slot(node: *const HAny, base: *const u8, key: str) -> HAny {
+pub unsafe fn hermes2_pat_map_slot(node: *const HAny, key: str) -> HAny {
     let n: HAny = *node;
     if !n.is_map() { return null_hany(); }
     return (&*(n.resolve() as *const HMap<HString, HVal>)).get(key);
 }
-pub unsafe fn hermes2_pat_array_slot(node: *const HAny, base: *const u8, idx: u64) -> HAny {
+pub unsafe fn hermes2_pat_array_slot(node: *const HAny, idx: u64) -> HAny {
     let n: HAny = *node;
     if !n.is_array() { return null_hany(); }
     return (&*(n.resolve() as *const HArray<HVal>)).get(idx as i64);
 }
-pub unsafe fn hermes2_pat_array_len_eq(node: *const HAny, base: *const u8, n: u64) -> bool {
+pub unsafe fn hermes2_pat_array_len_eq(node: *const HAny, n: u64) -> bool {
     let v: HAny = *node;
     if !v.is_array() { return false; }
     return ((&*(v.resolve() as *const HArray<HVal>)).len() as u64) == n;
 }
-pub unsafe fn hermes2_pat_array_len_ge(node: *const HAny, base: *const u8, n: u64) -> bool {
+pub unsafe fn hermes2_pat_array_len_ge(node: *const HAny, n: u64) -> bool {
     let v: HAny = *node;
     if !v.is_array() { return false; }
     return ((&*(v.resolve() as *const HArray<HVal>)).len() as u64) >= n;
 }
-pub unsafe fn hermes2_pat_has_type_code(node: *const HAny, base: *const u8, tc: u64) -> bool {
+pub unsafe fn hermes2_pat_has_type_code(node: *const HAny, tc: u64) -> bool {
     let n: HAny = *node;
     if !n.is_ref() { return false; }
     return (h2_type_code(n.resolve())) == tc;
