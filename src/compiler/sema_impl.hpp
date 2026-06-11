@@ -1214,6 +1214,42 @@ private:
     // Built-in compiler-recognised attributes.  Each entry: name → bitset of
     // valid AttrTargets (1<<int(AttrTarget)).  Anything not here is treated
     // as a user `#[annotation]` lookup (and warned if unresolved).
+    // ── Struct/enum attribute FLAGS — the single point of truth ─────────────
+    // Every phase that needs these flags (collect, datatype lowering, the
+    // SPECIALIZATION path that bypasses structs_) parses through HERE. Adding
+    // a flag attribute = one field + one branch below; never a bare string
+    // compare at a call site (three drifting parsers caused the zoned2-spec
+    // segfault class).
+    struct StructAttrFlags {
+        bool datatype        = false;  // #[datatype] — promote to the datatype pipeline
+        bool annotation      = false;  // #[annotation] — annotation datatype (promotes)
+        bool zoned           = false;  // #[zoned] — self-relative ptr fields / niche Ref arm
+        bool zone_mut        = false;  // #[zone_mut] — fat zone-carrying &mut
+        bool rel_ptr         = false;  // #[rel_ptr]
+        bool self_describing = false;  // #[self_describing] — thin-*Self DST
+        bool pinned          = false;  // #[pinned] — non-movable
+        bool borrow_carrying = false;  // #[borrow_carrying] — value may hold an arena Ref
+        bool no_auto_drop    = false;  // #[no_auto_drop]
+        bool promotes_to_datatype() const { return datatype || annotation; }
+    };
+    template <typename Annots>
+    StructAttrFlags parse_struct_attr_flags(const Annots& anns) {
+        StructAttrFlags f;
+        for (auto& ann : anns) {
+            auto n = str_of(ann.get(sema_detail::la::NAME.code));
+            if      (n == "datatype")        f.datatype        = true;
+            else if (n == "annotation")      f.annotation      = true;
+            else if (n == "zoned")           f.zoned           = true;
+            else if (n == "zone_mut")        f.zone_mut        = true;
+            else if (n == "rel_ptr")         f.rel_ptr         = true;
+            else if (n == "self_describing") f.self_describing = true;
+            else if (n == "pinned")          f.pinned          = true;
+            else if (n == "borrow_carrying") f.borrow_carrying = true;
+            else if (n == "no_auto_drop")    f.no_auto_drop    = true;
+        }
+        return f;
+    }
+
     static unsigned attr_builtin_targets(std::string_view name) {
         auto bit = [](AttrTarget t) { return 1u << unsigned(t); };
         if (name == "type_code")

@@ -331,15 +331,12 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                 pass0_pending.push_back(item);
                 continue;
             }
-            // `#[datatype]` promotes a STRUCT-syntax item into the datatype
-            // pipeline (type_code/reflect/dispatch); `#[zoned]` is the hermes
-            // self-relative-fields marker and does NOT promote.
+            // `#[datatype]`/`#[annotation]` promote a STRUCT-syntax item into
+            // the datatype pipeline; `#[zoned]` marks self-relative fields and
+            // does NOT promote. (Single-point parser: parse_struct_attr_flags.)
             bool is_datatype_struct = false;
-            if (ic == la::STRUCT) {
-                for (auto& ann : pass0_pending) {
-                    if (str_of(ann.get(la::NAME.code)) == "datatype") { is_datatype_struct = true; break; }
-                }
-            }
+            if (ic == la::STRUCT)
+                is_datatype_struct = parse_struct_attr_flags(pass0_pending).promotes_to_datatype();
             pass0_pending.clear();
             if (ic == la::STRUCT && !is_datatype_struct) {
                 if (!item.has_key(la::NAME.code)) continue;  // struct_inst — skip name registration
@@ -1528,96 +1525,35 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 else {
                     auto sname = std::string(str_of(item.get(la::NAME.code)));
                     bool htp = item_has_type_params(item);
-                    // `#[zoned]` = self-relative pointer fields (no promotion);
-                    // `#[datatype]` (or #[annotation]) promotes to the datatype
-                    // pipeline (type_code/reflect/dispatch).
+                    // Single-point attribute parse (see parse_struct_attr_flags):
+                    // promotion (#[datatype]/#[annotation]) vs structural flags.
                     check_annotations(AttrTarget::Struct, sname, htp, pending_annots);
-                    bool pending_is_annot_type = false;
-                    bool pending_is_datatype = false;
-                    for (auto& ann : pending_annots) {
-                        auto an = str_of(ann.get(la::NAME.code));
-                        if (an == "annotation") pending_is_annot_type = true;
-                        if (an == "datatype")   pending_is_datatype = true;
-                    }
+                    auto aflags = parse_struct_attr_flags(pending_annots);
                     if (is_specialization_struct(item)) collect_struct_spec(item);
-                    else if (pending_is_annot_type || pending_is_datatype) {
-                        collect_datatype(item, pending_is_annot_type);
+                    else if (aflags.promotes_to_datatype()) {
+                        collect_datatype(item, aflags.annotation);
                     } else {
                         (void)is_zoned;
                         collect_struct(item);
-                        // `#[no_auto_drop]`: opt the struct out of compiler
-                        // auto-Drop (no user-drop call, no field-drop). The
-                        // lang-item shape behind ManuallyDrop<T> — the wrapper
-                        // must NOT run the inner T's destructor at scope exit.
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "no_auto_drop") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.no_auto_drop = true;
-                                break;
+                        // Structural flag attributes — applied through the
+                        // single-point parser (see parse_struct_attr_flags for
+                        // the per-flag docs).
+                        {
+                            auto f = parse_struct_attr_flags(pending_annots);
+                            auto skey = sema_key(cur_package_, sname);
+                            auto sit = structs_.find(skey);
+                            if (sit == structs_.end()) sit = structs_.find(sname);
+                            if (sit != structs_.end()) {
+                                auto& si = sit->second;
+                                si.no_auto_drop    |= f.no_auto_drop;
+                                si.self_describing |= f.self_describing;
+                                si.rel_ptr         |= f.rel_ptr;
+                                si.pinned          |= f.pinned;
+                                si.zone_mut        |= f.zone_mut;
+                                si.zoned2          |= f.zoned;
+                                si.borrow_carrying |= f.borrow_carrying;
                             }
-                        // `#[self_describing]`: mark a custom-DST as thin-
-                        // referenced (raw `*mut/*const T` → thin pointer, meta
-                        // recovered in-band at deref). ref-repr §6.
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "self_describing") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.self_describing = true;
-                                break;
-                            }
-                        // `#[rel_ptr]`: a self-relative pointer type (RefRepr
-                        // RelOffset — 8B i64 offset storage, absolute ptr compute).
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "rel_ptr") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.rel_ptr = true;
-                                break;
-                            }
-                        // `#[pinned]`: a location-anchored at-rest type (e.g.
-                        // HAnyRel) — non-movable by value (is_non_movable_type).
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "pinned") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.pinned = true;
-                                break;
-                            }
-                        // `#[zone_mut]`: `&mut T` is a fat ref carrying its zone
-                        // (Allocator) — grow methods reach it from &mut self.
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "zone_mut") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.zone_mut = true;
-                                break;
-                            }
-                        // `#[zoned]`: all thin ptr fields stored self-relative (RelOffset).
-                        // (The hermes2-era spelling `zoned2` merged into `zoned`.)
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "zoned") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.zoned2 = true;
-                                break;
-                            }
-                        // `#[borrow_carrying]`: a value type that may hold a Ref into
-                        // an arena (HAny) — escape-tracked like a reference by the BC.
-                        for (auto& ann : pending_annots)
-                            if (str_of(ann.get(la::NAME.code)) == "borrow_carrying") {
-                                auto skey = sema_key(cur_package_, sname);
-                                auto sit = structs_.find(skey);
-                                if (sit == structs_.end()) sit = structs_.find(sname);
-                                if (sit != structs_.end()) sit->second.borrow_carrying = true;
-                                break;
-                            }
+                        }
                         // `#[repr(...)]` minimal (logos-core 1.5). For struct
                         // items only `transparent` is recognised so far — sets
                         // the struct's `repr_transparent` flag (single-field
@@ -1727,22 +1663,15 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // struct `#[zoned]` at the field-collection path above.
                 if (item.has_key(la::NAME.code)) {
                     std::string ename(str_of(item.get(la::NAME.code)));
-                    for (auto& ann : pending_annots)
-                        if (str_of(ann.get(la::NAME.code)) == "zoned") {
-                            auto eit = enums_.find(sema_key(cur_package_, ename));
-                            if (eit == enums_.end()) eit = enums_.find(ename);
-                            if (eit != enums_.end()) eit->second.zoned2 = true;
-                            break;
+                    auto f = parse_struct_attr_flags(pending_annots);
+                    if (f.zoned || f.borrow_carrying) {
+                        auto eit = enums_.find(sema_key(cur_package_, ename));
+                        if (eit == enums_.end()) eit = enums_.find(ename);
+                        if (eit != enums_.end()) {
+                            eit->second.zoned2          |= f.zoned;
+                            eit->second.borrow_carrying |= f.borrow_carrying;
                         }
-                    // `#[borrow_carrying]` on an enum (HAny): a value that may hold a
-                    // Ref into an arena — escape-tracked by the borrow checker.
-                    for (auto& ann : pending_annots)
-                        if (str_of(ann.get(la::NAME.code)) == "borrow_carrying") {
-                            auto eit = enums_.find(sema_key(cur_package_, ename));
-                            if (eit == enums_.end()) eit = enums_.find(ename);
-                            if (eit != enums_.end()) eit->second.borrow_carrying = true;
-                            break;
-                        }
+                    }
                 }
                 // `#[repr(uN)]` on an enum — set discriminant width if the
                 // enum didn't already declare one via the Logos-native

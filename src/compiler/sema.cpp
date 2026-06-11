@@ -6702,14 +6702,12 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     // `#[zone_mut] struct HMap<HString,V>` spec would clone with zone_mut=false, making
     // ref_repr_of treat `&mut` as thin and corrupting the zone-carrying receiver.
     auto apply_struct_flags = [&](lir::LStructDef& sd) {
-        for (auto& ann : pending_annots) {
-            auto aname = std::string(str_of(ann.get(la::NAME.code)));
-            if      (aname == "zone_mut")        sd.zone_mut        = true;
-            else if (aname == "zoned")           sd.zoned2          = true;
-            else if (aname == "rel_ptr")         sd.rel_ptr         = true;
-            else if (aname == "self_describing") sd.self_describing = true;
-            else if (aname == "borrow_carrying") sd.borrow_carrying = true;
-        }
+        auto f = parse_struct_attr_flags(pending_annots);
+        sd.zone_mut        |= f.zone_mut;
+        sd.zoned2          |= f.zoned;
+        sd.rel_ptr         |= f.rel_ptr;
+        sd.self_describing |= f.self_describing;
+        sd.borrow_carrying |= f.borrow_carrying;
     };
 
     auto apply_annots_to_trait = [&](lir::LTraitDef& td) {
@@ -6966,11 +6964,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 continue;
             }
             // Check if #[zoned] annotation is present → treat as zoned struct.
-            bool has_zoned = false;
-            for (auto& ann : pending_annots) {
-                auto aname = std::string(str_of(ann.get(la::NAME.code)));
-                if (aname == "datatype" || aname == "annotation") { has_zoned = true; break; }
-            }
+            const bool has_zoned =
+                parse_struct_attr_flags(pending_annots).promotes_to_datatype();
             std::string struct_doc = take_pending_doc();
             if (is_specialization_struct(item)) {
                 auto sd = lower_spec_struct(item);
