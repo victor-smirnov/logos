@@ -1,22 +1,16 @@
+// Typed allocation in a hermes2 arena (successor of the Hermes1 zone basic test).
 package datatype_zone_basic;
-// Phase 2: allocate a #[zoned] struct in a HermesZone, write and read fields.
+use logos.lang.hermes2.container;
+use logos.mem.rc;
 
-
-#[zoned] struct Point {
-    x: i32,
-    y: i32,
-}
+struct Point { x: i32, y: i32 }
 
 unsafe fn main() -> i32 {
-    let mut zone: HermesZone = HermesZone::create(4096);
-    let size: i64 = sizeof::<Point>();
-    let raw: *mut u8 = zone.alloc_raw(size);
-    let p: *mut Point = raw as *mut Point;
-    // Write fields through the pointer
-    p.x = 10;
-    p.y = 20;
-    // Read back and compute result
-    let result: i32 = p.x + p.y;
-    zone.destroy();
-    return result;  // 30
+    let rc: Rc<Hermes2> = hermes2_rc(4096);
+    let h: &Hermes2 = rc.deref();
+    let hp: *mut Hermes2 = h as *const Hermes2 as *mut Hermes2;
+    let p: *mut Point = hermes2_alloc::<Point>(hp);
+    p.x = 18;
+    p.y = 12;
+    return p.x + p.y;   // 30
 }

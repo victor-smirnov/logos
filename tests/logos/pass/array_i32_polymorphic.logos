@@ -1,91 +1,30 @@
-// Polymorphic `Array<T>` with T=i32 across all Hermes traits — no AnyVal.
-// Verifies blankets dispatch element-by-element via static trait methods on
-// the primitive T, exercising: HermesStringify, HermesEqual, HermesHash,
-// HermesClone (via CloneElem), HermesRelease.
+// One generic array shape, several element types (successor of the Hermes1
+// polymorphic Array<T> test): i32 / i64 / u8 instantiations behave alike.
 package array_i32_polymorphic;
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.anyval;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
-use logos.lang.hermes.relptr;
-use logos.mem.hermes.stringify;
-use logos.mem.hermes.equal;
-use logos.mem.hermes.hashing;
-use logos.mem.hermes.clone;
-use logos.mem.hermes.release;
-use logos.mem.string;
-use logos.lang.str;
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let mut zone: Zone<Mutable> = zone_create(4096);
-    let base: *mut u8 = zone.holder.base;
+    let rc: Rc<Hermes2> = hermes2_rc(8192);
+    let h: &Hermes2 = rc.deref();
 
-    let arr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, sizeof::<Array<i32>>() as i64);
-    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 16 as i64);
-    let arr: *mut Array<i32> = arr_raw as *mut Array<i32>;
-    arr.size     = 0 as u64;
-    arr.capacity = 4 as u64;
-    arr.data.offset     = (buf_raw as i64 - base as i64) as u32;
+    let ai: &mut HArray<i32> = h.tarray::<i32>(4);
+    ai.push(-5); ai.push(7);
+    if ai.len() != 2i64 { return 1; }
+    if ai.get(0) != -5 { return 2; }
 
-    let elem_sz: i64 = sizeof::<i32>() as i64;
-    let values: [i32; 3] = [10 as i32, 20 as i32, 30 as i32];
-    let mut i: u64 = 0 as u64;
-    while i < 3 as u64 {
-        let ep: *mut i32 = (buf_raw as i64 + (i as i64) * elem_sz) as *mut i32;
-        *ep = values[i];
-        i = i + 1 as u64;
-    }
-    arr.size = 3 as u64;
+    let al: &mut HArray<i64> = h.tarray::<i64>(4);
+    al.push(9000000000i64);
+    if al.get(0) != 9000000000i64 { return 3; }
 
-    let mut sb: String = String::new();
-    let mut ctx: StringifyCtx = StringifyCtx {
-        out:   &mut sb as *mut String,
-        base:  base as *const u8,
-        opts:  StringifyOpts::compact(),
-        depth: 0 as i64,
-    };
-    arr.stringify(&mut ctx);
-    if !sb.eq_str("<I32> [10,20,30]") { return 1; }
+    let ab: &mut HArray<u8> = h.tarray::<u8>(4);
+    ab.push(255 as u8); ab.push(0 as u8);
+    if ab.get(0) != 255 as u8 { return 4; }
+    if ab.get(1) != 0 as u8 { return 5; }
 
-    // Equal: arr == arr (self-comparison).
-    let mut ec: EqualCtx = EqualCtx {
-        base_self:  base as *const u8,
-        base_other: base as *const u8,
-    };
-    if !arr.equal(arr_raw as *const u8, &mut ec) { return 2; }
-
-    // Hash: computes deterministically.
-    let mut hc: HashCtx = HashCtx { base: base as *const u8 };
-    let h1: u64 = arr.hash_value(&mut hc);
-    let h2: u64 = arr.hash_value(&mut hc);
-    if h1 != h2 { return 3; }
-    if h1 == 0 as u64 { return 4; }
-
-    // Clone: copy to a second zone and compare.
-    let mut zone2: Zone<Mutable> = zone_create(4096);
-    let mut cc: CloneCtx = CloneCtx {
-        base_src: base as *const u8,
-        zone_dst: &mut zone2,
-        map: 0 as *mut CloneMap,
-    };
-    let new_raw: *mut u8 = arr.clone_to(&mut cc);
-    if new_raw == 0 as *mut u8 { return 5; }
-    let new_arr: *const Array<i32> = new_raw as *const Array<i32>;
-    if new_arr.size != 3 as u64 { return 6; }
-    // Stringify the cloned copy.
-    sb.clear();
-    let mut ctx2: StringifyCtx = StringifyCtx {
-        out:   &mut sb as *mut String,
-        base:  zone2.holder.base as *const u8,
-        opts:  StringifyOpts::compact(),
-        depth: 0 as i64,
-    };
-    new_arr.stringify(&mut ctx2);
-    if !sb.eq_str("<I32> [10,20,30]") { return 7; }
-
-    // Release: no-op.
-    arr.release();
+    // Interleaved use: instances are independent.
+    ai.push(100);
+    if ai.len() != 3i64 || al.len() != 1i64 || ab.len() != 2i64 { return 6; }
     return 0;
 }

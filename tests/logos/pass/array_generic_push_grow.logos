@@ -1,68 +1,25 @@
-// Regression test: generic `impl<T> Array<T>` dynamic push with
-// 2× grow via `*mut MemHolder` — was suspected broken (see
-// project_generic_holder_codegen_bug.md), verified working on HEAD.
+// Typed-array growth past capacity (successor of the Hermes1 push_grow test):
+// the hermes2 HArray<T> grows its element buffer in the never-move arena;
+// old elements survive the re-buffer (copy, not move).
 package array_generic_push_grow;
-
-use logos.lang.hermes.zone;
-use logos.lang.hermes.mem_holder;
-use logos.lang.hermes.array;
-use logos.lang.hermes.map;
-use logos.lang.hermes.typed_value;
-use logos.lang.hermes.relptr;
-
-impl<T> Array<T> {
-    pub unsafe fn push_grow(self: *mut Array<T>, holder: *mut MemHolder, val_ptr: *const T) {
-        let elem_sz: i64 = sizeof::<T>() as i64;
-        let arr_off: u32 = (self as i64 - holder.base as i64) as u32;
-        if self.size >= self.capacity {
-            let old_cap: u64 = self.capacity;
-            let new_cap: u64 = if old_cap == 0 as u64 { 8 as u64 } else { old_cap * 2 as u64 };
-            let new_bytes: i64 = (new_cap as i64) * elem_sz;
-            let new_buf: *mut u8 = memholder_alloc(holder, new_bytes);
-            if new_buf == 0 as *mut u8 { return; }
-            let base2: *mut u8 = holder.base;
-            let arr2: *mut Array<T> = (base2 as i64 + arr_off as i64) as *mut Array<T>;
-            let old_size: u64 = arr2.size;
-            let old_data_off: u32 = arr2.data.offset;
-            let old_bytes: i64 = (old_size as i64) * elem_sz;
-            let mut i: i64 = 0 as i64;
-            while i < old_bytes {
-                *((new_buf as i64 + i) as *mut u8) =
-                    *((base2 as i64 + old_data_off as i64 + i) as *const u8);
-                i = i + 1 as i64;
-            }
-            arr2.data.offset     = (new_buf as i64 - base2 as i64) as u32;
-            arr2.capacity = new_cap;
-            let ep2: *mut T = (base2 as i64 + arr2.data.offset as i64
-                               + (arr2.size as i64) * elem_sz) as *mut T;
-            *ep2 = *val_ptr;
-            arr2.size = arr2.size + 1 as u64;
-            return;
-        }
-        let base: *mut u8 = holder.base;
-        let ep: *mut T = (base as i64 + self.data.offset as i64
-                          + (self.size as i64) * elem_sz) as *mut T;
-        *ep = *val_ptr;
-        self.size = self.size + 1 as u64;
-    }
-}
+use logos.lang.hermes2.container;
+use logos.lang.hermes2.array;
+use logos.mem.rc;
 
 unsafe fn main() -> i32 {
-    let mut zone: Zone<Mutable> = zone_create(4096);
-    let arr_raw: *mut u8 = zone_m_alloc_raw(&mut zone, sizeof::<Array<i32>>() as i64);
-    let buf_raw: *mut u8 = zone_m_alloc_raw(&mut zone, 16 as i64);
-    let arr: *mut Array<i32> =
-        Array::<i32>::init(arr_raw, buf_raw, zone.holder.base, 4 as u64);
-
-    let v1: i32 = 10;
-    let v2: i32 = 20;
-    let v3: i32 = 30;
-    arr.push_grow(zone.holder, &v1 as *const i32);
-    arr.push_grow(zone.holder, &v2 as *const i32);
-    arr.push_grow(zone.holder, &v3 as *const i32);
-
-    let p0: *const i32 = arr.get_ptr(zone.holder.base as *const u8, 0 as u64);
-    let p1: *const i32 = arr.get_ptr(zone.holder.base as *const u8, 1 as u64);
-    let p2: *const i32 = arr.get_ptr(zone.holder.base as *const u8, 2 as u64);
-    return *p0 + *p1 + *p2;  // expect 60
+    let rc: Rc<Hermes2> = hermes2_rc(16384);
+    let h: &Hermes2 = rc.deref();
+    let arr: &mut HArray<i64> = h.tarray::<i64>(2);   // tiny cap: forces grows
+    let mut i: i64 = 0;
+    while i < 30 {
+        arr.push(i);
+        i = i + 1;
+    }
+    if arr.len() != 30i64 { return 1; }
+    // Spot-check across the growth boundaries (2 -> 4 -> 8 -> 16 -> 32).
+    if arr.get(0) != 0i64 { return 2; }
+    if arr.get(1) != 1i64 { return 3; }
+    if arr.get(15) != 15i64 { return 4; }
+    if arr.get(29) != 29i64 { return 5; }
+    return (arr.get(10) + arr.get(20) + arr.get(29) + 1i64) as i32;   // 10+20+29+1 = 60
 }
