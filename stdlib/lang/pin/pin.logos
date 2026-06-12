@@ -23,7 +23,10 @@ pub struct Pin<P> {
     pointer: P,
 }
 
-impl<P> Copy for Pin<P> {}
+// Rust-conformant: Pin<P> is Copy only when P is (refs yes, Box NO). The
+// earlier blanket `impl<P> Copy` made Pin<Box<T>> Copy — a "move" of it
+// bitwise-copied and BOTH bindings dropped: double free (adversarial t03).
+impl<P: Copy> Copy for Pin<P> {}
 
 // ── Construction ─────────────────────────────────────────────────────────────
 

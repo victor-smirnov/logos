@@ -1,0 +1,22 @@
+// Adversarial #1 (D): method autoderef through a generic `Deref<Target>`
+// bound — `fn f<T: Deref<C>>(t: &T) { t.get() }` resolves get() on C (the
+// receiver rewrites to t.deref() and dispatches on &C). Plus 2-level user
+// deref chains and explicit ** reads.
+package adv1_deref_bound_autoderef;
+use logos.lang.ops;
+struct MyBox<T> { v: T }
+impl<T> Deref<T> for MyBox<T> { fn deref(&self) -> &T { return &self.v; } }
+struct C { n: i32 }
+impl C { fn get(&self) -> i32 { return self.n; } }
+fn via_bound<T: Deref<C>>(t: &T) -> i32 { return t.get(); }
+fn main() -> i32 {
+    let b = MyBox { v: C { n: 5i32 } };
+    if b.get() != 5i32 { return 1i32; }
+    let bb = MyBox { v: MyBox { v: C { n: 8i32 } } };
+    if bb.get() != 8i32 { return 2i32; }
+    if (**bb).n != 8i32 { return 3i32; }
+    if via_bound(&b) != 5i32 { return 4i32; }
+    let r: &C = &*b;
+    if r.n != 5i32 { return 5i32; }
+    return 0i32;
+}

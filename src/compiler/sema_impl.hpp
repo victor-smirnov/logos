@@ -1694,7 +1694,30 @@ private:
     // AND is recorded here; collect_drops/collect_all_drops un-skip it so its
     // destructor runs exactly once. Monotonic (no save/restore needed).
     std::set<std::string> closure_owned_drop_;
+    // Rust capture-drop ORDER for the un-skipped captures above: they drop
+    // WITH their owning closure binding (at its var_order slot, in capture
+    // order), not at their own slots. Populated by lower_let when its direct
+    // RHS is a closure; consumed by emit_frame_drops. Same-frame only — an
+    // owner in a different frame falls back to own-slot drops (a closure
+    // created in a conditional inner block must not hoist the outer
+    // capture's drop into branch-only code).
+    std::vector<std::string> pending_closure_capture_drops_;
+    std::unordered_map<std::string, std::vector<std::string>> closure_drop_group_;
+    std::unordered_map<std::string, std::string> capture_owner_;
+    // Shared per-frame drop emission (group-aware) — the single inner loop
+    // behind collect_drops / collect_all_drops / collect_drops_to_loop and
+    // the fn-epilogue param walk (was 4 drifting copies).
+    void emit_frame_drops(const Frame& frame, std::vector<lir::LStmt>& drops,
+                          const std::set<std::string>* extra_skip = nullptr) const;
     std::set<std::string> copy_types_;   // types with impl Copy — never move-only
+    // Conditional Copy (`impl<P: Copy> Copy for Pin<P>`, Rust-style): target
+    // name → target type-arg positions bound to a Copy-bounded impl param.
+    // An instance is Copy iff every recorded position's arg is itself Copy
+    // (struct_type_is_copy evaluates via is_move_type recursion). The blanket
+    // `impl<P> Copy for Pin<P>` made Pin<Box<T>> Copy → a "move" bitwise-
+    // copied and BOTH bindings dropped (double free, adversarial t03).
+    std::unordered_map<std::string, std::vector<size_t>> conditional_copy_;
+    bool struct_type_is_copy(TypeRef x) const;
 
     int destruct_counter_ = 0;           // unique-name source for `let (...)` temps
 
@@ -4411,6 +4434,7 @@ public:
     std::vector<lir::LProgram::MetaprogHandler> metaprog_handlers;
     std::vector<lir::LProgram::MetaprogTarget>  metaprog_targets;
     std::set<std::string>                   copy_types;
+    std::unordered_map<std::string, std::vector<size_t>> conditional_copy;
     StrMap<std::vector<std::string>>       pkg_reexports;
     // Holders whose collect_module() contribution is already in these
     // tables. SemaChecker's per-AST loops skip walks for holders in

@@ -1,0 +1,15 @@
+// Adversarial #1 (E, root): trait-bound-driven type-arg inference. T appears
+// only inside I's bound — `iter_copied<I: Iterator<&T>, T>(it: I)` — and is
+// deduced from I's own Iterator impl. Was "could not infer all type
+// arguments" on every Iterator<&T> consumer.
+package adv1_iter_copied_bound_infer;
+use logos.lang.iter;
+fn main() -> i32 {
+    let mut v: Vec<i32> = Vec::<i32>::new();
+    v.push(3i32); v.push(1i32); v.push(2i32);
+    let m: Option<i32> = iter_copied(v.iter()).max();
+    match m { Option::Some(x) => { if x != 3i32 { return 1i32; } } Option::None => { return 2i32; } }
+    let s: i32 = iter_copied(v.iter()).sum::<i32>();
+    if s != 6i32 { return 3i32; }
+    return 0i32;
+}

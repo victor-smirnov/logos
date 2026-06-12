@@ -1,0 +1,20 @@
+// labeled break-with-value from nested loop; inside match; inside closure
+package adv1_label_break_value;
+fn main() -> i32 {
+    let v = 'outer: loop {
+        let mut i = 0i32;
+        loop {
+            i += 1i32;
+            if i == 3i32 { break 'outer i * 10i32; }
+        }
+    };
+    if v != 30i32 { return 1i32; }
+    let f = || -> i32 {
+        let r = 'a: loop {
+            match v { 30i32 => { break 'a 7i32; } _ => { break 'a 8i32; } }
+        };
+        return r;
+    };
+    if f() != 7i32 { return 2i32; }
+    return 0i32;
+}

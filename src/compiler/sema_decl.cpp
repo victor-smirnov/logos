@@ -501,6 +501,9 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // locals never leaked (distinct scopes/names), which masked this.
     moved_vars_.clear();
     body_ever_moved_.clear();  // §7.1: reset ever-moved per fn (consulted in param-drop)
+    closure_drop_group_.clear();  // capture-drop groups are per-fn (name-keyed)
+    capture_owner_.clear();
+    pending_closure_capture_drops_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     currently_uninit_vars_.clear();  // logos-core 2.7: reset definite-assignment tracker per fn
 
@@ -982,14 +985,10 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             // leak on the non-move path). Proper fix = B8-style drop-flag
             // elaboration extended to params.
             auto& frame = scope_.back();
-            for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
-                if (body_ever_moved_.count(*it)) continue;
-                if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
-                auto vit = frame.vars.find(*it);
-                if (vit == frame.vars.end()) continue;
-                if (auto d = make_drop_stmt(*it, vit->second))
-                    fn.body.stmts.push_back(std::move(*d));
-            }
+            std::vector<lir::LStmt> epilogue_drops;
+            emit_frame_drops(frame, epilogue_drops, &body_ever_moved_);
+            for (auto& d : epilogue_drops)
+                fn.body.stmts.push_back(std::move(d));
         }
         body_ever_moved_.clear();
     }
@@ -1992,8 +1991,27 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     } else {
                         auto [spkg2, ssi2] = find_struct_by_name(target);
                         auto [dpkg2, dsi2] = find_datatype_by_name(target);
+                        auto _shaped_target = [](TypeRef pat) -> bool {
+                            if (!pat) return false;
+                            for (auto a : TypeRef(pat).type_args()) {
+                                if (!a) continue;
+                                auto k = TypeRef(a).kind();
+                                if (k != LogosType::Kind::TypeVar &&
+                                    k != LogosType::Kind::ConstVar)
+                                    return true;
+                            }
+                            return false;
+                        };
                         if (ssi2) {
-                            if (!impl_tps.empty()) {
+                            if (ib.target_typeref && _shaped_target(ib.target_typeref)) {
+                                // Shaped generic impl (`impl<I,T> … for
+                                // CopiedIter<I, &T>`): Self must be the impl's
+                                // structured TARGET PATTERN, not base-name +
+                                // positional impl params (CopiedIter<I, T>) —
+                                // the positional shape mis-unified self at
+                                // every call (`.max()` inferred T=&i32).
+                                self_type = ib.target_typeref;
+                            } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
@@ -2002,7 +2020,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 self_type = make_struct_type(target, spkg2);
                             }
                         } else if (dsi2) {
-                            if (!impl_tps.empty()) {
+                            if (ib.target_typeref && _shaped_target(ib.target_typeref)) {
+                                self_type = ib.target_typeref;  // same shape rule
+                            } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));

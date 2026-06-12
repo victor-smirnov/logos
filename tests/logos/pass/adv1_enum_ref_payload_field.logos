@@ -1,0 +1,40 @@
+// Adversarial #1 (A): enum variant holding a thin `&Struct` / `&mut Struct`:
+// the match binding must register gen_let's &Struct convention (pointer value
+// + var_struct_ shape) so `q.x` GEPs through it. Before the binder
+// unification the binding fell to the opaque-scalar path and q.x read the
+// payload-slot bytes as fields — silent mis-read across by-value, via-ref,
+// niche (NullPtr/LowBit), 3-variant, &mut, and generic (Option<&P>) shapes.
+package adv1_enum_ref_payload_field;
+struct P { x: i64, y: i64 }
+enum ER { S(&P), N }
+enum EL { R(&P), M(i64) }
+enum EM { S(&mut P), N }
+fn main() -> i32 {
+    let p = P { x: 7i64, y: 9i64 };
+    let e = ER::S(&p);
+    match e {
+        ER::S(q) => { if q.x != 7i64 { return 1i32; } if q.y != 9i64 { return 2i32; } }
+        ER::N => { return 3i32; }
+    }
+    match &e {
+        ER::S(q) => { if q.x != 7i64 { return 4i32; } }
+        ER::N => { return 5i32; }
+    }
+    let f = EL::R(&p);
+    match f {
+        EL::R(q) => { if q.y != 9i64 { return 6i32; } }
+        EL::M(_) => { return 7i32; }
+    }
+    let o: Option<&P> = Option::Some(&p);
+    match o {
+        Option::Some(q) => { if q.x != 7i64 { return 8i32; } }
+        Option::None => { return 9i32; }
+    }
+    let mut pm = P { x: 1i64, y: 2i64 };
+    let em = EM::S(&mut pm);
+    match em {
+        EM::S(q) => { q.x += 1i64; if q.x != 2i64 { return 10i32; } }
+        EM::N => { return 11i32; }
+    }
+    return 0i32;
+}

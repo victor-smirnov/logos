@@ -109,7 +109,7 @@ fn parse_target(t_av: HAny) -> Result<Target, ManifestError> {
 
 fn h2io_get(root: HAny, key: str) -> HAny {
     if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    return unsafe { (&*(root.resolve() as *const HMap<HString, HVal>)).get(key) };
+    return unsafe { (&*(root.resolve() as *const HMap<HString, HAny>)).get(key) };
 }
 
 pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
@@ -137,10 +137,10 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     let targets_av: HAny = h2io_get(root, "targets");
     let mut have_legacy: bool = false;
     if targets_av.is_array() {
-        let n: u64 = (&*(targets_av.resolve() as *const HArray<HVal>)).len() as u64;
+        let n: u64 = (&*(targets_av.resolve() as *const HArray<HAny>)).len() as u64;
         let mut i: u64 = 0 as u64;
         while i < n {
-            let t_av: HAny = (&*(targets_av.resolve() as *const HArray<HVal>)).get(i as i64);
+            let t_av: HAny = (&*(targets_av.resolve() as *const HArray<HAny>)).get(i as i64);
             match parse_target(t_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(t)  => { tp.push(t); }
@@ -181,10 +181,10 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     let dp: *mut Vec<ExternalDep> = (&mut deps) as *mut Vec<ExternalDep>;
     let deps_av: HAny = h2io_get(root, "deps");
     if deps_av.is_array() {
-        let nd: u64 = (&*(deps_av.resolve() as *const HArray<HVal>)).len() as u64;
+        let nd: u64 = (&*(deps_av.resolve() as *const HArray<HAny>)).len() as u64;
         let mut j: u64 = 0 as u64;
         while j < nd {
-            let d_av: HAny = (&*(deps_av.resolve() as *const HArray<HVal>)).get(j as i64);
+            let d_av: HAny = (&*(deps_av.resolve() as *const HArray<HAny>)).get(j as i64);
             match parse_external_dep(d_av) {
                 Result::Err(e) => { return Result::Err(e); }
                 Result::Ok(d)  => { dp.push(d); }
@@ -203,10 +203,10 @@ pub fn parse_manifest(text: str) -> Result<Manifest, ManifestError> {
     let rp_v: *mut Vec<ReplaceEntry> = (&mut replace) as *mut Vec<ReplaceEntry>;
     let replace_av: HAny = h2io_get(root, "replace");
     if replace_av.is_array() {
-        let nr: u64 = (&*(replace_av.resolve() as *const HArray<HVal>)).len() as u64;
+        let nr: u64 = (&*(replace_av.resolve() as *const HArray<HAny>)).len() as u64;
         let mut ri: u64 = 0 as u64;
         while ri < nr {
-            let r_av: HAny = (&*(replace_av.resolve() as *const HArray<HVal>)).get(ri as i64);
+            let r_av: HAny = (&*(replace_av.resolve() as *const HArray<HAny>)).get(ri as i64);
             ri = ri + 1 as u64;
             if !r_av.is_map() {
                 return Result::Err(err_msg("manifest: replace[] entry is not a map"));

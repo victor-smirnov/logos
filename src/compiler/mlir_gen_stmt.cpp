@@ -75,6 +75,22 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
     auto pay_ptr = enum_payload_ptr(enum_ptr, *te);
     auto pay_struct = variant_payload_struct(*vp);
 
+    // Peer-shape eviction: the name may be re-bound from an outer
+    // different-shape value; every bind path below first clears ALL
+    // shape-tracking sets, then claims its own. (Was done only on the
+    // scalar path — a struct-shaped outer name re-bound as scalar kept a
+    // stale var_struct_ entry in the let-else copy of this loop.)
+    auto evict_shapes = [&](const std::string& n) {
+        var_struct_.erase(n);
+        var_subscript_.erase(n);
+        var_tuple_.erase(n);
+        var_tagged_enum_.erase(n);
+        var_tagged_enum_ptr_.erase(n);
+        var_dyn_trait_.erase(n);
+        var_local_ptrs_.erase(n);
+        var_elem_types_.erase(n);
+    };
+
     for (size_t bi = 0; bi < bindings.size() && bi < vp->field_types.size(); ++bi) {
         if (bindings[bi] == "_") continue;
         llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
@@ -117,6 +133,7 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
                  pointee.kind() == LogosType::Kind::ZonedStruct);
             if (ref_to_struct && ref_bind_depth == 1) {
                 // Depth-1 ref-to-struct: bind fp directly + carry struct shape.
+                evict_shapes(bindings[bi]);
                 scope_[bindings[bi]] = fp;
                 let_vars_.insert(bindings[bi]);
                 var_struct_[bindings[bi]] = mlir_struct_key(lt);
@@ -135,9 +152,32 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             }
             auto bind_slot = create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, chain_val, bind_slot);
+            evict_shapes(bindings[bi]);
             scope_[bindings[bi]] = bind_slot;
             let_vars_.insert(bindings[bi]);
             var_elem_types_[bindings[bi]] = ptr_type();
+            added.push_back(bindings[bi]);
+            continue;
+        }
+        // Thin `&Struct` / `&mut Struct` payload (`E::S(&P)` / `Option<&P>`):
+        // the payload slot holds a POINTER to the struct. Load it and register
+        // exactly like a `let r: &Struct` (gen_let's convention: scope_ = the
+        // pointer value + var_struct_ shape) so `q.x` GEPs through it. Without
+        // the shape, the binding fell to the opaque-scalar path below and
+        // `q.x` read the slot bytes as struct fields — the t01/a7 silent
+        // mis-read. (`&Enum` payloads stay on the scalar path: match's
+        // via_ref auto-deref handles them — probe a5.)
+        if (TypeRef plt = lt ? TypeRef(lt) : TypeRef{};
+            plt && (plt.kind() == LogosType::Kind::Ref ||
+                    plt.kind() == LogosType::Kind::MutRef) &&
+            plt.pointee() &&
+            (TypeRef(plt.pointee()).kind() == LogosType::Kind::Struct ||
+             TypeRef(plt.pointee()).kind() == LogosType::Kind::ZonedStruct)) {
+            auto pv = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
+            evict_shapes(bindings[bi]);
+            scope_[bindings[bi]] = pv;
+            let_vars_.insert(bindings[bi]);
+            var_struct_[bindings[bi]] = mlir_struct_key(plt.pointee());
             added.push_back(bindings[bi]);
             continue;
         }
@@ -145,8 +185,24 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             (TypeRef(lt).kind() == LogosType::Kind::Struct ||
              TypeRef(lt).kind() == LogosType::Kind::ZonedStruct);
         if (is_inline_struct) {
-            // fp already points at the inline struct bytes — bind directly.
-            scope_[bindings[bi]] = fp;
+            // fp already points at the inline struct bytes. A move-type
+            // payload bound BY VALUE must be COPIED to a fresh slot: it
+            // semantically moves out, so a later mutation of the scrutinee
+            // place within the arm (issue-19367) must not clobber the
+            // binding. Source drop is suppressed by
+            // mark_match_scrutinee_moved, so copy + skip = correct.
+            mlir::Value bind_ptr = fp;
+            if (value_needs_drop(lt)) {
+                auto sit = struct_types_.find(mlir_struct_key(lt));
+                if (sit != struct_types_.end() && sit->second.llvm_type) {
+                    auto fresh = create_entry_alloca(sit->second.llvm_type);
+                    builder_.create<mlir::LLVM::MemcpyOp>(
+                        loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
+                    bind_ptr = fresh;
+                }
+            }
+            evict_shapes(bindings[bi]);
+            scope_[bindings[bi]] = bind_ptr;
             let_vars_.insert(bindings[bi]);
             var_struct_[bindings[bi]] = mlir_struct_key(lt);
             added.push_back(bindings[bi]);
@@ -157,12 +213,10 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         // var. A C-like enum (no TaggedEnumInfo) is an i32 — scalar-load below.
         if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
             resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt)) {
+            evict_shapes(bindings[bi]);
             scope_[bindings[bi]] = fp;
             let_vars_.insert(bindings[bi]);
             var_tagged_enum_.insert(bindings[bi]);
-            var_struct_.erase(bindings[bi]);
-            var_tuple_.erase(bindings[bi]);
-            var_elem_types_.erase(bindings[bi]);
             added.push_back(bindings[bi]);
             continue;
         }
@@ -176,10 +230,24 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             TypeRef(TypeRef(lt).pointee()).kind() == LogosType::Kind::TraitObject;
         bool is_bare_trait = lt &&
             TypeRef(lt).kind() == LogosType::Kind::TraitObject;
-        auto bound_val = builder_.create<mlir::LLVM::LoadOp>(
-            loc_, vp->field_types[bi], fp);
+        // Inline aggregate payload (Tuple/Slice/Closure): the bytes live in
+        // the payload area; the slot ADDRESS is the value (no load — loading
+        // would read the first 8 bytes as the value). Mirrors the match-stmt
+        // extract_payload convention.
+        bool is_inline_aggregate = lt &&
+            (TypeRef(lt).kind() == LogosType::Kind::Tuple ||
+             TypeRef(lt).kind() == LogosType::Kind::Slice ||
+             TypeRef(lt).kind() == LogosType::Kind::Closure);
+        mlir::Value bound_val;
+        if (is_inline_aggregate || is_bare_trait) {
+            bound_val = fp;
+        } else {
+            bound_val = builder_.create<mlir::LLVM::LoadOp>(
+                loc_, vp->field_types[bi], fp);
+        }
         if (is_bare_trait || is_ref_to_trait) {
             TypeRef trait_t = is_bare_trait ? lt : TypeRef(lt).pointee();
+            evict_shapes(bindings[bi]);
             scope_[bindings[bi]] = bound_val;
             let_vars_.insert(bindings[bi]);
             var_dyn_trait_[bindings[bi]] = std::string(TypeRef(trait_t).trait_name());
@@ -190,18 +258,10 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         if (shared) { auto it = shared->find(bindings[bi]); if (it != shared->end()) alloca = it->second; }
         if (!alloca) alloca = create_entry_alloca(vp->field_types[bi]);
         builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
+        evict_shapes(bindings[bi]);
         scope_[bindings[bi]] = alloca;
         let_vars_.insert(bindings[bi]);
         var_elem_types_[bindings[bi]] = vp->field_types[bi];
-        // Evict stale shape-tracking (the name may be re-bound from an outer
-        // different-shape value).
-        var_struct_.erase(bindings[bi]);
-        var_subscript_.erase(bindings[bi]);
-        var_tuple_.erase(bindings[bi]);
-        var_tagged_enum_.erase(bindings[bi]);
-        var_tagged_enum_ptr_.erase(bindings[bi]);
-        var_dyn_trait_.erase(bindings[bi]);
-        var_local_ptrs_.erase(bindings[bi]);
         added.push_back(bindings[bi]);
     }
 }
@@ -3788,185 +3848,15 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
         // ── PatVariantData ────────────────────────────────────────────────
         case pc::Code::VariantData: {
             if (te_info && scrut_ptr) {
+                // Delegate to the canonical full-fidelity payload binder
+                // (bind_enum_payload): ref-bind depth-N, thin-&Struct,
+                // inline struct w/ droppable copy, nested enum, trait
+                // objects, inline aggregates, peer-set eviction. (Was an
+                // inline copy that drifted — it missed the thin-&Struct
+                // case: `E::S(&P)` then `q.x` mis-read, probe t01/a7.)
                 lir_view::PatVariantDataView pvd{p};
-                int32_t pvd_disc = static_cast<int32_t>(pvd.disc());
-                std::vector<std::string> bindings;
-                pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
-                std::vector<TypeRef> pvd_binding_types;
-                pvd.each_binding_type(pool_impl(),
-                    [&](TypeRef t){ pvd_binding_types.push_back(t); });
-                auto pay_ptr = enum_payload_ptr(scrut_ptr, *te_info);  // Phase 3.5
-                const TaggedEnumInfo::VariantPayload* vp = nullptr;
-                for (auto& vinfo : te_info->variants)
-                    if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
-                if (vp && !bindings.empty()) {
-                    auto pay_struct = variant_payload_struct(*vp);
-                    for (size_t bi = 0; bi < bindings.size() &&
-                                         bi < vp->field_types.size(); ++bi) {
-                        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-                        auto fp = builder_.create<mlir::LLVM::GEPOp>(
-                            loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        // SL-sl-03 follow-up: `ref v` / `ref mut v`
-                        // binding — sema wraps with Ref/MutRef. Bind to
-                        // the GEP address directly.
-                        bool is_ref_bind = false;
-                        {
-                            int rbd = 0;
-                            TypeRef pt = bi < vp->logos_types.size()
-                                ? TypeRef(vp->logos_types[bi]) : TypeRef{};
-                            if (bi < pvd_binding_types.size() && pvd_binding_types[bi])
-                                is_ref_bind = ref_bind_kind(
-                                    TypeRef(pvd_binding_types[bi]), pt, rbd);
-                        }
-                        if (is_ref_bind) {
-                            // G151-1: `ref l` of a STRUCT payload binds `l : &Struct`
-                            // — fp IS the struct pointer, so bind it like a
-                            // `&Struct` (scope_=fp + var_struct_) so `l.field`
-                            // GEPs correctly. The old ptr-of-ptr alloca with no
-                            // struct-shape tracking made `l.field` read garbage.
-                            // Scalar `ref l` keeps the alloca-wrap for `*l`.
-                            TypeRef rlt = bi < vp->logos_types.size()
-                                ? TypeRef(vp->logos_types[bi]) : TypeRef{};
-                            if (rlt && (rlt.kind() == LogosType::Kind::Struct ||
-                                        rlt.kind() == LogosType::Kind::ZonedStruct)) {
-                                scope_[bindings[bi]] = fp;
-                                let_vars_.insert(bindings[bi]);
-                                var_struct_[bindings[bi]] = mlir_struct_key(rlt);
-                                continue;
-                            }
-                            auto alloca = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-                            scope_[bindings[bi]] = alloca;
-                            let_vars_.insert(bindings[bi]);
-                            var_elem_types_[bindings[bi]] = ptr_type();
-                            continue;
-                        }
-                        // For inline structs, fp already points to the struct bytes —
-                        // use it directly (no load), matching the memcpy write side.
-                        TypeRef lt = bi < vp->logos_types.size()
-                                              ? vp->logos_types[bi] : nullptr;
-                        // Enum value-repr: a nested TAGGED enum payload field is
-                        // INLINE — `fp` is its storage (one level). Bind as a
-                        // tagged-enum var (no load), matching the memcpy write. A
-                        // C-like enum (no TaggedEnumInfo) is an i32 — scalar below.
-                        if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
-                            resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt)) {
-                            scope_[bindings[bi]] = fp;
-                            let_vars_.insert(bindings[bi]);
-                            var_tagged_enum_.insert(bindings[bi]);
-                            var_struct_.erase(bindings[bi]);
-                            var_tuple_.erase(bindings[bi]);
-                            var_elem_types_.erase(bindings[bi]);
-                            var_tagged_enum_ptr_.erase(bindings[bi]);
-                            continue;
-                        }
-                        bool is_inline_struct = lt &&
-                            (TypeRef(lt).kind() == LogosType::Kind::Struct ||
-                             TypeRef(lt).kind() == LogosType::Kind::ZonedStruct ||
-                             TypeRef(lt).kind() == LogosType::Kind::Tuple ||
-                             TypeRef(lt).kind() == LogosType::Kind::Slice ||
-                             TypeRef(lt).kind() == LogosType::Kind::Closure);
-                        if (is_inline_struct &&
-                            (TypeRef(lt).kind() == LogosType::Kind::Struct ||
-                             TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
-                            // Bind `fp` (the inline struct payload address). A
-                            // move-type payload bound BY VALUE must be COPIED to
-                            // a fresh slot: it semantically MOVES out, so a later
-                            // mutation of the scrutinee place within the arm
-                            // (`a.1 = …` in issue-19367) must not clobber the
-                            // binding. The source's drop is suppressed by
-                            // mark_match_scrutinee_moved, so copy + skip = correct
-                            // (no double-free). A Copy struct could alias safely,
-                            // but copying is always sound.
-                            mlir::Value bind_ptr = fp;
-                            if (lt && value_needs_drop(lt)) {
-                                auto sit = struct_types_.find(mlir_struct_key(lt));
-                                if (sit != struct_types_.end() && sit->second.llvm_type) {
-                                    auto fresh = create_entry_alloca(sit->second.llvm_type);
-                                    builder_.create<mlir::LLVM::MemcpyOp>(
-                                        loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
-                                    bind_ptr = fresh;
-                                }
-                            }
-                            scope_[bindings[bi]] = bind_ptr;
-                            let_vars_.insert(bindings[bi]);
-                            var_struct_[bindings[bi]] = mlir_struct_key(lt);
-                        } else {
-                            // A bare `&dyn`/`dyn`/`Box<dyn>` (TraitObject) payload is
-                            // stored INLINE as a 16-byte fat pair; its slot ADDRESS
-                            // (fp) IS the fat value — bind it directly, don't load
-                            // the 16-byte aggregate. (A `*const dyn` = Ptr<TraitObject>
-                            // payload is a thin 8-byte ptr → still loaded below.)
-                            bool bind_inline_dyn = lt &&
-                                TypeRef(lt).kind() == LogosType::Kind::TraitObject;
-                            mlir::Value bound_val;
-                            if (is_inline_struct || bind_inline_dyn) {
-                                bound_val = fp;
-                            } else {
-                                bound_val = builder_.create<mlir::LLVM::LoadOp>(
-                                    loc_, vp->field_types[bi], fp);
-                            }
-                            // TraitObject payload (e.g. `Option<&dyn T>`'s
-                            // Some arm). Mirror gen_let's convention at
-                            // line ~494: bind the 8-byte handle DIRECTLY
-                            // as scope_[name] (no wrapping alloca) so
-                            // dyn-dispatch's GEP through `recv_alloca`
-                            // walks the heap-allocated {data,vtable} slot
-                            // the handle points to, rather than the
-                            // alloca's own bytes (which would treat the
-                            // alloca as the fat-pair — only 8 bytes are
-                            // initialised, the vtable load lands in
-                            // adjacent stack garbage and segfaults at
-                            // dispatch). Without this branch, gen_let's
-                            // direct-handle convention and match-extract's
-                            // alloca-of-handle convention diverged at
-                            // every `Option<&dyn T>` use.
-                            TypeRef payload_lt = lt;
-                            bool is_ref_to_trait = payload_lt &&
-                                (TypeRef(payload_lt).kind() == LogosType::Kind::Ref ||
-                                 TypeRef(payload_lt).kind() == LogosType::Kind::MutRef ||
-                                 TypeRef(payload_lt).kind() == LogosType::Kind::Ptr) &&
-                                TypeRef(payload_lt).pointee() &&
-                                TypeRef(TypeRef(payload_lt).pointee()).kind()
-                                    == LogosType::Kind::TraitObject;
-                            bool is_bare_trait = payload_lt &&
-                                TypeRef(payload_lt).kind() == LogosType::Kind::TraitObject;
-                            if (is_bare_trait || is_ref_to_trait) {
-                                TypeRef trait_t = is_bare_trait
-                                    ? payload_lt
-                                    : TypeRef(payload_lt).pointee();
-                                scope_[bindings[bi]] = bound_val;
-                                let_vars_.insert(bindings[bi]);
-                                var_dyn_trait_[bindings[bi]] =
-                                    std::string(TypeRef(trait_t).trait_name());
-                                continue;
-                            }
-                            auto alloca = create_entry_alloca(vp->field_types[bi]);
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, bound_val, alloca);
-                            scope_[bindings[bi]] = alloca;
-                            let_vars_.insert(bindings[bi]);
-                            var_elem_types_[bindings[bi]] = vp->field_types[bi];
-                            // Clear OTHER shape-tracking sets — the name may
-                            // already be bound in the outer scope to a
-                            // different-shape value (e.g. outer
-                            // `let b: ControlFlow<...>` then inner pattern
-                            // `Break(b) => …` binds b: i32). Without
-                            // clearing, gen_expr(VarRef(b)) consults the
-                            // stale var_tagged_enum_ flag and returns the
-                            // alloca-ptr unloaded — yielding `(ptr, i32)`
-                            // type mismatch at the first use of b in the
-                            // arm body. scope_ already overwrote correctly;
-                            // peer-tracking sets need the same eviction.
-                            var_struct_.erase(bindings[bi]);
-                            var_subscript_.erase(bindings[bi]);
-                            var_tuple_.erase(bindings[bi]);
-                            var_tagged_enum_.erase(bindings[bi]);
-                            var_tagged_enum_ptr_.erase(bindings[bi]);
-                            var_dyn_trait_.erase(bindings[bi]);
-                            var_local_ptrs_.erase(bindings[bi]);
-                        }
-                    }
-                }
+                std::vector<std::string> added;
+                bind_enum_payload(scrut_ptr, te_info, pvd, added, nullptr);
             }
             return;
         }
@@ -4993,84 +4883,13 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
             }
         } else if (pat_kind == pc::Code::VariantData) {
             if (te_info && scrut_ptr) {
+                // Canonical payload binder (see bind_enum_payload). The old
+                // inline copy here lacked thin-&Struct, trait-object, the
+                // droppable-struct copy, AND peer-set eviction (a stale
+                // var_struct_ shape survived a scalar re-bind).
                 lir_view::PatVariantDataView pvd{pat_ref};
-                std::vector<std::string> bindings;
-                pvd.each_binding([&](std::string_view n){ bindings.emplace_back(n); });
-                // SL-sl-03 follow-up: per-binding override types from
-                // `ref v` / `ref mut v` patterns (sema wraps Ref/MutRef).
-                // Bind directly to the GEP address so the binding actually
-                // references the original payload slot.
-                std::vector<TypeRef> pvd_binding_types;
-                pvd.each_binding_type(pool_impl(),
-                    [&](TypeRef t){ pvd_binding_types.push_back(t); });
-                int32_t pvd_disc = static_cast<int32_t>(pvd.disc());
-                auto pay_ptr = enum_payload_ptr(scrut_ptr, *te_info);  // Phase 3.5
-                const TaggedEnumInfo::VariantPayload* vp = nullptr;
-                for (auto& vinfo : te_info->variants)
-                    if (vinfo.disc == pvd_disc) { vp = &vinfo; break; }
-                if (vp && !bindings.empty()) {
-                    auto pay_struct = variant_payload_struct(*vp);
-                    for (size_t bi = 0; bi < bindings.size() &&
-                                         bi < vp->field_types.size(); ++bi) {
-                        llvm::SmallVector<mlir::LLVM::GEPArg> fi{int32_t(0), int32_t(bi)};
-                        auto fp = builder_.create<mlir::LLVM::GEPOp>(
-                            loc_, ptr_type(), pay_struct, pay_ptr, fi);
-                        bool is_ref_bind = false;
-                        {
-                            int rbd = 0;
-                            TypeRef pt = bi < vp->logos_types.size()
-                                ? TypeRef(vp->logos_types[bi]) : TypeRef{};
-                            if (bi < pvd_binding_types.size() && pvd_binding_types[bi])
-                                is_ref_bind = ref_bind_kind(
-                                    TypeRef(pvd_binding_types[bi]), pt, rbd);
-                        }
-                        if (is_ref_bind) {
-                            auto alloca = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, fp, alloca);
-                            scope_[bindings[bi]]          = alloca;
-                            let_vars_.insert(bindings[bi]);
-                            var_elem_types_[bindings[bi]] = ptr_type();
-                            continue;
-                        }
-                        // Inline aggregate payload (struct / zoned-struct):
-                        // the value is stored inline in the payload, so `fp`
-                        // already points at its bytes — bind it directly as the
-                        // struct pointer (mirrors extract_payload). Loading
-                        // vp->field_types[bi] (a collapsed `ptr`) would read the
-                        // struct's first 8 bytes as if they were the value
-                        // (e.g. `Option<String>` via let-else → corrupt String).
-                        TypeRef lt = bi < vp->logos_types.size()
-                                          ? vp->logos_types[bi] : nullptr;
-                        if (lt && (TypeRef(lt).kind() == LogosType::Kind::Struct ||
-                                   TypeRef(lt).kind() == LogosType::Kind::ZonedStruct)) {
-                            scope_[bindings[bi]]      = fp;
-                            let_vars_.insert(bindings[bi]);
-                            var_struct_[bindings[bi]] = mlir_struct_key(lt);
-                            continue;
-                        }
-                        // Enum value-repr: a nested TAGGED enum payload is INLINE
-                        // — `fp` is its storage (one level). Bind as a tagged-enum
-                        // var (no load). Crucial for the K4 nested-variant synth
-                        // `let Some(inner_enum) = synth` over Some(Some(v)).
-                        if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
-                            resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt)) {
-                            scope_[bindings[bi]] = fp;
-                            let_vars_.insert(bindings[bi]);
-                            var_tagged_enum_.insert(bindings[bi]);
-                            var_struct_.erase(bindings[bi]);
-                            var_tuple_.erase(bindings[bi]);
-                            var_elem_types_.erase(bindings[bi]);
-                            continue;
-                        }
-                        auto val = builder_.create<mlir::LLVM::LoadOp>(
-                            loc_, vp->field_types[bi], fp);
-                        auto alloca = create_entry_alloca(vp->field_types[bi]);
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, val, alloca);
-                        scope_[bindings[bi]]          = alloca;
-                        let_vars_.insert(bindings[bi]);
-                        var_elem_types_[bindings[bi]] = vp->field_types[bi];
-                    }
-                }
+                std::vector<std::string> added;
+                bind_enum_payload(scrut_ptr, te_info, pvd, added, nullptr);
             }
         }
         // PatVariant (no payload) — discriminant test was enough, no bindings

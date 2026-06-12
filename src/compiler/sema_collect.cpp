@@ -3395,8 +3395,24 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     {
                         auto [spkg_def, ssi_def] = find_struct_by_name(target);
                         auto [dpkg_def, dsi_def] = find_datatype_by_name(target);
+                        auto _shaped_target = [](TypeRef pat) -> bool {
+                            if (!pat) return false;
+                            for (auto a : TypeRef(pat).type_args()) {
+                                if (!a) continue;
+                                auto k = TypeRef(a).kind();
+                                if (k != LogosType::Kind::TypeVar &&
+                                    k != LogosType::Kind::ConstVar)
+                                    return true;
+                            }
+                            return false;
+                        };
                         if (ssi_def) {
-                            if (!impl_tps.empty()) {
+                            // Shaped target → Self = the impl's pattern (see
+                            // sema_decl synthesis; both sides must agree or
+                            // declared vs body types of defaults diverge).
+                            if (target_resolved && _shaped_target(target_resolved)) {
+                                self_type = target_resolved;
+                            } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
@@ -3405,7 +3421,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 self_type = make_struct_type(target, spkg_def);
                             }
                         } else if (dsi_def) {
-                            if (!impl_tps.empty()) {
+                            if (target_resolved && _shaped_target(target_resolved)) {
+                                self_type = target_resolved;
+                            } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
                                 for (auto& tp : impl_tps)
                                     tv_args.push_back(make_typevar(tp.name));
@@ -3537,7 +3555,34 @@ void SemaChecker::collect_impl(TinyMapView node) {
         if (impl_is_unsafe)
             error(std::format("impl Copy for {}: `unsafe impl` for a safe built-in trait Copy",
                               target));
-        copy_types_.insert(target);
+        // Conditional Copy (`impl<P: Copy> Copy for Pin<P>`, Rust-style):
+        // record target type-arg positions bound to a Copy-bounded impl
+        // param — the instance is Copy iff each such arg is Copy
+        // (struct_type_is_copy). A bound-less param (true blanket) or a
+        // non-generic target registers unconditionally as before.
+        std::vector<size_t> cond_positions;
+        if (target_resolved && !impl_tps.empty()) {
+            auto targs = TypeRef(target_resolved).type_args();
+            for (size_t i = 0; i < targs.size(); ++i) {
+                if (!targs[i] ||
+                    TypeRef(targs[i]).kind() != LogosType::Kind::TypeVar)
+                    continue;
+                auto tvn = std::string(TypeRef(targs[i]).type_var_name());
+                for (auto& tp : impl_tps) {
+                    if (tp.name != tvn) continue;
+                    for (auto& b : tp.bounds)
+                        if (b.trait_name == "Copy") {
+                            cond_positions.push_back(i);
+                            break;
+                        }
+                    break;
+                }
+            }
+        }
+        if (cond_positions.empty())
+            copy_types_.insert(target);
+        else
+            conditional_copy_[target] = std::move(cond_positions);
     }
     // Standalone unsafe impl (no trait) makes no semantic sense.
     if (impl_is_unsafe && trait_name.empty())

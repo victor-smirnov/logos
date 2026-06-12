@@ -1,0 +1,17 @@
+// impl selection by self-type shape: W<&T> vs W<Box<T>> vs W<i64>
+package adv1_multi_impl_shape;
+use logos.mem.boxed;
+struct W<T> { t: T }
+impl<T> W<&T> { fn tag(&self) -> i32 { return 1i32; } }
+impl<T> W<Box<T>> { fn tag(&self) -> i32 { return 2i32; } }
+impl W<i64> { fn tag(&self) -> i32 { return 3i32; } }
+fn main() -> i32 {
+    let x = 5i64;
+    let wr = W { t: &x };
+    if wr.tag() != 1i32 { return 1i32; }
+    let wb = W { t: Box::new(5i64) };
+    if wb.tag() != 2i32 { return 2i32; }
+    let wi = W { t: 5i64 };
+    if wi.tag() != 3i32 { return 3i32; }
+    return 0i32;
+}

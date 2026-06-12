@@ -1,0 +1,18 @@
+// Adversarial #1 (G): `&a[..]` — `&` of a RANGE-index place IS the slice
+// value (Rust: a[..] is the unsized place [T]; Logos Slice kind is already
+// the fat &[T] form). The extra Ref typed it `&&[i64]` and broke slice
+// patterns + `let s: &[T] = &a[..]`.
+package adv1_slice_reborrow_pattern;
+fn main() -> i32 {
+    let a: [i64; 5] = [1i64, 2i64, 3i64, 4i64, 5i64];
+    let s: &[i64] = &a[..];
+    match s {
+        [x, rest @ ..] => { if *x != 1i64 { return 1i32; } if rest.len() != 4 { return 2i32; } }
+        _ => { return 3i32; }
+    }
+    match &a[1..4] {
+        [m, .., n] => { if *m + *n != 6i64 { return 4i32; } }
+        _ => { return 5i32; }
+    }
+    return 0i32;
+}

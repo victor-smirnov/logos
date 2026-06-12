@@ -1785,6 +1785,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         // declared-uninit mark from an earlier `let x: T;` shadow.
         decl_uninit_vars_.erase(std::string(name));
         currently_uninit_vars_.erase(std::string(name));  // logos-core 2.7
+        pending_closure_capture_drops_.clear();  // claim only OUR direct closure RHS
         rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
         rhs_type = rhs->type;
         if (is_ref_bind) {
@@ -2050,6 +2051,18 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     }
 
     define(name, var_type, is_mut);
+    // Rust capture-drop order: a closure-RHS let owns its un-skipped
+    // captures' drop slots — they drop with this binding, in capture
+    // order (see collect-walk group emission).
+    if (node.has_key(la::VALUE) &&
+        code_of(map_of(node.get(la::VALUE.code))) == la::CLOSURE_EXPR &&
+        !pending_closure_capture_drops_.empty()) {
+        for (auto& c : pending_closure_capture_drops_)
+            capture_owner_[c] = std::string(name);
+        closure_drop_group_[std::string(name)] =
+            std::move(pending_closure_capture_drops_);
+    }
+    pending_closure_capture_drops_.clear();
     // Mark an owning `Box<dyn Trait>` binding so collect_drops emits its
     // drop_in_place + free sequence (the type collapsed to bare TraitObject).
     // ONLY when the RHS genuinely TRANSFERS OWNERSHIP — a fresh `box_new(..) as

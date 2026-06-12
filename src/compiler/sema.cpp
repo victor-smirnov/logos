@@ -574,6 +574,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     // copy would re-add identical entries on install, double-firing hooks.
     // The fresh walk re-discovers them every call.
     s->copy_types           = std::move(copy_types_);
+    s->conditional_copy     = std::move(conditional_copy_);
     s->pkg_reexports        = std::move(pkg_reexports_);
     s->collected_holders    = std::move(collected_holders_);
     s->synth_field_name_pool = std::move(synth_field_name_pool_);
@@ -740,6 +741,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     metaprog_handlers_    = std::move(s->metaprog_handlers);
     metaprog_targets_     = std::move(s->metaprog_targets);
     copy_types_           = std::move(s->copy_types);
+    conditional_copy_     = std::move(s->conditional_copy);
     pkg_reexports_        = std::move(s->pkg_reexports);
     collected_holders_    = std::move(s->collected_holders);
     synth_field_name_pool_ = std::move(s->synth_field_name_pool);
@@ -2441,6 +2443,24 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
 
 // ── Drop/move helpers ────────────────────────────────────────────────────────
 
+// Is this struct TYPE INSTANCE Copy? Consults unconditional copy_types_
+// first, then conditional_copy_ (`impl<P: Copy> Copy for Pin<P>`): Copy iff
+// every recorded type-arg position holds a non-move (Copy) type. A TypeVar
+// arg recurses into is_move_type's TypeVar leaf, which honors `T: Copy`
+// bounds in generic bodies.
+bool SemaChecker::struct_type_is_copy(TypeRef x) const {
+    std::string nm(TypeRef(x).struct_name());
+    if (copy_types_.count(nm)) return true;
+    if (auto it = conditional_copy_.find(nm); it != conditional_copy_.end()) {
+        auto targs = TypeRef(x).type_args();
+        for (size_t pos : it->second)
+            if (pos >= targs.size() || !targs[pos] || is_move_type(targs[pos]))
+                return false;
+        return true;
+    }
+    return false;
+}
+
 bool SemaChecker::is_move_type(TypeRef t) const {
     // Shared aggregate-recursion skeleton (moveclass::is_move_type); the leaf /
     // struct / enum callbacks below reproduce sema's exact semantics.
@@ -2479,9 +2499,10 @@ bool SemaChecker::is_move_type(TypeRef t) const {
     auto enum_is_move = [&](TypeRef x) {
         return !drop_fn_for(x).empty() || has_droppable_fields(x);
     };
-    // Struct types are move types unless they implement Copy.
+    // Struct types are move types unless they implement Copy
+    // (unconditional or conditional with all recorded args Copy).
     auto struct_is_move = [&](TypeRef x) {
-        return !copy_types_.count(std::string(TypeRef(x).struct_name()));
+        return !struct_type_is_copy(x);
     };
     return moveclass::is_move_type(t, leaf, struct_is_move, enum_is_move);
 }
@@ -2737,7 +2758,7 @@ void SemaChecker::compute_auto_copy_types() {
             }
             if (sit == structs_.end()) sit = structs_.find(std::string(TypeRef(t).struct_name()));
             if (sit == structs_.end()) return false;  // unknown — conservative
-            return copy_types_.count(std::string(TypeRef(t).struct_name())) != 0;
+            return struct_type_is_copy(t);
         }
         if (k == K::Tuple) {
             for (auto sub : TypeRef(t).type_args())
@@ -2983,34 +3004,55 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
     return s;
 }
 
+// Single inner loop behind every drop walk (was 4 drifting copies).
+// G156-7 baseline: a var moved into a `move` closure stays in moved_vars_
+// (use-after-move enforced) but its dtor must still run — the closure only
+// borrows its storage — so closure_owned_drop_ entries are un-skipped.
+// Rust capture-drop ORDER on top: those un-skipped captures drop at their
+// OWNING closure binding's slot, in capture order (closure_drop_group_),
+// not at their own var_order slots — same-frame only (cross-frame owners
+// would hoist drops into branch-only code).
+void SemaChecker::emit_frame_drops(const Frame& frame,
+                                   std::vector<lir::LStmt>& drops,
+                                   const std::set<std::string>* extra_skip) const {
+    auto eligible = [&](const std::string& n) -> const VarInfo* {
+        if (extra_skip && extra_skip->count(n)) return nullptr;
+        if (moved_vars_.count(n) && !closure_owned_drop_.count(n)) return nullptr;
+        auto vit = frame.vars.find(n);
+        return vit == frame.vars.end() ? nullptr : &vit->second;
+    };
+    for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
+        const std::string& n = *it;
+        // A capture owned by a SAME-FRAME closure binding drops at the
+        // owner's slot below, not here.
+        if (auto co = capture_owner_.find(n);
+            co != capture_owner_.end() && frame.vars.count(co->second))
+            continue;
+        if (auto* info = eligible(n))
+            if (auto d = make_drop_stmt(n, *info))
+                drops.push_back(std::move(*d));
+        // A closure binding's drop group: its captures drop here, in
+        // capture order — even when the binding's own drop was skipped
+        // (the group preserves the drop SET, fixes only the order).
+        if (auto g = closure_drop_group_.find(n); g != closure_drop_group_.end())
+            for (auto& c : g->second)
+                if (auto* cinfo = eligible(c))
+                    if (auto d = make_drop_stmt(c, *cinfo))
+                        drops.push_back(std::move(*d));
+    }
+}
+
 std::vector<lir::LStmt> SemaChecker::collect_drops() const {
     std::vector<lir::LStmt> drops;
     if (scope_.empty()) return drops;
-    auto& frame = scope_.back();
-    for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
-        // G156-7: a var moved into a `move` closure stays in moved_vars_ (so
-        // use-after-move is enforced) but its destructor must still run — the
-        // closure only borrows its storage. Un-skip those.
-        if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
-        auto vit = frame.vars.find(*it);
-        if (vit == frame.vars.end()) continue;
-        if (auto d = make_drop_stmt(*it, vit->second))
-            drops.push_back(std::move(*d));
-    }
+    emit_frame_drops(scope_.back(), drops);
     return drops;
 }
 
 std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
     std::vector<lir::LStmt> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
-        for (auto it = fit->var_order.rbegin(); it != fit->var_order.rend(); ++it) {
-            // G156-7: un-skip move-closure-owned captures (still must drop).
-            if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
-            auto vit = fit->vars.find(*it);
-            if (vit == fit->vars.end()) continue;
-            if (auto d = make_drop_stmt(*it, vit->second))
-                drops.push_back(std::move(*d));
-        }
+        emit_frame_drops(*fit, drops);
         // G156-7: stop at a closure boundary — a `return` inside a closure body
         // drops only the closure's own frames, never the enclosing function's
         // captured locals (which the env borrows / the original owns).
@@ -3022,13 +3064,7 @@ std::vector<lir::LStmt> SemaChecker::collect_all_drops() const {
 std::vector<lir::LStmt> SemaChecker::collect_drops_to_loop() const {
     std::vector<lir::LStmt> drops;
     for (auto fit = scope_.rbegin(); fit != scope_.rend(); ++fit) {
-        for (auto it = fit->var_order.rbegin(); it != fit->var_order.rend(); ++it) {
-            if (moved_vars_.count(*it) && !closure_owned_drop_.count(*it)) continue;
-            auto vit = fit->vars.find(*it);
-            if (vit == fit->vars.end()) continue;
-            if (auto d = make_drop_stmt(*it, vit->second))
-                drops.push_back(std::move(*d));
-        }
+        emit_frame_drops(*fit, drops);
         // Stop AFTER dropping the loop-body frame: break/continue leaves the
         // loop via its edge, so the iteration's locals (incl. this frame's) are
         // released here; outer (enclosing-fn) frames stay live. A closure
@@ -5422,6 +5458,17 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 : void_t();
             return pool_->alloc(std::move(t));
         }
+        // KNOWN GAP (adversarial #1, H): this is a BARE-name lookup — a
+        // package-local trait colliding with a prelude/imported name (user
+        // `trait Sub` vs ops `Sub`) registers under its pkg-qualified key
+        // (B-mv-02), so `dyn Sub` here silently resolves to the PRELUDE
+        // trait and method calls through the dyn fail with "trait 'Sub'
+        // has no method". Canonicalizing here alone is NOT enough: the
+        // qualified name must also flow through lower_trait_def (bare
+        // traits_.find + bare td.name), the upcast compatibility check,
+        // and mlir-gen's vtable registry keys — else dispatch segfaults
+        // (probe p2). Needs the full chokepoint sweep; see
+        // docs/track3-gaps (dyn-local-trait-shadowing).
         if (!traits_.count(tname))
             error(std::format("unknown trait '{}' in &dyn type", tname));
         // Optional type-args: &dyn Trait<T,…> — same shape as Struct<T,…>.

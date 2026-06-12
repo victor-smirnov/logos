@@ -1,0 +1,17 @@
+// integer cast/wrap edges: truncation, sign reinterpret, wrapping, arith vs logical shift
+package adv1_int_cast_edges;
+fn main() -> i32 {
+    let x: i64 = 300i64;
+    if (x as u8) != 44u8 { return 1i32; }
+    let n: i32 = -1i32;
+    if (n as u32) != 4294967295u32 { return 2i32; }
+    let big: u64 = 18446744073709551615u64;
+    if (big as i64) != -1i64 { return 3i32; }
+    let m: u8 = 255u8;
+    if m.wrapping_add(1u8) != 0u8 { return 4i32; }
+    let s: i64 = -8i64;
+    if (s >> 1i64) != -4i64 { return 5i32; }
+    let u: u64 = 18446744073709551608u64;
+    if (u >> 1u64) != 9223372036854775804u64 { return 6i32; }
+    return 0i32;
+}

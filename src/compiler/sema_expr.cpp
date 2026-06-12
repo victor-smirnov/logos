@@ -2293,6 +2293,14 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // &<expr> — temporary materialization: spill rvalue to stack
         auto inner = lower_expr(child);
         if (TypeRef(inner->type).kind() == LogosType::Kind::Error) return error_expr();
+        // Rust: `&a[..]` / `&v[1..3]` — indexing by RANGE yields the slice
+        // place `[T]`; taking `&` of it IS the slice value (Logos's Slice
+        // kind already is the `&[T]` fat form). Stacking another Ref typed
+        // `&a[..]` as `&&[i64]` and broke every slice-pattern / `let s:
+        // &[T] = &a[..]` site (adversarial #1, G).
+        if (code_of(child) == la::INDEX_READ &&
+            TypeRef(inner->type).kind() == LogosType::Kind::Slice)
+            return inner;
         // B-as-01 / evec-slice: `&[1,2,3,…]` over a bare array literal
         // produces a slice value, matching the `&array_var` branch above.
         // Without this, the user writes `let x: &[T] = &[…]` and gets
@@ -3510,6 +3518,39 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                 unify_types(b.fn_params[k], ap[k], bindings);
             if (b.fn_ret && TypeRef(actual).closure_ret())
                 unify_types(b.fn_ret, TypeRef(actual).closure_ret(), bindings);
+        }
+    }
+
+    // Trait-bound-driven inference (adversarial #1, iter-by-ref class root):
+    // a type param appearing ONLY inside another param's trait bound —
+    // `fn iter_copied<I: Iterator<&T>, T>(it: I)` — is deducible once I is
+    // bound: look up I's impl of the bound trait, instantiate that impl's
+    // trait args via impl-target unification, and unify them against the
+    // bound's args. Mirrors the Fn-family propagation above.
+    for (auto& tp : fi.type_params) {
+        auto tbit = bindings.find(tp.name);
+        if (tbit == bindings.end() || !tbit->second) continue;
+        TypeRef actual = tbit->second;
+        if (TypeRef(actual).kind() != LogosType::Kind::Struct &&
+            TypeRef(actual).kind() != LogosType::Kind::ZonedStruct)
+            continue;
+        for (auto& b : tp.bounds) {
+            if (b.is_fn_family || b.type_args.empty()) continue;
+            auto iit = impls_.find(b.trait_name + "::" +
+                                   std::string(TypeRef(actual).struct_name()));
+            if (iit == impls_.end()) continue;
+            auto& imp = iit->second;
+            if (imp.trait_type_args.empty()) continue;
+            StrMap<TypeRef> impl_bind;
+            if (imp.target_typeref)
+                unify_types(imp.target_typeref, actual, impl_bind);
+            for (size_t k = 0; k < b.type_args.size() &&
+                                k < imp.trait_type_args.size(); ++k) {
+                auto ta = imp.trait_type_args[k];
+                if (ta && !impl_bind.empty()) ta = subst_type_sema(ta, impl_bind);
+                if (b.type_args[k] && ta)
+                    unify_types(b.type_args[k], ta, bindings);
+            }
         }
     }
 
@@ -7195,9 +7236,35 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             return builder().method_call_v(std::move(mc), ret_type);
         }
 
-        error(std::format("type parameter '{}' has no trait bound providing method '{}'",
-                          TypeRef(recv_inner).type_var_name(), std::string(method_name)));
-        return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
+        // Adversarial #1 (D): Rust method autoderef through a Deref bound —
+        // `fn f<T: Deref<C>>(t: &T) { t.get() }` resolves `get` on C. No
+        // bound trait provided the method, so rewrite the receiver to
+        // `recv.deref()` (typed `&Target`, mono resolves the concrete impl)
+        // and FALL THROUGH to the ordinary struct-method path below.
+        bool deref_bound_fallthrough = false;
+        if (bit != current_type_bounds_.end()) {
+            for (auto& bound : bit->second) {
+                bool is_mut_deref = bound.trait_name == "DerefMut";
+                if (bound.trait_name != "Deref" && !is_mut_deref) continue;
+                if (bound.type_args.empty() || !bound.type_args[0]) continue;
+                TypeRef tgt{bound.type_args[0]};
+                lir::EMethodCall dc;
+                dc.receiver     = std::move(recv);
+                dc.method       = is_mut_deref ? "deref_mut" : "deref";
+                dc.type_args    = {tgt};
+                dc.vtable_index = -1;
+                dc.tag_trait    = bound.trait_name;
+                recv = builder().method_call_v(std::move(dc),
+                                               make_ref(is_mut_deref, tgt));
+                deref_bound_fallthrough = true;
+                break;
+            }
+        }
+        if (!deref_bound_fallthrough) {
+            error(std::format("type parameter '{}' has no trait bound providing method '{}'",
+                              TypeRef(recv_inner).type_var_name(), std::string(method_name)));
+            return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
+        }
     }
 
     auto sname = struct_name_from_type(recv->type);
@@ -13985,6 +14052,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->ret_type      = ret_type;
     ec->body          = std::move(body);
     ec->is_move       = is_move;
+    std::vector<std::string> unskipped_captures;  // capture order (drop group)
     // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
     // being BOXED — its captured env must live on the heap (boxing confers
     // heap lifetime; a stack env would dangle once the creating fn returns).
@@ -14035,7 +14103,20 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             // exit. Skip mark_moved entirely — phase-1's borrow-check exclusivity
             // on the field path is enough for soundness, and `let yy = p.y`
             // stays usable (whole `p` is not moved).
-            if (is_narrow && !ec->escapes) continue;
+            if (is_narrow && !ec->escapes) {
+                // RFC 2229 drop-order rule: a `move` closure capturing a
+                // path whose ROOT type has a USER Drop impl captures the
+                // WHOLE variable — Rust does this precisely so the value
+                // drops with the closure, not at the root's own scope slot.
+                // ONLY a user `impl Drop` triggers it (drop_fn_for) — mere
+                // drop glue from droppable FIELDS keeps disjoint capture
+                // (rfc2229_move_disjoint_field: sibling p.y stays usable).
+                // Fall through as a whole-var move capture (env repr stays
+                // the borrowed pointer; ordering comes from the drop group).
+                if (!(ec->is_move &&
+                      !drop_fn_for(TypeRef(ec->capture_types[i])).empty()))
+                    continue;
+            }
             TypeRef move_check_t = narrow_owned
                 ? TypeRef(ec->capture_field_types[i])
                 : TypeRef(ec->capture_types[i]);
@@ -14081,9 +14162,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // double-frees. Skip the insertion.
                 if (body_moved_outer.count(ec->captures[i])) continue;
                 closure_owned_drop_.insert(ec->captures[i]);
+                unskipped_captures.push_back(ec->captures[i]);
             }
         }
     }
+
+    // Rust capture-drop order: captures whose dtor the SOURCE scope runs
+    // (closure_owned_drop_ un-skip) must drop WITH the closure — at the
+    // closure binding's slot, in capture order — not at their own
+    // var_order slots. Publish this closure's list; lower_let claims it
+    // when the closure is the let's direct RHS.
+    pending_closure_capture_drops_ = std::move(unskipped_captures);
 
     auto ctype = make_closure_type(std::move(param_types), ret_type);
     return builder().closure_box(std::move(ec), ctype);

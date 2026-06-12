@@ -201,6 +201,7 @@ pub trait Iterator<Item> {
     // PeekableIter's cache is `Option<T>` (B7 enum-value-repr made
     // inline enum-in-struct sound), so the trait default constructs
     // it with `Option::None` — no placeholder T needed.
+
     fn peekable(self: Self) -> PeekableIter<Self, Item> {
         return PeekableIter::<Self, Item> {
             inner: self,
@@ -890,6 +891,16 @@ pub struct CopiedIter<I, T> {
     pub _t_marker: i32,
 }
 
+// KNOWN GAP (adversarial #1, E): the METHOD form `.copied()` is absent —
+// only this free fn. Root: a trait-default `fn copied<U>(self) -> …` can't
+// deduce U (= Item's pointee): `where Self: Iterator<&U>` clauses are
+// DROPPED at default-method synthesis (sema_decl where_param_bounds keys
+// on trait params only; "Self" subjects skipped, and the stored bound
+// keeps no type-args). Re-parameterising CopiedIter by the ref item type
+// (impl … for CopiedIter<I, &T>, shape-selected) fixes inference but the
+// synthesized defaults' bodies then mis-resolve self.next() — needs the
+// synthesis-side where-Self unification. iter_copied(it) infers fully via
+// bound-driven inference (landed this session).
 impl<I: Iterator<&T>, T> Iterator<T> for CopiedIter<I, T> {
     fn next(self: &mut CopiedIter<I, T>) -> Option<T> {
         match self.inner.next() {

@@ -20,7 +20,7 @@ Migrate the Logos compiler (`logosc`) and the Logos stdlib off **Hermes1** onto
    ported. Scope in §6.2.
 
    **schema_type_code is now a first-class TinyObjectMap field (both impls).** Done
-   2026-06-10. The C++ `TinyObjectMap` and the Logos `HMap<Hu6,HVal>` both carry a
+   2026-06-10. The C++ `TinyObjectMap` and the Logos `HMap<Hu6,HAny>` both carry a
    `schema_type_code : u64` (the node-class discriminator: LirArenaRoot 5002,
    ImportTable 5003, metaprog ExprBlob roots). Layout is now **24 bytes**, byte-shared:
    `{ header:u64, schema_type_code:u64, data: self-rel ptr }` — the `#[zoned2]` pointer
@@ -54,11 +54,11 @@ Headers `include/logos/hermes2/`, sources + tests `src/hermes2/`. CMake target
 | `varint.hpp`, `fnv_hash.hpp` | ported verbatim from Hermes1 (byte-identical to Logos) |
 | `arena.{hpp,cpp}` | `Arena` (MultiChunk never-move default; GrowableSingleChunk; `from_bytes`) |
 | `arena_string.hpp` | `ArenaString` = Logos `HString` (`[vlen][utf8]`, tag 130) |
-| `object_array.hpp` | `ObjectArray` = `HArray<HVal>` (24B) |
+| `object_array.hpp` | `ObjectArray` = `HArray<HAny>` (24B) |
 | `typed_array.hpp` | `TypedArray<T>` = `HArray<T>` (24B, plain elements) |
-| `tiny_object_map.hpp` | `TinyObjectMap` = `HMap<Hu6,HVal>` (16B, bitmap+popcount) |
-| `object_map.hpp` | `ObjectMap` = `HMap<HString,HVal>` (24B, open-addr+rehash, `for_each`) |
-| `map.hpp` | `TypedMap<K>` = `HMap<K,HVal>` (32B, dense int, `for_each`) |
+| `tiny_object_map.hpp` | `TinyObjectMap` = `HMap<Hu6,HAny>` (16B, bitmap+popcount) |
+| `object_map.hpp` | `ObjectMap` = `HMap<HString,HAny>` (24B, open-addr+rehash, `for_each`) |
+| `map.hpp` | `TypedMap<K>` = `HMap<K,HAny>` (32B, dense int, `for_each`) |
 | `compound_types.hpp` | `Decimal`(16B) / `TypedValue`(24B) / `Parameter`(16B) |
 | `mem_holder.hpp` | `MemHolder` — refcounted arena owner (Rc<dyn Resident>); `make`/`from_bytes` |
 | `view.hpp` | OWNING `View<Obj>` + String/Array/TinyMap/Map views + `as_*` navigation |
@@ -152,7 +152,7 @@ reload) · `codec` · `text` · `multi_arena` (ExternalRef niche + pool + publis
   sort (stringify sorts keys → canonical). The AST uses ordered TinyObjectMap/arrays →
   stable.
 - **`#[zoned2]` structs keep the self-relative pointer LAST** — adding `schema_type_code`
-  to `HMap<Hu6,HVal>` only worked as `{header, schema, data}` (not `{header, data, schema}`):
+  to `HMap<Hu6,HAny>` only worked as `{header, schema, data}` (not `{header, data, schema}`):
   a plain field trailing the `*zoned` pointer breaks the Logos zoned layout. Mirror the
   same order in the C++ TOM (its `RelativePtr` is self-anchored so it works at any offset,
   but the byte layout must match Logos).

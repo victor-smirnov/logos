@@ -1,0 +1,19 @@
+// Adversarial #1 (B): `impl<P: Copy> Copy for Pin<P>` (Rust-conformant
+// conditional Copy). The old blanket impl made Pin<Box<T>> Copy — a "move"
+// bitwise-copied and BOTH bindings dropped: double free. Covers the bare
+// move, the struct-field + holder-move, and the as_mut mutation path.
+package adv1_pin_conditional_copy;
+use logos.lang.pin;
+use logos.mem.boxed;
+struct Holder { p: Pin<Box<i64>> }
+fn bump(p: Pin<&mut i64>) { let r: &mut i64 = p.get_mut(); *r += 1i64; }
+fn main() -> i32 {
+    let pb = box_pin(10i64);
+    let pb2 = pb;
+    if *pb2 != 10i64 { return 1i32; }
+    let mut h = Holder { p: box_pin(20i64) };
+    bump(h.p.as_mut());
+    let h2 = h;
+    if *h2.p != 21i64 { return 2i32; }
+    return 0i32;
+}

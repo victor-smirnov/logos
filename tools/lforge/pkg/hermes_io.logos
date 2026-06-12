@@ -18,7 +18,7 @@ use lforge.util;
 
 fn map_get2(root: HAny, key: str) -> HAny {
     if !root.is_map() { return HAny::ref_to(0i64 as *const u8); }
-    return unsafe { (&*(root.resolve() as *const HMap<HString, HVal>)).get(key) };
+    return unsafe { (&*(root.resolve() as *const HMap<HString, HAny>)).get(key) };
 }
 
 pub fn read_str_field(root: HAny, key: str) -> Result<String, ManifestError> {
@@ -54,7 +54,7 @@ pub fn read_str_array(root: HAny, key: str) -> Vec<String> {
     unsafe {
         let v: HAny = map_get2(root, key);
         if !v.is_null() && v.is_array() {
-            let arr: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
+            let arr: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
             let n: i64 = arr.len();
             let mut i: i64 = 0;
             while i < n {
