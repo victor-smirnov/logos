@@ -74,14 +74,14 @@ Ordered by severity; (cat) = chapters carrying detail.
 
 ## Recommended next moves (ranked, deduplicated)
 
-### Tier 0 — crashes & miscompiles (fix-the-class, now)
+### Tier 0 — crashes & miscompiles (fix-the-class, now) — ✅ ALL DONE 2026-06-12
 
-1. Static storage class: emit one `llvm.mlir.global` per `static`/`static mut`/extern-static + addressof routing — closes S25 segfault, read-before-write garbage, atomic-in-static, extern-static linkage, `&STATIC` identity, and unblocks static-`Sync` enforcement (C,G,K,M,N).
-2. Match-arm `Never`-typing for the format-family builtins — fixes `unreachable!()`/`todo!()` match-arm ICE and `panic!("…")` void-typing in one root (O).
-3. `_`-in-item-signature: fix SIGSEGV, reject param/return `_` (E0121 analog) (B).
-4. Temporary-lifetime-extension ICE: `let r = &<droppable rvalue>` through mlir-gen (A).
-5. Element-type check at array→slice unsize coercion (`&[i32;N]` ↛ `&[i64]`) (F,B).
-6. Gate the lowering walk on cfg-drop (cfg(unix)/cfg(windows) duplicate-symbol) + `cfg(true/false)` literals (L).
+1. ✅ `7ea97718` Static storage class: one `llvm.mlir.global` per `static`/`static mut` + addressof routing — closed S25 segfault, read-before-write garbage, atomic-in-static, `&STATIC` identity (C,G,K,M,N).
+2. ✅ `f97332e7` Match-arm `Never`-typing: `__fmt_panic -> !` + divergent blocks type `never_t()` (was `error_t()`) + null-guarded the match/if IntLit-upgrade `.result()` deref (O).
+3. ✅ `bf497612` `_`-in-item-signature E0121: one chokepoint in `resolve_type` under an `in_item_signature_` RAII guard set at all signature-collection sites; nested `Vec<_>`/`&_` caught by resolve_type's own recursion (B).
+4. ✅ `c9dc5a5a` Temporary-lifetime-extension: EAddrOfTemp spills by-value aggregates; `let r = &[mut] <rvalue>` synthesizes a named temp (scope-end DROP — the old spill leaked); also fixed pre-existing mut-`&Struct`-rebind pointee corruption (A).
+5. ✅ `13bccdd1` Slice elem-type check: concrete scalar elems must match exactly in `types_compatible`; literal arrays adopt the annotated/formal elem width (lower_call slice-formal hint joins closure/enum/tuple hints) (F,B).
+6. ✅ `a0304a36` cfg gates EVERY walk via shared `cfg_attrs_drop_item` (pass-0 pre-registration + phase collection + lowering); `cfg(true/false)` literals in attribute + `cfg!()` forms (L).
 
 ### Tier 1 — soundness
 
