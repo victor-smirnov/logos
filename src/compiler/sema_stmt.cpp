@@ -8992,9 +8992,12 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
                 if (val) {
                     auto er = expr_ref_of(*val);
+                    // A divergent arm lowers to a BlockExpr with NO result
+                    // (Never-typed `panic!`/`unreachable!` expansion, or a
+                    // tail-`return` block) — `.result()` is null there.
                     if (er.kind() == lir_schema::expr::Code::BlockExpr)
                         er = lir_view::EBlockExprView{er}.result();
-                    if (er.kind() == lir_schema::expr::Code::LitInt) {
+                    if (er && er.kind() == lir_schema::expr::Code::LitInt) {
                         int64_t v = lir_view::ELitIntView{er}.value();
                         if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
                             result_type = prim(LogosType::Kind::I64);
@@ -9010,8 +9013,11 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             // emit drops, then yield the temp. Skip when the arm
             // value is error-typed (divergent block arms already
             // emitted drops via lower_block::collect_all_drops on the
-            // inner Returns).
-            if (val && TypeRef(val->type).kind() != LogosType::Kind::Error) {
+            // inner Returns) or Never-typed (the arm diverges — control
+            // never reaches the drops, and a Never temp has no value to
+            // hoist).
+            if (val && TypeRef(val->type).kind() != LogosType::Kind::Error &&
+                TypeRef(val->type).kind() != LogosType::Kind::Never) {
                 // Mark bindings consumed by val as moved before
                 // computing drops (matches lower_return semantics).
                 mark_moved_in_expr_recursive(expr_ref_of(*val));

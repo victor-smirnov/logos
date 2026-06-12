@@ -1,0 +1,15 @@
+// Boundary pin for the T0-2 Never-typing fix: a genuinely-void arm
+// (println! returns unit, it does NOT diverge) in a value-position
+// match must still be rejected — only `!`-typed (panic-family) arms
+// are exempt from arm-type unification.
+package match_arm_void_type;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    let y = match 1 {
+        1 => 10,
+        _ => println!("side effect"),
+    };
+    y
+}

@@ -214,7 +214,10 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
 // `use logos.std.fmt;` — std.lang.panic doesn't have to be in the caller's
 // scope.
 
-pub fn __fmt_panic(msg: str) { panic(msg); }
+// `-> !`: panic never returns, and the Never return type is what makes a
+// `panic!(...)` expansion type as `!` in expression position (match-arm /
+// if-arm / let unifiers all key off `is_divergent_call_node`).
+pub fn __fmt_panic(msg: str) -> ! { panic(msg); }
 
 // `panic!(...)` macro — formats per Rust's panic! and aborts.
 // Bodies emit `format!(...)` (not `format_args_str(...)`) so sema's

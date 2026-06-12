@@ -1,0 +1,57 @@
+// logos-core §6.11 / feature-audit T0-2: `panic!` / `unreachable!` /
+// `todo!` / `unimplemented!` in MATCH-ARM position. The format-family
+// expansion ends in a `__fmt_panic(..) -> !` tail call, so the arm
+// types as Never and the match's type is that of the non-diverging
+// arms — same as Rust. Pre-fix: `unreachable!()` in a match arm was a
+// sema SIGSEGV (null-result BlockExpr dereferenced by the IntLit
+// upgrade) and `panic!("…")` typed `void` → "arm type void is
+// incompatible". if-arm / let / fn-tail positions covered alongside.
+package core_6_11_never_match_arm;
+
+use logos.std.fmt;
+
+fn pick(tag: i32) -> i32 {
+    let v = match tag {
+        1 => 10,
+        2 => 20,
+        3 => panic!("bad tag {}", tag),
+        4 => unreachable!(),
+        5 => todo!(),
+        _ => unimplemented!("tag={}", tag),
+    };
+    v
+}
+
+// Never arm FIRST — the arm-type accumulator must hand the type to a
+// later non-diverging arm.
+fn first_arm_diverges(tag: i32) -> i32 {
+    match tag {
+        0 => unreachable!(),
+        1 => 11,
+        _ => 22,
+    }
+}
+
+// fn-tail match with a diverging arm; i64 result type.
+fn tail_match(tag: i32) -> i64 {
+    match tag {
+        1 => 100i64,
+        _ => panic!("tail: {}", tag),
+    }
+}
+
+// let-position: annotated binding takes the non-diverging branch type.
+fn let_position(c: bool) -> i32 {
+    let v: i32 = if c { 7 } else { panic!("no") };
+    v
+}
+
+fn main() -> i32 {
+    if pick(1i32) != 10i32 { return 1i32; }
+    if pick(2i32) != 20i32 { return 2i32; }
+    if first_arm_diverges(1i32) != 11i32 { return 3i32; }
+    if first_arm_diverges(9i32) != 22i32 { return 4i32; }
+    if tail_match(1i32) != 100i64 { return 5i32; }
+    if let_position(true) != 7i32 { return 6i32; }
+    return 0i32;
+}

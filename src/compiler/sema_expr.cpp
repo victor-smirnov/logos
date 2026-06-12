@@ -13016,9 +13016,9 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 auto val_node = map_of(s.get(la::VALUE.code));
                 // A tail call to any `-> !` function (panic, abort, exit,
                 // user fn returning `!`) makes the block adapt to any
-                // expected context. Adopt Error as the block-expression
-                // type — if-expr / match-arm unification will let the
-                // non-divergent arm win, and codegen emits the diverging
+                // expected context. The block types as Never (`!`) — the
+                // if-expr / match-arm unifiers treat a Never arm as
+                // contributing no type, and codegen emits the diverging
                 // call so the unreachable dummy value never executes.
                 // Mirrors the tail-RETURN treatment below.
                 // (Generalises the historical `callee == "panic"` carve-out
@@ -13026,7 +13026,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 // logos-core 1.1.)
                 if (is_divergent_call_node(val_node)) {
                     block->stmts.push_back(lower_stmt(s));
-                    divergent_ret_t = error_t();
+                    divergent_ret_t = never_t();
                     continue;
                 }
                 result = lower_expr(val_node);
@@ -13263,10 +13263,10 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         bool saved_tail = tail_as_return_;
         tail_as_return_ = false;
         lir::LExprPtr result = nullptr;
-        // K10-co-04 follow-up: same divergent-tail-as-Error logic as
-        // lower_block_expr — a tail `panic(...)` makes the branch's
-        // expression type adapt via Error so the if-expression unifier
-        // picks the non-divergent arm's type.
+        // K10-co-04 follow-up: same divergent-tail-as-Never logic as
+        // lower_block_expr — a tail `panic(...)` makes the branch type
+        // Never (`!`) so the if-expression unifier picks the
+        // non-divergent arm's type.
         TypeRef divergent_t = nullptr;
         auto block = lir::alloc_block(*cur_prog_);
         for (uint64_t i = 0; i < stmts.size(); ++i) {
@@ -13275,12 +13275,13 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                 int32_t lc = code_of(s);
                 if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
                     auto val_node = map_of(s.get(la::VALUE.code));
-                    // Diverging tail call (any `-> !` callee): adopt Error
-                    // so the if-expr unifier picks the non-divergent arm's
-                    // type. Shared with the block-expr lowering above.
+                    // Diverging tail call (any `-> !` callee): the branch
+                    // types as Never so the if-expr unifier picks the
+                    // non-divergent arm's type. Shared with the block-expr
+                    // lowering above.
                     if (is_divergent_call_node(val_node)) {
                         block->stmts.push_back(lower_stmt(s));
-                        divergent_t = error_t();
+                        divergent_t = never_t();
                     } else {
                         result = lower_expr(val_node);
                     }
@@ -13374,9 +13375,10 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         auto intlit_overflow = [this](const lir::LExpr* e) -> bool {
             if (!e) return false;
             auto er = expr_ref_of(*e);
+            // Divergent branches are BlockExprs with NO result — null ref.
             if (er.kind() == lir_schema::expr::Code::BlockExpr)
                 er = lir_view::EBlockExprView{er}.result();
-            if (er.kind() != lir_schema::expr::Code::LitInt) return false;
+            if (!er || er.kind() != lir_schema::expr::Code::LitInt) return false;
             int64_t v = lir_view::ELitIntView{er}.value();
             return v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN;
         };
