@@ -46,6 +46,8 @@ the replacement mechanism, e.g. `metacall`-splice; do NOT leave it trimmed).
 
 ---
 
+| A8 | `Pin`/`Unpin`/`PhantomPinned` | pinning is a property of the **pointer** (`Pin<P>`): a type is freely movable until pinned; `PhantomPinned` opts out of `Unpin`; the unsafe `Pin` contract guards the "movable until anchored" phase (exists chiefly for stackless coroutines/futures) | `#[pinned]` is a property of the **type**: no value-form at all (`is_non_movable_type`) — arena residents (HArray/HMap headers, HTypedValue, HDecimal) are born in the never-move arena, live via `*mut`/`&`, and never exist as a stack value. There is nothing to "pin at runtime", so no `Pin<P>` wrapper is needed. `Unpin` exists as a marker (`lang.marker`) with no impls wired. | design model | Two reasons this stays divergent: (1) the zone/Hermes memory model anchors at *birth*, so the movable-until-pinned phase `Pin` exists to police doesn't arise for these types; (2) per A4, async = **stackful** fibres — a fiber's state lives on its own heap stack, so the self-referential-state-machine problem that forced `Pin` into Rust's API surface never appears. `Pin<P>` becomes worth adding only for: Rust-source ports that use the `Pin` API, or a future public API with a genuine movable-then-anchored phase (today the one such case — `Hermes` container movable from `hermes_new()` until parked in `Rc` — is held by stdlib convention in `comp_builder`, acceptable while it stays stdlib-internal). |
+
 ## §B — Catch-up TODOs ("НЕ ОТКЛАДЫВАТЬ" — must reach Rust parity)
 
 These currently differ from Rust but are **not** blessed — each needs a fix
