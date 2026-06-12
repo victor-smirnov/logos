@@ -1,0 +1,24 @@
+// logos-core §6.2 (S25) — a struct-typed static stores its full footprint
+// in the global (memcpy at startup-init), readable field-by-field across
+// fns. The const-inline model materialised a fresh per-use copy; a mut
+// write to one field would not persist. Here the cross-fn read confirms
+// the single shared storage.
+package core_6_2_static_aggregate;
+
+struct Point { x: i64, y: i64 }
+
+static mut P: Point = Point { x: 3, y: 4 };
+
+fn shift() {
+    unsafe { P.x = P.x + 10; }
+}
+
+fn main() -> i32 {
+    unsafe {
+        if P.x + P.y != 7 { return 1; }
+        shift();
+        if P.x != 13 { return 2; }
+        if P.y != 4  { return 3; }
+    }
+    return 0;
+}

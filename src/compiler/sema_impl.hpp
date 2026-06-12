@@ -2588,6 +2588,32 @@ private:
     // `collect_const` when the routing layer sees a STATIC_DEF code.
     std::unordered_set<std::string> module_static_muts_;
 
+    // §6.2 statics (S25): ALL `static [mut]` items of this module, name →
+    // link symbol ("<pkg>$<NAME>"; extern-block decls keep the bare name).
+    // Reads lower as Deref(VarRef("__static_addr:<sym>", *T)) and writes as
+    // SDerefWrite through the same address expr, so the whole class rides
+    // the canonical place machinery; mlir-gen's only special case is the
+    // "__static_addr:" prefix → llvm.mlir.addressof of the global.
+    logos::compiler::StrMap<std::string> module_statics_;
+
+    // True iff `name` is a module static NOT shadowed by a local binding or
+    // a type/const-generic param (mirrors the module_static_muts_ S18 rule).
+    bool is_module_static_unshadowed(std::string_view name) const {
+        if (module_statics_.find(std::string(name)) == module_statics_.end())
+            return false;
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(std::string(name))) return false;
+        if (current_type_params_.count(std::string(name))) return false;
+        return true;
+    }
+
+    // The address-expr name for a static: "__static_addr:<sym>".
+    std::string static_addr_name(std::string_view name) const {
+        auto it = module_statics_.find(std::string(name));
+        return "__static_addr:" + (it != module_statics_.end()
+                                       ? it->second : std::string(name));
+    }
+
     // §6.1: transient flag set by `lower_place_assign` (and similar
     // write-path lowerings) before calling `lower_expr` on the LHS
     // place. `lower_field_read` consults it to skip the union-field

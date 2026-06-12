@@ -641,6 +641,98 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
     }
 }
 
+// ---------------------------------------------------------------------------
+// §6.2 statics (S25): real global storage.
+//
+// Each `static [mut] NAME: T = expr;` becomes ONE llvm.mlir.global keyed by
+// its link symbol. The global is zero-initialised; a @__logos_static_init
+// function runs each initializer expr into the global's address at program
+// startup (call injected into main's prologue in mlir_gen.cpp Pass 3). This
+// gives every static a stable address and correct cross-fn read/write — the
+// fix for the S25 segfault / read-before-write garbage where statics were
+// const-inlined into a fresh per-use alloca. Extern-block decls (no value)
+// emit an External declaration only.
+// ---------------------------------------------------------------------------
+void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) {
+    bool any = false;
+    for (auto& c : prog.consts) if (c.is_static) { any = true; break; }
+    if (!any) return;
+
+    auto set_end = [&]{ builder_.setInsertionPointToEnd(mod.getBody()); };
+
+    // Pass A: emit the globals (skip if already present — stdlib precompiled +
+    // current TU can both see a `pub static`).
+    for (auto& c : prog.consts) {
+        if (!c.is_static) continue;
+        if (mod.lookupSymbol(c.sym)) continue;
+        auto llty = logos_to_mlir(c.type);
+        if (!llty) llty = builder_.getI32Type();
+        set_end();
+        if (c.is_extern) {
+            // External declaration — defined in another object.
+            builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
+                c.sym, mlir::Attribute{}, /*alignment=*/0);
+            continue;
+        }
+        // Defined here: zero-initialised, runtime-filled at startup. NOT marked
+        // isConstant even for immutable `static` — we store the initializer at
+        // startup (a constant global can't be written); immutability is
+        // enforced at sema (write to non-mut static rejected).
+        auto g = builder_.create<mlir::LLVM::GlobalOp>(
+            loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
+            c.sym, mlir::Attribute{}, /*alignment=*/0);
+        auto& region = g.getInitializerRegion();
+        auto* blk = builder_.createBlock(&region);
+        builder_.setInsertionPointToStart(blk);
+        auto zero = builder_.create<mlir::LLVM::ZeroOp>(loc_, llty);
+        builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{zero});
+    }
+
+    // Pass B: @__logos_static_init runs every defined static's initializer into
+    // its global address. Reuses the SDerefWrite store conventions: aggregates
+    // (ptr-represented) memcpy their footprint; scalars store the value.
+    std::vector<const LConst*> with_init;
+    for (auto& c : prog.consts)
+        if (c.is_static && !c.is_extern && c.value) with_init.push_back(&c);
+    if (with_init.empty()) return;
+
+    auto void_fn_type = mlir::FunctionType::get(builder_.getContext(), {}, {});
+    set_end();
+    auto init_fn = builder_.create<mlir::func::FuncOp>(
+        loc_, "__logos_static_init", void_fn_type);
+    init_fn.setPrivate();
+    auto* entry = init_fn.addEntryBlock();
+    builder_.setInsertionPointToStart(entry);
+    auto save_fn = cur_fn_name_;
+    cur_fn_name_ = "__logos_static_init";
+    for (auto* c : with_init) {
+        auto val = gen_expr(*c->value);
+        if (!val) continue;
+        auto addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), c->sym);
+        TypeRef vt(c->type);
+        auto vk = vt.kind();
+        bool aggregate = vk == LogosType::Kind::Struct ||
+                         vk == LogosType::Kind::ZonedStruct ||
+                         vk == LogosType::Kind::Tuple ||
+                         vk == LogosType::Kind::Array ||
+                         vk == LogosType::Kind::Slice ||
+                         vk == LogosType::Kind::Closure ||
+                         (vk == LogosType::Kind::Enum &&
+                          resolve_tagged_enum(std::string(vt.enum_name()), c->type));
+        if (aggregate && val.getType() == ptr_type()) {
+            builder_.create<mlir::LLVM::MemcpyOp>(loc_, addr, val,
+                                                  size_const(c->type),
+                                                  /*isVolatile=*/false);
+        } else {
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, addr);
+        }
+    }
+    builder_.create<mlir::func::ReturnOp>(loc_);
+    cur_fn_name_ = save_fn;
+    has_static_init_ = true;
+}
+
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
     // Build a method_base → vector<const LFunction*> index once, so the

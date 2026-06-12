@@ -841,6 +841,12 @@ private:
     // ── Vtable / dyn ─────────────────────────────────────────────
     void emit_trait_vtables(mlir::ModuleOp mod, const LProgram& prog);
     void emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& prog);
+    // §6.2 statics (S25): emit one llvm.mlir.global per `static [mut]` item
+    // and a @__logos_static_init that runs each initializer into its global
+    // address at program startup (called from main's prologue, Pass 3).
+    void emit_static_globals(mlir::ModuleOp mod, const LProgram& prog);
+    bool has_static_init_ = false;  // set by emit_static_globals if any non-
+                                    // extern static needs runtime init
     mlir::Value build_inline_vtable(std::string_view trait_name,
                                      std::string_view type_name,
                                      TypeRef concrete_ty = {});

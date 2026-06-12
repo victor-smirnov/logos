@@ -7215,6 +7215,22 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             cd.doc = take_pending_doc();
             prog.consts.push_back(std::move(cd));
         }
+        else if (c == la::STATIC_DEF) {
+            // §6.2 statics (S25): real global storage. mlir-gen emits one
+            // llvm.mlir.global per item (keyed by sym) instead of inlining
+            // the value at each use like a const.
+            auto cd = lower_const_def(item);
+            cd.doc = take_pending_doc();
+            cd.is_static = true;
+            cd.is_mut    = item.has_key(la::IS_MUT);
+            cd.is_extern = !item.has_key(la::VALUE);
+            if (cd.is_extern) cd.value = nullptr;  // external: no initializer
+            auto sit = module_statics_.find(cd.name);
+            cd.sym = sit != module_statics_.end()
+                ? sit->second
+                : std::string(cur_package_) + "$" + cd.name;
+            prog.consts.push_back(std::move(cd));
+        }
         else if (c == la::TYPE_ALIAS) {
             auto ta = lower_type_alias_def(item);
             ta.doc = take_pending_doc();

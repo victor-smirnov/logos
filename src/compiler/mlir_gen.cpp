@@ -480,6 +480,11 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
     pt.tick("pass1d reflection_globals");
 
+    // Pass 1e: §6.2 statics (S25) — emit one llvm.mlir.global per `static`
+    // item + the @__logos_static_init runtime initializer.
+    emit_static_globals(mod, prog);
+    pt.tick("pass1e static_globals");
+
     // Pass 2: fill function bodies (structs, free fns).
     size_t bodies_emitted = 0;
     size_t method_bodies = 0;
@@ -539,6 +544,22 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         }
     }
     pt.tick("pass3 dispatch init");
+
+    // Pass 3b: §6.2 statics (S25) — call @__logos_static_init at main's
+    // prologue (before the dispatch-init calls so statics are live for any
+    // ctor-ish code). Injected at the very front of main's entry block.
+    if (has_static_init_) {
+        auto main_fn = mod.lookupSymbol<mlir::func::FuncOp>("main");
+        if (main_fn && !main_fn.empty()) {
+            mlir::OpBuilder::InsertionGuard guard(builder_);
+            auto init_fn = mod.lookupSymbol<mlir::func::FuncOp>("__logos_static_init");
+            if (init_fn) {
+                builder_.setInsertionPointToStart(&main_fn.front());
+                builder_.create<mlir::func::CallOp>(loc_, init_fn, mlir::ValueRange{});
+            }
+        }
+    }
+    pt.tick("pass3b static init");
 
     // Canonical-form rename pass. Bridges callees produced in older bare
     // forms (mono call rewrites, T → Concrete substitutions, blanket-impl

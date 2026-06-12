@@ -1035,6 +1035,14 @@ struct LConst {
     LExprPtr         value = nullptr;
     // Outer doc-comment on the const declaration.
     std::string      doc;
+    // §6.2 statics (S25): a `static [mut]` item gets REAL global storage —
+    // mlir-gen emits one llvm.mlir.global per item keyed by `sym` and never
+    // const-inlines it. Plain `const` keeps is_static=false (inline at use).
+    bool             is_static = false;
+    bool             is_mut    = false;  // `static mut`
+    bool             is_extern = false;  // extern-block decl: no initializer,
+                                         // external linkage, sym = bare name
+    std::string      sym;                // link symbol ("<pkg>$<NAME>")
 };
 
 struct LTypeAlias {

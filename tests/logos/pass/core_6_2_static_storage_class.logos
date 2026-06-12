@@ -1,0 +1,34 @@
+// logos-core §6.2 (S25) — statics get REAL global storage (one
+// llvm.mlir.global per item), NOT const-inline into a per-use alloca.
+// This is the cross-fn coherence the const-inline model broke: a write
+// in one fn must be visible to a read in another, and `&STATIC` must be
+// a stable address.
+package core_6_2_static_storage_class;
+
+static mut COUNTER: i64 = 7;
+static ORIGIN_X: i64 = 100;
+
+fn bump() {
+    unsafe { COUNTER = COUNTER + 1; }
+}
+
+// `&STATIC` is the global's stable address (the same across calls).
+fn origin_ref() -> &'static i64 { &ORIGIN_X }
+
+fn main() -> i32 {
+    unsafe {
+        // read-before-write returns the initializer (not garbage)
+        let before: i64 = COUNTER;
+        if before != 7 { return 1; }
+        // cross-fn mutation is visible
+        bump();
+        bump();
+        if COUNTER != 9 { return 2; }
+    }
+    // address identity: two borrows of the same static compare equal value
+    let a: &i64 = origin_ref();
+    let b: &i64 = origin_ref();
+    if *a != 100 { return 3; }
+    if *b != 100 { return 4; }
+    return 0;
+}

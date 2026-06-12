@@ -1840,12 +1840,19 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
             if      (c == la::TYPE_ALIAS)                 collect_type_alias(item);
             else if (c == la::CONST_DEF)                  collect_const(item);
             else if (c == la::STATIC_DEF) {
-                // §6.2: `static mut` — collected like a const for storage /
-                // lookup, plus flagged in module_static_muts_ so var-reads
-                // and place-assigns require an `unsafe` block.
+                // §6.2: `static [mut]` — collected like a const for type
+                // lookup, plus registered in module_statics_ (name → link
+                // symbol) so reads/writes lower through the global's address
+                // instead of const-inline. The `mut` form additionally goes
+                // into module_static_muts_ (reads/writes require `unsafe`).
+                // No VALUE ⇒ extern-block decl: links against the BARE name.
                 collect_const(item);
                 auto sm_name = std::string(str_of(item.get(la::NAME.code)));
-                module_static_muts_.insert(sm_name);
+                module_statics_[sm_name] = item.has_key(la::VALUE)
+                    ? std::string(cur_package_) + "$" + sm_name
+                    : sm_name;
+                if (item.has_key(la::IS_MUT))
+                    module_static_muts_.insert(sm_name);
             }
         }
         pending_annots.clear();

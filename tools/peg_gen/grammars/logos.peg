@@ -310,7 +310,7 @@
     LET_CHAIN_LET               = 251   // §6.4: let-bind seg of IF_LET_CHAIN. PAT = pattern, VALUE = scrutinee. Refutable.
     LET_CHAIN_COND              = 252   // §6.4: bool-cond seg of IF_LET_CHAIN. VALUE = bool expression. Falls to ELSE on false.
     UNION_DEF                   = 253   // logos-core §6.1: `union NAME { f1: T1, f2: T2, … }` item. NAME = union type name; FIELDS = field array (same shape as STRUCT). Sema treats unions as Struct-shaped types with `is_union=true`; layout = max-of-fields aligned to max-alignment; field access requires `unsafe` block.
-    STATIC_DEF                  = 254   // logos-core §6.2: `static mut NAME: T = expr;` — true mutable global. NAME/TYPE/VALUE same shape as CONST_DEF; IS_MUT=1 always (this code is only emitted for the `mut` form); IS_PUB optional. Sema collects into module_static_muts_; var_ref reads and place-assign writes both require `unsafe` block (Rust spec `items.static.mut.safety`).
+    STATIC_DEF                  = 254   // logos-core §6.2: `static [mut] NAME: T = expr;` — true global storage (one llvm.mlir.global per item; stable address, `&STATIC` identity). NAME/TYPE/VALUE same shape as CONST_DEF; IS_MUT only on the `mut` form (reads/writes require `unsafe`, Rust `items.static.mut.safety`); no VALUE ⇒ extern-block declaration (external linkage). IS_PUB optional. Sema: module_statics_ (all) + module_static_muts_ (mut only).
     OFFSET_OF                   = 255   // `offset_of!(Type, field)` — compile-time byte offset of `field` within `Type` (Rust's `core::mem::offset_of!`). TYPE = type_ref AST, NAME = field ident. Sema resolves the type, walks the ABI layout to the field, emits an i64 const.
 }
 
@@ -684,14 +684,14 @@
               => { CODE: STATIC_DEF, IS_PUB: 1, IS_MUT: 1, NAME: $4, TYPE: $6, VALUE: $8 }
                / KW_STATIC KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: STATIC_DEF, IS_MUT: 1, NAME: $3, TYPE: $5, VALUE: $7 }
-            // Immutable module-level `static NAME: T = expr;` — same immutable
-            // storage model as `const` (a read-only global value); collapsed to
-            // CONST_DEF for now (distinction from `const` per spec section
-            // `items.static.alternate` is largely cosmetic at this level).
+            // Immutable module-level `static NAME: T = expr;` — REAL global
+            // storage like the mut form (one llvm.mlir.global; stable address,
+            // `&STATIC` identity holds), distinct from `const` (inline
+            // substitution). No IS_MUT ⇒ reads are safe, writes reject.
                / KW_PUB KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+              => { CODE: STATIC_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+              => { CODE: STATIC_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
     // type NAME = type_ref;
@@ -1205,8 +1205,10 @@
                      => { CODE: EXTERN_FN, NAME: $2, PARAMS: $4 }
                       / KW_STATIC KW_MUT IDENT COLON type_ref SEMI
                      => { CODE: STATIC_DEF, IS_MUT: 1, NAME: $3, TYPE: $5 }
+                      // Extern immutable static: STATIC_DEF with no VALUE —
+                      // sema marks is_extern (external global, no initializer).
                       / KW_STATIC IDENT COLON type_ref SEMI
-                     => { CODE: CONST_DEF, NAME: $2, TYPE: $4 }
+                     => { CODE: STATIC_DEF, NAME: $2, TYPE: $4 }
     extern_fn_def <- KW_EXTERN STRING KW_FN IDENT LPAREN param_list COMMA DOTDOTDOT RPAREN ARROW type_ref SEMI
                   => { CODE: EXTERN_FN, NAME: $4, PARAMS: $6, RET_TYPE: $11, VALUE: $2, IS_VARARG: true }
                    / KW_EXTERN STRING KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref SEMI

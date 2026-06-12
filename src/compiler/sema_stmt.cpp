@@ -2614,6 +2614,16 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
+    // §6.2 statics (S25): `STATIC = v` writes through the global's address —
+    // SDerefWrite rides the canonical place-store conventions (struct memcpy,
+    // enum footprint, fat pairs) instead of stmt_assign's local-slot path.
+    if (is_module_static_unshadowed(name)) {
+        bool smut = module_static_muts_.count(std::string(name)) != 0;
+        auto addr = builder().var_ref(static_addr_name(name),
+                                      make_ptr(smut, var_type));
+        return builder().stmt_deref_write(std::move(addr), std::move(rhs),
+                                          node_line_);
+    }
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_, drop_old);
 }
 
@@ -6587,6 +6597,20 @@ bool SemaChecker::check_place_writable(TinyMapView place) {
                 return false;
             }
             return true;  // `*mut` inside unsafe — writable (carries its own mutability)
+        }
+        // §6.2 statics (S25): a place rooted at a `static mut` is writable
+        // (the storage is mutable) but the write requires `unsafe`. A plain
+        // immutable `static` is not writable.
+        if (is_module_static_unshadowed(name)) {
+            if (module_static_muts_.count(name)) {
+                if (!inside_unsafe_)
+                    error(std::format(
+                        "write to mutable static `{}` requires `unsafe` block "
+                        "(Rust `items.static.mut.safety`)", name));
+                return true;
+            }
+            error(std::format("assignment to immutable static '{}'", name));
+            return false;
         }
         if (!lookup_is_mut(name)) {
             error(std::format("assignment to immutable variable '{}'", name));

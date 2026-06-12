@@ -319,9 +319,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitStrView v, TypeRef) {
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     std::string name{v.name()};
-    // Module constant: re-evaluate inline.
+    // §6.2 statics (S25): a "__static_addr:<sym>" VarRef is the ADDRESS of the
+    // static's global storage — emit llvm.mlir.addressof. Reads wrap this in a
+    // Deref (loads/yields the storage ptr per kind); `&STATIC` collapses to it
+    // via the reborrow peephole; writes deref-store into it. One chokepoint.
+    if (name.rfind("__static_addr:", 0) == 0) {
+        auto sym = name.substr(std::string_view("__static_addr:").size());
+        return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym);
+    }
+    // Module constant: re-evaluate inline. (Statics are NOT inlined — they have
+    // real storage and never reach here as a bare VarRef.)
     auto cit = module_consts_.find(name);
-    if (cit != module_consts_.end())
+    if (cit != module_consts_.end() && !cit->second->is_static)
         return gen_expr(*cit->second->value);
 
     auto it = scope_.find(name);

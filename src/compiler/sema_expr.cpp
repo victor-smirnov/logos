@@ -559,6 +559,19 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                 "read of mutable static `{}` requires `unsafe` block "
                 "(Rust `items.static.mut.safety`)", name));
     }
+    // §6.2 statics (S25): a static read is a deref of the global's address —
+    // Deref(VarRef("__static_addr:<sym>", *T)). All representation
+    // conventions (struct/tuple/enum yield the storage ptr, scalars load)
+    // come from the canonical EDeref path; writes ride SDerefWrite through
+    // the same address expr; `&STATIC` collapses to the address via the
+    // `&*p ≡ p` reborrow peephole. mlir-gen's only special case is the
+    // "__static_addr:" prefix → llvm.mlir.addressof.
+    if (is_module_static_unshadowed(name)) {
+        bool smut = module_static_muts_.count(std::string(name)) != 0;
+        auto addr = builder().var_ref(static_addr_name(name),
+                                      make_ptr(smut, t));
+        return builder().deref(std::move(addr), t);
+    }
     return builder().var_ref(std::string(name), t);
 }
 
@@ -964,6 +977,13 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
             if (!vt) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
+            }
+            // §6.2 statics (S25): `&mut STATIC` (a `static mut`) IS the global's
+            // address. Same routing as the shared-`&` path (see there).
+            if (is_module_static_unshadowed(var_name) &&
+                TypeRef(vt).kind() != LogosType::Kind::Array) {
+                return builder().var_ref(static_addr_name(var_name),
+                                         make_ref(true, vt));
             }
             // G162-2: `&mut arr` produces `&mut [T; N]` (a mutable
             // reference to the WHOLE array), so it satisfies a `&mut [T; N]`
@@ -2240,6 +2260,18 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             if (!vt) {
                 error(std::format("'&': undefined variable '{}'", var_name));
                 return error_expr();
+            }
+            // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
+            // `'static`). The "__static_addr:<sym>" VarRef lowers to
+            // llvm.mlir.addressof in mlir-gen — the reference value itself.
+            // (Routes BEFORE addr_of(var_name), which would materialise a
+            // fresh stack copy and break address identity.) Array statics
+            // build a slice over that address; scalars/structs return `&T`.
+            if (is_module_static_unshadowed(var_name) &&
+                TypeRef(vt).kind() != LogosType::Kind::Array) {
+                bool smut = module_static_muts_.count(std::string(var_name)) != 0;
+                return builder().var_ref(static_addr_name(var_name),
+                                         make_ref(smut, vt));
             }
             // &array → slice: &[T] with len = array size
             if (TypeRef(vt).kind() == LogosType::Kind::Array) {
