@@ -331,6 +331,14 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                 pass0_pending.push_back(item);
                 continue;
             }
+            // T0-6: cfg gate runs FIRST — a cfg-false item must not
+            // pre-register its name (the cfg(unix)/cfg(windows) same-name
+            // struct/enum/trait idiom otherwise died with "duplicate
+            // struct" here before the gated collection pass ever ran).
+            if (cfg_attrs_drop_item(pass0_pending)) {
+                pass0_pending.clear();
+                continue;
+            }
             // `#[datatype]`/`#[annotation]` promote a STRUCT-syntax item into
             // the datatype pipeline; `#[zoned]` marks self-relative fields and
             // does NOT promote. (Single-point parser: parse_struct_attr_flags.)
@@ -1334,7 +1342,12 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
         auto item = flat_items[i];
         int32_t c = code_of(item);
         if (c == la::ANNOTATION) {
-            if (phase == 1) pending_annots.push_back(item);
+            // T0-6: accumulate in BOTH phases — phase 2 collects consts/
+            // statics/type-aliases, and the cfg gate below must see their
+            // `#[cfg(...)]` attrs (pre-fix the phase-1-only accumulation
+            // left phase-2 items ungated → "duplicate const" on the
+            // cfg(unix)/cfg(windows) idiom).
+            pending_annots.push_back(item);
             continue;
         }
         if (c == la::DOC_LINE_LIT) {
@@ -1370,61 +1383,13 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                              /*prefix_len=*/3);
             continue;
         }
-        // §6.8: cfg_attr activation runs FIRST so any activated wrapped
-        // `cfg(...)` predicate joins the cfg-drop list this iteration
-        // — `#[cfg_attr(unix, cfg(windows))]` must drop the item when
-        // both predicates fire. Self-referential activation is bounded
-        // because the appended wrapped attrs are visited only by the
-        // subsequent cfg loop, not re-fed into cfg_attr.
-        // §6.8: cfg_attr. Evaluate the predicate (ARGS[0]) via the
-        // shared evaluate_cfg_arg (combinator-aware: all/any/not). If
-        // predicate is false, drop the cfg_attr entry. If true,
-        // activate the wrapped attribute(s) in ARGS[1..]: push each
-        // into pending_annots so the next item-level loop iteration
-        // picks them up as if they were written directly on the item.
-        // Downstream consumers read NAME / ARGS uniformly from
-        // ANNOTATION and ANNOT_CALL — same field shape — so the
-        // re-use is safe (no Hermes-node synthesis needed).
-        {
-            std::vector<TinyMapView> appended;
-            auto it = pending_annots.begin();
-            while (it != pending_annots.end()) {
-                if (str_of(it->get(la::NAME.code)) != "cfg_attr") { ++it; continue; }
-                bool active = false;
-                std::vector<TinyMapView> wrapped;
-                if (it->has_key(la::ARGS)) {
-                    auto args_av = it->get(la::ARGS.code);
-                    if (!args_av.is_null()) {
-                        auto args_list = map_of(args_av);
-                        if (args_list.has_key(la::ITEMS)) {
-                            auto items_arr = arr_of(args_list.get(la::ITEMS.code));
-                            if (items_arr.size() >= 1) {
-                                auto pred = map_of(items_arr.get(0));
-                                active = evaluate_cfg_arg(pred);
-                                for (uint64_t k = 1; k < items_arr.size(); ++k)
-                                    wrapped.push_back(map_of(items_arr.get(k)));
-                            }
-                        }
-                    }
-                }
-                if (active) {
-                    for (auto& w : wrapped) appended.push_back(w);
-                }
-                it = pending_annots.erase(it);
-            }
-            for (auto& w : appended) pending_annots.push_back(w);
-        }
-        // Phase 2-2 (now post-cfg_attr): conditional compilation.
-        // `#[cfg(...)]` on any item — including any cfg activated by a
-        // preceding cfg_attr — is evaluated here; if false, drop the
-        // item entirely (don't collect, don't lower) along with any
-        // other pending annotations it would have inherited.
-        bool dropped_by_cfg = false;
-        for (auto& ann : pending_annots) {
-            if (str_of(ann.get(la::NAME.code)) != "cfg") continue;
-            if (!evaluate_cfg_annotation(ann)) { dropped_by_cfg = true; break; }
-        }
-        if (dropped_by_cfg) {
+        // §6.8 / T0-6: cfg_attr activation + cfg evaluation — the shared
+        // gate (cfg_attrs_drop_item, also called by the lowering walk).
+        // `#[cfg_attr(unix, cfg(windows))]` activation runs FIRST so the
+        // wrapped `cfg(...)` joins the drop list this iteration; if any
+        // cfg predicate is false the item is dropped entirely (don't
+        // collect, don't lower) with its pending annotations.
+        if (cfg_attrs_drop_item(pending_annots)) {
             pending_annots.clear();
             continue;
         }

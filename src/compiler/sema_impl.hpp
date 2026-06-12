@@ -703,6 +703,11 @@ private:
     // top-level annot_args list, and by itself for the children of an
     // ANNOT_CALL.
     bool evaluate_cfg_arg(hermes::TinyMapView arg_node);
+    // §6.8 / T0-6: the single conditional-compilation gate for an item's
+    // accumulated annotation list — cfg_attr activation (mutates the list)
+    // followed by cfg evaluation. Returns true when the item must be
+    // dropped. Shared by the collection AND lowering walks.
+    bool cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_annots);
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them

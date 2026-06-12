@@ -1,0 +1,49 @@
+// feature-audit T0-6: conditional compilation gates EVERY sema walk.
+// Pre-fix, #[cfg]-false items were dropped from collection but (a) still
+// pre-registered their NAME in pass-0 ("duplicate struct/const"), and
+// (b) still LOWERED ("duplicate function body" at mlir-gen) — killing
+// the canonical cfg(unix)/cfg(windows) same-name platform switch. Also
+// covers the cfg(true)/cfg(false) literal predicates (Rust 1.80
+// RFC 3695) in attribute, combinator, and cfg!() macro positions.
+package cfg_platform_switch;
+
+#[cfg(unix)]
+fn plat() -> i32 { 1 }
+
+#[cfg(windows)]
+fn plat() -> i32 { 2 }
+
+#[cfg(unix)]
+struct P { x: i32 }
+
+#[cfg(windows)]
+struct P { x: i64, y: i64 }
+
+#[cfg(unix)]
+const N: i32 = 1;
+
+#[cfg(windows)]
+const N: i32 = 2;
+
+#[cfg_attr(unix, cfg(windows))]
+fn gone() -> i32 { 99 }
+
+#[cfg(true)]
+fn lit_on() -> i32 { 1 }
+
+#[cfg(false)]
+fn lit_on() -> i32 { 100 }
+
+#[cfg(not(false))]
+fn kept() -> i32 { 3 }
+
+#[cfg(all(true, unix))]
+fn kept2() -> i32 { 4 }
+
+fn main() -> i32 {
+    let p = P { x: 5 };
+    let a = cfg!(true);
+    let b = cfg!(false);
+    if !a || b { return 7; }
+    plat() + p.x + N + lit_on() + kept() + kept2() - 15
+}

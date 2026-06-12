@@ -3394,6 +3394,11 @@ static bool parse_and_eval_cfg(CfgLexer& lex,
         std::string val = lex.read_string_lit();
         return match_cfg_key_value(ident, val, features);
     }
+    // Boolean literal predicates (`cfg(true)` / `cfg(false)` — Rust 1.80
+    // RFC 3695). These are literals, not feature flags; a feature can't
+    // be named `true`/`false` in Rust, so matching them first is safe.
+    if (ident == "true")  return true;
+    if (ident == "false") return false;
     // Bare ident.
     return match_cfg_flag(ident, features);
 }
@@ -3417,6 +3422,54 @@ bool SemaChecker::match_cfg_predicate_kv(std::string_view key, std::string_view 
 }
 bool SemaChecker::match_cfg_predicate_flag(std::string_view name) {
     return match_cfg_flag(name, cfg_features_);
+}
+
+// §6.8 / T0-6: the single conditional-compilation gate for a per-item
+// annotation list. Runs cfg_attr activation FIRST (a true predicate
+// splices its wrapped attrs into `pending_annots`, a false one drops the
+// entry), then evaluates every plain `cfg(...)`; returns true when the
+// item must be dropped. Shared by the COLLECTION walk and the LOWERING
+// walk (sema_collect phase loop + lower_module_items) — pre-fix only
+// collection gated, so a cfg-false fn was dropped from funcs_ but still
+// LOWERED, and the cfg(unix)/cfg(windows) same-name platform idiom died
+// with "duplicate function body" at mlir-gen.
+bool SemaChecker::cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_annots) {
+    // cfg_attr activation. Self-referential activation is bounded because
+    // the appended wrapped attrs are visited only by the subsequent cfg
+    // loop, not re-fed into cfg_attr.
+    std::vector<hermes::TinyMapView> appended;
+    auto it = pending_annots.begin();
+    while (it != pending_annots.end()) {
+        if (str_of(it->get(la::NAME.code)) != "cfg_attr") { ++it; continue; }
+        bool active = false;
+        std::vector<hermes::TinyMapView> wrapped;
+        if (it->has_key(la::ARGS)) {
+            auto args_av = it->get(la::ARGS.code);
+            if (!args_av.is_null()) {
+                auto args_list = map_of(args_av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items_arr = arr_of(args_list.get(la::ITEMS.code));
+                    if (items_arr.size() >= 1) {
+                        auto pred = map_of(items_arr.get(0));
+                        active = evaluate_cfg_arg(pred);
+                        for (uint64_t k = 1; k < items_arr.size(); ++k)
+                            wrapped.push_back(map_of(items_arr.get(k)));
+                    }
+                }
+            }
+        }
+        if (active) {
+            for (auto& w : wrapped) appended.push_back(w);
+        }
+        it = pending_annots.erase(it);
+    }
+    for (auto& w : appended) pending_annots.push_back(w);
+
+    for (auto& ann : pending_annots) {
+        if (str_of(ann.get(la::NAME.code)) != "cfg") continue;
+        if (!evaluate_cfg_annotation(ann)) return true;
+    }
+    return false;
 }
 
 bool SemaChecker::evaluate_cfg_annotation(hermes::TinyMapView ann) {
@@ -3486,8 +3539,20 @@ bool SemaChecker::evaluate_cfg_arg(hermes::TinyMapView arg) {
         }
         return match_cfg_key_value(key, val, cfg_features_);
     }
+    // Boolean literal predicates (`cfg(true)` / `cfg(false)` — Rust 1.80
+    // RFC 3695). The grammar parses them as ANNOT_POS wrapping a LIT_BOOL
+    // (annot_lit's KW_TRUE/KW_FALSE alternatives); recurse through the
+    // positional wrapper and read the bool.
+    if (code == la::ANNOT_POS && arg.has_key(la::VALUE))
+        return evaluate_cfg_arg(map_of(arg.get(la::VALUE.code)));
+    if (code == la::LIT_BOOL && arg.has_key(la::VALUE)) {
+        AnyVal bv = arg.get(la::VALUE.code);
+        return !bv.is_null() && bv.is_value() && bv.as_value<uint8_t>() != 0;
+    }
     if (arg.has_key(la::NAME)) {
         std::string name(str_of(arg.get(la::NAME.code)));
+        if (name == "true")  return true;
+        if (name == "false") return false;
         return match_cfg_flag(name, cfg_features_);
     }
     return false;
@@ -6865,6 +6930,16 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             append_doc_block(module_inner_doc_,
                              str_of(item.get(la::VALUE.code)),
                              /*prefix_len=*/3);
+            continue;
+        }
+        // §6.8 / T0-6: same conditional-compilation gate as the collection
+        // walk. Collection already dropped cfg-false items from funcs_/
+        // structs_/…, but this loop still LOWERED them — the canonical
+        // cfg(unix)/cfg(windows) same-name platform switch died with
+        // "duplicate function body" at mlir-gen.
+        if (cfg_attrs_drop_item(pending_annots)) {
+            pending_annots.clear();
+            take_pending_doc();
             continue;
         }
         if (c == la::INSTANTIATE_DECL) {
