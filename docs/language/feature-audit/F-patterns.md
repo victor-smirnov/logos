@@ -1,164 +1,109 @@
 # Category F — Patterns (audit)
 
-Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victor/cxx/reference`).
+v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference local checkout `/home/victor/cxx/reference/src/patterns.md`.
 
-Summary: 3 features audited — 0 fully OK, 3 WARN (each landed but with surface/edge gaps), 0 completely-GAP. Aggregate state of patterns is "mostly Rust-conformant, with several catch-up edges". Headline gaps: PathPattern (constants-as-patterns) is partial and ad-hoc; default-binding-modes is gated to a narrow subset (only shared `&`, only move-only payloads); GroupedPattern is desugared away rather than represented; let-bindings still require irrefutability shapes hand-listed in sema instead of computed from a uniform `is_irrefutable` walk; `&&` reference-of-reference token form is not in the grammar.
+Summary v2: 3 main features — 1 OK (refutability), 2 WARN. Closed since v1: §4.1 canonical refutability predicate (1b7bf7c9), §4.3 chained auto-deref `&&Some(x)` end-to-end (8cc48531 + 96ffd506), §4.5 fn-param struct patterns (59b5d3cc), enum-`&Struct` payload field mis-read (ADV1-A, 955cebbf), slice bindings by-ref `&T` (e87c9b95). Remaining headline gaps (all probed 2026-06-12): 6 grammar-surface parse gaps (`&&pat`, const range bounds, exclusive/half-open char ranges, `S { ref a }` shorthand quals, tuple-index fields `P { 0: a }`, `(..)`); or-pattern binding-consistency unenforced at top-level arm alts (Rust E0408 — soundness-adjacent); Copy payloads under `&` bind by value not `&T`; `let` general-pattern surface still per-shape. New cross-category find: silent `&[i32;N]→&[i64]` elem-type-mismatched coercion (miscompile-class, category B/E).
 
 ---
 
 ## F.1 Pattern kinds
 
 ### Rust nomenclature
-`Pattern`, `PatternNoTopAlt`, `PatternWithoutRange`. Spec enumerates: `LiteralPattern`, `IdentifierPattern`, `WildcardPattern`, `RestPattern`, `ReferencePattern`, `StructPattern`, `TupleStructPattern`, `TuplePattern`, `GroupedPattern`, `SlicePattern`, `PathPattern`, `MacroInvocation`, plus `RangePattern` and `OrPattern` at the top alt level. Reference: `/home/victor/cxx/reference/src/patterns.md` §patterns.syntax (lines 4–25), §patterns.literal..patterns.or.
+Spec enumerates `LiteralPattern`, `IdentifierPattern`, `WildcardPattern`, `RestPattern`, `ReferencePattern`, `StructPattern`, `TupleStructPattern`, `TuplePattern`, `GroupedPattern`, `SlicePattern`, `PathPattern`, `MacroInvocation`, plus `RangePattern`/`OrPattern` at top-alt level (`patterns.syntax`).
 
 ### Logos nomenclature
-A flat `Code::PAT_*` family in `tools/peg_gen/grammars/logos.peg:147-303`:
-- `PAT_VARIANT`, `PAT_VARIANT_DATA` (used for both tuple-struct AND struct-shape variant — disambiguated by `IS_STRUCT_SHAPE`)
-- `PAT_WILD` (does double duty: bare `_` wildcard AND a bound identifier — disambiguated by `NAME`)
-- `PAT_INT`, `PAT_NEG_INT`, `PAT_BOOL`, `PAT_CHAR`, `PAT_STR`, `PAT_FLOAT`, `PAT_BYTES` (literals)
-- `PAT_RANGE`, `PAT_CHAR_RANGE` (range; one node carries inclusive vs exclusive via `INCLUSIVE` flag)
-- `PAT_REF` (reference pattern), `PAT_TUPLE`, `PAT_STRUCT`, `PAT_SLICE`, `PAT_UNIT`
-- `PAT_AT` (`@`-binding), `PAT_FIELD` (struct-pattern field), `PAT_REST` (`..`)
-- `PAT_OR` (or-pattern; the top `pattern` production always wraps in PAT_OR even for a single alt — sema unwraps)
-- `PAT_HERMES_*` (Logos addition for `@null`/`@true`/`@42`/`@"…"`/`@[…]`/`@{…}` over Hermes-typed scrutinees — gated to match arms only at `src/compiler/sema_stmt.cpp:4454`)
-
-Grammar entry points: `pattern` (`logos.peg:1779`), `pat_single` (`logos.peg:1835`), `pat_single_base` (`logos.peg:1865`).
-
-Build pipeline: `SemaChecker::build_pattern` and friends at `src/compiler/sema_stmt.cpp:2636-4623` — a large pc-switch that lowers each AST `PAT_*` into a `lir::Pattern` mirror.
+Flat `Code::PAT_*` family, `tools/peg_gen/grammars/logos.peg` (enum block ~:147-303; productions `pattern` :1910, `pat_single` :1966, `pat_single_base` :1996): PAT_VARIANT / PAT_VARIANT_DATA (tuple-struct AND struct-shape variant, `IS_STRUCT_SHAPE` flag), PAT_WILD (bare `_` AND ident binding, disambiguated by NAME), PAT_INT/NEG_INT/BOOL/CHAR/STR/FLOAT/BYTES, PAT_RANGE/PAT_CHAR_RANGE (INCLUSIVE flag; half-open via missing LHS/RHS key), PAT_REF, PAT_TUPLE, PAT_STRUCT, PAT_SLICE, PAT_UNIT, PAT_AT, PAT_FIELD, PAT_REST, PAT_OR, PAT_HERMES_* (Logos addition). Lowering: `SemaChecker::build_pattern` `src/compiler/sema_stmt.cpp:2851`, `build_pattern_impl` :3956, `build_pattern_variant_data` :2922, `build_pattern_or` :3872.
 
 ### Match verdict
-**WARN — rename/normalize needed.** Logos covers most Rust pattern kinds, but the surface naming diverges in three ways:
-1. `PAT_VARIANT_DATA` is a single node serving both Rust's `TupleStructPattern` AND `StructPattern` (variant cases). Rust spec separates them. Recommend splitting at the AST level (`PAT_TUPLE_STRUCT` / `PAT_STRUCT_VARIANT`) for parity with the spec's distinction (and the `patterns.tuple-struct.namespace` value-vs-type-namespace nuance — which Logos does not implement).
-2. `PAT_WILD` overloads bare `_` and the identifier-binding pattern. Rust spec separates `WildcardPattern` (matches anything, **does not bind**, `patterns.wildcard.no-binding`) from `IdentifierPattern` (binds). Recommend `PAT_IDENT` distinct from `PAT_WILD` — the current overload is the reason `current_pat_mut_names_` and the `IS_REF` side-channels exist (`sema_stmt.cpp:4615-4618`).
-3. No `PathPattern` / `GroupedPattern` AST nodes. Const-as-pattern is hand-detected in the `PAT_WILD` fallback at `sema_stmt.cpp:4496-4611` via `module_const_values_` lookup, and grouped patterns are inlined directly into `PAT_OR` at parse time (`logos.peg:1995-1996`). Both are spec-named entities — Logos should represent them.
+**WARN — coverage broad, surface naming debt + 6 probed parse gaps.**
 
-### Implementation pointer
-- Grammar: `tools/peg_gen/grammars/logos.peg:1779` (`pattern`), `:1835` (`pat_single`), `:1865-2007` (`pat_single_base` alternatives).
-- AST codes: `tools/peg_gen/grammars/logos.peg:147-303` (`PAT_*` enum values 84-245).
-- Lowering: `src/compiler/sema_stmt.cpp:2636` (`build_pattern`), `:2642` (`build_pattern_variant`), `:2707` (`build_pattern_variant_data`), `:3520` (`build_pattern_bytes`), `:3879` (PAT_TUPLE), `:4234` (PAT_STRUCT), `:4382` (PAT_SLICE), `:4180` (PAT_REF inner).
-- mlir-gen: `src/compiler/mlir_gen_stmt.cpp:3074-4623` (large `gen_match` arm-emission with kind-specific paths).
+AST-naming debt unchanged from v1: PAT_VARIANT_DATA serves both TupleStructPattern and StructPattern(variant); PAT_WILD overloads wildcard+ident (root of `current_pat_mut_names_` side-channel, `sema_impl.hpp:3837`); no PAT_PATH / PAT_GROUP nodes (const-as-pattern is the PAT_WILD-fallback detection `sema_stmt.cpp:4767-4807`; grouped patterns inline to PAT_OR at parse, `logos.peg` "Parenthesised (grouping) pattern" alt — works, probed `n @ (1|2)` analogues green).
+
+Verified working (probes 2026-06-12, all exit 0): tuple rest `(1, .., z)` (P4-pm-20); 1-tuple `(x,)` (4c01c1bc); grouped `(P|Q)`; inclusive+exclusive+half-open int ranges `1..=5`/`lo..hi`/`1..` (3097f848, bc07b92b); nonempty-range validation (`sema_stmt.cpp:4112`, :4380 — `patterns.range.constraint-nonempty` ✓); `e @ 1..=5`, `ref x @ pat` (536d55fb), `mut x`; struct longhand `a: ref ra`; union pattern exactly-one-field + `unsafe` gate (§6.1, `sema_stmt.cpp:4617-4640` — `patterns.struct.constraint-union` ✓); nested payload bindings `Some(Inner::A(x))` (2599c5ee — DIVERGENCES "payload-binding inners pending" note is STALE); dynamic-slice patterns incl. `[f, .., l]`, `[h, t @ ..]` with by-ref `&T` element bindings (`*x` derefs; adv1_slice_reborrow_pattern pins it).
+
+Parse GAPS (each probed → syntax error):
+1. `&&pat` (`patterns.ref.ref-ref`) — `pat_single` has only AMP alts; the `AND`-token route exists at *type* position (`logos.peg:1595-1601` DOUBLE_REF_TYPE) but not in patterns. Whitespace `& &pat` works.
+2. Range bounds as paths (`patterns.range.bound`/`constraint-bound-path`): `LO..=HI` over module consts — bounds are INTEGER/CHAR_LIT literals only.
+3. Char ranges: only `CHAR_LIT DOTDOTEQ CHAR_LIT`; exclusive `'m'..'p'` and half-open char forms absent.
+4. Struct-pattern shorthand qualifiers `S { ref a }` / `S { mut b }` (`patterns.struct.binding-shorthand`) — `pat_field` (:1914) has only `IDENT COLON pat_single` / bare `IDENT`. Longhand `a: ref x` works.
+5. Tuple-index struct-pattern fields `P { 0: a }` (StructPatternField TUPLE_INDEX; also the `patterns.tuple-struct.namespace` nuance) — absent.
+6. `(..)` whole-tuple rest form (`patterns.tuple.rest-syntax`) — absent.
+
+Other deltas: `[1.., _]` ACCEPTED (Rust requires `(1..)` parens, `patterns.range.constraint-slice`) — more-permissive, minor. PAT_FLOAT parses, sema rejects (`sema_stmt.cpp:3959-3967`, IEEE decision pending — Rust allows w/ lint ⇒ GAP-minor, not blessed). PAT_BYTES = `[u8;N]` scrutinee only (`build_pattern_bytes` :3776; dynamic `&[u8]` future). PAT_STR position-limited: whole arm / variant payload / tuple elem ✓, slice elem rejected cleanly (G172-1b, :3970-3982). `&[a, b]` ref-slice pattern rejected ("reference pattern requires reference scrutinee, got '&[i64]'") — Logos Slice kind IS the one-level `&[T]`; surface stays `[a, b]` (B5 note). No MacroInvocation in pattern position. `patterns.ident.constraint` (ref-shadows-const error) unenforced (minor).
 
 ### Interactions check
-Direct neighbours from the table for "Pattern kinds":
-
-- **Match (most uses) — OK.** All PAT_* feed `match_arm` (`logos.peg:1732-1743`). Exhaustiveness is implemented in `check_match_exhaustiveness` (`sema_stmt.cpp:6608`) and `ast_patterns_exhaustive` (`:6934`); the latter handles nested enum payloads.
-- **Let-bindings — WARN.** `LET_DESTRUCT` only supports tuple and struct shapes via the dedicated `lower_let_destruct` path (rejects other refutable shapes at `sema_stmt.cpp:1002-1003`). Full pattern surface in `let` is routed through `LET_PAT` (`logos.peg` enum `LET_PAT = 217`), but the spec wants `let` to accept any irrefutable pattern uniformly. The current code-path bifurcation (`LET_DESTRUCT` vs `LET_PAT` vs `LET_ELSE`) is sema scaffolding, not a spec divergence — consolidating onto one `build_pattern`-driven irrefutability check would track Rust 1:1.
-- **Fn-params — WARN.** Grammar supports `(a,b): (T,U)` tuple-destructure (`logos.peg:1224`) and `mut x: T` (`:1214`), but only those two pattern shapes. Rust admits ANY irrefutable pattern as a fn-param (e.g. `fn f(Point { x, y }: Point)`). Struct-pattern, slice-pattern, and reference-pattern fn-params are absent.
-- **`if let` / `while let` / `for` — OK.** Wired in grammar: `logos.peg:2112-2122` (if), `:2046-2050` (while), `:1687-1688` (for). Sema reuses `build_pattern` over the scrutinee type — composition works.
-- **Refutability rules — WARN.** No single `is_irrefutable` predicate over AST. The closest is `is_irrefutable` in `mlir_gen_stmt.cpp:3521-3578` over LIR (used for exhaustiveness shortcut), but sema's let-destruct path uses a hand-rolled shape check at `sema_stmt.cpp:990-1003`. Single uniform predicate would close gaps like "refutable inner pattern not yet supported in struct-shape variant" (`sema_stmt.cpp:3218-3229`).
-- **Binding modes — see F.3.**
-- **Move vs borrow — see F.3.**
-- **Type inference — partial.** Scrutinee type drives pattern build (`scrut_type` threaded through `build_pattern`). No or-pattern type-unification across alts beyond shape (spec §patterns.constraints.pattern requires unification both of types AND binding modes — not all checked).
-- **Const generics (const pattern) — GAP.** Spec `patterns.const` describes constants-as-patterns (`patterns.const.partial-eq`, `patterns.const.structural-equality`, `patterns.const.translation`). Logos's implementation is *ad-hoc*: `sema_stmt.cpp:4496-4611` ctfe-evals a bare-ident pattern when it resolves to a module-const, only for scalar / `str` / `[u8; N]` consts, and only outside nested positions (str case requires `current_pat_refutable_guards_` channel — sub-pattern positions don't have it). Generic associated consts cannot appear as patterns (spec `patterns.const.generic`). Qualified paths in patterns (`<u8 as MaxValue>::MAX`) not supported. Path patterns over no-payload enum variants do work but only when the bare ident shape resolves (`sema_stmt.cpp:4214-4231`).
+- **Match — OK.** Exhaustiveness: `check_match_exhaustiveness` `sema_stmt.cpp:6991` (guarded arms skipped, uninhabited short-circuit) + `ast_patterns_exhaustive` :7343 (nested variants). §4.2 ✅ — pinned by core_4_2 pass+fail tests.
+- **Let — WARN.** `LET_PAT` (`lower_let_pat` :1018) accepts PAT_STRUCT, tuple-struct, fixed-array PAT_SLICE (no rest), single-variant struct-shape enum; everything else → "supports struct patterns only" (:1093). Probed: `let &x = &n;` rejected — Rust allows any irrefutable pattern ⇒ GAP. LET_DESTRUCT handles tuple/nested-tuple.
+- **Fn-params — WARN (was GAP).** §4.5 ✅ (59b5d3cc): `pat_param` grammar (`logos.peg:1331-1345`) + collect_fn synth `__pat_param_N` + body-prologue (`sema_decl.cpp:578-614`, :873-915). Probed `fn f(Point { x, y }: Point)` green; rename form too. PAT_SLICE parses, prologue TODO (`sema_decl.cpp:915`). Tuple params (P4-pm-19) work. Other shapes (ref, ident@) absent. Refutable shapes rejected via §4.1 predicate.
+- **if let / while let / for — OK.** Nested payload patterns in if-let/while-let landed (ece792fc).
+- **Const patterns — GAP (partial).** Scalar (int/bool/char) module consts as whole patterns ✓ (P4-pm-06, :4767-4807; core_4_4 test); str + `[u8;N]` consts via `current_pat_refutable_guards_` channel (top-level positions only). Absent: struct/enum aggregate consts (`patterns.const.structural-equality`), associated/qualified-path consts, consts as range bounds (parse gap #2), metacall-result-as-pattern unexercised. logos-core row "4.4 ✅ PAT_PATH" OVERSTATES — no PAT_PATH node exists; scalar-only.
+- **Or-patterns — GAP (soundness-adjacent).** Nested alts in payload/tuple positions probed green (`Some(1|2)`, `(1|2, y)`); binding-consistency enforced in `build_pattern_or` (:3947) and let-else (:1613), but NOT for top-level arm alternations: `match o { Some(x) | None => … }` COMPILES (probe; Rust E0408). Non-binding alt leaves `x` undefined-garbage if used. `patterns.constraints.pattern` type-unification across alts also unchecked.
 
 ### Gaps / debt
-- Split `PAT_VARIANT_DATA` into `PAT_TUPLE_STRUCT` and `PAT_STRUCT_VARIANT`; split `PAT_WILD` into `PAT_WILD` + `PAT_IDENT`.
-- Introduce `PAT_PATH` and `PAT_GROUP` AST nodes to mirror spec `PathPattern` / `GroupedPattern`.
-- Generalize constants-as-patterns: route via a `PAT_PATH` build that handles structural-equality types (struct/enum const aggregates, tuple/array consts, refs to such). Today only scalar/`str`/`[u8;N]` consts work.
-- Generalize `let` and fn-params to accept any irrefutable pattern via a single `is_irrefutable(Pat)` predicate; retire the LET_DESTRUCT shape-restriction error at `sema_stmt.cpp:1002-1003`.
-- B-pt-03 (byte-string scrutinee `&[u8]` rather than `[u8;N]`) and B-pt-06 (float pattern) are explicitly marked TODO at `logos.peg:1973-1978`. Marker `LET_PAT` (`logos.peg` enum 217) exists — needs the full uniform driver.
-- No `MacroInvocation` in pattern position (Rust grammar allows; Logos metacall does not appear in `pat_single`).
-- Or-pattern unification across alternatives (`patterns.constraints.pattern`): build_pattern_or (sema_stmt.cpp:1475-1486 says alts must bind same names+types) is enforced for `let-else` only — needs general check in any or-pattern position.
+- Grammar batch: parse gaps 1-6 above (each one-production); `&&pat` needs the AND-token route mirrored from ref_type.
+- Top-level arm alternation: route through (or replicate) the `build_pattern_or` same-names+types check.
+- PAT_PATH node + structural-equality const translation (`patterns.const.translation`); retire the PAT_WILD switcheroo.
+- Split PAT_VARIANT_DATA → PAT_TUPLE_STRUCT/PAT_STRUCT_VARIANT; PAT_WILD → PAT_WILD/PAT_IDENT (naming-only, unblocks side-channel removal).
+- Generalize `let`/fn-param onto one `is_irrefutable_pattern`-gated driver (incl. fn-param PAT_SLICE prologue, `let &x`).
+- B-pt-03 residual: dynamic `&[u8]` byte-string scrutinee; float-pattern decision.
 
 ---
 
 ## F.2 Refutability
 
 ### Rust nomenclature
-"Refutable" / "irrefutable" pattern; spec §`patterns.refutable` (`/home/victor/cxx/reference/src/patterns.md` lines 116-129). Each pattern kind tags its refutability: `patterns.literal.refutable` (always refutable), `patterns.wildcard.refutable` (always irrefutable), `patterns.ident.refutable`, `patterns.rest.refutable`, `patterns.ref.refutable`, `patterns.struct.refutable`, `patterns.tuple-struct.refutable`, `patterns.tuple.refutable`, `patterns.range.refutable`, `patterns.slice.refutable-array`, `patterns.slice.refutable-slice`, `patterns.path.refutable`. Rule: `match` accepts any; `let` / fn-params require irrefutable; `if let` / `while let` accept refutable.
+`patterns.refutable`; per-kind refutability tags (`patterns.literal.refutable` … `patterns.path.refutable`). `match` any; `let`/params irrefutable; `if let`/`while let` refutable.
 
-### Logos nomenclature
-Logos uses the same English terms ("refutable", "irrefutable") in code comments and diagnostics: e.g. `sema_stmt.cpp:923`, `:1003` ("other shapes are refutable; use 'match' or 'let-else'"), `:1128`, `:3218-3229`. There is no enum/type called `Refutability`; refutability is checked at the LIR level by an inline recursive lambda `is_irrefutable` (`mlir_gen_stmt.cpp:3521-3578`), and at the AST level by `ast_patterns_exhaustive` (`sema_stmt.cpp:6934`) which handles nested-enum coverage.
+### Logos nomenclature & verdict
+**OK — ✅ closed since v1 (1b7bf7c9, Wave 9 2026-05-31).** Single canonical predicate `lir_view::is_irrefutable_pattern(PatRef)` at `include/logos/compiler/lir_view.hpp:1754` (recurses Wild/RefBind/RefPat/At/Tuple/Struct/Slice/Or). The two former drifting lambdas are one-line wrappers: `mlir_gen_stmt.cpp:3735-3740`, `mlir_gen_expr.cpp:4119-4126`. v1's third site (let-destruct shape gate, now `sema_stmt.cpp:1093`) is per-shape *lowering dispatch*, not a refutability predicate — documented in the foundation header; the user-facing generality gap is tracked under F.1 "Let — WARN".
 
-### Match verdict
-**WARN — semantics present but not factored.** There is no single, canonical `is_refutable(Pat)` predicate. The notion is encoded across at least three sites:
-1. `mlir_gen_stmt.cpp:3521-3578` `is_irrefutable` — LIR-level, used for shortcut in arm dispatch.
-2. `mlir_gen_expr.cpp:3877-3879` — struct-pattern irrefutability check (every field-sub irrefutable).
-3. `sema_stmt.cpp:990-1003` — ad-hoc shape gate at `let` lowering (rejects PAT_SLICE with `..` rest, etc.).
-4. Refutable sub-patterns inside struct/variant patterns are routed through a side-channel `current_pat_refutable_guards_` (`sema_impl.hpp:3401`) which converts them into guard predicates — clever, but conflates "pattern is refutable" with "needs predicate emitted".
+Slice refutability matches `patterns.slice.refutable-slice` (single `..`/`ident @ ..` rest = irrefutable for slices; length-refutable otherwise) — predicate Slice arm verified in lir_view.hpp:1786-1799. Refutable sub-patterns inside struct/variant payloads still route through `current_pat_refutable_guards_` (`sema_impl.hpp:3844`) guard synthesis — works (refutable literal fields :4560-4591), conflation noted in v1 stands but is contained.
 
-Recommend hoisting `is_refutable` to a single `bool SemaChecker::is_refutable(TinyMapView pat, TypeRef scrut)` (or LIR-level) used by let/fn-param/let-else/match-shortcut sites uniformly.
-
-### Implementation pointer
-- LIR-level: `src/compiler/mlir_gen_stmt.cpp:3521-3578` (`is_irrefutable` lambda).
-- AST-level shape gate: `src/compiler/sema_stmt.cpp:990-1003` (`lower_let_destruct` rejection of refutable forms).
-- Refutable-sub-pattern guard channel: `src/compiler/sema_impl.hpp:3401` (`current_pat_refutable_guards_`).
-- Exhaustiveness driver: `src/compiler/sema_stmt.cpp:6608` (`check_match_exhaustiveness`) and `:6934` (`ast_patterns_exhaustive`).
-
-### Interactions check
-- **Match (all refutable allowed) — OK.** All `PAT_*` codes accepted; exhaustiveness check separate.
-- **`let` (irrefutable required) — WARN.** Hand-listed acceptance: tuple, struct, tuple-struct, nested-tuple let-destruct, single-variant-enum let-destruct. Many irrefutable shapes that the spec allows (e.g. `let &x = …` over `&T`; `let RefStruct { ref a, mut b }`; `let (_, ..)`) work or partially work, but the gate is ad-hoc. The LET_PAT code (217) is the future "uniform" path — its hookup is partial (one explicit call in stmt dispatch via `lower_let_pat`).
-- **`if let` / `while let` (refutable required) — WARN/PARTIAL.** Grammar wires refutable patterns through `if_expr` / `while_stmt`; no explicit "must be refutable" check — irrefutable `if let _ = expr` would compile (Rust warns/errors). No `unreachable_patterns`/`irrefutable_let_patterns` lint analogue grepped.
-- **Fn-params (irrefutable) — GAP.** Surface only admits `IDENT`, `mut IDENT`, `(pat,..)`; no general pattern. So the spec's "must be irrefutable" constraint is vacuously satisfied because no refutable pattern can even be written.
-
-### Gaps / debt
-- Introduce one canonical `is_refutable(Pat, ScrutTy)` predicate in sema, replacing the three ad-hoc sites.
-- Diagnose irrefutable `if let` / `while let` (lint or warning).
-- Once fn-params accept any pattern, gate them by `is_refutable == false`.
-- Slice-pattern refutability needs `patterns.slice.refutable-slice` rule: "irrefutable only with a single `..` rest or `ident @ ..`" — verify `is_irrefutable` (mlir_gen_stmt.cpp:3554-3556) matches.
-- Exhaustiveness coverage of guarded arms (`a if g => …`) — DIVERGENCES.md notes `Logos doesn't yet prove finite-enum coverage of guarded arms` — Rust treats guarded arms as non-exhaustive too, so this is alignment.
+### Residuals
+- No `irrefutable_let_patterns` lint analogue (`if let _ = e` compiles silently) — Rust warns; lint-tier, minor.
+- Exhaustiveness of guarded arms = Rust-aligned (guarded arm never counts, unguarded fallback required — core_4_2 piece 2).
 
 ---
 
-## F.3 Binding modes / default bindings
+## F.3 Binding modes / default binding modes
 
 ### Rust nomenclature
-`patterns.ident.binding` (RFC-2005 "match ergonomics"). Default binding mode starts "move"; matching a reference with a non-reference pattern auto-derefs and sets mode to `ref` (or `ref mut` under `&mut`). 2024-edition rules tighten — explicit `mut`/`ref`/`ref mut`/reference patterns only allowed when current mode is "move". Spec §patterns.ident.binding (lines 280-355).
-
-### Logos nomenclature
-Logos calls it "default binding modes" in code comments (`sema_stmt.cpp:3463-3512`, "RFC 2005 match ergonomics"). Implementation flags: `default_ref`, `default_mut`, `explicit_ref`, `binding_is_ref`, `binding_is_mut`, `binding_from_wild`. AST flags carried per-pattern node: `IS_REF`, `IS_MUT`. Grammar productions: `KW_REF IDENT` → `PAT_WILD { IS_REF }`, `KW_REF KW_MUT IDENT` → `PAT_WILD { IS_REF, IS_MUT }`, `KW_MUT IDENT` → `PAT_WILD { IS_MUT }` (`logos.peg:1840-1858`).
+`patterns.ident.binding` (RFC 2005): default mode move; `&`→`ref`, `&mut`→`ref mut`, nested-references repeat; 2024-edition mode-limitations.
 
 ### Match verdict
-**WARN — narrowly implemented; explicit Stage-1 restriction documented.** Default-binding-modes is gated to a SHARED `&` scrutinee under enum/tuple/struct patterns and ONLY auto-refs MOVE-only payloads (`sema_stmt.cpp:3504`). Spec ergonomics are broader: `&mut` should auto-`ref mut`-bind; under deeper nesting auto-deref should chain. Logos's own comment at `sema_stmt.cpp:3474-3483` flags this as a planned follow-up gated by `&T`-arith auto-deref and a self-ref recursion guard.
+**WARN — core ergonomics landed (incl. `&mut` + N-deep chains); binding-TYPE divergence for Copy/TypeVar payloads remains.**
 
-### Implementation pointer
-- Enum/variant payload binding modes: `src/compiler/sema_stmt.cpp:3463-3512`.
-- Tuple-pattern auto-deref under `&(T,U)` / `&mut (T,U)`: `sema_stmt.cpp:3881-3895`.
-- Struct-pattern auto-deref under shared `&`: `sema_stmt.cpp:5147` (per-field `default_ref` propagation).
-- Explicit `ref` / `ref mut` lowering: `sema_stmt.cpp:4189-4206` (PAT_WILD with `IS_REF`).
-- Per-binding flag collection in PAT_VARIANT_DATA: `sema_stmt.cpp:3256-3317`.
-- `is_move_type` (Copy gate): `sema_stmt.cpp:287, :3475, :3504` and others.
+✅ Closed since v1:
+- **Chained auto-deref §4.3 (8cc48531; disc-test ptr/i64 bug 96ffd506).** `pat_scrut_ref_depth` counts peeled layers (`sema_stmt.cpp:3084-3096`); N-wrap of binding types (:3758-3766, outermost takes strictest mut); codegen `enum_ref_depth` loads + `ref_bind_depth` chained temps. Probed: `match &&o { Some(x) => *(*x) }` → exit 0 (depth-2 extraction); core_4_3 test pins depth-3.
+- **`&mut` scrutinee default-`ref mut`** (6da9ef87 — v1 text was stale, this landed 2026-05-24 for concrete payloads): probe `match &mut m { Some(v) => { *v = 7 } }` writes back ✓. Copy payloads under `&mut` also auto-`&mut`-bound (`|| default_mut`, :3750).
+- **Slice-element by-ref bindings** (`&[T]` scrutinee → `&T` bindings, `*x` derefs; e87c9b95/a6c71b4c iterator work + ADV1-G `&a[..]` fix).
+- **Mutability-match on reference patterns** (`patterns.ref.mut`): `match &n { &mut x => }` → clean "'&mut' requires '&mut' scrutinee" (probed).
 
-### Interactions check
-- **Move/Borrow — WARN.** When the default binding mode is move, Copy/move discrimination is correct (Copy payloads stay by-value, move-only payloads under `&` scrutinee auto-`&`-bound to avoid double-free). The `&mut` case is intentionally NOT auto-ref'd (`sema_stmt.cpp:3478-3483`) — this differs from Rust ergonomics. Tagged as catch-up TODO not blessed divergence (no entry in DIVERGENCES.md §A for binding modes).
-- **`&` patterns auto-deref — PARTIAL.** Tuple, struct, and enum-variant patterns auto-deref the outer `&` (covered above). Slice patterns auto-deref `&[T;N]` → `[T;N]` for byte-string (`sema_stmt.cpp:3581-3589`) but the general "non-reference pattern matches reference" recursion is not implemented as a uniform top-down walk; each pattern kind handles its own one-level auto-deref.
-- **`mut` binding — PARTIAL.** `PAT_WILD` with `IS_MUT` is recorded in side-channel `current_pat_mut_names_` (`sema_stmt.cpp:4615-4618`) which `bind_pattern_ref` consumes to declare the binding mutable. Works at top level. Inside variant payloads, `binding_is_mut` is collected at `sema_stmt.cpp:3315`. 2024-edition restriction that `mut` is only permitted when default mode is "move" is not enforced (Logos's narrow default-mode means this rarely bites).
-- **`ref` / `ref mut` (explicit borrow binding) — OK.** Lowered to a reference-typed binding at `sema_stmt.cpp:4194-4206`. The 2024-edition "only when default mode is move" rule is not enforced.
-- **Reference patterns (`&pat`, `&mut pat`) — WARN.** `PAT_REF` lowering at `sema_stmt.cpp:4180-4187`. Works for top-level `&x` over `&T`. The double-amp form `&&` (single token in Rust for `&&pat` over `&&T`) is NOT in the grammar — `logos.peg:1855-1858` only branches `AMP KW_MUT pat_single` / `AMP pat_single`. Rust spec `patterns.ref.ref-ref` explicitly calls this out.
-- **Match ergonomics — WARN.** The chain (`patterns.ident.binding.nested-references`: "If the automatically dereferenced value is still a reference, it is dereferenced and this process repeats") is not implemented as a fixed-point loop; auto-deref is one-level per pattern kind. So `match &&Some(3) { Some(x) => … }` likely fails to bind `x` correctly through both `&` layers.
-
-### Gaps / debt
-- Extend default-binding-modes to `&mut` scrutinees once the self-ref recursion guard is in place (per Victor's plan-default-binding-modes note at `sema_stmt.cpp:3478-3483`).
-- Implement chained auto-deref for `&&T`, `&&&T` etc. (uniform top-down "if scrutinee still a ref and pattern is non-reference, peel and update mode" walk; replace per-kind ad-hoc deref).
-- Add `&&` token form to `pat_single` per spec `patterns.ref.ref-ref`.
-- Enforce 2024-edition restrictions (explicit `ref`/`ref mut`/`mut` and reference patterns only when default mode is move) — currently silently permitted. Diagnostic-only, no soundness.
-- Bring `is_move_type` gate down (Victor's note `sema_stmt.cpp:3474-3476`) so Copy payloads under `&T` also auto-ref-bind — needed for `&T`-operator auto-deref-on-read to feel natural.
-- Refutability + binding-modes intersection: when a refutable sub-pattern lives inside a `&` scrutinee variant payload, the synth-refutable-inner path (`sema_stmt.cpp:2870-2920`) needs to honor the by-ref binding for the synth temp.
+Remaining gaps:
+- **Copy payloads under shared `&` bind BY VALUE** (gate `is_move_type(binding_types[k]) || default_mut`, `sema_stmt.cpp:3748-3750`; same gate tuple :4312, struct :5441). Probed: `match &Some(3) { Some(y) => want_ref(y) }` → "expected &i64, got i32". Rust binds `&T`. Planned follow-up in-code ("drop the is_move_type gate", :3717-3721). Mitigation: bare `*y` on the by-value binding is leniently accepted, so many ports run.
+- **TypeVar payloads never default-ref'd** (self-ref guard :3744-3747, prevents `OptionIter<&mut … T>` mono blow-up) — generic bodies need explicit `ref`; un-Rust, needs the principled guard.
+- **Tuple/struct patterns peel ONE `&` level** (:4139-4147, :5423-5427) vs enum's N-level — `&&(T,U)` tuple-pattern ergonomics untested/likely gap.
+- **2024-edition mode-limitations unenforced** (`mut`/`ref`/`ref mut`/reference-pattern only in move mode) — diagnostic-tier.
+- `&&pat` grammar gap (F.1 #1) caps explicit reference-pattern depth at whitespace forms.
 
 ---
 
 ## Cross-category gaps
 
-- **Category B (Type system primitives) ↔ F:** Slice (`[T]`) is DST-only-behind-fat-pointer in Rust; Logos's slice patterns assume the scrutinee is a single Slice type (DIVERGENCES.md B5). When B3 (`Box<?Sized>`) lands, slice patterns over `Box<[T]>` will need consideration — current `PAT_SLICE` accepts `Slice` / `Array` only (`sema_stmt.cpp:4389`).
-- **Category C (Items) ↔ F:** Const-as-pattern (PathPattern) crosses into const-item rules (`patterns.const.partial-eq`, `patterns.const.structural-equality`). Logos has §A1 blessed-divergence "no const-eval, use metacall" — but const-as-pattern is required for module consts used in `match` arms (which DO work today via ctfe-eval at sema_stmt.cpp:4499). The intersection of metacall and PathPattern is not exercised: a `metacall { … }` const result spliced into a match arm is unlikely to be recognized as a refutable literal pattern.
-- **Category E (Expressions) ↔ F:** Match ergonomics interplay with auto-deref method receivers. The narrow default-binding-modes coverage means `match &mut opt { Some(x) => x.method() }` may resolve methods inconsistently with Rust.
-- **Category G (Memory/safety) ↔ F:** `ref mut` binding interacts with interior mutability (`patterns.ident.binding.mode-limitations-binding` 2024-edition rule). Logos has no interior-mut primitives yet; once `Cell`/`RefCell`/`UnsafeCell` land, the binding-mode rules must hold.
-- **Category D (Generics) ↔ F:** `patterns.const.generic` — associated consts involving generic parameters cannot be used as patterns (pre-mono ctfe constraint). Logos's mono pipeline (`mono_*.cpp`) does not consider const-pattern positions; should be a non-issue today since Logos doesn't accept generic-associated-const patterns yet.
+- **NEW — B/E (probed 2026-06-12, miscompile-class):** untyped `[1,2,3,4]` defaults `[i32;4]`; `let s: &[i64] = &arr;` is SILENTLY ACCEPTED → element reads see garbage upper bits (probe: `s[0] as i32 == 1` but `s[0] != 1i64`). Elem-type check missing at unsize-coercion site. Surfaced via slice-pattern probes; patterns themselves exonerated.
+- **B5 residual (re-confirmed):** named slice bindings nested in tuple `(2, [a, b])` → clean "undefined variable 'a'/'b'" (probe). Length-discrimination works.
+- **ADV1-A closed (955cebbf):** enum-variant `&Struct` payload field access `V(p) => p.x` — was 4 drifting payload-binding loops; unified onto `bind_enum_payload`. Probe green. (ref_enum_niche memo's "pre-existing bug" note now stale.)
+- **DIVERGENCES.md staleness:** B4 row still lists 1-tuple `(z,)` (fixed 4c01c1bc), `ref _y @ Pat` (536d55fb); "Recently caught up" says payload-binding inners `Some(Inner(x))` pending (fixed 2599c5ee). logos-core §4.4 row overstates (no PAT_PATH node; scalar consts only; const range bounds don't parse).
+- **C (const items) ↔ F:** metacall-result-as-pattern still unexercised (A1 intersection).
+- **D (generics) ↔ F:** `patterns.const.generic` non-issue (no assoc-const patterns yet); TypeVar default-ref guard (F.3) is the real generics×patterns friction.
 
 ---
 
 ## Recommended next moves
 
-Sized for single-session work items, in priority order (impact × cost):
-
-1. **Hoist `is_irrefutable` to a single canonical predicate** in `SemaChecker` (or LIR view), and replace the 3-4 ad-hoc sites (`sema_stmt.cpp:990-1003`, `mlir_gen_stmt.cpp:3521-3578`, `mlir_gen_expr.cpp:3877-3879`). Use it to drive both `let` acceptance and `if let` / `while let` "warning if irrefutable". Closes refutability factoring debt; enables generalized `let <pattern> = …` (replacing the LET_DESTRUCT shape gate at `sema_stmt.cpp:1002-1003`). Per `feedback_derive_from_foundation`, this is the foundational refutability primitive — every higher-level pattern check should derive from it.
-
-2. **Chained auto-deref for binding modes.** Replace the per-pattern-kind ad-hoc deref (sema_stmt.cpp:3484-3488, :3881-3895, :5147) with a uniform "peel-and-recurse-while-scrutinee-is-ref-and-pattern-is-non-reference" loop. Closes `&&Some(x)` / `&&&pair` ergonomics gap; foundation for the `&mut`-scrutinee extension Victor flagged as Stage-2.
-
-3. **Generalize fn-params to accept any irrefutable pattern.** Grammar: lift `pat_binding`-restricted forms in `logos.peg:1210-1229` to accept full `pat_single`. Sema: synthesize a `__param_N` of declared type + body-prologue `let <pat> = __param_N;` reusing the LET_PAT path. Closes the "fn-params pattern surface" gap and aligns with `patterns.param` use site.
-
-4. **Introduce `PAT_PATH` + general constants-as-pattern**. Implement structural-equality check per `patterns.const.structural-equality`; route module-const and unqualified-enum-variant uniformly. Retires the ad-hoc bare-ident-as-const-or-binding switcheroo at `sema_stmt.cpp:4214-4611`. Qualified paths (`<u8 as MaxValue>::MAX`) and associated-const patterns become tractable.
-
-5. **Split `PAT_VARIANT_DATA` AST node** into `PAT_TUPLE_STRUCT` and `PAT_STRUCT_VARIANT`; split `PAT_WILD` into `PAT_WILD` (true wildcard, no name) and `PAT_IDENT` (binding). Mechanical AST refactor; eliminates the `current_pat_mut_names_` and bare-ident-vs-variant disambiguation kludges. Naming-only — no semantic change.
-
-6. **Grammar: add `&&pat` form** in `pat_single` (spec `patterns.ref.ref-ref`). One-line grammar addition + chained auto-deref (item 2) closes the double-ref pattern story.
+1. **Fix the silent `&[i32;N]→&[i64]` coercion** (B/E miscompile, one elem-type equality check at the unsize site). Smallest fix, highest severity.
+2. **Or-pattern binding-consistency at top-level arm alternations** — apply the `build_pattern_or` :3947 same-names+types check when lower_match expands arm alts; soundness-adjacent (undefined binding in non-binding alt).
+3. **Drop the `is_move_type` gate** (3 sites: :3748, :4312, :5441) so Copy payloads bind `&T` per RFC 2005; pairs with `&T`-operator auto-deref already landed for slice bindings. Then N-level peel for tuple/struct patterns (mirror enum's `pat_scrut_ref_depth`).
+4. **Grammar surface batch (6 parse gaps):** `&&pat` (AND-token route), const range bounds, exclusive/half-open char ranges, `S { ref a }` shorthand quals, `P { 0: a }` tuple-index fields, `(..)`.
+5. **Generalize `let` + fn-params onto the §4.1 predicate** — one driver for any irrefutable pattern (`let &x`, fn-param PAT_SLICE prologue, ident@/ref shapes); retire the :1093 shape gate.
+6. **PAT_PATH node + structural-equality const patterns** — aggregate consts, assoc/qualified paths; unifies with range-bound-paths (move 4's item there).

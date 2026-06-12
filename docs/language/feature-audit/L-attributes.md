@@ -1,153 +1,113 @@
 # Category L — Attributes (audit)
 
-Generated: 2026-05-30; spec: rust-lang/reference (local checkout `/home/victor/cxx/reference`).
+v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference (local checkout `/home/victor/cxx/reference`).
 
-Summary: 2 features audited; 0 OK, 2 WARN. Built-in attributes are partially supported with a deliberately Logos-flavoured set (`#[type_code]`, `#[zoned]`, `#[annotation]`, `#[tag_dispatch]`, `#[metaprog_handler]`, `#[fn_macro]`, `#[token_macro]`, `#[no_auto_drop]`, `#[no_mangle]`, `#[test]`/`#[should_panic]`/`#[ignore]`, `#[no_implicit_prelude]`, `#[cfg]`, `#[cfg_attr]`) and a deliberately-rejected Rust shape (`#[derive(...)]`). Most Rust built-ins (`#[repr]`, `#[inline]`, `#[non_exhaustive]`, `#[must_use]`, `#[deprecated]`, `#[allow]`/`#[deny]`/`#[warn]`/`#[forbid]`/`#[expect]`, `#[automatically_derived]`, `#[cold]`, `#[track_caller]`, `#[target_feature]`, `#[naked]`, `#[link]` / `#[link_name]`, `#[path]`, `#[doc = "..."]`-as-attribute, `#[panic_handler]`, `#[global_allocator]`) are NOT recognised; some are blessed §A3 replacements (derive → triggers), some are real catch-up debt, and one (`#[repr]`) is a concrete tracked gap because Logos enums currently have no repr-controlled discriminant width. `#[cfg(...)]` / `cfg!(...)` are real and conformant with a small subset of the Rust predicate vocabulary.
+Summary: 2 features audited; 0 OK, 2 WARN (both materially improved since v1). Closed since v1: **`#[repr(transparent)]` + `#[repr(uN)]` minimal** (00a96805 — layout consumer; other modes parse-then-reject); **cfg combinators in attribute position + `cfg_attr` activation** (1da75445 — ANNOT_CALL schema, unified `evaluate_cfg_arg`); **derive handler coverage 2→10** (cf4d25e2 → 2018bc3b → 83975755 → 654816d1 — Copy/Clone/Debug/Default/Eq/PartialEq/Hash/Ord/PartialOrd + branch_node, logos-core §6.10 ✅ 8/8); **unified struct/enum attr-flag parsing** (5782dd4b — one `parse_struct_attr_flags`, zero drifting string compares); **`#[zoned]`/`#[datatype]` split** (f52a8f22); new Logos attrs `#[pinned]` (6dabfe99), `#[borrow_carrying]` (d63bbb31), `#[rel_ptr]`/`#[self_describing]`/`#[zone_mut]` (RefRepr/zone work). Still open: attribute positions are **item-only** (no fields/variants/trait-items/params/arms — probe: parse error), no tool/path attrs, no `unsafe(...)` wrapper, no lint family, codegen hints warn-as-unknown, `cfg(true/false)` literals missing, `cfg_select!` absent. **NEW v2 bug:** a `#[cfg]`-false fn is dropped from collection but its body is still lowered — the canonical Rust same-name-per-platform pair dies with "duplicate function body for symbol" at mlir-gen (probe).
 
-The audit reads `docs/DIVERGENCES.md:41` (§A3 macros/derive) and `docs/DIVERGENCES.md:60-62` (enum repr) as authoritative for which deltas are blessed.
+The audit reads `docs/DIVERGENCES.md` §A3 (derive→metaprog) and §A5 (rustc-internal attrs) as authoritative for blessed deltas.
 
 ---
 
 ## 1. Built-in attributes
 
-**Rust nomenclature.** "Built-in attributes" — `reference/src/attributes.md:207-289`. Outer (`#[name]`) and inner (`#![name]`) syntax (`attributes.md:5-17`), meta-item grammar (`attributes.md:103-115`, four shapes: `MetaWord`, `MetaNameValueStr`, `MetaListPaths`, `MetaListIdents`, `MetaListNameValueStr`), `unsafe(...)` wrapping for unsafe attrs (`attributes.md:66-73`), tool attributes (`attributes.md:181-205`, path-prefixed `rustfmt::skip`/`clippy::*`), active vs inert (`attributes.md:173-180`). Built-in index covers conditional compilation, testing (`test`, `ignore`, `should_panic`), derive (`derive`, `automatically_derived`), macros (`macro_export`, `macro_use`, `proc_macro*`), diagnostics (`allow`/`warn`/`deny`/`forbid`/`expect`, `deprecated`, `must_use`, `diagnostic::*`), ABI/linking (`link`, `link_name`, `link_section`, `no_link`, `repr`, `crate_type`, `no_main`, `export_name`, `no_mangle`, `used`, `crate_name`), codegen (`inline`, `cold`, `naked`, `no_builtins`, `target_feature`, `track_caller`, `instruction_set`), documentation (`doc`), preludes (`no_std`, `no_implicit_prelude`), modules (`path`), limits (`recursion_limit`, `type_length_limit`), runtime (`panic_handler`, `global_allocator`, `windows_subsystem`), features (`feature`), type system (`non_exhaustive`), debugger (`debugger_visualizer`, `collapse_debuginfo`).
+**Rust nomenclature.** "Built-in attributes" — `attributes.md:207-289`; outer/inner syntax, 4 meta-item shapes, `unsafe(...)` wrapping, tool attributes, active vs inert; index spans conditional-compilation, testing, derive, macros, diagnostics, ABI/linking, codegen, doc, preludes, modules, limits, runtime, type-system, debugger families.
 
-**Logos nomenclature.** Logos calls these "annotations". Grammar: `tools/peg_gen/grammars/logos.peg:585-590` (outer `annotation`) and `:597-602` (`inner_annotation`). AST nodes: `ANNOTATION` (code 150 at `:209`), `INNER_ANNOTATION` (code 242 at `:301`), `ANNOT_KV`/`ANNOT_POS`/`ANNOT_ARR` (`:251-253`). Built-in spec registry: `src/compiler/sema_impl.hpp:1165-1192` (`attr_builtin_targets`). Per-target validation: `check_annotations` at `src/compiler/sema_impl.hpp:1439-1499`. The recognised name set:
-- Layout/marker: `#[type_code]`, `#[zoned]`, `#[no_auto_drop]`, `#[annotation]`, `#[tag_dispatch]`.
-- Metaprog: `#[metaprog_handler("trigger")]`, `#[fn_macro]`, `#[token_macro]`.
-- ABI: `#[no_mangle]`.
-- Testing: `#[test]`, `#[should_panic]`, `#[ignore]`.
-- Conditional compilation: `#[cfg(...)]`, `#[cfg_attr(...)]`.
-- Module-level inner only: `#![no_implicit_prelude]` (`src/compiler/module_loader.cpp:56,76`; `sema_collect.cpp:234-241`; `sema.cpp:5849`).
-- User-declared via `#[annotation]` datatype (`sema_impl.hpp:1172`) — bag-of-metadata reflective lookup, not an active attribute.
+**Logos nomenclature.** "Annotations". Grammar: outer `annotation` (`logos.peg:597-606`), inner `inner_annotation` (`:609`), args incl. nested combinator calls `ANNOT_CALL` code 248 (`:307, :627`). AST: `ANNOTATION` 150, `INNER_ANNOTATION` 242, `ANNOT_KV/POS/ARR` 192-194. Registry: `attr_builtin_targets` (`sema_impl.hpp:1254-1300`); per-target validation `check_annotations` (`:1544`); unified flag parser `parse_struct_attr_flags` (`:1223-1252`, StructAttrFlags — single point of truth per 5782dd4b). Recognised set:
+- Layout/marker: `#[type_code]`, `#[zoned]`, `#[datatype]`, `#[self_describing]`, `#[rel_ptr]`, `#[pinned]`, `#[zone_mut]`, `#[borrow_carrying]`, `#[no_auto_drop]`, `#[annotation]`, `#[tag_dispatch]`, **`#[repr]`** (struct: `transparent`; enum: `uN/iN`; other modes parse-then-reject — probe: `#[repr(C)]` → "not yet supported (only `transparent` …)").
+- Metaprog: `#[metaprog_handler]`, `#[fn_macro]`, `#[token_macro]`.
+- ABI: `#[no_mangle]`. Testing: `#[test]`, `#[should_panic]`, `#[ignore]`.
+- Conditional compilation: `#[cfg]`, `#[cfg_attr]` (all 6 AttrTargets).
+- Inner: `#![no_implicit_prelude]` (`sema_collect.cpp:228-241`).
 
-**Match verdict: WARN — partial coverage with naming divergence and several real gaps.**
+**Match verdict: WARN — coverage grew (repr, derive handlers, Logos marker set) but positions, lint family, and codegen hints unchanged.**
 
-- Nomenclature: Rust calls them "attributes" everywhere (`reference/src/attributes.md:1`); Logos source code is split — the grammar / AST uses `annotation` (e.g. `ANNOTATION` code, `annot_args` rule), but user-facing diagnostics say "attribute" (`sema_impl.hpp:1472` "attribute '#[{}]' is not valid on {} '{}'", `sema_collect.cpp:585` "unknown attribute '#[{}]'"). The error registry is also "B-at-*" (attr). Recommend harmonising on "attribute" throughout — the grammar productions (`annotation`, `inner_annotation`, `annot_arg`, `annot_lit`, `annot_args`, `annot_val`) and AST codes (`ANNOTATION`, `INNER_ANNOTATION`, `ANNOT_KV`, `ANNOT_POS`, `ANNOT_ARR`) are the dissenters; renaming them would close the drift but is mechanical churn — at minimum, document the alias in `docs/language/reference/`.
-- Surface gaps in the grammar (concrete, falsifiable):
-  - Annotation name is a single `IDENT` (`logos.peg:585-590`). Rust's `SimplePath` admits paths (`rustfmt::skip`, `clippy::*`, `diagnostic::on_unimplemented`) — none parse in Logos. Tool attributes are absent.
-  - No `unsafe(...)` wrapper (`reference/src/attributes.md:66-73`); grepped `tools/peg_gen/grammars/logos.peg` for `unsafe(` — zero matches.
-  - Arg vocabulary is `IDENT` / `INTEGER` / `STRING` / `FLOAT` / `KW_TRUE` / `KW_FALSE` / `IDENT::IDENT` / array of literals (`logos.peg:614-633`). No nested `MetaList` (`#[link(name = "x", kind = "framework")]` shape is `MetaListNameValueStr` in Rust — Logos accepts `key=lit` and `lit` and `IDENT` but NOT a nested `name(args)` meta-item, so `#[cfg(all(unix, target_arch = "x86_64"))]` is the special case that works only because `cfg`/`cfg_attr` carry the raw text and `cfg` evaluation re-parses it via a private mini-lexer at `src/compiler/sema.cpp:2975-3004` — see edge note on `#[cfg]` below).
-  - Outer annotation only lives in `item` position (`logos.peg:495`). Fields (`field_def` rule), enum variants (`variant_def` `:732-758`), struct/enum-variant struct fields, match arms, function params, lifetime/type params, closures, blocks, statements, and expressions do NOT accept attributes — grepped grammar for `annotation` outside the item / `inner_annotation` outside module, returns zero. Rust allows attrs on all of these (`attributes.md:83-95`).
-  - Inner attributes (`#![...]`) only at module top, before the package decl (`logos.peg:468`). Rust permits inner attrs on functions, impls, extern blocks, modules, block expressions (`attributes.md:86-88`); none accepted by Logos.
-- Recognised-set gaps vs the Rust built-in index:
-  - Repr / layout: `#[repr(...)]` is not a Logos name (`sema_impl.hpp:1165-1192`; grepped `src/compiler/` for `"repr"` quoted string — zero matches). The Logos analog is the enum `KW_ENUM IDENT ... COLON type_ref` shape (`logos.peg:704`) — backing type is a positional clause, not an attribute. Tracked under §B-style divergence but not yet a row in `docs/DIVERGENCES.md`. **Real gap** — every Rust import that uses `#[repr(C)]` / `#[repr(u8)]` / `#[repr(transparent)]` is dropped in commentary (see `tests/imported/pass/enum-discriminant/*.logos` headers: "Modifications: `#[repr(u32)]` dropped"). For FFI this is blocker debt.
-  - Derive: `#[derive(Trait, ...)]` is explicitly rejected with a redirect message (`sema_impl.hpp:1447-1457`, fail test at `tests/logos/fail/derive_rust_syntax.logos`). Replacement is per-trait `#[derive_<trait>]` + `#[metaprog_handler("derive_<trait>")]` (blessed §A3 divergence, `docs/DIVERGENCES.md:41`). Stdlib derives present: only `derive_clone` and `derive_branch_node` (`ls stdlib/std/compiler/metaprog/`); `derive_debug` is per-test hook in `tests/logos/pass/derive_debug_e2e.logos:27`, not stdlib. Missing `Debug`/`Eq`/`PartialEq`/`Ord`/`PartialOrd`/`Default`/`Hash`/`Copy` stdlib handlers — separate debt listed in `J-macros-and-metaprogramming.md`.
-  - Diagnostics: `#[allow]`/`#[warn]`/`#[deny]`/`#[forbid]`/`#[expect]` — zero matches in `src/compiler/`. No lint-level attribute infrastructure at all. `#[deprecated]`, `#[must_use]`, `#[diagnostic::on_unimplemented]`, `#[diagnostic::do_not_recommend]` — likewise absent. **Real debt** for porting Rust code with lint-control.
-  - Codegen: `#[inline]`, `#[cold]`, `#[naked]`, `#[no_builtins]`, `#[target_feature]`, `#[track_caller]`, `#[instruction_set]` — none recognised. `tests/imported/pass/attributes/inline-main.logos` notes "`#[inline]` unknown to Logos but ignored as warning" — but in fact `#[inline]` produces the unknown-attribute warning path (`sema_collect.cpp:584`), it isn't a silent no-op. **Inert-but-warning** is the current behavior; ideally Rust-typical codegen hints would be accepted-and-ignored.
-  - Type system: `#[non_exhaustive]` absent. Pattern-exhaustiveness machinery (`sema_collect.cpp:1146`+) has no `non_exhaustive` flag.
-  - ABI/linking: `#[no_mangle]` recognised (`sema_impl.hpp:1175`). `#[export_name]`, `#[link_section]`, `#[used]`, `#[link]`, `#[link_name]`, `#[link_ordinal]`, `#[no_link]`, `#[crate_type]`, `#[crate_name]`, `#[no_main]` — absent.
-  - Documentation: `#[doc = "..."]` attribute form absent — Logos accepts `///` line / `/** */` block doc comments as dedicated grammar productions (`DOC_LINE`, `DOC_BLOCK`, `DOC_INNER`, `DOC_BLOCK_INNER` — `logos.peg:502-519`) instead of attribute-shaped doc. Workable for end users; differs from Rust spec where `///` desugars to `#[doc]`. Documented as parallel surface, not blocker.
-  - Preludes: `#![no_implicit_prelude]` — recognised at module level (`sema_collect.cpp:234-241`). `#![no_std]` — absent (Logos has no `std` vs `core` split in the prelude model).
-  - Modules: `#[path = "..."]` for file-name override — absent. Logos `mod x;` / `mod x { ... }` doesn't exist either; the module model is package-rooted, not file-rooted in the Rust sense.
-  - Limits: `#![recursion_limit]`, `#![type_length_limit]` — absent.
-  - Runtime: `#[panic_handler]`, `#[global_allocator]`, `#[windows_subsystem]` — absent.
-- Active vs inert (`attributes.md:173-180`): Rust says `cfg`/`cfg_attr`/attribute-macros are active (remove themselves), all others inert. Logos: `#[cfg]` IS active (item dropped, `sema_collect.cpp:1150-1158`); `#[cfg_attr]` is partially active (drops on false, but the "activate wrapped attr" path is unimplemented with a warning at `sema_collect.cpp:1206-1208`) — see edge below. `#[metaprog_handler]`-bound triggers behave as active attribute-macros. Other annotations remain inert and are forwarded to either the `#[annotation]` datatype reflection layer or just consumed.
+- Nomenclature drift (annotation vs attribute) — unchanged from v1; diagnostics say "attribute", grammar/AST say `annot*`.
+- Grammar surface:
+  - Names still single-`IDENT` (`logos.peg:597`) — no tool/path attrs (`rustfmt::skip`, `diagnostic::*`), no `unsafe(...)` wrapper (grep: 0).
+  - Args now admit nested `IDENT(args)` meta-items via ANNOT_CALL (✅ closed for the cfg family; generic `MetaListNameValueStr` consumers like `#[link(name=..., kind=...)]` still have no consumer).
+  - **Positions: item-only**, unchanged (`logos.peg:507`; `field_def_or_doc`/`trait_method_or_doc`/`impl_item_or_doc` `:542-545` and `variant_def` `:755` have no annotation alt). Probe: `#[cfg(unix)]` on a struct field → syntax error. Note annotations ARE items in the stream attached to the *next* item, so impl blocks/unions/statics take them (probe: `#[cfg(windows)] impl S {…}` correctly drops the impl), but fields/variants/params/arms/statements cannot.
+  - Inner attrs still module-top only.
+- Recognised-set deltas vs the Rust index:
+  - Repr: ✅ minimal closed (00a96805) — `#[repr(transparent)]` single-field struct collapses to field layout (`mlir_gen_types.cpp:473`, `lir.hpp:885-889`, parse `sema_collect.cpp:1559-1586`); `#[repr(uN)]` sets enum discriminant width; probe runs (rc=42). `repr(C)`/`packed`/`align` parse-then-reject — FFI struct layout remains open breadth work.
+  - Derive: Rust shape still rejected with redirect (`check_annotations`, `sema_impl.hpp:1556-1564`; blessed §A3). ✅ stdlib handlers now 10: `stdlib/std/compiler/metaprog/derive_{clone,copy,debug,default,eq,partial_eq,hash,ord,partial_ord,branch_node}.logos` (logos-core §6.10 ✅, 8 `core_6_10_derive_*` tests; probe `#[derive_partial_eq]` + `==` compiles).
+  - Diagnostics: `#[allow]/#[warn]/#[deny]/#[forbid]/#[expect]`, `#[deprecated]`, `#[must_use]`, `#[diagnostic::*]` — still absent (probe: `#[must_use]` → unknown-attr warning). No lint-level infra.
+  - Codegen: `#[inline]`, `#[cold]`, `#[naked]`, `#[no_builtins]`, `#[target_feature]`, `#[track_caller]`, `#[instruction_set]` — still unknown-attr warnings (probe; `sema_collect.cpp:610`). Not accept-and-ignore.
+  - Type system: `#[non_exhaustive]` — absent.
+  - ABI/linking beyond `no_mangle` (`export_name`, `link_section`, `used`, `link*`, `crate_*`, `no_main`) — absent.
+  - Doc: `#[doc = "..."]` attr-shape absent; `///`/`/** */` dedicated productions (`logos.peg:502-519` area) — parallel surface, unchanged.
+  - Preludes/modules/limits/runtime/debugger families — absent, unchanged (`#![no_std]` n/a, `#[path]` n/a to package-rooted module model).
+- Active vs inert: `#[cfg]` active ✓; `#[cfg_attr]` now FULLY active (✅ wrapped-attr activation, `sema_collect.cpp:1373-1417` — pushed into `pending_annots` before the cfg-drop loop, so `#[cfg_attr(unix, cfg(windows))]` drops the item same-iteration); `#[metaprog_handler]` triggers active; rest inert.
+- Unknown-attr handling: builtin/trigger/`#[annotation]`-datatype names pass; everything else warns post-collection (`sema_collect.cpp:599-615`).
 
-**Implementation pointer.** Grammar: `tools/peg_gen/grammars/logos.peg:580-636` (annotation / inner_annotation / annot_args / annot_arg / annot_lit / annot_val). Sema spec registry + per-target validation: `src/compiler/sema_impl.hpp:1141-1192` (`attr_builtin_targets`), `:1439-1499` (`check_annotations`). Cross-module unknown-attribute warning: `src/compiler/sema_collect.cpp:534-589`. Metaprog-handler registration: `:1364-1395`. Pending-attribute accumulation per item: `:1099-1110`. Inner attribute `#![no_implicit_prelude]`: `src/compiler/module_loader.cpp:56-76`, `sema.cpp:5849`. Doc productions (parallel attribute surface): `logos.peg:502-519`.
+**Implementation pointer.** Grammar `logos.peg:593-636` (+ ANNOT_CALL `:627`); registry `sema_impl.hpp:1254-1300`; flags parser `:1223-1252`; validation `:1544`; unknown-attr warn `sema_collect.cpp:610`; cfg_attr/cfg item gating `sema_collect.cpp:1373-1431`; repr parse `:1559-1586` (struct), `:1684` (enum); repr layout `mlir_gen_types.cpp:473`.
 
-**Interactions check** (vs `docs/language/feature-interactions.md:439-442`):
-
-- **Items (most):** WARN. Outer attributes are only accepted on top-level items (`logos.peg:495`). Not on fields (`field_def`), enum variants (`variant_def` `:732-758`, no annotation alt), trait methods (`trait_method_or_doc` `:532`), impl items (`impl_item_or_doc` `:533`), or const/static items beyond their own item-level attr. Real gap: Rust permits `#[serde(...)]`-on-field, `#[non_exhaustive]`-on-variant, `#[inline]`-on-trait-default-method — all reject at parse. Fix is grammar-mechanical (add `annotation*` to each `*_or_doc` group rule + variant/field rules), but per-target validation in `check_annotations` would need new `AttrTarget` enum values (Field, Variant, TraitItem, ImplItem).
-- **Derive (`#[derive(Debug, Clone, ...)]` ↔ traits):** WARN — blessed §A3 (`docs/DIVERGENCES.md:41`). Rust shape rejected, redirect message in place (`sema_impl.hpp:1447-1457`). Per-trait `#[derive_<trait>]` works for `derive_clone` (`stdlib/std/compiler/metaprog/derive_clone.logos:25`) and `derive_branch_node`. Most std derives (Debug/Eq/PartialEq/Ord/PartialOrd/Default/Hash/Copy) are missing stdlib handlers — explicit catch-up backlog under §A3. The lint-style `#[automatically_derived]` marker is unused (no Logos analog needed since handlers run in the same crate).
-- **`#[repr(...)]` ↔ layout:** GAP. Not a recognised name (grep zero matches). Enum repr is currently a positional `: type_ref` clause on `KW_ENUM` (`logos.peg:704`); struct repr / `#[repr(C)]` / `#[repr(transparent)]` / `#[repr(packed)]` have no Logos surface. Tracked indirectly via §B7 enum-repr divergence (which is resolved differently — `docs/DIVERGENCES.md:60`), but the ABI-control axis remains open. Note: §B7 fixed *value-vs-heap* enum representation, NOT the `repr(uN)` discriminant-width axis — those are orthogonal.
-- **`#[inline]` ↔ codegen:** GAP. Not recognised — produces unknown-attribute warning. Rust codegen hints should at least be accepted-and-ignored for porting friction. No surface for `#[inline(always)]` / `#[inline(never)]` modes.
-- **`#[cfg(...)]` ↔ conditional compilation:** see Feature 2.
-- **`#[deprecated]`:** GAP. Absent.
-- **`#[must_use]` ↔ unused-result lint:** GAP. Absent. Logos has no unused-result lint either, so this is a paired gap.
-- **`#[non_exhaustive]` ↔ pattern exhaustiveness:** GAP. Absent. Pattern exhaustiveness check (`sema_collect.cpp`+ `sema.cpp` match-exhaustiveness path) has no `non_exhaustive` flag to consult.
-- **`#[allow]` / `#[deny]` / `#[warn]` / `#[forbid]` / `#[expect]` ↔ lints:** GAP. No lint-level attribute system. Logos emits warnings unconditionally (e.g. `sema_collect.cpp:584`); no per-item override.
+**Interactions check.**
+- **Items:** WARN — top-level items + impl/union/static take attrs; fields/variants/trait-items-in-body/params/arms still reject at parse (probe). Fix remains grammar + `AttrTarget::{Field,Variant,…}`.
+- **Derive ↔ traits:** WARN→nearly-OK — §A3 blessed redirect + 10 handlers. Residual: handler must be imported (`use logos.std.compiler.metaprog;`) — no implicit availability; enum-derive coverage partial (see logos-core §6.10 note on derive_debug sidestep).
+- **`#[repr]` ↔ layout:** WARN (was GAP) — transparent + uN landed with layout consumers; `repr(C)`/`packed`/`align(N)` rejected loudly; FFI-struct layout still open.
+- **`#[inline]` ↔ codegen:** GAP unchanged (warn-as-unknown).
+- **`#[deprecated]` / `#[must_use]` / `#[non_exhaustive]` / lint family:** GAP unchanged.
 
 **Gaps / debt.**
-- Naming drift: grammar+AST uses `annotation` / `ANNOTATION`; diagnostics + Rust spec call them attributes. Rename or document the alias (low cost).
-- Annotation grammar admits only single-IDENT names — no tool attrs (`rustfmt::skip`, `clippy::*`, `diagnostic::*`), no `unsafe(no_mangle)` wrapper, no nested meta-list args.
-- Outer attributes accepted only on top-level items. Missing positions: struct fields, enum variants (incl. struct-shape variant fields), trait items, impl items, fn params, generic params, lifetimes, match arms, blocks, statements, expressions. Fix is grammar-and-`AttrTarget` work.
-- Inner attributes accepted only at module top. Missing positions: fns, impl, extern, modules-as-items, block expressions.
-- `#[repr(...)]` entirely missing — concrete blocker for FFI ports, blocker for `#[repr(transparent)]` / `repr(C)` and for `repr(uN)` enum width control independent of §B7. Should be added as a §B-row divergence or a fresh tracked item.
-- Codegen hint family (`#[inline]`, `#[cold]`, `#[naked]`, `#[track_caller]`, `#[target_feature]`, `#[no_builtins]`, `#[instruction_set]`) — none recognised. Easiest fix: accept-and-ignore (`attr_builtin_targets` extension) to remove import friction; full effect implementation is a separate slice.
-- Lint-level family (`#[allow]`/`#[warn]`/`#[deny]`/`#[forbid]`/`#[expect]`) — none. Big enough to be its own roadmap item alongside an actual lint-level stack.
-- Type-system annotation `#[non_exhaustive]` — none. Direct interaction with match exhaustiveness is the use case.
-- Linkage family (`#[export_name]`, `#[link_section]`, `#[used]`, `#[link]`, `#[link_name]`, `#[link_ordinal]`, `#[no_link]`, `#[no_main]`, `#[crate_type]`, `#[crate_name]`) — absent.
-- `#[doc = "..."]` attribute-shape ignored — Logos uses dedicated `DOC_LINE`/`DOC_BLOCK` productions. Not a functional gap, but means imported code using attribute-shape doc strings doesn't transfer.
-- `#[derive_<trait>]` stdlib coverage: only Clone + branch_node. Debug, PartialEq/Eq, Ord/PartialOrd, Default, Hash, Copy missing. Listed in `J-macros-and-metaprogramming.md`; surface here too because it is what users actually reach for under "derive".
-- Untested intersection: `#[cfg_attr]` with a wrapped attribute and `predicate == true` is unimplemented (`sema_collect.cpp:1206-1208` warns "wrapped attribute activation is not yet implemented"). This kills the `cfg_attr` ↔ derive / `cfg_attr` ↔ inline composition. No test exercising the cfg_attr → wrapped-attr-applied path.
+- Attribute positions beyond items (fields/variants/trait items in body/params/arms/stmts/exprs) — grammar + AttrTarget work; unlocks field-`#[cfg]`, variant-`#[non_exhaustive]`, serde-style metadata.
+- Codegen-hint family: accept-and-ignore extension of `attr_builtin_targets` is still the cheapest import-friction fix.
+- Lint-level family + lint stack; `#[must_use]`/`#[deprecated]` ride on it.
+- `#[non_exhaustive]` + exhaustiveness-checker flag bit.
+- Tool/path attr names; `unsafe(...)` wrapper (K-side pair).
+- `repr(C)`/`packed`/`align` — breadth tier, FFI blocker.
+- `#[doc]` attr-shape (port-transfer nicety).
+- Naming drift annotation↔attribute (document or rename; carried from v1).
 
 ---
 
 ## 2. Conditional compilation `#[cfg]` / `cfg!()`
 
-**Rust nomenclature.** `reference/src/conditional-compilation.md`. Grammar: `ConfigurationPredicate` = `ConfigurationOption` | `ConfigurationAll` (`all(...)`) | `ConfigurationAny` (`any(...)`) | `ConfigurationNot` (`not(...)`) | `true` | `false` (`conditional-compilation.md:5-28`). `ConfigurationOption` is `IDENTIFIER` or `IDENTIFIER = STRING_LITERAL | RAW_STRING_LITERAL` (`:14-15`). Compiler-set keys (`target_arch`, `target_feature`, `target_os`, `target_family`, `unix`, `windows`, `target_env`, `target_abi`, `target_endian`, `target_pointer_width`, `target_vendor`, `target_has_atomic`, `test`, `debug_assertions`, `proc_macro`, `panic`, `overflow_checks`, `relocation_model`, `sanitize`, `sanitize_memory_tag`, `fmt_debug`, `ub_checks`). Surfaces: `#[cfg(...)]` outer attribute on items (active — drops form when false), `#[cfg_attr(predicate, attr, attr, ...)]` (expands to `attr, attr, ...` when true), `cfg!(...)` built-in macro (evaluates at compile time to a bool literal), `cfg_select! { ... }` (newer, branch-select). Reference: `attributes.md:172-180` for active-vs-inert; `:212-215` for index entries.
+**Rust nomenclature.** `conditional-compilation.md`: `ConfigurationPredicate` = option | `all(...)` | `any(...)` | `not(...)` | `true` | `false`; compiler-set keys (target_*, `unix`/`windows`, `test`, `debug_assertions`, `panic`, `proc_macro`, …); surfaces `#[cfg]`, `#[cfg_attr(pred, attr, …)]`, `cfg!()`, `cfg_select!`.
 
-**Logos nomenclature.** `#[cfg(...)]` and `#[cfg_attr(...)]` outer attributes — both registered in `attr_builtin_targets` at `src/compiler/sema_impl.hpp:1187-1190` for every AttrTarget (Struct/Datatype/Enum/Trait/Fn/Const). Compile-time `cfg!(...)` macro — lowered via `lower_builtin_macro` at `src/compiler/sema_expr.cpp:16081-16084` to a bool literal. Both share the same predicate evaluator: `CfgLexer` mini-parser at `src/compiler/sema.cpp:2975-3004`, `parse_and_eval_cfg` at `:3093-3122`, key/value lookup at `:3051-3066`, target metadata table at `:3008-3049`, the `#[cfg]` attribute-path entry at `:3145-3180` (`evaluate_cfg_annotation`), and the `cfg!` raw-text path at `:3131-3136` (`evaluate_cfg_predicate`). Sema gating of items: `src/compiler/sema_collect.cpp:1146-1158` (item dropped when `#[cfg]` evaluates false). `cfg_attr` partial handling: `:1159-1210`. Feature flag set: `cfg_features_` at `sema_impl.hpp:682,685` (`add_cfg_feature`). Tests: `tests/logos/pass/cfg_attribute_drop.logos`, `tests/logos/pass/cfg_feature_flag_attr.logos`, `tests/logos/pass/cfg_expression_builtins.logos`.
+**Logos nomenclature.** `#[cfg]`/`#[cfg_attr]` registered for all 6 AttrTargets (`sema_impl.hpp:1290-1296`). Shared recursive evaluator `evaluate_cfg_arg` (`sema.cpp:3427` — handles ANNOT_CALL all/any/not, ANNOT_KV, bare-NAME) feeds both the attribute path (`evaluate_cfg_annotation` `sema.cpp:3403`) and cfg_attr; `cfg!()` macro lowers via `lower_builtin_macro` (`sema_expr.cpp:17415-17421`) through the `CfgLexer` raw-text path (`parse_and_eval_cfg`). Keys: `match_cfg_key_value` (`sema.cpp:3309`) — `target_arch/os/endian/family/pointer_width` + `feature`; `match_cfg_flag` (`:3321`) — `unix`/`windows` (host-derived), `test`/`debug_assertions` (feature-set driven), unknown bare names fall back to the feature set. Item gating `sema_collect.cpp:1418-1431`.
 
-**Match verdict: WARN — conformant on the common path; predicate vocabulary narrower than Rust, `cfg_attr` is half-implemented, `cfg_select!` absent.**
+**Match verdict: WARN — combinator asymmetry closed (✅ 1da75445); `cfg_attr` activation closed (✅ same); NEW lowering bug on same-name pairs; literals/key-coverage/`cfg_select!` still open.**
 
-Conformance hits:
-- Predicate combinators `all`/`any`/`not` work (`sema.cpp:3101-3112`); `true`/`false` literal predicates are NOT in the parser (zero matches for `"true"`/`"false"` token handling in `parse_and_eval_cfg`); spec lists them at `conditional-compilation.md:55`.
-- Bare-name flags (`#[cfg(unix)]`) and `key = "value"` shape (`#[cfg(target_os = "linux")]`) work.
-- Target keys recognised in `match_cfg_key_value` (`sema.cpp:3051-3061`): `target_arch`, `target_os`, `target_endian`, `target_family`, `target_pointer_width`, `feature`. Plus a host-derived `unix`/`windows` flag fallback (need to verify — let me check `match_cfg_flag`).
-- `feature = "name"` resolves against `cfg_features_` populated via `add_cfg_feature` (`sema_impl.hpp:682,685`). Cargo-style feature gating works once the driver passes flags through; tests confirm default-no-features path drops the gated item (`tests/logos/pass/cfg_feature_flag_attr.logos`).
+Conformance hits (probed 2026-06-12):
+- `#[cfg(all(unix, target_pointer_width = "64"))]` in attribute position works (probe rc=42); nested `all(unix, not(windows))` covered by `core_6_8_cfg_combinators.logos`.
+- `#[cfg_attr(P, attr…)]` activates wrapped attrs when P true, incl. wrapped `cfg(...)` joining the same iteration's drop set (`sema_collect.cpp:1373-1416`).
+- `cfg!(all(unix, not(windows)))` → bool literal (probe rc=42). Note `cfg!` parses only in expression positions the grammar feeds to macros — `let c = cfg!(…)` works; `if cfg!(…)` directly is a parse error (grammar nit, macro-call-in-if-condition).
+- `#[cfg]` on impl blocks drops the impl (probe).
+- Item gating drops form from collection — fail test `core_6_8_cfg_combinator_drops` green.
 
 Divergences / gaps:
-- `cfg!` predicate evaluator parses raw text from the macro call site (`evaluate_cfg_predicate` reads `RAW_TEXT`). The `#[cfg]` attribute path parses the structured AST args (`evaluate_cfg_annotation`) but the latter lacks combinator support — the annotation grammar (`logos.peg:614-636`) doesn't accept nested `IDENT(args)` meta items inside `annot_arg`, so `#[cfg(all(unix, target_arch = "x86_64"))]` cannot be expressed via the structured path. The cfg implementation comment at `sema.cpp:3146-3150` acknowledges this: "multi-arg list is treated as an implicit conjunction. Single-arg form is the common case". **Concrete falsifiable gap:** `#[cfg(all(unix, target_arch = "x86_64"))]` will NOT parse as an annotation today; only the unwrapped `cfg!(...)` macro form supports combinators (via raw-text re-parse). Cross-check by looking for any test with combinators inside a `#[cfg]` attribute — `tests/logos/pass/cfg_attribute_drop.logos` and `cfg_feature_flag_attr.logos` use only single-arg forms; combinator coverage exists only in `cfg_expression_builtins.logos` which uses `cfg!`. This means the `#[cfg]` and `cfg!()` paths have asymmetric expressiveness.
-- Compiler-set key coverage:
-  - Present: `target_arch`, `target_os`, `target_endian`, `target_family`, `target_pointer_width`, `feature` (`sema.cpp:3053-3058`).
-  - Absent: `target_env`, `target_abi`, `target_vendor`, `target_has_atomic`, `test`, `debug_assertions`, `proc_macro`, `panic`, `overflow_checks`, `relocation_model`, `sanitize`, `sanitize_memory_tag`, `fmt_debug`, `ub_checks`. Unknown keys silently false (`sema.cpp:3059-3060` "Unknown key — match Rust: silently false").
-  - `unix` / `windows` bare flags — need to verify `match_cfg_flag` separately. Spec says `unix` is set iff `target_family = "unix"` (`conditional-compilation.md:166-172`). The `cfg_expression_builtins.logos` test uses `cfg!(unix)` and expects true on linux, so this works — verified through `match_cfg_flag` at `sema.cpp:3063`.
-- No `true` / `false` literal predicate. `cfg!(true)` won't parse the bare keyword as the literal — it'll try to look up `true` as a config flag.
-- Active-vs-inert: `#[cfg]` is active (item dropped, conformant) at `sema_collect.cpp:1150-1158`.
-- `#[cfg_attr]` is half-implemented: predicate evaluation works; on `false` the entry is dropped; on `true` the wrapped attribute is NOT activated — a warning is emitted instead (`sema_collect.cpp:1206-1208` "wrapped attribute activation is not yet implemented"). **Real partial implementation gap.** Spec requires `#[cfg_attr(P, attr1, attr2)]` to expand to `attr1, attr2, ...` (Rust attribute-list expansion). Today's behavior: user must inline the wrapped attribute manually after porting.
-- `cfg_select! { ... }` — absent. Newer Rust macro; not yet on the Logos roadmap as far as the audit could find (`grep -rn cfg_select src/ stdlib/` zero matches).
-- No `--cfg` flag wiring documented at the driver CLI surface; `cfg_features_` is reachable only through `add_cfg_feature`. Check on driver side (`src/compiler/main.cpp`) is out-of-scope for an attribute audit, but the existence of `cfg_feature_flag_attr.logos` as a default-no-features test suggests the wiring path may be partial.
+- **NEW (v2): cfg-dropped fn bodies still lowered.** Two same-named fns gated `#[cfg(unix)]` / `#[cfg(windows)]` — the canonical Rust platform-switch idiom — fail at mlir-gen: "duplicate function body for symbol '…$pick__f__void'" (probe). `sema_collect` drops the item (lookup-level), but the body-lowering walk doesn't consult the cfg result. Fix: gate the lowering walk on the same drop decision (single-source it).
+- `true`/`false` literal predicates — still missing; `#[cfg(true)]` treats `true` as a feature flag → false → item dropped (probe: "call to undefined function").
+- Key coverage unchanged: 5 target keys + `feature` + 4 bare flags. Missing `target_env/abi/vendor/has_atomic`, `panic`, `proc_macro`, `overflow_checks`, etc. (one-line adds; unknown keys correctly silently-false, `sema.cpp:3316-3317`).
+- `cfg_select!` — absent (grep 0).
+- Target table host-derived (`sema.cpp:3267-3306`); `--target` cross-compile would invalidate — acknowledged comment, roadmap.
+- `#[cfg]` on fields/variants — blocked by Feature-1 positions gap.
 
-**Implementation pointer.** Predicate evaluator: `src/compiler/sema.cpp:2975-3180`. Item gating: `src/compiler/sema_collect.cpp:1146-1210`. `cfg!` macro lowering: `src/compiler/sema_expr.cpp:16081-16084`. Registry: `src/compiler/sema_impl.hpp:1184-1190`, `682-685`.
-
-**Interactions check** (vs `docs/language/feature-interactions.md:444-447`):
-
-- **Attributes:** OK on the common case (single arg) — `#[cfg]` is a recognised attribute that drops items. WARN on combinators inside attribute args (asymmetric vs `cfg!`). WARN on `#[cfg_attr]` (wrapped-attr activation unimplemented).
-- **`cfg!` macro:** OK — `cfg!(...)` lowers to a bool literal at compile time, combinator support full via raw-text re-parse.
-- **Build features (cargo features):** OK at the surface level — `feature = "name"` resolves against `cfg_features_`. Driver wiring (`--cfg feature=foo`) is out of scope here but assumed by `cfg_feature_flag_attr.logos`.
-- **Items (gating):** OK — `#[cfg]` on a top-level item drops the item if false (`sema_collect.cpp:1155-1158`). WARN on non-top-level positions: since outer annotations don't parse on fields/variants/methods/impl-items (see Feature 1), `#[cfg]` on those positions doesn't parse either. Real gap: Rust permits `#[cfg(unix)]` on a struct field, enum variant, or trait method — Logos can't express these.
+**Implementation pointer.** Evaluators `sema.cpp:3224-3480`; gating `sema_collect.cpp:1373-1431`; macro `sema_expr.cpp:17415`; registry `sema_impl.hpp:1290-1296`.
 
 **Gaps / debt.**
-- `#[cfg(...)]` attribute path lacks `all`/`any`/`not` combinator support — asymmetric with the `cfg!(...)` macro form (which has combinators via raw-text re-parse). Concrete fix: either allow nested meta-list inside `annot_arg` (grammar work) or have `evaluate_cfg_annotation` synthesize raw text and call `evaluate_cfg_predicate`.
-- `#[cfg_attr(P, wrapped_attr)]` on `P=true` warns instead of activating the wrapped attribute (`sema_collect.cpp:1206-1208`). This kills `cfg_attr` ↔ derive / inline / repr compositions. Real implementation gap — needs to inject the wrapped attribute into `pending_annots` (the code already has a stub explaining why it's hard: cross-module / synthesis ordering).
-- No `true` / `false` literal predicate.
-- Compiler-set key coverage is narrow: 5 keys (`target_arch`, `target_os`, `target_endian`, `target_family`, `target_pointer_width`) + `feature` + bare `unix`/`windows`. Missing `target_env`, `target_abi`, `target_vendor`, `target_has_atomic`, `test`, `debug_assertions`, `proc_macro`, `panic`, `overflow_checks`, etc. Each new key is a one-line `if (key == ...)` addition.
-- `cfg_select! { ... }` macro absent.
-- `#[cfg]` on fields/variants/trait-items/impl-items absent — see Feature 1 grammar gap.
-- No test that exercises `#[cfg_attr]` on the `predicate-true` path with a wrapped attribute, since that path emits a warning rather than activating.
-- Target metadata is host-derived at compiler build time (`sema.cpp:3011-3049`); a `--target` cross-compile flag would invalidate the table. Acknowledged in comment at `:3008-3010`; flagged as roadmap.
+- **cfg-drop must reach the lowering walk** (NEW, the only soundness-grade item here — breaks the most common Rust cfg idiom).
+- `true`/`false` literal predicates (small).
+- Key-coverage one-liners (`target_env`, `panic = "abort"` — the latter cosmetic per §A7d).
+- `cfg_select!` (low priority).
+- `if cfg!(…)` parse position (grammar nit).
 
 ---
 
 ## Cross-category gaps
 
-- **Attributes ↔ category C (items):** outer attributes accepted only on top-level items. Missing positions: struct fields, enum variants (incl. struct-shape variant fields), trait items, impl items. Grammar + `AttrTarget` work. Cross-list under category C as well.
-- **Attributes ↔ category D (generics):** outer attributes not accepted on lifetime/type/const params (`logos.peg:1587` `type_or_lt_arg` has no annotation alt). Rust permits e.g. `for<#[may_dangle] 'a>`.
-- **Attributes ↔ category E (expressions / control flow):** Rust permits attrs on match arms (`#[cfg]` on an arm), on closures, on blocks (in limited positions), and statements. None parse in Logos.
-- **Attributes ↔ category G (memory / safety):** `#[no_mangle]` recognised, but the `unsafe(...)` wrapper required by Rust 2024 for unsafe attributes (`reference/src/attributes.md:66-73`) is not. Same for the not-yet-recognised `#[link_section]`, `#[export_name]`, `#[naked]`.
-- **Attributes ↔ category J (macros):** Rust derive proc-macros are replaced by `#[derive_<trait>]` triggers (§A3 blessed). Lint-control attributes (`#[allow]` etc.) overlap with diagnostics infra — a future lint stack is the shared dependency.
-- **`#[repr]` ↔ B (type layout):** entirely absent — directly impacts FFI (`extern "C"` types lacking `repr(C)`), niche optimization opt-out (`repr(Rust)` vs `repr(C)`), explicit discriminant width (`repr(uN)`). Should become a tracked §B-row divergence ("repr family attributes — not implemented; current model: positional `enum E: T` clause only").
-- **`#[non_exhaustive]` ↔ F (patterns / refutability):** absent on both sides. The exhaustiveness checker would need a `non_exhaustive` flag bit on struct/enum/variant info to consult.
-- **`#[must_use]` ↔ unused-result lint:** paired gap.
+- **L ↔ C (items):** attr positions item-only — fields/variants/trait-body items/params/arms (carried from v1; probe-confirmed still open).
+- **L ↔ D (generics):** no attrs on generic/lifetime params.
+- **L ↔ E (expressions):** no attrs on arms/closures/blocks/statements; `if cfg!(…)` parse nit.
+- **L ↔ G/K:** `unsafe(...)` wrapper absent; `#[no_mangle]` recognised unsafely-unwrapped.
+- **L ↔ J (macros):** §A3 derive model now has 10 stdlib handlers; lint-control attrs await a lint stack.
+- **`#[repr]` ↔ B (layout):** transparent/uN closed; `repr(C)`/`packed`/`align` = FFI debt.
+- **`#[non_exhaustive]` ↔ F:** paired gap unchanged.
 
 ## Recommended next moves
 
-(Sized for one-session work items, in roughly increasing scope.)
-
-1. **Naming-drift sweep (small).** Rename `annotation` / `ANNOTATION` / `annot_*` to `attribute` / `ATTRIBUTE` / `attr_*` across grammar + AST registry + sema. Or, if churn is unwanted, add a one-paragraph "Logos calls these annotations" note in `docs/language/reference/attributes.md` (a stub may need creating). Either way closes the diagnostic vs source-code drift documented in `J-macros-and-metaprogramming.md` for sibling consistency.
-
-2. **Codegen-hint accept-and-ignore (small).** Extend `attr_builtin_targets` (`sema_impl.hpp:1165-1192`) to recognise `inline`, `cold`, `track_caller`, `naked`, `target_feature`, `no_builtins`, `instruction_set` for `AttrTarget::Fn` — no semantics, just suppress the unknown-attribute warning. Reduces import friction without committing to backend implementation. Confirm by running `tests/imported/pass/attributes/inline-main.logos` and seeing the warning go away.
-
-3. **Symmetric `#[cfg]` combinator path (medium).** Make `evaluate_cfg_annotation` (`sema.cpp:3145-3180`) call the same `parse_and_eval_cfg` evaluator as `cfg!`. Simplest route: synthesize a textual predicate string from the structured `ARGS` and call the existing `CfgLexer` path. Closes the asymmetry where `#[cfg(all(unix, target_arch = "x86_64"))]` doesn't work as an attribute but works as `cfg!()`. Add tests `cfg_attr_combinator_and`, `cfg_attr_combinator_or`, `cfg_attr_combinator_not_unix` under `tests/logos/pass/`.
-
-4. **`#[cfg_attr]` wrapped-attribute activation (medium).** Replace the warn at `sema_collect.cpp:1206-1208` with a proper expansion: when the predicate is true, splice the wrapped meta items into `pending_annots` *before* the next item is collected. Carries A1 risk if attribute-macros are wrapped, but the basic-attribute case (e.g. `#[cfg_attr(unix, no_mangle)]`) is straightforward. Test `cfg_attr_activates_no_mangle.logos`.
-
-5. **Annotations on fields + variants (medium-large).** Extend grammar: `field_def_or_doc` and `variant_def` accept `annotation*` prefixes. Add `AttrTarget::Field` and `AttrTarget::Variant` to the enum at `sema_impl.hpp:1148` and wire `check_annotations` per call site. This unlocks `#[non_exhaustive]` on variant later, `#[cfg(...)]` on a field/variant now, and serde-style metadata for user `#[annotation]` types. Tests `cfg_drops_field.logos`, `cfg_drops_variant.logos`.
-
-6. **`#[repr(...)]` minimum viable (medium-large).** Add `repr` to `attr_builtin_targets` for `AttrTarget::Struct | Enum | Datatype | Union`. Parse `#[repr(C)]` / `#[repr(transparent)]` / `#[repr(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize)]`. Wire enum width into the existing enum `: type_ref` slot; struct C-layout becomes a struct-info bit fed into the layout helper (`28e883bd` `layout_of`). Document under a new `#[repr]` divergence row in `docs/DIVERGENCES.md`. Closes FFI port debt and unlocks the dropped `#[repr(uN)]` clauses in `tests/imported/pass/enum-discriminant/*`.
-
-7. **Lint-level attribute stub (large).** Recognise `#[allow]`/`#[warn]`/`#[deny]`/`#[forbid]`/`#[expect]` syntactically (accept-and-ignore). No real lint stack yet; this just suppresses the unknown-attribute warning. The full lint-level stack with per-item override is a separate roadmap item.
-
-8. **`#[derive_<trait>]` stdlib coverage (per-trait sessions).** Land stdlib handlers for `Debug`, `PartialEq`/`Eq`, `Default`, `Hash` — one per session. Each is one `stdlib/std/compiler/metaprog/derive_<trait>.logos` file plus a pass test. `Debug` is highest impact (used by all coretest imports).
+1. **Fix cfg-drop at the lowering walk** (NEW bug) — single-source the drop decision so a cfg-false item neither collects NOR lowers. Unblocks the same-name platform-pair idiom; add `cfg_platform_pair.logos` test.
+2. **`cfg(true)`/`cfg(false)` literals** — two lines in `evaluate_cfg_arg` + `match_cfg_flag` guard.
+3. **Codegen-hint accept-and-ignore** (`inline`, `cold`, `track_caller`, …) — registry extension, kills import friction (carried from v1).
+4. **Attributes on fields + variants** — grammar + `AttrTarget::{Field,Variant}`; unlocks `#[cfg]`-on-field and future `#[non_exhaustive]` (carried from v1).
+5. **Lint-family syntactic stub** (`allow/warn/deny/forbid/expect`) — accept-and-ignore until a lint stack exists (carried from v1).

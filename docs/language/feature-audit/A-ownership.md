@@ -1,112 +1,86 @@
 # Category A — Ownership (audit)
 
-Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victor/cxx/reference`)
+v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference (local checkout at `/home/victor/cxx/reference`)
 
-7 features audited: 4 OK, 2 WARN, 1 GAP-leaning. Move/Copy/Drop/Borrow/Reborrow have Rust-aligned names and largely conformant semantics. Variance is implemented with the canonical 4-point lattice. Lifetimes are the weakest leg: elision is point-checked, named regions only loosely propagate, HRTB is captured at the bound but not subtyping-checked end-to-end.
+8 features audited: 5 OK, 2 WARN, 1 GAP. All five v1 soundness items closed (`&mut`-field auto-Copy eb894e80, TraitObject variance eb894e80, UnsafeCell Inv 5bccc7fc, region_infer wiring 4c38aed4/239bd7b7, slice mutability c971c97f). Pin/Unpin landed (6dabfe99, DIVERGENCES §A8). New v2 findings: nested partial-move (depth ≥2) is unchecked AND leaks the sibling field; `impl Copy` + `impl Drop` accepted (Rust E0184); temporary-lifetime-extension `let r = &String::from(..)` ICEs in mlir-gen; constant promotion to `'static` rejected.
 
 ---
 
 ## 1. Move
 
-**Rust nomenclature:** *move semantics* / "value moved from place" / E0382 "use of moved value" (spec: `destructors.md`, `expressions.md` §value vs place).
+**Rust nomenclature:** *move semantics* / E0382 "use of moved value" (spec: `destructors.md`, `expressions.md` §value vs place).
 
-**Logos nomenclature:** `is_move_type(t)` predicate; per-variable `VarState::moved` / `moved_line`; partial-move map `moved_fields`; sema helpers `mark_moved_expr` / `track_args_moved` (`src/compiler/sema_expr.cpp:465,5457`); the shared aggregate-recursion skeleton is `moveclass::is_move_type` (`include/logos/compiler/move_classify.hpp:30-45`); user-visible diagnostics: `"use of moved variable '{}'"` (`src/compiler/sema_expr.cpp:465`) and `"use of moved value '{}' (moved on line N)"` (`src/compiler/borrow_check.cpp:682`).
+**Logos nomenclature:** `is_move_type(t)`; `VarState::moved`/`moved_line`; partial-move map `moved_fields`; `mark_moved_expr`/`track_args_moved` (`src/compiler/sema_expr.cpp:855,2958`); shared aggregate skeleton `moveclass::is_move_type` (`include/logos/compiler/move_classify.hpp:30-47`); diagnostics `"use of moved variable '{}'"` (`sema_expr.cpp:529`), `"use of moved value '{}' (moved on line N)"` (`borrow_check.cpp:942-967`), `"use of moved field '{}'"` / `"use of partially moved value"` (`borrow_check.cpp:931-934`).
 
-**Match verdict:** OK — predicate name, state field (`moved`), and diagnostic strings match Rust's "moved value" idiom.
+**Match verdict:** WARN — core move tracking conformant (probes: one-level field move-out correctly rejects re-use); demoted from v1 OK because the depth-≥2 partial-move hole is now probe-confirmed real, with a leak.
 
-**Implementation pointer:** Two phases share the recursion skeleton; the leaf rules diverge by design:
-- Sema (live `TypePool`): `src/compiler/sema_expr.cpp:5457` (`track_args_moved`), `src/compiler/sema_expr.cpp:465` (use-after-move report).
-- Borrow check (post-mono): `src/compiler/borrow_check.cpp:108-138` (`is_move_type` leaf gates `&mut T` → move, structs Copy-set lookup, enums any-payload-moves).
-- Shared skeleton: `include/logos/compiler/move_classify.hpp:30-45`.
+**Implementation pointer:**
+- Sema: `sema_expr.cpp:2958,3212,3984` (`track_args_moved` call sites), `:529` (use-after-move report).
+- Borrow check (post-mono): `borrow_check.cpp:237-267` (`is_move_type` leaf: `&mut T` → move; structs `needs_drop && !Copy`; enums Drop-impl or move payload).
+- Drop suppression of moved vars: `sema.cpp:2979-3020` (dotted-path `moved_vars_`, whole-field suppression at the FIRST level — `sema.cpp:2992`).
 
 **Interactions check:**
-- Copy — OK. Falls through to `struct_is_move` / `enum_is_move` which gate on `ts.copy_types` (`borrow_check.cpp:122-127`). Copy⊥Drop invariant respected.
-- Drop — OK. Move suppresses Drop on the source (`sema.cpp:2772`, the `moved_vars_` skip in `collect_drops`).
-- Borrow — OK. `borrow_check.cpp:689` rejects `cannot move '{}' while it is borrowed`.
-- `let` / assignment — OK. `sema_stmt.cpp:233` synthesises an SDrop for the LHS prior value; drop-before-replace landed (DIVERGENCES B8).
-- Closure (capture modes) — OK. `borrow_check.cpp:1119-1138` handles `move` vs non-`move`; RFC-2229 field-precise capture in (commit 70526c97 / 20c817d5).
-- Match (scrutinee move) — OK. `mark_match_scrutinee_moved` widened to PLACE scrutinees (51d2e29e, MEMORY.md B7).
-- Function call (by-value args) — OK (`track_args_moved` at `sema_expr.cpp:2700,2944,3592`).
-- Return — OK (consume flows through `collect_all_drops` at `sema.cpp:2781`).
-- Struct / tuple field move (partial moves) — OK at the first field level (`borrow_check.cpp:1029-1037`); deeper paths (a.b.c) collapse to the outermost segment (`sema.cpp:2747-2751`).
-- Pattern bindings — OK. `bind_pattern_ref` records moves; the `moved_vars_` set carries dotted paths.
-- `unsafe` (raw ptr semantics) — partial. `Ptr` kind exists (`sema.hpp:52`); raw-ptr deref-as-move is not specially tracked (correct — raw ptr is Copy in Rust).
+- Copy / Drop / Borrow / let-replace / return — OK (unchanged from v1; B8 drop elaboration, `cannot move while borrowed` at `borrow_check.cpp:949`).
+- Closures — capture modes handled (RFC-2229 field-precise, 70526c97/20c817d5); **but a non-Copy closure value itself is not move-tracked** — probe: `let c = move ||…String…; let d = c; c()` compiles (Rust E0382). Memory-sound (valgrind-clean; drop of `c` suppressed), diagnosis missing. See Copy §2.
+- Match — OK (`mark_match_scrutinee_moved`, `sema_stmt.cpp:7089`; PLACE scrutinees since 51d2e29e).
+- Generic-struct moves / iterator receiver borrows — fixed classes, adversarial sweeps #1/#2 (955cebbf, 00355c52).
 
-**Gaps / debt:**
-- Partial-move tracking is one-level (B78); nested-field consume aliases the parent (`sema.cpp:2747-2751`). Probably fine until a user moves out of `a.b.c` and later reads `a.b.d`.
-- No surface test for `mem::replace`-style move-out-and-write-back idioms in `stdlib/mem/`.
-- The sema-side leaf and the borrow-check-side leaf both treat `&mut T` as move, but the latter is asymmetric vs. the sema rule that uses generic-bound `T: Copy` (`compute_auto_copy_types`); behaviourally fine but worth a one-line comment.
+**Gaps / debt (probe-confirmed 2026-06-12):**
+- **Depth-≥2 partial move (B78).** `moved_fields` keys on the outermost field only (`borrow_check.cpp:1568-1574`). Probe `o.i.s` moved, then:
+  - read `o.i.s` again → ACCEPTED (Rust: E0382) — conformance hole;
+  - read sibling `o.i.t` → accepted (Rust-legal) but `o.i`'s WHOLE drop is suppressed (`sema.cpp:2992`) → **`o.i.t` leaks** (valgrind: 1 block definitely lost). Fix = dotted-path granularity in both `moved_fields` checking and drop suppression.
+- `mem::forget` absent from `stdlib/lang/mem/mem.logos` (has unsafe `swap`/`replace`/`take` :55-71 + safe `swap_ref`/`replace_ref`/`take_ref` :88-109 — naming diverges from Rust's ref-taking `mem::swap`; ManuallyDrop covers the suppress-drop use).
 
 ---
 
 ## 2. Copy
 
-**Rust nomenclature:** `Copy` marker trait (`special-types-and-traits.md` §Copy). Built-in for primitives, `&T`, function pointers; auto-derivable; mutually exclusive with `Drop`.
+**Rust nomenclature:** `Copy` marker trait (`special-types-and-traits.md` §Copy); mutually exclusive with `Drop` (E0184).
 
-**Logos nomenclature:** `"Copy"` is a built-in trait name (recognised by string match in `sema_collect.cpp:2454,754,3016`). Storage is `SemaChecker::copy_types_` (set of struct names) plus the post-mono mirror `TypeSets::copy_types` (`borrow_check.cpp:50`). Auto-Copy is `SemaChecker::compute_auto_copy_types` (`sema.cpp:2509`). Trait-bound check `T: Copy` lives in `current_type_bounds_` (DIVERGENCES B1).
+**Logos nomenclature:** built-in trait name `"Copy"`; `copy_types_` + post-mono `TypeSets::copy_types`; structural auto-Copy `compute_auto_copy_types` (`src/compiler/sema.cpp:2702-2800`); `T: Copy` bound honored (`sema_collect.cpp:825-831`, B1 done); **conditional Copy** `impl<P: Copy> Copy for Pin<P>` → `conditional_copy_` positions (`sema_collect.cpp:3558-3585`, landed with Pin 6dabfe99/00355c52).
 
-**Match verdict:** OK — Logos uses the Rust spelling exactly (`"Copy"`); the auto-Copy promotion mirrors `#[derive(Copy)]` for scalar-only structs.
+**Match verdict:** WARN — spelling and auto-Copy conformant; `&mut`-field bug fixed; demoted from v1 OK because `impl Copy` for a `Drop` type is silently accepted (probe) — double-drop hazard.
 
 **Implementation pointer:**
-- Manual impl collection: `src/compiler/sema_collect.cpp:3016-3020` (rejects `unsafe impl Copy` for the safe built-in).
-- Structural auto-Copy: `src/compiler/sema.cpp:2509-2580` (`compute_auto_copy_types`).
-- Per-kind triviality table: `src/compiler/sema.cpp:2511-2526` (primitives + `&T` + `&mut T` + FnPtr + payload-less enum).
-- Generic-bound: `is_move_type` consults `current_type_bounds_` so `T: Copy` no longer treated as move (B1 done).
+- Registration + `unsafe impl Copy` rejection: `sema_collect.cpp:3553-3585`.
+- Structural auto-Copy fixpoint (recursive `is_copy_field` through Struct/Tuple/payload-less Enum): `sema.cpp:2702-2800`.
+- ✅ closed (eb894e80): `K::MutRef` removed from `field_kind_is_trivially_copy` — `struct S { r: &mut T }` no longer auto-Copy; fail-test `tests/logos/fail/struct_with_mut_ref_not_auto_copy.logos` verified rejecting.
 
 **Interactions check:**
-- Move — OK (mutually exclusive; see Move above).
-- Drop — OK. `compute_auto_copy_types` excludes any struct with `Drop` impl (`sema.cpp:2531` `has_drop_impl`). Manual `impl Copy` for a struct with `impl Drop` is implicitly rejected by `compute_auto_copy_types` skipping it; explicit cross-impl rejection (errors message) is not surfaced — WARN.
-- Auto-traits — N/A (Logos lacks Send/Sync auto-derivation; tracked under category H).
-- Generics (`T: Copy`) — OK (B1 closed 2026-05-22).
-- `#[derive(Copy)]` — WARN. Logos `#[derive]` is a metaprog handler (blessed divergence A3); auto-Copy is structural and covers the same surface but the spelling differs. Per-trait handlers `#[derive_copy]` exist (`stdlib/`).
-- Primitives — OK (`sema.cpp:2513-2522`).
-- References (`&T` Copy, `&mut T` NOT Copy) — OK (`sema.cpp:2520` includes `Ref` and `MutRef` as field-trivially-Copy at struct-membership level, but `borrow_check.cpp:118` correctly marks bare `&mut T` as MOVE).
-
-  Note the asymmetry: a struct holding a `&mut T` field is auto-Copy promoted at `sema.cpp:2520`, but a bare `&mut T` value is move-tracked. This is a subtle WARN — Rust says a struct with a `&mut T` field is NOT auto-Copy (struct-as-whole has at least one non-Copy field). Likely a real bug.
-
-- Function pointers — OK (`FnPtr`, `TaggedPtr` in trivial list).
-- Closures — partial. No "auto-Copy if all captures Copy" rule in `sema.cpp:2509-2580`. Closures with only Copy captures should themselves be Copy in Rust — Logos doesn't promote.
+- Move / Drop / primitives / `&T`-Copy-`&mut T`-move / fn pointers / `T: Copy` / unions (fields restricted to Copy, `sema_collect.cpp:1466-1509`) — OK.
+- `#[derive(Copy)]` — blessed divergence A3 (metaprog `#[derive_copy]`); structural auto-Copy covers the same surface.
+- Conditional Copy impls — OK (new since v1; the earlier blanket `impl<P> Copy for Pin<P>` made `Pin<Box<T>>` Copy → double free, fixed in adversarial t03).
 
 **Gaps / debt:**
-- `&mut T` as a struct field shouldn't promote the struct to Copy. Inspect `sema.cpp:2520`: `K::MutRef` is in the trivially-Copy list. This is a soundness bug.
-- Closure auto-Copy when all captures are Copy is missing.
-- No diagnostic for `impl Copy for X where X: Drop` (currently the silent skip in `compute_auto_copy_types` only blocks the structural path).
+- **E0184 missing** — probe: `impl Drop for R {} impl Copy for R {}` compiles. `compute_auto_copy_types` skips Drop structs structurally, but the MANUAL `impl Copy` path (`sema_collect.cpp:3554`) registers without a Drop cross-check. Copies of a Drop type each drop → double-drop for resource-holding types. One-line check + diagnostic.
+- Closure Copy semantics untracked either way: closures with all-Copy captures are usable after re-binding (right result, wrong mechanism), and non-Copy-capture closures are too (wrong — see Move §1). Root: closure values bypass `is_move_type` (`Kind::Closure` falls to skeleton default `false`, `move_classify.hpp:44`).
 
 ---
 
 ## 3. Drop / RAII
 
-**Rust nomenclature:** Destructor / `core::ops::Drop::drop` / "drop glue" (spec: `destructors.md`).
+**Rust nomenclature:** Destructor / `core::ops::Drop::drop` / drop glue (spec: `destructors.md`).
 
-**Logos nomenclature:** SDrop statement (`lir_mirror_emit_drop`); destructors emitted via `SemaChecker::make_drop_stmt` (`src/compiler/sema.cpp:2686-2762`); scope-end emission via `collect_drops` / `collect_all_drops` / `collect_drops_to_loop` (`sema.cpp:2764-2810`). Mlir-gen lowers SDrop in `gen_stmt_kind(SDropView)` (`src/compiler/mlir_gen_stmt.cpp:879`). Special sentinel `"__box_dyn__drop"` for owning `Box<dyn>` (`sema.cpp:2705`). `Drop` trait is recognised as a built-in by name match (`sema_collect.cpp:2454`); per-target lookup uses `impls_["Drop::" + target]` (`sema.cpp:2531`).
+**Logos nomenclature:** SDrop statement; `make_drop_stmt` (`src/compiler/sema.cpp:2929`); scope-end `collect_drops`/`collect_all_drops` (`sema.cpp:3045,3052`); mlir-gen `gen_stmt_kind(SDropView)` (`src/compiler/mlir_gen_stmt.cpp:974`); `"__box_dyn__drop"` vtable-drop sentinel (`sema.cpp:2937-2949`); `impls_["Drop::" + target]` lookup.
 
-**Match verdict:** OK on naming (uses `Drop`); WARN on RAII *coverage* — drop-elaboration is recent (B8 done 2026-05-28) and partial-move drop suppression is one-level.
+**Match verdict:** OK — upgraded from v1 OK/WARN: drop elaboration (B8), fn-param drop, and Pin all landed; coverage debt now isolated to the partial-move granularity item (§1).
 
-**Implementation pointer:**
-- Drop trait collection: `src/compiler/sema_collect.cpp:2454` (built-in name match).
-- SDrop emission: `src/compiler/sema.cpp:2686-2762` (`make_drop_stmt`).
-- Scope-exit drops: `src/compiler/sema.cpp:2764` (`collect_drops`).
-- Mlir-gen lowering: `src/compiler/mlir_gen_stmt.cpp:879` (`gen_stmt_kind(SDropView)`).
-- Drop elaboration (conditional-init / drop flags): see commit `3e7bb5df` referenced from DIVERGENCES B8.
-- ManuallyDrop wrapper: `stdlib/mem/manually_drop/manually_drop.logos:1-50`.
+**Implementation pointer / closed since v1:**
+- ✅ fn-param drop Rust-conformant (23f5b86b, 2026-06-01): params drop at fn epilogue with ever-moved gate; `closure_owned_drop_` cleanup for body-moved captures.
+- ✅ `Pin<P>` + auto-trait `Unpin` (6dabfe99): `stdlib/lang/pin/pin.logos` — full Rust API (`new`/`into_inner`/`get_ref`/`get_mut`/`as_ref`/`as_mut`/`new_unchecked`/`get_unchecked_mut`/`box_pin`, `Deref`, cond-`DerefMut where T: Unpin`); `Unpin` structural auto-trait, `PhantomPinned`/`#[pinned]` → `!Unpin`; registered DIVERGENCES §A8 (51a8019a) — coexists with native `#[pinned]`. Tests: pin_basic, pin_box, pin_unpin_auto, fail/pin_unpin_phantom, fail/pin_get_mut_not_unpin.
+- Drop elaboration (B8, 3e7bb5df): static placement + runtime drop flags only for conditionally-assigned vars — Rust MIR model.
+- ManuallyDrop / MaybeDangling / DropGuard: `stdlib/mem/manually_drop/manually_drop.logos`.
 
 **Interactions check:**
-- Move (suppresses Drop on source) — OK (`sema.cpp:2772` skip in `collect_drops`).
-- Copy (mutually exclusive) — OK at the auto-Copy level (`sema.cpp:2531`); WARN: no explicit user-facing error for `impl Copy for X` when `X` is `Drop`.
-- Variables / scopes — OK. Scope-exit dropping in declaration-reverse order (`sema.cpp:2768`).
-- Struct / Enum (per-field/payload) — OK. `has_droppable_fields` walks fields; enum payload drops via mono-cloned drop fns.
-- Trait `Drop` — OK (named-match recognised).
-- `mem::ManuallyDrop` — OK. `stdlib/mem/manually_drop/manually_drop.logos:30` (`ManuallyDrop<T>`) provides the suppression wrapper.
-- Pinning (`Pin<T>`) — GAP. No `Pin` type in stdlib (grep found only mono-pin "lazy pin" book-keeping at `mono.cpp:624`, unrelated). Combined with the async-as-fibres divergence (A4) Pin is intentionally absent — list as a documentation gap.
-- Assignment (drop-before-replace + drop elaboration) — OK (B8 resolved 2026-05-28).
-- Panic (drop on unwind) — partial. Unwinding tables exist but Drop-on-unwind invariants vs panic strategy aren't explicitly tested here.
-- Const eval (no `Drop` in const fns) — N/A (const-fn replaced by metacall; A2).
-- `?Sized` / DST (drop glue via vtable for `Box<dyn>`) — OK. `sema.cpp:2699-2708` emits `"__box_dyn__drop"` sentinel; mlir-gen calls vtable slot 0; owning `Box<CustomDst>` covered under B2 (commit ac85cb0e).
+- Move-suppresses-Drop / scopes (reverse decl order) / struct-enum field drops / `Box<dyn>` vtable drop / assignment drop-before-replace — OK. Drop-order tests exist (`tests/logos/pass/drop_order_with_non_droppable`, `adv1_capture_drop_order`).
+- Copy×Drop — the E0184 gap (§2) sits on this boundary.
+- Panic — N/A-by-design (A7 panic=abort; no unwind drops to verify).
+- Vec element drop — resolved (52c24b28, per DIVERGENCES B7 residual).
 
 **Gaps / debt:**
-- No surfaced diagnostic for `impl Copy for X` when X has `impl Drop`.
-- `Pin<T>` absent — needs an entry in DIVERGENCES (currently buried inside A4 async).
-- Drop-order spec for `match` arms is implemented but lacks an explicit test that exercises pattern-matching guards (the spec §destructors.scope.bindings.match-arm section).
+- `impl Copy` + `impl Drop` diagnostic (§2).
+- Partial-move drop suppression too coarse → sibling leak (§1).
+- Match-arm-guard drop-order test (spec §destructors.scope.bindings.match-arm) still absent — minor.
 
 ---
 
@@ -114,163 +88,130 @@ Generated: 2026-05-30; spec: rust-lang/reference (local checkout at `/home/victo
 
 **Rust nomenclature:** Shared / mutable reference (`types/pointer.md` §References, `expressions/operator-expr.md` §Borrow).
 
-**Logos nomenclature:** `LogosType::Kind::Ref` and `LogosType::Kind::MutRef` (`include/logos/compiler/sema.hpp:53-54` — comments say "&T — shared reference (borrow-checked)" and "&mut T — exclusive mutable reference"). Grammar production `ref_type` (`tools/peg_gen/grammars/logos.peg:1465-1479`). AST codes `REF_TYPE` / `MUT_REF_TYPE`. Borrow-expression nodes are `EAddrOf` (named var `&x`) and `EAddrOfTemp` (sub-expression `&expr` / reborrows). Borrow checker = `src/compiler/borrow_check.cpp` (2387 LOC); see header comment lines 1-25.
+**Logos nomenclature:** `Kind::Ref`/`Kind::MutRef` (`include/logos/compiler/sema.hpp:53-54`); grammar `ref_type` family (`tools/peg_gen/grammars/logos.peg` ~1447-1500, LIFETIME token :457); `EAddrOf`/`EAddrOfTemp`; borrow checker `src/compiler/borrow_check.cpp` (3148 LOC, grown ~760 since v1).
 
-**Match verdict:** OK — Logos type-kinds and grammar productions correspond directly to Rust's `&T` / `&mut T`.
+**Match verdict:** OK — type kinds, grammar, exclusivity, and (new) slice mutability all Rust-shaped.
 
-**Implementation pointer:**
-- Type kinds: `include/logos/compiler/sema.hpp:53-54`.
-- Grammar: `tools/peg_gen/grammars/logos.peg:1465-1479` (also `1473-1479` for `&&T` double-ref via `AND` token).
-- Borrow check (exclusivity + use-after-move + dangling): `src/compiler/borrow_check.cpp:108-2387`.
-- Field-path borrows (B83): `borrow_check.cpp:161-167,219-231,260-294` (`extract_borrow_place`).
-- Two-phase borrows (B82): `borrow_check.cpp:150-154` (state), `borrow_check.cpp:1000-1010` (`take_borrow` reservation path).
-- Dropck (B87): `borrow_check.cpp:326-427`.
+**Implementation pointer / closed since v1:**
+- ✅ slice mutability (B6, c971c97f + Wave-9 finish): `Kind::Slice` carries `mut_ptr` (`sema.hpp:95,249`); write through `&[T]` rejects (`"cannot write through a shared `&[T]` slice"` — fail-test verified); `&mut [T] → &[T]` downgrade works. DIVERGENCES B6 marked done — consistent.
+- ✅ `&T → *const T` coercion — probe-verified working (v1 had it unverified).
+- ✅ escape analysis battery (new since v1): method-result ref holds receiver (2716030f), return-of-local field/index ref (af33a8d2), conflicts through reference roots (f9e4efa3), iterator invalidation `&v[i]` across `v.push` (849b1a91) + through-`&mut` (f14ec365), E0716 temp-dropped-while-borrowed (91e6c945), `#[borrow_carrying]` aggregate/container propagation (0000284a, 47610a77).
+- Two-phase borrows (B82): state `borrow_check.cpp:279`, `take_borrow` :818,1509-1595. Field-path borrows (B83): `FieldBorrow` dotted paths :396-403, single place-extraction foundation :410-435. Dropck (B87): :537-546,618-640.
+- NLL: `BorrowRecord::holder` released after holder's last use (:383-391) + region_infer now feeding outlives (§5) — still approximation, not full region-graph NLL.
 
 **Interactions check:**
-- Lifetimes — partial. `param_lifetimes_` map (`borrow_check.cpp:320`) + return-lifetime check (`borrow_check.cpp:895-957`); see Lifetimes below.
-- Reborrow — OK (`try_implicit_reborrow_mut` at `sema_expr.cpp:11200`).
-- Mutability of bindings — OK (let-mut tracked separately).
-- Borrow checker — OK (the whole file).
-- Variance (`&T` covariant, `&mut T` invariant) — OK (`sema.cpp:6835-6852`).
-- Patterns (`ref` / `ref mut`) — present but listed under category F audit.
-- Coercions (`&mut → &`, `&T → *const T`) — partial. Downgrade reborrow OK (`sema_expr.cpp:11222-11230`); `&T → *const T` is not first-class — `Ptr` is `*mut`/`*const` raw pointer with `mut_ptr` flag.
-- Method receivers — OK (`bind_method_receiver` at `sema_expr.cpp:11179`).
-- DST (fat refs to `[T]`, `str`, `dyn`) — OK. `Slice`, `TraitObject`, `DstRef` kinds (`sema.hpp:60,62,89`).
-- Closures (capture-by-ref) — OK.
-- Two-phase borrows — OK (B82).
-- Field-path borrows — OK (B83).
-- NLL — partial. `BorrowRecord.holder` (`borrow_check.cpp:216`) and the "released after holder's last_use_line" rule give an NLL approximation; full region-based NLL still under region_infer scaffolding.
+- Reborrow / method receivers / closures-by-ref / DST fat refs (`Slice`/`TraitObject`/`DstRef`) / two-phase / field-path — OK.
+- Deref — user-`Deref` auto-invoke `&*x` resolves through Deref impls (dcc2f4e8); impl selection by self-type shape (8c10eb4e).
+- Variance — OK (§7).
 
 **Gaps / debt:**
-- Slice mutability isn't tracked at the type level — DIVERGENCES B6 (`&[T]` and `&mut [T]` both canonicalise to `Kind::Slice`; index-write through `&[T]` not rejected).
-- `&T → *const T` raw coercion not exercised — verify via test before claiming OK.
-- Logos has no separate `&raw const` / `&raw mut` syntax (spec `type.pointer.raw.constructor`).
+- `&raw const` / `&raw mut` syntax absent (spec `type.pointer.raw.constructor`) — grammar has no production; low impact (`&x as *const T` path works).
+- `&[T]` vs `&mut [T]` share a TypeUID pool entry (mut bit at LIR level only) — DIVERGENCES B6 residual hygiene note, not soundness.
 
 ---
 
 ## 5. Lifetimes
 
-**Rust nomenclature:** lifetime parameter / `'a` / `'static` / elision rules / outlives (`'a: 'b`) / HRTB `for<'a>` (`types.md` §References, `lifetime-elision.md`, `trait-bounds.md`).
+**Rust nomenclature:** `'a` / `'static` / elision / outlives `'a: 'b` / HRTB `for<'a>` (`lifetime-elision.md`, `subtyping.md`, `trait-bounds.md`).
 
-**Logos nomenclature:** Lifetime token = `LIFETIME = /'[a-z_][a-z0-9_]*/` (`tools/peg_gen/grammars/logos.peg:445`); per-fn / struct / impl `lifetime_params: Vec<std::string>` (`sema_decl.cpp:439,860,968,970,1356`); outlives bounds in `info.lifetime_outlives` / `info.impl_lifetime_outlives` (`sema_collect.cpp:2100-2155,3283-3286`); HRTB binders in `trait_bound.hrtb_binders` (`sema.cpp:3341-3355`, `sema_collect.cpp:875-932`); region inference scaffolding at `src/compiler/region_infer.cpp` (858 LOC) and `RegionId`/`RegionConstraint::{Outlives,Contains}` (`include/logos/compiler/region_infer.hpp:82-91`); `'static` is detected by string match (`sema_decl.cpp:26,108,901,1008`) — no special internal kind.
+**Logos nomenclature:** LIFETIME token (`logos.peg:457`); `lifetime_params` on fn/struct/impl (`sema_decl.cpp:439`); outlives capture (`sema_collect.cpp:2625-2640`); HRTB binders `trait_bound.hrtb_binders` (`sema.cpp:3729-3733`, consumer :4943); region engine `src/compiler/region_infer.cpp` (931 LOC).
 
-**Match verdict:** WARN — Logos uses Rust spellings, but the *semantics* are partial: lifetimes are stored, region inference is scaffolding-only, and the borrow checker's lifetime-correctness path is elision-shaped point-checks (`borrow_check.cpp:895-957`), not a region-graph result.
+**Match verdict:** OK — upgraded from v1 WARN: the three structural gaps (region wiring, default trait-object lifetime, HRTB instantiation) all closed with fail/pass tests; residuals are representation hygiene, not behavior.
 
-**Implementation pointer:**
-- Grammar: `tools/peg_gen/grammars/logos.peg:445` (LIFETIME) and `1465-1479` (ref_type carries LIFETIME).
-- Parameter collection: `src/compiler/sema_decl.cpp:439-441,860,925-926,968-970,1004-1005,1356-1357`.
-- Outlives capture: `src/compiler/sema_collect.cpp:2100-2155,3283-3286` (`read_lifetime_outlives` + `_from`).
-- Return-lifetime check (Rust elision rules): `src/compiler/borrow_check.cpp:895-957` (rule wording at 932-946).
-- Region inferer (B70-72 scaffolding): `src/compiler/region_infer.cpp:28-101` (CFG build + fixed-point solver).
-- Outlives transitive closure: `src/compiler/sema.cpp:3700` (note "lifetime model is elision-based at this layer").
+**Implementation pointer / closed since v1:**
+- ✅ region_infer wired into borrow_check (4c38aed4): `RegionInferer::outlives_named` (`region_infer.cpp:102`) is the canonical consumer API; borrow_check holds `const RegionInferer* ri_` (`borrow_check.cpp:560-566`), prefers it over the string `outlives_adj_` graph at the return-lifetime check (:1425-1433), runs it first per fn (:3078-3085). Fail-test `core_2_1_dyn_ref_outlives_local` ✓.
+- ✅ default trait-object lifetime rule (239bd7b7): borrowing `&dyn Trait` treated as ref-kind so `fn bad() -> &dyn T { &local }` rejects (`borrow_check.cpp:365-377`); owning `Box<dyn>` exempt.
+- ✅ HRTB instantiation subtyping (ff12df64, logos-core §3.1): fresh-universal instantiation at binder + region-constraint consumption; `core_3_1_hrtb_closure_arg` + 59 hrtb-* tests.
+- ✅ `'_` placeholder — handled as elided at return-lifetime check (`borrow_check.cpp:1400,1458`); probe `fn pick(v: &'_ i32)` compiles+runs.
+- Return-elision rules: `check_return_value` (`borrow_check.cpp:1368-1460`); receiver elision `&self → &T` provenance (:1063,1285).
 
 **Interactions check:**
-- Borrow — partial. `param_lifetimes_` indexes parameter-side lifetimes for the return-from-which-param check; field-of-self-aggregate has a deferred-to-typecheck escape (`borrow_check.cpp:910-923`).
-- References — OK (`Ref` / `MutRef` carry lifetime in their schema slots).
-- Generics (lifetime params) — OK at storage; elaborate transitive checks behind a real region engine still WIP.
-- Lifetime elision — partial. Function-position elision is enforced post-hoc by `borrow_check.cpp:932-946` (the "single ref-param" rule); the parser does NOT inject elided lifetimes structurally — they remain empty strings, and downstream logic uses `lt.empty()` as the "elided" probe. Trait-object default object lifetimes (`'static` outside expressions, inferred otherwise) — no specific code paths grepped — likely GAP.
-- HRTB (`for<'a>`) — partial. `for<'a>` parses to `HRTB_BINDERS` (grammar line 73), `hrtb_binders` stored on `trait_bound` (`sema.cpp:3338-3358`); satisfaction-checking in `mono_clone.cpp:4392-4466` is bijectivity-only ("universal-position + bijectivity"). The full subtype-via-substitution rule (`subtype.md` §subtype.higher-ranked) is approximated.
-- Trait objects (`+ 'a` bound) — OK structurally (grammar `dyn_type` lines 1355-1366 + auto-bounds with `LIFETIME` (line 1354), and inner `'static` handling in `sema_decl.cpp:26`).
-- Subtyping (`'a: 'b` outlives) — partial. Variance machinery composes correctly (`sema.cpp:6835-6852`); the actual `outlives_adj_` adjacency map (`borrow_check.cpp:341`) is built from declared `where`-clauses but not from inferred region-graph relations.
-- Where-clauses (outlives) — OK at collection (`sema_collect.cpp:2132-2155`).
-- Structs (`struct S<'a>`) — OK (`sd.lifetime_params = sinfo->lifetime_params` at `sema_decl.cpp:860`).
-- Impls (`impl<'a> T for S<'a>`) — OK (`sema_decl.cpp:1352-1357`).
-- `'static` — partial. Handled as a string `"'static"` (`sema_decl.cpp:26,108,901,1008`); no dedicated `Kind` slot. The default trait-object lifetime rule (`lifetime-elision.md` §trait-object) is not implemented.
-- Dropck / region inference — partial. Dropck path at `borrow_check.cpp:326-427` (B87) covers the conservative "binding holds borrows of soon-dropped sources" check; full Polonius-style dropck eyes is WIP.
-- Async (borrow-across-await) — N/A (async is the fibres divergence A4).
+- Borrow / generics / where-outlives / struct-impl lifetime params / trait objects `+ 'a` — OK.
+- Subtyping — `subtype(sub, sup, outlives_adj, def_variances)` (`include/logos/compiler/subtype.hpp:37`) consumed at let-coercion/return (`sema_stmt.cpp`, `sema.cpp`, `sema_expr.cpp`); probe: `fn sf() -> &'static i32 { &42 }` rejects with a lifetime-structure diagnostic — the check is live (the rejection itself is the §8 promotion gap).
+- Dropck — B87 conservative check; full Polonius-style still out of scope.
+- Async — N/A (A4 fibres).
 
 **Gaps / debt:**
-- Region inference is solver-built but its output is not consumed by the lifetime conformance check (`region_infer.hpp:127` accessor exists; no caller in `borrow_check.cpp`).
-- Default trait-object lifetime bound rule (`lifetime-elision.md` §trait-object) not implemented.
-- HRTB subtype check is bijectivity-only, not full instantiation-based subtype (`subtype.md` §higher-ranked).
-- `'static` as a structural lifetime kind (vs string match) — minor but a soundness foot-gun.
-- No `'_` placeholder lifetime handling grepped (spec `lifetime-elision.function.explicit-placeholder`) — string match would treat it like any other named lt unless special-cased.
+- `'static` still string-matched (`"'static"||"static"`, `sema_decl.cpp:26,108,1088,1197,1549`) — no structural kind; foot-gun, minor.
+- Region engine covers declared lt-params + CFG within a fn; cross-fn inference remains elision-shaped (Rust-equivalent for the supported surface, but no inferred-region diagnostics quality).
 
 ---
 
 ## 6. Reborrow
 
-**Rust nomenclature:** *reborrow* — implicit re-take of a `&mut T` (or downgrade to `&T`) at coercion sites (`types/pointer.md` §Mutable references implicit, `type-coercions.md`).
+**Rust nomenclature:** implicit reborrow of `&mut T` (or downgrade to `&T`) at coercion sites (`type-coercions.md`).
 
-**Logos nomenclature:** `SemaChecker::try_implicit_reborrow_mut` (`src/compiler/sema_expr.cpp:11200-11249`). Comment explicitly uses the term "reborrow" throughout (`sema_expr.cpp:11170-11178`). The wrapped expression has shape `AddrOfTemp(Deref(arg), is_mut)`; borrow-check recognises the reborrow shape via `lir_view::is_reborrow_shape` (`mlir_gen_dyn.cpp:1356`).
+**Logos nomenclature:** `try_implicit_reborrow_mut` (`src/compiler/sema_expr.cpp:12226`); wrap shape `AddrOfTemp(Deref(arg))`; `lir_view::is_reborrow_shape` peephole (`mlir_gen_dyn.cpp:1351-1356`).
 
-**Match verdict:** OK — name matches Rust, shape is canonical.
+**Match verdict:** OK — unchanged; line refs refreshed.
 
 **Implementation pointer:**
-- Sema-side wrap: `src/compiler/sema_expr.cpp:11200-11249` (`try_implicit_reborrow_mut`).
-- Call-arg coercion driver: `src/compiler/sema_expr.cpp:11186-11198` (`coerce_arg_to_param`, dispatches `CFLAG_IMPLICIT_REBORROW`).
-- Method receiver: `src/compiler/sema_expr.cpp:11179-11184` (`bind_method_receiver`).
-- Let-binding coercion site: `src/compiler/sema_stmt.cpp:1722-1731` ("Rust auto-reborrows `&mut T` at COERCION sites in `let _: T = rhs`").
-- Mlir-gen peephole unwrap: `src/compiler/mlir_gen_dyn.cpp:1350-1356` (recognises `is_reborrow_shape` and skips the temp).
-- Mono passthrough: `src/compiler/mono_clone.cpp:2278` (reborrow vs rebind distinction for `&mut T`).
+- Call-arg coercion: `CFLAG_IMPLICIT_REBORROW` dispatch (`sema_expr.cpp:12154`); direct call sites :3848,3863,3894.
+- Method receiver: `sema_expr.cpp:12140` (`allow_downgrade=false` — by design, matches Rust receiver rules).
+- Let-binding coercion site: `sema_stmt.cpp` (Rust auto-reborrow at `let _: T = rhs`).
+- Mono passthrough: `mono_clone.cpp` reborrow-vs-rebind distinction.
 
-**Interactions check:**
-- Borrow — OK. Reborrow takes a fresh borrow on the underlying var (`sema_expr.cpp:11203-11208`).
-- Method receivers (auto-reborrow) — OK (`sema_expr.cpp:11179`).
-- Call args (auto-reborrow) — OK (`sema_expr.cpp:11196`).
-- Let-binding type ascription — OK (`sema_stmt.cpp:1722-1731`).
-- Two-phase borrows — OK indirectly. Reborrow-shape recognition keeps borrow_check on the AddrOfTemp(Deref(VarRef)) path that integrates with B82.
-- NLL release — OK. The reborrow's holder ties into the NLL release rule at `borrow_check.cpp:216`.
-- Coercions — OK. Downgrade reborrow (`&mut → &`) at call-arg coercion (`sema_expr.cpp:11222-11230`) with `allow_downgrade` gate.
+**Interactions check:** Borrow / receivers / call args / let ascription / two-phase / NLL release / `&mut → &` downgrade — all OK. New since v1: receiver reborrow composes with multi-impl Deref selection (8c10eb4e) and user-Deref `&*x` auto-invoke (dcc2f4e8); borrow_check routes reborrow shapes through reference-root conflict tracking (f9e4efa3) so aliased `&mut`+`&` through a reborrow is caught.
 
 **Gaps / debt:**
-- Reborrow only fires for `VarRef` / `FieldRead` / `IndexRead` roots (`sema_expr.cpp:11240-11244`). A reborrow of a method-call result that returns `&mut T` does not get the wrap — relies on the result already being AddrOfTemp.
-- Receiver-position downgrade (`&mut T` arg → method on `&T` impl) is explicitly disabled (`sema_expr.cpp:11227 allow_downgrade=false`) — by design; document as an interaction note rather than gap.
+- Reborrow wrap still fires only for `VarRef`/`FieldRead`/`IndexRead` roots; method-call results returning `&mut T` rely on existing AddrOfTemp shape — unchanged, no observed failure class.
 
 ---
 
 ## 7. Variance & subtyping
 
-**Rust nomenclature:** Variance, subtyping (`subtyping.md`); the 3-point lattice {covariant, contravariant, invariant} (Rust also tracks "bivariant" for unused params internally).
+**Rust nomenclature:** Variance, subtyping (`subtyping.md`); {covariant, contravariant, invariant} (+ internal bivariant).
 
-**Logos nomenclature:** `enum class Variance : uint8_t { BiVar, Co, Contra, Inv }` (`include/logos/compiler/variance.hpp:31`). Helpers `variance_meet` (`variance.hpp:33`), `variance_compose` (`variance.hpp:40`), `variance_name` (`variance.hpp:48`). Per-def table `DefVarianceTable` (`variance.hpp:63`). Subtype relation `subtype(...)` declared at `include/logos/compiler/subtype.hpp:4-12` ("variance + outlives subtype relation"). Variance inference: `SemaChecker::compute_variances` (`src/compiler/sema.cpp:6916`), recursing through `variance_in_type` (`sema.cpp:6822`).
+**Logos nomenclature:** `enum class Variance { BiVar, Co, Contra, Inv }` + `variance_meet`/`variance_compose`/`DefVarianceTable` (`include/logos/compiler/variance.hpp:31-63`); `variance_in_type` (`src/compiler/sema.cpp:7365-7488`); `compute_variances` (:7495); `subtype()` (`include/logos/compiler/subtype.hpp:37`).
 
-**Match verdict:** OK — naming aligned, full 4-point lattice (Logos adds `BiVar` for unused params, which matches rustc's internal model); per-kind rules match the Rust spec table at `subtyping.md` §subtyping.variance.builtin-types.
+**Match verdict:** OK — full lattice, per-kind rules match the `subtyping.md` table; both v1 soundness bugs fixed.
 
-**Implementation pointer:**
-- Lattice + composition: `include/logos/compiler/variance.hpp:31-65`.
-- Recursive variance computation: `src/compiler/sema.cpp:6822-6912` (`variance_in_type`).
-- Per-def inference fixpoint: `src/compiler/sema.cpp:6916-6990+` (`compute_variances`).
-- Subtype relation: `include/logos/compiler/subtype.hpp:4-12` (declaration) + corresponding `.cpp`.
+**Implementation pointer / closed since v1:**
+- ✅ `TraitObject` arm (eb894e80): `dyn Trait<T…> + 'a` Co in `'a`, Inv in each type arg, auto-trait bounds variance-inert (`sema.cpp:7468-7487`); fail-test `core_2_3_traitobj_variance_typearg` ✓. (v1: fell to BiVar — accepted wrong directions.)
+- ✅ `UnsafeCell<T>` Inv-in-T (5bccc7fc): lang-item recognized by qualified name `logos.lang.cell.UnsafeCell` (`sema.cpp:7414-7427`); pass-test `core_2_2_unsafecell_write` ✓.
+- Per-kind rules: `&'a T` Co/Co, `&'a mut T` Co-in-lt/Inv-in-pointee (:7377-7395), `*const` Co / `*mut` Inv (:7396-7400), fn types Contra-args/Co-ret (:7461-7467), Struct/Enum per-param table with Co default (:7428-7460).
 
 **Interactions check:**
-- Lifetimes — OK. `&'a T` covariant in `'a` (`sema.cpp:6837`), `&'a mut T` covariant in `'a` (`sema.cpp:6845`), invariant in pointee (`sema.cpp:6848-6850`).
-- References — OK (per the spec table at `subtyping.md` §variance.builtin-types row 1-2).
-- Generics (param variance) — OK. `Struct`/`Enum`/`ZonedStruct` look up per-param variance (`sema.cpp:6868-6898`); default Co when unknown.
-- Trait objects — partial. `subtyping.md` table says `dyn Trait<T> + 'a` is covariant in `'a` and invariant in `T`; Logos's `variance_in_type` switch (`sema.cpp:6830+`) has no `TraitObject` case — falls to `default → BiVar` (`sema.cpp:6909-6910`). This is a GAP.
-- Function pointers — OK. Contra in args, Co in return (`sema.cpp:6900-6908`).
-- HRTB — partial. `higher-ranked` subtype rule (`subtyping.md` §subtype.higher-ranked) — HRTB substitutability not implemented (see §5 Lifetimes Gaps).
-- PhantomData — N/A. No `PhantomData` in stdlib grep; the canonical type-erasing helper. Logos generic-data parametricity tracked via type-args list, but no `PhantomData<T>` to mark variance via an unused param.
-- DST coercions — partial. Unsize coercion (`T → [T]`, `T → dyn`) exists structurally; variance composition through fat-ref types not tested under variance audit.
-- `*const T` / `*mut T` — OK. `K::Ptr` branch (`sema.cpp:6853-6857`) makes `*const` Co, `*mut` Inv in pointee.
+- Lifetimes / references / generics / fn pointers / `*const`/`*mut` / trait objects — OK.
+- HRTB — closed via §5 (ff12df64).
+- DST coercions — unsize site checks auto-trait bounds separately (logos-core §2.4c); variance composition through `DstRef` unexercised by tests — minor.
+- PhantomData — `stdlib/lang/marker/marker.logos:38` (`pub struct PhantomData<T> {}`, landed 9e70c6c1). **Variance-inert**: no compiler special-case, the unused param infers BiVar, so `PhantomData<T>` does NOT force Co-in-T as in Rust (`subtyping.md` table row: PhantomData<T> = covariant). WARN-level residual.
 
 **Gaps / debt:**
-- `TraitObject` falls through to BiVar in `variance_in_type` — should be Co in lifetime, Inv in each type arg per the spec table. **Likely soundness bug** when a generic param appears under a `dyn Trait<P>` field.
-- `UnsafeCell<T>` (Logos stdlib equivalent) — Logos's interior-mutability story is sketchier; if a Cell-like is implemented as a plain struct, the variance inferer will mark it Co not Inv. Cross-category gap with G (Memory / safety).
-- `PhantomData<T>` analogue is not in stdlib — needed for downstream generic libs that want to force a specific variance.
-- `subtype()` relation (declared in `subtype.hpp`) is used by `sema_stmt.cpp:5` but the call sites (variance + outlives at let-coercion / return) should be enumerated to confirm full coverage; not done in this audit.
+- `PhantomData<T>` should contribute variance as-if a `T` field (and dropck may-drop, when dropck deepens) — small special-case next to the UnsafeCell one.
+
+---
+
+## 8. Temporary scopes, lifetime extension, constant promotion — NEW in v2
+
+**Rust nomenclature:** temporary scopes / temporary lifetime extension / constant promotion (`destructors.md` §§temporary-scopes, lifetime-extension, constant-promotion) — missed entirely by v1.
+
+**Logos status (probed 2026-06-12):**
+- Temporary scopes + E0716 — ✅ closed (91e6c945): statement-temporaries get `RefProv::is_temp` provenance; `let v = make().view(); use(v)` rejects "temporary dropped while borrowed". Rust-conformant for the rvalue-receiver class.
+- **Temporary lifetime extension — GAP (ICE).** `let r = &String::from("abc");` (Rust: temp extended to `r`'s scope) fails in mlir-gen with `'func.call' op operand type mismatch … module verification failed` — not even a clean diagnostic. Scalar temps work (`let r: &i32 = &42;` runs); the extension rule for droppable temps is unimplemented and the fallback path miscompiles.
+- **Constant promotion — GAP.** `fn sf() -> &'static i32 { return &42; }` rejected ("variance mismatch — expected &'static i32, got &{integer}"). Rust promotes the literal to a static. Needs a promotion pass (const-eligible rvalue in `&` position → static alloc) feeding the region check.
+
+**Match verdict:** GAP — one of three spec rules implemented.
 
 ---
 
 ## Cross-category gaps
 
-- **B (Type system primitives) — DST mutability of slices.** `&[T]` and `&mut [T]` collapse to the same `Kind::Slice` (DIVERGENCES B6). Audit: Borrow §4. Owner: sema.
-- **D (Generics & bounds) — `Sized`/`?Sized` interaction with HRTB and dropck.** Sized/?Sized exists (DIVERGENCES B2/B3 done); HRTB subtype rule is partial. Pre-condition for full lifetime/variance soundness.
-- **F (Patterns) — `ref` / `ref mut` patterns** — assumed under category F audit; their interaction with borrow exclusivity should be checked there.
-- **G (Memory / safety) — Interior mutability / `UnsafeCell`.** Variance audit hit the missing `UnsafeCell` Inv-pointee rule; the broader interior-mutability surface lives in category G.
-- **H (Concurrency) — Send / Sync auto-traits, `'static` bound on dyn for thread move.** Same `'static` string-match weakness shows up here.
-- **O (Other) — Pin** absent (Drop interaction §3); cross-cuts async (A4) and Drop.
+- **B (Type system) — `&[T]`/`&mut [T]` TypeUID split** — residual hygiene (B6 done otherwise).
+- **F (Patterns) — `ref`/`ref mut`** — under category F; exclusivity interaction unchanged.
+- **G (Memory/safety) — UnsafeCell** write-exemption surface lives in G; variance side closed here.
+- **H (Concurrency) — auto-traits** closed at the propagation level (logos-core §2.4); `'static`-string weakness (§5) still shows up in dyn+Send bounds.
+- **O — Pin** — no longer a gap (A8 coexistence model).
 
----
+## Scoreboard cross-check (logos-core.md §2/§3 vs reality)
+
+All claimed rows verified real at code+test level: 2.1 (ri_ consumer + default dyn-lt), 2.2 (lang-item + Inv + `!Sync`), 2.3, 2.5, 2.6, 2.7, 3.1 — no scoreboard-vs-reality inconsistency found in category A. Note 2.6's first landing predates the Wave-9 close date (c971c97f, 2026-05-29). The v2-new gaps (§1 nested partial move, §2 E0184, §8 extension/promotion) are NOT covered by any logos-core row — catalog candidates.
 
 ## Recommended next moves
 
-Single-session work items, ordered by user-visible / soundness impact:
-
-1. **Fix the `&mut T`-field auto-Copy soundness bug** (`src/compiler/sema.cpp:2520`): remove `K::MutRef` from `field_kind_is_trivially_copy`; add a regression test that constructs `struct S { r: &mut i32 }` and asserts moving an `S` invalidates the source.
-2. **Add `TraitObject` to `variance_in_type`** (`src/compiler/sema.cpp:6830+`): Co in outer `'a`, Inv in each type arg, following the `subtyping.md` table row 10. Test via `dyn Trait<i32>` field.
-3. **Implement the default trait-object lifetime bound rule** (`lifetime-elision.md` §trait-object): currently no code path enforces `'static` outside expressions / inferred inside; sketch as a one-pass pre-mono normalisation in `sema_collect.cpp` near `dyn_type` resolution.
-4. **Wire `region_infer.cpp` output into `borrow_check.cpp` lifetime conformance** (currently `borrow_check.cpp:895-957` is point-checks; the solver result is computed but unused). Even a minimal hookup that consumes the `Contains/Outlives` map would tighten elision diagnostics.
-5. **Closure auto-Copy when all captures Copy**: extend `compute_auto_copy_types` to walk closures' capture lists; minor.
-6. **Surface diagnostic for `impl Copy for X` when X has `impl Drop`** — currently silently dropped by `compute_auto_copy_types`'s structural path; user-visible improvement.
-7. **Document Pin absence** in `docs/DIVERGENCES.md` (or note under A4 explicitly) so it stops being a phantom gap.
+1. **Fix temporary-lifetime-extension ICE** (§8): `let r = &<droppable rvalue>;` must either extend (Rust rule) or cleanly reject; today it miscompiles in mlir-gen. Soundness + UX.
+2. **Nested partial-move granularity** (§1, B78): dotted-path `moved_fields` end-to-end (check at `borrow_check.cpp:1568`, suppression at `sema.cpp:2992`); fixes both the missed E0382 and the sibling-field leak.
+3. **E0184 diagnostic** (§2): reject `impl Copy` when the target has `impl Drop` at `sema_collect.cpp:3554` — one-line check, closes a double-drop hazard.
+4. **Constant promotion** (§8): promote const-eligible `&rvalue` to static storage; unblocks `&'static` literal returns.
+5. **Closure move/Copy classification** (§§1-2): give `Kind::Closure` a real leaf in `move_classify` (move iff any capture is move-type); makes non-Copy closures E0382-tracked and Copy closures principled.
+6. **PhantomData<T> variance** (§7): treat as a `T` field in `variance_in_type`, next to the UnsafeCell special-case.

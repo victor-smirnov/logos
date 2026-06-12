@@ -1,130 +1,125 @@
 # Logos Feature Audit — Index
 
-Generated: 2026-05-30. Spec basis: rust-lang/reference (local checkout at `/home/victor/cxx/reference`).
+**v2 — re-audited 2026-06-12** (v1 generated 2026-05-30). Spec basis: rust-lang/reference (local checkout at `/home/victor/cxx/reference`).
 
-Per-category audits comparing the Logos compiler/stdlib against the Rust Language Reference, feature-by-feature. Each report enumerates feature naming, implementation pointers (file:line), neighbour interactions, gaps/debt, and single-session work items.
+Per-category audits comparing the Logos compiler/stdlib against the Rust Language Reference, feature-by-feature. Each report enumerates feature naming, implementation pointers (file:line), neighbour interactions, gaps/debt, and single-session work items. v2 re-verified every v1 verdict against HEAD (00355c52, 356 commits past v1) with ~100 targeted compile/run probes; v1-missed spec chapters (primary expressions, names/scopes, linkage, runtime, parenthesized types) swept in.
 
 ## Table of contents
 
-- [A — Ownership](A-ownership.md) — Move, Copy, Drop/RAII, Borrow, Lifetimes, Reborrow, Variance.
+- [A — Ownership](A-ownership.md) — Move, Copy, Drop/RAII, Borrow, Lifetimes, Reborrow, Variance, temporaries.
 - [B — Type system primitives](B-type-system-primitives.md) — primitives, Never, Tuple, Array, Slice, str, raw pointer, fn-item, fn-pointer, Closure, TraitObject, ImplTrait, Inferred `_`, layout/`repr`, coercions, DST.
 - [C — Items](C-items.md) — fn, struct, enum, union, const/static, type alias, trait, impl, module, use, extern block, associated items.
-- [D — Generics and bounds](D-generics-and-bounds.md) — type params, lifetime params, const params, where-clauses, trait bounds, HRTB, `Sized`/`?Sized`, GATs.
-- [E — Expressions and control flow](E-expressions-and-control-flow.md) — let, block, if/if let, match, loops, closure, `?`, async/await, return, field/method/call, operator overloading, range, cast.
+- [D — Generics and bounds](D-generics-and-bounds.md) — type params, lifetime params, const params, where-clauses, trait bounds, HRTB, `Sized`/`?Sized`, GATs, variance.
+- [E — Expressions and control flow](E-expressions-and-control-flow.md) — let, block, if/if let, match, loops, closure, `?`, async/await, return, field/method/call, operator overloading, range, cast, primary expressions.
 - [F — Patterns](F-patterns.md) — pattern kinds, refutability, binding modes.
-- [G — Memory and safety](G-memory-and-safety.md) — interior mutability, memory model/atomics, variables.
-- [H — Concurrency](H-concurrency.md) — Send/Sync, async fn / async block.
+- [G — Memory and safety](G-memory-and-safety.md) — interior mutability, memory model/atomics, variables, statics.
+- [H — Concurrency](H-concurrency.md) — Send/Sync, async fn / async block, Pin/Unpin.
 - [I — Modules, names, visibility](I-modules-names-visibility.md) — paths, visibility/privacy, name resolution/preludes/namespaces.
 - [J — Macros and metaprogramming](J-macros-and-metaprogramming.md) — `macro_rules!` analogue, procedural macros analogue.
 - [K — Unsafe](K-unsafe.md) — `unsafe` surface, UB list.
 - [L — Attributes](L-attributes.md) — built-in attributes, `#[cfg]` / `cfg!`.
 - [M — Const evaluation](M-const-evaluation.md) — const expressions / `const fn` / `const { }`.
-- [N — FFI, linkage, ABI](N-ffi-linkage-abi.md) — `extern "ABI" fn` / blocks, inline assembly.
+- [N — FFI, linkage, ABI](N-ffi-linkage-abi.md) — `extern "ABI" fn` / blocks, inline assembly, linkage model.
 - [O — Other (Panic, Divergence)](O-other-panic-divergence.md) — Panic, Never `!` / divergence.
 
-## Aggregate verdict counts
+## Aggregate verdict counts (v2, with v1 for delta)
 
-Counts are per audited feature (one feature ≈ one Rust-spec subsystem entry).
+Counts are per audited feature. v2 totals grew (78 → 122) because the re-sweep added spec surface v1 missed; per-feature comparisons are in the chapters. BLESSED = formally registered DIVERGENCES §A rows (async A4), excluded from OK/WARN/GAP.
 
-| Category | OK | WARN | GAP | Total |
-|----------|----|------|-----|-------|
-| A — Ownership | 4 | 2 | 1 | 7 |
-| B — Type system primitives | 10 | 4 | 2 | 16 |
-| C — Items | 6 | 4 | 2 | 12 |
-| D — Generics and bounds | 3 | 4 | 1 | 8 |
-| E — Expressions / control flow | 6 | 5 | 2 | 13 |
-| F — Patterns | 0 | 3 | 0 | 3 |
-| G — Memory / safety | 0 | 2 | 1 | 3 |
-| H — Concurrency | 0 | 1 | 1 | 2 |
-| I — Modules, names, visibility | 0 | 3 | 0 | 3 |
-| J — Macros / metaprogramming | 0 | 2 | 0 | 2 |
-| K — Unsafe | 0 | 2 | 0 | 2 |
-| L — Attributes | 0 | 2 | 0 | 2 |
-| M — Const evaluation | 0 | 1 | 0 | 1 |
-| N — FFI / linkage / ABI | 0 | 1 | 1 | 2 |
-| O — Other (Panic / Divergence) | 0 | 2 | 0 | 2 |
-| **Total** | **29** | **38** | **11** | **78** |
+| Category | OK | WARN | GAP | BLESSED | Total | v1 (OK/WARN/GAP) |
+|----------|----|------|-----|---------|-------|------------------|
+| A — Ownership | 5 | 2 | 1 | — | 8 | 4/2/1 |
+| B — Type primitives | 14 | 3 | 0 | — | 17 | 10/4/2 |
+| C — Items | 8 | 4 | 0 | — | 12 | 6/4/2 |
+| D — Generics / bounds | 5 | 4 | 1 | — | 10 | 3/4/1 |
+| E — Expressions / CF | 15 | 4 | 1 | 1 | 21 | 6/5/2 |
+| F — Patterns | 5 | 7 | 2 | — | 14 | 0/3/0 |
+| G — Memory / safety | 4 | 8 | 3 | — | 15 | 0/2/1 |
+| H — Concurrency | 3 | 4 | 2 | 1 | 10 | 0/1/1 |
+| I — Modules / names | 0 | 3 | 0 | — | 3 | 0/3/0 |
+| J — Macros / metaprog | 0 | 2 | 0 | — | 2 | 0/2/0 |
+| K — Unsafe | 0 | 2 | 0 | — | 2 | 0/2/0 |
+| L — Attributes | 0 | 2 | 0 | — | 2 | 0/2/0 |
+| M — Const evaluation | 0 | 1 | 0 | — | 1 | 0/1/0 |
+| N — FFI / linkage / ABI | 0 | 2 | 1 | — | 3 | 0/1/1 |
+| O — Panic / divergence | 0 | 2 | 0 | — | 2 | 0/2/0 |
+| **Total** | **59** | **50** | **11** | **2** | **122** | **29/38/11** |
 
-OK 37%, WARN 49%, GAP 14%. The dominant verdict is WARN: the feature lands and works for the common case, with named edges, naming drift, or partial enforcement that Rust spec considers load-bearing.
+OK 48% (v1 37%), WARN 41% (49%), GAP 9% (14%). The 37-item `logos-core.md` catalog absorbed v1's Tier-1–4 backlog: of v1's 44 ranked moves, ~34 are landed and verified (region inference, UnsafeCell, auto-traits, object safety, exhaustiveness, definite assignment, union, static split, extern blocks, cfg combinators, all 8 derives, Try-`?`, Range generics, DerefMut autoderef, atomics Ordering, never-macros, FnItem, `_` inference, repr-minimal, slice mutability, …). The v2 sweep's net new content: **6 crash/miscompile-grade findings, 8 soundness holes, and 8 scoreboard-vs-reality corrections** — almost all in surface the catalog never claimed or in residuals its ✅ rows under-stated.
 
-## Top cross-category findings
+## v1 → v2 corrections (audit errors, both directions)
 
-Ordered by how many category audits each item touches, then by soundness/parity impact.
+v1 false-negatives (feature existed at v1 time, reported GAP/WARN): variance machinery B64 (`d1987b9c`), inferred const-param `_` (`2487f0be`), UFCS expr-position `<T as Trait>::m()` (`2e57b1e5`), let-else divergence assertion (`70d4a671`), integer-overflow trap (`b0bc3eb5`). v1 false-positive: plain `&&` in match guards was never a gap (guard slot is a full expr); the real gap is `if let` in guards (still open).
 
-1. **Named-lifetime region inference is not consumed at borrow-check / variance / dropck**. `region_infer.cpp` is scaffolding only; declared `'a: 'b` outlives, `T: 'a`, HRTB binders, default trait-object lifetime rule (`'static` outside expr / inferred inside) all parse but do not flow into `borrow_check.cpp`'s lifetime-conformance path. Categories: **A** (Lifetimes/Variance), **D** (lifetime params, HRTB, outlives), **B** (TraitObject variance fall-through to BiVar), **F** (binding-modes ↔ borrow), **G** (`'static` storage class).
-2. **`#[repr(...)]` attribute family entirely missing**; layout is hard-coded Rust-default. Blocks FFI conformance for `repr(C)` / `repr(transparent)` / `repr(packed)` / `repr(uN)` enums; the imported `#[repr(u32)]` clauses are silently dropped. Categories: **B** (type layout), **C** (Struct/Enum/Union), **L** (attributes), **N** (FFI), **K** (UB list around layout).
-3. **`UnsafeCell` is not a lang-item; auto-trait `!Sync` for `Cell`/`RefCell` not derived**. Borrow checker permits `&T → *mut T` writes inside any `unsafe { }` indistinguishably from a real `UnsafeCell`. Variance pass does not treat `UnsafeCell<T>` as invariant in `T`. Categories: **G** (interior mutability), **A** (Variance), **H** (Send/Sync of Cell), **K** (UB validity rules).
-4. **Auto-trait machinery has known holes that propagate**: (a) closures conservatively `!Send`/`!Sync` (`sema_auto_trait.cpp:199-201`); (b) `dyn Trait + Send` parses but is *informational only* — no enforcement at unsize coercion; (c) `Arc<T>` lacks `unsafe impl Send/Sync` and the structural rule rejects it because of its raw `*mut` field. Categories: **H** (Send/Sync), **B** (closure types, trait objects), **G** (`Sync` on statics), **A** (closure auto-Copy parallel).
-5. **`Eq`/`Ord` ↔ `PartialEq`/`PartialOrd` naming inversion**. Logos stdlib's `Eq` plays Rust's `PartialEq`, `Ord` plays `PartialOrd` (`<`/`<=`/`>`/`>=` dispatch through `Ord::lt`). Ported `impl PartialOrd for X` does not bind. Categories: **E** (operator overloading), **F** (match guard `==`), **C** (trait names).
-6. **Pattern / refutability factoring is duplicated and ad-hoc**: at least 3 sites (`mlir_gen_stmt.cpp:3521`, `mlir_gen_expr.cpp:3877`, `sema_stmt.cpp:990-1003`) each encode their own irrefutability check. `let`-destruct accepts a narrow hand-listed shape set; fn-params accept only `IDENT` / `mut IDENT` / `(pat,…)`; const-as-pattern is special-cased per literal kind. Categories: **F** (patterns), **C** (fn-params, const items), **E** (let / let-else / match guards).
-7. **`let-chain` / multi-`&&` chains capped at one segment** across `if let`, `while let`, and `match` guard positions. `let`-in-guard absent. Categories: **E** (if, match, loops), **F** (refutability composition).
-8. **Atomics ship as stdlib API but the `Ordering` arg is discarded — every operation lowers to `seq_cst` on x86, unsoundly across non-TSO targets**. Atomics do not use `UnsafeCell<T>` for their storage. No compiler intrinsic; no memory model document. Categories: **G** (memory model / atomics), **H** (Send/Sync of atomics), **B** (`Ordering` pattern-match), **N** (replacing extern-asm with LLVM intrinsics), **K** (UB `undefined.race`).
-9. **`static` / `static mut` collapsed to `CONST_DEF`**: `static NAME: T = expr;` parses but uses the const-inline lowering (no stable address, no `'static` storage anchor); `static mut` not in the grammar. Soundness foot-gun for `&STATIC` lifetime. Categories: **C** (items), **G** (variables/storage), **M** (const vs static distinction), **K** (`unsafe extern { static FOO; }`), **A** (`'static` lifetime resolution).
-10. **Built-in attribute coverage is narrow + grammar restricts attributes to top-level items**. Missing: `#[repr]`, `#[inline]`, `#[non_exhaustive]`, `#[must_use]`, `#[deprecated]`, `#[allow]/#[deny]/#[warn]/#[forbid]/#[expect]`, `#[track_caller]`, `#[link*]`, `#[panic_handler]`, `#[doc = "…"]`, `#[unsafe(attr)]` wrapper, tool attributes. Outer attrs do not parse on fields, variants, trait/impl items, match arms, blocks, statements, fn params, generic params. `#[cfg(...)]` and `#[cfg_attr]` work for the single-arg case but the structured attribute path lacks `all/any/not` combinators (asymmetric vs `cfg!()`), and `cfg_attr` wrapped-attr activation is a stub. Categories: **L** (attributes), **C** (items grammar), **K** (`#[unsafe]` wrapper), **N** (link*, no_mangle siblings), **O** (`#[track_caller]`, `#[panic_handler]`), **B** (`#[repr]`), **F** (`#[non_exhaustive]`).
+## Top cross-category findings (v2)
+
+Ordered by severity; (cat) = chapters carrying detail.
+
+1. **Statics have no storage class — miscompiles, not diagnostics** (C,G,K,M,N). Every static lowers to const-inline / per-use fresh alloca; no `llvm.mlir.global` is ever emitted. Probe-confirmed: cross-fn `static mut` write→read **segfaults** (S25); single-fn read-before-first-write returns **garbage**; `static ATOMIC` mutation hits an inlined copy (fetch_add in fn A invisible in main); extern statics fold to `CONST_DEF` (reads not unsafe-gated, linkage presumed broken). One fix — real GlobalOp + addressof — closes all five.
+2. **Compiler crashes (ICE) on legal-or-near-legal input** (B,O,A): (a) `fn f(x: _)` → logosc SIGSEGV, no diagnostic; (b) `unreachable!()`/`todo!()` in match-arm position → SIGSEGV (if-arm fine; `panic!("…")` in same position types `void` — same root: format-family sema-inline doesn't carry `Never` through the match-arm unifier); (c) `let r = &String::from("x")` (spec temporary-lifetime-extension) → mlir-gen module-verification failure.
+3. **Silent wrong-code coercion**: `let s: &[i64] = &[1i32,2,3,4]`-shape accepted — unsize coercion never checks element type; garbage upper-bit reads (F,B).
+4. **`#[cfg]`-false items are dropped from collection but still lowered** — two same-named fns gated `cfg(unix)`/`cfg(windows)` (the canonical platform switch) die with "duplicate function body" (L). Also `cfg(true)`/`cfg(false)` literal predicates unrecognized.
+5. **Closure auto-trait propagation checks parameter types, not captures** — closure capturing `*mut i32` passes `T: Send`; v1's too-strict conservative `false` became too-permissive (H). logos-core §2.4(a) claim is wrong.
+6. **Or-pattern binding consistency unenforced at top-level arm alternations** — `Some(x) | None => x` compiles (Rust E0408); the check exists (`sema_stmt.cpp:3947`) but only fires nested (F).
+7. **Enum + trait visibility entirely unenforced cross-package** (`lookup_qualified_<false>` for `enums_`/`traits_`; `SemaTraitInfo` lacks `is_pub`) — non-pub enum constructs/matches from another package silently (I).
+8. **Partial-move tracking is one-level**: `o.i.s` move-out then re-read accepted (missed E0382) AND sibling `o.i.t` leaks (whole-field drop suppression, valgrind-confirmed) (A). Related: `impl Copy` + `impl Drop` coexistence accepted (E0184, double-drop hazard).
+9. **Atomics: per-variant Ordering is literal-site-only** — the safe `*_ordered` methods pass a runtime VarRef, always fall back to seq_cst (sound on x86, claim in §6.14 over-broad); `AtomicUsize`/`AtomicIsize` still absent (G).
+10. **Operator-dispatch debts**: unary `!` unusable (`impl Not` can't bind — sema dispatches `not_`, trait declares `not`; zero coverage); `Eq`/`Ord`↔`PartialEq`/`PartialOrd` inversion persists; `..`/`..=` still construct `RangeI32`/`RangeI64`, not the landed generic `RangeOf<T>` family; `RangeToInclusive` end+1 observable (E).
+11. **`where <concrete-type>: Trait` mis-parses** into a phantom type-param named after the concrete type → spurious "could not infer type arg 'i32'" (D). Sibling parse gaps: GAT where-clauses, `&&pat`, const range-bounds `LO..=HI`, exclusive char ranges, `S { ref a }`, `S { 0: a }`, `(..)`, `fn g() -> _` accepted (E0121 absent).
+12. **Trait-default assoc consts not inherited** — `impl Tr for S {}` then `S::C` / `Tri::SIDES` unresolved (grammar landed `1b8ff07e`; projection fallback trait→impl missing) (C,M).
+
+## Scoreboard / register corrections needed (tracking-doc hygiene)
+
+`logos-core.md` "37/37 ✅" needs five row-level corrections: §2.4(a) closure-captures claim false (see #5); §6.9 over-states (K10-co-06 canonical repro `[i64; metacall{N}]` still fails — resolver not wired at the 3 type-position CTFE sites); §6.14 method-path Ordering claim false (see #9); §6.2/§6.11 ✅ rows carry live crashes in their deferred residuals (S25; match-arm ICE); §1.4 plan-table row keeps stale "DEFERRED" text vs closed §-body. `DIVERGENCES.md`: §A still lacks the package/`mod` + dotted-path + `use…as` model row (v1 move #41, twice flagged, never executed) and the `dyn Fn*`→`Kind::Closure` collapse + `I24/U24/I56/U56` rows; B4 lists already-fixed items; B6 "pool-UID split" contradicts landed code. `undefined-behavior.md` is stale in 3 entries (transmute "rejected" — no transmute exists; Ordering "discarded" — threaded since `2d145bf4`; overflow "wraps" — traps since `b0bc3eb5`) and its anchor IDs drifted from the spec.
 
 ## Recommended next moves (ranked, deduplicated)
 
-Each item is sized for a single working session unless noted. Cross-reference the per-category report for the exact file:line plumbing.
+### Tier 0 — crashes & miscompiles (fix-the-class, now)
 
-### Tier 1 — soundness / parity bugs (fix now, generalize)
+1. Static storage class: emit one `llvm.mlir.global` per `static`/`static mut`/extern-static + addressof routing — closes S25 segfault, read-before-write garbage, atomic-in-static, extern-static linkage, `&STATIC` identity, and unblocks static-`Sync` enforcement (C,G,K,M,N).
+2. Match-arm `Never`-typing for the format-family builtins — fixes `unreachable!()`/`todo!()` match-arm ICE and `panic!("…")` void-typing in one root (O).
+3. `_`-in-item-signature: fix SIGSEGV, reject param/return `_` (E0121 analog) (B).
+4. Temporary-lifetime-extension ICE: `let r = &<droppable rvalue>` through mlir-gen (A).
+5. Element-type check at array→slice unsize coercion (`&[i32;N]` ↛ `&[i64]`) (F,B).
+6. Gate the lowering walk on cfg-drop (cfg(unix)/cfg(windows) duplicate-symbol) + `cfg(true/false)` literals (L).
 
-1. Remove `K::MutRef` from `field_kind_is_trivially_copy` so a struct holding `&mut T` does not auto-promote to `Copy` (`A`).
-2. Wire `dyn_auto_bounds` (`+ Send` / `+ Sync` / `+ 'a`) enforcement at the unsize-coercion site; currently informational-only (`H`, `B`).
-3. Add `unsafe impl<T: Send + Sync> Send/Sync for Arc<T>` in `stdlib/mem/sync/arc.logos` (one-line fix; otherwise `Arc<i32>: !Send`) (`H`).
-4. Add `TraitObject` arm to `variance_in_type` so `dyn Trait<T>` is Co in `'a`, Inv in each type arg, instead of falling through to BiVar (`A`).
-5. Tighten Never coercion: `Never → T` only; reject `T → Never` (currently bidirectional at `sema.cpp:1619`) (`B`, `O`).
-6. Generalise the name-keyed `callee == "panic"` divergence carve-outs at `sema_expr.cpp:11899-11905` and `:12057-12095` to use `is_divergent_call` (`O`).
-7. Tighten the bare-key fallback tier in `lookup_qualified_` (`sema_impl.hpp:2432`) so the pub check isn't bypassed for non-host items (`I`).
-8. `loop {}` with no `break` should type as `!`/`Never` instead of `Void` (`E`).
-9. Implement chained auto-deref so `match &&Some(x) { Some(x) => … }` binds correctly through both `&` layers (`F`).
-10. `let-else` divergence check: assert the else block ends in a hard terminator / `Never` (`E`).
+### Tier 1 — soundness
 
-### Tier 2 — high-impact stdlib / surface gaps
+7. Closure auto-traits walk capture types (by-ref captures via `&T` rule) + fail-test (H).
+8. Or-pattern binding-consistency at top-level arm alternations — wire the existing `:3947` check into lower_match (F).
+9. Enum/trait visibility: `is_pub` on `SemaTraitInfo`, flip `lookup_qualified_` to PubCheck for enums/traits (I).
+10. Dotted-path partial-move granularity (B78): depth-≥2 E0382 + per-path drop suppression (A).
+11. E0184: reject `impl Copy` where `impl Drop` exists (one check, `sema_collect.cpp:3554`) (A).
+12. `dyn Trait + Auto` enforcement at let/return/field-init coercion sites (today arg-coercion only) (H,B).
+13. Extern-static read gating + `unsafe extern { }` 2024 form (K,N).
 
-11. Ship missing `#[derive_<trait>]` stdlib handlers: **Debug** (highest impact for coretest imports), **PartialEq/Eq**, **Default**, **Hash**, **PartialOrd/Ord**, **Copy**. One per session (`J`, `L`).
-12. Add `unreachable!()` / `todo!()` / `unimplemented!()` `#[fn_macro]` wrappers in `stdlib/std/fmt/fmt.logos` (`O`).
-13. Rename / alias `Eq`/`Ord` ↔ `PartialEq`/`PartialOrd` so ported `impl PartialOrd for X` binds (`E`, `C`).
-14. Add `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generic stdlib types (today only `RangeI32`/`RangeI64`) (`E`).
-15. Re-base `?` on a real `Try` / `FromResidual` trait surface; retire the hardcoded `Ok`/`Err`/`Some`/`None` name match (`E`).
-16. Implement `DerefMut`-driven method autoderef for `&mut self` methods on smart-pointer receivers (`E`, `B`).
-17. Add `AtomicUsize` / `AtomicIsize`; replace `extern fn logos_atomic_*` with MLIR atomic intrinsics driven by `Ordering` (`G`, `H`, `N`).
+### Tier 2 — high-impact parity / surface
 
-### Tier 3 — grammar / AST refactors that unblock parity
+14. Wire `SemaConstResolver` at the 3 type-position CTFE sites (`sema.cpp:5654`, `sema_expr.cpp:10868`, `sema_collect.cpp:1943/1974`) — closes K10-co-06; then PATH folding in `ctfe::do_eval` + trait-default assoc-const projection (M,C).
+15. `Not` dispatch fix (`not_`→`not`, one line) + first `impl Not` test (E).
+16. Comparison operators → real `PartialEq`/`PartialOrd` dispatch (`partial_cmp`), un-inverting the `Eq`/`Ord` naming (E,C,F).
+17. Range operator desugar `..`/`..=` → generic `RangeOf<T>` + fix `..=` end+1 (E).
+18. `where`-clause general subject (concrete-type LHS) + GAT where-clause grammar (D).
+19. Lifetime-elision signature rules + E0106 reject (named-region substrate ready) (D,A).
+20. `use … as Alias` + `use pkg.{a,b}` (I,C).
+21. `assert!`/`assert_eq!`/`assert_ne!`/`matches!`/`dbg!` builtins (same layer as `unreachable!`) (J).
+22. `quote_expr!` antiquot Ident-at-type/str-position — unblocks Debug/Default/PartialOrd derive parity in one fix (J).
+23. ABI string → MLIR calling-convention threading + ABI tag on `Kind::FnPtr` + extern-fn-ptr type grammar (N,B).
+24. Ordering const-prop through `*_ordered` wrappers + `AtomicUsize`/`AtomicIsize` (G,H).
+25. Deferred init of non-mut local (`let x: i32; x = 5;` — spec variable.init example) (G).
+26. Binding-mode parity: Copy payloads bind `&T` per RFC 2005 (drop the `is_move_type` gate at the 3 default-binding-mode sites) (F).
+27. Pattern parse gaps batch: `&&pat`, const range bounds, exclusive/char ranges, `S { ref a }`, `S { 0: a }`, `(..)` (F).
+28. Fully-qualified dotted+`::` path in expr/type position; UFCS honors the trait qualifier (I,E).
+29. Uninhabited-variant arm elision in exhaustiveness (O).
+30. Nested `#(…)*` repetition in quote templates (`sema_expr.cpp:14822,15860`) (J).
 
-18. Add `let-chain` multi-`&&` support to `if_expr` / `while_stmt` / `match_arm` via a shared `LetChain` non-terminal; let-in-guard (`E`).
-19. Add `Kind::InferredType` + grammar `_` alt in `type_ref`, enabling `let x: Vec<_> = …` (`B`).
-20. Add `Kind::FnItem` distinct from `Kind::FnPtr`; coerce on use; fixes `if cond { foo::<i32> } else { foo::<u32> }` (`B`).
-21. Slice mutability — add a `mut` bit to `Kind::Slice`, reject `a[i] = v` through `&[T]`, coerce `&mut [T] → &[T]` (`A`, `B`).
-22. Hoist `is_refutable(Pat, ScrutTy)` into a single canonical predicate; drive `let` acceptance + `if let`/`while let` warnings + `match` shortcut (`F`).
-23. Generalise fn-params to accept any irrefutable pattern (today only `IDENT` / `mut IDENT` / `(pat,…)`) (`F`, `C`).
-24. Split `static` from `const` (distinct AST node, stable address, `'static` storage anchor); land `static mut` as a separate kind (`C`, `G`, `M`).
-25. Introduce `PAT_PATH` + general constants-as-patterns; structural-equality check (`F`).
-26. Split `PAT_VARIANT_DATA` → `PAT_TUPLE_STRUCT` + `PAT_STRUCT_VARIANT`; split `PAT_WILD` → wildcard + ident (`F`).
-27. Split `Kind::Slice` → `Kind::SliceRef` (cosmetic, plus split `Kind::Str` from `Kind::Slice(u8)`) (`B`).
-28. Add `union` item (`KW_UNION`, `union_def`, `LUnionDef`); even parse-only unblocks Rust imports that mention `union` (`C`, `B`, `K`).
-29. Add `extern { … }` block surface + ABI string literal (`"C"`, `"system"`, `"C-unwind"`); ABI tag on `Kind::FnPtr` (`N`, `B`).
-30. Add `#[repr(C)]` / `#[repr(transparent)]` / `#[repr(uN)]` parser + plumb into `layout_of` (`B`, `C`, `L`, `N`).
-31. Allow annotations on struct fields, enum variants, trait items, impl items (grammar widening + new `AttrTarget` variants) (`L`, `C`).
+### Tier 3 — documentation / register hygiene (single pass)
 
-### Tier 4 — semantics / passes
-
-32. Wire `region_infer.cpp` output into `borrow_check.cpp` lifetime conformance; implement default trait-object lifetime rule; full HRTB instantiation subtype (`A`, `D`).
-33. Definite-assignment analysis pass over CFG so `let x: T;` followed by partial init is a compile error (`G`).
-34. `UnsafeCell` lang-item: variance Inv carve-out, auto-`!Sync` for any struct containing it; rename `pub enum Never {}` → `Infallible` (`G`, `O`, `A`, `H`).
-35. Object-safety enforcement walk for `items.traits.dyn-compatible.*` (no Sized supertrait beyond opt-in, no GAT, opaque return, etc.) (`C`, `D`).
-36. Closure auto-trait propagation: walk capture types in `sema_auto_trait.cpp` instead of conservatively returning `false` (`H`, `B`).
-37. Symmetric `#[cfg]` combinator path so the structured attribute supports `all/any/not` like `cfg!()` does; activate `#[cfg_attr]` wrapped attributes (`L`).
-38. Close `K10-co-06` — thread a `ConstResolver` seam through `ctfe::do_eval` so `metacall { N }` folds path-to-const references (`M`).
-39. Unify `is_const_evaluable` with `ctfe::do_eval` so the const-item shape gate and the evaluator share one source of truth (`M`).
-40. `!`-fallback inference rule (Rust 2024 `divergence.fallback`) for inference vars unified only against `Never` (`O`, `B`).
-
-### Tier 5 — documentation hygiene
-
-41. Single-pass `docs/DIVERGENCES.md` augmentation: add/clarify rows for the blessed model items this audit surfaced as undocumented — `package` vs `mod` + dotted-`.` separator, variadic tuple `(A...)`, `dyn Fn*(...) → Kind::Closure` collapse, `I24/U24/I56/U56` widths, `Void` kind, no `repr`, no Union, no `static mut`, `extern fn` block-form absent, `panic` is abort-only, `catch_unwind` signature divergence, atomic-`Ordering` ignored.
-42. Stand up `docs/language/undefined-behavior.md` mirroring `behavior-considered-undefined.md` section-by-section with one-line "enforced/partial/unenforced" per anchor (`K`).
-43. Add a "Migrating from `macro_rules!`" section to `docs/language/reference/macros.md`; catalog the prelude macro builtins (`J`).
-44. Harmonise `annotation` ↔ `attribute` naming in grammar / AST / diagnostics (`L`).
+31. `DIVERGENCES.md`: add §A rows (package/path model + `use…as`; `dyn Fn*`→Closure collapse; extra int widths; `Void`); prune stale B4/B6 lines.
+32. `undefined-behavior.md`: sync 3 stale entries; re-anchor IDs to spec.
+33. `logos-core.md`: correct §2.4(a)/§6.9/§6.14 rows; surface S25 + match-arm-ICE residuals at the scoreboard level; refresh §1.4 plan row.
+34. Stale stdlib comments: `cell.logos` header ("no compiler magic"), `marker.logos` Pin note; `enum Never` → `Infallible` rename (O,G).
 
 ---
 
-For per-feature detail (Rust-spec citation, exact Logos file:line, interaction edges, gap rationale), open the corresponding category report linked in the [Table of contents](#table-of-contents).
+For per-feature detail (Rust-spec citation, exact Logos file:line, probe transcripts, interaction edges), open the corresponding category report linked in the [Table of contents](#table-of-contents).

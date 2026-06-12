@@ -1,108 +1,92 @@
 # Category K — Unsafe (audit)
 
-Generated: 2026-05-30; spec: rust-lang/reference (local checkout)
+v2 — re-audited 2026-06-12 (v1: 2026-05-30); spec: rust-lang/reference (local checkout).
 
-Summary: 2 features audited — 0 fully OK, 2 WARN. Headline gaps: (a) **most of the `unsafe`-keyword surface beyond `unsafe fn`/`unsafe {}`/`unsafe trait`/`unsafe impl` is missing**: no `unsafe extern { … }` blocks (Logos uses bare `extern fn` items — auto-marked unsafe but the *block* form doesn't exist); no `unsafe static …`; no `#[unsafe(attr)]` attribute wrapper; no `unsafe_op_in_unsafe_fn` lint (Logos always treats an `unsafe fn` body as one giant unsafe block, with no opt-in to require nested `unsafe {}`); (b) **the Rust UB list has zero language-level enforcement** in Logos — `inside_unsafe_` simply gates raw-ptr deref/method/field/index ops and unsafe-fn calls, but there is no compiler awareness of misalignment, dangling, aliasing, invalid values (bool ≠ 0/1, `char` surrogates, niche ranges, `&` non-null), `transmute` size match, data races, mutating immutable bytes, or unwinding-across-ABI; (c) `static mut` is not in the grammar at all (G-audit notes `static NAME: T = expr;` collapses to `CONST_DEF`); (d) no `union` item (no UB rules for union read could exist); (e) no `transmute` intrinsic in stdlib (grep returns 0). Practical impact: any imported Rust test that relies on the compiler refusing UB-prone misuses passes by accident or via the BC's exclusivity check, not via an unsafety/UB rule.
+Summary: 2 features audited — 0 OK, 2 WARN (both materially improved since v1). Closed since v1: **`union` item with full soundness** (44e05308 + e989d16a — field-read unsafe gate, safe writes, Copy field restriction, whole-union borrow coercion, max-of-fields layout); **`static mut`** (18003dc5 Wave 8 — declaration, read+write unsafe gates) but the storage model is BROKEN (see S25 below); **`extern "ABI" { … }` blocks** (§6.7 — ABI strings validated: "C", "C-unwind", "system", "Rust"); **UB register doc** `docs/language/undefined-behavior.md` (127122bf — exists, but 3 entries are stale/wrong, see Feature 2); **`UnsafeCell` lang-item** (79b55734); **integer-overflow runtime trap** (b0bc3eb5, 2026-05-05 — v1 misread this as absent; probe: `120i8+120i8` → SIGILL rc=132). Still missing: `unsafe extern { … }` 2024 keyword form (probe: parse error), `#[unsafe(attr)]` wrapper, `unsafe_op_in_unsafe_fn` lint, `#[target_feature]` call rule, `transmute` intrinsic (`stdlib/lang/num/float.logos:21` routes bit-reinterpret through ptr casts instead), Miri-analog for raw-ptr aliasing.
 
-## Feature 1 — `unsafe fn` / `unsafe` block (+ `unsafe trait`, `unsafe impl`, `unsafe extern`, `unsafe static`, `#[unsafe(attr)]`)
+## Feature 1 — `unsafe fn` / `unsafe` block (+ `unsafe trait`, `unsafe impl`, `unsafe extern`, mutable statics, unions, `#[unsafe(attr)]`)
 
-**Rust nomenclature.** `unsafe fn`, `unsafe {}` block, `unsafe trait`, `unsafe impl`, `unsafe extern {…}` block (edition 2024), `unsafe static`, `#[unsafe(attr)]` attribute wrapper. Spec: `unsafe-keyword.md` / `unsafety.md`. Operations that REQUIRE an unsafe context (`unsafety.md` §unsafe-ops): raw-pointer deref, mutable-or-extern-static read/write, union field read, unsafe-fn call, unsafe-trait impl, extern block declaration, target_feature call, unsafe-attribute application.
+**Rust nomenclature.** `unsafe fn`, `unsafe {}`, `unsafe trait`, `unsafe impl`, `unsafe extern {…}` (edition 2024), mutable/extern statics, `#[unsafe(attr)]`. Spec: `unsafe-keyword.md` / `unsafety.md`. Unsafe-context-requiring ops (`safety.unsafe-ops`): raw-ptr deref, mutable-or-extern-static access, union field read, unsafe-fn call, unsafe-trait impl, extern declaration, target_feature call, unsafe-attribute application.
 
 **Logos nomenclature.**
-- Grammar keyword: `KW_UNSAFE = "unsafe"` at `tools/peg_gen/grammars/logos.peg:350`.
-- Grammar productions: `unsafe_block <- KW_UNSAFE block` at `tools/peg_gen/grammars/logos.peg:1628` (used in stmt position `:1662`, expr position `:2441`, and a third site `:2267`); `unsafe fn` lifted via `KW_UNSAFE KW_FN …` alts at `:833-847, 990-1007, 1146-1182`; `unsafe trait` at `:791-822`; `unsafe impl` at `:898-916`; `unsafe fn(…)` POINTER TYPE at `:1510-1516`.
-- AST flag: `IS_UNSAFE = 42` (`tools/peg_gen/grammars/logos.peg:62`); node code `UNSAFE_BLOCK = 132` (`:191`).
-- Sema state: `bool inside_unsafe_ = false;` at `src/compiler/sema_impl.hpp:2899`. Storage of `is_unsafe` on `SemaFnInfo` (`sema_impl.hpp:1983`), `SemaTraitInfo` (`:2010`), `SemaImplInfo` (`:2027`), per-method (`:1932`).
-- Unsafe-context push: stmt-form `src/compiler/sema_stmt.cpp:533-538`; expr-form `src/compiler/sema_expr.cpp:1194-1220`; **`unsafe fn` body implicitly opens an unsafe context** at `src/compiler/sema_decl.cpp:661-663, 828`.
-- Call-site enforcement: `if (fi.is_unsafe && !inside_unsafe_) error("call to unsafe function …")` at `src/compiler/sema_expr.cpp:3213` (and replicated at `:2587, :2769, :5659, :5815, :6348, :6859, :7090, :7558, :11609, :11742` for the various method/UFCS paths).
-- Raw-ptr deref gate: `src/compiler/sema_expr.cpp:2166-2167` ("dereference of raw pointer requires unsafe context"); pointer-method gating `:5601, :5619`; method-via-ptr `:6168, :6185, :7568`; field-read-via-ptr `:7968-7977, :8080`; index-via-ptr `:9032-9033`; chain-field/index/deref WRITE `src/compiler/sema_stmt.cpp:448-449, 516-517, 6210, 6238, 6269, 6497`.
-- Unsafe-fn implicitly unsafe body (no `unsafe_op_in_unsafe_fn` lint): `sema_decl.cpp:661-663`.
-- Unsafe-trait/impl parity gating: `src/compiler/sema_collect.cpp:3007-3024` (errors: "implementing unsafe trait requires `unsafe impl`", "`unsafe impl` for a safe trait", "`unsafe impl` for a safe built-in trait Copy", "standalone impl cannot be unsafe"); per-method parity at `:2880-2884`.
-- Extern fn auto-marking: `src/compiler/sema_collect.cpp:3855-3858` — `EXTERN_FN` items get `is_pub = is_unsafe = is_extern = true`, so calls to them go through the same `fi.is_unsafe` gate at `sema_expr.cpp:3213`. This substitutes for the missing `unsafe extern {…}` block form.
+- Grammar: `KW_UNSAFE` (`logos.peg:361`); `unsafe_block <- KW_UNSAFE block` (`:1759`, stmt `:1793`/`:2425`, expr `:2601`); `unsafe fn` alts in trait_method (`:863-885`) and fn defs; `unsafe trait` (`:814-845`); `unsafe impl` (`:950-966`); `union_def` (`:1144-1146`); `static mut NAME: T = expr;` → `STATIC_DEF` code 254 (`:313, :683-685`); `extern "ABI" { … }` → `EXTERN_BLOCK` code 249 (`:308, :1192-1208`, incl. `static`/`static mut` items inside).
+- Sema state: `bool inside_unsafe_` (`sema_impl.hpp:3292`). Push sites: stmt `sema_stmt.cpp:617`, expr `sema_expr.cpp:1397`, `unsafe fn` body implicit `sema_decl.cpp:747`.
+- Call gate `fi.is_unsafe && !inside_unsafe_`: **still 11 replicated sites** in `sema_expr.cpp` (`:2845, 3037, 3617, 6172, 6328, 6929, 7467, 7701, 8176, 12712, 12835`) — v1 refactor recommendation not taken.
+- Raw-ptr deref gate: `sema_expr.cpp:2415` (+ method/field/index/write projections, same pattern as v1).
+- Union field gates: read requires unsafe `sema_expr.cpp:8917-8933` ("field read of `U.a` requires `unsafe` block"); writes safe `sema_stmt.cpp:6858` (`items.union.fields.write`); field-type Copy restriction `sema_collect.cpp:1465-1510`; fieldless rejected `:1454-1461`; struct/union shared namespace `:359-376`; borrow of one field borrows the whole union `borrow_check.cpp:678-680`.
+- Static-mut gates: collection `sema_collect.cpp:1842-1848` (`module_static_muts_`); read gate `sema_expr.cpp:542-546`, write gate `sema_stmt.cpp:2409-2419`, both shadow-aware ("requires `unsafe` block (Rust `items.static.mut.safety`)"). Probes: write-outside-unsafe rejected ✓; `unsafe { A=A+1; }` round-trip ✓.
+- Extern: `extern "ABI" {}` blocks flattened with ABI inheritance `sema_collect.cpp:1268-1321`; ABI validated against {"C","C-unwind","system","Rust"} (`:1275-1283`); every `EXTERN_FN` auto-marked `is_unsafe = true` (`:4485`) so calls hit the same gate.
+- Unsafe-trait/impl parity: `sema_collect.cpp:3546-3589` (4 diagnostics, unchanged semantics from v1).
 
-**Match verdict.** WARN — core naming matches Rust (`unsafe fn`, `unsafe {}`, `unsafe trait`, `unsafe impl`, `unsafe fn(…)` ptr) but four Rust-spec surface forms are MISSING and one is partially present:
-- `unsafe extern { … }` block — **GAP** (no production; only bare `extern fn IDENT(…)` items exist at `logos.peg:1122-1127`, no `extern { … }` syntactic block). Logos compensates by auto-flagging every `extern fn` as unsafe.
-- `unsafe static …` (mutable / external statics) — **GAP** (no `static mut`; `logos.peg:664-671` accepts only immutable `static NAME: T = expr;` and folds it to `CONST_DEF`).
-- `#[unsafe(attr)]` attribute wrapper — **GAP** (grep `unsafe(` in grammar/sema: 0 matches).
-- `unsafe_op_in_unsafe_fn` opt-in lint — **GAP** by design today: `sema_decl.cpp:661-663` unconditionally treats an `unsafe fn` body as one giant unsafe block. No lint, no opt-in.
-- `target_feature`-safety call rule (`safety.unsafe-target-feature-call`) — **GAP** (no `#[target_feature]` attribute in Logos).
+**Match verdict.** WARN — the unsafe-op set now covers raw-ptr deref, unsafe-fn call, unsafe-trait impl, **union field read** (✅ closed 44e05308), **mutable-static access** (✅ gate closed 18003dc5), extern-fn calls. Remaining surface gaps:
+- `unsafe extern { … }` keyword form (`unsafe.extern.edition2024`) — **GAP**. `extern "C" { fn …; }` parses and runs (probe rc=42); prefixing `unsafe` is a syntax error (probe). One-token grammar fix.
+- Extern **immutable** static (`static NAME: T;` inside extern block) folds to `CONST_DEF` (`logos.peg:1207-1208`) — reads are NOT unsafe-gated. Rust `safety.unsafe-static` covers *extern* statics too. **GAP** (small).
+- `#[unsafe(attr)]` wrapper (`safety.unsafe-attribute`) — **GAP** (grep `unsafe(` in grammar: 0).
+- `unsafe_op_in_unsafe_fn` opt-in lint — **GAP** by design: `sema_decl.cpp:747` makes an `unsafe fn` body one giant unsafe block.
+- `#[target_feature]` call rule — **GAP** (attribute absent, L-side).
+- **`static mut` storage model broken (S25-class, CRITICAL):** `STATIC_DEF` reuses const storage; mlir-gen materialises a fresh alloca per access instead of one `llvm.mlir.global`. Documented residual (logos-core §6.2 S25: cross-fn read segfaults). **NEW v2 finding:** even single-fn read-before-first-write returns garbage — probe `static mut A: i32 = 7; return unsafe { A };` → rc=48 (≠7). Write-then-read in `main` works (probe init 5,+1,+1→7 ✓), which is why the suite test stays green. The gates are right; the codegen is wrong.
 
-**Implementation pointer.** `tools/peg_gen/grammars/logos.peg:350, 1628`; `src/compiler/sema_impl.hpp:2899` (`inside_unsafe_` flag); `src/compiler/sema_expr.cpp:1191-1224` + `src/compiler/sema_stmt.cpp:532-539` (push/pop); `src/compiler/sema_decl.cpp:661-663` (unsafe-fn body implicit); `src/compiler/sema_collect.cpp:3007-3024` (unsafe trait/impl parity); call gate `src/compiler/sema_expr.cpp:3213`; raw-ptr deref gate `:2166-2167`.
+**Implementation pointer.** `logos.peg:361, 1759, 1144, 683-685, 1192`; `sema_impl.hpp:3292`; push `sema_stmt.cpp:617` / `sema_expr.cpp:1397` / `sema_decl.cpp:747`; union gates `sema_expr.cpp:8917` / `sema_collect.cpp:1432-1510`; static-mut gates `sema_expr.cpp:542` / `sema_stmt.cpp:2409`; extern `sema_collect.cpp:1268-1321, 4485`; trait/impl parity `sema_collect.cpp:3546-3589`.
 
-**Interactions check** (vs the feature-interactions table edge list for "`unsafe fn` / `unsafe` block"):
-- **Raw pointers (deref)** — OK. `sema_expr.cpp:2166-2167` rejects `*p` for `p: *const/*mut T` outside an unsafe context. Field-read via raw ptr (`sema_expr.cpp:7968-7977`), method via raw ptr (`:6168-6186, 7568`), index via raw ptr (`:9032-9033`), and the WRITE-side gates (`sema_stmt.cpp:448-517, 6210-6497`) cover the place projections. Aligned with Rust's `safety.unsafe-deref`.
-- **`transmute`** — n/a / GAP — feature absent. Grep `transmute` across `src/` and `src/stdlib/` returns 0 matches. Logos has no `mem::transmute` intrinsic and no `as`-cast with size/init check beyond standard `expressions.md` cast rules. Cannot be "unsafe-gated" since it doesn't exist.
-- **Union field access** — n/a / GAP — feature absent. Grep `KW_UNION` / `^union` in `logos.peg` returns 0 matches. `union { f: T, g: U }` is not parseable; the spec's `safety.unsafe-union-access` rule cannot apply.
-- **Calling unsafe fns** — OK. `sema_expr.cpp:3213` enforces `fi.is_unsafe && !inside_unsafe_` → "call to unsafe function …"; mirrors `safety.unsafe-call`. Replicated for method/UFCS/generic call paths.
-- **Implementing unsafe traits (`Send`/`Sync` manually)** — OK. `sema_collect.cpp:3007-3024` enforces `unsafe impl` parity; trait-method `unsafe`-parity check at `:2880-2884`. Used in stdlib at `stdlib/std/sync/sync.logos:85-86, 152-153`. Mirrors `safety.unsafe-impl`.
-- **FFI (`extern fn`)** — WARN divergent surface (likely catch-up TODO per [[ref_divergences_register]] §B rule). Logos accepts bare `extern fn name(…) -> R;` items (`logos.peg:1122-1127`) and auto-marks them unsafe at `sema_collect.cpp:3855-3858`. Rust 2024 requires an `unsafe extern "ABI" { fn …; }` BLOCK; the block form is missing and `"ABI"` strings (`"C"`, `"system"`, `"C-unwind"`, …) aren't parsed. So `extern fn` calls *are* unsafe-gated (good), but the surface diverges (bug, not blessed in `docs/DIVERGENCES.md`). Mirrors partial coverage of `safety.unsafe-extern`.
-- **Inline asm** — n/a / GAP — feature absent. No `asm!` macro / `INLINE_ASM` node (grep returns 0 outside `mlir_gen` LLVM-side comments). `safety` does not list asm directly but `behavior-considered-undefined.md` r[undefined.asm] does.
-- **`#[unsafe(attr)]` attribute wrapper** — GAP. No `unsafe(...)` attribute syntax (grep returns 0 in grammar). Required by `safety.unsafe-attribute` for attrs with safety obligations (`#[unsafe(no_mangle)]`, `#[unsafe(export_name = "…")]`, `#[unsafe(link_section = "…")]`).
+**Interactions check.**
+- **Raw pointers (deref)** — OK (`sema_expr.cpp:2415` + projections). Unchanged.
+- **`transmute`** — n/a / GAP — still absent (grep `transmute` in `src/compiler/`: 0; `stdlib/lang/num/float.logos:21` comment: "Logos doesn't expose a transmute intrinsic", uses `&x as *const f32 as *const u32` under unsafe). NOTE: `undefined-behavior.md:49-50` claims transmute size-mismatch is "REJECTED at compile" — **doc wrong**, no such intrinsic exists.
+- **Union field access** — ✅ closed (44e05308 item + e989d16a 11 conformance fixes). Probes: read outside unsafe rejected ✓; write-safe + unsafe-read runs (rc=35) ✓. 20 `core_6_1_union_*` tests.
+- **Calling unsafe fns** — OK (11 gate sites; refactor debt stands).
+- **Implementing unsafe traits** — OK (`sema_collect.cpp:3546-3589`; stdlib `unsafe impl Send/Sync` in `stdlib/std/sync/`).
+- **FFI (`extern`)** — WARN: block form + ABI validation ✅ closed (§6.7); `unsafe extern` keyword + non-default calling-convention codegen ("Wave 6 follow-up", logos-core:1580) remain.
+- **Inline asm** — n/a / GAP — unchanged (no `asm!`).
+- **`#[unsafe(attr)]`** — GAP, unchanged.
 
 **Gaps / debt.**
-1. **`unsafe extern { … }` block form missing** — bare `extern fn` items work but the spec-form block is unparseable. Catch-up TODO; not in `docs/DIVERGENCES.md`.
-2. **`static mut` missing** — even with `unsafe { static_mut_var = … }`, the declaration form isn't accepted. Concrete grammar gap (`logos.peg:664-671`). Per G-audit headline.
-3. **`#[unsafe(attr)]` wrapper missing** — once attribute machinery lands more attrs, the safety-obligation wrapper has to exist.
-4. **`unsafe_op_in_unsafe_fn` opt-in not implementable** — Logos treats every `unsafe fn` body as one giant `unsafe` block (`sema_decl.cpp:663`). Rust's lint is allow-by-default but warn-by-default in edition 2024; align eventually.
-5. **`target_feature`-call safety rule** missing entirely — but `#[target_feature]` itself is missing, so this is downstream of the attribute system.
-6. **Duplicated call-gate logic** — `fi.is_unsafe && !inside_unsafe_` is replicated at 11 sites in `sema_expr.cpp` (`:2587, 2769, 3213, 5659, 5815, 6348, 6859, 7090, 7558, 11609, 11742`). Refactor to one helper `require_unsafe_for(fi, callee_name)` — derive-from-foundation per [[feedback_derive_from_foundation]].
+1. **`static mut` codegen** — real `llvm.mlir.global` + `addressof` routing (S25 + v2 read-before-write garbage). Highest-priority K item: silent wrong values inside `unsafe`.
+2. `unsafe extern { … }` keyword form — grammar-mechanical.
+3. Extern immutable-static reads not unsafe-gated (`safety.unsafe-static` partial).
+4. `#[unsafe(attr)]` wrapper — pending L-side attribute machinery.
+5. `unsafe_op_in_unsafe_fn` — needs a lint stack (L-side pair).
+6. 11 duplicated call-gate sites → one `require_unsafe_for(fi, name)` helper ([[feedback_derive_from_foundation]]; carried from v1 unaddressed).
+7. `transmute` — when added, sema-time size/layout check (`undefined.invalid`).
 
 ## Feature 2 — Behavior considered undefined (UB list)
 
-**Rust nomenclature.** "Behavior considered undefined" (`behavior-considered-undefined.md`); spec list with anchors `undefined.race / .pointer-access / .place-projection / .alias / .immutable / .intrinsic / .target-feature / .call / .invalid / .asm / .runtime` plus the structured "Pointed-to bytes", "Places based on misaligned pointers", "Dangling pointers", "Invalid values" subsections (bool/char/never/scalar/str/enum/struct/union/reference-box/wide/valid-range/const-provenance). Companion: `behavior-not-considered-unsafe.md` (deadlocks, leaks, overflow-wraps, logic errors).
+**Rust nomenclature.** `behavior-considered-undefined.md` anchors `undefined.race / .pointer-access / .place-projection / .alias / .immutable / .intrinsic / .target-feature / .call / .invalid / .asm / .runtime` + misaligned/dangling/validity subsections. Companion `behavior-not-considered-unsafe.md` (deadlocks, leaks, overflow, logic errors).
 
-**Logos nomenclature.** No equivalent of a "UB list" or compiler-enforced invalid-value check exists. Grep `behavior considered undefined`, `undefined behavior`, `behavior_undefined`, `invalid value` in `src/compiler/` returns **0 matches**. The closest mechanism is the `inside_unsafe_` gate (Feature 1), which is a *syntactic* opt-in to "you take the obligation", not a *semantic* UB-list. Wrapping-arithmetic intrinsics exist (`wrapping_add` / `wrapping_sub` / `wrapping_mul` at `src/compiler/mlir_gen_expr.cpp:1666-1701`); two's-complement on overflow is the implicit default for non-wrapping ops (no `debug_assert!`-on-overflow panic codegen) — diverges from `behavior-not-considered-unsafe.md` §Integer overflow (which requires a debug-mode panic).
+**Logos nomenclature.** ✅ `docs/language/undefined-behavior.md` exists (127122bf closes v1 gap #1): per-anchor enforced/PARTIAL/UNENFORCED register, every non-enforced anchor carries a `**Follow-up:**` line; panic strategy abort-only (§A7) noted up front.
 
-**Match verdict.** WARN — the spec-rule "Rust programs must never cause undefined behavior, regardless of `unsafe`" has no compiler enforcement. Logos treats `inside_unsafe_ = true` as "the programmer is responsible" and emits LLVM IR without invariant assumptions or layout checks beyond what the type-checker already infers. Many spec UB cases (misalignment, aliasing, mutating immutable bytes, invalid bool/char/enum-disc, dangling, ABI mismatch) are not even attempted, and a few are silently exposed (raw `*mut` arithmetic, transmute-via-`as`-cast through pointer types is not size-checked).
+**Match verdict.** WARN — the register is the right artifact, and enforcement improved since v1, but the doc has drifted from the code in three places and its anchor IDs don't match the spec's:
+- **Integer overflow — ✅ closed (b0bc3eb5, pre-v1; v1 verdict was wrong).** `+`/`-`/`*` lower to LLVM with-overflow intrinsics + `llvm.intr.trap` (`mlir_gen_expr.cpp:706-726`); `wrapping_*` intrinsics opt out. Probe: SIGILL rc=132. Stronger than Rust's debug-panic/release-wrap (always-trap; consistent with §A7 abort). **Doc stale:** `undefined-behavior.md:133-141` still says "runtime overflow wraps … no debug-mode panic".
+- **Atomics `Ordering` — ✅ closed (16ed6296 + 2d145bf4 §6.14).** Per-variant Ordering threads to MLIR atomic ops (`mlir_gen_expr.cpp:1790-1798`, disc→AtomicOrdering map matching Rust layout). **Doc stale:** `undefined-behavior.md:18-22` still says "accepts an Ordering parameter but currently discards it".
+- **`transmute` size check — doc WRONG:** `undefined-behavior.md:49-50` documents a compile-time size-mismatch rejection for an intrinsic that does not exist (see Feature 1).
+- **Anchor fidelity:** doc uses `undefined.deref/.mut_immutable/.aliasing/.dangling`; spec anchors are `undefined.pointer-access/.immutable/.alias/.dangling.*`. Cosmetic but breaks grep-ability against the spec.
 
-**Implementation pointer.** No dedicated source. Indirect coverage:
-- BC exclusivity (`src/compiler/borrow_check.cpp` — Cat-A audit) blocks some aliasing UB *in safe code*; `unsafe { … }` removes that check (`feedback_no_defer_fix_now_generalize` notwithstanding, G-audit notes "BC trusts whatever lives inside `unsafe { … }`").
-- Drop elaboration (`docs/DIVERGENCES.md` §B7 area) plus Drop-before-replace handles part of `undefined.runtime` (Rust-runtime assumption: destructors run). No `longjmp` / asm `noreturn` story.
-- Atomic ops lower to `seq_cst` only (G-audit §Memory model) — UB rules for misordered atomics (`undefined.race`) aren't even modelled because `Ordering` doesn't propagate.
+**Implementation pointer.** Register: `docs/language/undefined-behavior.md`. Enforcement: BC exclusivity (`borrow_check.cpp`, union coercion `:678`); overflow trap `mlir_gen_expr.cpp:706`; atomic ordering `mlir_gen_expr.cpp:1790`; `UnsafeCell` lang-item `sema_auto_trait.cpp:145-153` + variance `sema.cpp:7414-7420` (interior-mutability carve-out; BC write-path carve-out still follow-up, logos-core §2.2 partial); drop elaboration (B8).
 
-**Interactions check** (vs the feature-interactions table edge list for "UB list"):
-- **Memory model** — GAP. No formal memory model (G-audit §Memory model: `lower atomics to seq_cst on x86; no codegen pathway for weaker targets`). `undefined.race` unenforced.
-- **References (aliasing)** — PARTIAL via BC (Cat-A). Inside `unsafe { … }` aliasing checks are off; spec `undefined.alias` (the "`&T` immutability while live" + "`&mut T` exclusivity while live" rules) is not enforced at all through raw pointers. No Stacked-Borrows / Tree-Borrows analog.
-- **`transmute` (size/init)** — n/a — `transmute` absent. Spec rule `undefined.invalid` (re-interpreting a pointer as int loses provenance under const) has no surface.
-- **Unaligned access** — GAP. No alignment-check IR emission, no rejection of `ptr::read_unaligned`-style ops (which don't exist as intrinsics). `undefined.misaligned` is unenforced.
-- **Mutability violations** — PARTIAL via BC. Immutable-byte UB (`undefined.immutable` — mutating bytes reachable through `&T`/`&[]`/`static`) is not enforced for raw-pointer writes; G-audit confirms `&T → *mut T → write` compiles inside `unsafe { }`.
-- **Atomics misuse** — GAP (see Memory model above).
-- **Raw pointer rules** — PARTIAL via the unsafe gate. Raw-ptr arithmetic (`add`/`sub`/`byte_add`/`offset_from`) requires unsafe (`sema_expr.cpp:5601, 5619`) but bounds (`pointer#method.offset` ⇒ `undefined.place-projection`) are not checked.
-- **Invalid values** — GAP for every sub-rule:
-  - `undefined.validity.bool` (bool ∈ {0,1}): no IR-side `assume`, no codegen check. Logos `bool` is `i1` so most paths can't form an invalid bool, but `transmute` is absent so the surface is limited.
-  - `undefined.validity.char`: no surrogate check. A `char` is `u32` internally (sema), no UTF-32-validity assumed.
-  - `undefined.validity.fn-pointer` (non-null): no check.
-  - `undefined.validity.never`: never-type inhabitation is treated as unreachable in match exhaustiveness but no UB-class wrong-value protection beyond that.
-  - `undefined.validity.enum`: enum discriminant validity is *implicitly* trusted at lowering (gen_match scrutinee) — niche optimization not in use (G + B audits), so range-of-disc is wide.
-  - `undefined.validity.reference-box` (aligned, non-null, pointing to valid): no alignment IR emission; references can be constructed from `unsafe { &*ptr }` with no check.
-  - `undefined.validity.wide`: slice fat-pointer length and `dyn` vtable validity are trusted.
-  - `undefined.validity.valid-range`: no `NonZero`/`NonNull`-style niche; spec rule moot.
-- **Behavior NOT considered unsafe** (`behavior-not-considered-unsafe.md`):
-  - Integer overflow: Logos lacks `debug_assert!`-on-overflow panics; `wrapping_*` intrinsics work; Rust requires panic in debug builds. WARN divergent (`mlir_gen_expr.cpp:685` comment acknowledges); not in `docs/DIVERGENCES.md` §A as blessed.
-  - Leaks / deadlocks / exiting without destructors: same as Rust (not unsafe).
+**Interactions check** (delta from v1; unchanged rows elided).
+- **Memory model** — PARTIAL (was GAP): Ordering threads per-variant to MLIR; formal model + weak-target codegen still open.
+- **References (aliasing)** — PARTIAL via BC, unchanged; no Stacked/Tree-Borrows analog; raw-ptr aliasing inside `unsafe {}` unchecked.
+- **Mutability violations** — PARTIAL: `&T`/`*const T` writes rejected; `&T → *mut T → write` still compiles inside `unsafe {}` (UnsafeCell carve-out recognised for auto-traits/variance, not yet in BC write path).
+- **Unaligned access / invalid values** — GAP for every validity sub-rule, unchanged (no `assume`s, no niche-validity checks; `transmute` absent limits the attack surface).
+- **Behavior NOT considered unsafe** — overflow now traps (✅, stronger than spec's debug-panic floor); leaks/deadlocks same as Rust.
 
 **Gaps / debt.**
-1. **No UB list anywhere in the compiler or docs** — there is no `docs/UB.md` / `docs/language/undefined-behavior.md`. Even a stub mapping each Rust UB anchor to "enforced / partial / N/A in Logos" would be load-bearing for unsafe-code authors.
-2. **No misalignment check** — neither at IR-emit time nor at runtime (debug-mode `debug_assert_aligned`-equivalent).
-3. **No `transmute`** — when added, must size+layout-check at sema time (`undefined.invalid` consequences).
-4. **No invalid-value sanitization on `transmute` / `as`-cast through ptr** — must reject UB-prone reinterpretations.
-5. **Integer overflow debug-panic missing** — diverges from `behavior-not-considered-unsafe.md` §Integer overflow. Either ship checked-arith debug intrinsics or file as blessed divergence in `docs/DIVERGENCES.md` §A.
-6. **Stacked/Tree-borrows analog** — for raw-pointer aliasing inside `unsafe { … }`, Logos's BC turns off. Rust's MIR layer doesn't enforce either, but Miri does. Logos has no Miri-equivalent.
-7. **`#[link_section]`/`#[link_name]`/`#[no_mangle]`** unsafe attributes — see Feature 1 gap #3.
+1. **Sync `undefined-behavior.md` with reality** — 3 stale/wrong entries (overflow, atomics, transmute) + spec-anchor IDs. One-hour doc fix; the register's value is exactness.
+2. `static mut` codegen (Feature 1 #1) is also the `undefined.runtime`-adjacent hole: wrong values without any UB-rule being violated by the user.
+3. No misalignment checks (compile or debug-runtime).
+4. No Miri-analog for raw-ptr aliasing inside `unsafe {}`.
+5. `transmute` absent → `undefined.invalid` rules moot; design sema-checked `transmute<T,U>` (with B2/B3 custom-DST casts as the forcing client).
 
 ## Cross-category gaps
 
-- **G (Memory / safety) ↔ K (Unsafe):** `UnsafeCell` lang-item carve-out (G-audit headline) is the foundation that makes `&T → &mut interior` legal — Logos elides this in favor of "`unsafe { … }` trusts the author". This means K's spec rule `safety.unsafe-deref`/`safety.unsafe-union-access` IS enforced, but the G-side "shared-ref freeze" rule is not, so unsound `&T → *mut T` writes pass.
-- **H (Concurrency) ↔ K:** Auto-trait `unsafe impl` for `Send`/`Sync` is OK (Cat-H §`unsafe impl — OK`). Rust requires `unsafe impl Send for Arc<T>` (H-audit headline #1); the stdlib gap is independent of K but unblocks K-style "implementer takes the obligation" patterns.
-- **N (FFI / linkage / ABI) ↔ K:** `unsafe extern { … }` (K Feature 1 gap #1) is a Cat-N item; `extern fn` items work but the block form + `"ABI"` string is N-side surface.
-- **B (Type system) ↔ K:** `union` (B-audit doesn't cover it — confirmed missing) is the host for `safety.unsafe-union-access`. Adding `union` adds a K-rule.
-- **L (Attributes) ↔ K:** `#[unsafe(attr)]` wrapper (Feature 1 gap #3) is an L-side syntactic feature with K-side semantics — needs both.
-- **M (Const eval) ↔ K:** `undefined.validity.const-provenance` cites const-context provenance restrictions; Logos has no const-eval beyond simple constant-folding (per `project_no_const_eval.md`), so this UB rule is moot until that lands.
+- **G ↔ K:** `UnsafeCell` lang-item landed (79b55734) for auto-traits + variance; the BC write-path carve-out (`&UnsafeCell<T>.get()` vs generic `&T → *mut T`) is the remaining §2.2 half.
+- **N ↔ K:** `unsafe extern` keyword + calling-convention threading (logos-core §6.7 "Wave 6 follow-up"); extern immutable-static gating.
+- **B ↔ K:** `union` landed — `safety.unsafe-union-access` now enforced; `transmute` remains the B/K joint item.
+- **L ↔ K:** `#[unsafe(attr)]` wrapper needs L-side syntax; `unsafe_op_in_unsafe_fn` needs L-side lint stack.
+- **M ↔ K:** `undefined.validity.const-provenance` still moot (no const-eval; §A1 metacall).
 
 ## Recommended next moves
 
-1. **Single-session: write `docs/language/undefined-behavior.md`** — mirror `behavior-considered-undefined.md` section-by-section with one line each: "enforced via X / partial via Y / unenforced (gap N)". Cite file:line. Cost: 1-2h. Pays off every future unsafe-related test review.
-2. **Single-session: harmonise the 11 `fi.is_unsafe && !inside_unsafe_` sites in `sema_expr.cpp` (`:2587, 2769, 3213, 5659, 5815, 6348, 6859, 7090, 7558, 11609, 11742`) into a single helper** — `require_unsafe_for_call(fi, callee_name, line)`. Per [[feedback_derive_from_foundation]] (derive from one foundation). Pure refactor; one fix-site if we ever change the rule (e.g. add a "warn-by-default" mode).
-3. **Single-session: file three DIVERGENCES.md §B catch-up entries** — (i) `static mut` missing, (ii) `unsafe extern { … }` block form missing, (iii) integer-overflow debug-panic missing. Each is a known gap not currently in the register, blocking later "did we converge with Rust?" audits.
-4. **Single-session: add `#[unsafe(no_mangle)]` parse + sema** as a thin first instance of the `#[unsafe(attr)]` wrapper — `no_mangle` is the most common unsafe attribute and unblocks FFI ergonomics.
-5. **Multi-session (do NOT defer the design, but defer the impl in one block per [[feedback_draw_the_boundary_not_thrash]]):** decide whether to grow `union` and `transmute` together as a Cat-B/K pair, OR ship `transmute<T,U>` first (gated `where sizeof(T) == sizeof(U) && align_of(T) >= align_of(U)`) since stdlib already wants it for `Box<[T]>` ↔ `Box<dyn>` casts (B3). This is the highest-leverage K-side feature add — it would expand the UB list's surface significantly and force the `undefined.invalid` rules to gain teeth.
+1. **`static mut` real-global codegen** (S25 + read-before-write garbage) — `llvm.mlir.global` once, `addressof` at each access. Critical correctness; everything else in §6.2 is cosmetic next to it.
+2. **Sync `undefined-behavior.md`** — fix overflow/atomics/transmute entries, align anchor IDs to spec.
+3. **`unsafe extern { … }` + extern-static gating** — small grammar + collect changes; closes `safety.unsafe-extern`/`safety.unsafe-static` fully.
+4. **Harmonise the 11 call-gate sites** into one helper (carried from v1).
+5. **`transmute<T,U>` design** (with size/layout sema check) — unblocks B3-style casts and gives `undefined.invalid` teeth (carried from v1).
