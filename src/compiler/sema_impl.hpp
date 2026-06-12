@@ -713,6 +713,14 @@ private:
     // True when t contains a `_` (InferredType) hole at any depth.
     bool type_has_inferred(TypeRef t);
 
+    // T1-8 (audit-v2, E0408 analog): every alternative of an or-pattern must
+    // bind the same variable names. AST-level check, fired for TOP-LEVEL
+    // match-arm alternations (`Some(x) | None => …`) from both match
+    // lowering paths; the nested PatOr builder has its own equivalent.
+    void check_or_alt_binding_consistency(hermes::TinyMapView pat_or);
+    void collect_ast_pat_bindings(hermes::TinyMapView pat,
+                                  std::vector<std::string>& out);
+
     // T1-7 (audit-v2): capture types per interned closure type, recorded at
     // closure-literal lowering and consumed by the auto-trait engine
     // (Send/Sync walk captures, not parameter types). Keyed by type_str of

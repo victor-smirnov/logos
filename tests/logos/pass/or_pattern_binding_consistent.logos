@@ -1,0 +1,19 @@
+// Boundary pin for the T1-8 E0408 check: CONSISTENT top-level or-
+// pattern alternations keep working — same binding in both tuple alts
+// (`(x, 0) | (0, x)`), scalar-payload alts binding nothing, and bare
+// variant names (None/Ok) are variant patterns, not bindings.
+package or_pattern_binding_consistent;
+fn g(p: (i32, i32)) -> i32 {
+    match p {
+        (x, 0) | (0, x) => x,
+        _ => -1,
+    }
+}
+fn h(o: Option<i32>) -> i32 {
+    match o {
+        Some(1) | Some(2) => 10,
+        Some(y) => y,
+        None => 0,
+    }
+}
+fn main() -> i32 { g((3, 0)) - 3 + h(Option::Some(5)) - 5 }

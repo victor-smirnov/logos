@@ -1,0 +1,15 @@
+// audit-v2 T1-8 (E0408 analog): every `|` alternative of a TOP-LEVEL
+// match-arm alternation must bind the same variable names. Pre-fix the
+// consistency check lived only in the nested PatOr builder; top-level
+// alternations fan out into per-alt arms and bypassed it — an unused
+// asymmetric binding compiled silently, a used one died with the
+// unrelated "undefined variable" message.
+package or_pattern_binding_e0408;
+
+fn f(o: Option<i32>) -> i32 {
+    match o {
+        Some(x) | None => 7,
+    }
+}
+
+fn main() -> i32 { f(Option::Some(1)) - 7 }

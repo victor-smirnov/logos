@@ -4039,6 +4039,139 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
     return p_;
 }
 
+// T1-8 (E0408 analog) — AST-level binding-name collector for patterns.
+// All name-introducing pattern forms funnel into four node shapes:
+// PAT_WILD{NAME} (bare/ref/mut idents), PAT_AT{NAME, VALUE},
+// PAT_FIELD{NAME[, VALUE]} (struct shorthand binds NAME), and
+// PAT_REST{NAME?} (`xs @ ..`). Composites recurse; PAT_OR descends the
+// FIRST alternative only (the nested-Or builder enforces its own
+// consistency).
+void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
+                                           std::vector<std::string>& out) {
+    if (pat.is_null()) return;
+    int32_t c = code_of(pat);
+    auto recurse_list = [&](hermes::TinyMapView node, uint8_t key) {
+        if (!node.has_key(key)) return;
+        auto av = node.get(key);
+        if (av.is_null()) return;
+        auto wrapped = map_of(av);
+        ArrayView items = (!wrapped.is_null() && wrapped.has_key(la::ITEMS))
+                              ? arr_of(wrapped.get(la::ITEMS.code))
+                              : arr_of(av);
+        for (uint64_t i = 0; i < items.size(); ++i)
+            collect_ast_pat_bindings(map_of(items.get(i)), out);
+    };
+    auto recurse_items = [&](hermes::TinyMapView node) {
+        recurse_list(node, la::ITEMS.code);
+    };
+    if (c == la::PAT_WILD) {
+        if (pat.has_key(la::NAME)) {
+            auto n = str_of(pat.get(la::NAME.code));
+            // A bare name resolving to a NO-PAYLOAD enum variant (`None`,
+            // `Ok` — checked against every enum, since exact per-position
+            // scrutinee types aren't re-derived here) or to a module const
+            // is a VARIANT/CONST pattern, not a binding. Conservative
+            // direction: an exotic binding shadowing a variant name
+            // under-reports E0408 rather than false-erroring.
+            auto is_variant_or_const = [&](std::string_view nm) -> bool {
+                if (module_consts_.count(std::string(nm))) return true;
+                for (auto& [ek, ei] : enums_)
+                    for (auto& v : ei.variants)
+                        if (v.name == nm && v.payload_types.empty())
+                            return true;
+                return false;
+            };
+            if (!n.empty() && n != "_" && !is_variant_or_const(n))
+                out.emplace_back(n);
+        }
+        return;
+    }
+    if (c == la::PAT_AT) {
+        if (pat.has_key(la::NAME)) out.emplace_back(str_of(pat.get(la::NAME.code)));
+        if (pat.has_key(la::VALUE)) collect_ast_pat_bindings(map_of(pat.get(la::VALUE.code)), out);
+        return;
+    }
+    if (c == la::PAT_FIELD) {
+        if (pat.has_key(la::VALUE)) {
+            collect_ast_pat_bindings(map_of(pat.get(la::VALUE.code)), out);
+        } else if (pat.has_key(la::NAME)) {
+            // shorthand `Point { x }` binds x
+            out.emplace_back(str_of(pat.get(la::NAME.code)));
+        }
+        return;
+    }
+    if (c == la::PAT_REST) {
+        if (pat.has_key(la::NAME)) out.emplace_back(str_of(pat.get(la::NAME.code)));
+        return;
+    }
+    if (c == la::PAT_OR) {
+        if (pat.has_key(la::ITEMS)) {
+            auto alts = arr_of(pat.get(la::ITEMS.code));
+            if (alts.size() > 0)
+                collect_ast_pat_bindings(map_of(alts.get(0)), out);
+        }
+        return;
+    }
+    if (c == la::PAT_REF && pat.has_key(la::VALUE)) {
+        collect_ast_pat_bindings(map_of(pat.get(la::VALUE.code)), out);
+        return;
+    }
+    if (c == la::PAT_TUPLE) {
+        if (pat.has_key(la::NAMES)) {
+            auto nv = pat.get(la::NAMES.code);
+            if (!nv.is_null()) {
+                auto blist = map_of(nv);
+                if (!blist.is_null() && blist.has_key(la::ITEMS)) {
+                    auto items = arr_of(blist.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        collect_ast_pat_bindings(map_of(items.get(i)), out);
+                }
+            }
+        }
+        recurse_items(pat);
+        return;
+    }
+    if (c == la::PAT_VARIANT_DATA) {
+        // Tuple-shape payload lives under ARGS; struct-shape under ITEMS.
+        recurse_list(pat, la::ARGS.code);
+        recurse_items(pat);
+        return;
+    }
+    if (c == la::PAT_STRUCT || c == la::PAT_SLICE) {
+        recurse_items(pat);
+        return;
+    }
+    // Literal / wildcard-less forms bind nothing.
+}
+
+void SemaChecker::check_or_alt_binding_consistency(TinyMapView pat_or) {
+    if (pat_or.is_null() || !pat_or.has_key(la::ITEMS)) return;
+    auto alts = arr_of(pat_or.get(la::ITEMS.code));
+    if (alts.size() < 2) return;
+    std::vector<std::string> first_names;
+    collect_ast_pat_bindings(map_of(alts.get(0)), first_names);
+    std::sort(first_names.begin(), first_names.end());
+    for (uint64_t i = 1; i < alts.size(); ++i) {
+        std::vector<std::string> names;
+        collect_ast_pat_bindings(map_of(alts.get(i)), names);
+        std::sort(names.begin(), names.end());
+        if (names != first_names) {
+            // Name the first asymmetric variable for an E0408-shaped message.
+            std::string offender;
+            for (auto& n : first_names)
+                if (!std::binary_search(names.begin(), names.end(), n)) { offender = n; break; }
+            if (offender.empty())
+                for (auto& n : names)
+                    if (!std::binary_search(first_names.begin(), first_names.end(), n)) { offender = n; break; }
+            error(std::format(
+                "or-pattern: variable '{}' is not bound in all alternatives "
+                "(E0408): every `|` alternative must bind the same names",
+                offender));
+            return;
+        }
+    }
+}
+
 lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_type) {
     int32_t pc = code_of(pnode);
     if (pc == la::PAT_VARIANT) return build_pattern_variant(pnode, scrut_type);
@@ -8056,6 +8189,10 @@ lir::LStmt SemaChecker::lower_match(TinyMapView node) {
             }
             if (arm.has_key(la::LHS)) {
                 auto lhs = map_of(arm.get(la::LHS.code));
+                // T1-8 (E0408): top-level `A | B =>` arm alternations must
+                // bind the same names in every alternative.
+                if (code_of(lhs) == la::PAT_OR)
+                    check_or_alt_binding_consistency(lhs);
                 if (or_needs_fanout(lhs)) {
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
@@ -8660,6 +8797,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             if (code_of(arm) != la::MATCH_ARM) { eff_arms.push_back({arm, -1}); continue; }
             if (arm.has_key(la::LHS)) {
                 auto lhs = map_of(arm.get(la::LHS.code));
+                // T1-8 (E0408): top-level `A | B =>` arm alternations must
+                // bind the same names in every alternative.
+                if (code_of(lhs) == la::PAT_OR)
+                    check_or_alt_binding_consistency(lhs);
                 if (or_needs_fanout(lhs)) {
                     auto a = arr_of(lhs.get(la::ITEMS.code));
                     for (uint64_t k = 0; k < a.size(); ++k)
