@@ -416,6 +416,13 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     error(std::format("return type mismatch — expected {}, got {}",
                           es, gs));
                 }
+                // R2 (audit-v2): the TAIL-expr implicit return must run the
+                // same variance gate as the explicit `return` path —
+                // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
+                // through here while `return a;` was rejected.
+                if (inner)
+                    check_variance(inner->type, ret_type_,
+                                   "return type mismatch");
                 return builder().stmt_return(std::move(inner), node_line_);
             }
             return lower_return(stmt);

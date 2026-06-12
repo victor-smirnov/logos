@@ -1,0 +1,12 @@
+// audit-v2 R2: the TAIL-expr implicit return runs the same variance
+// gate as explicit `return` — nested generic args behind a reference
+// are invariant (`&[Vec<i32>]` is NOT a `&[Vec<i64>]`; the buffer would
+// be reinterpreted at the wrong element layout). Call-arg and let
+// positions were already gated; the tail-return path slipped through.
+package tail_return_variance;
+
+fn give(arr: &[Vec<i32>]) -> &[Vec<i64>] {
+    arr
+}
+
+fn main() -> i32 { 0 }
