@@ -1771,7 +1771,26 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         return types_compatible(TypeRef(from).elem(), TypeRef(to).elem());
     if (from.kind() == LogosType::Kind::Slice && to.kind() == LogosType::Kind::Slice && from.elem() && to.elem()) {
         if (!from.mut_ptr() && to.mut_ptr()) return false;
-        return types_compatible(from.elem(), to.elem());
+        // T0-5: slices ALIAS raw memory — a value-preserving scalar widening
+        // (i32→i64, u8→u32) that's fine for by-value coercion would
+        // reinterpret the buffer at the wrong stride here (`let s: &[i64] =
+        // &[1i32,…]` read garbage upper bits). Two CONCRETE scalar element
+        // types must match exactly; inference holes (IntLit/FloatLit/
+        // TypeVar/`_`/cfg-slot) keep unifying via types_compatible — the
+        // literal-array lowering adopts the annotated width before codegen.
+        auto fe = TypeRef(from.elem());
+        auto te = TypeRef(to.elem());
+        auto concrete_scalar = [](LogosType::Kind k) {
+            // NOTE: is_integer_kind includes IntLit + Enum — both are
+            // inference/abstraction holes here, NOT concrete layouts.
+            return (is_integer_kind(k) && k != LogosType::Kind::IntLit &&
+                    k != LogosType::Kind::Enum) ||
+                   k == LogosType::Kind::F32  || k == LogosType::Kind::F64 ||
+                   k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+        };
+        if (concrete_scalar(fe.kind()) && concrete_scalar(te.kind()))
+            return fe.kind() == te.kind();
+        return types_compatible(fe, te);
     }
     // Tuple: element-wise compatibility (e.g. ({integer}, {integer}) → (i32, i32))
     if (TypeRef(from).kind() == LogosType::Kind::Tuple && TypeRef(to).kind() == LogosType::Kind::Tuple) {

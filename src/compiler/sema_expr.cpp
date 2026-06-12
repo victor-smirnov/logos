@@ -2756,20 +2756,41 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 return pt;
             return nullptr;
         };
+        // T0-5: a CONCRETE slice/array formal hints a literal-array arg's
+        // element type (`sum(&[1, 2, 3])` against `&[i64]` adopts i64 —
+        // pre-fix the lits defaulted to i32 and the slice aliasing read
+        // garbage). TypeVar elems stay un-hinted (inference handles them).
+        auto slice_elem_hint_for = [&](size_t formal_idx) -> TypeRef {
+            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
+            TypeRef pt = hint_fi->param_types[formal_idx];
+            if (!pt) return nullptr;
+            if (TypeRef(pt).kind() == LogosType::Kind::Slice ||
+                TypeRef(pt).kind() == LogosType::Kind::Array) {
+                TypeRef et = TypeRef(pt).elem();
+                if (et && TypeRef(et).kind() != LogosType::Kind::TypeVar &&
+                    TypeRef(et).kind() != LogosType::Kind::Error)
+                    return et;
+            }
+            return nullptr;
+        };
         for (uint64_t i = start; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
             TypeRef saved_eh = hint_enum_type_;
             TypeRef saved_th = hint_tuple_type_;
+            TypeRef saved_ah = hint_arr_elem_type_;
             if (TypeRef h = closure_hint_for((size_t)(i - start)))
                 hint_closure_formal_ = h;
             if (TypeRef eh = enum_hint_for((size_t)(i - start)))
                 hint_enum_type_ = eh;
             if (TypeRef th = tuple_hint_for((size_t)(i - start)))
                 hint_tuple_type_ = th;
+            if (TypeRef ah = slice_elem_hint_for((size_t)(i - start)))
+                hint_arr_elem_type_ = ah;
             arg_exprs.push_back(lower_expr(map_of(args.get(i))));
             hint_closure_formal_ = saved;
             hint_enum_type_ = saved_eh;
             hint_tuple_type_ = saved_th;
+            hint_arr_elem_type_ = saved_ah;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -9993,6 +10014,54 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         elems.push_back(lower_expr(map_of(items.get(i))));
 
     TypeRef elem_type = elems[0]->type;
+    // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
+    // via hint_arr_elem_type_) retypes an all-literal array's elements up
+    // front. Slices alias raw memory, so the buffer must be BUILT at the
+    // annotated width — the old flow let the lits default to i32 and the
+    // permissive slice coercion read garbage at i64 stride.
+    if (hint_arr_elem_type_) {
+        auto hk = TypeRef(hint_arr_elem_type_).kind();
+        bool hint_int = is_integer_kind(hk) &&
+                        hk != LogosType::Kind::IntLit &&
+                        hk != LogosType::Kind::Enum;
+        bool hint_float = hk == LogosType::Kind::F32 ||
+                          hk == LogosType::Kind::F64;
+        if (hint_int || hint_float) {
+            bool adoptable = true;
+            size_t ei = 0;
+            for (auto& e : elems) {
+                auto k = TypeRef(e->type).kind();
+                ++ei;
+                if (k == LogosType::Kind::Error) continue;
+                if (types_equal(e->type, hint_arr_elem_type_)) continue;
+                if (hint_int && k == LogosType::Kind::IntLit) {
+                    if (auto v = get_intlit_value(e)) {
+                        if (intlit_fits(*v, hk)) continue;
+                        // Out-of-range literal for the annotated width is an
+                        // error, not a silent fall-back to the i32 default
+                        // (which the slice-aliasing check would then reject
+                        // with a misleading type-mismatch).
+                        error(std::format(
+                            "array literal: element {}: value {} does not fit in {}",
+                            ei - 1, *v, type_str(hint_arr_elem_type_)));
+                        continue;
+                    }
+                }
+                if (hint_float && k == LogosType::Kind::FloatLit) continue;
+                adoptable = false;
+                break;
+            }
+            if (adoptable) {
+                for (auto& e : elems) {
+                    auto k = TypeRef(e->type).kind();
+                    if (k == LogosType::Kind::IntLit ||
+                        k == LogosType::Kind::FloatLit)
+                        builder().retype_expr(e, hint_arr_elem_type_);
+                }
+                elem_type = hint_arr_elem_type_;
+            }
+        }
+    }
     // logos-core 1.4: a `[fn(...) -> R; N]` annotation lets a heterogeneous
     // array of distinct FnItems (each `fn-name` bare-ref) unify to a common
     // FnPtr. Each FnItem → FnPtr coerces via types_compatible; adopt the

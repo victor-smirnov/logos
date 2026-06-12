@@ -1,0 +1,32 @@
+// Boundary pin for the T0-5 slice element-type check: literal arrays
+// (inference holes, not concrete layouts) still adopt the annotated /
+// formal element width — at LET position, at CALL-ARG position (pre-fix
+// the arg lits defaulted to i32 and the slice read garbage at i64
+// stride), for u8/f64, and through a generic `&[T]` formal.
+package slice_elem_literal_adoption;
+
+fn sum(s: &[i64]) -> i64 {
+    let mut t = 0i64;
+    let mut i = 0i64;
+    while i < s.len() { t = t + s[i]; i = i + 1i64; }
+    t
+}
+
+fn first<T: Copy>(s: &[T]) -> T { s[0] }
+
+fn main() -> i32 {
+    // let-position adoption
+    let s: &[i64] = &[1, 2, 3, 4];
+    if s[3] != 4i64 { return 1; }
+    // call-arg adoption
+    if sum(&[1, 2, 3]) != 6i64 { return 2; }
+    // narrow + float widths
+    let a: &[u8] = &[1, 2, 250];
+    if a[2] != 250u8 { return 3; }
+    let f: &[f64] = &[1.5, 2.5];
+    if f[1] != 2.5f64 { return 4; }
+    // generic formal stays inference-driven
+    let g = [10i32, 20, 30];
+    if first(&g) != 10 { return 5; }
+    return 0;
+}

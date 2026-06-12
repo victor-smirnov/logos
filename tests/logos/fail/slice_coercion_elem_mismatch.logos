@@ -1,0 +1,10 @@
+// feature-audit T0-5: slices alias raw memory — `&[i32; N]` must NOT
+// coerce to `&[i64]` (the value-preserving i32→i64 widening that's fine
+// for scalars reinterprets the buffer at the wrong stride). Pre-fix this
+// was accepted silently and read garbage upper bits.
+package slice_coercion_elem_mismatch;
+
+fn main() -> i32 {
+    let s: &[i64] = &[1i32, 2i32, 3i32, 4i32];
+    if s[0] == 1i64 { 0 } else { 1 }
+}
