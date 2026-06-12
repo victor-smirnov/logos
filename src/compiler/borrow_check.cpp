@@ -51,6 +51,12 @@ struct TypeSets {
     // `#[borrow_carrying]` struct names — values of these types may hold a Ref into
     // an arena (HAny); escape-tracked like references.
     std::unordered_set<std::string> borrow_carrying;
+    // Residency-holder packages (`Held<T>`, `HeldAny`): a struct with an Rc/Arc
+    // field ref-counts the arena alive on its own, so the value is the LAUNDERED
+    // escape form — never borrow-carrying, not even via its type-args
+    // (`Held<HArray<HAny>>`). Mirror of the holds_residency_holder exemption,
+    // consulted by the use-site type walk too.
+    std::unordered_set<std::string> residency_exempt;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
@@ -135,6 +141,21 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         }
         return false;
     };
+    auto reg_exempt_name = [&](const std::string& name) {
+        ts.residency_exempt.insert(name);
+        std::string_view n = name;          // also the bare (pkg-stripped) name
+        if (auto dot = n.rfind('.'); dot != std::string_view::npos)
+            n = n.substr(dot + 1);
+        ts.residency_exempt.insert(std::string(n));
+        // Specs are named `Held$G1$…`; the use-site type walk sees the BASE
+        // struct name (`Held`) with type-args — register that form too.
+        if (auto g = n.find("$G"); g != std::string_view::npos)
+            ts.residency_exempt.insert(std::string(n.substr(0, g)));
+    };
+    for (auto& sd : prog.structs)
+        if (holds_residency_holder(sd)) reg_exempt_name(sd.name);
+    for (auto& sd : prog.struct_specializations)
+        if (holds_residency_holder(sd)) reg_exempt_name(sd.name);
     bool bc_changed = true;
     while (bc_changed) {
         bc_changed = false;
@@ -1042,6 +1063,12 @@ class BorrowChecker {
             nm = std::string(t.enum_name());
         else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
             nm = std::string(t.struct_name());
+        // Laundered escape package (`Held<T>`/`HeldAny`: holds an Rc/Arc holder
+        // that keeps the arena alive) — never borrow-carrying, including via its
+        // type-args (`Held<HArray<HAny>>`). Same exemption the definition-side
+        // closure applies; without it the container-element rule below would
+        // reject returning the escape hatch — its whole purpose.
+        if (!nm.empty() && ts_.residency_exempt.count(nm) > 0) return false;
         if (!nm.empty() && ts_.borrow_carrying.count(nm) > 0) return true;
         // A generic CONTAINER of a borrow-carrying element carries its elements'
         // borrows (`Vec<HAny>`, `Option<HAny>`, `Box<HAny>`) — even though the

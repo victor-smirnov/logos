@@ -1,5 +1,5 @@
-// HArray<HVal> overloaded push() — `a.push(x)` for the common element types instead
-// of `a.push(HAny::from(x))`: i64/bool inline Pods, &HString / &HArray<HVal> Refs,
+// HArray<HAny> overloaded push() — `a.push(x)` for the common element types instead
+// of `a.push(HAny::from(x))`: i64/bool inline Pods, &HString / &HArray<HAny> Refs,
 // and `str` (interned into the array's own arena as an HString, then a Ref).
 package test;
 use logos.lang.hermes.container;
@@ -9,15 +9,15 @@ use logos.lang.hermes.hstring;
 use logos.lang.str;
 fn main() -> i32 {
     let h: Hermes = hermes_new(64i64);
-    let a: &mut HArray<HVal> = h.array(2i64);
+    let a: &mut HArray<HAny> = h.array(2i64);
     a.push(42i64);                       // i64 → inline Pod
     a.push(true);                        // bool → inline Pod
     a.push("hello");                     // str → interned HString Ref (no manual HString)
     let hs: &HString = h.hstring("world");
     a.push(hs);                          // &HString → Ref
-    let nested: &mut HArray<HVal> = h.array(1i64);
+    let nested: &mut HArray<HAny> = h.array(1i64);
     nested.push(7i64);
-    a.push(&*nested);                    // &HArray<HVal> → Ref (nested)
+    a.push(&*nested);                    // &HArray<HAny> → Ref (nested)
 
     if a.len() != 5i64 { return 1; }
     if a.get(0i64).as_i56()  != 42i64 { return 2; }

@@ -11,8 +11,8 @@
 package logos.lang.hermes.pat;
 
 use logos.lang.hermes.anyval;       // HAny, h2_type_code
-use logos.lang.hermes.array;        // HArray<HVal>
-use logos.lang.hermes.hmap;         // HMap<HString, HVal>
+use logos.lang.hermes.array;        // HArray<HAny>
+use logos.lang.hermes.hmap;         // HMap<HString, HAny>
 use logos.lang.hermes.hstring;      // HString
 use logos.lang.hermes.static_view;  // HView2 / hview2_from_ptr
 use logos.lang.hermes.container;    // Hermes (runtime scrutinee)
@@ -70,22 +70,22 @@ pub unsafe fn hermes_pat_is_map(node: *const HAny) -> bool {
 pub unsafe fn hermes_pat_map_slot(node: *const HAny, key: str) -> HAny {
     let n: HAny = *node;
     if !n.is_map() { return null_hany(); }
-    return (&*(n.resolve() as *const HMap<HString, HVal>)).get(key);
+    return (&*(n.resolve() as *const HMap<HString, HAny>)).get(key);
 }
 pub unsafe fn hermes_pat_array_slot(node: *const HAny, idx: u64) -> HAny {
     let n: HAny = *node;
     if !n.is_array() { return null_hany(); }
-    return (&*(n.resolve() as *const HArray<HVal>)).get(idx as i64);
+    return (&*(n.resolve() as *const HArray<HAny>)).get(idx as i64);
 }
 pub unsafe fn hermes_pat_array_len_eq(node: *const HAny, n: u64) -> bool {
     let v: HAny = *node;
     if !v.is_array() { return false; }
-    return ((&*(v.resolve() as *const HArray<HVal>)).len() as u64) == n;
+    return ((&*(v.resolve() as *const HArray<HAny>)).len() as u64) == n;
 }
 pub unsafe fn hermes_pat_array_len_ge(node: *const HAny, n: u64) -> bool {
     let v: HAny = *node;
     if !v.is_array() { return false; }
-    return ((&*(v.resolve() as *const HArray<HVal>)).len() as u64) >= n;
+    return ((&*(v.resolve() as *const HArray<HAny>)).len() as u64) >= n;
 }
 pub unsafe fn hermes_pat_has_type_code(node: *const HAny, tc: u64) -> bool {
     let n: HAny = *node;

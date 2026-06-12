@@ -15,10 +15,10 @@ unsafe fn main() -> i32 {
     let h: &Hermes = rc.deref();
 
     // Root map with 8 slots; fill via typed set overloads + explicit HAny.
-    let m: &mut HMap<HString, HVal> = h.map(8);
+    let m: &mut HMap<HString, HAny> = h.map(8);
     m.set("greet", HAny::from(&*(h.hstring("hello") as *const HString)));
     m.set("n", 42i64);
-    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
     h.set_root(HAny::ref_to(mp as *const u8));
 
     let root: HAny = h.root();

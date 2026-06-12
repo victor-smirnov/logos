@@ -11,9 +11,9 @@ use logos.lang.hermes.hstring;
 use logos.lang.hermes.document;
 fn main() -> i32 {
     let h: Hermes = hermes_new(512i64);
-    let arr: &mut HArray<HVal> = h.array(4i64);
+    let arr: &mut HArray<HAny> = h.array(4i64);
     arr.push(1i64); arr.push(2i64); arr.push(3i64);
-    let m: &mut HMap<HString, HVal> = h.map(4i64);
+    let m: &mut HMap<HString, HAny> = h.map(4i64);
     m.set("a", HAny::from(&*arr));      // nested array
     m.set("b", 42i64);
     h.set_root(HAny::from(&*m));        // document root

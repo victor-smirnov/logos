@@ -13,8 +13,8 @@
 package logos.mem.hermes.check;
 
 use logos.lang.hermes.anyval;     // HAny, h2_type_code
-use logos.lang.hermes.array;      // HArray<HVal>
-use logos.lang.hermes.hmap;       // HMap<HString, HVal>
+use logos.lang.hermes.array;      // HArray<HAny>
+use logos.lang.hermes.hmap;       // HMap<HString, HAny>
 use logos.lang.hermes.hstring;    // HString
 
 pub fn hermes_check(v: HAny) -> bool {
@@ -37,7 +37,7 @@ pub fn hermes_check(v: HAny) -> bool {
             return s.len() >= 0i64;
         }
         if v.is_array() {
-            let a: &HArray<HVal> = &*(p as *const HArray<HVal>);
+            let a: &HArray<HAny> = &*(p as *const HArray<HAny>);
             let n: i64 = a.len();
             if n < 0i64 { return false; }
             let mut i: i64 = 0;
@@ -48,7 +48,7 @@ pub fn hermes_check(v: HAny) -> bool {
             return true;
         }
         if v.is_map() {
-            let m: &HMap<HString, HVal> = &*(p as *const HMap<HString, HVal>);
+            let m: &HMap<HString, HAny> = &*(p as *const HMap<HString, HAny>);
             if m.len() < 0i64 || m.len() > m.slots() { return false; }
             let cap: i64 = m.slots();
             let mut i: i64 = 0;

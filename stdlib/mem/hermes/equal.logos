@@ -18,8 +18,8 @@
 package logos.mem.hermes.equal;
 
 use logos.lang.hermes.anyval;     // HAny, h2_type_code
-use logos.lang.hermes.array;      // HArray<HVal>
-use logos.lang.hermes.hmap;       // HMap<HString, HVal>
+use logos.lang.hermes.array;      // HArray<HAny>
+use logos.lang.hermes.hmap;       // HMap<HString, HAny>
 use logos.lang.hermes.hstring;    // HString
 use logos.lang.str;
 
@@ -56,8 +56,8 @@ pub fn hermes_equal(a: HAny, b: HAny) -> bool {
     if a.is_array() || b.is_array() {
         if !(a.is_array() && b.is_array()) { return false; }
         unsafe {
-            let aa: &HArray<HVal> = &*(a.resolve() as *const HArray<HVal>);
-            let ab: &HArray<HVal> = &*(b.resolve() as *const HArray<HVal>);
+            let aa: &HArray<HAny> = &*(a.resolve() as *const HArray<HAny>);
+            let ab: &HArray<HAny> = &*(b.resolve() as *const HArray<HAny>);
             let n: i64 = aa.len();
             if n != ab.len() { return false; }
             let mut i: i64 = 0;
@@ -71,8 +71,8 @@ pub fn hermes_equal(a: HAny, b: HAny) -> bool {
     if a.is_map() || b.is_map() {
         if !(a.is_map() && b.is_map()) { return false; }
         unsafe {
-            let ma: &HMap<HString, HVal> = &*(a.resolve() as *const HMap<HString, HVal>);
-            let mb: &HMap<HString, HVal> = &*(b.resolve() as *const HMap<HString, HVal>);
+            let ma: &HMap<HString, HAny> = &*(a.resolve() as *const HMap<HString, HAny>);
+            let mb: &HMap<HString, HAny> = &*(b.resolve() as *const HMap<HString, HAny>);
             if ma.len() != mb.len() { return false; }
             // Walk a's live entries; each key must map to an equal value in b.
             let cap: i64 = ma.slots();

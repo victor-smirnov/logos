@@ -1,5 +1,5 @@
 // Hermes — direct-reference surface (no handle/view wrapper): the client holds a
-// `&mut HArray<HVal>` to an array living in the never-move arena, used like a Vec
+// `&mut HArray<HAny>` to an array living in the never-move arena, used like a Vec
 // (a.push/a.get/a.len). Allocation is interior-mutability (`h.array(&h)`,
 // bumpalo-style), so two arrays coexist. Typed HAny::from(i56)/from(bool).
 // FULLY safe: zero `unsafe`/raw pointer in user code.
@@ -9,11 +9,11 @@ use logos.lang.hermes.anyval;
 use logos.lang.hermes.array;
 fn main() -> i32 {
     let h: Hermes = hermes_new(48i64);
-    let nested: &mut HArray<HVal> = h.array(2i64);
+    let nested: &mut HArray<HAny> = h.array(2i64);
     nested.push(HAny::from(1i64));
     nested.push(HAny::from(2i64));
     nested.push(HAny::from(3i64));
-    let root: &mut HArray<HVal> = h.array(2i64);
+    let root: &mut HArray<HAny> = h.array(2i64);
     root.push(HAny::from(10i64));
     root.push(HAny::from(20i64));
     root.push(HAny::from(true));

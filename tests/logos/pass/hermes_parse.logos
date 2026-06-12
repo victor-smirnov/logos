@@ -32,20 +32,20 @@ unsafe fn main() -> i32 {
     // Array.
     let a: HAny = parse(h, "[10, 20, 30]");
     if !a.is_array() { return 8; }
-    let arr: &HArray<HVal> = &*(a.resolve() as *const HArray<HVal>);
+    let arr: &HArray<HAny> = &*(a.resolve() as *const HArray<HAny>);
     if arr.len() != 3i64 { return 9; }
     if arr.get(1).as_i64() != 20i64 { return 10; }
 
     // Map with quoted AND bare keys + nesting.
     let m: HAny = parse(h, "{\"a\": 1, b: [true, null], c: {x: 55}}");
     if !m.is_map() { return 11; }
-    let mm: &HMap<HString, HVal> = &*(m.resolve() as *const HMap<HString, HVal>);
+    let mm: &HMap<HString, HAny> = &*(m.resolve() as *const HMap<HString, HAny>);
     if mm.get("a").as_i64() != 1i64 { return 12; }
     let bv: HAny = mm.get("b");
     if !bv.is_array() { return 13; }
     let cv: HAny = mm.get("c");
     if !cv.is_map() { return 14; }
-    let cm: &HMap<HString, HVal> = &*(cv.resolve() as *const HMap<HString, HVal>);
+    let cm: &HMap<HString, HAny> = &*(cv.resolve() as *const HMap<HString, HAny>);
     if cm.get("x").as_i64() != 55i64 { return 15; }
 
     return 42;

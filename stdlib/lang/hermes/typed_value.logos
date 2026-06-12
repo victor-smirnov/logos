@@ -6,7 +6,7 @@
 //     @Type(params?) = <initializer>
 //
 // Three AT-REST HAny words: the type-name (a Ref to an interned HString), the
-// params (an Array<HVal> or null), and the initializer value. Like HMapEntry the
+// params (an Array<HAny> or null), and the initializer value. Like HMapEntry the
 // words are held as raw `i64` and accessed through `*zoned mut HAny` slot pointers,
 // so each read materialises the at-rest Ref-delta → absolute and each write lowers
 // it — no distinct HAnyRel, no ha_* helpers.
@@ -22,7 +22,7 @@ use logos.lang.ptr;                 // byte_add
 #[pinned]
 pub struct HTypedValue {
     pub type_name: i64,   // at-rest HAny: Ref to the type-name HString
-    pub params:    i64,   // at-rest HAny: params (Array<HVal> or null)
+    pub params:    i64,   // at-rest HAny: params (Array<HAny> or null)
     pub init:      i64,   // at-rest HAny: the initializer value
 }
 
@@ -47,7 +47,7 @@ unsafe fn tv_new(h: *mut Hermes, type_name: HAny, params: HAny, init: HAny) -> *
 impl HTypedValue {
     // The type-name value (a Ref to an HString).
     pub fn type_name(self: &HTypedValue) -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 0i64)) }; }
-    // The params value (Array<HVal> or null).
+    // The params value (Array<HAny> or null).
     pub fn params(self: &HTypedValue)    -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 8i64)) }; }
     // The initializer value.
     pub fn init(self: &HTypedValue)      -> HAny { return unsafe { *(tv_slot_c(self as *const HTypedValue, 16i64)) }; }

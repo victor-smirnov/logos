@@ -21,8 +21,8 @@ package logos.lang.hermes.comp_builder;
 
 use logos.lang.hermes.anyval;       // HAny
 use logos.lang.hermes.container;    // Hermes, hermes_new
-use logos.lang.hermes.array;        // HArray<HVal>, Hermes.array, HArray.push
-use logos.lang.hermes.hmap;         // HMap<HString,HVal>, Hermes.map, HMap.set
+use logos.lang.hermes.array;        // HArray<HAny>, Hermes.array, HArray.push
+use logos.lang.hermes.hmap;         // HMap<HString,HAny>, Hermes.map, HMap.set
 use logos.lang.hermes.hstring;      // HString (key type in the map annotation)
 use logos.lang.rc;                    // Rc — heap-pin the non-movable Hermes
 use logos.lang.str;
@@ -37,12 +37,12 @@ use logos.lang.str;
 pub fn hermes_list_comp_new(cap: i64) -> Rc<Hermes> {
     let rc: Rc<Hermes> = rc_new(hermes_new(cap));    // Hermes pinned in Rc heap
     let h: &Hermes = &*rc;
-    let arr: &mut HArray<HVal> = h.array(8);           // allocate AFTER the pin (stable zone)
+    let arr: &mut HArray<HAny> = h.array(8);           // allocate AFTER the pin (stable zone)
     // КОСТЫЛЬ / TODO(fat-thin): `let a: &HArray = h.array(8); HAny::from(a)` stores the
     // WRONG word — the &mut(fat,zone-carrying) -> &(thin) coercion picks the zone word,
     // not the data ptr. So extract the DATA ptr explicitly from the fat &mut and rebuild
     // a clean thin & from it. Fix the fat->thin & coercion in the compiler, then drop this.
-    let aptr: *const HArray<HVal> = arr as *const HArray<HVal>;
+    let aptr: *const HArray<HAny> = arr as *const HArray<HAny>;
     h.set_root(HAny::from(unsafe { &*aptr }));
     return rc;
 }
@@ -54,8 +54,8 @@ pub fn hermes_list_comp_push(c: &Rc<Hermes>, v: HAny) {
         let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
         // Rebuild a FAT &mut carrying the container's zone (allocator), so push/grow
         // recover it via zone_of(self) — a thin &mut from the raw ptr loses the zone.
-        let arr: &mut HArray<HVal> = zone_mut_ref::<HArray<HVal>>(
-            root.resolve() as *mut HArray<HVal>, &mut hp.allocator as *mut u8);
+        let arr: &mut HArray<HAny> = zone_mut_ref::<HArray<HAny>>(
+            root.resolve() as *mut HArray<HAny>, &mut hp.allocator as *mut u8);
         arr.push(v);
     }
 }
@@ -69,8 +69,8 @@ pub fn hermes_map_comp_new(cap: i64, slot_hint: i64) -> Rc<Hermes> {
     let mut want:  i64 = slot_hint * 2;
     if want < 8 { want = 8; }
     while slots < want { slots = slots * 2; }
-    let m: &mut HMap<HString, HVal> = h.map(slots);    // allocate AFTER the pin (stable zone)
-    let mptr: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    let m: &mut HMap<HString, HAny> = h.map(slots);    // allocate AFTER the pin (stable zone)
+    let mptr: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
     h.set_root(HAny::from(unsafe { &*mptr }));
     return rc;
 }
@@ -80,8 +80,8 @@ pub fn hermes_map_comp_put(c: &Rc<Hermes>, k: str, v: HAny) {
     let root: HAny = h.root();
     unsafe {
         let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
-        let m: &mut HMap<HString, HVal> = zone_mut_ref::<HMap<HString, HVal>>(
-            root.resolve() as *mut HMap<HString, HVal>, &mut hp.allocator as *mut u8);
+        let m: &mut HMap<HString, HAny> = zone_mut_ref::<HMap<HString, HAny>>(
+            root.resolve() as *mut HMap<HString, HAny>, &mut hp.allocator as *mut u8);
         m.set(k, v);
     }
 }

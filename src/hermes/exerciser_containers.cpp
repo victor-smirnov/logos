@@ -1,6 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 //
-// Hermes containers conformance — ArenaString (HString) + ObjectArray (HArray<HVal>)
+// Hermes containers conformance — ArenaString (HString) + ObjectArray (HArray<HAny>)
 // on the self-relative foundation. The hard case is GROWTH: the element buffer is
 // reallocated and each at-rest AnyVal Ref must re-anchor to its new slot. Returns 0
 // on success, else the first failing check code.

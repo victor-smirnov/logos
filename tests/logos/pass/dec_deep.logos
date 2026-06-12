@@ -15,16 +15,16 @@ unsafe fn main() -> i32 {
     let h: &Hermes = rc.deref();
 
     // Decimals as container members.
-    let arr: &mut HArray<HVal> = h.array(4);
+    let arr: &mut HArray<HAny> = h.array(4);
     arr.push(hdec_from_str(h, "1.25"));
     arr.push(hdec_from_str(h, "-300"));
-    let m: &mut HMap<HString, HVal> = h.map(8);
-    let ap2: *const HArray<HVal> = arr as *const HArray<HVal>;
+    let m: &mut HMap<HString, HAny> = h.map(8);
+    let ap2: *const HArray<HAny> = arr as *const HArray<HAny>;
     m.set("prices", HAny::ref_to(ap2 as *const u8));
 
     let got: HAny = m.get("prices");
     if !got.is_array() { return 1; }
-    let ga: &HArray<HVal> = &*(got.resolve() as *const HArray<HVal>);
+    let ga: &HArray<HAny> = &*(got.resolve() as *const HArray<HAny>);
     let d0: HAny = ga.get(0);
     if !d0.is_decimal() { return 2; }
     if d0.as_decimal().coeff() != 125u64 { return 3; }

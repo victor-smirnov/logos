@@ -1,7 +1,7 @@
 // Logos Hermes stdlib — mem.hermes2.parser
 //
 // Text → document: a recursive-descent JSON-ish reader that builds a Hermes doc
-// (HMap<HString, HVal> / Array / HString / i56 / bool / null) in a caller-supplied arena — the
+// (HMap<HString, HAny> / Array / HString / i56 / bool / null) in a caller-supplied arena — the
 // inverse of stringify, and the Hermes port of hermes.parser (much smaller: the
 // grammar here is plain JSON-with-integers).
 //
@@ -19,8 +19,8 @@ package logos.mem.hermes.parser;
 use logos.lang.hermes.allocator;   // Allocator
 use logos.lang.hermes.container;   // Hermes, alloc_tagged, hermes_alloc_bytes
 use logos.lang.hermes.anyval;      // HAny, HA_I56
-use logos.lang.hermes.array;       // HArray<HVal>
-use logos.lang.hermes.hmap;        // HMap<HString, HVal>
+use logos.lang.hermes.array;       // HArray<HAny>
+use logos.lang.hermes.hmap;        // HMap<HString, HAny>
 use logos.lang.hermes.hstring;     // HString
 use logos.lang.hermes.typed_value; // HTypedValue (@Type annotations)
 use logos.lang.hermes.decimal;     // @Decimal validation
@@ -319,7 +319,7 @@ unsafe fn tv_build(h: &Hermes, name: str, params_arr: [i64; 32], n_params: i64,
     }
     let mut params: HAny = HAny::ref_to(0i64 as *const u8);
     if n_params > 0i64 {
-        let pa: &mut HArray<HVal> = h.array(if n_params < 8i64 { 8i64 } else { n_params });
+        let pa: &mut HArray<HAny> = h.array(if n_params < 8i64 { 8i64 } else { n_params });
         let mut i: i64 = 0i64;
         while i < n_params {
             let w: i64 = params_arr[i];
@@ -329,7 +329,7 @@ unsafe fn tv_build(h: &Hermes, name: str, params_arr: [i64; 32], n_params: i64,
             pa.push(hv);
             i = i + 1i64;
         }
-        let pap: *const HArray<HVal> = pa as *const HArray<HVal>;
+        let pap: *const HArray<HAny> = pa as *const HArray<HAny>;
         params = HAny::ref_to(pap as *const u8);
     }
     return h.typed_value(name, params, init);
@@ -342,7 +342,7 @@ unsafe fn parse_value(h: &Hermes, p: *mut P) -> HAny {
     if c == 64u8 { return parse_tv_prefix(h, p); }  // @  typed-value prefix
     if c == 123u8 {                              // {  object
         advance(p);
-        let m: &mut HMap<HString, HVal> = h.map(8i64);
+        let m: &mut HMap<HString, HAny> = h.map(8i64);
         skip_ws(p);
         if peek(p) == 125u8 { advance(p); return HAny::from(&*m); }   // {}
         let mut done: bool = false;
@@ -363,7 +363,7 @@ unsafe fn parse_value(h: &Hermes, p: *mut P) -> HAny {
     }
     if c == 91u8 {                               // [  array
         advance(p);
-        let a: &mut HArray<HVal> = h.array(8i64);
+        let a: &mut HArray<HAny> = h.array(8i64);
         skip_ws(p);
         if peek(p) == 93u8 { advance(p); return HAny::from(&*a); }   // []
         let mut done: bool = false;

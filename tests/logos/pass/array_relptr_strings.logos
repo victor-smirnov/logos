@@ -1,5 +1,5 @@
 // Array of zone strings (successor of the Hermes1 RelPtr-string-array test):
-// HArray<HVal> holds self-relative refs to HStrings; reads survive array growth.
+// HArray<HAny> holds self-relative refs to HStrings; reads survive array growth.
 package array_relptr_strings;
 use logos.lang.hermes.container;
 use logos.lang.hermes.anyval;
@@ -11,7 +11,7 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Hermes> = hermes_rc(16384);
     let h: &Hermes = rc.deref();
-    let arr: &mut HArray<HVal> = h.array(2);     // grows past 2
+    let arr: &mut HArray<HAny> = h.array(2);     // grows past 2
 
     arr.push(HAny::from(&*(h.hstring("alpha") as *const HString)));
     arr.push(HAny::from(&*(h.hstring("beta") as *const HString)));

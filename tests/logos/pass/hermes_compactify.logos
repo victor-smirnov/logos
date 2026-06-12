@@ -27,11 +27,11 @@ unsafe fn main() -> i32 {
     //    compactify: the copy holds ONLY the live tree and stays equal.
     let rc: Rc<Hermes> = hermes_rc(8192);
     let h: &Hermes = rc.deref();
-    let m: &mut HMap<HString, HVal> = h.map(8);
+    let m: &mut HMap<HString, HAny> = h.map(8);
     m.set("k", HAny::from(&*(h.hstring("first-dead-value") as *const HString)));
     m.set("k", HAny::from(&*(h.hstring("live") as *const HString)));   // overwrite -> garbage
     m.set("n", 7i64);
-    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
     h.set_root(HAny::ref_to(mp as *const u8));
 
     let packed: Rc<Hermes> = hermes_clone(h.root());

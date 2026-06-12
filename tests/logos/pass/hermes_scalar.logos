@@ -34,12 +34,12 @@ unsafe fn main() -> i32 {
     if h2_type_code(bu.resolve()) != H2_U64 { return 7; }
 
     // Inside a map; stringify renders values.
-    let m: &mut HMap<HString, HVal> = h.map(8);
+    let m: &mut HMap<HString, HAny> = h.map(8);
     m.set("i", bi);
     m.set("u", bu);
-    let mv: HAny = (&*(m as *const HMap<HString, HVal>)).get("i");
+    let mv: HAny = (&*(m as *const HMap<HString, HAny>)).get("i");
     if mv.as_i64() != big_i { return 8; }
-    let s: String = stringify((&*(m as *const HMap<HString, HVal>)).get("u"));
+    let s: String = stringify((&*(m as *const HMap<HString, HAny>)).get("u"));
     if !s.eq_str("18000000000") { return 9; }
 
     return 0;

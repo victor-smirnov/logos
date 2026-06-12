@@ -18,7 +18,7 @@ unsafe fn main() -> i32 {
     let root: HAny = parse(h,
         "{\"a\": @I64 = 42, \"b\": \"123.45\" @Decimal(10,2), \"c\": @Point({\"fmt\": \"xy\"})={\"x\": 1, \"y\": 2}}");
     if !root.is_map() { return 1; }
-    let m: &HMap<HString, HVal> = &*(root.resolve() as *const HMap<HString, HVal>);
+    let m: &HMap<HString, HAny> = &*(root.resolve() as *const HMap<HString, HAny>);
 
     // a: @I64 = 42 — no params, int init.
     let a: HAny = m.get("a");
@@ -45,7 +45,7 @@ unsafe fn main() -> i32 {
     if !prm.is_array() { return 12; }
     let init: HAny = ctv.init();
     if !init.is_map() { return 13; }
-    let im: &HMap<HString, HVal> = &*(init.resolve() as *const HMap<HString, HVal>);
+    let im: &HMap<HString, HAny> = &*(init.resolve() as *const HMap<HString, HAny>);
     if im.get("y").as_i64() != 2i64 { return 14; }
 
     return 0;

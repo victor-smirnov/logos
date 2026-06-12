@@ -15,7 +15,7 @@ unsafe fn main() -> i32 {
     let h: &Hermes = rc.deref();
 
     // --- TinyObjectMap: u8-keyed, bitmap-indexed ---
-    let tm: &mut HMap<Hu6, HVal> = h.tinymap(10);
+    let tm: &mut HMap<Hu6, HAny> = h.tinymap(10);
     tm.set(1 as u8, HAny::from(11 as i56));
     tm.set(7 as u8, HAny::from(77 as i56));
     if tm.get(1 as u8).as_i64() != 11i64 { return 1; }
@@ -23,7 +23,7 @@ unsafe fn main() -> i32 {
     if !tm.get(3 as u8).is_null() { return 3; }
 
     // --- ObjectArray: push + grow + read ---
-    let arr: &mut HArray<HVal> = h.array(4);
+    let arr: &mut HArray<HAny> = h.array(4);
     let mut i: i64 = 0;
     while i < 20 {
         arr.push(HAny::from(i as i56));
@@ -34,13 +34,13 @@ unsafe fn main() -> i32 {
     if arr.get(19).as_i64() != 19i64 { return 6; }
 
     // --- ObjectMap: string keys; container values ---
-    let m: &mut HMap<HString, HVal> = h.map(8);
-    let ap: *const HArray<HVal> = arr as *const HArray<HVal>;
+    let m: &mut HMap<HString, HAny> = h.map(8);
+    let ap: *const HArray<HAny> = arr as *const HArray<HAny>;
     m.set("arr", HAny::ref_to(ap as *const u8));
     m.set("n", 42i64);
-    let got: HAny = (&*(m as *const HMap<HString, HVal>)).get("arr");
+    let got: HAny = (&*(m as *const HMap<HString, HAny>)).get("arr");
     if !got.is_array() { return 7; }
-    let arr2: &HArray<HVal> = &*(got.resolve() as *const HArray<HVal>);
+    let arr2: &HArray<HAny> = &*(got.resolve() as *const HArray<HAny>);
     if arr2.len() != 20i64 { return 8; }
 
     return 42;

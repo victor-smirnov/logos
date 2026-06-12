@@ -20,14 +20,14 @@ use logos.lang.ptr;
 pub fn node_count(v: HAny) -> i64 {
     if v.is_null() { return 0i64; }
     if v.is_array() {
-        let a: &HArray<HVal> = unsafe { &*(v.resolve() as *const HArray<HVal>) };
+        let a: &HArray<HAny> = unsafe { &*(v.resolve() as *const HArray<HAny>) };
         let mut n: i64 = 1i64;
         let mut i: i64 = 0i64;
         while i < a.len() { n = n + node_count(a.get(i)); i = i + 1i64; }
         return n;
     }
     if v.is_map() {
-        let m: &HMap<HString, HVal> = unsafe { &*(v.resolve() as *const HMap<HString, HVal>) };
+        let m: &HMap<HString, HAny> = unsafe { &*(v.resolve() as *const HMap<HString, HAny>) };
         let mut n: i64 = 1i64;
         let mut i: i64 = 0i64;
         while i < m.slots() {
@@ -44,14 +44,14 @@ pub fn node_count(v: HAny) -> i64 {
 pub fn depth(v: HAny) -> i64 {
     if v.is_null() { return 0i64; }
     if v.is_array() {
-        let a: &HArray<HVal> = unsafe { &*(v.resolve() as *const HArray<HVal>) };
+        let a: &HArray<HAny> = unsafe { &*(v.resolve() as *const HArray<HAny>) };
         let mut d: i64 = 0i64;
         let mut i: i64 = 0i64;
         while i < a.len() { let cd: i64 = depth(a.get(i)); if cd > d { d = cd; } i = i + 1i64; }
         return d + 1i64;
     }
     if v.is_map() {
-        let m: &HMap<HString, HVal> = unsafe { &*(v.resolve() as *const HMap<HString, HVal>) };
+        let m: &HMap<HString, HAny> = unsafe { &*(v.resolve() as *const HMap<HString, HAny>) };
         let mut d: i64 = 0i64;
         let mut i: i64 = 0i64;
         while i < m.slots() {

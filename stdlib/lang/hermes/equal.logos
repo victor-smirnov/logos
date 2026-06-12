@@ -38,8 +38,8 @@ pub fn equal(a: HAny, b: HAny) -> bool {
     }
     if a.is_array() {
         if !b.is_array() { return false; }
-        let aa: &HArray<HVal> = unsafe { &*(a.resolve() as *const HArray<HVal>) };
-        let ab: &HArray<HVal> = unsafe { &*(b.resolve() as *const HArray<HVal>) };
+        let aa: &HArray<HAny> = unsafe { &*(a.resolve() as *const HArray<HAny>) };
+        let ab: &HArray<HAny> = unsafe { &*(b.resolve() as *const HArray<HAny>) };
         if aa.len() != ab.len() { return false; }
         let mut i: i64 = 0i64;
         while i < aa.len() {
@@ -50,8 +50,8 @@ pub fn equal(a: HAny, b: HAny) -> bool {
     }
     if a.is_map() {
         if !b.is_map() { return false; }
-        let ma: &HMap<HString, HVal> = unsafe { &*(a.resolve() as *const HMap<HString, HVal>) };
-        let mb: &HMap<HString, HVal> = unsafe { &*(b.resolve() as *const HMap<HString, HVal>) };
+        let ma: &HMap<HString, HAny> = unsafe { &*(a.resolve() as *const HMap<HString, HAny>) };
+        let mb: &HMap<HString, HAny> = unsafe { &*(b.resolve() as *const HMap<HString, HAny>) };
         if ma.len() != mb.len() { return false; }
         let mut i: i64 = 0i64;
         while i < ma.slots() {

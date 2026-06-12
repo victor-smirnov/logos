@@ -11,7 +11,7 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Hermes> = hermes_rc(32768);
     let h: &Hermes = rc.deref();
-    let m: &mut HMap<HString, HVal> = h.map(8);
+    let m: &mut HMap<HString, HAny> = h.map(8);
 
     // put + get
     m.set("alpha", 1i64);

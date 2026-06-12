@@ -11,8 +11,8 @@
 package logos.mem.hermes.hashing;
 
 use logos.lang.hermes.anyval;     // HAny, h2_type_code
-use logos.lang.hermes.array;      // HArray<HVal>
-use logos.lang.hermes.hmap;       // HMap<HString, HVal>
+use logos.lang.hermes.array;      // HArray<HAny>
+use logos.lang.hermes.hmap;       // HMap<HString, HAny>
 use logos.lang.hermes.hstring;    // HString
 use logos.lang.str;
 use logos.lang.arith;          // wrapping_mul (FNV intentionally wraps)
@@ -55,7 +55,7 @@ pub fn hermes_hash(v: HAny) -> u64 {
     }
     if v.is_array() {
         unsafe {
-            let a: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
+            let a: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
             let n: i64 = a.len();
             let mut h: u64 = fnv_mix_u64(fnv_init(), 6u64);
             h = fnv_mix_u64(h, n as u64);
@@ -69,7 +69,7 @@ pub fn hermes_hash(v: HAny) -> u64 {
     }
     if v.is_map() {
         unsafe {
-            let m: &HMap<HString, HVal> = &*(v.resolve() as *const HMap<HString, HVal>);
+            let m: &HMap<HString, HAny> = &*(v.resolve() as *const HMap<HString, HAny>);
             let mut h: u64 = fnv_mix_u64(fnv_init(), 7u64);
             h = fnv_mix_u64(h, m.len() as u64);
             // Order-independent: XOR-fold per-entry hashes.

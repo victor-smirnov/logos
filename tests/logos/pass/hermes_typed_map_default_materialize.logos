@@ -14,13 +14,13 @@ unsafe fn main() -> i32 {
 
     let m1: HAny = parse(h, "<Varchar>{\"a\":1,\"b\":2}");
     if !m1.is_map() { return 1; }
-    let mm1: &HMap<HString, HVal> = &*(m1.resolve() as *const HMap<HString, HVal>);
+    let mm1: &HMap<HString, HAny> = &*(m1.resolve() as *const HMap<HString, HAny>);
     if mm1.get("a").as_i64() != 1i64 { return 2; }
     if mm1.get("b").as_i64() != 2i64 { return 3; }
 
     let m2: HAny = parse(h, "<Varchar,AnyVal>{\"x\":7}");
     if !m2.is_map() { return 4; }
-    let mm2: &HMap<HString, HVal> = &*(m2.resolve() as *const HMap<HString, HVal>);
+    let mm2: &HMap<HString, HAny> = &*(m2.resolve() as *const HMap<HString, HAny>);
     if mm2.get("x").as_i64() != 7i64 { return 5; }
     return 0;
 }

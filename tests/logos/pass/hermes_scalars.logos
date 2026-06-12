@@ -36,7 +36,7 @@ fn main() -> i32 {
 
     // ── boxed wide scalars via a Hermes array (boxing needs the zone) ──
     let h: Hermes = hermes_new(256i64);
-    let arr: &mut HArray<HVal> = h.array(8i64);
+    let arr: &mut HArray<HAny> = h.array(8i64);
     arr.push(9000000000000000000u64);    // u64 → boxed U64 (27)
     arr.push(3.5f32);                     // boxed F32 (30)
     arr.push(2.5f64);                     // boxed F64 (31)

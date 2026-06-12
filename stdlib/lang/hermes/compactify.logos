@@ -18,8 +18,8 @@ package logos.lang.hermes.compactify;
 
 use logos.lang.hermes.container;   // Hermes
 use logos.lang.hermes.anyval;      // HAny
-use logos.lang.hermes.array;       // HArray<HVal>
-use logos.lang.hermes.hmap;        // HMap<HString, HVal>
+use logos.lang.hermes.array;       // HArray<HAny>
+use logos.lang.hermes.hmap;        // HMap<HString, HAny>
 use logos.lang.hermes.hstring;     // HString
 use logos.lang.str;                 // str
 use logos.lang.ptr;
@@ -37,17 +37,17 @@ pub fn compactify(dst: &Hermes, v: HAny) -> HAny {
         return HAny::from(dst.hstring(hs.as_str()));
     }
     if v.is_array() {
-        let a: &HArray<HVal> = unsafe { &*(v.resolve() as *const HArray<HVal>) };
+        let a: &HArray<HAny> = unsafe { &*(v.resolve() as *const HArray<HAny>) };
         let n: i64 = a.len();
-        let na: &mut HArray<HVal> = dst.array(if n < 1i64 { 1i64 } else { n });
+        let na: &mut HArray<HAny> = dst.array(if n < 1i64 { 1i64 } else { n });
         let mut i: i64 = 0i64;
         while i < n { na.push(compactify(dst, a.get(i))); i = i + 1i64; }
         return HAny::from(&*na);
     }
     if v.is_map() {
-        let m: &HMap<HString, HVal> = unsafe { &*(v.resolve() as *const HMap<HString, HVal>) };
+        let m: &HMap<HString, HAny> = unsafe { &*(v.resolve() as *const HMap<HString, HAny>) };
         let n: i64 = m.len();
-        let nm: &mut HMap<HString, HVal> = dst.map(if n < 1i64 { 1i64 } else { n });
+        let nm: &mut HMap<HString, HAny> = dst.map(if n < 1i64 { 1i64 } else { n });
         let mut i: i64 = 0i64;
         while i < m.slots() {
             let k: HAny = m.key_at(i);

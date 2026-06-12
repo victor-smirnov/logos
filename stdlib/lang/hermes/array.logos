@@ -1,6 +1,6 @@
 // Logos Hermes stdlib — hermes2.array
 //
-// HArray<HVal> — a heterogeneous zoned array of HAny. Elements live AT-REST as HAny
+// HArray<HAny> — a heterogeneous zoned array of HAny. Elements live AT-REST as HAny
 // words in a `*zoned mut HAny` buffer (no distinct `HAnyRel` type — the at-rest-ness
 // is in the POINTER: each `*(buf.add(i))` materialises the slot Ref-delta → absolute,
 // `*(buf.add(i)) = v` lowers it; the compiler owns the bridge). The header is
@@ -31,10 +31,10 @@ use logos.lang.ptr;
 // typed `Array<T>` vs heterogeneous container):
 //   • HArray<T>    — the generic base: a TYPED homogeneous packed array of a
 //                    primitive `T` (plain elements, `*mut T`; codes 2101-2110).
-//   • HArray<HVal> — the HETEROGENEOUS HAny array (the JSON array): AT-REST HAny
+//   • HArray<HAny> — the HETEROGENEOUS HAny array (the JSON array): AT-REST HAny
 //                    elements in a `*zoned mut HAny` buffer.
-// Element-kind selection is by specificity (the concrete `HVal` spec wins over the
-// type-var base); the typed methods sit behind `T: HArrTag`, which HVal does not
+// Element-kind selection is by specificity (the concrete `HAny` spec wins over the
+// type-var base); the typed methods sit behind `T: HArrTag`, which HAny does not
 // satisfy — so the two method sets never collide.
 //
 // Shared shape: `#[zone_mut]` makes a `&mut` a FAT ref {data, zone} carrying its
@@ -52,11 +52,11 @@ pub struct HArray<T> {
     pub data: *mut T,   // packed T[] (auto-relative ptr; plain position-independent elements)
 }
 
-// ── Heterogeneous spec: AT-REST HAny elements (HArray<HVal>) ───────────────────
+// ── Heterogeneous spec: AT-REST HAny elements (HArray<HAny>) ───────────────────
 #[zone_mut]
 #[pinned]
 #[zoned]
-pub struct HArray<HVal> {
+pub struct HArray<HAny> {
     pub len:   i64,
     pub cap:   i64,
     // Element buffer of AT-REST HAny words. `*zoned mut HAny`: each `*(buf.add(i))`
@@ -66,25 +66,22 @@ pub struct HArray<HVal> {
     pub data:  *zoned mut HAny,
 }
 
-// Ergonomic alias for the heterogeneous array: write `HValArray` for `HArray<HVal>`.
-pub type HValArray = HArray<HVal>;
-
 // Absolute element buffer (header + delta), const-faithful (`as_ptr`/`as_mut_ptr`
 // split — a `*const` header yields a `*const` buffer, never laundering const→mut).
-unsafe fn array_buf(a: *const HArray<HVal>) -> *zoned HAny {
+unsafe fn array_buf(a: *const HArray<HAny>) -> *zoned HAny {
     return a.data as *zoned HAny;   // #[zoned]: materialises to absolute on read
 }
-unsafe fn array_buf_mut(a: *mut HArray<HVal>) -> *zoned mut HAny {
+unsafe fn array_buf_mut(a: *mut HArray<HAny>) -> *zoned mut HAny {
     return a.data;
 }
 
 // Raw core (internal). Create an empty array header + buffer in `h`'s zone and
 // return the raw `*mut`. The zone is NOT stored in the object — the public
 // `array()` wraps this in a fat `&mut` that carries it (zone_mut_ref).
-unsafe fn array_new(h: *mut Hermes, cap: i64) -> *mut HArray<HVal> {
+unsafe fn array_new(h: *mut Hermes, cap: i64) -> *mut HArray<HAny> {
     // The header is HAny-Ref'd (nesting / array_of) → tag it for dispatch.
-    let hdr: *mut HArray<HVal>    =
-        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<HVal>>() as i64, H2_ARRAY) as *mut HArray<HVal>;
+    let hdr: *mut HArray<HAny>    =
+        alloc_tagged(&mut h.allocator as *mut Allocator, sizeof::<HArray<HAny>>() as i64, H2_ARRAY) as *mut HArray<HAny>;
     let buf: *zoned mut HAny  = hermes_alloc_n::<HAny>(h, cap) as *zoned mut HAny;
     hdr.len   = 0i64;
     hdr.cap   = cap;
@@ -92,12 +89,12 @@ unsafe fn array_new(h: *mut Hermes, cap: i64) -> *mut HArray<HVal> {
     return hdr;
 }
 
-unsafe fn array_len(a: *const HArray<HVal>) -> i64 { return a.len; }
+unsafe fn array_len(a: *const HArray<HAny>) -> i64 { return a.len; }
 
 // Append `v`. On overflow, allocate a fresh 2× buffer THROUGH THE STORED ALLOCATOR
 // and re-point `data`, copying each existing slot through the absolute intermediate
 // (re-anchoring).
-unsafe fn array_push(a: *mut HArray<HVal>, alloc: *mut Allocator, v: HAny) {
+unsafe fn array_push(a: *mut HArray<HAny>, alloc: *mut Allocator, v: HAny) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 4i64 } else { a.cap * 2i64 };
         let nbuf: *zoned mut HAny =
@@ -118,15 +115,15 @@ unsafe fn array_push(a: *mut HArray<HVal>, alloc: *mut Allocator, v: HAny) {
     a.len = a.len + 1i64;
 }
 
-unsafe fn array_get(a: *const HArray<HVal>, i: i64) -> HAny {
+unsafe fn array_get(a: *const HArray<HAny>, i: i64) -> HAny {
     let buf: *zoned HAny = array_buf(a);
     return *(buf.add(i));
 }
 
 // ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────
 //
-// Client code holds a DIRECT reference to an array — `&HArray<HVal>` / `&mut
-// HArray<HVal>`. Arrays live in the never-move arena, so the reference is stable for
+// Client code holds a DIRECT reference to an array — `&HArray<HAny>` / `&mut
+// HArray<HAny>`. Arrays live in the never-move arena, so the reference is stable for
 // the container's lifetime. Allocation is interior-mutability (`array(&self)`,
 // bumpalo-style): the `&self` lets MANY references into the container coexist with
 // FURTHER allocation — sound precisely because never-move (nothing a reference
@@ -138,30 +135,30 @@ impl Hermes {
     // Create an empty array; returns a fresh `&mut` to it. `&self` allocation
     // (interior-mut): the returned `&mut` is to brand-new never-move storage, so
     // multiple `array(&self)` calls coexist (each &mut is a distinct object).
-    pub fn array<'a>(self: &'a Hermes, cap: i64) -> &'a mut HArray<HVal> {
+    pub fn array<'a>(self: &'a Hermes, cap: i64) -> &'a mut HArray<HAny> {
         unsafe {
             let h: *mut Hermes = self as *const Hermes as *mut Hermes;
             // Fat `&mut` carrying this container's zone (the allocator) — push/grow
             // recover it via zone_of(self); the object stores no allocator.
-            return zone_mut_ref::<HArray<HVal>>(array_new(h, cap), &mut h.allocator as *mut u8);
+            return zone_mut_ref::<HArray<HAny>>(array_new(h, cap), &mut h.allocator as *mut u8);
         }
     }
     // Resolve a Ref element back to the array it points at, tied to THIS container
-    // (the returned `&HArray<HVal>` may not outlive the container).
-    pub fn array_of<'a>(self: &'a Hermes, e: HAny) -> &'a HArray<HVal> {
-        return unsafe { &*(e.resolve() as *const HArray<HVal>) };
+    // (the returned `&HArray<HAny>` may not outlive the container).
+    pub fn array_of<'a>(self: &'a Hermes, e: HAny) -> &'a HArray<HAny> {
+        return unsafe { &*(e.resolve() as *const HArray<HAny>) };
     }
 }
 
-impl HArray<HVal> {
+impl HArray<HAny> {
     // The zone (allocator) for growth comes from the fat `&mut self` via
-    // `zone_of(self)` — not a stored field. `self as *mut HArray<HVal>` is the data
+    // `zone_of(self)` — not a stored field. `self as *mut HArray<HAny>` is the data
     // half (the object pointer).
     // NOTE on ordering: `zone_of(self)` reborrows self (no move), but
-    // `self as *mut HArray<HVal>` (the cast) CONSUMES the fat &mut — so bind the
+    // `self as *mut HArray<HAny>` (the cast) CONSUMES the fat &mut — so bind the
     // zone FIRST, and let the cast be self's LAST use inside `array_push(...)`.
-    pub fn push(self: &mut HArray<HVal>, v: HAny) {
-        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, v); }
+    pub fn push(self: &mut HArray<HAny>, v: HAny) {
+        unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, v); }
     }
 
     // Overloaded push for the common element types — each wraps the value into an
@@ -169,68 +166,68 @@ impl HArray<HVal> {
     //   • i64  → inline Pod when it fits i56, else boxed (H2_I64) into the arena
     //   • f64  → boxed (H2_F64) into the arena (never fits the inline Pod)
     //   • bool → an inline Pod
-    //   • &HString / &HArray<HVal> → a Ref to an already-interned arena object
-    pub fn push(self: &mut HArray<HVal>, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, make_int(z, v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: u64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_u64(z, v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: f32)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_f32(z, v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, box_f64(z, v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: bool) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    //   • &HString / &HArray<HAny> → a Ref to an already-interned arena object
+    pub fn push(self: &mut HArray<HAny>, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, make_int(z, v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: u64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, box_u64(z, v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: f32)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, box_f32(z, v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, box_f64(z, v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: bool) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
     // Exact-width inline integers — value-form HAny (no boxing); the zone is only
     // needed for a potential grow inside array_push.
-    pub fn push(self: &mut HArray<HVal>, v: i8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: u8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: i16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: u16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: i24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: u24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: &HString)      { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
-    pub fn push(self: &mut HArray<HVal>, v: &HArray<HVal>)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HVal>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: i8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: u8)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: i16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: u16) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: i24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: u24) { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: &HString)      { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
+    pub fn push(self: &mut HArray<HAny>, v: &HArray<HAny>)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; array_push(self as *mut HArray<HAny>, z, HAny::from(v)); } }
 
     // `str` → intern the bytes into THIS array's zone (via zone_of(self)) as an
     // HString, then push a Ref to it. (A `String` caller passes `s.as_str()` —
     // String lives in the `mem` tier, above `lang`.) Lives as long as the container.
-    pub fn push(self: &mut HArray<HVal>, v: str) {
+    pub fn push(self: &mut HArray<HAny>, v: str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
             let hs: *mut HString = hstring_in_alloc(z, v);
-            array_push(self as *mut HArray<HVal>, z, HAny::ref_to(hs as *const u8));
+            array_push(self as *mut HArray<HAny>, z, HAny::ref_to(hs as *const u8));
         }
     }
 
-    pub fn get(self: &HArray<HVal>, i: i64) -> HAny { return unsafe { array_get(self as *const HArray<HVal>, i) }; }
-    pub fn len(self: &HArray<HVal>) -> i64 { return unsafe { array_len(self as *const HArray<HVal>) }; }
+    pub fn get(self: &HArray<HAny>, i: i64) -> HAny { return unsafe { array_get(self as *const HArray<HAny>, i) }; }
+    pub fn len(self: &HArray<HAny>) -> i64 { return unsafe { array_len(self as *const HArray<HAny>) }; }
 
     // Mutable cursor onto element `i` — the element SLOT plus THIS array's zone
     // (zone_of(self)), so a nested child can grow in the same arena and a Pod
     // element reads/replaces in place. Bind the zone FIRST (no move); `self as *mut`
     // (the cast) is the last use.
-    pub fn get_mut(self: &mut HArray<HVal>, i: i64) -> HAnyMut {
+    pub fn get_mut(self: &mut HArray<HAny>, i: i64) -> HAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
-            let slot: *zoned mut HAny = array_buf_mut(self as *mut HArray<HVal>).add(i);
+            let slot: *zoned mut HAny = array_buf_mut(self as *mut HArray<HAny>).add(i);
             return HAnyMut { slot: slot, zone: z };
         }
     }
 }
 
 impl HAnyMut {
-    // Resolve a Ref cursor to a fat `&mut HArray<HVal>` carrying its zone — ready
+    // Resolve a Ref cursor to a fat `&mut HArray<HAny>` carrying its zone — ready
     // to push/grow in the same arena. (Check is_array() first.)
-    pub fn as_array_mut(self: HAnyMut) -> &mut HArray<HVal> {
-        return unsafe { zone_mut_ref::<HArray<HVal>>(self.get().resolve() as *mut HArray<HVal>, self.zone) };
+    pub fn as_array_mut(self: HAnyMut) -> &mut HArray<HAny> {
+        return unsafe { zone_mut_ref::<HArray<HAny>>(self.get().resolve() as *mut HArray<HAny>, self.zone) };
     }
 }
 
 impl HAny {
     // A nested array as a heterogeneous value (Ref to the child's header).
-    pub fn from(a: &HArray<HVal>) -> HAny { return HAny::ref_to(a as *const HArray<HVal> as *const u8); }
+    pub fn from(a: &HArray<HAny>) -> HAny { return HAny::ref_to(a as *const HArray<HAny> as *const u8); }
 }
 
 // ── Typed array surface (HArray<T>, T a primitive) — Hermes1 typed Array<T> ────
 //
 // Homogeneous packed array of a primitive `T` (u8..f64). Elements are plain values
 // (no Refs, no per-element zoning); growth is a plain element copy (position-
-// independent — no self-relative re-anchor that HArray<HVal> needs). `data` is the
+// independent — no self-relative re-anchor that HArray<HAny> needs). `data` is the
 // element buffer: #[zoned] self-relative as a POINTER, plain `T` as elements, so
 // `*(buf.add(i))` is an ordinary load/store.
 
@@ -259,7 +256,7 @@ unsafe fn harr_new<T: HArrTag>(h: *mut Hermes, cap: i64) -> *mut HArray<T> {
 }
 
 // Append `v`; on overflow allocate a fresh 2× buffer and PLAIN-copy the elements
-// (primitives are position-independent — no re-anchor, unlike HArray<HVal>).
+// (primitives are position-independent — no re-anchor, unlike HArray<HAny>).
 unsafe fn harr_push<T: HArrTag>(a: *mut HArray<T>, alloc: *mut Allocator, v: T) {
     if a.len >= a.cap {
         let newcap: i64 = if a.cap == 0i64 { 8i64 } else { a.cap * 2i64 };

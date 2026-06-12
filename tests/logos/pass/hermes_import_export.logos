@@ -18,7 +18,7 @@ unsafe fn main() -> i32 {
     let rc1: Rc<Hermes> = hermes_rc(16384);
     let src_h: &Hermes = rc1.deref();
     let src_root: HAny = parse(src_h, "{\"x\": 10, \"arr\": [1, 2, 3], \"s\": \"hello\"}");
-    let sm: &HMap<HString, HVal> = &*(src_root.resolve() as *const HMap<HString, HVal>);
+    let sm: &HMap<HString, HAny> = &*(src_root.resolve() as *const HMap<HString, HAny>);
     let arr_val: HAny = sm.get("arr");
     if arr_val.is_null() { return 2; }
 
@@ -28,7 +28,7 @@ unsafe fn main() -> i32 {
     let imported: HAny = hermes_clone_into(dst_h, arr_val);
     if imported.is_null() { return 4; }
     if !imported.is_array() { return 5; }
-    let ia: &HArray<HVal> = &*(imported.resolve() as *const HArray<HVal>);
+    let ia: &HArray<HAny> = &*(imported.resolve() as *const HArray<HAny>);
     if ia.len() != 3i64 { return 6; }
     if ia.get(2).as_i64() != 3i64 { return 7; }
 
@@ -44,9 +44,9 @@ unsafe fn main() -> i32 {
     if !str_eq(hs.as_str(), "hello") { return 11; }
 
     // 5. Mutating the destination does not disturb the source.
-    let dm: &mut HMap<HString, HVal> = dst_h.map(8);
+    let dm: &mut HMap<HString, HAny> = dst_h.map(8);
     dm.set("import", imported);
-    let dmp: *const HMap<HString, HVal> = dm as *const HMap<HString, HVal>;
+    let dmp: *const HMap<HString, HAny> = dm as *const HMap<HString, HAny>;
     dst_h.set_root(HAny::ref_to(dmp as *const u8));
     if sm.get("x").as_i64() != 10i64 { return 12; }
 

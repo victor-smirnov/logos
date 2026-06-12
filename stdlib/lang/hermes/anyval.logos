@@ -38,15 +38,11 @@ pub enum HAny {
 }
 
 // (HAnyRel — the old distinct at-rest marker type — is RETIRED. The at-rest form
-// is the same HAny, reached through a `*zoned HAny` slot; the compiler bridges.)
-
-// Placeholder element type for the heterogeneous containers `HArray<HVal>` /
-// `HMap<HString, HVal>`. A pure type-level label meaning "a heterogeneous Hermes
-// value": in MEMORY an element is an AT-REST HAny word (reached through a
-// `*zoned mut HAny` slot), materialised to a value-form HAny on read — there is no
-// distinct at-rest type, so `HAny` alone isn't the right param name either. HVal
-// stands in for that logical element. (Phantom: the containers carry no T-typed field.)
-pub struct HVal {}
+// is the same HAny, reached through a `*zoned HAny` slot; the compiler bridges.
+// Its phantom companion `HVal` — the placeholder element label the containers
+// were parameterised over while the at-rest/value split existed — is retired
+// with it: the heterogeneous containers are `HArray<HAny>` / `HMap<…, HAny>`,
+// naming exactly what `get`/`set` traffic in.)
 
 impl HAny {
     // The raw 8-byte word (value form) — the single decode point every accessor
@@ -249,7 +245,7 @@ impl HAny {
 // nested container/string) is unknown until checked. Holding the SLOT (not a
 // resolved object pointer) means it faithfully carries BOTH a Pod (read its
 // inline value) and a Ref (descend + grow), and can REPLACE the element in place
-// (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `HMap<HString, HVal>::get_mut`
+// (`set`) — like Rust's `&mut self[i]`. `Array::get_mut` / `HMap<HString, HAny>::get_mut`
 // produce it (zone = `zone_of(self)`, so the parent's zone cascades into the
 // child); `as_array_mut` / `as_map_mut` (in array/hmap) resolve a Ref element to a
 // fat `&mut` carrying that zone, ready to grow. hermes2 §9.4.

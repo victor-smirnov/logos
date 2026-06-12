@@ -34,9 +34,9 @@ fn main() -> i32 {
     if !str_eq(stringify(back).as_str(), before.as_str()) { return 2; }
 
     // spot-check structure of the compacted map
-    let m: &HMap<HString, HVal> = unsafe { &*(comp.resolve() as *const HMap<HString, HVal>) };
+    let m: &HMap<HString, HAny> = unsafe { &*(comp.resolve() as *const HMap<HString, HAny>) };
     if m.get("n").as_i56() != (0i64 - 42i64) { return 3; }
-    let inner: &HMap<HString, HVal> = unsafe { &*(m.get("b").resolve() as *const HMap<HString, HVal>) };
+    let inner: &HMap<HString, HAny> = unsafe { &*(m.get("b").resolve() as *const HMap<HString, HAny>) };
     if !str_eq(h3.hstring_of(inner.get("c")).as_str(), "deep") {
         // note: inner is in `big`, resolve via any arena (hstring_of ignores self)
         if !str_eq(big.hstring_of(inner.get("c")).as_str(), "deep") { return 4; }

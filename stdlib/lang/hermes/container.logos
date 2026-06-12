@@ -96,8 +96,8 @@ pub unsafe fn h2_write_tag(obj: *mut u8, code: u64) {
 // tag slot BEFORE the object — keeping the object 8-aligned so a Ref's low bit stays
 // 0 — and write the (varint) type `code` ending at obj[-1]. Returns the object
 // pointer; `h2_type_code(obj)` reads the code back. Takes `*mut Allocator` so
-// containers holding only an allocator back-pointer (HArray<HVal>, HMap<HString,
-// HVal>, HTinyValMap) can tag-allocate without the full Hermes.
+// containers holding only an allocator back-pointer (HArray<HAny>, HMap<HString,
+// HAny>, HTinyValMap) can tag-allocate without the full Hermes.
 pub unsafe fn alloc_tagged(a: *mut Allocator, size: i64, code: u64) -> *mut u8 {
     let base: *mut u8 = allocator_alloc(a, 8i64 + size, 8i64);
     let obj: *mut u8 = ((base as i64) + 8i64) as *mut u8;

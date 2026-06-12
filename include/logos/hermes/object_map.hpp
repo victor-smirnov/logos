@@ -27,7 +27,7 @@ struct MapEntry {
 static_assert(sizeof(MapEntry) == 16);
 
 // ObjectMap — open-addressing hash map, string keys → AnyVal values (the JSON
-// "object"). BYTE-IDENTICAL to the Logos HMap<HString, HVal>:
+// "object"). BYTE-IDENTICAL to the Logos HMap<HString, HAny>:
 //   { count : i64, cap : i64, data : self-relative ptr to MapEntry[] }   (24 bytes)
 //
 // Linear probing + FNV-1a; keys are interned ArenaStrings in the same arena. Grows
@@ -142,7 +142,7 @@ private:
     }
 };
 
-// count_(8) + cap_(8) + data_(8, self-relative i64) = 24 (matches HMap<HString,HVal>)
+// count_(8) + cap_(8) + data_(8, self-relative i64) = 24 (matches HMap<HString,HAny>)
 static_assert(sizeof(ObjectMap) == 24);
 
 } // namespace logos::hermes

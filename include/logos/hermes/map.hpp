@@ -15,7 +15,7 @@
 namespace logos::hermes {
 
 // TypedMap<K> — a dense, FIXED-capacity map of a scalar integer key K (i32/u32/
-// i64/u64) → AnyVal. BYTE-IDENTICAL to the Logos stdlib HMap<K, HVal>
+// i64/u64) → AnyVal. BYTE-IDENTICAL to the Logos stdlib HMap<K, HAny>
 // (stdlib/lang/hermes2/hmap.logos "dense spec"):
 //   { size_ : i64, cap_ : i64, keys_ : self-rel ptr to K[], vals_ : self-rel ptr to AnyVal[] }
 //   (32 bytes)
@@ -98,7 +98,7 @@ private:
     RelativePtr<AnyVal> vals_;
 };
 
-// size_(8) + cap_(8) + keys_(8) + vals_(8) = 32 (matches HMap<K,HVal>)
+// size_(8) + cap_(8) + keys_(8) + vals_(8) = 32 (matches HMap<K,HAny>)
 static_assert(sizeof(TypedMap<int32_t>) == 32);
 static_assert(sizeof(TypedMap<uint64_t>) == 32);
 

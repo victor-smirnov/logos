@@ -29,9 +29,9 @@ inline constexpr uint64_t HT_U24  = 25;
 
 // ── Ref (tagged arena object) codes ──
 inline constexpr uint64_t STRING     = 130;   // HString  (Logos H2_STRING; Hermes1 used 28)
-inline constexpr uint64_t ARRAY      = 100;   // HArray<HVal>      (ObjectArray)
-inline constexpr uint64_t MAP        = 101;   // HMap<HString,HVal> (ObjectMap)
-inline constexpr uint64_t TINYMAP    = 98;    // HMap<Hu6,HVal>     (TinyObjectMap)
+inline constexpr uint64_t ARRAY      = 100;   // HArray<HAny>      (ObjectArray)
+inline constexpr uint64_t MAP        = 101;   // HMap<HString,HAny> (ObjectMap)
+inline constexpr uint64_t TINYMAP    = 98;    // HMap<Hu6,HAny>     (TinyObjectMap)
 inline constexpr uint64_t DECIMAL    = 102;   // HDecimal
 inline constexpr uint64_t PARAMETER  = 127;   // HParameter
 inline constexpr uint64_t TYPEDVALUE = 4115;  // HTypedValue
@@ -54,7 +54,7 @@ inline constexpr uint64_t ARRAY_I64 = 2108;
 inline constexpr uint64_t ARRAY_F32 = 2109;
 inline constexpr uint64_t ARRAY_F64 = 2110;
 
-// dense int-keyed maps HMap<K,HVal> (MapI32AnyVal..MapU64AnyVal)
+// dense int-keyed maps HMap<K,HAny> (MapI32AnyVal..MapU64AnyVal)
 inline constexpr uint64_t MAP_I32 = 3101;
 inline constexpr uint64_t MAP_U32 = 3102;
 inline constexpr uint64_t MAP_I64 = 3103;

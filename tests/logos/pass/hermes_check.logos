@@ -42,9 +42,9 @@ unsafe fn main() -> i32 {
     // 5. Corruption: zero the tag byte of a runtime map -> check fails.
     let rc2: Rc<Hermes> = hermes_rc(4096);
     let h2: &Hermes = rc2.deref();
-    let m: &mut HMap<HString, HVal> = h2.map(8);
+    let m: &mut HMap<HString, HAny> = h2.map(8);
     m.set("k", 1i64);
-    let mp: *const HMap<HString, HVal> = m as *const HMap<HString, HVal>;
+    let mp: *const HMap<HString, HAny> = m as *const HMap<HString, HAny>;
     let obj: *mut u8 = mp as *mut u8;
     *((obj as i64 - 1) as *mut u8) = 0 as u8;        // clobber the vlen tag
     if hermes_check(HAny::ref_to(obj as *const u8)) { return 8; }

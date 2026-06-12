@@ -14,8 +14,8 @@
 package logos.mem.hermes.stringify;
 
 use logos.lang.hermes.anyval;     // HAny, type-tag dispatch
-use logos.lang.hermes.array;      // HArray<HVal>
-use logos.lang.hermes.hmap;       // HMap<HString, HVal>
+use logos.lang.hermes.array;      // HArray<HAny>
+use logos.lang.hermes.hmap;       // HMap<HString, HAny>
 use logos.lang.hermes.hstring;    // HString
 use logos.lang.str;                // str
 use logos.mem.string;              // String
@@ -35,7 +35,7 @@ unsafe fn write_val(out: &mut String, v: HAny) {
         return;
     }
     if v.is_array() {
-        let a: &HArray<HVal> = &*(v.resolve() as *const HArray<HVal>);
+        let a: &HArray<HAny> = &*(v.resolve() as *const HArray<HAny>);
         out.push_u8(91u8);                 // [
         let mut i: i64 = 0i64;
         while i < a.len() {
@@ -47,7 +47,7 @@ unsafe fn write_val(out: &mut String, v: HAny) {
         return;
     }
     if v.is_map() {
-        let m: &HMap<HString, HVal> = &*(v.resolve() as *const HMap<HString, HVal>);
+        let m: &HMap<HString, HAny> = &*(v.resolve() as *const HMap<HString, HAny>);
         out.push_u8(123u8);                // {
         let mut first: bool = true;
         let mut i: i64 = 0i64;
@@ -194,7 +194,7 @@ unsafe fn write_typed_value(out: &mut String, p: *const u8) {
     }
     if !pr.is_null() {
         out.push_u8(40u8);                      // '('
-        let pa: &HArray<HVal> = &*(pr.resolve() as *const HArray<HVal>);
+        let pa: &HArray<HAny> = &*(pr.resolve() as *const HArray<HAny>);
         let mut i: i64 = 0;
         while i < pa.len() {
             if i > 0i64 { out.push_u8(44u8); }  // ','

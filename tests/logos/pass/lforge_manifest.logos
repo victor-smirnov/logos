@@ -29,7 +29,7 @@ unsafe fn err_msg(msg: str) -> ManifestError {
     return ManifestError { message: s };
 }
 
-unsafe fn read_str_field(m: &HMap<HString, HVal>, key: str) -> Result<String, ManifestError> {
+unsafe fn read_str_field(m: &HMap<HString, HAny>, key: str) -> Result<String, ManifestError> {
     let v: HAny = m.get(key);
     if v.is_null() {
         let mut e: String = String::new();
@@ -56,7 +56,7 @@ pub unsafe fn parse_manifest(h: &Hermes, text: str) -> Result<Manifest, Manifest
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
     }
-    let m: &HMap<HString, HVal> = &*(root.resolve() as *const HMap<HString, HVal>);
+    let m: &HMap<HString, HAny> = &*(root.resolve() as *const HMap<HString, HAny>);
     let name_s: String = match read_str_field(m, "name") {
         Result::Ok(s) => s,
         Result::Err(e) => { return Result::Err(e); }

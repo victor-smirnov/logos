@@ -3,7 +3,7 @@
 // HERMES2 PORT (cut-over step 4): node handles are hermes2 `HAny` (8-byte
 // self-relative; value-form holds the resolved absolute ptr), read through the
 // OView primitives in oview.logos (tiny_map_get / get_str_view / array_* on
-// HMap<Hu6,HVal> / HArray<HVal> / HString). The old Hermes1 4-byte AnyVal{raw}
+// HMap<Hu6,HAny> / HArray<HAny> / HString). The old Hermes1 4-byte AnyVal{raw}
 // + base-relative `base + offset` model is gone.
 //
 // Hooks fire pre-sema: the AST is freshly parsed TinyObjectMap nodes keyed by
@@ -13,7 +13,7 @@ package logos.std.compiler.metaprog;
 
 use logos.lang.hermes.hstatic;    // HermesStatic — the quote/metacall splice handle ({ptr})
 use logos.lang.hermes.anyval;     // HAny
-use logos.lang.hermes.hmap;       // HMap<Hu6,HVal> (for schema_type_code on type_from_anyval)
+use logos.lang.hermes.hmap;       // HMap<Hu6,HAny> (for schema_type_code on type_from_anyval)
 use logos.lang.hermes.hstring;
 use logos.mem.string;
 use logos.lang.str;
@@ -213,7 +213,7 @@ pub fn type_from_anyval(val: HAny) -> Type {
         if obj == (0 as *const u8) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }
-        let tom: *const HMap<Hu6, HVal> = obj as *const HMap<Hu6, HVal>;
+        let tom: *const HMap<Hu6, HAny> = obj as *const HMap<Hu6, HAny>;
         if (&*tom).schema_type_code() != (107 as u64) {
             return Type { kind: 0 as u32, name: "", size: 0, align: 0, uid: 0 as u64 };
         }

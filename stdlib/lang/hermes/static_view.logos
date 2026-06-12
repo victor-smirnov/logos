@@ -2,8 +2,8 @@
 // rodata blob.
 //
 // STEP 5 (cut-over): the compiler now emits @{} / HermesStatic rodata blobs in
-// HERMES2 format (8-byte SELF-RELATIVE HAny slots, HMap<HString,HVal> object
-// maps, HArray<HVal> arrays, HString strings) — the same layout the parser
+// HERMES2 format (8-byte SELF-RELATIVE HAny slots, HMap<HString,HAny> object
+// maps, HArray<HAny> arrays, HString strings) — the same layout the parser
 // builds. The legacy `logos.lang.hermes.view::HermesView`/`HermesStatic` read
 // path decodes the OLD Hermes1 4-byte base-relative format, so it reads garbage
 // (SIGILL). This module is the matching hermes2 READER, mirroring the metaprog
@@ -16,8 +16,8 @@
 package logos.lang.hermes.static_view;
 
 use logos.lang.hermes.anyval;     // HAny
-use logos.lang.hermes.hmap;       // HMap<HString, HVal>
-use logos.lang.hermes.array;      // HArray<HVal>
+use logos.lang.hermes.hmap;       // HMap<HString, HAny>
+use logos.lang.hermes.array;      // HArray<HAny>
 use logos.lang.hermes.hstring;    // HString
 use logos.lang.str;
 
@@ -63,21 +63,21 @@ impl HView2 {
         return HAny::Ref((self.base as i64 + w) as *const u8);
     }
 
-    // String-keyed ObjectMap field read: `node` (Ref to HMap<HString,HVal>) →
+    // String-keyed ObjectMap field read: `node` (Ref to HMap<HString,HAny>) →
     // key → HAny. Null/non-ref node, or absent key, yields a null HAny.
     pub fn map_get(self: HView2, node: HAny, key: str) -> HAny {
         if !node.is_ref() { return HAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
         if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
-        return unsafe { (&*(p as *const HMap<HString, HVal>)).get(key) };
+        return unsafe { (&*(p as *const HMap<HString, HAny>)).get(key) };
     }
 
-    // u8-keyed TinyObjectMap field read (the AST/schema flavour: HMap<Hu6,HVal>).
+    // u8-keyed TinyObjectMap field read (the AST/schema flavour: HMap<Hu6,HAny>).
     pub fn tiny_map_get(self: HView2, node: HAny, key: u8) -> HAny {
         if !node.is_ref() { return HAny::Ref(0i64 as *const u8); }
         let p: *const u8 = node.resolve();
         if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
-        return unsafe { (&*(p as *const HMap<Hu6, HVal>)).get(key) };
+        return unsafe { (&*(p as *const HMap<Hu6, HAny>)).get(key) };
     }
 
     // Scalar reads — an integer is an inline Pod OR a boxed zone H2_I64/H2_U64;
@@ -105,18 +105,18 @@ impl HView2 {
         return SView2 { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 
-    // Array length / element. `v` is a Ref to HArray<HVal>; null/non-ref → 0 / null.
+    // Array length / element. `v` is a Ref to HArray<HAny>; null/non-ref → 0 / null.
     pub fn array_len(self: HView2, v: HAny) -> u64 {
         if !v.is_ref() { return 0 as u64; }
         let p: *const u8 = v.resolve();
         if p == (0 as *const u8) { return 0 as u64; }
-        return unsafe { (&*(p as *const HArray<HVal>)).len() as u64 };
+        return unsafe { (&*(p as *const HArray<HAny>)).len() as u64 };
     }
 
     pub fn array_get(self: HView2, v: HAny, idx: u64) -> HAny {
         if !v.is_ref() { return HAny::Ref(0i64 as *const u8); }
         let p: *const u8 = v.resolve();
         if p == (0 as *const u8) { return HAny::Ref(0i64 as *const u8); }
-        return unsafe { (&*(p as *const HArray<HVal>)).get(idx as i64) };
+        return unsafe { (&*(p as *const HArray<HAny>)).get(idx as i64) };
     }
 }

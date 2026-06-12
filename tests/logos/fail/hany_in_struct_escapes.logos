@@ -12,7 +12,7 @@ use logos.lang.hermes.array;
 struct Wrap { a: HAny }
 fn make() -> Wrap {
     let h: Hermes = hermes_new(64i64);
-    let nested: &mut HArray<HVal> = h.array(2i64);
+    let nested: &mut HArray<HAny> = h.array(2i64);
     nested.push(HAny::from(99i64));
     return Wrap { a: HAny::from(&*nested) };   // ERROR: Wrap holds a Ref into local arena
 }

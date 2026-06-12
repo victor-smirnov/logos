@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     let h: &Hermes = rc.deref();
     let root: HAny = parse(h, "[\"hello\", \"\", \"world!\"]");
     if !root.is_array() { return 1; }
-    let arr: &HArray<HVal> = &*(root.resolve() as *const HArray<HVal>);
+    let arr: &HArray<HAny> = &*(root.resolve() as *const HArray<HAny>);
     if arr.len() != 3i64 { return 2; }
 
     let s0: &HString = &*(arr.get(0).resolve() as *const HString);

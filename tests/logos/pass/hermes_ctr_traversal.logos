@@ -26,7 +26,7 @@ unsafe fn main() -> i32 {
 
     // 3. Array traversal: sum of [10, 20, 30] = 60.
     let v3: HAny = parse(h, "[10, 20, 30]");
-    let arr: &HArray<HVal> = &*(v3.resolve() as *const HArray<HVal>);
+    let arr: &HArray<HAny> = &*(v3.resolve() as *const HArray<HAny>);
     let mut sum: i64 = 0;
     let mut i: i64 = 0;
     while i < arr.len() {
@@ -37,16 +37,16 @@ unsafe fn main() -> i32 {
 
     // 4. Map lookup {x: 55}.
     let v4: HAny = parse(h, "{x: 55}");
-    let m: &HMap<HString, HVal> = &*(v4.resolve() as *const HMap<HString, HVal>);
+    let m: &HMap<HString, HAny> = &*(v4.resolve() as *const HMap<HString, HAny>);
     if m.get("x").as_i64() != 55i64 { return 6; }
     if !m.get("y").is_null() { return 7; }
 
     // 5. Deep mixed traversal.
     let v5: HAny = parse(h, "{items: [{id: 1}, {id: 2}], total: 2}");
-    let mm: &HMap<HString, HVal> = &*(v5.resolve() as *const HMap<HString, HVal>);
+    let mm: &HMap<HString, HAny> = &*(v5.resolve() as *const HMap<HString, HAny>);
     if mm.get("total").as_i64() != 2i64 { return 8; }
-    let items: &HArray<HVal> = &*(mm.get("items").resolve() as *const HArray<HVal>);
-    let it1: &HMap<HString, HVal> = &*(items.get(1).resolve() as *const HMap<HString, HVal>);
+    let items: &HArray<HAny> = &*(mm.get("items").resolve() as *const HArray<HAny>);
+    let it1: &HMap<HString, HAny> = &*(items.get(1).resolve() as *const HMap<HString, HAny>);
     if it1.get("id").as_i64() != 2i64 { return 9; }
 
     return 42;

@@ -17,7 +17,7 @@ use logos.lang.str;
 fn main() -> i32 {
     let h: Hermes = hermes_new(2048i64);
     let big: i64 = 9000000000000000000i64;     // > 2^55 → boxed
-    let a: &mut HArray<HVal> = h.array(8i64);
+    let a: &mut HArray<HAny> = h.array(8i64);
     a.push(7i64); a.push(big); a.push(3.14f64); a.push(-2.5f64);
 
     // dispatch + read-back
@@ -32,7 +32,7 @@ fn main() -> i32 {
 
     // parser → big int + float
     let d: HAny = parse(&h, "[9000000000000000000, 3.14, -2.5]");
-    let pa: &HArray<HVal> = unsafe { &*(d.resolve() as *const HArray<HVal>) };
+    let pa: &HArray<HAny> = unsafe { &*(d.resolve() as *const HArray<HAny>) };
     if pa.get(0i64).as_i64() != big { return 7; }
     if pa.get(1i64).as_f64() != 3.14f64 { return 8; }
 
@@ -45,7 +45,7 @@ fn main() -> i32 {
     // compactify (boxed scalars re-boxed into the fresh arena)
     let h3: Hermes = hermes_new(2048i64);
     let comp: HAny = compactify(&h3, HAny::from(&*a));
-    let ca: &HArray<HVal> = unsafe { &*(comp.resolve() as *const HArray<HVal>) };
+    let ca: &HArray<HAny> = unsafe { &*(comp.resolve() as *const HArray<HAny>) };
     if ca.get(1i64).as_i64() != big { return 10; }
     if ca.get(2i64).as_f64() != 3.14f64 { return 11; }
     return 0;

@@ -13,13 +13,13 @@ use logos.lang.str;
 unsafe fn main() -> i32 {
     let rc: Rc<Hermes> = hermes_rc(65536);
     let h: &Hermes = rc.deref();
-    let arr: &mut HArray<HVal> = h.array(8);
+    let arr: &mut HArray<HAny> = h.array(8);
     let mut i: i64 = 0;
     while i < 100 {
         arr.push(HAny::from(&*(h.hstring("growing-element-payload") as *const HString)));
         i = i + 1;
     }
-    let ap: *const HArray<HVal> = arr as *const HArray<HVal>;
+    let ap: *const HArray<HAny> = arr as *const HArray<HAny>;
     let text: String = stringify(HAny::ref_to(ap as *const u8));
     // 100 * ("growing-element-payload"+quotes=25) + 99*", " + "[]" = 2500+198+2.
     if text.len() != 2700i64 { return 1; }

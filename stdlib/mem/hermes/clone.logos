@@ -14,8 +14,8 @@ package logos.mem.hermes.clone;
 use logos.lang.hermes.anyval;       // HAny, h2_type_code
 use logos.lang.hermes.allocator;    // Allocator
 use logos.lang.hermes.container;    // Hermes, hermes_rc, alloc_tagged, box_*
-use logos.lang.hermes.array;        // HArray<HVal>
-use logos.lang.hermes.hmap;         // HMap<HString, HVal>
+use logos.lang.hermes.array;        // HArray<HAny>
+use logos.lang.hermes.hmap;         // HMap<HString, HAny>
 use logos.lang.hermes.hstring;      // HString, hstring_in_alloc
 use logos.lang.rc;                    // Rc
 use logos.lang.str;
@@ -43,25 +43,25 @@ pub unsafe fn hermes_clone_into(h: &Hermes, v: HAny) -> HAny {
     }
 
     if v.is_array() {
-        let src: &HArray<HVal> = &*(p as *const HArray<HVal>);
+        let src: &HArray<HAny> = &*(p as *const HArray<HAny>);
         let n: i64 = src.len();
         let mut cap: i64 = 8;
         while cap < n { cap = cap * 2; }
-        let dst: &mut HArray<HVal> = h.array(cap);
+        let dst: &mut HArray<HAny> = h.array(cap);
         let mut i: i64 = 0;
         while i < n {
             dst.push(hermes_clone_into(h, src.get(i)));
             i = i + 1;
         }
-        let dp: *const HArray<HVal> = dst as *const HArray<HVal>;
+        let dp: *const HArray<HAny> = dst as *const HArray<HAny>;
         return HAny::ref_to(dp as *const u8);
     }
 
     if v.is_map() {
-        let src: &HMap<HString, HVal> = &*(p as *const HMap<HString, HVal>);
+        let src: &HMap<HString, HAny> = &*(p as *const HMap<HString, HAny>);
         let mut slots: i64 = 8;
         while slots < src.len() * 2 { slots = slots * 2; }
-        let dst: &mut HMap<HString, HVal> = h.map(slots);
+        let dst: &mut HMap<HString, HAny> = h.map(slots);
         let cap: i64 = src.slots();
         let mut i: i64 = 0;
         while i < cap {
@@ -72,7 +72,7 @@ pub unsafe fn hermes_clone_into(h: &Hermes, v: HAny) -> HAny {
             }
             i = i + 1;
         }
-        let dp: *const HMap<HString, HVal> = dst as *const HMap<HString, HVal>;
+        let dp: *const HMap<HString, HAny> = dst as *const HMap<HString, HAny>;
         return HAny::ref_to(dp as *const u8);
     }
 
