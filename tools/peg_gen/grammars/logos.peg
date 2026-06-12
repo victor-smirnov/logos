@@ -2449,6 +2449,16 @@
                      / quote_item_expr
                      / quote_expr_expr
                      / quote_ty_expr
+                     // Function-style macros in OPERAND position (`if
+                     // cfg!(unix) && … {}`, `while m!(x) {}`). Mirrors
+                     // primary_expr's FN_MACRO_CALL alts; the BRACE form is
+                     // deliberately excluded here — `name!{…}` would swallow
+                     // the if-body block (same reason struct-lits are
+                     // excluded from the _ns chain).
+                     / IDENT BANG RAW_GROUP_PAREN
+                                        => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
+                     / IDENT BANG RAW_GROUP_BRACKET
+                                        => { CODE: FN_MACRO_CALL, CALLEE: $1, RAW_TEXT: $3 }
                      / call_expr
                      / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE
                                         => { CODE: GENERIC_REF, CALLEE: $1, TYPE_PARAMS: $4 }

@@ -1,0 +1,18 @@
+// audit-v2 R3: fn-style macro calls (`name!(…)` / `name![…]`) parse in
+// OPERAND position — if/while conditions, `&&` chains, call args.
+// Pre-fix primary_expr_ns (the no-struct-lit chain used by conditions)
+// lacked the FN_MACRO_CALL alternatives, so `if cfg!(true) && …` was a
+// syntax error. The `name!{…}` BRACE form stays excluded in conditions
+// (it would swallow the if-body block, like struct-lits).
+package macro_call_in_condition;
+use logos.std.fmt;
+fn check(v: i64) -> bool { v > 0 }
+fn main() -> i32 {
+    if cfg!(true) && !cfg!(false) {
+        if cfg!(unix) { } else { return 2; }
+        while cfg!(false) { return 3; }
+        if check(vec![1, 2].len()) { return 0; }
+        return 4;
+    }
+    1
+}
