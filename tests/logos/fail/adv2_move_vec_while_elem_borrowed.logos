@@ -1,0 +1,10 @@
+// Adversarial #2 (f15): moving a Vec while an element borrow is live.
+package adv2_move_vec_while_elem_borrowed;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(1i64);
+    let r: &i64 = &v[0];
+    let w = v;
+    if *r != 1i64 { return 1i32; }
+    return w.len() as i32;
+}

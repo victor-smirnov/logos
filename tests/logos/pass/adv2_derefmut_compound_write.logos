@@ -1,0 +1,20 @@
+// Adversarial #2 (p06): `*w op= v` through a user DerefMut (generic wrapper)
+// — routed through emit_generic_deref_call; drop of the wrapper's other
+// field fires exactly once.
+package adv2_derefmut_compound_write;
+use logos.lang.ops;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+trait Drop { fn drop(self: Self); }
+struct R { id: i32 }
+impl Drop for R { fn drop(self: R) { printi("d%d ", self.id); } }
+struct W<T> { inner: T, tag: R }
+impl<T> Deref<T> for W<T> { fn deref(&self) -> &T { return &self.inner; } }
+impl<T> DerefMut<T> for W<T> { fn deref_mut(&mut self) -> &mut T { return &mut self.inner; } }
+unsafe fn main() -> i32 {
+    let mut w = W { inner: 5i64, tag: R { id: 1i32 } };
+    *w += 10i64;
+    if *w != 15i64 { return 1i32; }
+    printi("v%d ", *w as i32);
+    return 0i32;
+}

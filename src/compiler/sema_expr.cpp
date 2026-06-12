@@ -9805,6 +9805,32 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     // User-defined Index dispatch: `a[i]` for struct a where a impls
     // Index<Idx, Out> → `*(a.index(i))`. Tried before the built-in
     // integer-index check so a user impl can accept non-integer keys.
+    // Rust autoderef at INDEX position: a struct receiver WITHOUT an Index
+    // impl derefs through its Deref impl(s) until an indexable type appears
+    // (`w[0]` where W: Deref<Vec<i64>> — adversarial #2 p15). Bounded walk
+    // mirrors method-resolution autoderef.
+    for (int _ad_step = 0; _ad_step < 4 &&
+         TypeRef(arr_type).kind() == LogosType::Kind::Struct; ++_ad_step) {
+        {
+            auto _tn = concrete_struct_name(arr_type);
+            auto _bn = std::string(TypeRef(arr_type).struct_name());
+            bool _has_index = impls_.count("Index::" + _tn) ||
+                              (!_bn.empty() && impls_.count("Index::" + _bn));
+            if (_has_index) break;
+        }
+        auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/false);
+        if (!stepped) break;     // recv (raw handle) still valid — no Deref impl
+        TypeRef rt2 = (*stepped)->type;
+        if (TypeRef(rt2).kind() == LogosType::Kind::Slice ||
+            TypeRef(rt2).kind() == LogosType::Kind::TraitObject) {
+            recv = std::move(*stepped);   // fat form IS the value
+            arr_type = rt2;
+            break;
+        }
+        TypeRef tgt = TypeRef(rt2).pointee() ? TypeRef(rt2).pointee() : rt2;
+        recv = builder().deref(std::move(*stepped), tgt);
+        arr_type = recv->type;
+    }
     if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
         auto type_name = concrete_struct_name(arr_type);
         auto base_name = std::string(TypeRef(arr_type).struct_name());

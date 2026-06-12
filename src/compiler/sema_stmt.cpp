@@ -499,6 +499,29 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             : std::string(op_tok);
         TypeRef pt = ptr->type;
         TypeRef elem = TypeRef(pt).pointee();
+        // User DerefMut dispatch: `*w op= v` for struct w with DerefMut<T> —
+        // desugar to `*(w.deref_mut()) = *(w.deref_mut()) op v` through the
+        // canonical emit_generic_deref_call (shape-aware multi-impl + generic
+        // wrappers; deref_mut treated as side-effect-free, as in the rest of
+        // the deref family). Adversarial #2 p06.
+        if (TypeRef(pt).kind() == LogosType::Kind::Struct ||
+            TypeRef(pt).kind() == LogosType::Kind::ZonedStruct) {
+            auto wcall = emit_generic_deref_call(std::move(ptr), /*want_mut=*/true);
+            if (wcall) {
+                TypeRef tgt = TypeRef((*wcall)->type).pointee();
+                auto rcall = emit_generic_deref_call(
+                    lower_expr(map_of(stmt.get(la::NAME.code))), /*want_mut=*/true);
+                if (rcall && tgt) {
+                    auto cur_val = builder().deref(std::move(*rcall), tgt);
+                    auto binop = builder().bin_op(base_op, std::move(cur_val),
+                                                  std::move(rhs), tgt);
+                    return builder().stmt_deref_write(std::move(*wcall),
+                                                      std::move(binop), node_line_);
+                }
+            } else {
+                ptr = lower_expr(map_of(stmt.get(la::NAME.code)));
+            }
+        }
         if (!elem || (TypeRef(pt).kind() != LogosType::Kind::Ptr &&
                       TypeRef(pt).kind() != LogosType::Kind::MutRef)) {
             error("deref-compound: left side must be a pointer or mutable reference");

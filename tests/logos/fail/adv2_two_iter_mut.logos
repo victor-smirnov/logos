@@ -1,0 +1,13 @@
+// Adversarial #2 (f12): two live iter_mut() = aliasing &mut — must reject.
+// VecIter/VecIterMut are #[borrow_carrying]; a method returning a BC value
+// holds the receiver borrow for the binding's lifetime.
+package adv2_two_iter_mut;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(1i64);
+    let mut a = v.iter_mut();
+    let mut b = v.iter_mut();
+    match a.next() { Option::Some(x) => { *x += 1i64; } Option::None => {} }
+    match b.next() { Option::Some(x) => { *x += 1i64; } Option::None => {} }
+    return 0i32;
+}

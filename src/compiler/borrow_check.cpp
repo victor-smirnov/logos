@@ -68,8 +68,17 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         // Pkg may contain inner dots; split at LAST dot for bare name.
         if (auto dot = sym.rfind('.'); dot != std::string_view::npos)
             sym = sym.substr(dot + 1);
-        if (auto p = sym.find("__drop"); p != std::string_view::npos)
-            ts.drop_types.insert(std::string(sym.substr(0, p)));
+        if (auto p = sym.find("__drop"); p != std::string_view::npos) {
+            auto base = sym.substr(0, p);
+            ts.drop_types.insert(std::string(base));
+            // Mono-spec names (`Box$G1$i64__drop`) ALSO register the template
+            // base ("Box"): fn-body TypeRefs spell the bare template name, so
+            // without the strip NO generic droppable struct (Box/Vec/String-
+            // generics) was move-classified — `let c = b;` of a Box while
+            // `&*b` was live passed silently (adversarial #2 f13).
+            if (auto g = base.find("$G"); g != std::string_view::npos)
+                ts.drop_types.insert(std::string(base.substr(0, g)));
+        }
     };
     auto scan_fns = [&](const std::vector<LFunctionPtr>& fns) {
         for (auto& fn : fns)
@@ -83,20 +92,38 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     for (auto& impl : prog.impls)
         if (impl.trait_name == "Copy")
             ts.copy_types.insert(impl.target_type);
-    auto reg_bc_name = [&](const std::string& name) {
+    // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
+    // a verbatim copy of the template's (mono_clone), so registering the
+    // `$G`-stripped template base is exact. The MAIN borrow check runs
+    // POST-mono, where stdlib template defs live only in module arenas (not
+    // prog.structs) while fn-body TypeRefs still spell the bare template
+    // name — without the strip, `#[borrow_carrying]` on a generic stdlib
+    // struct (VecIterMut) was invisible to user code (f12: two live
+    // iter_mut() accepted). TRANSITIVE closure marks must NOT strip: a
+    // `FilterIter$G…$VecIterMut…` spec is BC because of its ARGS — bare
+    // "FilterIter" over a Slice chain is not (false E0716 on
+    // closure_bare_param without this split).
+    auto reg_bc_name = [&](const std::string& name, bool strip_generic) {
         ts.borrow_carrying.insert(name);
         std::string_view n = name;          // also the bare (pkg-stripped) name
         if (auto dot = n.rfind('.'); dot != std::string_view::npos)
             ts.borrow_carrying.insert(std::string(n.substr(dot + 1)));
+        if (!strip_generic) return;
+        if (auto g = n.find("$G"); g != std::string_view::npos) {
+            std::string_view base = n.substr(0, g);
+            ts.borrow_carrying.insert(std::string(base));
+            if (auto d2 = base.rfind('.'); d2 != std::string_view::npos)
+                ts.borrow_carrying.insert(std::string(base.substr(d2 + 1)));
+        }
     };
     auto reg_bc = [&](const lir::LStructDef& sd) {
-        if (sd.borrow_carrying) reg_bc_name(sd.name);
+        if (sd.borrow_carrying) reg_bc_name(sd.name, /*strip_generic=*/true);
     };
     for (auto& sd : prog.structs) reg_bc(sd);
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
     // `#[borrow_carrying]` enums (HAny) — same escape tracking as the struct form.
     for (auto& ed : prog.enums)
-        if (ed.borrow_carrying) reg_bc_name(ed.name);
+        if (ed.borrow_carrying) reg_bc_name(ed.name, /*strip_generic=*/true);
     // Transitive closure (escape tracking must see the WHOLE aggregate): a struct
     // or enum with an INLINE field / variant payload of a (transitively) borrow-
     // carrying type is itself borrow-carrying — the borrow rides inside the value,
@@ -163,7 +190,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             if (ts.borrow_carrying.count(sd.name)) return;
             if (holds_residency_holder(sd)) return;   // laundered escape package — exempt
             for (auto& f : sd.fields)
-                if (type_is_bc(f.type)) { reg_bc_name(sd.name); bc_changed = true; return; }
+                if (type_is_bc(f.type)) { reg_bc_name(sd.name, /*strip_generic=*/false); bc_changed = true; return; }
         };
         for (auto& sd : prog.structs)                consider_struct(sd);
         for (auto& sd : prog.struct_specializations) consider_struct(sd);
@@ -172,7 +199,7 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             for (auto& var : ed.variants) {
                 bool hit = false;
                 for (auto& pt : var.payload_types) if (type_is_bc(pt)) { hit = true; break; }
-                if (hit) { reg_bc_name(ed.name); bc_changed = true; break; }
+                if (hit) { reg_bc_name(ed.name, /*strip_generic=*/false); bc_changed = true; break; }
             }
         }
     }
@@ -370,6 +397,9 @@ struct FieldBorrow {
     std::string target;     // root var
     std::string path;       // dotted field path ("a.b.c"); empty for whole-value
     bool        is_mut;
+    // Phase 9 (NLL) — same contract as BorrowRecord::holder: released once
+    // the holder's last use has passed (empty = lexical, released at pop).
+    std::string holder;
 };
 
 struct ScopeFrame {
@@ -429,9 +459,28 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
             // borrow of the reference variable `r` — root through it so reborrows
             // through a `&`/`&mut` ref are tracked (recording AND conflict checks).
+            // A deref through an OWNING container value (Box / Rc / user Deref
+            // struct — `&*b` desugars to Deref::deref(&b)) likewise borrows the
+            // container variable itself: `let r = &*b; let c = b;` must reject
+            // the move while r is live (Rust parity; adversarial #2 f13).
             // Raw pointers (`*p`) are NOT rooted (unchecked — Rust parity).
             auto op = EDerefView{cur}.operand();
-            if (op && is_ref_kind(op.type(pool))) { cur = op; continue; }
+            if (op) {
+                auto ok = op.type(pool);
+                bool through = is_ref_kind(ok) ||
+                    (ok && (ok.kind() == LogosType::Kind::Struct ||
+                            ok.kind() == LogosType::Kind::ZonedStruct ||
+                            ok.kind() == LogosType::Kind::DstRef));
+                if (through) {
+                    // The deref'd CONTENT isn't a sibling-decomposable field
+                    // of the container — treat like an index step (whole-
+                    // container borrow), dropping any field path collected
+                    // below the deref.
+                    path_parts.clear();
+                    cur = op;
+                    continue;
+                }
+            }
             break;
         } else {
             break;
@@ -469,11 +518,11 @@ class BorrowChecker {
     ProvMap                              prov_;
     std::unordered_set<std::string>      param_names_;
     // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
-    std::unordered_map<std::string, const LFunction*> fn_by_name_;
+    mutable std::unordered_map<std::string, const LFunction*> fn_by_name_;
     // Fallback index by unmangled method name — for operator-desugared / trait
     // calls (`v[i]` → index) whose resolved_symbol is empty.
-    std::unordered_map<std::string, std::vector<const LFunction*>> fn_by_base_;
-    bool                                 fn_map_built_ = false;
+    mutable std::unordered_map<std::string, std::vector<const LFunction*>> fn_by_base_;
+    mutable bool                         fn_map_built_ = false;
     // B82: depth of nested call-arg evaluation. While >0, new &mut borrows
     // are taken as reservations (don't conflict with shared reads of the
     // same target during the remaining arg evaluation).
@@ -695,7 +744,9 @@ class BorrowChecker {
         return target + "." + path;
     }
     void take_field_borrow(const std::string& target, std::string path,
-                           bool is_mut, uint32_t line) {
+                           bool is_mut, uint32_t line,
+                           TypeRef root_type = nullptr,
+                           const std::string& holder = "") {
         auto it = states_.find(target);
         if (it == states_.end()) return;
         std::string self_disp = fmt_path(target, path);
@@ -712,8 +763,24 @@ class BorrowChecker {
                 self_disp, target));
             return;
         }
-        // Mut binding check.
-        if (is_mut && !it->second.is_mut_binding && !param_names_.count(target)) {
+        // Reference-typed root: `m.b` with m: &mut S projects THROUGH the
+        // deref — mutation legality comes from the reference TYPE, not the
+        // binding's `mut` (Rust parity; adversarial #2 p02/p10 — mirrors
+        // the AddrOfTemp site's root_is_ref skip). A SHARED-ref root can't
+        // give out &mut at all (Rust E0596).
+        bool root_is_mut_ref = root_type &&
+            TypeRef(root_type).kind() == LogosType::Kind::MutRef;
+        bool root_is_shared_ref = root_type &&
+            TypeRef(root_type).kind() == LogosType::Kind::Ref;
+        if (is_mut && root_is_shared_ref) {
+            report(line, std::format(
+                "cannot borrow '{}' as mutable: '{}' is behind a `&` reference",
+                self_disp, target));
+            return;
+        }
+        // Mut binding check — N/A for reference-typed roots.
+        if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
+            !it->second.is_mut_binding && !param_names_.count(target)) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' not declared as mut",
                 self_disp, target));
@@ -741,14 +808,16 @@ class BorrowChecker {
         if (is_mut) it->second.mut_field_borrows.insert(path);
         else        it->second.shared_field_borrows[path]++;
         if (!scopes_.empty())
-            scopes_.back().field_borrows.push_back({target, std::move(path), is_mut});
+            scopes_.back().field_borrows.push_back(
+                {target, std::move(path), is_mut, holder});
     }
 
     // ── Borrow operations ─────────────────────────────────────────────────
 
     // Take a borrow of 'target'. Registers it in the current scope for cleanup.
     void take_borrow(const std::string& target, bool is_mut, uint32_t line,
-                     const std::string& holder = "") {
+                     const std::string& holder = "",
+                     bool skip_mut_binding_check = false) {
         auto it = states_.find(target);
         if (it == states_.end()) return;  // unknown / extern
         if (it->second.moved) {
@@ -761,7 +830,12 @@ class BorrowChecker {
             // Function params don't currently carry a mut bit in LParam,
             // so they're declared with is_mut_binding=false; we whitelist
             // them by checking known_params_ to avoid spurious diagnostics.
-            if (!it->second.is_mut_binding && !param_names_.count(target)) {
+            // skip_mut_binding_check: the bare-receiver elision recorder
+            // tracks EXCLUSIVITY only — binding-mut legality for bare
+            // receivers stays the (permissive) status quo, the stdlib's
+            // `arc.deref_mut()` on a non-mut Arc binding relies on it.
+            if (!skip_mut_binding_check &&
+                !it->second.is_mut_binding && !param_names_.count(target)) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: not declared as mut", target));
                 return;
@@ -956,7 +1030,7 @@ class BorrowChecker {
     // Escape-analysis Front (a) support. Lazily index every callee by its mangled
     // symbol (functions + specializations + struct methods) so a MethodCall's
     // `resolved_symbol` resolves to its LFunction signature.
-    void build_fn_map_() {
+    void build_fn_map_() const {
         if (fn_map_built_) return;
         fn_map_built_ = true;
         auto add = [&](const LFunctionPtr& f) {
@@ -975,9 +1049,15 @@ class BorrowChecker {
     // `&self`)? A method with explicit lifetimes MAY tie its result to an arg
     // (`fn pick<'a>(&self, x:&'a T)->&'a T`) → NOT self-borrowing (avoids the
     // over-borrow that broke persistent_showcase). See escape-analysis §4(a).
-    static bool is_self_borrowing(const LFunction* f) {
+    bool is_self_borrowing(const LFunction* f) const {
+        // Elision: `&self -> &T` borrows self. SO DOES `&self -> <BC type>`
+        // (iter()/iter_mut() returning a borrowing iterator, HAny views):
+        // the returned VALUE carries the receiver borrow (adversarial #2
+        // f12 — two live iter_mut() were accepted, aliasing &mut).
         return f && !f->params.empty() && is_ref_kind(f->params[0].type) &&
-               f->lifetime_params.empty() && is_ref_kind(f->ret_type);
+               f->lifetime_params.empty() &&
+               (is_ref_kind(f->ret_type) ||
+                is_borrow_carrying_type(f->ret_type));
     }
 
     // Does this method-call's RESULT reference borrow its receiver (by elision)?
@@ -1004,7 +1084,7 @@ class BorrowChecker {
     // `&mut self`. Resolves via resolved_symbol, falling back to the method name
     // (all same-named methods must agree, else 0). Used to conflict-check bare-
     // place (VarRef) receivers, which the AddrOfTemp path doesn't see.
-    int method_self_kind(lir_view::EMethodCallView v) {
+    int method_self_kind(lir_view::EMethodCallView v) const {
         build_fn_map_();
         const LFunction* f = nullptr;
         if (auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
@@ -1216,7 +1296,15 @@ class BorrowChecker {
                 if (!is_ref_kind(e.type(pool)) &&
                     !is_borrow_carrying_type(e.type(pool))) return {};
                 RefProv rp = prov_of(v.receiver());
-                if (is_temporary_value_expr(v.receiver())) rp.is_temp = true;
+                // A by-VALUE-self adapter (`.enumerate()` / `.filter()` —
+                // `self: Self`) CONSUMES the receiver: a temporary receiver
+                // is moved INTO the result, not dropped at stmt end. Its
+                // carried borrow (v.iter()'s borrow of v) flows through via
+                // the recursive prov, but no E0716 temp applies. Only a
+                // ref-self method's result points INTO the temporary.
+                if (is_temporary_value_expr(v.receiver()) &&
+                    method_self_kind(v) != 0)
+                    rp.is_temp = true;
                 // The receiver may be a BARE VarRef value-local (e.g. `Rc::deref`'s
                 // `self` is `h` directly, not `&h`) — prov_of(VarRef) doesn't flag
                 // value-locals, so catch it here: a `&T`/borrow-carrying result of a
@@ -1501,7 +1589,8 @@ class BorrowChecker {
                         // borrowed → spurious self-conflict.
                         if (inner) visit(inner, /*consuming=*/false, line);
                         if (!path.empty() && !root_is_union)
-                            take_field_borrow(root, std::move(path), v.is_mut(), line);
+                            take_field_borrow(root, std::move(path), v.is_mut(), line,
+                                              bp.root_type);
                         else
                             take_borrow(root, v.is_mut(), line, holder);
                         break;
@@ -1522,7 +1611,8 @@ class BorrowChecker {
                         if (root_is_union)
                             take_borrow(root, is_mut, line, holder);
                         else
-                            take_field_borrow(root, std::move(path), is_mut, line);
+                            take_field_borrow(root, std::move(path), is_mut, line,
+                                              bp.root_type);
                         break;
                     }
                 }
@@ -1573,6 +1663,46 @@ class BorrowChecker {
                         bp.root_type.kind() == LogosType::Kind::Ptr;
                     if (!bp.root.empty() && !root_is_rawptr && states_.count(bp.root))
                         take_borrow(bp.root, av.is_mut(), line, holder);
+                } else if (recv && result_borrows_self(v)) {
+                    // Bare VarRef / place receiver — sema didn't wrap it in
+                    // AddrOfTemp (`v.iter_mut()` with v a value local). Same
+                    // elision rule: a `&T` / borrow-carrying result holds the
+                    // receiver borrow for the holder's lifetime, with the
+                    // METHOD's self mutability (adversarial #2 f12 — two live
+                    // iter_mut() aliased &mut without this; f13 — `&*b` then
+                    // move of the Box). EXCEPT Rc/Arc roots: shared-ownership
+                    // handles are the blessed interior-mutability domain
+                    // (mutable Hermes = Rc root owner; `h.array()` then
+                    // `hold(&mut h, root)` is the residency escape pattern —
+                    // the holder machinery launders the alias).
+                    BorrowPlace bp = extract_borrow_place(recv, pool);
+                    bool root_is_rawptr = bp.root_type &&
+                        bp.root_type.kind() == LogosType::Kind::Ptr;
+                    bool root_is_rc = false;
+                    if (bp.root_type &&
+                        (bp.root_type.kind() == LogosType::Kind::Struct ||
+                         bp.root_type.kind() == LogosType::Kind::ZonedStruct)) {
+                        std::string rn(bp.root_type.struct_name());
+                        if (auto d = rn.rfind('.'); d != std::string::npos)
+                            rn = rn.substr(d + 1);
+                        if (auto g = rn.find("$G"); g != std::string::npos)
+                            rn = rn.substr(0, g);
+                        root_is_rc = rn == "Rc" || rn == "Arc";
+                    }
+                    if (!bp.root.empty() && !root_is_rawptr && !root_is_rc &&
+                        states_.count(bp.root)) {
+                        bool m = method_self_kind(v) == 2;
+                        // Field-precise when the receiver is a field chain
+                        // (`self.arc.deref_mut()` borrows self.arc, not all
+                        // of self) — whole-root would falsely lock sibling
+                        // field uses for the holder's lifetime.
+                        if (!bp.path.empty())
+                            take_field_borrow(bp.root, bp.path, m, line,
+                                              bp.root_type, holder);
+                        else
+                            take_borrow(bp.root, m, line, holder,
+                                        /*skip_mut_binding_check=*/true);
+                    }
                 } else if (recv && is_ref_kind(recv.type(pool))) {
                     take_ref_borrows(recv, line, holder);
                 }
@@ -1965,6 +2095,26 @@ class BorrowChecker {
                 ++it;
             }
         }
+        // Field-path borrows with a holder release the same way (NLL).
+        auto fit2 = frame.field_borrows.begin();
+        while (fit2 != frame.field_borrows.end()) {
+            if (fit2->holder.empty()) { ++fit2; continue; }
+            uint32_t lu = 0;
+            if (auto luit = last_use_line_.find(fit2->holder);
+                luit != last_use_line_.end()) lu = luit->second;
+            if (lu <= cur_line) {
+                if (auto sit = states_.find(fit2->target); sit != states_.end()) {
+                    if (fit2->is_mut)
+                        sit->second.mut_field_borrows.erase(fit2->path);
+                    else if (auto sb = sit->second.shared_field_borrows.find(fit2->path);
+                             sb != sit->second.shared_field_borrows.end() && sb->second > 0)
+                        --sb->second;
+                }
+                fit2 = frame.field_borrows.erase(fit2);
+            } else {
+                ++fit2;
+            }
+        }
     }
 
     void visit_block(const LBlock& blk) {
@@ -2017,7 +2167,15 @@ class BorrowChecker {
                 // so its by-ref captures register as borrows held by `name` (the
                 // closure var) — released at the closure's last use (NLL).
                 bool is_closure_t = t && t.kind() == LogosType::Kind::Closure;
-                if (val && (is_ref_kind(t) || is_closure_t)) {
+                // A borrow-carrying VALUE binding (`let it = v.iter_mut()`)
+                // holds the receiver's borrow for the binding's lifetime —
+                // route through take_ref_borrows so its MethodCall case
+                // records the borrow with holder=name (NLL release at last
+                // use). Non-borrow shapes hit take_ref_borrows' default,
+                // which is the same consuming visit as before (move
+                // tracking for `let h2 = h` preserved).
+                if (val && (is_ref_kind(t) || is_closure_t ||
+                            is_borrow_carrying_type(t))) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
@@ -2358,14 +2516,27 @@ class BorrowChecker {
                 auto saved_p = prov_;
                 std::optional<StateMap> merged_s;
                 std::optional<ProvMap>  merged_p;
+                bool any_arm = false, all_diverged = true;
                 v.each_arm([&](EMatchArmRef arm) {
+                    any_arm = true;
                     states_ = saved_s;
                     prov_   = saved_p;
+                    bool saved_div = cur_diverged_;
+                    cur_diverged_ = false;
                     push_scope();
                     declare_pat_bindings(arm.pat());
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
                     if (auto body = block_ptr(arm.body())) visit_block(*body);
                     pop_scope();
+                    bool arm_div = cur_diverged_;
+                    cur_diverged_ = saved_div;
+                    // A DIVERGED arm (return/break/continue tail) contributes
+                    // nothing to the post-match move state — its moves never
+                    // reach the join (`None => return out` in a collect loop
+                    // must not poison `out` for the next iteration; surfaced
+                    // when Vec became move-classified, adversarial #2).
+                    if (arm_div) return;
+                    all_diverged = false;
                     if (!merged_s) {
                         merged_s = states_;
                         merged_p = prov_;
@@ -2377,9 +2548,15 @@ class BorrowChecker {
                     }
                 });
                 if (merged_s) {
+                    states_ = saved_s;
+                    prov_   = saved_p;
                     for (auto& [name, st] : *merged_s)
                         if (saved_s.count(name)) states_[name] = st;
                     merge_provs(prov_, *merged_p);
+                } else {
+                    states_ = saved_s;
+                    prov_   = saved_p;
+                    if (any_arm && all_diverged) cur_diverged_ = true;
                 }
                 break;
             }

@@ -257,6 +257,7 @@ impl<T> IndexMut<i64, T> for Vec<T> {
 
 // Borrowing iterator (`Vec::iter()` / `for x in &v`): yields `&T`, owns
 // nothing, Drop is a no-op. Mirrors Rust's `slice::Iter`.
+#[borrow_carrying]
 pub struct VecIter<T> {
     data: *const T,
     len:  i64,
@@ -353,6 +354,7 @@ impl<T> Drop for VecIntoIter<T> {
 
 // ── VecIterMut<T> ─────────────────────────────────────────────────────────────
 
+#[borrow_carrying]
 pub struct VecIterMut<T> {
     data: *mut T,
     len:  i64,

@@ -1,0 +1,10 @@
+// Adversarial #2 (f11): `&mut r.a` through r: &S — E0596 analog.
+package adv2_mut_through_shared_root;
+struct S { a: i64 }
+fn main() -> i32 {
+    let s = S { a: 1i64 };
+    let r: &S = &s;
+    let m: &mut i64 = &mut r.a;
+    *m += 1i64;
+    return 0i32;
+}

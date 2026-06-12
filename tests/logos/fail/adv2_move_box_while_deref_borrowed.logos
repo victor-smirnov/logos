@@ -1,0 +1,12 @@
+// Adversarial #2 (f13): `&*b` borrows the Box owner; moving b while the
+// borrow is live must reject. (Deref through owning containers roots at the
+// container; generic droppable structs are move-classified via $G-strip.)
+package adv2_move_box_while_deref_borrowed;
+use logos.mem.boxed;
+fn main() -> i32 {
+    let b: Box<i64> = Box::new(5i64);
+    let r: &i64 = &*b;
+    let c = b;
+    if *r != 5i64 { return 1i32; }
+    return *c as i32;
+}

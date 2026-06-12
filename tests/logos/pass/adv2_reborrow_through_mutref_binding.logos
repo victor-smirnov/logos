@@ -1,0 +1,18 @@
+// Adversarial #2 (p02/p10): mutation/projection through a let-bound `&mut S`
+// needs NO `mut` on the binding (mutability comes from the &mut TYPE; Rust
+// parity). Was "cannot borrow 'm.a' as mutable: 'm' not declared as mut".
+package adv2_reborrow_through_mutref_binding;
+struct S { a: i64, b: i64 }
+fn bump(x: &mut i64) { *x += 1i64; }
+fn take_mut(s: &mut S) { s.a += 1i64; }
+fn main() -> i32 {
+    let mut s = S { a: 0i64, b: 0i64 };
+    let m: &mut S = &mut s;
+    m.a += 1i64;
+    bump(&mut m.b);
+    take_mut(&mut *m);
+    take_mut(m);
+    if s.a != 3i64 { return 1i32; }
+    if s.b != 1i64 { return 2i32; }
+    return 0i32;
+}
