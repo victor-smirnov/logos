@@ -1,0 +1,134 @@
+// logos.lang.pin — Pin<P>: a pointer whose pointee will never move again.
+//
+// Mirrors core::pin::Pin. The guarantee is the Rust one: for `T: !Unpin`,
+// once a value is reachable only through a Pin, safe code can never obtain
+// a `&mut T` / by-value T to move it; `unsafe` entry points carry the
+// pin-contract obligation.
+//
+// In Logos the need is narrower than in Rust (see docs/DIVERGENCES.md §A8):
+// fibres are stackful (no self-referential state machines) and `#[pinned]`
+// arena residents have no value form at all. Pin exists for Rust-source
+// ports and for APIs with a genuine movable-then-anchored phase.
+//
+// Unpin is a REAL auto trait here: everything is Unpin unless it stores a
+// `PhantomPinned`, is `#[pinned]`, or has an explicit `impl !Unpin`.
+
+package logos.lang.pin;
+
+use logos.lang.marker;     // Unpin, PhantomPinned
+use logos.lang.ops;        // Deref / DerefMut
+use logos.mem.boxed;       // Box (Box::pin)
+
+pub struct Pin<P> {
+    pointer: P,
+}
+
+impl<P> Copy for Pin<P> {}
+
+// ── Construction ─────────────────────────────────────────────────────────────
+
+impl<T: Unpin> Pin<&T> {
+    // Safe: T is Unpin, so the pin guarantee is vacuous.
+    pub fn new(r: &T) -> Pin<&T> {
+        return Pin { pointer: r };
+    }
+    pub fn into_inner(self: Pin<&T>) -> &T {
+        return self.pointer;
+    }
+}
+
+impl<T: Unpin> Pin<&mut T> {
+    pub fn new(r: &mut T) -> Pin<&mut T> {
+        return Pin { pointer: r };
+    }
+    pub fn into_inner(self: Pin<&mut T>) -> &mut T {
+        return self.pointer;
+    }
+}
+
+impl<T> Pin<&T> {
+    // Unsafe: the caller promises the pointee never moves again.
+    pub unsafe fn new_unchecked(r: &T) -> Pin<&T> {
+        return Pin { pointer: r };
+    }
+    // Shared access never moves — safe for any T.
+    pub fn get_ref(self: Pin<&T>) -> &T {
+        return self.pointer;
+    }
+}
+
+impl<T> Pin<&mut T> {
+    pub unsafe fn new_unchecked(r: &mut T) -> Pin<&mut T> {
+        return Pin { pointer: r };
+    }
+    // Downgrade to a shared pin.
+    pub fn as_ref(self: &Pin<&mut T>) -> Pin<&T> {
+        return Pin { pointer: &*self.pointer };
+    }
+    // Unsafe escape hatch: `&mut T` for a possibly-!Unpin T — the caller
+    // promises not to move out of it.
+    pub unsafe fn get_unchecked_mut(self: Pin<&mut T>) -> &mut T {
+        return self.pointer;
+    }
+}
+
+impl<T: Unpin> Pin<&mut T> {
+    // Safe for Unpin targets.
+    pub fn get_mut(self: Pin<&mut T>) -> &mut T {
+        return self.pointer;
+    }
+}
+
+// ── Deref: a pinned pointer reads like its target ────────────────────────────
+
+impl<T> Deref<T> for Pin<&T> {
+    fn deref(self: &Pin<&T>) -> &T { return &*self.pointer; }
+}
+
+impl<T> Deref<T> for Pin<&mut T> {
+    fn deref(self: &Pin<&mut T>) -> &T { return &*self.pointer; }
+}
+
+// DerefMut only when the target is Unpin (Rust's conditional impl) — for
+// !Unpin targets the only mutable access is unsafe get_unchecked_mut.
+impl<T: Unpin> DerefMut<T> for Pin<&mut T> {
+    fn deref_mut(self: &mut Pin<&mut T>) -> &mut T { return &mut *self.pointer; }
+}
+
+// ── Box::pin — heap-pin a value ──────────────────────────────────────────────
+
+impl<T> Pin<Box<T>> {
+    pub unsafe fn new_unchecked_box(b: Box<T>) -> Pin<Box<T>> {
+        return Pin { pointer: b };
+    }
+    pub fn as_ref(self: &Pin<Box<T>>) -> Pin<&T> {
+        return Pin { pointer: &*self.pointer };
+    }
+    pub fn as_mut(self: &mut Pin<Box<T>>) -> Pin<&mut T> {
+        return Pin { pointer: &mut *self.pointer };
+    }
+}
+
+impl<T: Unpin> Pin<Box<T>> {
+    pub fn new(b: Box<T>) -> Pin<Box<T>> {
+        return Pin { pointer: b };
+    }
+    pub fn into_inner(self: Pin<Box<T>>) -> Box<T> {
+        return self.pointer;
+    }
+}
+
+impl<T> Deref<T> for Pin<Box<T>> {
+    fn deref(self: &Pin<Box<T>>) -> &T { return &*self.pointer; }
+}
+
+impl<T: Unpin> DerefMut<T> for Pin<Box<T>> {
+    fn deref_mut(self: &mut Pin<Box<T>>) -> &mut T { return &mut *self.pointer; }
+}
+
+// The value moves INTO the box, then is never moved again: sound for any T
+// because the unpinned phase ends at this call (Rust's Box::pin).
+pub fn box_pin<T>(val: T) -> Pin<Box<T>> {
+    let b: Box<T> = box_new(val);
+    return Pin { pointer: b };
+}

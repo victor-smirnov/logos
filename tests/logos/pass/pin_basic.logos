@@ -1,0 +1,32 @@
+// Pin<P> basics: safe construction for Unpin targets, get_ref/get_mut,
+// deref-reads through the pin, into_inner.
+package pin_basic;
+use logos.lang.pin;
+use logos.lang.marker;
+
+struct Pt { x: i32, y: i32 }
+impl Unpin for Pt {}
+
+fn main() -> i32 {
+    let mut p: Pt = Pt { x: 40, y: 2 };
+
+    // Shared pin of an Unpin target — safe new; reads through Deref.
+    let sp: Pin<&Pt> = Pin::new(&p);
+    let a: i32 = sp.x + sp.y;            // auto-deref field reads
+    if a != 42 { return 1; }
+    let r: &Pt = sp.get_ref();
+    if r.x != 40 { return 2; }
+
+    // Mutable pin of an Unpin target: get_mut is safe; writes land.
+    let mp: Pin<&mut Pt> = Pin::new(&mut p);
+    let m: &mut Pt = mp.get_mut();
+    m.x = 20;
+    if p.x != 20 { return 3; }
+
+    // into_inner returns the original reference for Unpin targets.
+    let sp2: Pin<&Pt> = Pin::new(&p);
+    let r2: &Pt = sp2.into_inner();
+    if r2.x + r2.y != 22 { return 4; }
+
+    return 42;
+}

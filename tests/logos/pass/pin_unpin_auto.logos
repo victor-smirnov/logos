@@ -1,0 +1,24 @@
+// Unpin is a real auto trait: structural by default; PhantomPinned and
+// #[pinned] opt out; pointers are always Unpin.
+package pin_unpin_auto;
+use logos.lang.marker;
+
+struct Plain { a: i32, b: bool }
+struct Nested { p: Plain, q: i64 }
+struct Tainted { v: i32, _pp: PhantomPinned }
+struct Carrier { t: Tainted }            // !Unpin transitively
+
+fn needs_unpin<T: Unpin>(v: &T) -> i32 { return 1; }
+
+fn main() -> i32 {
+    let pl: Plain = Plain { a: 1, b: true };
+    let ns: Nested = Nested { p: Plain { a: 2, b: false }, q: 3 };
+    let mut acc: i32 = 0;
+    acc = acc + needs_unpin(&pl);        // auto: all fields Unpin
+    acc = acc + needs_unpin(&ns);        // auto: nested
+    acc = acc + needs_unpin(&42i64);     // scalar
+    let rp: &Plain = &pl;
+    acc = acc + needs_unpin(&rp);        // &T is always Unpin
+    if acc != 4 { return 1; }
+    return 42;
+}

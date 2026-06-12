@@ -1,0 +1,12 @@
+// A PhantomPinned-carrying type is !Unpin — the bound must reject it.
+package pin_unpin_phantom;
+use logos.lang.marker;
+
+struct Gen { state: i32, _pp: PhantomPinned }
+
+fn needs_unpin<T: Unpin>(v: &T) -> i32 { return 1; }
+
+fn main() -> i32 {
+    let g: Gen = Gen { state: 0, _pp: PhantomPinned {} };
+    return needs_unpin(&g);
+}

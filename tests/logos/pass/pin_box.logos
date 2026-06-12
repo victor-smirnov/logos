@@ -1,0 +1,29 @@
+// Box::pin: heap-pin a value (sound for ANY T — the unpinned phase ends at
+// the call); read through the pin; as_ref/as_mut projections.
+package pin_box;
+use logos.lang.pin;
+use logos.lang.marker;
+use logos.mem.boxed;
+
+struct SelfRef {
+    val: i32,
+    _pin: PhantomPinned,    // !Unpin: simulates a self-referential type
+}
+
+fn main() -> i32 {
+    // Unpin payload: full safe API.
+    let mut pb: Pin<Box<i32>> = box_pin(40);
+    if *pb != 40 { return 1; }
+    let pm: Pin<&mut i32> = pb.as_mut();
+    let v: &mut i32 = pm.get_mut();
+    *v = 41;
+    if *pb != 41 { return 2; }
+
+    // !Unpin payload: construction + shared reads stay safe; the mutable
+    // escape is unsafe-only.
+    let sr: Pin<Box<SelfRef>> = box_pin(SelfRef { val: 1, _pin: PhantomPinned {} });
+    let srr: Pin<&SelfRef> = sr.as_ref();
+    if srr.get_ref().val != 1 { return 3; }
+
+    return 42;
+}
