@@ -1,0 +1,19 @@
+// feature-audit T0-3 (E0121 analog): the type placeholder `_` is not
+// allowed within types on ITEM SIGNATURES. Every item below must be
+// rejected with the E0121 diagnostic — pre-fix, `fn f(x: _)` was a
+// mlir-gen SIGSEGV, `-> _` leaked `_` into body typing, `Vec<_>` in a
+// param silently mono'd, `const C: _` was accepted, and `type T = _`
+// poisoned downstream resolution with misleading stdlib errors.
+// (`_` in let-annotations / expression generic args stays legal —
+// see pass/sig_underscore_legal_positions.)
+package sig_underscore_e0121;
+
+fn f(x: _) -> i32 { 1 }
+fn g() -> _ { 5 }
+fn h(v: Vec<_>) -> i32 { 2 }
+const C: _ = 5;
+type T = _;
+struct S { x: _ }
+enum E { V(_) }
+
+fn main() -> i32 { 0 }

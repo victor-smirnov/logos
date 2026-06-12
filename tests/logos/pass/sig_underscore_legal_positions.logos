@@ -1,0 +1,12 @@
+// Boundary pin for the T0-3 E0121 fix: `_` stays LEGAL outside item
+// signatures — let-annotation inference (`let x: _`, `let v: Vec<_>`)
+// must keep working; only signature positions reject.
+package sig_underscore_legal_positions;
+
+fn main() -> i32 {
+    let v: Vec<_> = vec_new::<i32>();
+    let x: _ = 5;
+    if v.len() != 0i64 { return 1i32; }
+    if x != 5i32 { return 2i32; }
+    return 0i32;
+}

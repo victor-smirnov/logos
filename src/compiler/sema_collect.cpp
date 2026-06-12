@@ -2000,6 +2000,10 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         is_struct_shape = v.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
 
                     if (v.has_key(la::ITEMS)) {
+                        // E0121: enum-variant payload types are item
+                        // signatures — `_` rejected (covers tuple,
+                        // struct-shape and variadic payload forms below).
+                        ItemSignatureGuard sig_guard(in_item_signature_);
                         auto av = v.get(la::ITEMS.code);
                         if (is_var) {
                             // Single type_ref map (variadic variant: ITEMS: $4)
@@ -2067,7 +2071,12 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
     entry.lifetime_params = read_lifetime_params(node);
     entry.type_params = read_type_params(node);
     push_type_params(entry.type_params);
-    entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
+    {
+        // E0121: `type T = _;` rejected — pre-fix the InferredType alias
+        // poisoned downstream resolution with misleading stdlib errors.
+        ItemSignatureGuard sig_guard(in_item_signature_);
+        entry.type = resolve_type(map_of(node.get(la::TYPE.code)));
+    }
     pop_type_params(entry.type_params);
     // B-mv-02 (type-alias facet, mirrors collect_trait): a user `type
     // MemDestroyer = ...` coexists with a same-name stdlib alias pulled in via
@@ -2097,6 +2106,9 @@ void SemaChecker::collect_const(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
     TypeRef t = nullptr;
     if (node.has_key(la::TYPE)) {
+        // E0121: `const C: _ = …` rejected — const items are item
+        // signatures, no inference context.
+        ItemSignatureGuard sig_guard(in_item_signature_);
         t = resolve_type(map_of(node.get(la::TYPE.code)));
     } else if (node.has_key(la::VALUE)) {
         // Evaluate type of the value expression lazily.
@@ -2437,8 +2449,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 // grammar emits a TYPE slot when the `= type_ref` form
                 // matched. An impl that omits this assoc type then
                 // falls back to the default (Rust behavior).
-                if (m.has_key(la::TYPE))
+                if (m.has_key(la::TYPE)) {
+                    // E0121: assoc-type default is an item signature.
+                    ItemSignatureGuard sig_guard(in_item_signature_);
                     at.default_type = resolve_type(map_of(m.get(la::TYPE.code)));
+                }
                 pop_type_params(at.type_params);
                 info.assoc_types.push_back(std::move(at));
                 continue;
@@ -2446,8 +2461,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
             if (code_of(m) == la::ASSOC_CONST_DEF) {
                 SemaAssocConstInfo ac;
                 ac.name = std::string(str_of(m.get(la::NAME.code)));
-                if (m.has_key(la::TYPE))
+                if (m.has_key(la::TYPE)) {
+                    // E0121: assoc-const type is an item signature.
+                    ItemSignatureGuard sig_guard(in_item_signature_);
                     ac.type = resolve_type(map_of(m.get(la::TYPE.code)));
+                }
                 // §6 f1 Wave 9 — `const X: i32 = 42;` default. When the
                 // grammar matched the `= expr` form a VALUE slot is set;
                 // record so impl that omits this const falls back to it.
@@ -2486,6 +2504,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
                                 mi.has_self_receiver = no_type || pn == "self";
                             }
                             if (p.has_key(la::TYPE)) {
+                                // E0121: trait-method signatures reject `_`.
+                                ItemSignatureGuard sig_guard(in_item_signature_);
                                 mi.param_types.push_back(resolve_type(map_of(p.get(la::TYPE.code))));
                             } else {
                                 // `&self` / `&mut self` — no TYPE token, but receiver is
@@ -2505,8 +2525,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
                     }
                 }
             }
-            mi.ret_type = m.has_key(la::RET_TYPE)
-                ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
+            {
+                ItemSignatureGuard sig_guard(in_item_signature_);
+                mi.ret_type = m.has_key(la::RET_TYPE)
+                    ? resolve_type(map_of(m.get(la::RET_TYPE.code))) : void_t();
+            }
             // P2-15: a `where Self: Sized` method is excluded from the vtable, so
             // it never affects object-safety (the trait-method where-clause is now
             // captured under WHERE — grammar fix). Scan for a `Self: Sized` bound.
@@ -3939,7 +3962,14 @@ void SemaChecker::collect_struct(TinyMapView node) {
                                   code_of(ftype_node) == la::UNSIZED_SLICE_TYPE;
             bool was_ok = unsized_ok_;
             if (is_slice_tail) unsized_ok_ = true;
-            auto ftype = resolve_type(ftype_node);
+            TypeRef ftype;
+            {
+                // E0121: struct/union field types are item signatures —
+                // `_` rejected here (pre-fix it leaked to a late mlir-gen
+                // "unknown field type" failure).
+                ItemSignatureGuard sig_guard(in_item_signature_);
+                ftype = resolve_type(ftype_node);
+            }
             unsized_ok_ = was_ok;
             if (is_slice_tail) info.is_dst = true;
             bool fpub = fnode.has_key(la::IS_PUB) &&
@@ -4469,13 +4499,20 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     // g4/K5: desugar `impl Trait` PARAMS into synthetic generic type-params.
     impl_param_desugar_active_ = true;
     pending_impl_trait_params_.clear();
-    read_param_types();
+    {
+        // E0121: `_` is rejected in fn-signature type positions.
+        ItemSignatureGuard sig_guard(in_item_signature_);
+        read_param_types();
+    }
     impl_param_desugar_active_ = false;
     for (auto& tp : pending_impl_trait_params_) info.type_params.push_back(tp);
     pending_impl_trait_params_.clear();
-    info.ret_type = node.has_key(la::RET_TYPE)
-        ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
-        : void_t();
+    {
+        ItemSignatureGuard sig_guard(in_item_signature_);
+        info.ret_type = node.has_key(la::RET_TYPE)
+            ? resolve_type(map_of(node.get(la::RET_TYPE.code)))
+            : void_t();
+    }
     // logos-core 1.1: precompute "body always diverges" for the
     // Rust-2024 `!`-fallback rule at infer_type_args. Cheap AST walk over
     // the body's last-stmt — see body_always_diverges_simple.

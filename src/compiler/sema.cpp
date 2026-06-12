@@ -5800,7 +5800,20 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // and `types_compatible` is permissive on either side; downstream
         // context (annotation-RHS unification, generic-arg inference) is
         // expected to resolve it (logos-core 1.3).
-        if (name == "_") return inferred_t();
+        // E0121 analog: in item-signature position (fn params / return /
+        // const item type) there is no inference context — reject instead
+        // of letting InferredType leak into mono/mlir-gen (pre-fix:
+        // `fn f(x: _)` was a mlir-gen SIGSEGV, `-> _` leaked `_` into the
+        // body's typing).
+        if (name == "_") {
+            if (in_item_signature_) {
+                error("the type placeholder `_` is not allowed within types "
+                      "on item signatures (E0121): type must be known at "
+                      "this position");
+                return error_t();
+            }
+            return inferred_t();
+        }
         if (name == "Self") {
             auto tvit = current_type_params_.find("Self");
             if (tvit != current_type_params_.end()) return tvit->second;

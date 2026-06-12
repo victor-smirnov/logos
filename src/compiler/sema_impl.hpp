@@ -1732,6 +1732,19 @@ private:
     // bodies don't reach result_.diags. Set via sema_lower's SemaOptions.
     bool   metaprog_mode_           = false;
     size_t metaprog_entry_ast_idx_  = static_cast<size_t>(-1);
+
+    // E0121 analog (audit-v2 T0-3): `_` is not allowed within types on item
+    // signatures (fn params / return type / const item type). Set while
+    // resolve_type runs on a signature position; resolve_type's TYPE_REF "_"
+    // case errors instead of yielding InferredType. resolve_type recurses
+    // through generic args / elems itself, so nested `_` (Vec<_>, &_,
+    // [_; N]) is caught at the same single chokepoint. RAII guard below.
+    bool in_item_signature_ = false;
+    struct ItemSignatureGuard {
+        bool& flag; bool saved;
+        explicit ItemSignatureGuard(bool& f) : flag(f), saved(f) { f = true; }
+        ~ItemSignatureGuard() { flag = saved; }
+    };
     std::vector<std::string> metaprog_keep_fns_;
     size_t cur_ast_idx_             = static_cast<size_t>(-1);
 
