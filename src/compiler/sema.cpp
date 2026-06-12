@@ -4092,6 +4092,117 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 
 // ── Sema-side type substitution ──────────────────────────────────────────────
 
+// logos-core 1.3 (T0-3 follow-up): fill `_` (InferredType) holes in a
+// let-annotation from the concrete RHS type — `let v: Vec<_> = vec![1]`
+// binds as `Vec<i32>`, not `Vec<_>`. Pre-fix the hole leaked into the
+// binding type and from there into mono (a literal `Vec$G1$_`
+// instantiation → mlir-gen verification failure). Walks matching
+// composite shapes; ann's concrete parts win, holes take the RHS side
+// (lit-kinds defaulted: IntLit→i32, FloatLit→f64). Mismatched shapes
+// return ann unchanged — the let path's types_compatible check owns the
+// diagnostics.
+// True when `t` contains a `_` (InferredType) hole at any depth.
+bool SemaChecker::type_has_inferred(TypeRef t) {
+    if (!t) return false;
+    if (t.kind() == LogosType::Kind::InferredType) return true;
+    for (auto a : t.type_args()) if (type_has_inferred(a)) return true;
+    for (auto e : t.tuple_elems()) if (type_has_inferred(e)) return true;
+    if (t.elem() && type_has_inferred(t.elem())) return true;
+    if (t.pointee() && type_has_inferred(t.pointee())) return true;
+    return false;
+}
+
+TypeRef SemaChecker::fill_inferred_from_rhs(TypeRef ann, TypeRef rhs) {
+    if (!ann) return rhs;
+    if (ann.kind() == LogosType::Kind::InferredType) {
+        if (!rhs || rhs.kind() == LogosType::Kind::Error) return ann;
+        if (rhs.kind() == LogosType::Kind::IntLit)   return prim(LogosType::Kind::I32);
+        if (rhs.kind() == LogosType::Kind::FloatLit) return prim(LogosType::Kind::F64);
+        return rhs;
+    }
+    if (!rhs) return ann;
+    switch (ann.kind()) {
+    case LogosType::Kind::Struct:
+    case LogosType::Kind::ZonedStruct:
+    case LogosType::Kind::Enum: {
+        if (rhs.kind() != ann.kind()) return ann;
+        if (ann.kind() == LogosType::Kind::Enum
+                ? ann.enum_name() != rhs.enum_name()
+                : ann.struct_name() != rhs.struct_name()) return ann;
+        auto aa = ann.type_args();
+        auto ra = rhs.type_args();
+        if (aa.size() != ra.size() || aa.empty()) return ann;
+        std::vector<TypeRef> new_args;
+        bool changed = false;
+        for (size_t i = 0; i < aa.size(); ++i) {
+            auto na = fill_inferred_from_rhs(aa[i], ra[i]);
+            changed |= (na != aa[i]);
+            new_args.push_back(na);
+        }
+        if (!changed) return ann;
+        LogosTypeBuilder nt;
+        nt.kind = ann.kind();
+        if (ann.kind() == LogosType::Kind::Enum) {
+            nt.enum_name = ann.enum_name();
+        } else {
+            nt.struct_name = ann.struct_name();
+        }
+        nt.pkg_name = ann.pkg_name();
+        nt.type_args = std::move(new_args);
+        std::vector<std::string> lt_args;
+        for (auto& lt : ann.lifetime_args()) lt_args.push_back(lt);
+        nt.lifetime_args = std::move(lt_args);
+        return pool_->alloc(std::move(nt));
+    }
+    case LogosType::Kind::Tuple: {
+        if (rhs.kind() != LogosType::Kind::Tuple) return ann;
+        auto ae = ann.tuple_elems();
+        auto re = rhs.tuple_elems();
+        if (ae.size() != re.size()) return ann;
+        std::vector<TypeRef> new_elems;
+        bool changed = false;
+        for (size_t i = 0; i < ae.size(); ++i) {
+            auto ne = fill_inferred_from_rhs(ae[i], re[i]);
+            changed |= (ne != TypeRef(ae[i]));
+            new_elems.push_back(ne);
+        }
+        if (!changed) return ann;
+        LogosTypeBuilder nt;
+        nt.kind = LogosType::Kind::Tuple;
+        nt.tuple_elems = std::move(new_elems);
+        return pool_->alloc(std::move(nt));
+    }
+    case LogosType::Kind::Slice: {
+        if (rhs.kind() != LogosType::Kind::Slice || !ann.elem()) return ann;
+        auto ne = fill_inferred_from_rhs(ann.elem(), rhs.elem());
+        if (ne == TypeRef(ann.elem())) return ann;
+        return make_slice_type(ne, ann.mut_ptr());
+    }
+    case LogosType::Kind::Array: {
+        if (rhs.kind() != LogosType::Kind::Array || !ann.elem()) return ann;
+        auto ne = fill_inferred_from_rhs(ann.elem(), rhs.elem());
+        if (ne == TypeRef(ann.elem())) return ann;
+        return make_array(ne, ann.arr_size(), std::string(ann.arr_size_var()));
+    }
+    case LogosType::Kind::Ref:
+    case LogosType::Kind::MutRef: {
+        if ((rhs.kind() != LogosType::Kind::Ref &&
+             rhs.kind() != LogosType::Kind::MutRef) || !ann.pointee()) return ann;
+        auto np = fill_inferred_from_rhs(ann.pointee(), rhs.pointee());
+        if (np == TypeRef(ann.pointee())) return ann;
+        return make_ref(ann.kind() == LogosType::Kind::MutRef, np);
+    }
+    case LogosType::Kind::Ptr: {
+        if (rhs.kind() != LogosType::Kind::Ptr || !ann.pointee()) return ann;
+        auto np = fill_inferred_from_rhs(ann.pointee(), rhs.pointee());
+        if (np == TypeRef(ann.pointee())) return ann;
+        return make_ptr(ann.mut_ptr(), np, ann.zoned_ptr());
+    }
+    default:
+        return ann;
+    }
+}
+
 TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                                const SemaLifetimeSubst& ls) {
     if (!t) return t;

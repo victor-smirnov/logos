@@ -708,6 +708,10 @@ private:
     // followed by cfg evaluation. Returns true when the item must be
     // dropped. Shared by the collection AND lowering walks.
     bool cfg_attrs_drop_item(std::vector<hermes::TinyMapView>& pending_annots);
+    // logos-core 1.3: fill `_` holes in a let-annotation from the RHS type.
+    TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
+    // True when t contains a `_` (InferredType) hole at any depth.
+    bool type_has_inferred(TypeRef t);
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them

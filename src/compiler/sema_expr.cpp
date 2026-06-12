@@ -3307,6 +3307,12 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         // `&mut Snap<STORE_CFG>` falls back to "could not infer type
         // arguments" and the caller has to pass STORE_CFG in turbofish.
         if (formal.type_var_name() == "Self") return;
+        // `_` (InferredType) is an inference HOLE, not a type — never bind
+        // a type-param to it. A `Vec<_>` return-type hint used to pin
+        // T = `_` here, and mono then instantiated a literal `Vec$G1$_`
+        // (mlir-gen verification failure). Leaving T unbound lets the
+        // real inference (args / later uses) fill it.
+        if (actual_norm.kind() == LogosType::Kind::InferredType) return;
         if (!bindings.count(std::string(formal.type_var_name())))
             bindings[std::string(formal.type_var_name())] = actual_norm;
         return;
@@ -17564,10 +17570,16 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
                 TypeRef(hint_call_return_type_).type_args().size() == 1)
                 elem_hint = TypeRef(hint_call_return_type_).type_args()[0];
             std::string elem_str = elem_hint ? type_str(elem_hint) : std::string{};
+            // A `_` hole anywhere in the hint (Vec<_>, Vec<Vec<_>>) is NOT
+            // renderable — `vec_new::<_>()` is argless so the hole has no
+            // inference source, and pre-fix the hole leaked into mono as a
+            // literal `Vec$G1$_` instantiation. Fall back to the
+            // inference-driven vec_from_arr path instead.
             bool elem_renderable = !elem_str.empty() &&
                 elem_str.find("<error>") == std::string::npos &&
                 elem_str.find('?') == std::string::npos &&
-                (!elem_hint || TypeRef(elem_hint).kind() != LogosType::Kind::TypeVar);
+                (!elem_hint || (TypeRef(elem_hint).kind() != LogosType::Kind::TypeVar &&
+                                !type_has_inferred(elem_hint)));
 
             // Push-block lowering: `{ let mut __v: Vec<E> = vec_new::<E>();
             // __v.push(e0); __v.push(e1); …; __v }`. Unlike `vec_from_arr`

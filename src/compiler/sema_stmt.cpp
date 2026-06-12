@@ -1682,16 +1682,24 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             ann = nullptr;
     }
 
-    // Set enum/struct hints so literal lowering can fill in unresolved type params
+    // Set enum/struct hints so literal lowering can fill in unresolved type
+    // params. A hint containing a `_` hole would PIN the hole into the
+    // lowered literal's type-args (mono then instantiates a literal `_` —
+    // `Vec$G1$_` / `Option$G1$_` mlir-gen failures), so hole-y annotations
+    // set no hint — the RHS infers freely and fill_inferred_from_rhs
+    // resolves the binding type afterwards (logos-core 1.3).
+    bool ann_has_hole = ann && type_has_inferred(ann);
     auto saved_hint = hint_enum_type_;
-    if (ann && TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
+    if (ann && !ann_has_hole &&
+        TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
         hint_enum_type_ = ann;
     auto saved_struct_hint = hint_struct_type_;
-    if (ann && (TypeRef(ann).kind() == LogosType::Kind::Struct ||
+    if (ann && !ann_has_hole &&
+        (TypeRef(ann).kind() == LogosType::Kind::Struct ||
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
     auto saved_ret_hint = hint_call_return_type_;
-    if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
+    if (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error)
         hint_call_return_type_ = ann;
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
@@ -1721,7 +1729,7 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     // untyped int literals widen instead of defaulting to i32 (`let p:(i64,i64)
     // = (7, 2)`). Mirrors the call-arg tuple hint; consumed by TUPLE_LIT lowering.
     auto saved_tuple_hint = hint_tuple_type_;
-    if (ann && TypeRef(ann).kind() == LogosType::Kind::Tuple)
+    if (ann && !ann_has_hole && TypeRef(ann).kind() == LogosType::Kind::Tuple)
         hint_tuple_type_ = ann;
 
     // C6-cc-04 + T0-4 (temporary lifetime extension): `let p = &<rvalue>;`
@@ -2104,12 +2112,17 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             }
         }
         // For impl Trait annotations, use the concrete rhs type so that method calls work.
-        var_type = ann_is_impl ? rhs_type : ann;
+        // logos-core 1.3: `_` holes in the annotation resolve from the RHS
+        // (`let v: Vec<_> = vec![1]` binds as Vec<i32> — the hole used to
+        // leak into mono as a literal `Vec$G1$_` instantiation).
+        var_type = ann_is_impl ? rhs_type : fill_inferred_from_rhs(ann, rhs_type);
         // Retype the rhs tuple expression node to use the concrete annotation tuple type.
         // This ensures codegen sees (f32, f32) instead of (FloatLit, FloatLit).
+        // Use the hole-FILLED type — stamping a raw `(i64, _)` annotation
+        // would leak `_` into codegen.
         if (!ann_is_impl && TypeRef(ann).kind() == LogosType::Kind::Tuple &&
             TypeRef(rhs_type).kind() == LogosType::Kind::Tuple)
-            builder().retype_expr(rhs, ann);
+            builder().retype_expr(rhs, var_type);
     } else {
         var_type = rhs_type;
         if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
