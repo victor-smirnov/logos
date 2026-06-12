@@ -1724,23 +1724,49 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
     if (ann && TypeRef(ann).kind() == LogosType::Kind::Tuple)
         hint_tuple_type_ = ann;
 
-    // C6-cc-04: `let p = &<scalar literal>;` — Rust extends the
-    // temporary's lifetime to the enclosing scope; Logos previously
-    // rejected with a diagnostic, but it's a legitimate pattern.
-    // Synthesize a hidden `let __lit_temp_N = <lit>;` BEFORE the user's
-    // let, then rewrite the user's value to `&__lit_temp_N`. Emit both
-    // as a single SBlock; `define()` at outer scope keeps the user's
-    // binding visible after.
+    // C6-cc-04 + T0-4 (temporary lifetime extension): `let p = &<rvalue>;`
+    // / `let p = &mut <rvalue>;` — Rust extends the temporary's lifetime
+    // to the enclosing scope AND drops it at scope end. Synthesize a
+    // hidden `let __lit_temp_N = <rvalue>;` BEFORE the user's let, then
+    // rewrite the user's value to `&[mut] __lit_temp_N`. The named temp
+    // rides the standard scope/drop machinery, so a droppable temp
+    // (`&String::from("x")`) is freed at scope end — the anonymous
+    // addr_of_temp spill never dropped (leak). Emit both as a single
+    // SBlock; `define()` at outer scope keeps both bindings visible.
+    // Covers scalar literals (the original C6-cc-04 shape) and the
+    // rvalue-producing call/literal forms; PLACE expressions (VAR_REF,
+    // DEREF, INDEX_READ, FIELD_READ) keep the borrow-in-place paths in
+    // lower_unary / ADDR_OF_MUT.
     if (node.has_key(la::VALUE)) {
         auto val_node = map_of(node.get(la::VALUE.code));
+        bool ext_mut = false;
+        TinyMapView ext_inner;
+        bool have_ext = false;
         if (code_of(val_node) == la::UNARY && val_node.has_key(la::OP) &&
             val_node.has_key(la::VALUE)) {
-            auto op_sv = str_of(val_node.get(la::OP.code));
-            if (op_sv == "&") {
-                auto inner = map_of(val_node.get(la::VALUE.code));
+            if (str_of(val_node.get(la::OP.code)) == "&") {
+                ext_inner = map_of(val_node.get(la::VALUE.code));
+                have_ext = true;
+            }
+        } else if (code_of(val_node) == la::ADDR_OF_MUT &&
+                   val_node.has_key(la::VALUE)) {
+            ext_inner = map_of(val_node.get(la::VALUE.code));
+            ext_mut = true;
+            have_ext = true;
+        }
+        if (have_ext) {
+            {
+                auto inner = ext_inner;
                 int32_t inner_c = code_of(inner);
-                if (inner_c == la::LIT_INT  || inner_c == la::LIT_BOOL ||
-                    inner_c == la::LIT_FLOAT || inner_c == la::LIT_CHAR) {
+                bool is_scalar_lit =
+                    inner_c == la::LIT_INT  || inner_c == la::LIT_BOOL ||
+                    inner_c == la::LIT_FLOAT || inner_c == la::LIT_CHAR;
+                bool is_rvalue_call =
+                    inner_c == la::CALL        || inner_c == la::GENERIC_CALL ||
+                    inner_c == la::METHOD_CALL || inner_c == la::STATIC_CALL  ||
+                    inner_c == la::FN_MACRO_CALL ||
+                    inner_c == la::STRUCT_LIT  || inner_c == la::TUPLE_LIT;
+                if (is_scalar_lit || is_rvalue_call) {
                     // Lower the literal expr — its concrete type drives the
                     // synth let's type. Use the annotation pointee as the
                     // type hint if present so suffix-less literals widen
@@ -1757,23 +1783,53 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                         TypeRef(lit_expr->type).kind() == LogosType::Kind::IntLit)
                         builder().retype_expr(lit_expr, hint_lit);
                     TypeRef lit_type = lit_expr->type;
+                    auto ltk = lit_type ? TypeRef(lit_type).kind()
+                                        : LogosType::Kind::Error;
+
+                    // A void/Never/error-typed rvalue has no temp to
+                    // extend — keep the pre-existing inline spill shape
+                    // (`&<unit call>` is degenerate; nothing to drop).
+                    if (ltk == LogosType::Kind::Void ||
+                        ltk == LogosType::Kind::Never ||
+                        ltk == LogosType::Kind::Error) {
+                        auto rhs_e = builder().addr_of_temp(
+                            std::move(lit_expr), ext_mut,
+                            make_ref(ext_mut, lit_type));
+                        define(std::string(name), ann ? ann : rhs_e->type,
+                               is_mut);
+                        lir::SLet sl;
+                        sl.name = std::string(name);
+                        sl.type = ann ? ann : rhs_e->type;
+                        sl.is_mut = is_mut;
+                        sl.value = std::move(rhs_e);
+                        hint_enum_type_ = saved_hint;
+                        hint_struct_type_ = saved_struct_hint;
+                        hint_call_return_type_ = saved_ret_hint;
+                        hint_closure_formal_ = saved_closure_hint;
+                        hint_tuple_type_ = saved_tuple_hint;
+                        return make_stmt_emit(node_line_, std::move(sl));
+                    }
 
                     std::string tmp = std::format("__lit_temp_{}", destruct_counter_++);
                     define(tmp, lit_type);
-                    define(std::string(name), ann ? ann : nullptr);
+                    // The user binding's type is the (annotated or derived)
+                    // reference type — a null type here made every
+                    // un-annotated use read as "undefined variable".
+                    define(std::string(name),
+                           ann ? ann : make_ref(ext_mut, lit_type), is_mut);
 
                     auto blk = lir::alloc_block(*cur_prog_);
 
-                    // synth: `let __lit_temp_N = <lit>;`
+                    // synth: `let [mut] __lit_temp_N = <rvalue>;`
                     lir::SLet sl_tmp;
                     sl_tmp.name   = tmp;
                     sl_tmp.type   = lit_type;
-                    sl_tmp.is_mut = false;
+                    sl_tmp.is_mut = ext_mut;
                     sl_tmp.value  = std::move(lit_expr);
                     blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl_tmp)));
 
-                    // user:  `let name = &__lit_temp_N;`
-                    auto addr = builder().addr_of(tmp, make_ref(false, lit_type));
+                    // user:  `let name = &[mut] __lit_temp_N;`
+                    auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type));
                     lir::SLet sl_user;
                     sl_user.name   = std::string(name);
                     sl_user.type   = ann ? ann : addr->type;

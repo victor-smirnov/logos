@@ -1533,7 +1533,25 @@ void MLIRGenImpl::gen_let(lir_view::SLetView v) {
                          st.pointee().kind() == LogosType::Kind::ZonedStruct)) {
         auto val = gen_expr(*s.value);
         if (!val) return;
-        scope_[s.name] = val;
+        if (s.is_mut) {
+            // `let mut r = &s1; … r = &s2;` — a MUT ref binding needs its
+            // own alloca(ptr) slot. Aliasing scope_[r] to the target
+            // address (the immutable fast path below) made the later
+            // SAssign write the new pointer INTO THE POINTEE's storage,
+            // corrupting it (invalid free at drop). Mirrors the
+            // `*mut Struct` mut-binding split; get_struct_ptr /
+            // gen_recv_struct load through the slot via var_local_ptrs_.
+            auto slot = create_entry_alloca(ptr_type());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, val, slot);
+            scope_[s.name] = slot;
+            var_elem_types_[s.name] = ptr_type();
+            auto cname = concrete_struct_name(st.pointee());
+            auto sit2 = struct_types_.find(cname);
+            if (sit2 != struct_types_.end())
+                var_local_ptrs_[s.name] = sit2->second.llvm_type;
+        } else {
+            scope_[s.name] = val;
+        }
         let_vars_.insert(s.name);
         var_struct_[s.name] = mlir_struct_key(st.pointee());
         return;

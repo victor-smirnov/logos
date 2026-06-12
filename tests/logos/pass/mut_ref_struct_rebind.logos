@@ -1,0 +1,20 @@
+// Sibling class fixed with T0-4: a MUT `&Struct` binding gets its own
+// alloca(ptr) slot. Pre-fix `let mut r = &s1; r = &s2;` aliased scope_[r]
+// to s1's storage, so the rebind wrote the new pointer INTO s1 (String
+// drop then freed a stack address — "munmap_chunk: invalid pointer").
+package mut_ref_struct_rebind;
+fn main() -> i32 {
+    let mut r = &String::from("x");
+    let other = String::from("yy");
+    r = &other;
+    if named_var_rebind() != 0 { return 3; }
+    (r.len() as i32) - 2
+}
+
+fn named_var_rebind() -> i32 {
+    let s1 = String::from("x");
+    let mut r = &s1;
+    let s2 = String::from("yy");
+    r = &s2;
+    (r.len() as i32) - 2
+}

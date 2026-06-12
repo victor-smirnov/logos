@@ -1,0 +1,64 @@
+// feature-audit T0-4: temporary lifetime extension — `let r = &<rvalue>;`
+// / `let r = &mut <rvalue>;` extends the temporary to the enclosing scope
+// (Rust reference, destructors.html#temporary-lifetime-extension) and
+// DROPS it at scope end. Pre-fix: mlir-gen verification ICE (by-value
+// String passed where ptr expected) and, once compiling, the anonymous
+// spill leaked the temp (valgrind definite-loss). Covers &call, &mut call
+// + mutation, struct/tuple literals, format!/vec! macro rvalues,
+// method-call rvalues, and inner-scope drop timing.
+package temp_lifetime_extension;
+use logos.std.fmt;
+
+struct P { x: i32, y: i32 }
+
+fn make_p() -> P { P { x: 3, y: 4 } }
+
+impl P {
+    fn tag(&self) -> String { String::from("tag") }
+}
+
+fn main() -> i32 {
+    // &<static call rvalue> (String — droppable)
+    let r = &String::from("ab");
+    if r.len() != 2i64 { return 1; }
+
+    // &mut <static call rvalue>, mutate through the ref
+    let m = &mut String::from("a");
+    m.push_str("b");
+    if m.len() != 2i64 { return 2; }
+
+    // &<plain call rvalue> (struct by value)
+    let p = &make_p();
+    if p.x + p.y != 7 { return 3; }
+
+    // &<struct literal>
+    let q = &P { x: 1, y: 2 };
+    if q.x + q.y != 3 { return 4; }
+
+    // &<tuple literal>
+    let t = &(5i32, 6i32);
+    if t.0 + t.1 != 11 { return 5; }
+
+    // &<fn-macro rvalue> (format! → String temp; vec! → Vec temp)
+    let f = &format!("{}{}", 1, 2);
+    if f.len() != 2i64 { return 6; }
+    let v = &vec![10, 20, 30];
+    if v.len() != 3i64 { return 7; }
+
+    // &mut <vec rvalue>, mutate through it
+    let vm = &mut vec![1];
+    vm.push(2);
+    if vm.len() != 2i64 { return 8; }
+
+    // method-call rvalue (method returns a droppable String temp)
+    let s = &make_p().tag();
+    if s.len() != 3i64 { return 9; }
+
+    // inner scope: temp drops at inner-scope end, not fn end
+    {
+        let inner = &String::from("zzz");
+        if inner.len() != 3i64 { return 10; }
+    }
+
+    0
+}

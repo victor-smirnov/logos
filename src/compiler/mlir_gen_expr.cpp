@@ -1602,7 +1602,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                     // Treat as already-spilled — return the ptr value.
                     inner_t.kind() == LogosType::Kind::Slice ||
                     inner_t.kind() == LogosType::Kind::TraitObject))
-        return val;
+        // T0-4 (temp lifetime extension): aggregates are normally
+        // pointer-aliased so the value already IS the address — EXCEPT a
+        // by-value aggregate (a fn-call return like `&String::from("x")`,
+        // `&make_tuple()`), which must spill once to a stack slot; that
+        // slot is the reference. spill_to_alloca is a no-op for values
+        // that are already pointers, so this covers both cases.
+        return spill_to_alloca(val);
     // Enum value-repr: `&<enum temp>` is ONE level — the inline storage address
     // (like `&Struct`), NOT a ptr-to-ptr. A constructed enum (EEnumLitData)
     // already returns its storage alloca ptr; return it directly. A by-value
