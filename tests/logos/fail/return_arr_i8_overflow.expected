@@ -1,1 +1,1 @@
-return: array element 1: value 200 does not fit in i8
+array literal: element 1: value 200 does not fit in i8
