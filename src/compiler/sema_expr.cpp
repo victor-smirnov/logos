@@ -14310,6 +14310,32 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     pending_closure_capture_drops_ = std::move(unskipped_captures);
 
     auto ctype = make_closure_type(std::move(param_types), ret_type);
+    // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
+    // types against the interned closure type so the auto-trait engine
+    // walks captures, not parameter types. Closure types intern by
+    // params/ret (not per-literal), so the table accumulates the UNION of
+    // captures across same-signature literals — conservative-correct: if
+    // ANY literal of this signature captures a !Send value, the type is
+    // !Send. By-ref captures enter as `&T`/`&mut T` so the engine's
+    // reference rules (&T: Send ⇔ T: Sync) apply per spec
+    // (lang-types.auto-traits.closure); owned (move) captures enter as T.
+    // RFC-2229 narrow captures use the captured FIELD's type.
+    {
+        auto& env = closure_capture_env_[type_str(ctype)];
+        for (size_t i = 0; i < ec->captures.size(); ++i) {
+            TypeRef ct = (i < ec->capture_field_types.size() &&
+                          ec->capture_field_types[i])
+                             ? TypeRef(ec->capture_field_types[i])
+                             : TypeRef(ec->capture_types[i]);
+            if (!ct) continue;
+            bool by_ref = !is_move;
+            env.push_back(by_ref ? make_ref(i < ec->mut_captures.size() &&
+                                                ec->mut_captures[i],
+                                            ct)
+                                 : ct);
+        }
+        if (ec->captures.empty()) (void)env;  // entry exists even if empty
+    }
     return builder().closure_box(std::move(ec), ctype);
 }
 

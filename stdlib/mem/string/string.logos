@@ -25,6 +25,7 @@
 package logos.mem.string;
 
 use logos.lang.mem;
+use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
@@ -38,6 +39,13 @@ pub struct String {
     nbytes: i64,       // number of content bytes (not counting null terminator)
     cap:    i64,       // allocated bytes (always > nbytes when data != null)
 }
+
+// String OWNS its heap buffer exclusively (the raw `data` ptr never
+// aliases), so moving it across threads / sharing `&String` is safe —
+// mirrors Rust's `unsafe impl {Send,Sync} for String`. Without these the
+// auto-trait engine sees the `*mut u8` field and rejects `T: Send`.
+unsafe impl Send for String {}
+unsafe impl Sync for String {}
 
 impl String {
     // Empty string, no heap allocation.

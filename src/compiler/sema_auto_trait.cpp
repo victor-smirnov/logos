@@ -232,15 +232,21 @@ bool SemaChecker::is_auto_trait_satisfied(
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
 
-    // ── Closure: walk capture types so a closure capturing only Send/Sync
-    //    values auto-derives Send/Sync. Pre-fix this was a blanket `false`
-    //    (`logos-core 2.4 (a)`), which made every closure conservatively
-    //    `!Send`/`!Sync` — useful for safety but broke threading-API ports
-    //    that legitimately pass copyable closures across threads. The
-    //    Closure type carries captured-field types in `closure_params`
-    //    (envelope), so structural walk is sufficient.
+    // ── Closure: walk CAPTURE types (spec lang-types.auto-traits.closure)
+    //    so a closure capturing only Send/Sync values auto-derives
+    //    Send/Sync. closure_params on the type are the PARAMETER types
+    //    (FnPtr-style envelope) — walking those was unsound (T1-7: a
+    //    closure capturing `*mut i32` passed `T: Send`). Captures are
+    //    recorded per interned closure type at lowering
+    //    (closure_capture_env_, union across same-signature literals —
+    //    conservative-correct; by-ref captures stored as `&[mut] T` so the
+    //    reference rules apply). A closure type with NO recorded literal
+    //    (e.g. a bare `dyn Fn` annotation) is conservative `false` — like
+    //    Rust's `dyn Fn()` without an explicit `+ Send`.
     case Kind::Closure: {
-        for (auto e : tv.closure_params())
+        auto it = closure_capture_env_.find(type_str(tv));
+        if (it == closure_capture_env_.end()) return false;
+        for (auto e : it->second)
             if (!is_auto_trait_satisfied(e, trait_name, visited)) return false;
         return true;
     }

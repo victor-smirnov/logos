@@ -1,0 +1,16 @@
+// audit-v2 T1-7 (Send/Sync soundness): closure auto-trait satisfaction
+// walks CAPTURE types (spec lang-types.auto-traits.closure), not the
+// parameter envelope. Pre-fix a closure capturing `*mut i32` passed
+// `T: Send` — the engine iterated closure_params (the PARAMETER types),
+// so every capture was invisible.
+package closure_not_send_capture;
+
+fn need_send<T: Send>(v: T) -> i32 { 1 }
+
+fn main() -> i32 {
+    let mut buf = 0i32;
+    let p: *mut i32 = &mut buf;
+    let bad = move || unsafe { *p };
+    need_send(bad);
+    0
+}

@@ -712,6 +712,13 @@ private:
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
     // True when t contains a `_` (InferredType) hole at any depth.
     bool type_has_inferred(TypeRef t);
+
+    // T1-7 (audit-v2): capture types per interned closure type, recorded at
+    // closure-literal lowering and consumed by the auto-trait engine
+    // (Send/Sync walk captures, not parameter types). Keyed by type_str of
+    // the Closure TypeRef; same-signature literals UNION their captures
+    // (conservative-correct). By-ref captures are stored as `&[mut] T`.
+    std::unordered_map<std::string, std::vector<TypeRef>> closure_capture_env_;
     // Phase 2-3: predicate match against the active cfg-key set + features.
     // Lightweight wrappers around the file-static match_cfg_key_value /
     // match_cfg_flag so sema_collect's cfg_attr handling can call them

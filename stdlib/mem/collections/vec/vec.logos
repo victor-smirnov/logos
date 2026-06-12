@@ -6,6 +6,7 @@
 package logos.mem.collections.vec;
 
 use logos.lang.mem;
+use logos.lang.marker;
 use logos.lang.slice;
 use logos.lang.option;
 use logos.lang.iter;
@@ -19,6 +20,11 @@ pub struct Vec<T> {
     len: i64,
     cap: i64,
 }
+
+// Vec owns its buffer exclusively — Send/Sync follow the element type
+// (Rust: `unsafe impl<T: Send> Send for Vec<T>` / `<T: Sync> Sync`).
+unsafe impl<T: Send> Send for Vec<T> {}
+unsafe impl<T: Sync> Sync for Vec<T> {}
 
 pub fn vec_new<T>() -> Vec<T> {
     let init_cap: i64 = 8;

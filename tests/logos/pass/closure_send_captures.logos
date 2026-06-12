@@ -1,0 +1,31 @@
+// Boundary pins for the T1-7 closure-capture auto-trait fix:
+// closures whose captures are all Send stay Send — scalar by-value,
+// String/Vec owned captures (via the new stdlib unsafe impls: String/
+// Vec<T: Send>/Box<T: Send> own their buffers exclusively, Rust
+// parity), and by-ref scalar captures (`&mut i32`: Send ⇔ i32: Send).
+package closure_send_captures;
+
+fn need_send<T: Send>(v: T) -> i32 { 1 }
+
+fn main() -> i32 {
+    let x = 5i32;
+    let scalar = move || x + 1;
+    if need_send(scalar) != 1 { return 1; }
+
+    let s = String::from("hi");
+    let owned_str = move || s.len() as i32;
+    if need_send(owned_str) != 1 { return 2; }
+
+    let v = vec![1, 2, 3];
+    let owned_vec = move || v.len() as i32;
+    if need_send(owned_vec) != 1 { return 3; }
+
+    let mut c = 0i32;
+    let bumper = || { c = c + 1; c };
+    if need_send(bumper) != 1 { return 4; }
+
+    // direct owning-container Send (the stdlib impls themselves)
+    if need_send(String::from("x")) != 1 { return 5; }
+    if need_send(vec![1i64]) != 1 { return 6; }
+    return 0;
+}
