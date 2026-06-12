@@ -35,7 +35,7 @@ pub fn hermes_pat_root(view: &HermesStatic) -> HAny {
 
 // Root HAny of a RUNTIME Rc<Hermes> scrutinee (capture/comprehension results).
 pub fn hermes_pat_root_rc(c: &Rc<Hermes>) -> HAny {
-    let h: &Hermes = c.deref();
+    let h: &Hermes = &**c;
     return h.root();
 }
 

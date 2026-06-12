@@ -150,12 +150,12 @@ pub trait Fn<A...> {
 // outside the Fn-family aren't wired yet).
 //
 // Semantic surface today:
-//   `*x` for `x: T` where `T: Deref<U>` → `*(x.deref())` → U.
+//   `*x` for `x: T` where `T: Deref<U>` → `*(&*x)` → U.
 //   `*x = v` requires `DerefMut` (not yet auto-dispatched; write today
 //   via explicit `*x.deref_mut() = v`).
 //   Method-autoderef-through-Deref (Rust's `box.method()` calling a
 //   method on the pointee) is deferred — call explicitly via `(*box).m()`
-//   or `box.deref().m()`.
+//   or `&*box.m()`.
 //
 // Box<T> auto-deref for `*box` is special-cased in sema; it predates
 // these traits. New types should `impl Deref` to opt into the same

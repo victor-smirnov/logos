@@ -62,6 +62,22 @@ lir::LExprPtr SemaChecker::materialize_recv_ref(lir::LExprPtr recv, bool is_mut,
 
 std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
         lir::LExprPtr recv, bool want_mut) {
+    auto call = emit_generic_deref_call(std::move(recv), want_mut);
+    if (!call) return std::nullopt;
+    TypeRef ref_t = (*call)->type;
+    auto k = TypeRef(ref_t).kind();
+    // Unsized Target: the fat reference IS the value — no further deref.
+    if (k == LogosType::Kind::UnsizedDyn || k == LogosType::Kind::UnsizedSlice ||
+        k == LogosType::Kind::TraitObject || k == LogosType::Kind::Slice)
+        return call;
+    return builder().deref(std::move(*call), TypeRef(ref_t).pointee());
+}
+
+// `recv.deref()` / `recv.deref_mut()` through a user/stdlib Deref(Mut) impl —
+// returns the `&Target` (or fat ref) CALL itself, no place-deref. The `&*x`
+// reborrow shape and the deref-step both build on this.
+std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
+        lir::LExprPtr recv, bool want_mut) {
     if (!recv) return std::nullopt;
     TypeRef rt = recv->type;
     if (TypeRef(rt).kind() != LogosType::Kind::Struct &&
@@ -137,9 +153,7 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
     mc.method       = want_mut ? "deref_mut" : "deref";
     mc.vtable_index = -1;
     mc.tag_trait    = tr;  // resolve to <Concrete>__Deref__deref if qualified
-    auto call = builder().method_call_v(std::move(mc), ref_t);
-    if (tgt_unsized) return call;
-    return builder().deref(std::move(call), target);
+    return builder().method_call_v(std::move(mc), ref_t);
 }
 
 // Shared integer-literal builder. `negate` folds a leading unary minus into
@@ -957,6 +971,9 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
                     return builder().addr_of_temp(std::move(deref), true, rdt);
                 return builder().addr_of_temp(std::move(deref), true, make_ref(true, pointee_t));
             }
+            // `&mut *rc` for a struct with a DerefMut impl: `rc.deref_mut()`.
+            if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/true))
+                return std::move(*dc);
             return builder().addr_of_temp(std::move(operand), true, make_ref(true, op_t));
         }
         // &mut f[i] over a user IndexMut struct → index_mut() place ref.
@@ -2240,6 +2257,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                     return builder().addr_of_temp(std::move(deref), false, rdt);
                 return builder().addr_of_temp(std::move(deref), false, make_ref(false, pointee_t));
             }
+            // `&*rc` for a struct with a Deref impl: the reborrow IS `rc.deref()`.
+            if (auto dc = emit_generic_deref_call(std::move(operand), /*want_mut=*/false))
+                return std::move(*dc);
             return builder().addr_of_temp(std::move(operand), false, make_ref(false, op_t));
         }
         // &f[i] over a user Index struct → index() place ref (no deref/temp).

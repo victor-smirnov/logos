@@ -164,7 +164,7 @@ pub unsafe fn hermes_clone_into(h: &Hermes, v: HAny) -> HAny {
 // only live objects come along).
 pub unsafe fn hermes_clone(v: HAny) -> Rc<Hermes> {
     let rc: Rc<Hermes> = hermes_rc(16384);
-    let h: &Hermes = rc.deref();
+    let h: &Hermes = &*rc;
     let c: HAny = hermes_clone_into(h, v);
     h.set_root(c);
     return rc;

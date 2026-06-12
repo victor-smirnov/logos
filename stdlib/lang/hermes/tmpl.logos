@@ -40,14 +40,14 @@ pub unsafe fn hermes_template_ctr_new(tmpl_size: i64, extra_cap: i64) -> Rc<Herm
 
 // Allocate an f64 capture in the zone; value-form HAny word.
 pub unsafe fn hermes_ctr_alloc_f64(c: &Rc<Hermes>, val: f64) -> u64 {
-    let h: &Hermes = c.deref();
+    let h: &Hermes = &**c;
     let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     return box_f64(&mut hp.allocator as *mut Allocator, val).raw() as u64;
 }
 
 // Allocate a (ptr,len) string capture as an HString in the zone; value-form word.
 pub unsafe fn hermes_ctr_alloc_str(c: &Rc<Hermes>, ptr: *const u8, len: i64) -> u64 {
-    let h: &Hermes = c.deref();
+    let h: &Hermes = &**c;
     let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let hs: *mut HString = hstring_in_alloc(&mut hp.allocator as *mut Allocator,
                                             str_from_raw(ptr, len));
@@ -66,7 +66,7 @@ pub unsafe fn hermes_ctr_alloc_cstr(c: &Rc<Hermes>, ptr: *const u8) -> u64 {
 pub unsafe fn hermes_template_install(c: &Rc<Hermes>, tmpl: *const u8, tmpl_size: i64,
                                        slots: *const u32, n_slots: i64,
                                        resolved: *const u64, n_values: i64) {
-    let h: &Hermes = c.deref();
+    let h: &Hermes = &**c;
     let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
     let dst: *mut u8 = hermes_alloc_bytes(hp, tmpl_size);
 

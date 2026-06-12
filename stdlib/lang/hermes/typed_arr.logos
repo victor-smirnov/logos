@@ -22,7 +22,7 @@ unsafe fn h2_build_typed_array_raw(vals: *const u8, len: i64, width: i64,
     if n < 0 { n = 0; }
     let byte_len: i64 = n * width;
     let rc: Rc<Hermes> = hermes_rc(byte_len + 4096);
-    let h: &Hermes = rc.deref();
+    let h: &Hermes = &*rc;
     let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
     // Element buffer first (its address is stable in the never-move arena).
@@ -100,7 +100,7 @@ unsafe fn h2_build_typed_map_raw(keys: *const u8, vals: *const i64, len: i64,
     let mut n: i64 = len;
     if n < 0 { n = 0; }
     let rc: Rc<Hermes> = hermes_rc(n * 64 + 4096);
-    let h: &Hermes = rc.deref();
+    let h: &Hermes = &*rc;
     let hp: *mut Hermes = h as *const Hermes as *mut Hermes;
 
     let mut kbuf: i64 = 0;

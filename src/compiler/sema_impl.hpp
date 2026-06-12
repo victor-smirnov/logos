@@ -3844,6 +3844,7 @@ private:
     // receiver type implements no Deref. The concrete Target is computed by
     // substituting the Deref impl's target pattern against recv's type.
     std::optional<lir::LExprPtr> emit_generic_deref_step(lir::LExprPtr recv, bool want_mut);
+    std::optional<lir::LExprPtr> emit_generic_deref_call(lir::LExprPtr recv, bool want_mut);
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
