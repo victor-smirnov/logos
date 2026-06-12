@@ -246,6 +246,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto end = find_sig_boundary(start);
                 if (end == std::string::npos)
                     end = m->name.find("__", start);
+                // Overloaded generic methods (`__g__<sig>` tail): keep the
+                // full tail as the key — a short-name key is one slot and
+                // silently drops all but the last overload (Pin<&T>::new vs
+                // Pin<&mut T>::new vs Pin<Box<T>>::new). Every lookup site
+                // already prefix-matches `<short>__g__*`.
+                if (end != std::string::npos &&
+                    m->name.compare(end, 5, "__g__") == 0)
+                    end = std::string::npos;
                 short_name = (end == std::string::npos)
                              ? m->name.substr(start)
                              : m->name.substr(start, end - start);

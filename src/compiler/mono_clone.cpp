@@ -3183,6 +3183,49 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             size_t n_args    = std::min(n_impl_tp, nc.type_args.size());
                             std::vector<TypeRef> args(
                                 nc.type_args.begin(), nc.type_args.begin() + n_args);
+                            // Structured impl self-type (`impl<T> Pin<&T>`):
+                            // the method type_args carry the IMPL-level params
+                            // ([T] = Pt), but the struct's concrete args are
+                            // the substituted PATTERN args ([&T]{T:=Pt} = &Pt)
+                            // — positional copy would name `Pin$G1$Pt` while
+                            // the spec instantiates as `Pin$G1$ref_Pt`.
+                            const lir::LFunction* mt = nullptr;
+                            if (auto* smt = find_struct_method_templates_unguarded(
+                                    struct_part)) {
+                                // Match by the FULL mangled fn name — short-
+                                // name keys can't disambiguate overloads.
+                                for (auto& [mk, mf] : *smt)
+                                    if (mf && mf->name == nc.callee)
+                                        { mt = mf; break; }
+                            }
+                            if (mt && mt->impl_target_pattern) {
+                                auto pat = TypeRef(mt->impl_target_pattern);
+                                auto pa = pat.type_args();
+                                if (!pa.empty()) {
+                                    // Impl-level params are STRIPPED from the
+                                    // template's type_params (kept in
+                                    // impl_type_params); the call's type_args
+                                    // carry [impl-level..., method-level...].
+                                    SubstMap ib;
+                                    size_t ai = 0;
+                                    for (auto& tp : mt->impl_type_params)
+                                        if (ai < nc.type_args.size())
+                                            ib[tp.name] = nc.type_args[ai++];
+                                    for (auto& tp : mt->type_params)
+                                        if (ai < nc.type_args.size())
+                                            ib[tp.name] = nc.type_args[ai++];
+                                    std::vector<TypeRef> pargs;
+                                    bool resolved = true;
+                                    for (auto a : pa) {
+                                        auto sa = subst_type(a, ib);
+                                        if (!sa || contains_typevar(sa) ||
+                                            contains_assoc_type(sa))
+                                            { resolved = false; break; }
+                                        pargs.push_back(sa);
+                                    }
+                                    if (resolved) args = std::move(pargs);
+                                }
+                            }
                             std::string cname = concrete_struct_name_raw(struct_part, args);
                             nc.callee = cname + method_part;
                             nc.type_args.clear();
@@ -4976,7 +5019,39 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     if (lazy_methods_ && !tmpl.type_params.empty()) return nd;
     for (auto& m_up : tmpl.methods) {
         auto& m = *m_up;
-        if (!method_bound_ok(m, s)) continue;
+        // Structured impl self-type (`impl<T> Pin<&T>` on `struct Pin<P>`):
+        // the impl-level params don't share names with the struct's own, so
+        // the struct subst alone leaves them unbound. Bind them by unifying
+        // the pattern's args against the concrete struct args; a pattern that
+        // does NOT match this instantiation (Pin<&T> method on a Pin<Box<…>>
+        // spec) means the method doesn't belong to it — skip the clone.
+        SubstMap ms;
+        const SubstMap* msel = &s;
+        bool pattern_mismatch = false;
+        if (m.impl_target_pattern) {
+            auto pa = TypeRef(m.impl_target_pattern).type_args();
+            if (!pa.empty() && pa.size() == tmpl.type_params.size()) {
+                ms = s;
+                bool extended = false;
+                for (size_t i = 0; i < pa.size(); ++i) {
+                    auto cit = s.find(tmpl.type_params[i].name);
+                    if (cit == s.end() || !cit->second) continue;
+                    if (contains_typevar(cit->second)) continue;  // defer
+                    if (contains_assoc_type(pa[i]))
+                        continue;  // projection — not structurally decidable
+                    SubstMap b;
+                    if (!unify_impl_target(cit->second, pa[i], b)) {
+                        pattern_mismatch = true;
+                        break;
+                    }
+                    for (auto& [bk, bv] : b)
+                        if (!ms.count(bk)) { ms[bk] = bv; extended = true; }
+                }
+                if (extended && !pattern_mismatch) msel = &ms;
+            }
+        }
+        if (pattern_mismatch) continue;
+        if (!method_bound_ok(m, *msel)) continue;
 
         // Compute the final renamed method name first so the binary-symbol
         // fast path below can consult it.
@@ -5013,13 +5088,13 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
         // already in the archive. Signature-only stub is enough.
         if (!in_.binary_symbols.empty() &&
             in_.binary_symbols.count(final_name)) {
-            auto nm = clone_fn_signature(m, s, packs);
+            auto nm = clone_fn_signature(m, *msel, packs);
             nm.name = final_name;
             nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
             continue;
         }
 
-        auto nm = clone_fn(m, s, packs);
+        auto nm = clone_fn(m, *msel, packs);
         nm.name = final_name;
         // Substitute struct type in params/ret as needed (already done by clone_fn).
         nd.methods.push_back(std::make_unique<lir::LFunction>(std::move(nm)));

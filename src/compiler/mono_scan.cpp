@@ -720,6 +720,35 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
             }
         }
 
+        // Structured impl self-type (`impl<T> Pin<&T>` on `struct Pin<P>`):
+        // the positional subst above binds only the struct's own param names
+        // (P), leaving impl-level params (T) unbound — and it can't tell that
+        // this overload doesn't even belong to the instantiation (a Pin<&T>
+        // method on a Pin<Box<…>> spec). Unify the impl pattern's args
+        // against the concrete struct args: mismatch → skip the overload,
+        // success → merge the impl-level bindings.
+        if (fp->impl_target_pattern) {
+            auto pa = TypeRef(fp->impl_target_pattern).type_args();
+            if (!pa.empty() && pa.size() == tpars.size() &&
+                pa.size() <= type_args.size()) {
+                bool mismatch = false;
+                for (size_t i = 0; i < pa.size(); ++i) {
+                    if (!type_args[i] || contains_typevar(type_args[i]))
+                        continue;  // defer to a later, fully concrete pass
+                    if (contains_assoc_type(pa[i]))
+                        continue;  // projection — not structurally decidable
+                    SubstMap b;
+                    if (!unify_impl_target(type_args[i], pa[i], b)) {
+                        mismatch = true;
+                        break;
+                    }
+                    for (auto& [bk, bv] : b)
+                        if (!subst.count(bk)) subst[bk] = bv;
+                }
+                if (mismatch) continue;
+            }
+        }
+
         method_worklist_.push_back({concrete, pkg, base, method_name, fp,
                                     std::move(subst), std::move(packs), depth_ + 1});
     }

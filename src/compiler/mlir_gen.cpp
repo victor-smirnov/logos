@@ -697,8 +697,8 @@ mlir::Value MLIRGenImpl::gep_field(mlir::Value base, const StructInfo& info,
                 loc_, ptr_type(), info.llvm_type, base, idx);
         }
     }
-    std::fprintf(stderr, "mlir_gen: struct '%s' has no field '%s'\n",
-                 info.name.c_str(), field_name.c_str());
+    std::fprintf(stderr, "mlir_gen: struct '%s' has no field '%s' (in fn %s)\n",
+                 info.name.c_str(), field_name.c_str(), cur_fn_name_.c_str());
     return nullptr;
 }
 

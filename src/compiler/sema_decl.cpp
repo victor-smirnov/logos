@@ -1855,6 +1855,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // Preserve impl-level type params with their bounds so mono
                     // can gate instantiation on bound satisfaction.
                     fn.impl_type_params = impl_tps;
+                    // Structured impl self-type (`impl<T> Pin<&T>`): mono needs
+                    // the pattern to map impl-level args ([T]) to the struct's
+                    // concrete args ([&T]) — positional copy mis-names specs.
+                    fn.impl_target_pattern = ib.target_typeref;
                     target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                 } else {
                     // CP-cm-16 follow-up: enum-impl path (impl<T,E> Trait for
@@ -2097,6 +2101,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 break;
                             }
                         }
+                        fn.impl_target_pattern = ib.target_typeref;
                         target_struct_tmpl->methods.push_back(std::make_unique<lir::LFunction>(std::move(fn)));
                     } else {
                         // CP-cm-16 follow-up: parallel propagation for

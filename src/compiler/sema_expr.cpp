@@ -84,19 +84,41 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         TypeRef(rt).kind() != LogosType::Kind::ZonedStruct)
         return std::nullopt;
     // Locate the Deref (or DerefMut, for a mutable step) impl for this type.
+    // One type can carry SEVERAL Deref impls distinguished by self type-args
+    // (Pin<&T> / Pin<&mut T> / Pin<Box<T>>), so enumerate the multi-valued
+    // impls_all_ and pick the impl whose target pattern STRICTLY matches rt
+    // (unify → substitute → equal; Ref vs MutRef vs Box stay distinct). A
+    // non-matching impl is kept only as a loose fallback — the old
+    // single-valued behavior for shapes the strict match can't decide.
     std::string base   = std::string(TypeRef(rt).struct_name());
     std::string cname  = concrete_struct_name(rt);
     const char* tr     = want_mut ? "DerefMut" : "Deref";
-    auto it = impls_.find(std::string(tr) + "::" + cname);
-    if (it == impls_.end()) it = impls_.find(std::string(tr) + "::" + base);
+    auto pick = [&](const char* trname) -> const SemaImplInfo* {
+        const SemaImplInfo* loose = nullptr;
+        for (const std::string& key : {std::string(trname) + "::" + cname,
+                                       std::string(trname) + "::" + base}) {
+            auto ait = impls_all_.find(key);
+            if (ait == impls_all_.end()) continue;
+            for (const auto& info : ait->second) {
+                if (info.is_negative) continue;
+                if (info.target_typeref) {
+                    StrMap<TypeRef> binds;
+                    unify_types(info.target_typeref, rt, binds);
+                    SemaSubst s(binds.begin(), binds.end());
+                    TypeRef pat = subst_type_sema(info.target_typeref, s);
+                    if (pat && types_equal(pat, rt)) return &info;
+                }
+                if (!loose) loose = &info;
+            }
+        }
+        return loose;
+    };
+    const SemaImplInfo* impl_p = pick(tr);
     // DerefMut: a type may impl only Deref; fall back to Deref's Target (the
     // DerefMut supertrait shares the same Target) for the mutable step.
-    if (it == impls_.end() && want_mut) {
-        it = impls_.find("Deref::" + cname);
-        if (it == impls_.end()) it = impls_.find("Deref::" + base);
-    }
-    if (it == impls_.end()) return std::nullopt;
-    const SemaImplInfo& impl = it->second;
+    if (!impl_p && want_mut) impl_p = pick("Deref");
+    if (!impl_p) return std::nullopt;
+    const SemaImplInfo& impl = *impl_p;
 
     // Concrete Target, two forms:
     //  (a) type-PARAMETER `Deref<Target>` (stdlib Box/Rc/Arc): substitute the
@@ -122,9 +144,10 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         if (fit && fit->ret_type && TypeRef(fit->ret_type).pointee())
             target = TypeRef(fit->ret_type).pointee();
     }
-    if (!target || TypeRef(target).kind() == LogosType::Kind::Error ||
-        TypeRef(target).kind() == LogosType::Kind::TypeVar)
+    if (!target || TypeRef(target).kind() == LogosType::Kind::Error)
         return std::nullopt;
+    // A TypeVar Target is fine inside a TEMPLATE body — mono substitutes the
+    // concrete type when the impl method is instantiated.
 
     // Emit `recv.deref()` as a generic-resolvable method call (mono picks the
     // concrete impl method, exactly like an explicit `x.deref()`), then deref
@@ -2939,7 +2962,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 return fi && (fi->is_fn_macro || fi->is_token_macro);
             }),
         all_cands.end());
-    auto git  = find_generic_func(callee, n_args);
+    const SemaFuncInfo* git = nullptr;
+    {
+        // Arg-shape-aware pick first: several generic overloads can share a
+        // base name and arity (Pin<&T>::new vs Pin<&mut T>::new).
+        std::vector<TypeRef> call_arg_types;
+        call_arg_types.reserve(arg_exprs.size());
+        for (auto& a : arg_exprs) call_arg_types.push_back(a ? a->type : nullptr);
+        git = find_generic_func_for_args(callee, call_arg_types,
+                                         /*is_method_recv=*/false);
+    }
+    if (!git) git = find_generic_func(callee, n_args);
 
     // Resolve the "best" SemaFuncInfo to try.
     // Priority:
@@ -3335,6 +3368,94 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
     default:
         break;  // concrete type — nothing to bind
     }
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
+        std::string_view base_name,
+        const std::vector<TypeRef>& arg_types,
+        bool is_method_recv) {
+    auto git = generic_overloads_.find(std::string(base_name));
+    if (git == generic_overloads_.end()) return nullptr;
+    // <2 overloads: selection cannot disagree with find_generic_func.
+    if (git->second.size() < 2) return nullptr;
+    const SemaFuncInfo* best = nullptr;
+    int best_score = -1;
+    bool best_local = false;
+    for (auto& sym : git->second) {
+        auto fit = generic_funcs_.find(sym);
+        if (fit == generic_funcs_.end()) continue;
+        auto& fi = fit->second;
+        bool arity_ok = fi.is_vararg ? arg_types.size() >= fi.param_types.size()
+                                     : fi.param_types.size() == arg_types.size();
+        if (!arity_ok) continue;
+        StrMap<TypeRef> binds;
+        size_t n = std::min(fi.param_types.size(), arg_types.size());
+        for (size_t i = 0; i < n; ++i) {
+            TypeRef pt = fi.param_types[i];
+            TypeRef at = arg_types[i];
+            if (i == 0 && is_method_recv && pt && at) {
+                // Unify through the autoref/autoderef shapes the method path
+                // applies later: by-value recv vs &self formal (and the
+                // reverse), else unify sees Ref-vs-Struct and binds nothing.
+                if (is_ref_like(TypeRef(pt).kind()) && TypeRef(pt).pointee() &&
+                    !is_ref_like(TypeRef(at).kind()) &&
+                    TypeRef(at).kind() != LogosType::Kind::Ptr)
+                    pt = TypeRef(pt).pointee();
+                else if (!is_ref_like(TypeRef(pt).kind()) &&
+                         TypeRef(pt).kind() != LogosType::Kind::Ptr &&
+                         (is_ref_like(TypeRef(at).kind()) ||
+                          TypeRef(at).kind() == LogosType::Kind::Ptr) &&
+                         TypeRef(at).pointee())
+                    at = TypeRef(at).pointee();
+            }
+            unify_types(pt, at, binds);
+        }
+        // A candidate whose type-params stay unbound would fail inference
+        // downstream anyway — don't let it outscore an inferable one. The
+        // return-type hint (if set) can still bind a param, so allow then.
+        if (!hint_call_return_type_) {
+            bool has_variadic = !fi.type_params.empty() &&
+                                fi.type_params.back().is_variadic;
+            size_t fixed = fi.type_params.size() - (has_variadic ? 1 : 0);
+            bool all_bound = true;
+            for (size_t i = 0; i < fixed; ++i)
+                if (!binds.count(fi.type_params[i].name)) { all_bound = false; break; }
+            if (!all_bound && !fi.body_always_diverges) continue;
+        }
+        SemaSubst s(binds.begin(), binds.end());
+        int score = 0;
+        bool ok = true;
+        for (size_t i = 0; i < n; ++i) {
+            TypeRef pt = fi.param_types[i];
+            TypeRef at = arg_types[i];
+            if (!pt || !at) { ok = false; break; }
+            if (!binds.empty()) pt = subst_type_sema(pt, s);
+            if (types_equal(pt, at)) { score += 2; continue; }
+            if (i == 0 && is_method_recv) {
+                // Receiver latitude mirrors the method path's later fixups:
+                // autoref (by-value recv vs &self/&mut self formal) ranks as
+                // exact; autoderef (&T recv vs by-value self) below it.
+                if (is_ref_like(TypeRef(pt).kind()) && TypeRef(pt).pointee() &&
+                    !is_ref_like(TypeRef(at).kind()) &&
+                    TypeRef(at).kind() != LogosType::Kind::Ptr &&
+                    types_equal(TypeRef(pt).pointee(), at)) { score += 2; continue; }
+                if ((is_ref_like(TypeRef(at).kind()) ||
+                     TypeRef(at).kind() == LogosType::Kind::Ptr) &&
+                    TypeRef(at).pointee() &&
+                    !is_ref_like(TypeRef(pt).kind()) &&
+                    TypeRef(pt).kind() != LogosType::Kind::Ptr &&
+                    types_equal(TypeRef(at).pointee(), pt)) { score += 1; continue; }
+            }
+            if (types_compatible(at, pt)) { score += 1; continue; }
+            ok = false; break;
+        }
+        if (!ok) continue;
+        bool local = !cur_package_.empty() && fi.package == cur_package_;
+        if (score > best_score || (score == best_score && local && !best_local)) {
+            best = &fi; best_score = score; best_local = local;
+        }
+    }
+    return best;
 }
 
 bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
@@ -7430,7 +7551,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
             if (!fi_ptr) {
-                if (auto pfit = find_generic_func(mangled_prim)) {
+                if (auto sfit = find_generic_func_for_args(
+                        mangled_prim, types, /*is_method_recv=*/true)) {
+                    fi_ptr = sfit;
+                } else if (auto pfit = find_generic_func(mangled_prim)) {
                     fi_ptr = pfit;
                 }
                 // `str` resolves to Slice<u8> (type_str → "&[u8]"), but impl methods
@@ -7814,8 +7938,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             fi_ptr = deref_fallback;
             auto_deref_recv = true;
         }
-        if (!fi_ptr)
-            fi_ptr = find_generic_func(mangled);
+        if (!fi_ptr) {
+            fi_ptr = find_generic_func_for_args(mangled, types,
+                                                /*is_method_recv=*/true);
+            if (!fi_ptr) fi_ptr = find_generic_func(mangled);
+        }
     }
     // G158-5: auto-deref a `&T`/`*T` receiver for a by-value-`self` method.
     if (fi_ptr && auto_deref_recv && recv->type &&
@@ -7898,7 +8025,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 break;
             }
             if (!fi_ptr) {
-                if (auto fit = find_generic_func(base_mangled)) {
+                if (auto sfit = find_generic_func_for_args(
+                        base_mangled, types, /*is_method_recv=*/true)) {
+                    fi_ptr = sfit;
+                    mangled = base_mangled;
+                } else if (auto fit = find_generic_func(base_mangled)) {
                     fi_ptr = fit;
                     mangled = base_mangled;
                 }
@@ -8077,6 +8208,29 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                  method_tp_start + i < fi.type_params.size() && i < user_type_args.size();
                  ++i)
                 struct_subst[fi.type_params[method_tp_start + i].name] = user_type_args[i];
+        }
+        // Impl-level params that appear only in the RECEIVER formal
+        // (`impl<T> Pin<&T> { fn get_ref(&self) -> &T }`) can't be inferred
+        // from arg_exprs (param_offset=1 skips self) — unify the receiver
+        // formal against the actual receiver first, through the autoref
+        // shape if needed, and seed the context with what it binds.
+        if (!fi.param_types.empty() && fi.param_types[0] && recv->type) {
+            TypeRef f0 = fi.param_types[0];
+            TypeRef a0 = recv->type;
+            if (is_ref_like(TypeRef(f0).kind()) && TypeRef(f0).pointee() &&
+                !is_ref_like(TypeRef(a0).kind()) &&
+                TypeRef(a0).kind() != LogosType::Kind::Ptr)
+                f0 = TypeRef(f0).pointee();
+            else if (!is_ref_like(TypeRef(f0).kind()) &&
+                     TypeRef(f0).kind() != LogosType::Kind::Ptr &&
+                     (is_ref_like(TypeRef(a0).kind()) ||
+                      TypeRef(a0).kind() == LogosType::Kind::Ptr) &&
+                     TypeRef(a0).pointee())
+                a0 = TypeRef(a0).pointee();
+            StrMap<TypeRef> recv_binds;
+            unify_types(f0, a0, recv_binds);
+            for (auto& [rk, rv] : recv_binds)
+                if (!struct_subst.count(rk)) struct_subst[rk] = rv;
         }
         infer_type_args(fi, arg_exprs, m_type_args, struct_subst, 1);
         for (size_t i = 0; i < fi.type_params.size() && i < m_type_args.size(); ++i)
@@ -12339,8 +12493,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
             if (!fi_ptr) {
-            auto git = find_generic_func(mangled);
-            if (git != nullptr) fi_ptr = git;
+                fi_ptr = find_generic_func_for_args(mangled, arg_types,
+                                                    /*is_method_recv=*/false);
+                if (!fi_ptr) fi_ptr = find_generic_func(mangled);
             }
         }
         // Turbofish + concrete partial-spec impl: `Map::<i32, AnyVal>::init`

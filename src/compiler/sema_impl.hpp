@@ -3384,6 +3384,19 @@ private:
     const SemaFuncInfo* find_generic_func(std::string_view base_name) const;
     const SemaFuncInfo* find_generic_func(std::string_view base_name,
                                           size_t n_args) const;
+    // Generic-overload selection by ARGUMENT SHAPE. find_generic_func picks
+    // the first arity-matching overload — wrong as soon as one base name
+    // carries several generic impls distinguished by their param types
+    // (Pin<&T>::new vs Pin<&mut T>::new vs Pin<Box<T>>::new). Scores each
+    // candidate by unifying its params against the actuals and checking the
+    // SUBSTITUTED params: exact (+2/param) beats coercion-compatible (+1);
+    // any incompatible param rejects. Returns nullptr when no candidate
+    // matches (or <2 overloads exist) — callers keep their first-wins
+    // fallback, so single-overload behavior is untouched. (sema_expr.cpp)
+    const SemaFuncInfo* find_generic_func_for_args(
+            std::string_view base_name,
+            const std::vector<TypeRef>& arg_types,
+            bool is_method_recv);
     const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;

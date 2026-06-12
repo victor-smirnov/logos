@@ -582,6 +582,20 @@ private:
         return false;
     }
 
+    // A pattern arg carrying an associated-type projection (`D::Resources`
+    // in `impl<D: Device> Tr for Foo<D, D::Resources>`) can't be structurally
+    // unified against a concrete arg — its resolution needs the trait impl
+    // table. Such positions must DEFER (bind nothing), not report a mismatch.
+    static bool contains_assoc_type(TypeRef tv) noexcept {
+        if (!tv) return false;
+        if (tv.kind() == LogosType::Kind::AssocType) return true;
+        for (auto a : tv.type_args()) if (contains_assoc_type(a)) return true;
+        if (tv.pointee() && contains_assoc_type(tv.pointee())) return true;
+        if (tv.elem()    && contains_assoc_type(tv.elem()))    return true;
+        for (auto e : tv.tuple_elems()) if (contains_assoc_type(e)) return true;
+        return false;
+    }
+
     // ── Record needed instantiations (small — inline) ────────────────────
     void record_needed_struct(TypeRef tr) {
         if (!tr || (tr.kind() != LogosType::Kind::Struct &&
@@ -809,7 +823,11 @@ private:
     static bool match_type(TypeRef c, TypeRef p,
                            SubstMap& bindings) noexcept {
         if (!c || !p) return false;
-        if (p.kind() == LogosType::Kind::TypeVar) {
+        // ConstVar (`impl<const CFG: HermesStatic> … for Node<CFG>`) binds by
+        // name exactly like a TypeVar — falling through to the kind-equality
+        // check below would report a false mismatch against the concrete arg.
+        if (p.kind() == LogosType::Kind::TypeVar ||
+            p.kind() == LogosType::Kind::ConstVar) {
             auto tvn = p.type_var_name();
             auto it = bindings.find(tvn);
             if (it != bindings.end())
@@ -847,7 +865,11 @@ private:
     static bool unify_impl_target(TypeRef c, TypeRef p,
                                   SubstMap& bindings) noexcept {
         if (!c || !p) return false;
-        if (p.kind() == LogosType::Kind::TypeVar) {
+        // ConstVar (`impl<const CFG: HermesStatic> … for Node<CFG>`) binds by
+        // name exactly like a TypeVar — falling through to the kind-equality
+        // check below would report a false mismatch against the concrete arg.
+        if (p.kind() == LogosType::Kind::TypeVar ||
+            p.kind() == LogosType::Kind::ConstVar) {
             auto tvn = p.type_var_name();
             auto it = bindings.find(tvn);
             if (it != bindings.end())
