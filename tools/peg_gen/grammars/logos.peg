@@ -1189,7 +1189,14 @@
     // the supported set ("C", "C-unwind", "system", "Rust") happens
     // in sema_collect; default-ABI (Logos-internal) calls go through
     // when the string is omitted, matching pre-Wave-5 behavior.
-    extern_block <- KW_EXTERN STRING LBRACE extern_block_item* RBRACE
+    // T1-13: Rust-2024 `unsafe extern { … }` form — the unsafe marker is
+    // accepted and carries no extra semantics yet (item-level safety
+    // refinements `safe fn`/`safe static` are a follow-up).
+    extern_block <- KW_UNSAFE KW_EXTERN STRING LBRACE extern_block_item* RBRACE
+                 => { CODE: EXTERN_BLOCK, VALUE: $3, ITEMS: $5 }
+                  / KW_UNSAFE KW_EXTERN LBRACE extern_block_item* RBRACE
+                 => { CODE: EXTERN_BLOCK, ITEMS: $4 }
+                  / KW_EXTERN STRING LBRACE extern_block_item* RBRACE
                  => { CODE: EXTERN_BLOCK, VALUE: $2, ITEMS: $4 }
                   / KW_EXTERN LBRACE extern_block_item* RBRACE
                  => { CODE: EXTERN_BLOCK, ITEMS: $3 }

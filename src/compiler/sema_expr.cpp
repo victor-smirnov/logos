@@ -543,7 +543,11 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     // otherwise spuriously fire for stdlib fns whose param happens
     // to share the static's name (the §6.2 S18 namespace pollution).
     if (!in_place_write_lhs_ &&
-        module_static_muts_.count(std::string(name)) && !inside_unsafe_) {
+        (module_static_muts_.count(std::string(name)) ||
+         // T1-13: ANY extern-static access is unsafe (the foreign side may
+         // mutate it at will; Rust items.extern.static).
+         module_extern_statics_.count(std::string(name))) &&
+        !inside_unsafe_) {
         bool shadowed = false;
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
             if (it->vars.count(std::string(name))) { shadowed = true; break; }
@@ -554,10 +558,16 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // const-generic parameter happens to be `N` (S18 pollution).
         if (!shadowed && current_type_params_.count(std::string(name)))
             shadowed = true;
-        if (!shadowed)
-            error(std::format(
-                "read of mutable static `{}` requires `unsafe` block "
-                "(Rust `items.static.mut.safety`)", name));
+        if (!shadowed) {
+            if (module_extern_statics_.count(std::string(name)))
+                error(std::format(
+                    "access to extern static `{}` requires `unsafe` block "
+                    "(Rust `items.extern.static`)", name));
+            else
+                error(std::format(
+                    "read of mutable static `{}` requires `unsafe` block "
+                    "(Rust `items.static.mut.safety`)", name));
+        }
     }
     // §6.2 statics (S25): a static read is a deref of the global's address —
     // Deref(VarRef("__static_addr:<sym>", *T)). All representation

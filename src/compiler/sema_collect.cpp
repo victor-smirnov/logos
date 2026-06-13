@@ -1826,6 +1826,11 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 module_statics_[sm_name] = item.has_key(la::VALUE)
                     ? std::string(cur_package_) + "$" + sm_name
                     : sm_name;
+                // T1-13: extern statics (no VALUE) — every ACCESS requires
+                // `unsafe` (Rust items.extern.static), tracked separately
+                // from `static mut`.
+                if (!item.has_key(la::VALUE))
+                    module_extern_statics_.insert(sm_name);
                 if (item.has_key(la::IS_MUT))
                     module_static_muts_.insert(sm_name);
             }

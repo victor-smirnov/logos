@@ -1734,6 +1734,9 @@ private:
     void emit_frame_drops(const Frame& frame, std::vector<lir::LStmt>& drops,
                           const std::set<std::string>* extra_skip = nullptr) const;
     std::set<std::string> copy_types_;   // types with impl Copy — never move-only
+    // T1-13: extern-block statics (declaration only, foreign storage) —
+    // every access requires `unsafe`.
+    std::set<std::string> module_extern_statics_;
     // Conditional Copy (`impl<P: Copy> Copy for Pin<P>`, Rust-style): target
     // name → target type-arg positions bound to a Copy-bounded impl param.
     // An instance is Copy iff every recorded position's arg is itself Copy

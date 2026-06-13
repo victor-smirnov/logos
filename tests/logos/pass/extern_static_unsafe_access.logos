@@ -1,0 +1,13 @@
+// Boundary pin for T1-13: the Rust-2024 `unsafe extern { }` block form
+// parses, and an extern static is readable inside `unsafe`. environ is
+// the libc global — non-null after startup on Linux.
+package extern_static_unsafe_access;
+
+unsafe extern {
+    static environ: *mut *mut u8;
+}
+
+fn main() -> i32 {
+    let e = unsafe { environ };
+    if e as i64 != 0i64 { 0 } else { 1 }
+}

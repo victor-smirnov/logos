@@ -1,0 +1,14 @@
+// audit-v2 T1-13: ANY access to an extern static requires `unsafe`
+// (Rust items.extern.static — the foreign side may mutate it at will).
+// Pre-fix only `static mut` reads were gated; extern statics read
+// freely.
+package extern_static_unsafe_gate;
+
+extern {
+    static environ: *mut *mut u8;
+}
+
+fn main() -> i32 {
+    let e = environ;
+    if e as i64 != 0i64 { 0 } else { 1 }
+}
