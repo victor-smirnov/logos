@@ -3862,17 +3862,25 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
             binding_types[k] = make_ref(is_mut, binding_types[k]);
         } else if (default_ref && !tv_payload &&
-                   k < binding_from_wild.size() && binding_from_wild[k] &&
-                   // T2-26 (full RFC 2005): under a `&`/`&mut` scrutinee EVERY
-                   // concrete payload binds by-reference, Copy AND already-
-                   // reference payloads included. A `&T` payload under `&E`
-                   // becomes `&&T` — exactly Rust's default-binding-mode result
-                   // (`match &e { E::A(x) }`, E::A(&T) ⟹ x: &&T). Depth-N field/
-                   // index/method access auto-derefs the extra layers; arithmetic
-                   // peels ONE (Rust's `&i32` operator impls), so `**x`/`*x` as
-                   // needed mirrors Rust. A RAW pointer payload (`*T`) is left
-                   // alone — raw ptrs don't participate in binding modes.
-                   TypeRef(binding_types[k]).kind() != LogosType::Kind::Ptr) {
+                   k < binding_from_wild.size() && binding_from_wild[k]) {
+                   // T2-26 (full RFC 2005): default binding modes shift on the
+                   // SCRUTINEE, never the payload's type — under a `&`/`&mut`
+                   // scrutinee EVERY payload binds by-reference, regardless of
+                   // whether the field is an int, struct, `&T`, or a RAW POINTER.
+                   //   • `&T`     payload ⟹ `&&T`   (Rust-exact; depth-N field/
+                   //                                 method autoderef carries it)
+                   //   • `*const T` payload ⟹ `&*const T` (Rust-exact; the value
+                   //                                 is `**p`, deref-of-ref then
+                   //                                 unsafe-deref-of-raw-ptr)
+                   // Arithmetic peels ONE ref layer (Rust's `&i32` operator
+                   // impls), so by-value uses spell `**x`/`*x` as in Rust. The
+                   // ONLY carve-out is a bare TypeVar payload (tv_payload above):
+                   // wrapping `T` would flow `&T` into the enclosing generic's
+                   // type-arg and mono re-wraps each instantiation → unbounded
+                   // depth blow-up. Concrete `*mut T`/`*const T` are fine (Ptr
+                   // kind, not TypeVar) — stdlib reaches raw-ptr fields directly
+                   // (`self.ptr`), not via a `&self` match binding, so L4 is
+                   // unaffected.
             // Under a SHARED `&` scrutinee, only move-only payloads are
             // auto-ref'd (Copy stays by-value for read ergonomics, since `&T`
             // operator auto-deref isn't implemented). Under a `&mut` scrutinee

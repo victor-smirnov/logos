@@ -1,0 +1,21 @@
+// T2-26 follow-up (Rust-correctness): default binding modes shift on the
+// SCRUTINEE, not the payload type. A RAW-POINTER payload under a `&E` scrutinee
+// binds by-reference too — `*const T` ⟹ `&*const T`, exactly as Rust does
+// (binding modes don't special-case raw pointers; they are ordinary Copy types).
+// The pointee value is therefore `**p`: deref-of-ref (safe), then
+// deref-of-raw-pointer (unsafe).
+package test.ref_payload_raw_ptr;
+
+enum E { P(*const i64) }
+
+fn f(e: &E) -> i64 {
+    match e {
+        E::P(p) => { unsafe { return **p; } }   // p: &*const i64
+    }
+}
+
+fn main() -> i32 {
+    let k: i64 = 77i64;
+    let e = E::P(&k as *const i64);
+    return (f(&e) - 77i64) as i32;
+}
