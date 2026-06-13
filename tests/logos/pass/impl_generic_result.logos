@@ -1,29 +1,29 @@
 package impl_generic_result;
-// impl<T, E> on two-parameter generic enum — methods on Result<T, E>-style enums.
+// impl<T, E> on two-parameter generic enum — methods on GRes<T, E>-style enums.
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn print(s: str) { unsafe { printf(s.as_ptr()); } }
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-enum Result<T, E> { Ok(T), Err(E) }
+enum GRes<T, E> { Ok(T), Err(E) }
 
-impl<T, E> Result<T, E> {
-    fn unwrap_or(self: Result<T, E>, def: T) -> T {
+impl<T, E> GRes<T, E> {
+    fn unwrap_or(self: GRes<T, E>, def: T) -> T {
         match self {
-            Result::Ok(v)  => { return v; }
-            Result::Err(_) => { return def; }
+            GRes::Ok(v)  => { return v; }
+            GRes::Err(_) => { return def; }
         }
     }
-    fn is_ok(self: Result<T, E>) -> bool {
+    fn is_ok(self: GRes<T, E>) -> bool {
         match self {
-            Result::Ok(_)  => { return true; }
-            Result::Err(_) => { return false; }
+            GRes::Ok(_)  => { return true; }
+            GRes::Err(_) => { return false; }
         }
     }
 }
 
-fn divide(a: i32, b: i32) -> Result<i32, i32> {
-    if b == 0 { return Result::Err(-1); }
-    return Result::Ok(a / b);
+fn divide(a: i32, b: i32) -> GRes<i32, i32> {
+    if b == 0 { return GRes::Err(-1); }
+    return GRes::Ok(a / b);
 }
 
 unsafe fn main() -> i32 {

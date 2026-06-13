@@ -1,0 +1,21 @@
+// FINDING #3 companion: the enum type-arg compatibility fix must NOT reject
+// legitimate cases — same concrete arg, inference holes, Ok(3)'s unconstrained
+// E, and FnItem→FnPtr coercion through an enum arg.
+package pass.enum_type_arg_legit;
+
+fn dummy() {}
+
+fn mk() -> Result<i64, i64> { return Ok(3i64); }   // E unconstrained at Ok(3)
+
+fn main() -> i32 {
+    let a: Option<i64> = Option::Some(5i64);
+    let b: Option<i64> = a;                  // same arg — OK
+    let f: Option<fn()> = Option::Some(dummy);  // FnItem→FnPtr through Option<_> — OK
+    let r: Result<i64, i64> = mk();          // Result<i64,?>→Result<i64,i64> — OK
+
+    let mut acc: i64 = 0i64;
+    match b { Option::Some(x) => { acc = acc + x; } Option::None => {} }
+    match f { Option::Some(g) => { g(); } Option::None => {} }
+    match r { Result::Ok(v) => { acc = acc + v; } Result::Err(_) => {} }
+    return (acc - 8i64) as i32;   // 5 + 3
+}

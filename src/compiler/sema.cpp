@@ -1742,6 +1742,49 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         }
     }
     struct_mismatch:;
+    // ENUM type-arg check (mirrors the struct rule above): `Option<A>` and
+    // `Option<B>` are compatible iff every type-arg pair matches. A by-VALUE
+    // enum can't widen its args (like slices) — a CONCRETE arg pair must be
+    // EXACTLY equal; only an inference hole (IntLit/FloatLit/TypeVar/`_`/cfg)
+    // on either side may unify (`Ok(3): Result<i64,?>` ↔ `Result<i64,i64>`).
+    // Needed because the enum→integer coercion below treats `Enum` as
+    // integer-like; without this, distinct enum instantiations would slip
+    // through and reinterpret incompatible layouts (a miscompile).
+    if (from.kind() == LogosType::Kind::Enum && to.kind() == LogosType::Kind::Enum &&
+        from.enum_name() == to.enum_name() && from.pkg_name() == to.pkg_name()) {
+        auto fa = from.type_args();
+        auto ta = to.type_args();
+        if (fa.size() == ta.size() && !fa.empty()) {
+            // An UNRESOLVED placeholder arg (TypeVar / `_` / cfg-slot / Error —
+            // e.g. the never-constrained `E` of `Ok(3)`, or generic inference)
+            // unifies with anything. Otherwise mirror the SLICE rule (1834): two
+            // CONCRETE SCALARS must match EXACTLY (no by-value widen — the enum's
+            // niche/tagged layout is arg-width-specific); everything else
+            // (FnItem→FnPtr, dyn coercions, nested generics) goes through the
+            // lenient types_compatible.
+            auto unresolved = [](TypeRef t) {
+                auto k = TypeRef(t).kind();
+                return k == LogosType::Kind::TypeVar || k == LogosType::Kind::InferredType ||
+                       k == LogosType::Kind::CfgSlotType || k == LogosType::Kind::Error;
+            };
+            auto concrete_scalar = [](LogosType::Kind k) {
+                return (is_integer_kind(k) && k != LogosType::Kind::IntLit &&
+                        k != LogosType::Kind::Enum) ||
+                       k == LogosType::Kind::F32  || k == LogosType::Kind::F64 ||
+                       k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
+            };
+            for (size_t i = 0; i < fa.size(); ++i) {
+                if (unresolved(fa[i]) || unresolved(ta[i])) continue;
+                bool ok = (concrete_scalar(TypeRef(fa[i]).kind()) &&
+                           concrete_scalar(TypeRef(ta[i]).kind()))
+                          ? (TypeRef(fa[i]).kind() == TypeRef(ta[i]).kind())
+                          : types_compatible(fa[i], ta[i]);
+                if (!ok) goto enum_mismatch;
+            }
+            return true;
+        }
+    }
+    enum_mismatch:;
     if (from.kind() == LogosType::Kind::IntLit && is_integer_kind(to.kind())) return true;
     if (from.kind() == LogosType::Kind::IntLit && to.kind() == LogosType::Kind::TypeVar) return true;
     if (from.kind() == LogosType::Kind::IntLit &&
@@ -1762,7 +1805,14 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         if (from.kind() == LogosType::Kind::F32 || from.kind() == LogosType::Kind::F64 ||
             to.kind() == LogosType::Kind::F32 || to.kind() == LogosType::Kind::F64) return true;
     }
-    if (from.kind() == LogosType::Kind::Enum   && is_integer_kind(to.kind())) return true;
+    // C-style enum → integer (discriminant). `is_integer_kind` deliberately
+    // counts `Enum` itself as "integer-like" (for discriminant arithmetic
+    // elsewhere), so this MUST exclude an enum `to` — otherwise it silently
+    // accepts ANY enum→enum (e.g. `Option<i32>` ↔ `Option<i64>`), reinterpreting
+    // one instantiation's value as another's incompatible niche/tagged layout
+    // → a real miscompile (the discriminant reads garbage, e.g. as `None`).
+    if (from.kind() == LogosType::Kind::Enum && to.kind() != LogosType::Kind::Enum &&
+        is_integer_kind(to.kind())) return true;
     // NOTE: implicit `int → enum` is intentionally NOT allowed (Rust requires an
     // explicit cast / variant). Permitting it made a data/niche enum (e.g. HAny)
     // a spurious overload candidate for an integer arg — `push(7i64)` resolved to

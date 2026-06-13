@@ -1,0 +1,12 @@
+// FINDING #3 (audit-v2): mismatched enum instantiations must NOT be compatible.
+// `Option<i32>` and `Option<i64>` have different niche/tagged layouts; treating
+// them as compatible (an old `is_integer_kind(Enum)` leak through the enum→int
+// coercion rule) silently reinterpreted one as the other → the discriminant
+// read garbage (a `Some` reading as `None`). This must now be a type error.
+package fail.enum_type_arg_mismatch;
+
+fn main() -> i32 {
+    let a: Option<i32> = Option::Some(5i32);
+    let b: Option<i64> = a;   // ERROR: Option<i32> is not Option<i64>
+    return 0i32;
+}
