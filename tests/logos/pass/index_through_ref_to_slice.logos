@@ -1,0 +1,27 @@
+// FINDING #1: indexing through a REFERENCE to a slice. `&[T]` is a fat-pointer
+// SLICE value; a reference to one (`&s` where `s: &[T]`, or a `&[T;N]` that
+// decayed to a slice then got borrowed again) is `Ref→Slice`. Indexing it used
+// to resolve the element type to the whole slice (`(&s)[i]` typed `&[T]` — a
+// compile error) or, with a naive deref-load, segfault. The slice-index codegen
+// treats its operand as a POINTER into `{data,len}`, and `Ref→Slice` IS that
+// pointer — so the receiver is retyped to the pointee slice (no load).
+package test.index_through_ref_to_slice;
+
+fn main() -> i32 {
+    let arr: [i64; 3] = [10i64, 20i64, 30i64];
+    let s: &[i64] = &arr;
+
+    // direct slice index (the always-worked baseline)
+    if s[1] != 20i64 { return 1i32; }
+
+    // index through `&s` (Ref→Slice) — `(&s)[i]` ≡ `s[i]`
+    if (&s)[0] != 10i64 { return 2i32; }
+    if (&s)[2] != 30i64 { return 3i32; }
+
+    // index through a Ref→Slice *variable* (array-ref decays to slice, then `&`)
+    let r = &arr;       // decays to &[i64]
+    let rr = &r;        // Ref→Slice
+    if rr[1] != 20i64 { return 4i32; }
+
+    return 0i32;
+}

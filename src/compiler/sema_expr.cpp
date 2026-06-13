@@ -10022,6 +10022,24 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
     auto arr_type = recv->type;
 
+    // `&[T]` is a fat-pointer SLICE value (Kind::Slice). A reference TO such a
+    // slice (`&s` where `s: &[T]`, or a `&[T;N]` array-ref that decayed to a
+    // slice and then got `&`-borrowed) arrives as `Ref→Slice`. The slice-index
+    // codegen treats its slice operand as a POINTER into the `{data,len}` pair
+    // (it GEPs field 0), and a `Ref→Slice` IS exactly that pointer — so we just
+    // RETYPE the receiver to the pointee Slice (NOT a deref-load: loading the
+    // 16-byte fat value and then GEP-ing it as a pointer segfaults). Without
+    // this the element type resolves to the whole slice → `(&s)[i]` typed `&[T]`.
+    if (arr_type &&
+        (TypeRef(arr_type).kind() == LogosType::Kind::Ref ||
+         TypeRef(arr_type).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(arr_type).pointee() &&
+        TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Slice) {
+        arr_type = TypeRef(arr_type).pointee();
+        recv->type = arr_type;
+        lir_mirror_update_type(*cur_prog_, *recv);
+    }
+
     // Range index `recv[lo..hi]` / `recv[lo..]` / `recv[..hi]` / `recv[..]` →
     // sub-slice via `slice_get_range` (Rust-parity slicing). Detect the
     // RANGE_EXPR index AST before lowering it as a scalar index.
