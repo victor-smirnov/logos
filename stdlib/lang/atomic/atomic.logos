@@ -320,6 +320,90 @@ impl AtomicU64 {
     }
 }
 
+// ── AtomicUsize — pointer-width unsigned (64-bit here), i64-backed ───────────
+// T2-24: `core::sync::atomic::AtomicUsize` parity. Same layout/intrinsics as
+// AtomicU64 (usize is 64-bit on this target); the API is usize-typed.
+
+pub struct AtomicUsize { pub val: i64 }  // stored as i64 bits
+
+pub fn atomic_usize_new(v: usize) -> AtomicUsize { return AtomicUsize { val: v as i64 }; }
+
+impl AtomicUsize {
+    pub fn load(&self) -> usize {
+        unsafe { return logos_atomic_load64(&self.val as *const i64) as usize; }
+    }
+    pub fn store(self: *mut AtomicUsize, v: usize) {
+        unsafe { logos_atomic_store64(&mut self.val as *mut i64, v as i64); }
+    }
+    pub fn fetch_add(self: *mut AtomicUsize, delta: usize) -> usize {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, delta as i64) as usize; }
+    }
+    pub fn fetch_sub(self: *mut AtomicUsize, delta: usize) -> usize {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, (0 as usize - delta) as i64) as usize; }
+    }
+    pub fn compare_exchange(self: *mut AtomicUsize, expected: usize, desired: usize) -> bool {
+        unsafe { return logos_atomic_cas64(&mut self.val as *mut i64, expected as i64, desired as i64); }
+    }
+
+    pub fn load_ordered(&self, ord: Ordering) -> usize {
+        unsafe { return logos_atomic_load64_ord(&self.val as *const i64, ord) as usize; }
+    }
+    pub fn store_ordered(self: *mut AtomicUsize, v: usize, ord: Ordering) {
+        unsafe { logos_atomic_store64_ord(&mut self.val as *mut i64, v as i64, ord); }
+    }
+    pub fn fetch_add_ordered(self: *mut AtomicUsize, delta: usize, ord: Ordering) -> usize {
+        unsafe { return logos_atomic_fetch_add64_ord(&mut self.val as *mut i64, delta as i64, ord) as usize; }
+    }
+    pub fn fetch_sub_ordered(self: *mut AtomicUsize, delta: usize, ord: Ordering) -> usize {
+        unsafe { return logos_atomic_fetch_add64_ord(&mut self.val as *mut i64, (0 as usize - delta) as i64, ord) as usize; }
+    }
+    pub fn compare_exchange_ordered(self: *mut AtomicUsize, expected: usize, desired: usize,
+                                    success: Ordering, failure: Ordering) -> bool {
+        unsafe { return logos_atomic_cas64_ord(&mut self.val as *mut i64, expected as i64, desired as i64, success, failure); }
+    }
+}
+
+// ── AtomicIsize — pointer-width signed (64-bit here), i64-backed ─────────────
+
+pub struct AtomicIsize { pub val: i64 }
+
+pub fn atomic_isize_new(v: isize) -> AtomicIsize { return AtomicIsize { val: v as i64 }; }
+
+impl AtomicIsize {
+    pub fn load(&self) -> isize {
+        unsafe { return logos_atomic_load64(&self.val as *const i64) as isize; }
+    }
+    pub fn store(self: *mut AtomicIsize, v: isize) {
+        unsafe { logos_atomic_store64(&mut self.val as *mut i64, v as i64); }
+    }
+    pub fn fetch_add(self: *mut AtomicIsize, delta: isize) -> isize {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, delta as i64) as isize; }
+    }
+    pub fn fetch_sub(self: *mut AtomicIsize, delta: isize) -> isize {
+        unsafe { return logos_atomic_fetch_add64(&mut self.val as *mut i64, (0 as isize - delta) as i64) as isize; }
+    }
+    pub fn compare_exchange(self: *mut AtomicIsize, expected: isize, desired: isize) -> bool {
+        unsafe { return logos_atomic_cas64(&mut self.val as *mut i64, expected as i64, desired as i64); }
+    }
+
+    pub fn load_ordered(&self, ord: Ordering) -> isize {
+        unsafe { return logos_atomic_load64_ord(&self.val as *const i64, ord) as isize; }
+    }
+    pub fn store_ordered(self: *mut AtomicIsize, v: isize, ord: Ordering) {
+        unsafe { logos_atomic_store64_ord(&mut self.val as *mut i64, v as i64, ord); }
+    }
+    pub fn fetch_add_ordered(self: *mut AtomicIsize, delta: isize, ord: Ordering) -> isize {
+        unsafe { return logos_atomic_fetch_add64_ord(&mut self.val as *mut i64, delta as i64, ord) as isize; }
+    }
+    pub fn fetch_sub_ordered(self: *mut AtomicIsize, delta: isize, ord: Ordering) -> isize {
+        unsafe { return logos_atomic_fetch_add64_ord(&mut self.val as *mut i64, (0 as isize - delta) as i64, ord) as isize; }
+    }
+    pub fn compare_exchange_ordered(self: *mut AtomicIsize, expected: isize, desired: isize,
+                                    success: Ordering, failure: Ordering) -> bool {
+        unsafe { return logos_atomic_cas64_ord(&mut self.val as *mut i64, expected as i64, desired as i64, success, failure); }
+    }
+}
+
 // ── AtomicBool — backed by i32 (0 = false, 1 = true) ─────────────────────────
 
 pub struct AtomicBool { pub val: i32 }

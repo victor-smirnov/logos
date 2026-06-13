@@ -1,0 +1,19 @@
+// audit-v2 T2-24: AtomicUsize / AtomicIsize (core::sync::atomic parity).
+// Pointer-width (64-bit here), i64-backed, same intrinsics as
+// AtomicU64/AtomicI64 with a usize/isize-typed API. Covers
+// store/load/fetch_add/fetch_sub (relaxed) + the *_ordered variants.
+package atomic_usize_isize;
+use logos.lang.atomic;
+fn main() -> i32 {
+    let mut a: AtomicUsize = atomic_usize_new(5usize);
+    a.store(10usize);
+    if a.load() != 10usize { return 1; }
+    a.fetch_add(3usize);
+    if a.load() != 13usize { return 2; }
+    a.store_ordered(20usize, Ordering::SeqCst);
+    if a.load_ordered(Ordering::SeqCst) != 20usize { return 3; }
+    let mut b: AtomicIsize = atomic_isize_new(-2isize);
+    b.fetch_sub(3isize);
+    if b.load() != -5isize { return 4; }
+    return 0;
+}
