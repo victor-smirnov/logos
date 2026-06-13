@@ -111,7 +111,7 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 23. ABI string → MLIR calling-convention threading + ABI tag on `Kind::FnPtr` + extern-fn-ptr type grammar (N,B).
 24. ◑ `69356297` `AtomicUsize`/`AtomicIsize` DONE; Ordering const-prop through `*_ordered` wrappers remains (G,H).
 25. ✅ `95bbd1e2` Deferred init of non-mut local (`let x: i32; x = 5;`) (G).
-26. ✅ `e5c26764`+gate-drop **is_move_type gate DROPPED (full RFC-2005)**: under a `&`/`&mut` scrutinee EVERY concrete payload (Copy included) binds by-reference. `&T` operands auto-deref in arithmetic (`lower_binop`), `as`-casts (`lower_cast`), and refutable range-guards (`synth_refutable_inner` via `pat_scrut_by_ref`). Already-reference payloads (`&T`/`*T`) excluded to avoid `&&P` over-wrap pending depth-2 field auto-deref. By-value Copy uses (`return x`) now require `*x` — rest_pattern test migrated (F).
+26. ✅ `e5c26764`+`375f04d9` **is_move_type gate DROPPED (full RFC-2005)**: under a `&`/`&mut` scrutinee EVERY concrete payload (Copy included) binds by-reference. `&T` operands auto-deref in arithmetic (`lower_binop`), `as`-casts (`lower_cast`), and refutable range-guards (`synth_refutable_inner` via `pat_scrut_by_ref`). Already-reference payloads (`&T`/`*T`) excluded to avoid `&&P` over-wrap pending depth-2 field auto-deref. By-value Copy uses (`return x`) now require `*x` — rest_pattern test migrated (F).
 27. ✅ `b474a15a` Pattern parse batch COMPLETE — `(..)`, `S { ref a }`/`ref mut` (write-back), `&&pat`, `S { 0: a }`; ranges already worked (F).
 28. Fully-qualified dotted+`::` path in expr/type position; UFCS honors the trait qualifier (I,E).
 29. ✅ `a83e6ed5` Uninhabited-variant arm elision in exhaustiveness (O).
