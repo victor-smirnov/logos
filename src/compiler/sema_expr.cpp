@@ -2382,7 +2382,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
         std::string trait_name, method_name;
         if      (op == "-") { trait_name = "Neg"; method_name = "neg"; }
-        else if (op == "!") { trait_name = "Not"; method_name = "not_"; }
+        // T2-15: the trait method is `fn not(self) -> Self` (ops.logos:61);
+        // the dispatch named `not_` so `impl Not` could never bind — fixed.
+        else if (op == "!") { trait_name = "Not"; method_name = "not"; }
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(vt);
             auto mangled = type_name + "__" + method_name;

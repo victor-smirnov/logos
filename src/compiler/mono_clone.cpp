@@ -926,7 +926,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (op == "-") method_name = "neg";
-                else if (op == "!") method_name = "not_";
+                else if (op == "!") method_name = "not";   // T2-15: was "not_"
                 if (!method_name.empty()) {
                     std::string bare = concrete_struct_name(vt) + "__" + method_name;
                     std::string pkg{vt.pkg_name()};

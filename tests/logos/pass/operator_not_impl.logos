@@ -1,0 +1,32 @@
+// audit-v2 T2-15: `impl Not` (unary `!`) now binds. The unary-operator
+// dispatch resolved the method as `not_` while the trait declares
+// `fn not(self) -> Self` (ops.logos:61), so `!x` over a user type could
+// never find the impl — fixed in both the sema and mono unary-overload
+// resolvers.
+package operator_not_impl;
+
+use logos.lang.ops;
+
+struct Flag { v: bool }
+
+impl Not for Flag {
+    fn not(self: Flag) -> Flag { return Flag { v: !self.v }; }
+}
+
+struct Mask { bits: i32 }
+
+impl Not for Mask {
+    fn not(self: Mask) -> Mask { return Mask { bits: !self.bits }; }
+}
+
+fn main() -> i32 {
+    let f = Flag { v: true };
+    let g = !f;
+    if g.v { return 1; }              // !true == false
+    let m = Mask { bits: 0i32 };
+    let n = !m;
+    if n.bits != -1i32 { return 2; }  // !0 == -1
+    let h = !!Flag { v: false };       // double negation: !!false == false
+    if h.v { return 3; }
+    return 0;
+}
