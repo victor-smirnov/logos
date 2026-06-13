@@ -2379,6 +2379,10 @@ private:
         std::string      name;         // e.g. "MAX"
         TypeRef type = nullptr;
         bool has_default = false;      // §6 f1: `const X: i32 = 42;` default
+        // T2-14: the default value's AST node (when has_default) — projected
+        // into `assoc_const_impls_` for each `impl Trait for T {}` that omits
+        // the const, so `T::CONST` resolves to the trait default.
+        hermes::AnyVal   default_value_ast;
         std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaTraitInfo {

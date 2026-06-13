@@ -2460,7 +2460,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
                 // §6 f1 Wave 9 — `const X: i32 = 42;` default. When the
                 // grammar matched the `= expr` form a VALUE slot is set;
                 // record so impl that omits this const falls back to it.
-                if (m.has_key(la::VALUE)) ac.has_default = true;
+                // T2-14: keep the default VALUE ast for projection.
+                if (m.has_key(la::VALUE)) {
+                    ac.has_default = true;
+                    ac.default_value_ast = m.get(la::VALUE.code);
+                }
                 ac.doc = std::move(trait_method_sweep_doc);
                 trait_method_sweep_doc.clear();
                 info.assoc_consts.push_back(std::move(ac));
@@ -3571,6 +3575,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (!ac.has_default)
                         error(std::format("impl {} for {}: missing associated constant '{}'",
                               trait_name, target, ac.name));
+                    else
+                        // T2-14: project the trait DEFAULT into this impl so
+                        // `Target::CONST` (and `Trait::CONST` via the unique
+                        // impl) resolve to the default value. value_ast lives
+                        // in the trait's holder, same as a same-file impl const
+                        // — the access-site lowering reads it through the
+                        // current holder exactly like an explicit impl const.
+                        assoc_const_impls_[key] =
+                            { ac.type, ac.default_value_ast, nullptr, ac.doc };
                 }
             }
             // Check unsafe parity

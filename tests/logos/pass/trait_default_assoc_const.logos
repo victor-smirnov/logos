@@ -1,0 +1,29 @@
+// audit-v2 T2-14 (partial): trait-default associated constants are
+// inherited by impls that omit them. `impl Trait for T {}` with the
+// trait declaring `const C: Ty = <default>` now resolves `T::C` to the
+// default; an explicit impl const overrides it. (The metacall-in-array-
+// size CTFE path already worked; this closes the trait-default
+// projection half of item 14.)
+package trait_default_assoc_const;
+
+trait Shape {
+    const SIDES: i32 = 3;
+    const NAME_LEN: i32 = 0;
+    const CAP: i64 = 8i64 * 2i64;   // arithmetic default
+}
+
+struct Tri {}
+impl Shape for Tri {}                              // all defaults
+
+struct Quad {}
+impl Shape for Quad { const SIDES: i32 = 4; }      // override one, inherit rest
+
+fn main() -> i32 {
+    if Tri::SIDES    != 3     { return 1; }
+    if Tri::NAME_LEN != 0     { return 2; }
+    if Tri::CAP      != 16i64 { return 3; }
+    if Quad::SIDES   != 4     { return 4; }   // overridden
+    if Quad::NAME_LEN != 0    { return 5; }   // inherited default
+    if Quad::CAP     != 16i64 { return 6; }   // inherited default
+    return 0;
+}
