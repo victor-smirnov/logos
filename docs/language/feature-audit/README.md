@@ -95,16 +95,18 @@ Ordered by severity; (cat) = chapters carrying detail.
 
 Bonus (same session): `_`-hole pinning fix (31eb8759 — `let v: Vec<_> = vec![…]` ICE class), tail-return variance gate (86eebe44), fn-macros in if/while conditions (54011185 — the cfg! residual).
 
+Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `o.s = new` over a live droppable field dropped the old value (SDerefWrite got a `drop_old` flag mirroring SAssign; plumbed through mono-clone too). Remaining: `&mut`/`*mut`-root field reassign + B8 declared-uninit whole-var leak (both registered).
+
 ### Tier 2 — high-impact parity / surface
 
 14. Wire `SemaConstResolver` at the 3 type-position CTFE sites (`sema.cpp:5654`, `sema_expr.cpp:10868`, `sema_collect.cpp:1943/1974`) — closes K10-co-06; then PATH folding in `ctfe::do_eval` + trait-default assoc-const projection (M,C).
-15. `Not` dispatch fix (`not_`→`not`, one line) + first `impl Not` test (E).
-16. Comparison operators → real `PartialEq`/`PartialOrd` dispatch (`partial_cmp`), un-inverting the `Eq`/`Ord` naming (E,C,F).
-17. Range operator desugar `..`/`..=` → generic `RangeOf<T>` + fix `..=` end+1 (E).
+15. ✅ `f0bb96bf` `Not` dispatch fix (`not_`→`not`, sema + mono) + `impl Not` test (E).
+16. ✅ `1e537517` Comparison operators → PartialOrd `partial_cmp` dispatch (`a<b` ≡ `a.partial_cmp(&b).is_lt()`); direct `lt` still wins (E,C,F).
+17. ✅ `308d94e3` Inclusive range VALUE → generic `RangeOfIncl<T>` (real end, no hi+1 overflow/observability); `for` counter loop unaffected (E).
 18. `where`-clause general subject (concrete-type LHS) + GAT where-clause grammar (D).
 19. Lifetime-elision signature rules + E0106 reject (named-region substrate ready) (D,A).
 20. `use … as Alias` + `use pkg.{a,b}` (I,C).
-21. `assert!`/`assert_eq!`/`assert_ne!`/`matches!`/`dbg!` builtins (same layer as `unreachable!`) (J).
+21. ✅ `52791272` `matches!` + `dbg!` builtins (assert family already shipped) (J).
 22. `quote_expr!` antiquot Ident-at-type/str-position — unblocks Debug/Default/PartialOrd derive parity in one fix (J).
 23. ABI string → MLIR calling-convention threading + ABI tag on `Kind::FnPtr` + extern-fn-ptr type grammar (N,B).
 24. Ordering const-prop through `*_ordered` wrappers + `AtomicUsize`/`AtomicIsize` (G,H).
