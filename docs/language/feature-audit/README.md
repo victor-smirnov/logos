@@ -112,7 +112,7 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 24. ◑ `69356297` `AtomicUsize`/`AtomicIsize` DONE; Ordering const-prop through `*_ordered` wrappers remains (G,H).
 25. ✅ `95bbd1e2` Deferred init of non-mut local (`let x: i32; x = 5;`) (G).
 26. ◑ `e5c26764` `&T` numeric-operand auto-deref (the RFC-2005 prereq) DONE; dropping the is_move_type gate deferred (over-wraps &Struct payloads + changes by-value Copy-return) (F).
-27. ◑ `e2592013` `(..)` + `S { ref a }` DONE; ranges already worked; `&&pat`/`S { 0: a }`/`ref mut` write-back remain (F).
+27. ✅ `b474a15a` Pattern parse batch COMPLETE — `(..)`, `S { ref a }`/`ref mut` (write-back), `&&pat`, `S { 0: a }`; ranges already worked (F).
 28. Fully-qualified dotted+`::` path in expr/type position; UFCS honors the trait qualifier (I,E).
 29. ✅ `a83e6ed5` Uninhabited-variant arm elision in exhaustiveness (O).
 30. Nested `#(…)*` repetition in quote templates (`sema_expr.cpp:14822,15860`) (J).
