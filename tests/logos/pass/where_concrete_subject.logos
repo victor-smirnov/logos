@@ -1,0 +1,29 @@
+// audit-v2 T2-18: a `where <concrete-type>: Trait` clause is a
+// trivially-checked obligation, NOT a new type-param. Pre-fix
+// `where i32: Show` was folded into the fn's type_params as a phantom
+// param named "i32", inflating the inference set → "could not infer all
+// type arguments". A declared `where T: Trait` still attaches the bound
+// to T; a concrete subject is skipped (the obligation holds via the
+// existing impl).
+package where_concrete_subject;
+
+trait Show { fn show(&self) -> i32; }
+impl Show for i32 { fn show(&self) -> i32 { *self } }
+
+// concrete-subject where clause — no phantom param.
+fn dump<T>(x: T) -> i32 where i32: Show { 0 }
+
+// concrete-subject + a real generic the fn actually uses.
+struct Wrap<T> { v: T }
+fn build<T>(v: T) -> Wrap<T> where i32: Show { return Wrap { v: v }; }
+
+// declared-param where clause still attaches the bound + dispatches.
+fn need<T>(x: T) -> i32 where T: Show { return x.show(); }
+
+fn main() -> i32 {
+    if dump(5i32) != 0 { return 1; }
+    let w = build::<i64>(7i64);
+    if w.v != 7i64 { return 2; }
+    if need(9i32) != 9 { return 3; }
+    return 0;
+}

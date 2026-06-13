@@ -4073,6 +4073,15 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                     for (auto& tp : result)
                         if (tp.name == tname) { tp_ptr = &tp; break; }
                     if (!tp_ptr) {
+                        // T2-18: a `where <concrete type>: Trait` clause
+                        // (`where i32: Show`) is a trivially-checked
+                        // OBLIGATION, not a new type-param. Pre-fix it fell
+                        // here and was added as a phantom param named after
+                        // the concrete type, inflating the fn's type_params
+                        // → "could not infer all type arguments". Skip the
+                        // concrete subject; only a genuinely-undeclared
+                        // type-PARAM name keeps the lenient add-fallback.
+                        if (lookup_type_by_name(tname)) continue;
                         // type param in where clause not in param list — add it
                         TypeParam tp; tp.name = tname;
                         result.push_back(std::move(tp));
