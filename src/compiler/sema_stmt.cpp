@@ -3851,41 +3851,28 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     for (size_t k = 0; k < binding_types.size(); ++k) {
         if (!binding_types[k]) continue;
         bool explicit_ref = k < binding_is_ref.size() && binding_is_ref[k];
-        // Self-ref guard: never default-ref a bare TypeVar payload. A generic
-        // body's `match &[mut] self { Some(x) }` binds the payload typevar `T`;
-        // wrapping it `&[mut] T` flows into the enclosing generic's type-arg, and
-        // mono then re-wraps each instantiation → unbounded `OptionIter<&mut … T>`
-        // (the depth-limit blow-up). Concrete payloads (String) are fine; generic
-        // stdlib bodies use an explicit `ref` where they need a borrow.
-        bool tv_payload = TypeRef(binding_types[k]).kind() == LogosType::Kind::TypeVar;
         if (explicit_ref) {
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
             binding_types[k] = make_ref(is_mut, binding_types[k]);
-        } else if (default_ref && !tv_payload &&
+        } else if (default_ref &&
                    k < binding_from_wild.size() && binding_from_wild[k]) {
-                   // T2-26 (full RFC 2005): default binding modes shift on the
-                   // SCRUTINEE, never the payload's type — under a `&`/`&mut`
-                   // scrutinee EVERY payload binds by-reference, regardless of
-                   // whether the field is an int, struct, `&T`, or a RAW POINTER.
-                   //   • `&T`     payload ⟹ `&&T`   (Rust-exact; depth-N field/
-                   //                                 method autoderef carries it)
-                   //   • `*const T` payload ⟹ `&*const T` (Rust-exact; the value
-                   //                                 is `**p`, deref-of-ref then
-                   //                                 unsafe-deref-of-raw-ptr)
-                   // Arithmetic peels ONE ref layer (Rust's `&i32` operator
-                   // impls), so by-value uses spell `**x`/`*x` as in Rust. The
-                   // ONLY carve-out is a bare TypeVar payload (tv_payload above):
-                   // wrapping `T` would flow `&T` into the enclosing generic's
-                   // type-arg and mono re-wraps each instantiation → unbounded
-                   // depth blow-up. Concrete `*mut T`/`*const T` are fine (Ptr
-                   // kind, not TypeVar) — stdlib reaches raw-ptr fields directly
-                   // (`self.ptr`), not via a `&self` match binding, so L4 is
-                   // unaffected.
-            // Under a SHARED `&` scrutinee, only move-only payloads are
-            // auto-ref'd (Copy stays by-value for read ergonomics, since `&T`
-            // operator auto-deref isn't implemented). Under a `&mut` scrutinee
-            // a CONCRETE payload (incl. Copy) is auto-`&mut`-bound so write-back
-            // `*v = …` works — matching Rust ergonomics; reads then use `*v`.
+            // T2-26 (full RFC 2005): default binding modes shift on the
+            // SCRUTINEE, never the payload's type — under a `&`/`&mut`
+            // scrutinee EVERY payload binds by-reference, regardless of what
+            // the field holds: int, struct, TypeVar `T`, `&T`, or raw pointer.
+            //   • `T`       payload ⟹ `&T`        (the common case)
+            //   • `&T`      payload ⟹ `&&T`       (depth-N field/method autoderef)
+            //   • `*const T` payload ⟹ `&*const T` (value is `**p`)
+            // Arithmetic peels ONE ref layer (Rust's `&i32` operator impls), so
+            // by-value uses spell `**x`/`*x` as in Rust. A bare TypeVar payload
+            // is NO LONGER carved out: it binds `&T` like Rust. The historical
+            // `OptionIter<&mut … T>` blow-up was NOT inherent to TypeVar binding
+            // — it came from `Option::take`/`replace` rebuilding `Some(v)` from a
+            // `&mut T` binding (a non-Rust shape: in Rust those use
+            // `mem::replace`). Those stdlib bodies now do a value-level move, so
+            // no generic body re-wraps its own payload into a type-arg. A user
+            // body that DID rebuild `Some(v)` as `Option<T>` from a `&mut T`
+            // binding is a type error (Option<&mut T> vs Option<T>), same as Rust.
             // logos-core 4.3: wrap N times to match the scrutinee's ref-chain
             // depth (the outermost layer takes the strictest mutability).
             for (int li = 0; li < default_depth; ++li)

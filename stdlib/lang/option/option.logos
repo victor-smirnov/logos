@@ -164,23 +164,31 @@ impl<T> Option<T> {
     // Takes the value out of the option, leaving a `None` in its place.
     // SL-sl-03 (mutating &mut self surface).
     pub fn take(self: &mut Option<T>) -> Option<T> {
-        let r: Option<T> = match self {
-            Option::Some(v) => { Option::Some(v) }
-            Option::None    => { Option::None }
-        };
-        *self = Option::None;
-        return r;
+        // Rust's `mem::replace(self, None)`: move the whole `Option<T>` out of
+        // `*self` and leave `None` behind. We CANNOT `match self { Some(v) }`
+        // and rebuild `Some(v)` — under RFC 2005 match ergonomics `v` binds
+        // `&mut T`, so that would build `Option<&mut T>` (and recursively
+        // re-wrap through OptionIter::next → unbounded mono depth). The
+        // value-level move is the correct, sound shape.
+        unsafe {
+            let p = self as *mut Option<T>;
+            let r: Option<T> = p[0];
+            p[0] = Option::None;
+            return r;
+        }
     }
 
     // Replaces the actual value in the option with the value given in
     // parameter, returning the old value if present.
     pub fn replace(self: &mut Option<T>, value: T) -> Option<T> {
-        let r: Option<T> = match self {
-            Option::Some(v) => { Option::Some(v) }
-            Option::None    => { Option::None }
-        };
-        *self = Option::Some(value);
-        return r;
+        // Rust's `mem::replace(self, Some(value))` — value-level move, same
+        // reason as `take` (a `match self` payload bind would be `&mut T`).
+        unsafe {
+            let p = self as *mut Option<T>;
+            let r: Option<T> = p[0];
+            p[0] = Option::Some(value);
+            return r;
+        }
     }
 
     // Converts `&Option<T>` → `Option<&T>`. Unsafe because the body uses
