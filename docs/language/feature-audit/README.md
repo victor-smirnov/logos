@@ -103,7 +103,7 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 15. ✅ `f0bb96bf` `Not` dispatch fix (`not_`→`not`, sema + mono) + `impl Not` test (E).
 16. ✅ `1e537517` Comparison operators → PartialOrd `partial_cmp` dispatch (`a<b` ≡ `a.partial_cmp(&b).is_lt()`); direct `lt` still wins (E,C,F).
 17. ✅ `308d94e3` Inclusive range VALUE → generic `RangeOfIncl<T>` (real end, no hi+1 overflow/observability); `for` counter loop unaffected (E).
-18. ◑ `bde56038` where-clause concrete-type subject = obligation (no phantom param) DONE; GAT where-clause grammar remains (D).
+18. ✅ `4250bfa8` where-clause COMPLETE — concrete-type subject = obligation (no phantom param) + GAT/assoc-projection subject (`C::Item<T>: Bound`) parses & accepts (D).
 19. Lifetime-elision signature rules + E0106 reject (named-region substrate ready) (D,A).
 20. ◑ `use pkg.{a,b}` already works (USE_VARIANTS lowercase desugar); `use … as Alias` is DESIGN-GATED (Logos path-model decision, flagged in DIVERGENCES) — deferred (I,C).
 21. ✅ `52791272` `matches!` + `dbg!` builtins (assert family already shipped) (J).
@@ -111,7 +111,7 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 23. ABI string → MLIR calling-convention threading + ABI tag on `Kind::FnPtr` + extern-fn-ptr type grammar (N,B).
 24. ◑ `69356297` `AtomicUsize`/`AtomicIsize` DONE; Ordering const-prop through `*_ordered` wrappers remains (G,H).
 25. ✅ `95bbd1e2` Deferred init of non-mut local (`let x: i32; x = 5;`) (G).
-26. ◑ `e5c26764` `&T` numeric-operand auto-deref (the RFC-2005 prereq) DONE; dropping the is_move_type gate deferred (over-wraps &Struct payloads + changes by-value Copy-return) (F).
+26. ◑ `e5c26764` `&T` numeric-operand auto-deref DONE. is_move_type gate-drop (full RFC-2005 Copy-by-ref) ASSESSED + deliberately NOT taken: a breaking ergonomics change (by-value Copy-match `match &e { A(x)=>x }` would require `*x`) against the documented design intent, for no soundness gain — recorded as a divergence (F).
 27. ✅ `b474a15a` Pattern parse batch COMPLETE — `(..)`, `S { ref a }`/`ref mut` (write-back), `&&pat`, `S { 0: a }`; ranges already worked (F).
 28. Fully-qualified dotted+`::` path in expr/type position; UFCS honors the trait qualifier (I,E).
 29. ✅ `a83e6ed5` Uninhabited-variant arm elision in exhaustiveness (O).
