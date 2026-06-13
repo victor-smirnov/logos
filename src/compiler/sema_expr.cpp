@@ -6776,6 +6776,19 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
 
+    // Depth-N receiver autoderef (full RFC 2005 match ergonomics): a `&&T`
+    // binding (reference payload under a `&E` scrutinee) peels its EXTRA
+    // reference layers with explicit derefs, leaving a single `&T` for the
+    // autoref/autoderef machinery below. `r.m()` for r:&&T ≡ `(*r).m()`.
+    // Raw pointers are left untouched (no binding-mode role).
+    while (recv && recv->type &&
+           is_ref_like(TypeRef(recv->type).kind()) &&
+           TypeRef(recv->type).pointee() &&
+           is_ref_like(TypeRef(TypeRef(recv->type).pointee()).kind())) {
+        TypeRef inner = TypeRef(recv->type).pointee();
+        recv = builder().deref(std::move(recv), inner);
+    }
+
     // G168-B: `Vec::get(i) -> T` reads `self.ptr[i]` BY VALUE behind a shared
     // `&self`. For a move/Drop element that is a move-OUT of a borrow (Rust's
     // "cannot move out of index"): the returned copy aliases the still-owned
@@ -8898,6 +8911,17 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
         }
         recv_base_t = TypeRef(recv_base_t).pointee();
     } else if (recv_base_t && is_ref_like(TypeRef(recv_base_t).kind())) {
+        // Depth-N field autoderef: a `&&Struct` binding (full RFC 2005 match
+        // ergonomics over a reference payload) peels its EXTRA reference layers
+        // with explicit derefs, leaving a single `&Struct` for mlir-gen's
+        // one-level field GEP. `r.f` for r:&&S ≡ `(*r).f`.
+        while (is_ref_like(TypeRef(recv_base_t).kind()) &&
+               TypeRef(recv_base_t).pointee() &&
+               is_ref_like(TypeRef(TypeRef(recv_base_t).pointee()).kind())) {
+            TypeRef inner = TypeRef(recv_base_t).pointee();
+            recv = builder().deref(std::move(recv), inner);
+            recv_base_t = inner;
+        }
         recv_base_t = TypeRef(recv_base_t).pointee();
     } else if (recv_base_t && TypeRef(recv_base_t).kind() == LogosType::Kind::DstRef) {
         // Phase 1B-14: `f.field` on a DstRef receiver. The receiver is a

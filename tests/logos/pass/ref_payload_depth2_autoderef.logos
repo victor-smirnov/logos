@@ -1,0 +1,31 @@
+// T2-26 follow-up: full RFC 2005 default binding modes over a REFERENCE
+// payload. Under a `&E` scrutinee a `&T` payload binds `&&T` (exactly Rust's
+// result for `match &e { E::A(x) }`, E::A(&T) ⟹ x: &&T). Depth-N autoderef
+// carries the extra reference layer transparently:
+//   • struct field access  — `p.x` for p:&&P ≡ (*p).x
+//   • method call           — `p.sum()` for p:&&P ≡ (*p).sum()
+//   • explicit deref        — `**n` for n:&&i64 : i64
+// Arithmetic peels ONE layer (Rust's `&i32` operator impls), so by-value uses
+// of a depth-2 binding spell `**x` / `*x` as in Rust.
+package test.ref_payload_depth2;
+
+struct P { x: i64, y: i64 }
+impl P { fn sum(&self) -> i64 { return self.x + self.y; } }
+
+enum E { Pt(&P), N(&i64) }
+
+fn eval(e: &E) -> i64 {
+    match e {
+        E::Pt(p) => { return p.x + p.y + p.sum(); }  // p: &&P — field + method
+        E::N(n)  => { return **n; }                   // n: &&i64 — depth-2 deref
+    }
+}
+
+fn main() -> i32 {
+    let pt = P { x: 30i64, y: 12i64 };
+    let k  = 100i64;
+    let ept = E::Pt(&pt);
+    let en  = E::N(&k);
+    let r = eval(&ept) + eval(&en);   // (42 + 42) + 100 = 184
+    return (r - 184i64) as i32;
+}

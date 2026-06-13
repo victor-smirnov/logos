@@ -3864,13 +3864,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         } else if (default_ref && !tv_payload &&
                    k < binding_from_wild.size() && binding_from_wild[k] &&
                    // T2-26 (full RFC 2005): under a `&`/`&mut` scrutinee EVERY
-                   // concrete payload binds by-reference — Copy included (the
-                   // `&T` arith/cmp auto-deref prereq covers `x + 1` etc.; a
-                   // by-value use writes `*x`). An ALREADY-reference payload is
-                   // left single-ref (no `&&P` — Logos field-access auto-derefs
-                   // one level; depth-2 is a separate item).
-                   TypeRef(binding_types[k]).kind() != LogosType::Kind::Ref &&
-                   TypeRef(binding_types[k]).kind() != LogosType::Kind::MutRef &&
+                   // concrete payload binds by-reference, Copy AND already-
+                   // reference payloads included. A `&T` payload under `&E`
+                   // becomes `&&T` — exactly Rust's default-binding-mode result
+                   // (`match &e { E::A(x) }`, E::A(&T) ⟹ x: &&T). Depth-N field/
+                   // index/method access auto-derefs the extra layers; arithmetic
+                   // peels ONE (Rust's `&i32` operator impls), so `**x`/`*x` as
+                   // needed mirrors Rust. A RAW pointer payload (`*T`) is left
+                   // alone — raw ptrs don't participate in binding modes.
                    TypeRef(binding_types[k]).kind() != LogosType::Kind::Ptr) {
             // Under a SHARED `&` scrutinee, only move-only payloads are
             // auto-ref'd (Copy stays by-value for read ergonomics, since `&T`
