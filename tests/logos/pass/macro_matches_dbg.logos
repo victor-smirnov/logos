@@ -1,0 +1,29 @@
+// audit-v2 T2-21: `matches!` and `dbg!` builtins (the assert family —
+// assert!/assert_eq!/assert_ne! — already shipped as stdlib macros).
+// matches!(e, p [if g]) → `match (e) { p => true, _ => false }`;
+// dbg!(e) eprints `[file:line] expr = <Debug>` and passes the value
+// through (ownership too — works for move types). Same sema-builtin
+// layer as unreachable!.
+package macro_matches_dbg;
+
+use logos.std.fmt;
+
+fn main() -> i32 {
+    // matches! — scalar, negative, enum payload, guard, tuple pattern.
+    if !matches!(5, 5)                       { return 1; }
+    if matches!(7, 5)                        { return 2; }
+    let o = Option::Some(3);
+    if !matches!(o, Option::Some(_))         { return 3; }
+    if !matches!(10, n if n > 5)             { return 4; }
+    if matches!((1, 2), (0, _))              { return 5; }
+
+    // dbg! — returns the value (Copy).
+    let d = dbg!(7);
+    if d != 7 { return 6; }
+
+    // dbg! — move type passes ownership through.
+    let s = dbg!(String::from("hi"));
+    if s.len() != 2i64 { return 7; }
+
+    return 0;
+}

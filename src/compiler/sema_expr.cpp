@@ -17861,6 +17861,69 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         error(std::format("compile_error!: {}", msg));
         return error_expr();
     }
+
+    // T2-21: `matches!(expr, pattern [if guard])` — true iff `expr` matches
+    // the pattern (Rust parity). Reparse to a boolean match: the first
+    // top-level comma splits expr from the pattern (the pattern keeps its
+    // own internal commas — tuple/struct shapes — since the splitter
+    // respects bracket nesting). An `if guard` rides along inside the arm.
+    if (callee_name == "matches") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        auto parts = split_top_level_commas(raw);
+        if (parts.size() < 2) {
+            error("matches!: expected `matches!(expr, pattern)`");
+            return error_expr();
+        }
+        std::string expr = parts[0];
+        std::string pat;
+        for (size_t i = 1; i < parts.size(); ++i) {
+            if (i > 1) pat += ", ";
+            pat += parts[i];
+        }
+        std::string body = std::format(
+            "match ({}) {{ {} => true, _ => false }}", expr, pat);
+        return lower_reparsed_tail_expr(body, "matches!");
+    }
+
+    // T2-21: `dbg!(expr)` — eprint `[file:line] expr = <Debug>` and return
+    // the value (Rust parity; ownership passes through). `dbg!()` prints
+    // just the marker and yields `()`. The eprintln! borrows the bound temp
+    // (`&(arg)` in the format-family lowering), so the value is not consumed
+    // before the block returns it.
+    if (callee_name == "dbg") {
+        std::string raw;
+        if (node.has_key(la::RAW_TEXT))
+            raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
+        auto ws = [](char c){ return c==' '||c=='\t'||c=='\n'||c=='\r'; };
+        while (!raw.empty() && ws(raw.front())) raw.erase(0, 1);
+        while (!raw.empty() && ws(raw.back()))  raw.pop_back();
+        // Escape the expr text for embedding in the format string literal.
+        auto esc = [](std::string_view s) {
+            std::string out;
+            for (char c : s) {
+                if (c == '"' || c == '\\') out.push_back('\\');
+                else if (c == '{') { out += "{{"; continue; }
+                else if (c == '}') { out += "}}"; continue; }
+                out.push_back(c);
+            }
+            return out;
+        };
+        if (raw.empty()) {
+            std::string body = std::format(
+                "eprintln!(\"[{}:{}]\")", file_, node_line_);
+            return lower_reparsed_tail_expr(body, "dbg!");
+        }
+        std::string tmp = std::format("__dbg_{}", tmp_var_count_++);
+        // Bare statements (no outer braces) — lower_reparsed_tail_expr wraps
+        // the body directly in `fn __f() -> T { <body> }`; an extra `{…}`
+        // layer makes the inner block a discarded tail-expr (value lost).
+        std::string body = std::format(
+            "let {0} = {1}; eprintln!(\"[{2}:{3}] {4} = {{:?}}\", {0}); {0}",
+            tmp, raw, file_, node_line_, esc(raw));
+        return lower_reparsed_tail_expr(body, "dbg!");
+    }
     return std::nullopt;
 }
 
