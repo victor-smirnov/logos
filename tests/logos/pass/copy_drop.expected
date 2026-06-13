@@ -1,7 +1,0 @@
-exit: 0
-stdout:
-use 7
-drop 7
-use 7
-drop 7
-drop 7

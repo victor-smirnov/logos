@@ -2814,6 +2814,25 @@ void SemaChecker::compute_auto_copy_types() {
             }
         }
     }
+
+    // T1-11 (audit-v2, E0184): an EXPLICIT `impl Copy` may not coexist with
+    // an `impl Drop` for the same type — a Copy type is duplicated by
+    // bitwise copy, so each copy would re-run the destructor (double-free
+    // hazard). Auto-promotion above already skips Drop-bearing structs;
+    // this catches the explicit pair. Both registries are complete here
+    // (runs post-collection), so the check is ordering-independent.
+    for (auto& [ikey, info] : impls_) {
+        constexpr std::string_view kCopyPrefix = "Copy::";
+        if (ikey.rfind(kCopyPrefix, 0) != 0) continue;
+        std::string target = ikey.substr(kCopyPrefix.size());
+        if (impls_.count("Drop::" + target)) {
+            error(std::format(
+                "impl Copy for {}: the type also implements Drop (E0184) — "
+                "Copy types are duplicated bitwise, so each copy would run "
+                "the destructor; remove one of the impls",
+                target));
+        }
+    }
 }
 
 std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) const {

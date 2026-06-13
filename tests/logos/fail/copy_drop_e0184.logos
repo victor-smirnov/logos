@@ -1,0 +1,15 @@
+// audit-v2 T1-11 (E0184): `impl Copy` and `impl Drop` may not coexist —
+// Copy values are duplicated bitwise, so each copy would re-run the
+// destructor (double-free hazard). Pre-fix the pair was accepted
+// silently. Checked post-collection (ordering-independent).
+package copy_drop_e0184;
+
+struct S { x: i32 }
+
+impl Copy for S {}
+
+impl Drop for S {
+    fn drop(&mut self) { }
+}
+
+fn main() -> i32 { 0 }
