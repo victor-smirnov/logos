@@ -1,0 +1,35 @@
+// audit-v2 T2-17: inclusive range `lo..=hi` as a VALUE desugars to the
+// generic `RangeOfIncl<T>` (range_incl_of) — which stores the REAL end
+// and stops via a `done` flag. The previous `RangeI64{hi+1}` hack made
+// `.end` observable as hi+1 and overflowed at the type's max
+// (`0..=i64::MAX` → MAX+1 wrapped to an empty range). (`for x in lo..=hi`
+// uses a separate counter loop and is unaffected.)
+package range_inclusive_real_end;
+
+use logos.lang.range;
+use logos.lang.iter;
+
+fn main() -> i32 {
+    // `.end` is the real end, not hi+1.
+    let r = 0i64..=10i64;
+    if r.end != 10i64 { return 1; }
+
+    // Value-form iteration includes the endpoint.
+    let mut it = 0i64..=3i64;
+    let mut sum = 0i64;
+    let mut n = 0i32;
+    loop {
+        match it.next() {
+            Option::Some(x) => { sum = sum + x; n = n + 1i32; }
+            Option::None => { break; }
+        }
+    }
+    if sum != 6i64 { return 2; }   // 0+1+2+3
+    if n != 4i32   { return 3; }   // four elements incl. endpoint
+
+    // i32 inclusive value range too.
+    let r2 = 5i32..=5i32;
+    if r2.end != 5i32 { return 4; }
+
+    return 0;
+}

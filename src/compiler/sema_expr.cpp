@@ -1231,10 +1231,27 @@ lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
         TypeRef bound_t = need_64 ? prim(LogosType::Kind::I64) : i32_t();
         widen_int_expr(lo, bound_t, builder());
         widen_int_expr(hi, bound_t, builder());
-        // Rewrite hi to (hi+1) for inclusive form so `next() < end` semantics hold.
+        // T2-17: inclusive `lo..=hi` desugars to the GENERIC `RangeOfIncl<T>`
+        // (range_incl_of), which stores the REAL end and stops via a `done`
+        // flag (range.logos:78). The previous hi+1 hack made `.end`
+        // observable as hi+1 AND overflowed at the type's max (`0..=i64::MAX`
+        // → MAX+1 wraps to MIN, yielding an empty range). RangeOfIncl impls
+        // Iterator<T>, so for-loops over it work unchanged.
         if (inclusive) {
-            auto one = builder().lit_int(1, bound_t);
-            hi = builder().bin_op("+", std::move(hi), std::move(one), bound_t);
+            std::string ctor = "range_incl_of";
+            auto cands = find_func_candidates(ctor);
+            if (cands.empty()) {
+                error("range expression: stdlib `range_incl_of` not in scope "
+                      "(missing `use logos.lang.range`)");
+                return error_expr();
+            }
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(std::move(lo));
+            rargs.push_back(std::move(hi));
+            const SemaFuncInfo* rfi = cands[0];
+            return finish_generic_call(
+                rfi->symbol_name.empty() ? ctor : rfi->symbol_name,
+                *rfi, {bound_t}, std::move(rargs));
         }
         std::string sname = need_64 ? "RangeI64" : "RangeI32";
         auto [pkg, ssi] = find_struct_by_name(sname);
