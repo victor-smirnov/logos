@@ -4035,6 +4035,18 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                     // flagged `on_ref_subject` (so the method resolver applies
                     // them only to a matching reference receiver).
                     if (!constraint.has_key(la::NAME) && constraint.has_key(la::TYPE)) {
+                        // T2-18 (GAT-where): an associated-type projection
+                        // subject `where C::Item<T>: Bound` is a projection
+                        // OBLIGATION, not a type-param. resolve_type on the
+                        // projection can error ("no associated type …" when the
+                        // base isn't bound to the owning trait at this point),
+                        // so skip it before resolving — the bound is accepted
+                        // but not yet enforced (parse-and-skip, like the
+                        // concrete-subject obligation). Full projection-bound
+                        // checking is a separate feature.
+                        if (code_of(map_of(constraint.get(la::TYPE.code))) ==
+                                la::ASSOC_TYPE_REF)
+                            continue;
                         auto refty = resolve_type(map_of(constraint.get(la::TYPE.code)));
                         if (!refty) continue;
                         bool is_mut = TypeRef(refty).kind() == LogosType::Kind::MutRef;

@@ -1239,7 +1239,9 @@
     // a TYPE_PARAM carrying TYPE (the `&T` node) instead of NAME; sema's
     // where-clause walker registers a ref-subject bound on the underlying
     // type-param. Plain `T: Bound` falls through to `type_param`.
-    where_pred <- ref_type COLON trait_bound (PLUS trait_bound)*
+    where_pred <- assoc_type_ref COLON trait_bound (PLUS trait_bound)*
+               => { CODE: TYPE_PARAM, TYPE: $1, ITEMS: $... }
+                / ref_type COLON trait_bound (PLUS trait_bound)*
                => { CODE: TYPE_PARAM, TYPE: $1, ITEMS: $... }
                 / type_param
 

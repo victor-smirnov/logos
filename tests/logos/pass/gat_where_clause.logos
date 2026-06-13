@@ -1,0 +1,25 @@
+// audit-v2 T2-18 (GAT-where): a `where C::Item<T>: Bound` clause — an
+// associated-type / GAT projection as the where-subject — now parses
+// (where_pred gained an assoc_type_ref subject alt) and is accepted as a
+// projection obligation. Pre-fix it was a syntax error (the subject only
+// admitted `&T` refs or a bare param name). The obligation is parsed-and-
+// skipped (not yet enforced — full projection-bound checking is a
+// separate feature); plain assoc projections (`H::Inner: Copy`) too.
+package gat_where_clause;
+trait Container {
+    type Item<T>;
+}
+struct Bag {}
+impl Container for Bag {
+    type Item<T> = T;
+}
+// where-clause with a GAT projection subject (parse + accept).
+fn use_bag<C>(c: &C, n: i32) -> i32 where C: Container, C::Item<i32>: Copy { n + 1 }
+// plain assoc-projection subject too.
+trait Holder { type Inner; }
+fn use_holder<H>(h: &H, n: i32) -> i32 where H: Holder, H::Inner: Copy { n + 2 }
+fn main() -> i32 {
+    let b = Bag {};
+    if use_bag(&b, 10) != 11 { return 1; }
+    return 0;
+}
