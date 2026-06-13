@@ -1,0 +1,28 @@
+// T2-28 (Increment 3): fully-qualified types in TYPE position + UFCS with a
+// fully-qualified trait. The dotted prefix's last segment names the type/trait.
+//   • `let x: pkg.path.Type` / `fn f(x: pkg.path.Type)` — type annotation
+//   • `<T as pkg.path.Trait>::method(args)`            — UFCS, qualified trait
+// (Generic qualified types `pkg.Type<A>` remain a residual — use the package
+//  and the short name there.)
+package test.qualified_pkg_type_pos;
+
+struct Pt { x: i64, y: i64 }
+
+trait Norm { fn norm1(self: Self) -> i64; }
+impl Norm for Pt { fn norm1(self: Pt) -> i64 { return self.x + self.y; } }
+
+// fully-qualified type in a parameter position
+fn sx(p: test.qualified_pkg_type_pos.Pt) -> i64 { return p.x; }
+
+fn main() -> i32 {
+    // fully-qualified type in a let annotation
+    let p: test.qualified_pkg_type_pos.Pt = Pt { x: 30i64, y: 12i64 };
+
+    if sx(p) != 30i64 { return 1i32; }
+
+    // UFCS dispatch with a fully-qualified trait qualifier
+    let n = <Pt as test.qualified_pkg_type_pos.Norm>::norm1(p);  // 42
+    if n != 42i64 { return 2i32; }
+
+    return 0i32;
+}

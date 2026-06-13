@@ -1756,6 +1756,15 @@
                 => { CODE: TYPE_REF, NAME_VAR: $3 }
                  / HASH IDENT
                 => { CODE: TYPE_REF, NAME_VAR: $2 }
+                 // T2-28 (Increment 3): fully-qualified NON-generic type in type
+                 // position — `pkg.path.Type`. The dotted prefix's last segment is
+                 // the type; sema (resolve_type) derives it from QUAL_PARTS. Placed
+                 // before the bare-IDENT alts so the dotted form is claimed whole
+                 // (else `IDENT` matches just the first segment). The generic form
+                 // `pkg.path.Type<A>` is a residual (use `use`+short-name) — `$...`
+                 // would slurp the path segments into the type-arg ITEMS list.
+                 / IDENT path_dot_ident+
+                => { CODE: TYPE_REF, NAME: $1, QUAL_PARTS: $2 }
                  / IDENT LT_TYPE type_or_lt_arg (COMMA type_or_lt_arg)* COMMA? GT_TYPE
                 => { CODE: GENERIC_INST, NAME: $1, ITEMS: $... }
                  / LPAREN RPAREN

@@ -6102,6 +6102,18 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
 
     if (tc == la::TYPE_REF) {
         auto name = str_of(node.get(la::NAME.code));
+        // T2-28 (Increment 3): a fully-qualified type `pkg.path.Type` arrives
+        // with NAME = first segment + QUAL_PARTS = the rest; the LAST segment is
+        // the type. The package prefix is dropped (resolution is by type name).
+        std::string qual_type_buf;
+        if (node.has_key(la::QUAL_PARTS)) {
+            auto parts = arr_of(node.get(la::QUAL_PARTS.code));
+            if (parts.size() >= 1) {
+                qual_type_buf = std::string(
+                    str_of(map_of(parts.get(parts.size() - 1)).get(la::NAME.code)));
+                name = qual_type_buf;
+            }
+        }
         // `_` as a type — Rust's placeholder for type inference (`let x:
         // Vec<_> = vec_new::<i32>();`). Sema renders it as `Kind::InferredType`
         // and `types_compatible` is permissive on either side; downstream
