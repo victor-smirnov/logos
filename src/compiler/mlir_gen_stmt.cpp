@@ -1170,6 +1170,16 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     auto ptr = gen_expr(*ptr_le);
     auto val = gen_expr(*val_le);
     if (!ptr || !val) return;
+    // T1.5: field-level drop-before-replace — run the OLD value's
+    // destructor before overwriting. Sema gates v.drop_old() to live owned
+    // droppable field places only; `val` (the RHS) is already materialised
+    // above, so a self-referencing `i.s = f(&i.s)` reads the old buffer
+    // before it is freed. Mirrors SAssign's drop-before-store (gen_assign).
+    if (v.drop_old()) {
+        TypeRef dpt(ptr_le->type);
+        if (dpt && dpt.pointee())
+            gen_drop_value(ptr, dpt.pointee());
+    }
     // Determine element type from pointer's pointee type (handles both *T and &mut T)
     mlir::Type elem_type = nullptr;
     TypeRef pt(ptr_le->type);

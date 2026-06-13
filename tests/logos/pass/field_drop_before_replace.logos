@@ -1,0 +1,49 @@
+// audit-v2 Tier-1.5: field-level drop-before-replace. Overwriting a LIVE
+// droppable field (`o.s = new`) must run the OLD value's destructor
+// before storing — pre-fix it leaked (B8's drop-before-replace covered
+// whole-var assigns only; field places emitted a bare SDerefWrite). All
+// shapes valgrind-verified during development.
+package field_drop_before_replace;
+
+struct One { s: String }
+struct Two { s: String, t: String }
+
+fn consume(s: String) -> i64 { s.len() }
+fn dup(s: &String) -> String { String::from(s.as_str()) }
+
+fn live_overwrite() -> i64 {
+    let mut o = One { s: String::from("AAAAAAAA") };
+    o.s = String::from("CCCCCCCCCCCCCCCC");   // old "AAAA…" dropped here
+    o.s.len()
+    // new value dropped at scope end
+}
+
+fn sibling_kept() -> i64 {
+    let mut o = Two { s: String::from("AAAAAAAA"), t: String::from("bb") };
+    o.s = String::from("CC");                 // only s's old value dropped
+    o.s.len() + o.t.len()
+}
+
+fn self_ref() -> i64 {
+    // RHS reads the old field (via &) BEFORE the old is dropped, then the
+    // dup is stored — order: eval RHS, drop old, store.
+    let mut o = One { s: String::from("AAAAAAAA") };
+    o.s = dup(&o.s);
+    o.s.len()
+}
+
+fn reassign_after_move() -> i64 {
+    // old value already MOVED OUT → must NOT be dropped again on reassign.
+    let mut o = One { s: String::from("AAAAAAAA") };
+    let n = consume(o.s);
+    o.s = String::from("CC");
+    n + o.s.len()
+}
+
+fn main() -> i32 {
+    if live_overwrite()      != 16i64 { return 1; }
+    if sibling_kept()        != 4i64  { return 2; }
+    if self_ref()            != 8i64  { return 3; }
+    if reassign_after_move() != 10i64 { return 4; }
+    return 0;
+}

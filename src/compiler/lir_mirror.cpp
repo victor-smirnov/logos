@@ -758,12 +758,14 @@ public:
     }
     hermes::arena_offset_t emit_deref_write_direct(uint32_t line,
                                                     const lir::LExprPtr& ptr,
-                                                    const lir::LExprPtr& value) {
+                                                    const lir::LExprPtr& value,
+                                                    bool drop_old = false) {
         auto ptr_av = expr_av(ptr);
         auto val_av = expr_av(value);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::DerefWrite));
         put(map_off, sk::PTR,   ptr_av);
         put(map_off, sk::VALUE, val_av);
+        if (drop_old) put(map_off, sk::DROP_OLD, put_bool(true));
         put_line(map_off, line);
         return map_off;
     }
@@ -1983,10 +1985,10 @@ hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t li
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body);
 }
-hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value) {
+hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value, bool drop_old) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_deref_write_direct(line, ptr, value);
+    return em.emit_deref_write_direct(line, ptr, value, drop_old);
 }
 hermes::arena_offset_t lir_mirror_emit_drop(lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields) {
     auto& arena = prog.type_pool.arena_or_init();

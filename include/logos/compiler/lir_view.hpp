@@ -1591,6 +1591,9 @@ struct SDerefWriteView {
     StmtRef self;
     ExprRef ptr() const noexcept   { return detail::stmt_sub_expr(self, sk::PTR.code); }
     ExprRef value() const noexcept { return detail::stmt_sub_expr(self, sk::VALUE.code); }
+    // T1.5: drop the OLD value at the place before storing (field-level
+    // drop-before-replace, mirrors SAssign.drop_old for owned field places).
+    bool drop_old() const noexcept { return detail::read_bool(self, sk::DROP_OLD.code); }
 };
 
 struct STupleWriteView {

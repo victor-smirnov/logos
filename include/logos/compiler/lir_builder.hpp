@@ -140,7 +140,7 @@ public:
     lir::LStmt stmt_continue(std::string label, uint32_t line);
     lir::LStmt stmt_return(lir::LExprPtr value, uint32_t line);
     lir::LStmt stmt_assign(std::string name, lir::LExprPtr value, uint32_t line, bool drop_old = false);
-    lir::LStmt stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line);
+    lir::LStmt stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr value, uint32_t line, bool drop_old = false);
 
     // ── Adopt-style: pre-built variants populated incrementally ─────────────
     // Stage 3g deletes these along with the variant types. Until then, sema

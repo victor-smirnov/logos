@@ -7072,11 +7072,18 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
                 return std::move(*s);
         }
     }
-    // T1-10 (B78): assigning to a field place re-initialises it — lift the
-    // drop suppression for the covered moved paths (equal AND deeper:
-    // writing `o.i` refills `o.i.s`) so the scope-end drop releases the new
-    // value. Pure FieldRead chains over a VarRef root only; pointer-mediated
-    // places never entered moved_vars_.
+    // T1-10 (B78) + T1.5 field-level drop-before-replace: assigning to a
+    // field place re-initialises it. Two coupled actions on a pure
+    // FieldRead chain over an OWNED local root (no pointer/reference hops —
+    // those never entered moved_vars_ and their old value is owned
+    // elsewhere):
+    //   (a) the OLD value at the place must be dropped before the store
+    //       (T1.5: `i.s = new` over a live field leaked the old String),
+    //       UNLESS the path (or an ancestor) was already moved out;
+    //   (b) lift the drop suppression for the covered moved paths (equal
+    //       AND deeper — writing `o.i` refills `o.i.s`) so the scope-end
+    //       drop releases the NEW value.
+    bool field_old_live = false;   // → emit drop_old at the place store
     if (pc == la::FIELD_READ) {
         std::vector<std::string> segs;
         auto cur = place_node;
@@ -7086,12 +7093,40 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
             cur = map_of(cur.get(la::RECEIVER.code));
         }
         if (!cur.is_null() && code_of(cur) == la::VAR_REF) {
-            std::string path(str_of(cur.get(la::NAME.code)));
+            std::string root(str_of(cur.get(la::NAME.code)));
+            std::string path(root);
             for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
                 path.push_back('.');
                 path += *it;
             }
+            // Old value is live (droppable + present) iff the root is an
+            // OWNED value local (not a `&`/`&mut`/`*` reference — ownership
+            // flows through those to the referent's owner) that is
+            // definitely-initialised, and neither the path nor any ANCESTOR
+            // was moved out (a moved-out value is already gone). A moved
+            // DESCENDANT (`path.x`) still leaves siblings live — but the
+            // whole-field memcpy store overwrites them, so the broad
+            // overlap check stays conservative-correct: skip drop_old when
+            // any overlap exists, lift-then-rely on the move bookkeeping.
+            TypeRef root_ty = lookup(root);
+            bool root_owned = root_ty &&
+                TypeRef(root_ty).kind() != LogosType::Kind::Ref &&
+                TypeRef(root_ty).kind() != LogosType::Kind::MutRef &&
+                TypeRef(root_ty).kind() != LogosType::Kind::Ptr;
+            bool any_overlap = false;
             std::string pre = path + ".";
+            std::string anc = root;  // ancestors: root, root.a, … up to path
+            // Build ancestor-prefix set and check moved membership/overlap.
+            for (auto& mv : moved_vars_) {
+                bool eq_or_under = mv == path ||
+                    (mv.size() > pre.size() && mv.compare(0, pre.size(), pre) == 0);
+                bool ancestor = path.size() > mv.size() + 1 &&
+                    path.compare(0, mv.size(), mv) == 0 && path[mv.size()] == '.';
+                if (eq_or_under || ancestor) { any_overlap = true; break; }
+            }
+            field_old_live = root_owned && !decl_uninit_vars_.count(root) &&
+                             !any_overlap;
+            // (b) lift suppression for the covered paths.
             for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
                 bool covered = *it == path ||
                     (it->size() > pre.size() &&
@@ -7250,12 +7285,19 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
     }
     widen_int_expr(val, pt, builder());
 
+    // T1.5: the place's old value drops before the store iff it is a live
+    // owned field (field_old_live) AND its type is droppable.
+    bool drop_old_place = field_old_live && pt &&
+        (TypeRef(pt).owning_trait_object() ||
+         !drop_fn_for(pt).empty() ||
+         has_droppable_fields(pt));
     // Address of the place: `&mut <place>`. EAddrOfTemp recognises the place
     // read-expr kind and returns the real element GEP (not a temp copy).
     auto addr = builder().addr_of_temp(std::move(place), /*is_mut=*/true,
                                        make_ref(true, pt ? pt : error_t()));
     track_write_move(val);
-    return builder().stmt_deref_write(std::move(addr), std::move(val), node_line_);
+    return builder().stmt_deref_write(std::move(addr), std::move(val), node_line_,
+                                      drop_old_place);
 }
 
 void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef scrut_type,

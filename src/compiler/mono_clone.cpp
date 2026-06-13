@@ -4286,7 +4286,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto ptr = subst_child_expr(v.ptr());
         auto value = subst_child_expr(v.value());
         ns.mirror_offset_ = lir_mirror_emit_deref_write(
-            out_, ns.line, ptr, value);
+            out_, ns.line, ptr, value, v.drop_old());  // T1.5: preserve drop_old
         break;
     }
     case SCode::TupleWrite: {
