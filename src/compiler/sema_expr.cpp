@@ -1599,6 +1599,39 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto lt = lhs->type;
     auto rt = rhs->type;
 
+    // T2-26 prereq: auto-deref a `&T`/`&mut T` operand whose pointee is a
+    // numeric/bool/char primitive in an arithmetic / comparison / bitwise /
+    // shift operator (Rust's `impl Add<i32> for &i32` family). `r + 1` for
+    // `r: &i32` and `match &opt { Some(x) => x + 1 }` (x: &i32 under match
+    // ergonomics) Just Work without spelling `*r`. Struct operands keep
+    // their by-ref operator-overload path below; only primitive pointees
+    // are peeled here.
+    {
+        bool numeric_op =
+            op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+            op == "<" || op == "<=" || op == ">" || op == ">=" ||
+            op == "==" || op == "!=" ||
+            op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>";
+        auto peel_numeric_ref = [&](lir::LExprPtr& e, TypeRef& t) {
+            if (!t) return;
+            auto k = TypeRef(t).kind();
+            if (k != LogosType::Kind::Ref && k != LogosType::Kind::MutRef) return;
+            TypeRef pt = TypeRef(t).pointee();
+            if (!pt) return;
+            auto pk = TypeRef(pt).kind();
+            bool prim = is_integer_kind(pk) || pk == LogosType::Kind::F32 ||
+                        pk == LogosType::Kind::F64 || pk == LogosType::Kind::Bool ||
+                        pk == LogosType::Kind::Char;
+            if (!prim) return;
+            e = builder().deref(std::move(e), pt);
+            t = pt;
+        };
+        if (numeric_op) {
+            peel_numeric_ref(lhs, lt);
+            peel_numeric_ref(rhs, rt);
+        }
+    }
+
     // Borrow an operand by reference for an Eq trait-method desugar WITHOUT
     // transferring ownership or spilling a Drop-bearing copy:
     //   • a named variable → addr_of (borrow the place in situ)

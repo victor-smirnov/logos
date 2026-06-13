@@ -1,0 +1,35 @@
+// audit-v2 T2-26 (prereq): a `&T`/`&mut T` operand whose pointee is a
+// numeric/bool/char primitive auto-derefs in arithmetic / comparison /
+// bitwise / shift operators (Rust's `impl Add<i32> for &i32` family), so
+// `r + 1` for `r: &i32` works without spelling `*r`. (This unblocks the
+// full RFC-2005 Copy-by-ref binding mode, deferred: dropping the
+// is_move_type gate over-wraps already-`&Struct` payloads and changes
+// by-value Copy-return patterns — a separate migration.)
+package ref_numeric_autoderef;
+
+fn add_ref(a: &i32, b: &i32) -> i32 { return a + b; }
+fn cmp_ref(a: &i32, b: &i32) -> bool { return a < b; }
+
+fn main() -> i32 {
+    let x = 10i32;
+    let y = 3i32;
+    let rx: &i32 = &x;
+    let ry: &i32 = &y;
+
+    if rx + ry != 13i32 { return 1; }   // &i32 + &i32
+    if rx + 5i32 != 15i32 { return 2; } // &i32 + i32
+    if 5i32 + rx != 15i32 { return 3; } // i32 + &i32
+    if rx - ry != 7i32 { return 4; }
+    if rx * ry != 30i32 { return 5; }
+    if !(ry < rx) { return 6; }         // &i32 < &i32
+    if rx == ry { return 7; }
+    if *rx != 10i32 { return 8; }       // explicit deref still fine
+
+    let m: u32 = 0xF0u32;
+    let rm: &u32 = &m;
+    if (rm & 0x10u32) != 0x10u32 { return 9; }  // bitwise on &u32
+
+    if add_ref(rx, ry) != 13i32 { return 10; }
+    if !cmp_ref(ry, rx) { return 11; }
+    return 0;
+}
