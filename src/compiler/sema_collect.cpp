@@ -436,6 +436,16 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                         SemaTraitInfo placeholder{};
                         placeholder.package = cur_package_;
                         placeholder.predeclared = true;
+                        // T1-9: carry IS_PUB on the placeholder too — a
+                        // cross-package reference resolving BEFORE the
+                        // defining file's collect_trait must not read a
+                        // default-false is_pub (spurious "private to
+                        // package" on pub stdlib traits).
+                        if (item.has_key(la::IS_PUB)) {
+                            AnyVal pv = item.get(la::IS_PUB.code);
+                            placeholder.is_pub = !pv.is_null() && pv.is_value() &&
+                                                 pv.as_value<uint8_t>() != 0;
+                        }
                         traits_[tname] = std::move(placeholder);
                     }
                 }
@@ -1834,6 +1844,12 @@ void SemaChecker::collect_enum(TinyMapView node) {
     // marker types (used by stdlib meta_variant_intrinsics, generic-anchor
     // patterns, etc.). No diagnostic.
     SemaEnumInfo info;
+    // T1-9: cross-package visibility (lookup_qualified_<true> checks it).
+    info.package = cur_package_;
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal pv = node.get(la::IS_PUB.code);
+        info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
+    }
     info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);  // B65
@@ -2342,6 +2358,11 @@ void SemaChecker::collect_trait(TinyMapView node) {
     current_trait_name_ = tname;
     SemaTraitInfo info;
     info.name = tname;
+    // T1-9: cross-package visibility (lookup_qualified_<true> checks it).
+    if (node.has_key(la::IS_PUB)) {
+        AnyVal pv = node.get(la::IS_PUB.code);
+        info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
+    }
     info.doc = take_pending_doc();
     info.is_hermes = pending_trait_is_hermes_;
     pending_trait_is_hermes_ = false;
@@ -2581,6 +2602,17 @@ void SemaChecker::collect_impl(TinyMapView node) {
     std::string trait_name;
     if (node.has_key(la::NAME))
         trait_name = std::string(str_of(node.get(la::NAME.code)));
+    // T1-9 (audit-v2): `impl PrivTrait for Mine` from another package errors
+    // ("private to package") — collect_impl used to consume the raw name
+    // without any visibility gate. The lookup itself stays check-free
+    // (introspective callers must not emit privacy diags); the explicit
+    // check fires here, at the site that INTRODUCES the foreign trait.
+    if (!trait_name.empty()) {
+        auto [tpkg, tinfo] = find_trait_by_name(trait_name);
+        (void)tpkg;
+        if (tinfo)
+            check_pub_access(tinfo->is_pub, tinfo->package, trait_name);
+    }
     bool impl_is_unsafe = false;
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE);

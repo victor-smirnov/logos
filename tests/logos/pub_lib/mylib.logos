@@ -16,3 +16,12 @@ pub fn make_point(x: i32, y: i32) -> i32 {
 fn internal_helper(x: i32) -> i32 {
     return x * 2;
 }
+
+// T1-9 visibility fixtures: private vs pub enum / trait.
+enum PrivEnum { PA, PB }
+
+pub enum PubEnum { QA, QB }
+
+trait PrivTrait { fn ph(&self) -> i32; }
+
+pub trait PubTrait { fn qh(&self) -> i32; }

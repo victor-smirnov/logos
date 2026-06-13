@@ -1,0 +1,14 @@
+// Boundary pin for T1-9: PUB enum and PUB trait stay fully usable
+// cross-package (construct, match, impl, dispatch).
+package pub_enum_trait_cross_pkg;
+
+use mylib;
+
+struct Mine { v: i32 }
+impl PubTrait for Mine { fn qh(&self) -> i32 { self.v } }
+
+fn main() -> i32 {
+    let e = PubEnum::QA;
+    let m = Mine { v: 0 };
+    match e { PubEnum::QA => m.qh(), PubEnum::QB => 1 }
+}

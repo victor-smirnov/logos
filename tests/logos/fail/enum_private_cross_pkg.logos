@@ -1,0 +1,12 @@
+// audit-v2 T1-9: a non-pub ENUM is invisible cross-package — pre-fix
+// `lookup_qualified_<false>` skipped the visibility check for enums_
+// entirely, so a private enum constructed/matched from another package
+// silently (SemaEnumInfo had no is_pub/package fields at all).
+package enum_private_cross_pkg;
+
+use mylib;
+
+fn main() -> i32 {
+    let e = PrivEnum::PA;
+    match e { PrivEnum::PA => 0, PrivEnum::PB => 1 }
+}

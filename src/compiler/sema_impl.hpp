@@ -2326,6 +2326,8 @@ private:
     };
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
+        bool is_pub = false;                 // T1-9: cross-pkg visibility
+        std::string package;                 // pkg this enum was declared in
         std::vector<TypeParam> type_params;  // for generic enums
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)
@@ -2378,6 +2380,7 @@ private:
     };
     struct SemaTraitInfo {
         std::string name;
+        bool is_pub = false;                  // T1-9: cross-pkg visibility
         std::string package;                  // pkg this trait was declared in (for B-mv-02 diag)
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
@@ -2896,9 +2899,14 @@ private:
         return lookup_qualified_<true>(datatypes_, name);
     }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
-        return lookup_qualified_<false>(enums_, name);
+        return lookup_qualified_<true>(enums_, name);
     }
     std::pair<std::string, SemaTraitInfo*> find_trait_by_name(std::string_view name) {
+        // NOTE (T1-9): traits stay on the UNCHECKED lookup — many callers
+        // are introspective probes (type-param shadow warnings, enum-lit
+        // assoc-fn fallbacks) where a privacy diagnostic would be spurious.
+        // The REFERENCE site that introduces a foreign trait (collect_impl)
+        // applies check_pub_access explicitly.
         return lookup_qualified_<false>(traits_, name);
     }
     // P2-15 object-safety (dyn-compatibility, Rust E0038): a trait used as a

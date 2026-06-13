@@ -1,0 +1,15 @@
+// audit-v2 T1-9: a non-pub TRAIT cannot be implemented from another
+// package — collect_impl consumed the raw trait name without any
+// visibility gate; it now resolves through the pub-checking
+// find_trait_by_name.
+package trait_private_cross_pkg;
+
+use mylib;
+
+struct Mine { v: i32 }
+impl PrivTrait for Mine { fn ph(&self) -> i32 { self.v } }
+
+fn main() -> i32 {
+    let m = Mine { v: 0 };
+    m.ph()
+}

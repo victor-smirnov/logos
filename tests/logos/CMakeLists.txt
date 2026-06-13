@@ -391,7 +391,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
         map_comp_basic
         reflect_api
         reflect_annotated_auto)
-    set(LOCAL_PUBLIB_USERS pub_cross_package pkg_multifile pub_reexport)
+    set(LOCAL_PUBLIB_USERS pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
     set(LOCAL_COEX_USERS cross_pkg_coexistence)
     # Phase 6 (multi-arena IR) lazy-mode fixture: archive ships AST only.
@@ -458,7 +458,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
 endfunction()
 
 function(logos_fail_extra_args BASE OUT_VAR)
-    set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access)
+    set(FAIL_PUBLIB_USERS pub_call_private pub_private_field_access enum_private_cross_pkg trait_private_cross_pkg)
     set(FAIL_METAPROG_USERS metacall_item_odr_conflict)
     set(FAIL_COEX_USERS cross_pkg_ambiguous_call)
     if (BASE IN_LIST FAIL_PUBLIB_USERS)
