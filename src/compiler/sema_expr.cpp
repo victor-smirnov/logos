@@ -1829,6 +1829,56 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 push_operand(std::move(rhs), rt, 1);
                 return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
             }
+            // T2-16: PartialOrd via `partial_cmp` — when the direct `lt`/`le`/
+            // `gt`/`ge` method isn't impl'd but `partial_cmp` IS (the canonical
+            // Rust PartialOrd method, returning `Ordering`), derive the
+            // comparison: `a < b` ≡ `a.partial_cmp(&b).is_lt()` (and is_le/
+            // is_gt/is_ge). Mirrors Rust's default lt/le/gt/ge bodies.
+            if (op == "<" || op == "<=" || op == ">" || op == ">=") {
+                std::string pc_mangled = type_name + "__partial_cmp";
+                auto pcfit = find_func_by_base_and_signature(
+                    pc_mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+                if (!pcfit)
+                    pcfit = find_func_by_base_and_signature(pc_mangled, {lt, rt}, false);
+                if (pcfit && pcfit->ret_type) {
+                    std::vector<lir::LExprPtr> pcargs;
+                    auto push_pc = [&](lir::LExprPtr e, TypeRef vty, size_t idx) {
+                        if (idx < pcfit->param_types.size()) {
+                            auto formal = pcfit->param_types[idx];
+                            if (formal && is_ref_like(TypeRef(formal).kind()) &&
+                                !is_ref_like(TypeRef(vty).kind())) {
+                                bool im = TypeRef(formal).kind() == LogosType::Kind::MutRef;
+                                pcargs.push_back(builder().addr_of_temp(
+                                    std::move(e), im, make_ref(im, vty)));
+                                return;
+                            }
+                        }
+                        pcargs.push_back(std::move(e));
+                    };
+                    push_pc(std::move(lhs), lt, 0);
+                    push_pc(std::move(rhs), rt, 1);
+                    TypeRef ord_t = pcfit->ret_type;
+                    auto pc_call = builder().call(
+                        pcfit->symbol_name.empty() ? pc_mangled : pcfit->symbol_name,
+                        {}, std::move(pcargs), ord_t);
+                    std::string is_method =
+                        op == "<"  ? "is_lt" :
+                        op == "<=" ? "is_le" :
+                        op == ">"  ? "is_gt" : "is_ge";
+                    std::string ord_name(TypeRef(ord_t).enum_name());
+                    std::string is_mangled = ord_name + "__" + is_method;
+                    auto isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+                    std::string is_sym = (isfit && !isfit->symbol_name.empty())
+                                         ? isfit->symbol_name : is_mangled;
+                    // `is_<op>(self: Ordering)` takes self by VALUE — emit a
+                    // plain call with the partial_cmp result as the arg
+                    // (method_call's struct-receiver path can't take a
+                    // by-value call-result receiver).
+                    std::vector<lir::LExprPtr> isargs;
+                    isargs.push_back(std::move(pc_call));
+                    return builder().call(is_sym, {}, std::move(isargs), bool_t());
+                }
+            }
             // No impl found — fall through to normal type checking
         }
     }

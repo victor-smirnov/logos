@@ -1,0 +1,43 @@
+// audit-v2 T2-16: PartialOrd via `partial_cmp`. The comparison operators
+// dispatched only to a struct's direct `lt`/`le`/`gt`/`ge` methods; when
+// a user impls the canonical Rust `fn partial_cmp(&self,&other)->Ordering`
+// instead, `<`/`<=`/`>`/`>=` now derive from it
+// (`a.partial_cmp(&b).is_lt()` etc.), matching Rust's default bodies.
+// A direct `lt` impl still wins (kept for back-compat).
+package partial_ord_partial_cmp;
+
+use logos.lang.cmp;
+
+struct V { n: i32 }
+
+impl PartialOrd for V {
+    fn partial_cmp(self: &V, other: &V) -> Ordering {
+        if self.n < other.n { return Ordering::Less; }
+        if self.n > other.n { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+}
+
+// Direct-lt impl still resolves (no partial_cmp).
+struct W { n: i32 }
+impl PartialOrd for W {
+    fn lt(self: &W, other: &W) -> bool { return self.n < other.n; }
+}
+
+fn main() -> i32 {
+    let a = V { n: 3 };
+    let b = V { n: 5 };
+    let c = V { n: 3 };
+    if !(a < b)  { return 1; }
+    if !(b > a)  { return 2; }
+    if !(a <= c) { return 3; }
+    if !(a >= c) { return 4; }
+    if a > b     { return 5; }
+    if b < a     { return 6; }
+
+    let p = W { n: 1 };
+    let q = W { n: 2 };
+    if !(p < q) { return 7; }
+
+    return 0;
+}
