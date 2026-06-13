@@ -3408,11 +3408,26 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             if (current_pat_refutable_guards_) {
                 TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                     ? ftype : prim(LogosType::Kind::I64);
+                // T2-26: under match ergonomics the synth payload may bind
+                // by-reference (`&rt`); compare the POINTEE, not the pointer.
+                // The guard uses builder().bin_op directly (no auto-deref), so
+                // deref explicitly when the binding's real type is a reference.
+                auto synth_val = [&]() -> lir::LExprPtr {
+                    // The synth is defined by the caller AFTER this returns, so
+                    // lookup() is null here — derive its by-ref-ness from the
+                    // scrutinee mode. Under match ergonomics the payload binds
+                    // `&rt`; deref to compare the pointee.
+                    if (pat_scrut_by_ref) {
+                        TypeRef rty = make_ref(false, rt);
+                        return builder().deref(builder().var_ref(synth, rty), rt);
+                    }
+                    return builder().var_ref(synth, rt);
+                };
                 auto lo_lit = builder().lit_int(lo, rt);
                 auto hi_lit = builder().lit_int(hi, rt);
-                auto ge = builder().bin_op(">=", builder().var_ref(synth, rt),
+                auto ge = builder().bin_op(">=", synth_val(),
                                            std::move(lo_lit), bool_t());
-                auto le = builder().bin_op("<=", builder().var_ref(synth, rt),
+                auto le = builder().bin_op("<=", synth_val(),
                                            std::move(hi_lit), bool_t());
                 auto guard = builder().bin_op("&&", std::move(ge), std::move(le), bool_t());
                 current_pat_refutable_guards_->push_back(std::move(guard));
@@ -3848,7 +3863,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             binding_types[k] = make_ref(is_mut, binding_types[k]);
         } else if (default_ref && !tv_payload &&
                    k < binding_from_wild.size() && binding_from_wild[k] &&
-                   (is_move_type(binding_types[k]) || default_mut)) {
+                   // T2-26 (full RFC 2005): under a `&`/`&mut` scrutinee EVERY
+                   // concrete payload binds by-reference — Copy included (the
+                   // `&T` arith/cmp auto-deref prereq covers `x + 1` etc.; a
+                   // by-value use writes `*x`). An ALREADY-reference payload is
+                   // left single-ref (no `&&P` — Logos field-access auto-derefs
+                   // one level; depth-2 is a separate item).
+                   TypeRef(binding_types[k]).kind() != LogosType::Kind::Ref &&
+                   TypeRef(binding_types[k]).kind() != LogosType::Kind::MutRef &&
+                   TypeRef(binding_types[k]).kind() != LogosType::Kind::Ptr) {
             // Under a SHARED `&` scrutinee, only move-only payloads are
             // auto-ref'd (Copy stays by-value for read ergonomics, since `&T`
             // operator auto-deref isn't implemented). Under a `&mut` scrutinee

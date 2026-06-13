@@ -778,6 +778,42 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         }
     }
 
+    // T2-26 (full RFC 2005): a `&T`/`&mut T` operand of an `as`-cast to a
+    // scalar (numeric/char/bool) auto-derefs to its pointee, mirroring the
+    // arithmetic auto-deref in lower_binop. Under match ergonomics a Copy
+    // payload now binds by-reference, so `n as i64` where `n: &f64` must
+    // cast the pointee, not the pointer's bits. Pointer→pointer casts and
+    // `&T as *T`/`as usize` reinterpretations are unaffected (target is a
+    // Ptr/Usize there, but a genuine reference *value* compared/converted as
+    // a scalar number is the cast we peel here).
+    if (inner && inner->type && target) {
+        TypeRef it(inner->type), tt(target);
+        bool src_ref = it.kind() == LogosType::Kind::Ref ||
+                       it.kind() == LogosType::Kind::MutRef;
+        bool tgt_num = tt.kind() == LogosType::Kind::I8  || tt.kind() == LogosType::Kind::U8  ||
+                       tt.kind() == LogosType::Kind::I16 || tt.kind() == LogosType::Kind::U16 ||
+                       tt.kind() == LogosType::Kind::I32 || tt.kind() == LogosType::Kind::U32 ||
+                       tt.kind() == LogosType::Kind::I64 || tt.kind() == LogosType::Kind::U64 ||
+                       tt.kind() == LogosType::Kind::I128|| tt.kind() == LogosType::Kind::U128||
+                       tt.kind() == LogosType::Kind::Usize || tt.kind() == LogosType::Kind::Isize ||
+                       tt.kind() == LogosType::Kind::F32 || tt.kind() == LogosType::Kind::F64 ||
+                       tt.kind() == LogosType::Kind::Char || tt.kind() == LogosType::Kind::Bool;
+        if (src_ref && tgt_num && it.pointee()) {
+            auto pk = TypeRef(it.pointee()).kind();
+            bool pointee_scalar =
+                pk == LogosType::Kind::I8  || pk == LogosType::Kind::U8  ||
+                pk == LogosType::Kind::I16 || pk == LogosType::Kind::U16 ||
+                pk == LogosType::Kind::I32 || pk == LogosType::Kind::U32 ||
+                pk == LogosType::Kind::I64 || pk == LogosType::Kind::U64 ||
+                pk == LogosType::Kind::I128|| pk == LogosType::Kind::U128||
+                pk == LogosType::Kind::Usize || pk == LogosType::Kind::Isize ||
+                pk == LogosType::Kind::F32 || pk == LogosType::Kind::F64 ||
+                pk == LogosType::Kind::Char || pk == LogosType::Kind::Bool;
+            if (pointee_scalar)
+                inner = builder().deref(std::move(inner), it.pointee());
+        }
+    }
+
     // ── Ordinary numeric/pointer cast. ────────────────────────────────────
     if (inner->type && target &&
         TypeRef(inner->type).kind() != LogosType::Kind::Error &&

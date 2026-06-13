@@ -1,15 +1,17 @@
 package rest_pattern_variant_tuple_struct;
+// T2-26: under a `&E`/`&S` scrutinee the Copy payloads bind `&i64`
+// (full RFC 2005 match ergonomics), so by-value uses deref (`*x`).
 // G151-2: `..` rest in tuple-variant and tuple-struct patterns —
 // `A(..)`, `A(x, ..)`, `A(.., y)`, and the tuple-struct counterparts.
 enum E { A(i64, i64, i64), B }
 struct S(i64, i64, i64);
 fn ev_all(e: &E) -> i64 { match e { E::A(..) => { return 1; } E::B => { return 0; } } }
-fn ev_pre(e: &E) -> i64 { match e { E::A(x, ..) => { return x; } E::B => { return 0; } } }
-fn ev_suf(e: &E) -> i64 { match e { E::A(.., z) => { return z; } E::B => { return 0; } } }
-fn ev_mid(e: &E) -> i64 { match e { E::A(x, .., z) => { return x + z; } E::B => { return 0; } } }
+fn ev_pre(e: &E) -> i64 { match e { E::A(x, ..) => { return *x; } E::B => { return 0; } } }
+fn ev_suf(e: &E) -> i64 { match e { E::A(.., z) => { return *z; } E::B => { return 0; } } }
+fn ev_mid(e: &E) -> i64 { match e { E::A(x, .., z) => { return *x + *z; } E::B => { return 0; } } }
 fn ts_all(s: &S) -> i64 { match s { S(..) => { return 1; } } }
-fn ts_pre(s: &S) -> i64 { match s { S(x, ..) => { return x; } } }
-fn ts_suf(s: &S) -> i64 { match s { S(.., z) => { return z; } } }
+fn ts_pre(s: &S) -> i64 { match s { S(x, ..) => { return *x; } } }
+fn ts_suf(s: &S) -> i64 { match s { S(.., z) => { return *z; } } }
 fn main() -> i64 {
     let e = E::A(3, 4, 5);
     if ev_all(&e) != 1 { return 1; }
