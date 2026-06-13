@@ -1,0 +1,39 @@
+// audit-v2 T2-27 (batch): two pattern-parse gaps closed.
+//  • `(..)` — a tuple pattern matching any tuple, binding nothing
+//    (lowered as an irrefutable wildcard).
+//  • `S { ref a }` — bind a struct field BY REFERENCE (`a: &T`); reads
+//    and the T2-26 `&T`-arith auto-deref make `a + b` Just Work.
+// (`ref mut a` write-back through the binding still hits the raw-pointer
+// unsafe gate — a separate follow-up; shared `ref` is the common case.)
+package pattern_ref_field_and_tuple_rest;
+
+struct S { a: i32, b: i32 }
+
+fn tuple_rest(t: (i32, i32, i32)) -> i32 {
+    match t { (..) => 0 }      // ignore the whole tuple
+}
+
+fn ref_fields() -> i32 {
+    let s = S { a: 7i32, b: 9i32 };
+    match s {
+        S { ref a, ref b } => {
+            if *a != 7i32 { return 1; }
+            if a + b != 16i32 { return 2; }   // &i32 + &i32 (T2-26 prereq)
+            return 0;
+        }
+    }
+}
+
+fn ref_one_shorthand() -> i32 {
+    let s = S { a: 3i32, b: 4i32 };
+    match s {
+        S { ref a, b } => { return *a + b; }   // a:&i32, b:i32 by value
+    }
+}
+
+fn main() -> i32 {
+    if tuple_rest((1i32, 2i32, 3i32)) != 0 { return 1; }
+    if ref_fields() != 0 { return 2; }
+    if ref_one_shorthand() != 7i32 { return 3; }
+    return 0;
+}

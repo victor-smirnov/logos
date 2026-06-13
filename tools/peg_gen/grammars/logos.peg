@@ -1924,6 +1924,14 @@
               => { CODE: PAT_REST }
                / IDENT COLON pat_single
               => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
+               // T2-27: `S { ref a }` / `S { ref mut a }` — bind the field
+               // by reference (`a: &T` / `&mut T`). IS_REF/IS_MUT on the
+               // PAT_FIELD; sema's struct-pattern binder wraps the binding
+               // type accordingly.
+               / KW_REF KW_MUT IDENT
+              => { CODE: PAT_FIELD, NAME: $3, IS_REF: true, IS_MUT: true }
+               / KW_REF IDENT
+              => { CODE: PAT_FIELD, NAME: $2, IS_REF: true }
                / IDENT
               => { CODE: PAT_FIELD, NAME: $1 }
 
@@ -2132,6 +2140,12 @@
         // expansion, `@`-binding, single-alt unwrap) applies with no sema change.
         // Must precede the tuple alternatives; on a COMMA this alt fails the
         // trailing RPAREN and PEG backtracks to the tuple productions below.
+        // T2-27: `(..)` — tuple pattern matching any tuple, binding
+        // nothing (Rust patterns.tuple rest-only). Irrefutable; lower as a
+        // bare wildcard. Precedes PAT_OR/tuple alts (DOTDOT isn't a
+        // pat_single, so it can only match here).
+        / LPAREN DOTDOT RPAREN
+        => { CODE: PAT_WILD }
         / LPAREN pat_single (PIPE pat_single)* RPAREN
         => { CODE: PAT_OR, ITEMS: $... }
         // P4-pm-20: tuple pattern with optional `..` rest at any
