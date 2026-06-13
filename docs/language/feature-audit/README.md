@@ -83,15 +83,17 @@ Ordered by severity; (cat) = chapters carrying detail.
 5. ✅ `13bccdd1` Slice elem-type check: concrete scalar elems must match exactly in `types_compatible`; literal arrays adopt the annotated/formal elem width (lower_call slice-formal hint joins closure/enum/tuple hints) (F,B).
 6. ✅ `a0304a36` cfg gates EVERY walk via shared `cfg_attrs_drop_item` (pass-0 pre-registration + phase collection + lowering); `cfg(true/false)` literals in attribute + `cfg!()` forms (L).
 
-### Tier 1 — soundness
+### Tier 1 — soundness — 6/7 done 2026-06-12
 
-7. Closure auto-traits walk capture types (by-ref captures via `&T` rule) + fail-test (H).
-8. Or-pattern binding-consistency at top-level arm alternations — wire the existing `:3947` check into lower_match (F).
-9. Enum/trait visibility: `is_pub` on `SemaTraitInfo`, flip `lookup_qualified_` to PubCheck for enums/traits (I).
-10. Dotted-path partial-move granularity (B78): depth-≥2 E0382 + per-path drop suppression (A).
-11. E0184: reject `impl Copy` where `impl Drop` exists (one check, `sema_collect.cpp:3554`) (A).
-12. `dyn Trait + Auto` enforcement at let/return/field-init coercion sites (today arg-coercion only) (H,B).
-13. Extern-static read gating + `unsafe extern { }` 2024 form (K,N).
+7. ✅ `1b7b0cda` Closure auto-traits walk CAPTURE types (closure_capture_env_ per interned type, union across same-sig literals; by-ref as `&[mut] T`); String/Vec/Box got the missing `unsafe impl Send/Sync` (H).
+8. ✅ `a68581ee` Or-pattern E0408 at top-level arm alternations — AST-level check at both eff_arms fan-outs (F).
+9. ✅ `2b64fa97` Enum/trait visibility: `is_pub` on SemaEnumInfo/SemaTraitInfo; checked lookup for enums; explicit check at collect_impl for traits (introspective callers stay uncheck) (I).
+10. ⏳ Dotted-path partial-move granularity (B78): depth-≥2 E0382 + per-path drop suppression (A). NEXT — repro + layer map in memory (project_audit_v2_fixes).
+11. ✅ `f0ff8424` E0184: `impl Copy`+`impl Drop` rejected (post-collect sweep); un-Rust pass/copy_drop retired (A).
+12. ✅ `4914c6f0` `dyn Trait + Auto` enforced at let/return/tail-return/field-init coercion sites (H,B).
+13. ✅ `658f3760` Extern-static access gating (module_extern_statics_) + `unsafe extern { }` 2024 form (K,N).
+
+Bonus (same session): `_`-hole pinning fix (31eb8759 — `let v: Vec<_> = vec![…]` ICE class), tail-return variance gate (86eebe44), fn-macros in if/while conditions (54011185 — the cfg! residual).
 
 ### Tier 2 — high-impact parity / surface
 
