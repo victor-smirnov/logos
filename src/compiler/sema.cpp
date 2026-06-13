@@ -3015,25 +3015,22 @@ std::optional<lir::LStmt> SemaChecker::make_drop_stmt(const std::string& name, c
         if (strip_g(dfn) == strip_g(current_fn_mangled_)) return std::nullopt;
     }
     // Collect field paths that were moved out of this var. moved_vars_ stores
-    // dotted paths like "<name>.<field>" (and deeper, ignored at this level —
-    // a field move implies the whole field is gone, so we only need the
-    // first-level field name). The mlir-gen field-drop loop reads this and
-    // skips matching fields, so the underlying value isn't released twice.
+    // dotted paths like "<name>.<field>" and deeper ("<name>.a.b").
+    // T1-10 (B78): pass the FULL relative path — the mlir-gen SDrop walk is
+    // path-aware: an exact segment match skips that field; a DEEPER path
+    // recurses into the field and drops its non-moved SIBLINGS (pre-fix the
+    // first-segment truncation skipped the whole field, leaking `o.i.t`
+    // after `move o.i.s`).
     std::vector<std::string> moved_fields;
     {
         std::string prefix = name + ".";
         for (auto& mv : moved_vars_) {
             if (mv.size() <= prefix.size()) continue;
             if (mv.compare(0, prefix.size(), prefix) != 0) continue;
-            std::string rest = mv.substr(prefix.size());
-            // Take only the first segment — a deeper move (a.b.c) still means
-            // a.b is partially consumed; we suppress the whole-field drop.
-            auto dot = rest.find('.');
-            std::string field = (dot == std::string::npos) ? rest : rest.substr(0, dot);
-            // De-dup
+            std::string path = mv.substr(prefix.size());
             bool seen = false;
-            for (auto& f : moved_fields) if (f == field) { seen = true; break; }
-            if (!seen) moved_fields.push_back(std::move(field));
+            for (auto& f : moved_fields) if (f == path) { seen = true; break; }
+            if (!seen) moved_fields.push_back(std::move(path));
         }
     }
     lir::LStmt s; s.line = node_line_;

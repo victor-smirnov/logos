@@ -788,7 +788,25 @@ void MLIRGenImpl::gen_drop_owning_slice(mlir::Value slice_ptr, TypeRef ty) {
 // structs whose generic clone runs directly — the __smartptr_dyn_clone__
 // repr-aware special is gone.)
 
-void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level) {
+// Split a skip-path set on a child segment: returns true when the child is
+// FULLY moved (exact segment present — caller skips it); otherwise fills
+// `child_out` with the stripped remainders of deeper paths ("s.x" for
+// segment "s" from "s.x") so the recursion suppresses only moved leaves.
+static bool split_skip_paths(const std::set<std::string>* paths,
+                             const std::string& seg,
+                             std::set<std::string>& child_out) {
+    if (!paths) return false;
+    for (auto& p : *paths) {
+        if (p == seg) return true;
+        if (p.size() > seg.size() + 1 &&
+            p.compare(0, seg.size(), seg) == 0 && p[seg.size()] == '.')
+            child_out.insert(p.substr(seg.size() + 1));
+    }
+    return false;
+}
+
+void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level,
+                                 const std::set<std::string>* skip_paths) {
     using K = LogosType::Kind;
     if (!value_ptr || !ty) return;
     auto k = TypeRef(ty).kind();
@@ -852,10 +870,14 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 auto fk = ft ? TypeRef(ft).kind() : K::Error;
                 if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
                 if (!value_needs_drop(ft)) continue;
-                auto fp = gep_field(value_ptr, info, std::string(def.fields[i].name));
+                std::string fname(def.fields[i].name);
+                std::set<std::string> child_skips;
+                if (split_skip_paths(skip_paths, fname, child_skips)) continue;
+                auto fp = gep_field(value_ptr, info, fname);
                 if (!fp) continue;
                 // Enum value-repr: a nested enum field is inline — drop on the GEP.
-                gen_drop_value(fp, ft);
+                gen_drop_value(fp, ft, /*top_level=*/false,
+                               child_skips.empty() ? nullptr : &child_skips);
             }
         }
         return;
@@ -869,7 +891,11 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
                 auto ek = et ? TypeRef(et).kind() : K::Error;
                 if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
                 if (!value_needs_drop(et)) continue;
-                gen_drop_value(child_value_ptr(value_ptr, ttype, i, ek), et);
+                std::set<std::string> child_skips;
+                if (split_skip_paths(skip_paths, std::to_string(i), child_skips)) continue;
+                gen_drop_value(child_value_ptr(value_ptr, ttype, i, ek), et,
+                               /*top_level=*/false,
+                               child_skips.empty() ? nullptr : &child_skips);
             }
         return;
     }
@@ -1029,6 +1055,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     //    skipped so a value isn't released twice.
     if (TypeRef st = v.type(pool_impl()); v.drop_fields() && st) {
         using K = LogosType::Kind;
+        // T1-10 (B78): moved entries are FULL dotted paths ("i" or "i.s").
+        // An exact field match skips the whole field; a deeper path
+        // recurses via gen_drop_value's skip_paths so only the moved leaf
+        // is suppressed and its siblings still drop.
         std::set<std::string> moved;
         v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
         auto k = st.kind();
@@ -1044,15 +1074,18 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                 auto& info = sit->second;
                 auto& def  = *sdit->second;
                 for (int i = (int)def.fields.size() - 1; i >= 0; --i) {
-                    if (moved.count(std::string(def.fields[i].name))) continue;
+                    std::string fname(def.fields[i].name);
+                    std::set<std::string> child_skips;
+                    if (split_skip_paths(&moved, fname, child_skips)) continue;
                     TypeRef ft(def.fields[i].type);
                     auto fk = ft ? TypeRef(ft).kind() : K::Error;
                     if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
                     if (!value_needs_drop(ft)) continue;
-                    auto fp = gep_field(it->second, info, std::string(def.fields[i].name));
+                    auto fp = gep_field(it->second, info, fname);
                     if (!fp) continue;
                     // Enum value-repr: a nested enum field is inline — drop on the GEP.
-                    gen_drop_value(fp, ft);
+                    gen_drop_value(fp, ft, /*top_level=*/false,
+                                   child_skips.empty() ? nullptr : &child_skips);
                 }
             }
         } else if (k == K::Tuple) {
@@ -1060,7 +1093,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             auto elems = st.tuple_elems();
             if (ttype)
                 for (int i = (int)elems.size() - 1; i >= 0; --i) {
-                    if (moved.count(std::to_string(i))) continue;
+                    std::set<std::string> child_skips;
+                    if (split_skip_paths(&moved, std::to_string(i), child_skips)) continue;
                     TypeRef et(elems[i]);
                     auto ek = et ? TypeRef(et).kind() : K::Error;
                     if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
@@ -1068,7 +1102,8 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
                     llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
                     auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, it->second, gi);
                     // Enum value-repr: a nested enum element is inline — drop on the GEP.
-                    gen_drop_value(gep, et);
+                    gen_drop_value(gep, et, /*top_level=*/false,
+                                   child_skips.empty() ? nullptr : &child_skips);
                 }
         } else if (k == K::Enum && drop_fn.empty()) {
             // Enum value-repr: the slot IS the inline {disc,payload} storage

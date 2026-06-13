@@ -7072,6 +7072,34 @@ lir::LStmt SemaChecker::lower_place_assign(TinyMapView node) {
                 return std::move(*s);
         }
     }
+    // T1-10 (B78): assigning to a field place re-initialises it — lift the
+    // drop suppression for the covered moved paths (equal AND deeper:
+    // writing `o.i` refills `o.i.s`) so the scope-end drop releases the new
+    // value. Pure FieldRead chains over a VarRef root only; pointer-mediated
+    // places never entered moved_vars_.
+    if (pc == la::FIELD_READ) {
+        std::vector<std::string> segs;
+        auto cur = place_node;
+        while (!cur.is_null() && code_of(cur) == la::FIELD_READ &&
+               cur.has_key(la::FIELD) && cur.has_key(la::RECEIVER)) {
+            segs.emplace_back(str_of(cur.get(la::FIELD.code)));
+            cur = map_of(cur.get(la::RECEIVER.code));
+        }
+        if (!cur.is_null() && code_of(cur) == la::VAR_REF) {
+            std::string path(str_of(cur.get(la::NAME.code)));
+            for (auto it = segs.rbegin(); it != segs.rend(); ++it) {
+                path.push_back('.');
+                path += *it;
+            }
+            std::string pre = path + ".";
+            for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
+                bool covered = *it == path ||
+                    (it->size() > pre.size() &&
+                     it->compare(0, pre.size(), pre) == 0);
+                it = covered ? moved_vars_.erase(it) : ++it;
+            }
+        }
+    }
     // Smart-pointer field write (Logos's DerefMut analog): `p.field = v` where
     // p is a DataRef<ZonedStruct> ergonomically desugars to
     // `(*p.mut_ptr()).field = v`. Handle before the generic place path.

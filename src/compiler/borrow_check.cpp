@@ -925,6 +925,39 @@ class BorrowChecker {
 
     // ── Ownership operations ───────────────────────────────────────────────
 
+    // T1-10 (B78): dotted-path relation — two paths conflict when equal or
+    // one is a dot-prefix of the other ("i" vs "i.s"). Reading a moved leaf,
+    // a path inside a moved subtree, or a parent containing a moved leaf are
+    // all uses of (partially) moved data; disjoint siblings ("i.t" vs "i.s")
+    // do not conflict.
+    static bool path_overlaps(const std::string& a, const std::string& b) {
+        if (a == b) return true;
+        if (a.size() < b.size())
+            return b.compare(0, a.size(), a) == 0 && b[a.size()] == '.';
+        return a.compare(0, b.size(), b) == 0 && a[b.size()] == '.';
+    }
+    // First moved entry overlapping `path` (linear scan — the map is tiny).
+    static const std::pair<const std::string, uint32_t>*
+    find_moved_overlap(const std::unordered_map<std::string, uint32_t>& moved,
+                       const std::string& path) {
+        for (auto& kv : moved)
+            if (path_overlaps(kv.first, path)) return &kv;
+        return nullptr;
+    }
+    // Re-initialisation of `path` clears equal AND deeper entries (writing
+    // `o.i` refills `o.i.s`); a SHALLOWER moved entry stays — assigning
+    // `o.i.s` does not resurrect the rest of a moved `o.i`.
+    static void erase_reinit(std::unordered_map<std::string, uint32_t>& moved,
+                             const std::string& path) {
+        for (auto it = moved.begin(); it != moved.end(); ) {
+            bool covered = it->first == path ||
+                (it->first.size() > path.size() &&
+                 it->first.compare(0, path.size(), path) == 0 &&
+                 it->first[path.size()] == '.');
+            it = covered ? moved.erase(it) : ++it;
+        }
+    }
+
     bool consume(const std::string& name, uint32_t line) {
         auto it = states_.find(name);
         if (it == states_.end()) return true;
@@ -1565,16 +1598,13 @@ class BorrowChecker {
                 if (!root.empty()) {
                     auto sit = states_.find(root);
                     if (sit != states_.end() && !path.empty()) {
-                        // moved_fields key uses outermost field name only
-                        // (matches B78 partial-move tracking granularity).
-                        auto first_dot = path.find('.');
-                        std::string outer = (first_dot == std::string::npos)
-                                          ? path : path.substr(0, first_dot);
-                        if (auto mit = sit->second.moved_fields.find(outer);
-                            mit != sit->second.moved_fields.end()) {
+                        // T1-10/B78: full dotted-path overlap (equal /
+                        // either-prefix) — disjoint siblings borrow fine.
+                        if (auto* hit = find_moved_overlap(
+                                sit->second.moved_fields, path)) {
                             report(line, std::format(
                                 "use of moved field '{}.{}' (moved on line {})",
-                                root, outer, mit->second));
+                                root, hit->first, hit->second));
                             break;
                         }
                     }
@@ -2290,7 +2320,9 @@ class BorrowChecker {
                 std::string field_nm(v.field());
                 if (!recv_nm.empty() && !field_nm.empty()) {
                     if (auto it = states_.find(recv_nm); it != states_.end())
-                        it->second.moved_fields.erase(field_nm);
+                        // T1-10/B78: reinit clears the path AND anything
+                        // under it (writing `o.i` refills `o.i.s`).
+                        erase_reinit(it->second.moved_fields, field_nm);
                 }
                 check_live(recv_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
@@ -2407,13 +2439,24 @@ class BorrowChecker {
                     // does the same: the new bits replace the old.
                     auto inner = atv.inner();
                     if (inner && inner.kind() == EC::FieldRead) {
-                        EFieldReadView fv{inner};
-                        auto recv = fv.receiver();
-                        if (recv && recv.kind() == EC::VarRef) {
-                            std::string root(EVarRefView{recv}.name());
-                            std::string field(fv.field());
+                        // T1-10/B78: walk the whole FieldRead chain so a
+                        // nested reinit (`o.i.s = …`) clears its full path.
+                        std::vector<std::string> segs;
+                        ExprRef cur = inner;
+                        while (cur && cur.kind() == EC::FieldRead) {
+                            EFieldReadView cv{cur};
+                            segs.emplace_back(std::string(cv.field()));
+                            cur = cv.receiver();
+                        }
+                        if (cur && cur.kind() == EC::VarRef) {
+                            std::string root(EVarRefView{cur}.name());
+                            std::string fpath;
+                            for (auto it2 = segs.rbegin(); it2 != segs.rend(); ++it2) {
+                                if (!fpath.empty()) fpath.push_back('.');
+                                fpath += *it2;
+                            }
                             if (auto it = states_.find(root); it != states_.end())
-                                it->second.moved_fields.erase(field);
+                                erase_reinit(it->second.moved_fields, fpath);
                         }
                     }
                 }
@@ -2720,16 +2763,14 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut",
                         root));
-                // moved_fields check for FieldRead chains.
+                // moved_fields check for FieldRead chains (T1-10/B78:
+                // full dotted-path overlap).
                 if (!path.empty()) {
-                    auto first_dot = path.find('.');
-                    std::string outer = (first_dot == std::string::npos)
-                                        ? path : path.substr(0, first_dot);
-                    if (auto mit = sit->second.moved_fields.find(outer);
-                        mit != sit->second.moved_fields.end()) {
+                    if (auto* hit = find_moved_overlap(
+                            sit->second.moved_fields, path)) {
                         report(line, std::format(
                             "use of moved field '{}.{}' (moved on line {})",
-                            root, outer, mit->second));
+                            root, hit->first, hit->second));
                         break;
                     }
                 }
@@ -2788,25 +2829,54 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         case Code::FieldRead: {
             EFieldReadView v{e};
             auto recv = v.receiver();
-            std::string field(v.field());
-            // Partial-move tracking: when `o.f` is used in a consuming
-            // position (e.g. moved into a fn arg or let RHS) and `f` is a
-            // move-type field, mark `f` as moved on `o`. Subsequent reads
-            // of `o.f` or whole-value `o` then error.
-            std::string recv_name;
-            if (recv && recv.kind() == Code::VarRef)
-                recv_name = std::string(EVarRefView{recv}.name());
-            if (!recv_name.empty()) {
-                if (auto it = states_.find(recv_name); it != states_.end()) {
-                    if (auto fit = it->second.moved_fields.find(field);
-                        fit != it->second.moved_fields.end()) {
+            // Partial-move tracking (T1-10/B78: full dotted-path
+            // granularity): when `o.f` / `o.a.b` is used in a consuming
+            // position (moved into a fn arg or let RHS) and the place is a
+            // move type, mark the FULL path as moved on the root.
+            // Subsequent overlapping uses — the same path, anything inside
+            // it, or any parent containing it (incl. whole-value `o`) —
+            // error; disjoint siblings (`o.a.t`) stay usable.
+            std::string root;
+            std::string path;
+            {
+                std::vector<std::string> segs{std::string(v.field())};
+                ExprRef cur = recv;
+                bool raw_hop = false;
+                auto recv_is_raw = [&](ExprRef r) {
+                    TypeRef rt = r ? r.type(pool) : TypeRef(nullptr);
+                    return rt && rt.kind() == LogosType::Kind::Ptr;
+                };
+                while (cur && cur.kind() == Code::FieldRead) {
+                    EFieldReadView cv{cur};
+                    segs.emplace_back(std::string(cv.field()));
+                    if (recv_is_raw(cur)) raw_hop = true;
+                    cur = cv.receiver();
+                }
+                // Ownership doesn't flow through a RAW pointer: a move out
+                // of `(*p).field` (unsafe, `self.inner.val` in Rc::drop_rc)
+                // is not a partial move of any tracked owned root — skip
+                // tracking when any hop in the chain (incl. the root var)
+                // is `*const/*mut`-typed. `&`/`&mut` hops keep the existing
+                // depth-1-compatible tracking.
+                if (cur && cur.kind() == Code::VarRef &&
+                    !raw_hop && !recv_is_raw(cur)) {
+                    root = std::string(EVarRefView{cur}.name());
+                    for (auto it2 = segs.rbegin(); it2 != segs.rend(); ++it2) {
+                        if (!path.empty()) path.push_back('.');
+                        path += *it2;
+                    }
+                }
+            }
+            if (!root.empty()) {
+                if (auto it = states_.find(root); it != states_.end()) {
+                    if (auto* hit = find_moved_overlap(it->second.moved_fields, path)) {
                         report(line, std::format(
                             "use of moved field '{}.{}' (moved on line {})",
-                            recv_name, field, fit->second));
+                            root, hit->first, hit->second));
                         break;
                     }
                     if (consuming && is_move_type(e.type(pool), prog_, ts_)) {
-                        it->second.moved_fields[field] = line;
+                        it->second.moved_fields[path] = line;
                         break;
                     }
                 }

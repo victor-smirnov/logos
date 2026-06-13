@@ -974,7 +974,12 @@ private:
     // Drop` runs, the value's FIELDS/payload are ALSO dropped (the owner drops
     // both). `top_level=false` (nested) calls the user drop and stops (the
     // by-value `self` consumes its own fields at the drop body's scope end).
-    void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level = false);
+    // skip_paths (T1-10/B78): dotted paths RELATIVE to this value whose
+    // sub-values were moved out — an exact segment match skips that
+    // child entirely; a deeper path recurses with the stripped remainder
+    // so only the moved leaf is suppressed and its siblings still drop.
+    void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_level = false,
+                        const std::set<std::string>* skip_paths = nullptr);
     // Drop an OWNING `Box<dyn Trait>` whose binding storage `handle` IS the
     // 8-byte heap handle to a 16-byte {data,vtable} fat pair. Sequence (null-
     // guarded): load data(field0)+vtable(field1); call vtable[0](data)
