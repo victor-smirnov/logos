@@ -2642,6 +2642,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return arr_of(av);
     };
 
+    // T2-28 (Increment 2): a qualified `dotted::member(args)` whose package has
+    // NO free fn of that name is a type-member call `pkg.path.Type::method(...)`
+    // — the last dotted segment is the type. Delegate to lower_static_call,
+    // which re-derives the class from QUAL_PARTS. (Free fn wins when present, so
+    // `mem::swap_ref` still routes here as a free fn — Increment 1 unaffected.)
+    if (!call_pkg_qualifier_.empty() &&
+        find_func_candidates(callee).empty() &&
+        find_generic_func(callee) == nullptr) {
+        return lower_static_call(node);
+    }
+
     // B-ts-01: tuple-struct constructor `Foo(a, b)` → struct literal
     // with positional fields named "0", "1", …. Routes through the
     // existing struct-lit lowering so codegen / drop / move logic
@@ -12720,6 +12731,22 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     std::string class_name(str_of(node.get(la::RECEIVER.code)));
     auto method_name = str_of(node.get(la::NAME.code));
+
+    // T2-28 (Increment 2): a qualified `pkg.path.Type::member(args)` is parsed
+    // as the qualified-CALL shape (RECEIVER = first segment, QUAL_PARTS = the
+    // rest, member in CALLEE) and delegated here by lower_call once it finds no
+    // free fn of that name in the package. The LAST dotted segment is the type;
+    // the package prefix is dropped (type resolution searches by name). Clear
+    // the package qualifier — type/method resolution + arg lowering are not
+    // package-filtered (only free-fn lookups are).
+    if (node.has_key(la::QUAL_PARTS)) {
+        auto parts = arr_of(node.get(la::QUAL_PARTS.code));
+        if (parts.size() >= 1)
+            class_name = std::string(
+                str_of(map_of(parts.get(parts.size() - 1)).get(la::NAME.code)));
+        if (method_name.empty()) method_name = str_of(node.get(la::CALLEE.code));
+        call_pkg_qualifier_.clear();
+    }
 
     // G153-4: `Self::method()` inside an impl body — resolve `Self` to the
     // impl's concrete type name (bound in current_type_params_["Self"]) so the

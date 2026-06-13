@@ -1,0 +1,27 @@
+// T2-28 (Increment 2): type-member calls through a dotted-package prefix —
+// `pkg.path.Type::method(args)`. The dotted prefix's LAST segment is the type;
+// the rest is the package. A qualified `dotted::member(args)` first tries a
+// free fn of that name in the (whole-prefix) package (Increment 1); finding
+// none, it falls back to a static method on `Type` (the last segment).
+package test.qualified_pkg_type_method;
+
+struct Vec2 { x: i64, y: i64 }
+
+impl Vec2 {
+    fn make(a: i64, b: i64) -> Vec2 { return Vec2 { x: a, y: b }; }
+    fn dot(self: Vec2, o: Vec2) -> i64 { return self.x * o.x + self.y * o.y; }
+}
+
+fn main() -> i32 {
+    // static (associated) fn via fully-qualified path
+    let p = test.qualified_pkg_type_method.Vec2::make(3i64, 4i64);
+    if p.x != 3i64 { return 1i32; }
+    if p.y != 4i64 { return 2i32; }
+
+    let q = test.qualified_pkg_type_method.Vec2::make(5i64, 6i64);
+    // by-value method also reachable on the qualified-constructed value
+    let d = p.dot(q);            // 3*5 + 4*6 = 39
+    if d != 39i64 { return 3i32; }
+
+    return 0i32;
+}
