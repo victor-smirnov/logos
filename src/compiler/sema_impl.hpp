@@ -713,6 +713,13 @@ private:
     // True when t contains a `_` (InferredType) hole at any depth.
     bool type_has_inferred(TypeRef t);
 
+    // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
+    // empty enum or one whose every variant has an uninhabited payload; a
+    // struct/tuple with an uninhabited field; `[T; N>0]` with uninhabited
+    // T. Used to elide unconstructable match arms from exhaustiveness
+    // (`match r { Ok(n) => … }` over `Result<i32, Void>`).
+    bool is_type_uninhabited(TypeRef t, int depth = 0);
+
     // T1-8 (audit-v2, E0408 analog): every alternative of an or-pattern must
     // bind the same variable names. AST-level check, fired for TOP-LEVEL
     // match-arm alternations (`Some(x) | None => …`) from both match

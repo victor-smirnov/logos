@@ -4128,6 +4128,48 @@ bool SemaChecker::type_has_inferred(TypeRef t) {
     return false;
 }
 
+bool SemaChecker::is_type_uninhabited(TypeRef t, int depth) {
+    using K = LogosType::Kind;
+    if (!t || depth > 8) return false;
+    auto k = TypeRef(t).kind();
+    if (k == K::Never) return true;
+    // A reference/pointer to an uninhabited type is itself inhabited only
+    // vacuously — but you still can't make one, so treat `&Never` etc. as
+    // uninhabited too is UNSOUND (a ref is a pointer, constructable from a
+    // dangling addr in unsafe). Rust treats `&!` as uninhabited; we stay
+    // conservative and only mark value-carrying composites.
+    if (k == K::Enum) {
+        auto [pkg, esi] = find_enum_by_name(TypeRef(t).enum_name());
+        if (!esi) return false;
+        if (esi->variants.empty()) return true;
+        // Inhabited iff at least one variant is constructable (all its
+        // payload types inhabited).
+        for (auto& v : esi->variants) {
+            bool v_uninhab = false;
+            for (auto pt : v.payload_types)
+                if (is_type_uninhabited(pt, depth + 1)) { v_uninhab = true; break; }
+            if (!v_uninhab) return false;   // a constructable variant exists
+        }
+        return true;   // every variant has an uninhabited payload
+    }
+    if (k == K::Struct || k == K::ZonedStruct) {
+        auto [pkg, ssi] = find_struct_by_name(TypeRef(t).struct_name());
+        if (!ssi) return false;
+        for (auto& f : ssi->fields)
+            if (is_type_uninhabited(f.type, depth + 1)) return true;
+        return false;
+    }
+    if (k == K::Tuple) {
+        for (auto e : TypeRef(t).tuple_elems())
+            if (is_type_uninhabited(e, depth + 1)) return true;
+        return false;
+    }
+    if (k == K::Array)
+        return TypeRef(t).arr_size() > 0 &&
+               is_type_uninhabited(TypeRef(t).elem(), depth + 1);
+    return false;
+}
+
 TypeRef SemaChecker::fill_inferred_from_rhs(TypeRef ann, TypeRef rhs) {
     if (!ann) return rhs;
     if (ann.kind() == LogosType::Kind::InferredType) {

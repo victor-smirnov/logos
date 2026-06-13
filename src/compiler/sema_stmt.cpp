@@ -7357,6 +7357,26 @@ void SemaChecker::check_match_exhaustiveness(const lir::SMatch& smatch, TypeRef 
                 std::string missing;
                 for (auto& v : eit->second.variants) {
                     if (covered.find(v.value) == covered.end()) {
+                        // T2-29: a variant with an UNINHABITED payload can
+                        // never be constructed (`Result<i32, Void>` with an
+                        // empty `Void`), so omitting its arm is exhaustive.
+                        // Variant payload types are the enum DEFINITION's
+                        // (generic `E`); substitute the scrutinee's type-args
+                        // before the uninhabited check.
+                        SemaSubst evsub;
+                        {
+                            auto ta = TypeRef(scrut_type).type_args();
+                            for (size_t pi = 0; pi < eit->second.type_params.size()
+                                                && pi < ta.size(); ++pi)
+                                evsub[eit->second.type_params[pi].name] = ta[pi];
+                        }
+                        bool unconstructable = false;
+                        for (auto pt : v.payload_types) {
+                            TypeRef spt = evsub.empty() ? TypeRef(pt)
+                                        : subst_type_sema(pt, evsub);
+                            if (is_type_uninhabited(spt)) { unconstructable = true; break; }
+                        }
+                        if (unconstructable) continue;
                         if (!missing.empty()) missing += ", ";
                         missing += std::string(v.name);
                     }
@@ -9407,6 +9427,26 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 std::string missing;
                 for (auto& v : eit->second.variants) {
                     if (covered.find(v.value) == covered.end()) {
+                        // T2-29: a variant with an UNINHABITED payload can
+                        // never be constructed (`Result<i32, Void>` with an
+                        // empty `Void`), so omitting its arm is exhaustive.
+                        // Variant payload types are the enum DEFINITION's
+                        // (generic `E`); substitute the scrutinee's type-args
+                        // before the uninhabited check.
+                        SemaSubst evsub;
+                        {
+                            auto ta = TypeRef(scrut_type).type_args();
+                            for (size_t pi = 0; pi < eit->second.type_params.size()
+                                                && pi < ta.size(); ++pi)
+                                evsub[eit->second.type_params[pi].name] = ta[pi];
+                        }
+                        bool unconstructable = false;
+                        for (auto pt : v.payload_types) {
+                            TypeRef spt = evsub.empty() ? TypeRef(pt)
+                                        : subst_type_sema(pt, evsub);
+                            if (is_type_uninhabited(spt)) { unconstructable = true; break; }
+                        }
+                        if (unconstructable) continue;
                         if (!missing.empty()) missing += ", ";
                         missing += std::string(v.name);
                     }

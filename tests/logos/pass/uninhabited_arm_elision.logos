@@ -1,0 +1,31 @@
+// audit-v2 T2-29: a match arm for a variant whose payload is UNINHABITED
+// can be omitted — the variant can never be constructed. `match r { Ok(n)
+// => … }` over `Result<i32, Void>` (empty `Void`) is exhaustive (Rust
+// exhaustiveness on uninhabited types). The variant payload is the enum
+// definition's generic `E`, so the scrutinee's type-args are substituted
+// before the uninhabited check.
+package uninhabited_arm_elision;
+
+enum Void {}
+
+fn unwrap_ok(r: Result<i32, Void>) -> i32 {
+    match r {
+        Result::Ok(n) => n,
+    }
+}
+
+// Nested: Result<i32, Result<i32, Void>>... the inner Err is uninhabited,
+// but the OUTER Err(Result<i32,Void>) is INHABITED (Ok(0) exists), so the
+// outer Err arm IS required. (Sanity that elision is precise.)
+fn nested(r: Result<i32, Result<i32, Void>>) -> i32 {
+    match r {
+        Result::Ok(n)  => n,
+        Result::Err(_) => -1,
+    }
+}
+
+fn main() -> i32 {
+    if unwrap_ok(Result::<i32, Void>::Ok(42)) != 42 { return 1; }
+    if nested(Result::<i32, Result<i32, Void>>::Ok(7)) != 7 { return 2; }
+    return 0;
+}
