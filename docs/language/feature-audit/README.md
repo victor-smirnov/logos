@@ -105,16 +105,16 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 17. ✅ `308d94e3` Inclusive range VALUE → generic `RangeOfIncl<T>` (real end, no hi+1 overflow/observability); `for` counter loop unaffected (E).
 18. `where`-clause general subject (concrete-type LHS) + GAT where-clause grammar (D).
 19. Lifetime-elision signature rules + E0106 reject (named-region substrate ready) (D,A).
-20. `use … as Alias` + `use pkg.{a,b}` (I,C).
+20. ◑ `use pkg.{a,b}` already works (USE_VARIANTS lowercase desugar); `use … as Alias` is DESIGN-GATED (Logos path-model decision, flagged in DIVERGENCES) — deferred (I,C).
 21. ✅ `52791272` `matches!` + `dbg!` builtins (assert family already shipped) (J).
 22. `quote_expr!` antiquot Ident-at-type/str-position — unblocks Debug/Default/PartialOrd derive parity in one fix (J).
 23. ABI string → MLIR calling-convention threading + ABI tag on `Kind::FnPtr` + extern-fn-ptr type grammar (N,B).
-24. Ordering const-prop through `*_ordered` wrappers + `AtomicUsize`/`AtomicIsize` (G,H).
-25. Deferred init of non-mut local (`let x: i32; x = 5;` — spec variable.init example) (G).
+24. ◑ `69356297` `AtomicUsize`/`AtomicIsize` DONE; Ordering const-prop through `*_ordered` wrappers remains (G,H).
+25. ✅ `95bbd1e2` Deferred init of non-mut local (`let x: i32; x = 5;`) (G).
 26. Binding-mode parity: Copy payloads bind `&T` per RFC 2005 (drop the `is_move_type` gate at the 3 default-binding-mode sites) (F).
 27. Pattern parse gaps batch: `&&pat`, const range bounds, exclusive/char ranges, `S { ref a }`, `S { 0: a }`, `(..)` (F).
 28. Fully-qualified dotted+`::` path in expr/type position; UFCS honors the trait qualifier (I,E).
-29. Uninhabited-variant arm elision in exhaustiveness (O).
+29. ✅ `a83e6ed5` Uninhabited-variant arm elision in exhaustiveness (O).
 30. Nested `#(…)*` repetition in quote templates (`sema_expr.cpp:14822,15860`) (J).
 
 ### Tier 3 — documentation / register hygiene (single pass)
