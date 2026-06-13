@@ -1933,7 +1933,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         // metacall BLOCK. Evaluate it directly via the same CTFE
                         // channel metacall discriminants use.
                         if (code_of(blk) != la::BLOCK) {
-                            auto r = ctfe::eval_expr(blk, holder_);
+                            auto r = ctfe_eval_const(blk, holder_);
                             if (!r)
                                 error(std::format("enum discriminant expression: {}", r.error().msg));
                             else
@@ -1964,7 +1964,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
                         if (!have_tail) {
                             error("metacall in enum discriminant must contain a single integer expression");
                         } else {
-                            auto r = ctfe::eval_expr(tail, holder_);
+                            auto r = ctfe_eval_const(tail, holder_);
                             if (!r)
                                 error(std::format("metacall in enum discriminant: {}", r.error().msg));
                             else

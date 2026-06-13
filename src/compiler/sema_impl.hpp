@@ -19,6 +19,7 @@
 #include <logos/compiler/variance.hpp>
 #include <logos/compiler/outlives.hpp>
 #include <logos/compiler/subtype.hpp>
+#include "ctfe.hpp"   // T2-14: ctfe_eval_const signature (CtfeValue/CtfeError)
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/compat.hpp>
@@ -712,6 +713,14 @@ private:
     TypeRef fill_inferred_from_rhs(TypeRef ann, TypeRef rhs);
     // True when t contains a `_` (InferredType) hole at any depth.
     bool type_has_inferred(TypeRef t);
+
+    // T2-14: CTFE-evaluate `node` with a ConstResolver bound to
+    // module_const_values_, so a const PATH (`metacall { N }`, N a const)
+    // folds. Use at every type/value-position CTFE site instead of a bare
+    // ctfe::eval_expr — the resolver is what closes K10-co-06's PATH folding.
+    logos::expected<logos::compiler::ctfe::CtfeValue,
+                    logos::compiler::ctfe::CtfeError>
+    ctfe_eval_const(hermes::TinyMapView node, hermes::MemHolder* h) noexcept;
 
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a

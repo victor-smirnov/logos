@@ -11055,7 +11055,7 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
             error("array fill literal: metacall must contain an integer expression");
             return error_expr();
         }
-        auto r = ctfe::eval_expr(tail, holder_);
+        auto r = ctfe_eval_const(tail, holder_);
         if (!r) {
             error(std::format("array fill literal: metacall: {}", r.error().msg));
             return error_expr();

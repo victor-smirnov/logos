@@ -1,0 +1,26 @@
+// audit-v2 T2-14 (PATH fold): a const PATH in a CTFE type/value position
+// (`[T; metacall { N }]`, `[v; metacall { N }]`) folds to the const's
+// value. Pre-fix the array-length / array-fill CTFE sites called
+// ctfe::eval_expr WITHOUT a ConstResolver, so a bare `N` was "not a
+// compile-time constant". A shared ctfe_eval_const (resolver over
+// module_const_values_) is now wired at every type/value CTFE site;
+// transitive const-of-const (`N = BASE + 1`) folds too.
+package ctfe_const_path_fold;
+
+const BASE: i64 = 3;
+const N: i64 = BASE + 1;          // transitive const PATH
+
+fn main() -> i32 {
+    let a: [i64; metacall { N }] = [10i64, 20i64, 30i64, 40i64];   // N == 4
+    if a.len() != 4i64 { return 1; }
+    if a[3] != 40i64 { return 2; }
+
+    let b: [i32; metacall { BASE }] = [7i32, 7i32, 7i32];          // BASE == 3
+    if b.len() != 3i64 { return 3; }
+
+    let c = [9i64; metacall { N }];                                // fill, N == 4
+    if c.len() != 4i64 { return 4; }
+    if c[3] != 9i64 { return 5; }
+
+    return 0;
+}

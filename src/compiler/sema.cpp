@@ -4118,6 +4118,29 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
 // return ann unchanged — the let path's types_compatible check owns the
 // diagnostics.
 // True when `t` contains a `_` (InferredType) hole at any depth.
+logos::expected<logos::compiler::ctfe::CtfeValue,
+                logos::compiler::ctfe::CtfeError>
+SemaChecker::ctfe_eval_const(hermes::TinyMapView node,
+                             hermes::MemHolder* h) noexcept {
+    // ConstResolver over module_const_values_ — a bare-ident const PATH
+    // (`metacall { N }`) folds to its RHS value (T2-14 / K10-co-06).
+    struct R final : logos::compiler::ctfe::ConstResolver {
+        const logos::compiler::StrMap<hermes::TinyMapView>& consts;
+        hermes::MemHolder* hh;
+        R(const logos::compiler::StrMap<hermes::TinyMapView>& m,
+          hermes::MemHolder* holder) : consts(m), hh(holder) {}
+        hermes::TinyMapView lookup_const(std::string_view name,
+                                         hermes::MemHolder** out) override {
+            auto it = consts.find(name);
+            if (it == consts.end()) return hermes::TinyMapView{};
+            if (out) *out = hh;
+            return it->second;
+        }
+    };
+    R r(module_const_values_, h);
+    return logos::compiler::ctfe::eval_expr(node, h, &r);
+}
+
 bool SemaChecker::type_has_inferred(TypeRef t) {
     if (!t) return false;
     if (t.kind() == LogosType::Kind::InferredType) return true;
@@ -5904,7 +5927,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                 error("metacall in array length must contain a single integer expression");
                 return make_array(elem, 0, symbolic);
             }
-            auto r = ctfe::eval_expr(tail, holder_);
+            auto r = ctfe_eval_const(tail, holder_);
             if (!r) {
                 error(std::format("metacall in array length: {}", r.error().msg));
                 return make_array(elem, 0, symbolic);
