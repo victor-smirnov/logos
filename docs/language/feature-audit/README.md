@@ -99,7 +99,7 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 
 ### Tier 2 — high-impact parity / surface
 
-14. Wire `SemaConstResolver` at the 3 type-position CTFE sites (`sema.cpp:5654`, `sema_expr.cpp:10868`, `sema_collect.cpp:1943/1974`) — closes K10-co-06; then PATH folding in `ctfe::do_eval` + trait-default assoc-const projection (M,C).
+14. ◑ `17e7f97c` Trait-default assoc-const projection DONE (`impl Tr for T {}` → `T::C` = default); metacall-in-array-size already worked. REMAINING: PATH folding in `ctfe::do_eval` (M,C).
 15. ✅ `f0bb96bf` `Not` dispatch fix (`not_`→`not`, sema + mono) + `impl Not` test (E).
 16. ✅ `1e537517` Comparison operators → PartialOrd `partial_cmp` dispatch (`a<b` ≡ `a.partial_cmp(&b).is_lt()`); direct `lt` still wins (E,C,F).
 17. ✅ `308d94e3` Inclusive range VALUE → generic `RangeOfIncl<T>` (real end, no hi+1 overflow/observability); `for` counter loop unaffected (E).
