@@ -5815,12 +5815,20 @@ void Mono::instantiate_enum_templates() {
                         std::make_unique<lir::LFunction>(std::move(alias)));
                     lir_mirror_emit_function(out_, *out_.mirror_table,
                                              *out_.functions.back());
+                    // Scan the cloned enum-method body for nested generic calls
+                    // (mirrors the struct-method path's `scan_fn(*m)`). Without
+                    // this, a method like `Option::take` that calls a generic FREE
+                    // fn (`mem::replace_ref::<Option<T>>`) never enqueues that
+                    // specialization → mlir-gen "does not reference a valid
+                    // function". The enclosing fixpoint drains anything enqueued.
+                    scan_fn(*out_.functions.back());
                 }
                 if (need_primary) {
                     nm.name = inst_name;
                     done_.insert(inst_name);
                     out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(nm)));
                     lir_mirror_emit_function(out_, *out_.mirror_table, *out_.functions.back());
+                    scan_fn(*out_.functions.back());
                 }
             }
             out_.enums.push_back(std::move(inst));
