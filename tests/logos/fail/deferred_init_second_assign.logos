@@ -1,0 +1,9 @@
+// T2-25 boundary: a deferred-init non-mut local accepts ONE assignment;
+// a second one (the binding is now initialised) requires `mut`.
+package deferred_init_second_assign;
+fn main() -> i32 {
+    let x: i32;
+    x = 5;
+    x = 7;
+    return x;
+}

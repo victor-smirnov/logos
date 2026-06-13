@@ -1,0 +1,32 @@
+// audit-v2 T2-25: deferred initialization of a NON-mut local. A
+// `let x: T;` declared without an initializer may be assigned exactly
+// once without `mut` (Rust reference variable.init). The definite-
+// assignment substrate (currently_uninit_vars_) gates it: the first
+// write clears the flag, so a second write — or a write to an already-
+// initialised immutable binding — still errors.
+package deferred_init_non_mut;
+
+fn straight() -> i32 {
+    let x: i32;
+    x = 5;
+    return x;
+}
+
+fn conditional() -> i32 {
+    let y: i32;
+    if straight() == 5 { y = 10; } else { y = 20; }
+    return y;
+}
+
+fn move_type() -> i64 {
+    let s: String;
+    s = String::from("hello");
+    return s.len();
+}
+
+fn main() -> i32 {
+    if straight()    != 5     { return 1; }
+    if conditional() != 10    { return 2; }
+    if move_type()   != 5i64  { return 3; }
+    return 0;
+}

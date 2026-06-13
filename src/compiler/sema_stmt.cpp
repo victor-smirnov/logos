@@ -2505,7 +2505,13 @@ lir::LStmt SemaChecker::lower_assign(TinyMapView node) {
                 "write to mutable static `{}` requires `unsafe` block "
                 "(Rust `items.static.mut.safety`)", name));
     } else if (!lookup_is_mut(name)) {
-        error(std::format("assignment to immutable variable '{}'", name));
+        // T2-25: deferred initialization of a non-mut local. A `let x: T;`
+        // (declared without an initializer) may be assigned EXACTLY ONCE
+        // without `mut` (Rust's variable.init example). currently_uninit_vars_
+        // holds it until that first write, which erases it below — a SECOND
+        // assignment then correctly errors.
+        if (!currently_uninit_vars_.count(std::string(name)))
+            error(std::format("assignment to immutable variable '{}'", name));
     }
 
     // Pin the LHS type as the enum hint while lowering the RHS, exactly as the
