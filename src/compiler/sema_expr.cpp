@@ -9584,6 +9584,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 check_variance(fval->type, ft,
                                std::format("struct literal '{}' field '{}'", sname, fname),
                                /*permissive=*/true);
+            // T1-12 (audit-v2): dyn+auto bound at field-init coercion
+            // (`Holder { d: &not_send }` against `d: &dyn Trait + Send`).
+            if (ft)
+                check_dyn_auto_bounds_at_coercion(*fval, ft);
             // Check IntLit field value fits in the declared field type.
             if (ft && TypeRef(fval->type).kind() == LogosType::Kind::IntLit)
                 if (auto v = get_intlit_value(fval))

@@ -420,9 +420,12 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 // same variance gate as the explicit `return` path —
                 // `fn f(a: &[Vec<i32>]) -> &[Vec<i64>] { a }` slipped
                 // through here while `return a;` was rejected.
-                if (inner)
+                if (inner) {
                     check_variance(inner->type, ret_type_,
                                    "return type mismatch");
+                    // T1-12: dyn+auto bound at tail-return coercion.
+                    check_dyn_auto_bounds_at_coercion(*inner, ret_type_);
+                }
                 return builder().stmt_return(std::move(inner), node_line_);
             }
             return lower_return(stmt);
@@ -1993,6 +1996,10 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         if (rhs && ann && !rhs_is_expr_blob)
             check_variance(rhs_type, ann, std::format("let '{}'", name),
                            /*permissive=*/false);
+        // T1-12 (audit-v2): `let r: &dyn Trait + Send = &not_send;` — the
+        // dyn+auto-bound gate used to fire at arg-coercion only.
+        if (rhs && ann)
+            check_dyn_auto_bounds_at_coercion(*rhs, ann);
         // Implicit safe integer widening: u32 → i64, i32 → i64, u8 → u32, ...
         if (rhs && ann && is_integer_kind(TypeRef(ann).kind()) && is_integer_kind(TypeRef(rhs_type).kind()) &&
             TypeRef(rhs_type).kind() != LogosType::Kind::IntLit &&
@@ -2775,6 +2782,8 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
             } else if (ret_type_) {
                 check_variance(val->type, ret_type_, "return type mismatch",
                                /*permissive=*/false);
+                // T1-12: dyn+auto bound at return coercion.
+                check_dyn_auto_bounds_at_coercion(*val, ret_type_);
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&

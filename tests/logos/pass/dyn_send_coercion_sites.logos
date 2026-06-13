@@ -1,0 +1,17 @@
+package dyn_send_coercion_sites;
+
+trait Speak { fn hi(&self) -> i32; }
+
+struct Fine { x: i32 }
+impl Speak for Fine { fn hi(&self) -> i32 { 2 } }
+
+struct Holder { d: &dyn Speak + Send }
+
+fn give(f: &Fine) -> &dyn Speak + Send { f }
+
+fn main() -> i32 {
+    let f = Fine { x: 1 };
+    let r: &dyn Speak + Send = &f;
+    let h = Holder { d: &f };
+    r.hi() + h.d.hi() + give(&f).hi() - 6
+}

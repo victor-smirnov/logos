@@ -1,0 +1,23 @@
+// audit-v2 T1-12: `dyn Trait + Send/Sync` auto-bounds are enforced at
+// EVERY unsize-coercion site — let-init, return (incl. tail-expr), and
+// struct-field-init — not just call-arg coercion. Pre-fix
+// `let r: &dyn Speak + Send = &not_send;` compiled silently.
+package dyn_send_let_return_sites;
+
+trait Speak { fn hi(&self) -> i32; }
+
+struct NotSend { p: *mut u8 }
+impl Speak for NotSend { fn hi(&self) -> i32 { 1 } }
+
+struct Holder { d: &dyn Speak + Send }
+
+fn give(ns: &NotSend) -> &dyn Speak + Send {
+    ns
+}
+
+fn main() -> i32 {
+    let mut b = 0u8;
+    let ns = NotSend { p: &mut b };
+    let r: &dyn Speak + Send = &ns;
+    r.hi() - 1
+}
