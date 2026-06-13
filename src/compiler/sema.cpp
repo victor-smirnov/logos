@@ -1480,7 +1480,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
     if (auto git = generic_overloads_.find(std::string(base_name)); git != generic_overloads_.end()) {
         for (auto& sym : git->second) {
             auto fit = generic_funcs_.find(sym);
-            if (fit != generic_funcs_.end())
+            if (fit != generic_funcs_.end() && pkg_qualifier_ok(fit->second))  // T2-28
                 return &fit->second;
         }
     }
@@ -1496,6 +1496,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
             auto fit = generic_funcs_.find(sym);
             if (fit == generic_funcs_.end()) continue;
             auto& fi = fit->second;
+            if (!pkg_qualifier_ok(fi)) continue;  // T2-28: explicit pkg filter
             bool arity_ok = fi.is_vararg ? n_args >= fi.param_types.size()
                                          : fi.param_types.size() == n_args;
             if (!arity_ok) { if (!fallback) fallback = &fi; continue; }
@@ -1560,6 +1561,15 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     // Fallback: if filtering would leave nothing, return everything —
     // sema-internal lookups during synthetic phases (metaprog stubs,
     // mono pre-image) may run before cur_imports_ is primed.
+    // T2-28: an explicit package qualifier (`pkg::fn(...)`) overrides the
+    // import-based visibility filter — only the named package's fn matches,
+    // and there is NO empty-fallback (a miss is a genuine "no such fn in pkg").
+    if (!call_pkg_qualifier_.empty()) {
+        std::vector<const SemaChecker::SemaFuncInfo*> q;
+        for (auto* fi : all)
+            if (fi->package == call_pkg_qualifier_) q.push_back(fi);
+        return q;
+    }
     std::vector<const SemaChecker::SemaFuncInfo*> out;
     out.reserve(all.size());
     for (auto* fi : all) {

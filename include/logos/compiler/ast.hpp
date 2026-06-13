@@ -40,6 +40,7 @@ inline constexpr Key RHS      {"RHS",      13};  // right-hand side
 inline constexpr Key CALLEE   {"CALLEE",   14};  // call target
 inline constexpr Key ARGS     {"ARGS",     15};  // call arguments
 inline constexpr Key USES     {"USES",     17};  // use declarations array
+inline constexpr Key QUAL_PARTS {"QUAL_PARTS", 17};  // T2-28: package-path segments (after RECEIVER) on a qualified CALL/GENERIC_CALL; reuses USES slot (call nodes never carry module USES)
 inline constexpr Key POINTEE  {"POINTEE",  18};  // pointee type for pointer types
 inline constexpr Key MUTPTR   {"MUTPTR",   19};  // pointer mutability (bool)
 inline constexpr Key RECEIVER {"RECEIVER", 20};  // receiver of field read / method call

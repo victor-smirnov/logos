@@ -3450,6 +3450,22 @@ private:
     // per-element at codegen) instead of rejecting on element-type mismatch.
     TypeRef hint_arr_elem_type_ = nullptr;
 
+    // T2-28: when a call is written with an explicit package qualifier
+    // (`logos.lang.mem::replace(...)`), this holds the dotted package
+    // ("logos.lang.mem") for the duration of that call's resolution. The
+    // free-fn candidate lookups (find_func_candidates / find_generic_func*)
+    // then accept ONLY functions whose `.package` matches exactly — this is
+    // what disambiguates same-named free fns across packages (mem::replace
+    // vs ptr::replace). Empty = unqualified call (normal import-based scope).
+    std::string call_pkg_qualifier_;
+    bool pkg_qualifier_ok(const SemaFuncInfo& fi) const {
+        return call_pkg_qualifier_.empty() ||
+               fi.package == call_pkg_qualifier_;
+    }
+    // Reconstruct the dotted package from a qualified-call node's
+    // RECEIVER (first segment) + PATH_PARTS (the rest). "" if not qualified.
+    std::string extract_pkg_qualifier(hermes::TinyMapView node);
+
     // ── Return reachability ───────────────────────────────────────
 
     bool stmt_always_returns(hermes::TinyMapView stmt);

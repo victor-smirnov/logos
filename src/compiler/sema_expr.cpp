@@ -2597,6 +2597,20 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     return builder().deref(std::move(operand), res);
 }
 
+std::string SemaChecker::extract_pkg_qualifier(TinyMapView node) {
+    // Qualified-call nodes carry RECEIVER (first package segment) + QUAL_PARTS
+    // (each {NAME: seg}); unqualified calls have neither → "".
+    if (!node.has_key(la::QUAL_PARTS) || !node.has_key(la::RECEIVER)) return "";
+    std::string q(str_of(node.get(la::RECEIVER.code)));
+    if (q.empty()) return "";
+    auto parts = arr_of(node.get(la::QUAL_PARTS.code));
+    for (uint64_t i = 0; i < parts.size(); ++i) {
+        q += ".";
+        q += std::string(str_of(map_of(parts.get(i)).get(la::NAME.code)));
+    }
+    return q;
+}
+
 lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Substituted antiquot at callee position lands in NAME (after
     // NAME_VAR(idx)→NAME(string) rewrite); accept either.
@@ -2606,6 +2620,27 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         callee = str_of(node.get(la::NAME.code));
         antiquot_callee = !callee.empty();
     }
+
+    // T2-28: package-qualified call (`pkg.path::fn(...)`) — RECEIVER+QUAL_PARTS
+    // carry the dotted package; constrain free-fn resolution to that package
+    // for this call's duration (RAII-restored).
+    struct QualGuard { std::string* slot; std::string prev;
+                       ~QualGuard() { *slot = std::move(prev); } }
+        _qg{&call_pkg_qualifier_, call_pkg_qualifier_};
+    call_pkg_qualifier_ = extract_pkg_qualifier(node);
+
+    // ARGS is normally a raw array (plain `IDENT(args)` via `$...`). The
+    // qualified `pkg::fn(args)` alt instead carries a `call_arg_list` node
+    // `{ITEMS:[...]}` — unwrap it there. Gated on QUAL_PARTS so the raw-array
+    // path (the overwhelming majority) is never reinterpreted as a map.
+    auto args_array = [&]() -> hermes::ArrayView {
+        auto av = node.get(la::ARGS.code);
+        if (node.has_key(la::QUAL_PARTS)) {
+            auto m = map_of(av);
+            if (m.has_key(la::ITEMS)) return arr_of(m.get(la::ITEMS.code));
+        }
+        return arr_of(av);
+    };
 
     // B-ts-01: tuple-struct constructor `Foo(a, b)` → struct literal
     // with positional fields named "0", "1", …. Routes through the
@@ -2757,7 +2792,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (is_closure || is_fn_ptr) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
+            auto args = args_array();
             for (uint64_t i = 0; i < args.size(); ++i)
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
         }
@@ -2840,7 +2875,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // IDENT-form CALL is unaffected.
     std::vector<lir::LExprPtr> arg_exprs;
     if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
+        auto args = args_array();
         uint64_t start = antiquot_callee ? 1 : 0;
         // Closure-arg type hinting: an un-annotated closure literal (`|s| {…}`)
         // needs its param/return types from the callee's formal. For a generic
@@ -3600,6 +3635,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         auto fit = generic_funcs_.find(sym);
         if (fit == generic_funcs_.end()) continue;
         auto& fi = fit->second;
+        if (!pkg_qualifier_ok(fi)) continue;  // T2-28: explicit pkg filter
         bool arity_ok = fi.is_vararg ? arg_types.size() >= fi.param_types.size()
                                      : fi.param_types.size() == arg_types.size();
         if (!arity_ok) continue;
@@ -5518,6 +5554,12 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
 
 lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
+
+    // T2-28: package-qualified turbofish call (`pkg.path::fn::<T>(...)`).
+    struct QualGuard { std::string* slot; std::string prev;
+                       ~QualGuard() { *slot = std::move(prev); } }
+        _qg{&call_pkg_qualifier_, call_pkg_qualifier_};
+    call_pkg_qualifier_ = extract_pkg_qualifier(node);
 
     // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
     // Helper: collect resolved type args.

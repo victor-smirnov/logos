@@ -1,0 +1,37 @@
+// T2-28 (Increment 1): package-qualified free-function calls. The Logos path
+// model is dotted-package + `::`-into-item; a free fn is a package member, so
+// the fully-qualified call is `pkg.path::fn(args)`. This resolves the member
+// to a free fn whose `.package` equals the joined dotted prefix EXACTLY — which
+// is what disambiguates same-named free fns across packages (`logos.lang.mem`
+// and `logos.lang.ptr` both export `swap`/`replace`).
+//
+// Covers: inferred type args, explicit turbofish, and cross-package
+// disambiguation (mem's `&mut`-based replace_ref vs ptr's raw `replace`).
+package test.qualified_pkg_call;
+
+use logos.lang.mem;
+
+fn main() -> i32 {
+    // inferred type arg
+    let mut a: i64 = 5i64;
+    let mut b: i64 = 9i64;
+    logos.lang.mem::swap_ref(&mut a, &mut b);
+    if a != 9i64 { return 1i32; }
+    if b != 5i64 { return 2i32; }
+
+    // explicit turbofish
+    let mut c: i64 = 1i64;
+    let mut d: i64 = 2i64;
+    logos.lang.mem::swap_ref::<i64>(&mut c, &mut d);
+    if c != 2i64 { return 3i32; }
+
+    // package-qualified replace (mem's `&mut`-based replace_ref): returns old,
+    // writes new. `replace`/`replace_ref` exist in more than one package, so the
+    // explicit `logos.lang.mem::` prefix is what selects the right one.
+    let mut e: i64 = 7i64;
+    let old = logos.lang.mem::replace_ref(&mut e, 42i64);
+    if old != 7i64 { return 4i32; }
+    if e != 42i64 { return 5i32; }
+
+    return 0i32;
+}

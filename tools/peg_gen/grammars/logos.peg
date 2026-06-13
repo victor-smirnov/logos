@@ -35,6 +35,7 @@
     CALLEE      = 14
     ARGS        = 15
     USES        = 17
+    QUAL_PARTS  = 17    // T2-28: package-path segments (after RECEIVER) on a qualified CALL/GENERIC_CALL. Reuses USES slot — call nodes never carry module USES.
     POINTEE     = 18
     MUTPTR      = 19
     RECEIVER    = 20
@@ -3124,7 +3125,18 @@
 
     // ── Free function call: fn(args) or fn::<T>(args) or Class::method(args) ─
     //                       or Class::<T>::method(args) — turbofish on the type.
-    call_expr <- IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+    // T2-28: package-qualified free-function call — `pkg.path::fn(args)` and
+    // `pkg.path::fn::<T>(args)`. The dotted prefix `IDENT path_dot_ident+` is a
+    // PACKAGE path (RECEIVER = first segment, PATH_PARTS = the rest); sema
+    // resolves the member as a free fn whose `.package` equals the joined path
+    // (this is what disambiguates same-named free fns across packages — e.g.
+    // `logos.lang.mem::replace` vs `logos.lang.ptr::replace`). Tried before the
+    // single-IDENT `::` alts; the mandatory `.`-segment makes it unambiguous.
+    call_expr <- IDENT path_dot_ident+ COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+              => { CODE: GENERIC_CALL, CALLEE: $4, RECEIVER: $1, QUAL_PARTS: $2, TYPE_PARAMS: $7, ARGS: $10 }
+               / IDENT path_dot_ident+ COLONCOLON IDENT LPAREN call_arg_list? RPAREN
+              => { CODE: CALL, CALLEE: $4, RECEIVER: $1, QUAL_PARTS: $2, ARGS: $6 }
+               / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
                / IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, TYPE_PARAMS: $4, NAME: $7, ARGS: $9 }
