@@ -2747,6 +2747,14 @@
               // payload.
               / IDENT COLONCOLON IDENT LBRACE (field_init (COMMA field_init)* COMMA?)? RBRACE
              => { CODE: ENUM_LIT_DATA, NAME: $1, FIELD: $3, IS_STRUCT_SHAPE: 1, ITEMS: $... }
+              // T2-28 (Increment 2): no-paren type-member through a dotted
+              // package prefix — `pkg.path.Enum::Variant` (unit variant) and
+              // `pkg.path.Type::CONST` (associated const). The last dotted
+              // segment is the type; sema (lower_enum_lit) derives it from
+              // QUAL_PARTS. The data form `pkg.Enum::Variant(args)` is caught
+              // earlier by the qualified call_expr alt (routed via static-call).
+              / IDENT path_dot_ident+ COLONCOLON IDENT
+             => { CODE: ENUM_LIT, NAME: $1, QUAL_PARTS: $2, FIELD: $4 }
               / IDENT COLONCOLON IDENT
              => { CODE: ENUM_LIT, NAME: $1, FIELD: $3 }
 

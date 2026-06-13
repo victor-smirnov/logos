@@ -1,0 +1,31 @@
+// T2-28 (Increment 2, no-paren forms): fully-qualified type-member PATHS
+// through a dotted package prefix —
+//   • `pkg.path.Enum::Variant`     unit enum variant
+//   • `pkg.path.Enum::Variant(a)`  data variant (via the qualified call path)
+//   • `pkg.path.Type::CONST`       associated constant
+// The last dotted segment is the type; sema resolves the member off it.
+package test.qualified_pkg_path_expr;
+
+enum Shape { Dot, Seg(i64) }
+
+struct Limits {}
+impl Limits { const MAX: i64 = 100i64; }
+
+fn main() -> i32 {
+    // unit variant via fully-qualified path
+    let d = test.qualified_pkg_path_expr.Shape::Dot;
+    match d { Shape::Dot => {} Shape::Seg(_) => { return 1i32; } }
+
+    // data variant via fully-qualified path
+    let s = test.qualified_pkg_path_expr.Shape::Seg(9i64);
+    match s {
+        Shape::Seg(n) => { if *n != 9i64 { return 2i32; } }
+        Shape::Dot    => { return 3i32; }
+    }
+
+    // associated const via fully-qualified path
+    let m = test.qualified_pkg_path_expr.Limits::MAX;
+    if m != 100i64 { return 4i32; }
+
+    return 0i32;
+}

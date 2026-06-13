@@ -11261,6 +11261,16 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
 
 lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
     std::string ename_buf(str_of(node.get(la::NAME.code)));
+    // T2-28 (Increment 2): a fully-qualified no-paren path `pkg.path.Type::member`
+    // (unit enum variant or associated const) arrives with NAME = first segment
+    // + QUAL_PARTS = the rest; the LAST segment is the type. (FIELD already holds
+    // the member.) The package prefix is dropped — lookup is by type name.
+    if (node.has_key(la::QUAL_PARTS)) {
+        auto parts = arr_of(node.get(la::QUAL_PARTS.code));
+        if (parts.size() >= 1)
+            ename_buf = std::string(
+                str_of(map_of(parts.get(parts.size() - 1)).get(la::NAME.code)));
+    }
     // G160-1: `Self::Qux` (unit variant) inside an `impl Enum` body — resolve
     // `Self` to the enclosing enum's name so the variant lookup succeeds (the
     // tuple-variant form `Self::Bar(x)` already resolves via lower_static_call;
