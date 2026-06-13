@@ -1922,6 +1922,11 @@
     // ── Single field in a struct pattern ─────────────────────────────────
     pat_field <- DOTDOT
               => { CODE: PAT_REST }
+              // T2-27: `S { 0: a }` — tuple-struct field by index in struct-
+              // pattern syntax. The integer is the field name ("0", "1", …);
+              // sema's struct-pattern binder resolves it positionally.
+               / INTEGER COLON pat_single
+              => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
                / IDENT COLON pat_single
               => { CODE: PAT_FIELD, NAME: $1, VALUE: $3 }
                // T2-27: `S { ref a }` / `S { ref mut a }` — bind the field
@@ -1998,6 +2003,13 @@
         // local from the scrutinee).
         / KW_MUT IDENT
         => { CODE: PAT_WILD, NAME: $2, IS_MUT: true }
+        // T2-27: `&&pat` / `&&mut pat` — the lexer fuses `&&` into the AND
+        // token, so a double-reference pattern can't reach the `AMP …`
+        // alts. Match AND + an inner reference (pat_inner_ref builds the
+        // inner PAT_REF) and wrap once more → PAT_REF(PAT_REF(pat)); the
+        // existing PAT_REF builder peels one scrutinee ref-layer per level.
+        / AND pat_inner_ref
+        => { CODE: PAT_REF, VALUE: $2 }
         // reference pattern: &mut pat or &pat
         // NG1: use pat_single (not pat_single_base) so &ref x, &n@42, etc. work.
         / AMP KW_MUT pat_single
@@ -2006,6 +2018,13 @@
         => { CODE: PAT_REF, VALUE: $2 }
         // everything else
         / pat_single_base
+
+    // T2-27 helper: the INNER reference of a `&&[mut] pat` — yields a
+    // PAT_REF node so the outer alt can wrap it a second time.
+    pat_inner_ref <- KW_MUT pat_single
+                  => { CODE: PAT_REF, IS_MUT: true, VALUE: $2 }
+                   / pat_single
+                  => { CODE: PAT_REF, VALUE: $1 }
 
     // Unit pattern `()` (Sprint 4.2 — needed when generalising
     // pat_variant_args to pat_single, since `Result::Ok(())` previously

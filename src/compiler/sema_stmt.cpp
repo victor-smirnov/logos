@@ -4788,6 +4788,30 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         }
                         lir::PatFieldBinding pfb;
                         pfb.field_name = fname;
+                        // T2-27: `S { ref a }` / `S { ref mut a }` shorthand —
+                        // IS_REF/IS_MUT on the PAT_FIELD itself (no VALUE).
+                        // Synthesize a PatRefBind sub so `a` binds `&[mut]T`
+                        // (same shape as a plain `ref [mut] a`); the NC3
+                        // codegen then yields a pointer-to-field and `*a`
+                        // reads / (mut) writes through it.
+                        bool fld_is_ref = fnode.has_key(la::IS_REF) &&
+                            fnode.get(la::IS_REF.code).is_value() &&
+                            fnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
+                        bool fld_is_mut = fnode.has_key(la::IS_MUT) &&
+                            fnode.get(la::IS_MUT.code).is_value() &&
+                            fnode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                        if (fld_is_ref && !fnode.has_key(la::VALUE) &&
+                            fname != "_") {
+                            TypeRef bt = make_ref(fld_is_mut,
+                                (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
+                                    ? ftype : error_t());
+                            lir::Pattern rp;
+                            rp.mirror_offset_ = lir_mirror_emit_pat_ref_bind(
+                                *cur_prog_, fname, fld_is_mut, bt);
+                            pfb.sub.push_back(std::move(rp));
+                            ps.fields.push_back(std::move(pfb));
+                            continue;
+                        }
                         if (fnode.has_key(la::VALUE)) {
                             auto sub_node = map_of(fnode.get(la::VALUE.code));
                             int32_t sknode = code_of(sub_node);
