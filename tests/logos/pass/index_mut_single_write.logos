@@ -1,0 +1,11 @@
+// Tier1: a single `&mut v[i]` write (and two shared `&v[i]`) stay valid.
+package index_mut_single_write;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(10i64); v.push(20i64);
+    let a: &mut i64 = &mut v[0];
+    *a = 99i64;
+    let x: &i64 = &v[0];
+    let y: &i64 = &v[1];
+    if *x + *y == 119i64 { 0i32 } else { 1i32 }
+}

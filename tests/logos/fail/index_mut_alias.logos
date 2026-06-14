@@ -1,0 +1,14 @@
+// Tier1 soundness: two live `&mut v[i]` over a user IndexMut (Vec) must conflict
+// (each `&mut v[i]` borrows all of `v` via index_mut; rustc E0499). The borrow
+// was recorded SHARED — method_self_kind couldn't resolve the desugared
+// index_mut (AddrOfTemp(Deref(MethodCall)) → 0 → shared) — so two `&mut v[i]`
+// (even the same index) aliased undetected.
+package index_mut_alias;
+fn main() -> i32 {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(1i64); v.push(2i64);
+    let a: &mut i64 = &mut v[0];
+    let b: &mut i64 = &mut v[1];
+    *a = *b;
+    0i32
+}

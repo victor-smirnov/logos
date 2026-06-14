@@ -561,6 +561,12 @@ class BorrowChecker {
     // Type-param names with an explicit `Copy` bound (per current fn) — a bare
     // TypeVar not in this set is move-classified (Rust generic-body semantics).
     std::unordered_set<std::string>      copy_tvs_;
+    // Set transiently while recording a method-RESULT reborrow (`&mut v[i]` =
+    // AddrOfTemp(Deref(MethodCall index_mut))): the OUTER `&mut` is the
+    // authoritative borrow mutability. method_self_kind can't always resolve
+    // the desugared index_mut (returns 0 ⇒ would record a SHARED borrow ⇒ two
+    // `&mut v[i]` alias undetected). The MethodCall recorder ORs this in.
+    bool                                 reborrow_force_mut_ = false;
     // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
     mutable std::unordered_map<std::string, const LFunction*> fn_by_name_;
     // Fallback index by unmangled method name — for operator-desugared / trait
@@ -1698,7 +1704,16 @@ class BorrowChecker {
                 if (inner && inner.kind() == Code::Deref) {
                     if (auto op = EDerefView{inner}.operand();
                         op && op.kind() == Code::MethodCall) {
+                        // `&mut v[i]` (= AddrOfTemp(Deref(index_mut(...)))): the
+                        // outer `&mut` makes the receiver borrow MUTABLE even
+                        // when method_self_kind can't resolve the desugared
+                        // index_mut. Without this the receiver records SHARED
+                        // and two live `&mut v[i]` (even same index) alias
+                        // undetected (rustc E0499).
+                        bool saved = reborrow_force_mut_;
+                        reborrow_force_mut_ = v.is_mut();
                         take_ref_borrows(op, line, holder);
+                        reborrow_force_mut_ = saved;
                         break;
                     }
                 }
@@ -1792,6 +1807,10 @@ class BorrowChecker {
             case Code::MethodCall: {
                 EMethodCallView v{e};
                 auto recv = v.receiver();
+                // Consume the reborrow-mut floor set by the `&mut v[i]` router;
+                // reset immediately so nested arg processing doesn't inherit it.
+                bool force_mut = reborrow_force_mut_;
+                reborrow_force_mut_ = false;
                 // Front (a): a method whose result borrows `self` (elision) ties
                 // the returned reference to the receiver — hold a borrow of the
                 // receiver's root place for the result's lifetime (`holder`), of
@@ -1808,7 +1827,7 @@ class BorrowChecker {
                     bool root_is_rawptr = bp.root_type &&
                         bp.root_type.kind() == LogosType::Kind::Ptr;
                     if (!bp.root.empty() && !root_is_rawptr && states_.count(bp.root))
-                        take_borrow(bp.root, av.is_mut(), line, holder);
+                        take_borrow(bp.root, av.is_mut() || force_mut, line, holder);
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
                     // AddrOfTemp (`v.iter_mut()` with v a value local). Same
@@ -1837,7 +1856,7 @@ class BorrowChecker {
                     }
                     if (!bp.root.empty() && !root_is_rawptr && !root_is_rc &&
                         states_.count(bp.root)) {
-                        bool m = method_self_kind(v) == 2;
+                        bool m = method_self_kind(v) == 2 || force_mut;
                         // Field-precise when the receiver is a field chain
                         // (`self.arc.deref_mut()` borrows self.arc, not all
                         // of self) — whole-root would falsely lock sibling
