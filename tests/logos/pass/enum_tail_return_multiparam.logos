@@ -1,0 +1,16 @@
+// Tier2: a tail-position enum literal in a fn returning a MULTI-type-param
+// generic enum left the unconstrained param as <error> (the variant used
+// constrains only some params), producing "unknown tagged enum
+// Either__i64__<error>" at mlir-gen + a corrupt return value ⇒ runtime
+// segfault. The explicit `return e;` path threaded ret_type_ as the enum
+// inference hint; the implicit tail form did not. (Option, 1 param, and
+// structs were unaffected; rustc accepts.)
+package enum_tail_return_multiparam;
+enum Either<A, B> { L(A), R(B) }
+fn make(x: i64) -> Either<i64, i64> { Either::L(x) }          // tail form
+fn parse(x: i64) -> Result<i64, bool> { Result::Ok(x) }       // stdlib Result, tail
+fn main() -> i32 {
+    let a = match make(5i64) { Either::L(v) => v, Either::R(_) => 0i64 };
+    let b = match parse(3i64) { Result::Ok(v) => v, Result::Err(_) => 0i64 };
+    if a + b == 8i64 { 0i32 } else { 1i32 }
+}

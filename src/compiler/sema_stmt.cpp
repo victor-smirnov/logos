@@ -400,7 +400,19 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             TypeRef(ret_type_).kind() != LogosType::Kind::Void) {
             // Peek the inner expression's type before deciding.
             if (stmt.has_key(la::VALUE)) {
+                // Thread the fn return type into enum-literal inference so a
+                // tail-position `Either::L(x)` / `Result::Ok(v)` resolves the
+                // enum's OTHER type params from ret_type_ (the variant used
+                // constrains only some params; the rest would infer `<error>`
+                // → mlir-gen "unknown tagged enum" + a corrupt return ⇒ runtime
+                // segfault). The explicit `return e;` path already does this
+                // (RETURN_EXPR / SReturn); the implicit tail form did not.
+                TypeRef _saved_enum_hint = hint_enum_type_;
+                if (ret_type_ &&
+                    TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
+                    hint_enum_type_ = ret_type_;
                 auto inner = lower_expr(map_of(stmt.get(la::VALUE.code)));
+                hint_enum_type_ = _saved_enum_hint;
                 if (inner && inner->type &&
                     TypeRef(inner->type).kind() == LogosType::Kind::Void) {
                     return builder().stmt_expr(std::move(inner), node_line_);
