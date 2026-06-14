@@ -1,22 +1,17 @@
 // logos-core §6.10 sub-deliverable 8/8: derive(Debug).
 //
-// Slice 1 emits a tuple-Debug shape: `Pt { x: 5, y: 7 }` debugs as
-// `(5, 7, )`. Rust's `Pt { x: 5, y: 7 }` field-named shape needs
-// per-field name-as-string-literal emit (requires extending
-// quote_expr! antiquot to substitute Ident cursors into string-
-// literal positions — Wave 9 follow-up). The positional shape
-// covers the common port use (`assert_eq!` Debug-rendering needs
-// to format SOMETHING; the exact spelling is rarely load-bearing).
-//
-// Per-field dispatch goes through `fmt_debug_to_string<T: Debug>`
-// rather than `self.fi.fmt(f)` directly — Logos's method-on-
-// primitive resolution doesn't reach `.fmt()` on bare i32 / i64
-// / etc., but the trait-bounded helper works via generic
-// dispatch.
+// Rust-shape field-named output `Pt { x: 5, y: 7 }`, emitted by the
+// stdlib derive_debug hook via the `DebugStruct` builder. The field
+// NAME labels come from `##field` str-position antiquots (T2-22): the
+// quote machinery substitutes an Ident into a string-literal position,
+// so `f.debug_struct(##nm).field(##fnames, &self.#fnames)` renders the
+// names. The builder owns brace padding + `, ` separators (no trailing
+// comma) — byte-identical to `core::fmt`'s derive.
 package core_6_10_derive_debug;
 
 use logos.std.compiler.metaprog;
 use logos.mem.fmt;
+use logos.std.io;
 
 #[derive_debug]
 struct Pt { x: i32, y: i32 }
@@ -24,7 +19,8 @@ struct Pt { x: i32, y: i32 }
 fn main() -> i32 {
     let p: Pt = Pt { x: 5i32, y: 7i32 };
     let s: String = fmt_debug_to_string(&p);
-    // Result string is non-empty (positional Debug rendered).
-    if s.len() == (0 as i64) { return 1i32; }
+    println_string(&s);
+    // Rust-exact field-named shape.
+    if s.as_str() != "Pt { x: 5, y: 7 }" { return 1i32; }
     return 0i32;
 }

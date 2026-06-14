@@ -520,7 +520,16 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                     - HermesAccess::base(doc));
                                 dbase = HermesAccess::base(doc);
                                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
-                                (void)tom->put(la::NAME.code,
+                                // LIT_STR placeholder (`##field`) → ident text
+                                // into VALUE (str label); VAR_REF → NAME.
+                                // (T2-22 str-position antiquot, repeat path.)
+                                bool is_strlit = false;
+                                if (tom->has_key(la::CODE.code)) {
+                                    AnyVal cv = tom->get(la::CODE.code);
+                                    if (cv.is_value() && cv.as_value<int32_t>() == la::LIT_STR.code)
+                                        is_strlit = true;
+                                }
+                                (void)tom->put(is_strlit ? la::VALUE.code : la::NAME.code,
                                     AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)),
                                     arena);
                                 dbase = HermesAccess::base(doc);
@@ -768,7 +777,17 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     - HermesAccess::base(doc));
                 dbase = HermesAccess::base(doc);
                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
-                (void)tom->put(la::NAME.code,
+                // `##name` antiquot parses as a LIT_STR node carrying
+                // NAME_VAR; the substituted ident text is the string's
+                // VALUE (a string-literal label), not its NAME. Plain
+                // `#name` (VAR_REF) takes NAME. (T2-22 str-position antiquot.)
+                bool is_strlit = false;
+                if (tom->has_key(la::CODE.code)) {
+                    AnyVal cv = tom->get(la::CODE.code);
+                    if (cv.is_value() && cv.as_value<int32_t>() == la::LIT_STR.code)
+                        is_strlit = true;
+                }
+                (void)tom->put(is_strlit ? la::VALUE.code : la::NAME.code,
                     AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(name_off)), arena);
                 dbase = HermesAccess::base(doc);
                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);

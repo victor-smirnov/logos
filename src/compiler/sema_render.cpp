@@ -916,6 +916,16 @@ std::string SemaChecker::render_stmt_src(TinyMapView node) {
         return s;
     }
 
+    case la::BLOCK_STMT: {
+        // bare scoping block `{ stmts… }` at statement position (BODY = block).
+        if (node.has_key(la::BODY)) {
+            auto inner = map_of(node.get(la::BODY.code));
+            if (code_of(inner) == la::BLOCK) return render_block_src(inner);
+            return render_stmt_src(inner);
+        }
+        return "{}";
+    }
+
     default:
         return std::format("/* render_stmt: unsupported AST code {} */;", c);
     }

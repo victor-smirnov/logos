@@ -2544,6 +2544,7 @@
                            => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
                      / HASH LPAREN expr RPAREN
                            => { CODE: VAR_REF, NAME_VAR: $3 }
+                     / HASH HASH IDENT => { CODE: LIT_STR, NAME_VAR: $3 }
                      / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
                      / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 
@@ -2745,6 +2746,7 @@
                         => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
                   / HASH LPAREN expr RPAREN
                         => { CODE: VAR_REF, NAME_VAR: $3 }
+                  / HASH HASH IDENT => { CODE: LIT_STR, NAME_VAR: $3 }
                   / HASH IDENT => { CODE: VAR_REF, NAME_VAR: $2 }
                   / IDENT    => { CODE: VAR_REF,  NAME: $1 }
 

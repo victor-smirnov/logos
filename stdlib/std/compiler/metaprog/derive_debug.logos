@@ -1,26 +1,24 @@
 // logos.std.compiler.metaprog — derive(Debug) for plain and
 // generic structs.
 //
-// Hook for `#[derive_debug]`. Emits
+// Hook for `#[derive_debug]`. Emits Rust-exact field-named output
+// `Name { f1: <f1>, f2: <f2>, … }` via the `DebugStruct` builder:
 //
 //   impl<T1: Debug, ...> Debug for Name<T1, ...> {
 //       fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-//           f.write_str("Name(");
-//           self.f1.fmt(f);  let _ = f.write_str(", ");
-//           self.f2.fmt(f);  let _ = f.write_str(", ");
+//           let mut __ds: DebugStruct = f.debug_struct("Name");
+//           let _ = __ds.field("f1", &self.f1);
+//           let _ = __ds.field("f2", &self.f2);
 //           …
-//           let _ = f.write_str(")");
-//           return Result::Ok(());
+//           return __ds.finish();
 //       }
 //   }
 //
-// Tuple-Debug shape (positional, no field-name labels) — Rust's
-// `Pt { x: 0, y: 0 }` shape needs per-field name-as-string-literal
-// emit, which requires extending quote_expr! antiquot to substitute
-// Ident cursors into string-literal positions (Wave 9 follow-up).
-// For slice 1 the positional shape covers the common port use
-// (`assert_eq!` debug-rendering needs to format SOMETHING — the
-// exact spelling is rarely load-bearing).
+// Field NAME labels come from `##field` str-position antiquots
+// (T2-22): the quote machinery substitutes an Ident into a string-
+// literal position. The builder owns brace padding + the `, `
+// separators (no trailing comma), so the output is byte-identical
+// to `core::fmt`'s `#[derive(Debug)]`.
 //
 // §6.10 sub-deliverable 8/8.
 
@@ -70,17 +68,17 @@ fn derive_debug_hook(target_offset: u32) -> () {
         let blob: QuoteItemBlob = quote_item! {
             impl Debug for #(nm) {
                 fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-                    // Use fmt_debug_to_string<T: Debug> per field so
-                    // primitives dispatch correctly via the generic
-                    // trait bound (Logos's method-on-primitive
-                    // resolution doesn't reach `.fmt()` directly).
-                    let mut __s: String = String::new();
-                    __s.push_str("(");
+                    // Rust-shape `Name { field: value, … }` via the
+                    // `DebugStruct` builder: `##nm`/`##fnames` are
+                    // str-position antiquots (the ident text rendered
+                    // as a string literal). The builder handles brace
+                    // padding + the `, ` separators with no trailing
+                    // comma, matching `core::fmt`'s derive exactly.
+                    let mut __ds: DebugStruct = f.debug_struct(##nm);
                     #(
-                        { __s.push_str(fmt_debug_to_string(&self.#fnames).as_str()); __s.push_str(", "); }
+                        { let _ = __ds.field(##fnames, &self.#fnames); }
                     )*
-                    __s.push_str(")");
-                    return f.write_str(__s.as_str());
+                    return __ds.finish();
                 }
             }
         };
@@ -89,17 +87,13 @@ fn derive_debug_hook(target_offset: u32) -> () {
         let blob2: QuoteItemBlob = quote_item! {
             impl<#( #tparams: Debug ),*> Debug for #nm<#( #tparams ),*> {
                 fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-                    // Use fmt_debug_to_string<T: Debug> per field so
-                    // primitives dispatch correctly via the generic
-                    // trait bound (Logos's method-on-primitive
-                    // resolution doesn't reach `.fmt()` directly).
-                    let mut __s: String = String::new();
-                    __s.push_str("(");
+                    // Rust-shape `Name { field: value, … }` via the
+                    // `DebugStruct` builder (see non-generic branch).
+                    let mut __ds: DebugStruct = f.debug_struct(##nm);
                     #(
-                        { __s.push_str(fmt_debug_to_string(&self.#fnames).as_str()); __s.push_str(", "); }
+                        { let _ = __ds.field(##fnames, &self.#fnames); }
                     )*
-                    __s.push_str(")");
-                    return f.write_str(__s.as_str());
+                    return __ds.finish();
                 }
             }
         };
