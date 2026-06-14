@@ -1,0 +1,17 @@
+// T2-24: an atomic store with a RUNTIME Ordering (the `store_ordered`
+// wrapper path) branches on SeqCst — the ONLY ordering that changes x86
+// store codegen (SeqCst = `xchg` full barrier; every weaker store = plain
+// `mov`). So: SeqCst → seq_cst store, else → release store (`release`
+// soundly covers Relaxed; a stronger ordering is always sound). Loads /
+// RMW / CAS are byte-identical across orderings on x86 and keep the plain
+// seq_cst fallback. A LITERAL ordering still lowers branch-free to its exact
+// store (read_ordering_at), so hot direct call sites pay nothing.
+package main;
+
+use logos.lang.atomic;
+
+fn my_rt_store(p: *mut i64, v: i64, ord: Ordering) {
+    unsafe { logos_atomic_store64_ord(p, v, ord); }
+}
+
+fn main() -> i32 { return 0; }

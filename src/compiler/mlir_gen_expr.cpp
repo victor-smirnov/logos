@@ -1852,6 +1852,59 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         return builder_.create<mlir::arith::ConstantIntOp>(
             loc_, /*value=*/0, /*width=*/32);
     };
+    // Is the Ordering arg at `idx` a compile-time literal? (read_ordering_at
+    // can't distinguish a runtime value from a literal SeqCst — both seq_cst.)
+    auto ord_is_literal = [&](size_t idx) -> bool {
+        if (idx >= arg_refs.size()) return false;
+        auto er = arg_refs[idx];
+        return er.kind() == lir_schema::expr::Code::EnumLit &&
+               lir_view::EEnumLitView{er}.enum_name() == "Ordering";
+    };
+    // T2-24: store with a RUNTIME Ordering (the `store_ordered` wrapper path,
+    // where read_ordering_at would fall back to seq_cst). On x86-64 a seq_cst
+    // store is `xchg` (a full barrier) while every weaker store is a plain
+    // `mov` — the ONLY ordering that changes x86 store codegen. So branch on
+    // the runtime ordering: SeqCst → seq_cst store, else → release store
+    // (`release` soundly covers Relaxed too — a stronger ordering is always
+    // sound). Loads / RMW / CAS are byte-identical across orderings on x86,
+    // so they keep the plain seq_cst fallback (no branch worth its cost).
+    auto emit_atomic_store_runtime =
+        [&](unsigned align, size_t ord_idx, size_t expected_args) -> mlir::Value {
+        if (arg_les.size() != expected_args) return nullptr;
+        auto ptr_v = gen_expr(*arg_les[0]); if (!ptr_v) return nullptr;
+        auto val_v = gen_expr(*arg_les[1]); if (!val_v) return nullptr;
+        auto ord_v = gen_expr(*arg_les[ord_idx]); if (!ord_v) return nullptr;
+        auto ord_ty = mlir::dyn_cast<mlir::IntegerType>(ord_v.getType());
+        auto emit_one = [&](mlir::LLVM::AtomicOrdering o) {
+            builder_.create<mlir::LLVM::StoreOp>(
+                loc_, val_v, ptr_v, align, /*isVolatile=*/false,
+                /*isNonTemporal=*/false, /*isInvariantGroup=*/false, o);
+        };
+        if (!ord_ty) {  // not an integer disc — keep the sound seq_cst store
+            emit_one(mlir::LLVM::AtomicOrdering::seq_cst);
+            return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+        }
+        auto sc_disc = builder_.create<mlir::arith::ConstantIntOp>(
+            loc_, /*SeqCst=*/4, ord_ty.getWidth());
+        auto is_sc = builder_.create<mlir::arith::CmpIOp>(
+            loc_, mlir::arith::CmpIPredicate::eq, ord_v, sc_disc);
+        auto* region = builder_.getBlock()->getParent();
+        auto* sc_block    = new mlir::Block();
+        auto* rel_block   = new mlir::Block();
+        auto* merge_block = new mlir::Block();
+        region->push_back(sc_block);
+        region->push_back(rel_block);
+        region->push_back(merge_block);
+        builder_.create<mlir::cf::CondBranchOp>(loc_, is_sc, sc_block, rel_block);
+        builder_.setInsertionPointToStart(sc_block);
+        emit_one(mlir::LLVM::AtomicOrdering::seq_cst);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        builder_.setInsertionPointToStart(rel_block);
+        emit_one(mlir::LLVM::AtomicOrdering::release);
+        builder_.create<mlir::cf::BranchOp>(loc_, merge_block);
+        builder_.setInsertionPointToStart(merge_block);
+        return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
+    };
     auto emit_atomic_fetch_add = [&](mlir::Type res_type,
                                      mlir::LLVM::AtomicOrdering ord =
                                          mlir::LLVM::AtomicOrdering::seq_cst,
@@ -1914,9 +1967,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     if (bare_intrinsic == "logos_atomic_load64_ord")
         if (auto v = emit_atomic_load(builder_.getI64Type(), 8, read_ordering_at(1), 2)) return v;
     if (bare_intrinsic == "logos_atomic_store32_ord")
-        if (auto v = emit_atomic_store(4, read_ordering_at(2), 3)) return v;
+        if (auto v = ord_is_literal(2) ? emit_atomic_store(4, read_ordering_at(2), 3)
+                                       : emit_atomic_store_runtime(4, 2, 3)) return v;
     if (bare_intrinsic == "logos_atomic_store64_ord")
-        if (auto v = emit_atomic_store(8, read_ordering_at(2), 3)) return v;
+        if (auto v = ord_is_literal(2) ? emit_atomic_store(8, read_ordering_at(2), 3)
+                                       : emit_atomic_store_runtime(8, 2, 3)) return v;
     if (bare_intrinsic == "logos_atomic_fetch_add32_ord")
         if (auto v = emit_atomic_fetch_add(builder_.getI32Type(), read_ordering_at(2), 3)) return v;
     if (bare_intrinsic == "logos_atomic_fetch_add64_ord")

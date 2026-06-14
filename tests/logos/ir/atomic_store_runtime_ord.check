@@ -1,0 +1,8 @@
+; FileCheck spec for atomic_store_runtime_ord.logos — T2-24.
+; Runtime Ordering → branch on SeqCst(4); SeqCst path stores seq_cst, the
+; other stores release (a plain `mov` on x86, avoiding the seq_cst `xchg`).
+
+; CHECK-LABEL: define {{.*}}my_rt_store
+; CHECK: icmp eq i32 {{.*}}, 4
+; CHECK-DAG: store atomic i64 {{.*}} seq_cst
+; CHECK-DAG: store atomic i64 {{.*}} release
