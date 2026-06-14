@@ -1,0 +1,6 @@
+// T2-19: ambiguous lifetime elision must be rejected (Rust E0106). With two
+// input reference lifetimes and no `&self`, the elided output reference lifetime
+// can't be assigned — the user must annotate which input it borrows from.
+package fail.lifetime_elision_e0106;
+fn pick(a: &i32, b: &i32) -> &i32 { return a; }   // E0106
+fn main() -> i32 { let x = 1i32; let y = 2i32; return *pick(&x, &y); }

@@ -2,6 +2,6 @@
 // through stacked shared refs is legal — Rust accepts; Logos accepts.
 package variance_ref_covariant;
 
-fn shorten<'a>(p: & &'static i32) -> & &'a i32 { return p; }
+fn shorten<'a, 'b>(p: &'b &'static i32) -> &'b &'a i32 { return p; }
 
 fn main() -> i32 { return 0; }

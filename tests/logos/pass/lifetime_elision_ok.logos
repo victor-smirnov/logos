@@ -1,0 +1,12 @@
+// T2-19: the elision rules that DO determine the output lifetime still compile —
+// rule 2 (exactly one input ref) and rule 3 (&self), plus explicit annotation.
+package test.lifetime_elision_ok;
+fn one(x: &i32) -> &i32 { return x; }                       // rule 2
+fn ann<'a>(a: &'a i32, b: &i32) -> &'a i32 { return a; }    // explicit
+struct S { v: i32 }
+impl S { fn get(&self) -> &i32 { return &self.v; } }        // rule 3
+fn main() -> i32 {
+    let a = 5i32; let b = 6i32;
+    let s = S { v: 7i32 };
+    return (*one(&a) + *ann(&a, &b) + *s.get() - 17i64 as i32);
+}

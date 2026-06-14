@@ -1,5 +1,5 @@
 package gen_over_ref;
-fn first<T>(x: &T, _y: &T) -> &T { return x; }
+fn first<'a, T>(x: &'a T, _y: &T) -> &'a T { return x; }
 fn main() -> i32 {
     let a: i32 = 5i32; let b: i32 = 0i32;
     return *first::<i32>(&a, &b) - 5i32;

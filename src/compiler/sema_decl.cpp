@@ -736,6 +736,73 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing parameter is rejected in
     // define() — each param is registered there during the prologue below.)
 
+    // T2-19 (E0106): lifetime-elision well-formedness on the SIGNATURE.
+    // Rust's rules: an elided output reference lifetime is filled from the
+    // inputs only when (rule 2) there is EXACTLY ONE input lifetime position,
+    // or (rule 3) there is a `&self`/`&mut self` receiver. Otherwise the output
+    // lifetime is undeterminable → E0106 "missing lifetime specifier". Logos
+    // previously accepted `fn h(a:&i32,b:&i32)->&i32` (ambiguous) and
+    // `fn g()->&i32` (no source). Only fire on UNANNOTATED output refs — an
+    // explicit `&'a`/`&'static` is the user's choice.
+    {
+        // An elided output reference is one STRUCTURALLY in the return type:
+        // `&T`, `&&T`, `(&T, &U)`, `[&T; N]`, `&[T]`. A ref nested inside a
+        // generic type-ARG (`FilterIter<Self, &T>` where the iterator's `Item`
+        // resolves to `&T`) is NOT an elided output lifetime — it's the type
+        // param's own lifetime, carried by `Self`/the bound — so we do NOT
+        // recurse into type_args (that was an over-broad false positive).
+        std::function<bool(TypeRef)> has_elided_ref = [&](TypeRef t) -> bool {
+            if (!t) return false;
+            auto k = TypeRef(t).kind();
+            if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) &&
+                TypeRef(t).lifetime().empty())
+                return true;
+            if (TypeRef(t).pointee() && has_elided_ref(TypeRef(t).pointee())) return true;
+            if (TypeRef(t).elem() && has_elided_ref(TypeRef(t).elem())) return true;
+            for (auto e : TypeRef(t).tuple_elems()) if (has_elided_ref(e)) return true;
+            return false;
+        };
+        std::function<int(TypeRef)> count_ref_positions = [&](TypeRef t) -> int {
+            if (!t) return 0;
+            auto k = TypeRef(t).kind();
+            int n = 0;
+            if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) {
+                n += 1;
+                n += count_ref_positions(TypeRef(t).pointee());
+                return n;
+            }
+            if (TypeRef(t).pointee()) n += count_ref_positions(TypeRef(t).pointee());
+            if (TypeRef(t).elem())    n += count_ref_positions(TypeRef(t).elem());
+            for (auto a : TypeRef(t).type_args())   n += count_ref_positions(a);
+            for (auto e : TypeRef(t).tuple_elems()) n += count_ref_positions(e);
+            return n;
+        };
+        if (fn.ret_type && has_elided_ref(fn.ret_type)) {
+            int input_lts = 0;
+            bool has_self_ref = false;
+            for (auto& p : fn.params) {
+                if (!p.type) continue;
+                input_lts += count_ref_positions(p.type);
+                if (p.name == "self") {
+                    auto pk = TypeRef(p.type).kind();
+                    if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
+                        has_self_ref = true;
+                }
+            }
+            // Fire on the AMBIGUOUS case: 2+ input lifetimes and no `&self`, so
+            // elision rule 2/3 can't pick a source. (The 0-input case — a ref
+            // returned from no borrowed input, e.g. `Box::leak` returning
+            // `&'static` — is left to explicit annotation / the dangling-borrow
+            // check, to avoid flagging legitimate `'static`-source functions.)
+            if (!has_self_ref && input_lts >= 2) {
+                error("missing lifetime specifier (E0106): this function's return "
+                      "type contains a borrowed value with an elided lifetime, but "
+                      "the signature has more than one input lifetime and no `&self` "
+                      "— annotate which input the result borrows from (e.g. `&'a`)");
+            }
+        }
+    }
+
     // B65: outlives bounds — capture explicit + implied + where-clause +
     // type-outlives. Placed AFTER fn.params + fn.ret_type so the implied-
     // bounds walker sees the resolved signature.
