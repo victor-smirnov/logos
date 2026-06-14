@@ -1,0 +1,12 @@
+// Tier1 #10: whole-value use after a deep partial move stays an error (E0382).
+package partial_move_deep_whole;
+struct Inner { s: String, t: i64 }
+struct Outer { i: Inner }
+fn take(_x: String) {}
+fn use_o(_o: Outer) {}
+fn main() -> i32 {
+    let o = Outer { i: Inner { s: String::from("hi"), t: 4i64 } };
+    take(o.i.s);
+    use_o(o);
+    0i32
+}

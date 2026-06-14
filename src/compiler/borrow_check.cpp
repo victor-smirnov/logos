@@ -3012,10 +3012,23 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (!root.empty()) {
                 if (auto it = states_.find(root); it != states_.end()) {
                     if (auto* hit = find_moved_overlap(it->second.moved_fields, path)) {
-                        report(line, std::format(
-                            "use of moved field '{}.{}' (moved on line {})",
-                            root, hit->first, hit->second));
-                        break;
+                        // Two overlap directions: (1) `path` reads INTO moved
+                        // data (a moved entry is a prefix of path, e.g. read
+                        // `o.i.s.x` after `o.i.s` moved) — always an error; (2)
+                        // `path` is a strict PARENT of a moved leaf (read `o.i`
+                        // while `o.i.s` is gone) — an error only for a genuine
+                        // whole-value read, NOT when `o.i` is just an
+                        // intermediate projection to a DISJOINT deeper leaf
+                        // (`o.i.t`, which reaches through `o.i`). The latter is
+                        // the place-base position (in_addr_source_); rustc
+                        // accepts the disjoint sibling read.
+                        bool into_moved = path_prefix_or_eq(hit->first, path);
+                        if (into_moved || !in_addr_source_) {
+                            report(line, std::format(
+                                "use of moved field '{}.{}' (moved on line {})",
+                                root, hit->first, hit->second));
+                            break;
+                        }
                     }
                     bool moving = consuming && is_move_type(e.type(pool), prog_, ts_, &copy_tvs_);
                     // Reading/moving `root.path` while it (or an overlapping

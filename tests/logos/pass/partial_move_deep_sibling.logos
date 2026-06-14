@@ -1,0 +1,14 @@
+// Tier1 #10 residual: reading a DISJOINT sibling through an intermediate
+// projection after a deep partial move was a false positive — `take(o.i.s)`
+// then `o.i.t` flagged "use of moved field o.i.s" because the moved-overlap
+// check fired on the intermediate `o.i` projection (parent of the moved leaf).
+// rustc accepts the disjoint sibling read.
+package partial_move_deep_sibling;
+struct Inner { s: String, t: i64 }
+struct Outer { i: Inner }
+fn take(_x: String) {}
+fn main() -> i32 {
+    let o = Outer { i: Inner { s: String::from("hi"), t: 4i64 } };
+    take(o.i.s);
+    if o.i.t == 4i64 { 0i32 } else { 1i32 }
+}
