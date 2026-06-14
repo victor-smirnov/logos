@@ -242,7 +242,8 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
 // enum carrying a move element (e.g. `(String, i64)`) was treated as Copy →
 // move-while-borrowed and consume tracking silently skipped (a dangling-ref
 // soundness gap). Now recurses structurally to match the value's real ownership.
-static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& ts) {
+static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
+                         const std::unordered_set<std::string>* copy_tvs = nullptr) {
     // Shared aggregate-recursion skeleton (moveclass::is_move_type); the
     // callbacks reproduce borrow_check's exact (post-mono) semantics. Tuple /
     // Array recursion is single-sourced in the skeleton.
@@ -253,6 +254,20 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         // AddrOfTemp(Deref(r)), which the AddrOfTemp handler routes to a
         // borrow on r — they don't pass through the move path.
         if (x && x.kind() == LogosType::Kind::MutRef) return true;
+        // A bare type-parameter `T` is MOVE unless it carries an explicit
+        // `Copy` bound (Rust checks generic BODIES abstractly: `T` moves unless
+        // `T: Copy`). Mirrors sema's bound-aware is_move_type (DIVERGENCES §B1)
+        // — without this the borrow checker's PARTIAL-move tracker never marked
+        // `s.a: T` moved, so partial moves in generic templates (Tier 1) went
+        // undiagnosed. copy_tvs = the fn's Copy-bounded type-param names; null
+        // (post-mono / no context) leaves TypeVars conservative-move (sound:
+        // Copy ⊥ Drop). Concrete code post-mono has no TypeVars, so Tier 2 is
+        // unaffected.
+        if (x && x.kind() == LogosType::Kind::TypeVar) {
+            if (copy_tvs && copy_tvs->count(std::string(x.type_var_name())))
+                return std::optional<bool>(false);
+            return std::optional<bool>(true);
+        }
         return std::nullopt;
     };
     auto struct_is_move = [&](TypeRef x) {
@@ -267,7 +282,7 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
             if (ed.name != en) continue;
             for (auto& v : ed.variants)
                 for (auto& pt : v.payload_types)
-                    if (is_move_type(pt, prog, ts)) return true;
+                    if (is_move_type(pt, prog, ts, copy_tvs)) return true;
             return false;
         }
         return false;
@@ -543,6 +558,9 @@ class BorrowChecker {
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
     std::unordered_set<std::string>      param_names_;
+    // Type-param names with an explicit `Copy` bound (per current fn) — a bare
+    // TypeVar not in this set is move-classified (Rust generic-body semantics).
+    std::unordered_set<std::string>      copy_tvs_;
     // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
     mutable std::unordered_map<std::string, const LFunction*> fn_by_name_;
     // Fallback index by unmangled method name — for operator-desugared / trait
@@ -604,9 +622,18 @@ class BorrowChecker {
     std::unordered_map<std::string, uint32_t> last_use_line_;
 
     void report(uint32_t line, std::string msg) {
-        // P2-10 exclusivity-only mode: drop move/use-after-move diagnostics
-        // (imprecise for generic templates); keep borrow-conflict ones.
-        if (exclusivity_only_ && msg.find("moved") != std::string::npos) return;
+        // P2-10 exclusivity-only mode (Tier 1, generic templates): drop the
+        // WHOLE-VALUE use-after-move diagnostic ("use of moved value") — it is
+        // redundant with sema's flow `moved_vars_` check and imprecise on
+        // generics. But KEEP the PARTIAL-move diagnostics ("use of partially
+        // moved value" / "use of moved field") and move-while-borrowed: with
+        // bound-aware is_move_type (TypeVar = move unless Copy) the partial-move
+        // tracker is now precise on generic bodies, matching Rust's abstract
+        // generic check (DIVERGENCES §B1). sema doesn't track field-granular
+        // moves, so dropping these would re-open the Tier-1 partial-move hole.
+        if (exclusivity_only_ && msg.find("moved") != std::string::npos &&
+            msg.find("partially moved") == std::string::npos &&
+            msg.find("moved field") == std::string::npos) return;
         Diag d;
         d.level   = Diag::Level::Error;
         d.context = fn_name_;
@@ -2726,6 +2753,14 @@ public:
         param_names_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
+        // Type-params carrying an explicit `Copy` bound — a bare TypeVar is
+        // move UNLESS it is Copy (Rust generic-body semantics). Drives
+        // is_move_type's TypeVar leaf so the partial-move tracker fires on
+        // `s.a: T` in generic templates (Tier 1). See DIVERGENCES §B1.
+        copy_tvs_.clear();
+        for (auto& tp : fn.type_params)
+            for (auto& b : tp.bounds)
+                if (b.trait_name == "Copy") { copy_tvs_.insert(tp.name); break; }
         fn_lifetime_params_ = fn.lifetime_params;
         outlives_adj_ = outlives_adj(fn.lifetime_outlives);
         ret_type_ = fn.ret_type;
@@ -2788,7 +2823,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         case Code::VarRef: {
             EVarRefView v{e};
             std::string name(v.name());
-            if (consuming && is_move_type(e.type(pool), prog_, ts_))
+            if (consuming && is_move_type(e.type(pool), prog_, ts_, &copy_tvs_))
                 consume(name, line);
             else {
                 check_live(name, line);
@@ -2982,7 +3017,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             root, hit->first, hit->second));
                         break;
                     }
-                    bool moving = consuming && is_move_type(e.type(pool), prog_, ts_);
+                    bool moving = consuming && is_move_type(e.type(pool), prog_, ts_, &copy_tvs_);
                     // Reading/moving `root.path` while it (or an overlapping
                     // path) is borrowed: a read collides with a mut borrow
                     // (E0503); a partial move collides with ANY borrow (E0505).
