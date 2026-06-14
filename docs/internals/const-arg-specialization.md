@@ -6,16 +6,29 @@ spec clone with the literal baked → the atomic op carries the precise
 ordering (acquire/release), not seq_cst. Verified by IR-snapshot test
 `const_arg_atomic` (FileCheck on the spec bodies). L4 5671/5671.
 
-REMAINING — the stdlib last mile: the stdlib `_ordered` wrappers are
-NON-GENERIC, so emit_module compiles them into the `.a` as binary symbols
-(only generic fns get their bodies stashed as templates, emit_module.cpp:450
-/ 452-453). At user-compile their bodies aren't in `in_`, so
-`find_fn_def_by_base` misses them and no spec is made (sound: they keep
-seq_cst). To make REAL atomic call sites benefit, body-export the
-const-spec-source wrappers: at stdlib-emit stash bodies of methods that
-forward a param to a registry intrinsic (even on non-generic structs), and
-reconstruct them into `in_.structs[].methods` in the loader. Scoped, but in
-the (delicate) serialization/trailer subsystem — a separate step.
+EXTENDED 2026-06-14: engine now fires on **MethodCalls** too (`17ce28b8`) —
+`const_specialize_callee(callee, args)` injected at the concrete-method emit
+with a `[recv, args…]` combined view (self = param 0 = combined[0]). Proven
+on a user struct method (`MyAtomic::load_ord` → `acquire`).
+
+REMAINING — the stdlib last mile, now PRECISELY diagnosed (it is NOT a
+simple body-export):
+* The atomic `_ordered` wrappers ARE present at user-compile — as free fns
+  in `in_.functions` with a body `mirror_offset` set (non-generic bodies are
+  published, emit_module.cpp:538). So `find_fn_def_by_base` FINDS them and
+  the MethodCall injection REACHES them.
+* BUT their body mirror lives in the **loaded stdlib arena**, not `out_`'s.
+  `compute_const_want`'s walk uses `out_.type_pool.arena()` → the offset is
+  out of range → `nstmts=0` → `cw` empty → no spec (sound seq_cst). Binary-
+  symbol fns are never normally walked (mono uses `clone_fn_signature`,
+  body skipped), so there is no existing arena-resolution path for them.
+* The wrapper LFunction has NO `body_external_ref` (`extref=0`) — it carries
+  a foreign-arena `mirror_offset` with no arena_id to resolve. The clean fix
+  is to give these loaded binary-symbol fns a `body_external_ref` (the
+  Phase-5.B path at mono_clone.cpp:4574 then resolves the foreign arena for
+  BOTH `compute_const_want` and `clone_fn`), OR a name→EXPORTS arena lookup.
+  Either is a loader / multi-arena change affecting how every binary-symbol
+  fn body is referenced — deep and fragile, a dedicated step.
 
 ---
 
