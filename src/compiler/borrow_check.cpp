@@ -216,9 +216,17 @@ static bool needs_drop(TypeRef t, const lir::LProgram& prog, const TypeSets& ts)
 static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
                                   const TypeSets& ts) {
     if (!t || t.kind() != LogosType::Kind::Struct) return false;
+    // Match the struct DEF by its concrete (mono-mangled) name. A generic
+    // instantiation `Wrap<i64>` has struct_name()=="Wrap" (base, never mangled)
+    // but its def is stored as "Wrap$G1$i64" in prog.structs — matching on the
+    // bare base finds nothing, so the droppable `Vec<i64>` field was invisible
+    // and the value was mis-classified as non-move (move-while-field-borrowed
+    // slipped through for generic containers). concrete_struct_name == base for
+    // non-generic structs, so this also covers the plain case.
+    std::string want = concrete_struct_name(t);
     auto check = [&](const std::vector<LStructDef>& defs) -> bool {
         for (auto& sd : defs) {
-            if (sd.name != t.struct_name()) continue;
+            if (sd.name != want) continue;
             for (auto& f : sd.fields)
                 if (needs_drop(f.type, prog, ts)) return true;
             return false;
@@ -448,13 +456,31 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
             path_parts.push_back(std::string(fv.field()));
             cur = fv.receiver();
         } else if (cur.kind() == Code::IndexRead) {
+            auto recv = EIndexReadView{cur}.receiver();
+            // Indexing through a RAW pointer (`p[i]`, p: *mut/*const T) is an
+            // unsafe raw deref — like `*p`, it creates NO tracked borrow of the
+            // base (Rust parity: the aliasing is the programmer's job inside
+            // `unsafe`). `VecIterMut::next` does `&mut self.data[self.idx]` with
+            // `data: *mut T`; recording a field borrow on `self.data` there is
+            // wrong and would lock all of `self`. Bail with an empty root.
+            if (recv && recv.type(pool) &&
+                recv.type(pool).kind() == LogosType::Kind::Ptr) {
+                bp.root.clear();
+                return bp;
+            }
             path_parts.clear();
             bp.index_in_chain = true;
-            cur = EIndexReadView{cur}.receiver();
+            cur = recv;
         } else if (cur.kind() == Code::SliceIndex) {
+            auto sl = ESliceIndexView{cur}.slice();
+            if (sl && sl.type(pool) &&
+                sl.type(pool).kind() == LogosType::Kind::Ptr) {
+                bp.root.clear();
+                return bp;
+            }
             path_parts.clear();
             bp.index_in_chain = true;
-            cur = ESliceIndexView{cur}.slice();
+            cur = sl;
         } else if (cur.kind() == Code::Deref) {
             // A borrow through a REFERENCE deref (`*r`, `(*r).f`, `(*r)[i]`) is a
             // borrow of the reference variable `r` — root through it so reborrows
@@ -527,6 +553,14 @@ class BorrowChecker {
     // are taken as reservations (don't conflict with shared reads of the
     // same target during the remaining arg evaluation).
     int                                  in_call_args_ = 0;
+    // Set while visiting a PLACE-FORMING sub-expression: the inner of an
+    // AddrOfTemp (`&place`) or the receiver/base of a projection (`x.f`, `x[i]`,
+    // `recv.method()` — see visit_place_base). A VarRef/FieldRead reached here
+    // is part of naming a place, not a value-use, so the field-borrow value-use
+    // checks (#2 whole-read, #3 field-read) must not fire — the conflict was
+    // already decided at the borrow/projection site (else double-report, or a
+    // spurious whole-`w` conflict when walking `w.buf`'s base).
+    bool                                 in_addr_source_ = false;
     // param name → lifetime annotation of that param's type (e.g. "'a", "")
     std::unordered_map<std::string, std::string> param_lifetimes_;
     // B86: per-param inner-struct lifetime_args. Populated for ref-typed
@@ -742,6 +776,41 @@ class BorrowChecker {
                                 const std::string& path) {
         if (path.empty()) return target;
         return target + "." + path;
+    }
+    // True (and reports) if ACCESSING `target`(.`path`) collides with a tracked
+    // FIELD borrow. The field-borrow records (mut_field_borrows /
+    // shared_field_borrows) are consulted by take_field_borrow when a NEW borrow
+    // is taken, but the use/move/read checks (consume, VarRef read, FieldRead)
+    // used to ignore them — so `let r = &mut s.a; let s2 = s;` (move whole while
+    // a field is borrowed) and `let r = &mut s.a; let x = s.a;` (read a field
+    // while it is mut-borrowed) both slipped through (rustc E0505 / E0503).
+    //   need_exclusive = the access mutates/moves (whole move, partial move);
+    //     a plain read only collides with a MUT field borrow.
+    //   empty `path`   = whole-value access — collides with ANY field borrow.
+    //   `verb`         = shapes the diagnostic ("move", "use").
+    bool field_borrow_conflicts(const VarState& st, const std::string& target,
+                                const std::string& path, bool need_exclusive,
+                                uint32_t line, const char* verb) {
+        for (auto& p : st.mut_field_borrows) {
+            if (path.empty() || paths_overlap(path, p)) {
+                report(line, std::format(
+                    "cannot {} '{}' while '{}' is mutably borrowed",
+                    verb, fmt_path(target, path), fmt_path(target, p)));
+                return true;
+            }
+        }
+        if (need_exclusive) {
+            for (auto& [p, c] : st.shared_field_borrows) {
+                if (c <= 0) continue;
+                if (path.empty() || paths_overlap(path, p)) {
+                    report(line, std::format(
+                        "cannot {} '{}' while '{}' is borrowed",
+                        verb, fmt_path(target, path), fmt_path(target, p)));
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     void take_field_borrow(const std::string& target, std::string path,
                            bool is_mut, uint32_t line,
@@ -982,10 +1051,30 @@ class BorrowChecker {
             report(line, std::format("cannot move '{}' while it is borrowed", name));
             return false;
         }
+        // A live borrow of ANY field of `name` also blocks moving the whole
+        // value (rustc E0505) — the move would invalidate the field reference.
+        if (field_borrow_conflicts(it->second, name, /*path=*/"",
+                                   /*need_exclusive=*/true, line, "move"))
+            return false;
         it->second = VarState{};
         it->second.moved = true;
         it->second.moved_line = line;
         return true;
+    }
+
+    // Visit the RECEIVER/BASE sub-expression of a place projection (`x.f`,
+    // `x[i]`, `recv.method()`, `t.N`). This is place-FORMING, not a value-use:
+    // the precise place was already conflict-checked at the projection site, so
+    // the field-borrow VALUE-use checks must be suppressed while walking the
+    // base — otherwise reading `w.writer` (whose `writer` field the call just
+    // borrowed) would re-report whole-`w` as a conflicting use. Liveness/move
+    // checks (check_live, moved_fields) are NOT gated by the flag, so they still
+    // run on the base chain.
+    void visit_place_base(lir_view::ExprRef e, uint32_t line) {
+        bool saved = in_addr_source_;
+        in_addr_source_ = true;
+        visit(e, /*consuming=*/false, line);
+        in_addr_source_ = saved;
     }
 
     void check_live(const std::string& name, uint32_t line) {
@@ -1620,7 +1709,7 @@ class BorrowChecker {
                         if (inner) visit(inner, /*consuming=*/false, line);
                         if (!path.empty() && !root_is_union)
                             take_field_borrow(root, std::move(path), v.is_mut(), line,
-                                              bp.root_type);
+                                              bp.root_type, holder);
                         else
                             take_borrow(root, v.is_mut(), line, holder);
                         break;
@@ -1642,7 +1731,7 @@ class BorrowChecker {
                             take_borrow(root, is_mut, line, holder);
                         else
                             take_field_borrow(root, std::move(path), is_mut, line,
-                                              bp.root_type);
+                                              bp.root_type, holder);
                         break;
                     }
                 }
@@ -2701,8 +2790,21 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             std::string name(v.name());
             if (consuming && is_move_type(e.type(pool), prog_, ts_))
                 consume(name, line);
-            else
+            else {
                 check_live(name, line);
+                // A whole-value READ while one of its fields is MUT-borrowed is
+                // E0503 ("cannot use `s` because `s.a` was mutably borrowed").
+                // A shared field borrow leaves whole reads legal, so this is a
+                // read (need_exclusive=false) — only mut field borrows block.
+                // Suppressed in place-base position (`w.f`, `w[i]`, `w.m()`): a
+                // bare VarRef reached while walking a projection's receiver is
+                // not a whole-value use (that's why `w.buf` as an arg of
+                // `w.writer.wr(..)` must not flag whole-`w`).
+                if (auto it = states_.find(name);
+                    it != states_.end() && !in_addr_source_)
+                    field_borrow_conflicts(it->second, name, /*path=*/"",
+                                           /*need_exclusive=*/false, line, "use");
+            }
             break;
         }
 
@@ -2816,7 +2918,12 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     addrof_temp_done:;
                 }
             }
-            if (inner) visit(inner, /*consuming=*/false, line);
+            if (inner) {
+                bool saved = in_addr_source_;
+                in_addr_source_ = true;
+                visit(inner, /*consuming=*/false, line);
+                in_addr_source_ = saved;
+            }
             break;
         }
 
@@ -2875,27 +2982,38 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             root, hit->first, hit->second));
                         break;
                     }
-                    if (consuming && is_move_type(e.type(pool), prog_, ts_)) {
+                    bool moving = consuming && is_move_type(e.type(pool), prog_, ts_);
+                    // Reading/moving `root.path` while it (or an overlapping
+                    // path) is borrowed: a read collides with a mut borrow
+                    // (E0503); a partial move collides with ANY borrow (E0505).
+                    // Skipped in borrow-source position (`&root.path`) — the
+                    // AddrOf site already decided the conflict.
+                    if (!in_addr_source_ &&
+                        field_borrow_conflicts(it->second, root, path,
+                                               /*need_exclusive=*/moving, line,
+                                               moving ? "move" : "use"))
+                        break;
+                    if (moving) {
                         it->second.moved_fields[path] = line;
                         break;
                     }
                 }
             }
-            visit(recv, /*consuming=*/false, line);
+            visit_place_base(recv, line);
             break;
         }
 
         // ── Index read: arr[i] ─────────────────────────────────────────
         case Code::IndexRead: {
             EIndexReadView v{e};
-            visit(v.receiver(), /*consuming=*/false, line);
+            visit_place_base(v.receiver(), line);
             visit(v.index(),    /*consuming=*/true,  line);
             break;
         }
 
         // ── Tuple index: t.N ──────────────────────────────────────────
         case Code::TupleIndex:
-            visit(ETupleIndexView{e}.receiver(), /*consuming=*/false, line);
+            visit_place_base(ETupleIndexView{e}.receiver(), line);
             break;
 
         // ── Method call: recv.method(args) ────────────────────────────
@@ -2920,7 +3038,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                                         /*is_mut=*/sk == 2, line);
             }
             push_scope();
-            visit(v.receiver(), /*consuming=*/false, line);
+            visit_place_base(v.receiver(), line);
             visit_args(v);
             pop_scope();
             // Capture-flow: a `&mut self` method (push / insert / set) may STORE a

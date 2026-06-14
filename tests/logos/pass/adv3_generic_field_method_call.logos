@@ -1,0 +1,21 @@
+// Adversarial #3 green (false-positive guard): `w.writer.wr(w.buf)` where the
+// field type is a generic trait-bounded `W` lowers to a Call passing
+// `&mut w.writer` and the arg `w.buf`. Walking the arg's receiver chain must
+// NOT report whole-`w` as a conflicting use (the field-borrow value-use checks
+// are suppressed in place-base position). Mirrors stdlib BufWriter::flush.
+package adv3_generic_field_method_call;
+trait Wr { fn wr(self: &mut Self, p: i64) -> i64; }
+struct Inner { acc: i64 }
+impl Wr for Inner { fn wr(self: &mut Inner, p: i64) -> i64 { self.acc = self.acc + p; self.acc } }
+struct BufW<W: Wr> { writer: W, buf: i64, pos: i64 }
+fn flush<W: Wr>(w: &mut BufW<W>) -> i64 {
+    if w.pos == 0i64 { return 0i64; }
+    let n: i64 = w.writer.wr(w.buf);
+    w.pos = 0i64;
+    return n;
+}
+fn main() -> i32 {
+    let mut b = BufW::<Inner> { writer: Inner { acc: 0i64 }, buf: 5i64, pos: 2i64 };
+    let r = flush(&mut b);
+    if r == 5i64 { 0i32 } else { 1i32 }
+}

@@ -1,0 +1,14 @@
+// Adversarial #3: same soundness rule for a GENERIC droppable container. The
+// move-classification looked up the struct def by bare base name ("Wrap") but
+// the mono def is "Wrap$G1$i64" — so the droppable Vec field was invisible and
+// the value was mis-classified as non-move. Fixed via concrete_struct_name.
+package adv3_move_generic_while_field_borrowed;
+struct Wrap<T> { v: Vec<T> }
+fn main() -> i32 {
+    let w = Wrap::<i64> { v: Vec::<i64>::new() };
+    let r: &Vec<i64> = &w.v;
+    let w2 = w;            // MOVE generic container while w.v borrowed -> reject
+    let _ = r;
+    let _ = w2;
+    0i32
+}

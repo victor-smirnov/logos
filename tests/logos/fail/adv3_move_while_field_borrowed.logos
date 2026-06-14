@@ -1,0 +1,15 @@
+// Adversarial #3 (sibling of ADV2-4): a live borrow of a FIELD must block a
+// MOVE of the whole value (rustc E0505). The move would invalidate the field
+// reference. The move-check used to consult only whole-var borrow state, not
+// the tracked field-borrow records.
+package adv3_move_while_field_borrowed;
+struct S { val: i64 }
+impl Drop for S { fn drop(self: &mut S) {} }
+fn main() -> i32 {
+    let s = S { val: 5i64 };
+    let r: &i64 = &s.val;
+    let s2 = s;            // MOVE while s.val borrowed -> reject
+    let _ = *r;
+    let _ = s2.val;
+    0i32
+}

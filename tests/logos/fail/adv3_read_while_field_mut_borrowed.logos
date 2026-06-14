@@ -1,0 +1,13 @@
+// Adversarial #3: reading a field while it is MUT-borrowed is E0503. The
+// FieldRead value-read path tracked partial moves but not field-borrow
+// conflicts.
+package adv3_read_while_field_mut_borrowed;
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s = S { a: 1i64, b: 2i64 };
+    let r: &mut i64 = &mut s.a;
+    let x = s.a;          // read a while &mut a live -> reject
+    *r += 1i64;
+    let _ = x;
+    0i32
+}

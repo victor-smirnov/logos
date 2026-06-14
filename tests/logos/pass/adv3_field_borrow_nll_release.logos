@@ -1,0 +1,15 @@
+// Adversarial #3 green: a field borrow `&mut s.b` is NLL-released at the
+// holder's last use, so a later read of s.b is legal. The explicit-let field
+// borrow used to record an EMPTY holder (no NLL release) — latent until the
+// field-read conflict check existed. Also checks the disjoint-split shape.
+package adv3_field_borrow_nll_release;
+struct S { a: i64, b: i64 }
+fn main() -> i32 {
+    let mut s = S { a: 1i64, b: 2i64 };
+    let r1: &mut i64 = &mut s.a;       // disjoint field splits
+    let r2: &mut i64 = &mut s.b;
+    *r1 += 10i64;
+    *r2 += 20i64;                      // r2's last use
+    let sum = s.a + s.b;              // both borrows dead (NLL) -> legal read
+    if sum == 33i64 { 0i32 } else { 1i32 }
+}
