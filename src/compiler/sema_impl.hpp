@@ -850,12 +850,13 @@ private:
         return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
     }
     // E0507: is `e` a place from which a MOVE-typed value cannot be moved out by
-    // value — `*r` (deref of a `&`/`&mut` reference VARIABLE) or `v[i]`/`s[i]`
-    // (index of a NON-raw container). Raw-pointer deref/index is exempt (unsafe;
-    // the programmer's job — this is how mem/ptr/Vec primitives legitimately
-    // move out, e.g. `let old = p[0]; p[0] = new` with p:*mut T). Box deref-move
-    // (`*b` = Deref of a `deref()` CALL) and field-out-of-`&self` are also not
-    // flagged here (ambiguous / pervasive — documented).
+    // value — `*r` (deref of a `&`/`&mut` reference VARIABLE), `v[i]`/`s[i]`
+    // (index of a NON-raw container, incl. `v[i]` over a user Index trait which
+    // lowers to `*(v.index(i))`). Raw-pointer deref/index is exempt (unsafe; the
+    // programmer's job — this is how mem/ptr/Vec primitives legitimately move
+    // out, e.g. `let old = p[0]; p[0] = new` with p:*mut T). Box deref-move
+    // (`*b` = Deref of a `deref()` call — LEGAL, Box owns its content) and
+    // field-out-of-`&self` are NOT flagged here (documented).
     bool is_unowned_move_source(const lir::LExprPtr& e) {
         if (!e) return false;
         auto r = expr_ref_of(*e);
@@ -865,6 +866,24 @@ private:
         auto is_raw = [&](lir_view::ExprRef x) {
             auto t = x ? x.type(pool) : TypeRef(nullptr);
             return t && t.kind() == LogosType::Kind::Ptr;
+        };
+        // A `v[i]` over a user Index impl lowers to `*(v.index(i))` —
+        // Deref(MethodCall/Call "index"/"index_mut"). Moving out of an index is
+        // E0507. Distinguish from Box deref-move `*b` = Deref(... "deref" ...),
+        // which is legal — the callee NAME is the discriminator.
+        auto is_index_call = [&](lir_view::ExprRef op) {
+            if (!op) return false;
+            if (op.kind() == Code::MethodCall) {
+                auto m = lir_view::EMethodCallView{op}.method();
+                return m == "index" || m == "index_mut";
+            }
+            if (op.kind() == Code::Call) {
+                std::string_view c = lir_view::ECallView{op}.callee();
+                return c.size() >= 7 &&
+                       (c.substr(c.size() - 7) == "__index" ||
+                        (c.size() >= 11 && c.substr(c.size() - 11) == "__index_mut"));
+            }
+            return false;
         };
         switch (r.kind()) {
             case Code::IndexRead:
@@ -878,7 +897,7 @@ private:
                     return ot && (ot.kind() == LogosType::Kind::Ref ||
                                   ot.kind() == LogosType::Kind::MutRef);
                 }
-                return false;
+                return is_index_call(op);
             }
             default: return false;
         }

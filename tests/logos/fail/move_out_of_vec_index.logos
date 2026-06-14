@@ -1,0 +1,14 @@
+// E0507: moving a move-typed element out of a Vec index — `v[i]` over a user
+// Index impl lowers to `*(v.index(i))`; moving out of it is a move out of
+// borrowed content (double-free). Distinguished from Box deref-move (`*b`,
+// callee `deref`) by the `index` callee.
+package move_out_of_vec_index;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut v: Vec<String> = Vec::<String>::new();
+    v.push(String::from("a"));
+    let s = v[0];
+    let _ = s;
+    let _ = v;
+    0i32
+}
