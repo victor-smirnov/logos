@@ -1972,6 +1972,12 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
             if (try_struct_unsize_coerce(rhs, ann)) {
                 rhs_type = rhs->type;
             } else
+            // `&mut [T;N]` → `&mut [T]` array-ref → slice decay (the shared
+            // `&[T;N]` form already lowers straight to a slice; the `&mut`
+            // form arrives as a ref-to-array and needs the explicit decay).
+            if (try_coerce_array_ref_to_slice(rhs, ann)) {
+                rhs_type = rhs->type;
+            } else
             // Non-capturing closure literal → fn(...) -> T coercion.
             if (try_coerce_closure_to_fnptr(rhs, ann)) {
                 rhs_type = rhs->type;

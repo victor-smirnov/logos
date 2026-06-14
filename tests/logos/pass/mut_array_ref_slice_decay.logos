@@ -1,0 +1,19 @@
+// Orthogonal (found via #1): `&mut [T;N]` → `&mut [T]` array-ref → slice decay
+// at a `let`/binding. The shared `&[T;N]` form already lowered straight to a
+// slice; the `&mut` form arrived as a ref-to-array and was rejected. lower_let
+// now runs try_coerce_array_ref_to_slice (which carries mutability).
+package test.mut_array_ref_slice_decay;
+
+fn set_first(s: &mut [i64]) { s[0] = 99i64; }
+
+fn main() -> i32 {
+    let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
+    let s: &mut [i64] = &mut arr;      // decay &mut [i64;3] → &mut [i64]
+    if s[1] != 2i64 { return 1i32; }   // read through the mut slice
+    set_first(s);                       // write through it (via fn)
+    if arr[0] != 99i64 { return 2i32; }
+
+    let sh: &[i64] = &arr;             // shared decay still works
+    if sh[2] != 3i64 { return 3i32; }
+    return 0i32;
+}
