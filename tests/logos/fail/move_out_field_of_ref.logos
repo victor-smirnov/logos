@@ -1,0 +1,6 @@
+// E0507: moving a move-typed field out of a `&` receiver.
+package move_out_field_of_ref;
+use logos.mem.string;
+struct S { name: String }
+fn f(r: &S) -> String { return r.name; }
+fn main() -> i32 { let _ = f; 0i32 }

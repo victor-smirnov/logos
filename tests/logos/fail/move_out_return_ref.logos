@@ -1,0 +1,5 @@
+// E0507: returning a move-typed value moved out of a `&mut` deref.
+package move_out_return_ref;
+use logos.mem.string;
+fn f(r: &mut String) -> String { return *r; }
+fn main() -> i32 { let _ = f; 0i32 }

@@ -94,7 +94,13 @@ pub fn length<T...>() -> i64 {
 // out-of-range path of the B-side intrinsic.
 pub fn head<T...>() -> Type {
     let arr = type_refs_of::<T...>();
-    return arr[0];
+    // Read the first element via a raw pointer: `Type` is move-classified, so a
+    // safe `arr[0]` by-value return would be a move out of an array index
+    // (E0508). The raw read is the unsafe primitive that owns that.
+    unsafe {
+        let p: *const Type = (&arr) as *const Type;
+        return p[0];
+    }
 }
 
 // Map `f` over the pack and return the resulting `[Type; sizeof...(T)]`

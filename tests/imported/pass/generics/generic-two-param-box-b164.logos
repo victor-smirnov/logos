@@ -7,7 +7,8 @@ package generic_two_param_box_b164;
 
 struct Entry<K, V> { key: K, val: V }
 
-impl<K, V> Entry<K, V> {
+// K,V: Copy — get_key/get_val return fields by value out of `&self` (E0507).
+impl<K: Copy, V: Copy> Entry<K, V> {
     fn make(key: K, val: V) -> Entry<K, V> { return Entry { key: key, val: val }; }
     fn get_key(self: &Self) -> K { return self.key; }
     fn get_val(self: &Self) -> V { return self.val; }

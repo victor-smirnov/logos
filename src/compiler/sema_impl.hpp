@@ -863,6 +863,25 @@ private:
         if (!r) return false;
         using Code = lir_schema::expr::Code;
         const auto* pool = cur_prog_->type_pool.impl();
+        // A place whose chain passes through a RAW-pointer hop (`(*p).f[i]`,
+        // `self.data[i]` with self:*mut) is unsafe — aliasing is the
+        // programmer's responsibility, exempt from E0507. Walks receivers.
+        std::function<bool(lir_view::ExprRef)> roots_through_raw =
+            [&](lir_view::ExprRef x) -> bool {
+            while (x) {
+                auto t = x.type(pool);
+                if (t && t.kind() == LogosType::Kind::Ptr) return true;
+                switch (x.kind()) {
+                    case Code::FieldRead:  x = lir_view::EFieldReadView{x}.receiver(); break;
+                    case Code::IndexRead:  x = lir_view::EIndexReadView{x}.receiver(); break;
+                    case Code::SliceIndex: x = lir_view::ESliceIndexView{x}.slice();   break;
+                    case Code::Deref:      x = lir_view::EDerefView{x}.operand();       break;
+                    default: return false;
+                }
+            }
+            return false;
+        };
+        if (roots_through_raw(r)) return false;
         auto is_raw = [&](lir_view::ExprRef x) {
             auto t = x ? x.type(pool) : TypeRef(nullptr);
             return t && t.kind() == LogosType::Kind::Ptr;
@@ -898,6 +917,16 @@ private:
                                   ot.kind() == LogosType::Kind::MutRef);
                 }
                 return is_index_call(op);
+            }
+            case Code::FieldRead: {
+                // Move a move-typed field out of a `&`/`&mut` receiver
+                // (`fn f(r:&S)->T{r.field}`) — E0507. Owned receivers (by-value
+                // self / locals) are partial moves (allowed) — their receiver
+                // type is a Struct, not a reference.
+                auto recv = lir_view::EFieldReadView{r}.receiver();
+                auto rt = recv ? recv.type(pool) : TypeRef(nullptr);
+                return rt && (rt.kind() == LogosType::Kind::Ref ||
+                              rt.kind() == LogosType::Kind::MutRef);
             }
             default: return false;
         }

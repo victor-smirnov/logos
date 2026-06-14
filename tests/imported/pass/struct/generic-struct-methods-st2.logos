@@ -7,7 +7,9 @@ package se_generic_struct_methods;
 
 struct Wrap<T> { val: T }
 
-impl<T> Wrap<T> {
+// `T: Copy` required: `get(&self) -> T` copies the field out of `&self`;
+// a non-Copy T would be a move out of a borrow (E0507).
+impl<T: Copy> Wrap<T> {
     fn get(self: &Wrap<T>) -> T { return self.val; }
     fn make(v: T) -> Wrap<T> { return Wrap { val: v }; }
 }

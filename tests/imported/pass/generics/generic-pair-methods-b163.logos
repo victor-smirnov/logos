@@ -12,7 +12,8 @@ impl Pair<i64> {
     fn sum(self: &Self) -> i64 { return self.a + self.b; }
 }
 
-fn first<T>(p: &Pair<T>) -> T { return p.a; }
+// T: Copy — returns a field by value out of `&Pair<T>` (E0507 otherwise).
+fn first<T: Copy>(p: &Pair<T>) -> T { return p.a; }
 
 fn main() -> i32 {
     let p: Pair<i64> = Pair { a: 3i64, b: 4i64 };

@@ -10,7 +10,8 @@
 // (Option::into_iter → OptionIter::next → take) that the blow-up lived on.
 package test.generic_match_ergonomics_typevar;
 
-fn get_or<T>(o: &Option<T>, d: T) -> T {
+// T: Copy — `*x` (x: &T from match ergonomics) moves T out of a borrow (E0507).
+fn get_or<T: Copy>(o: &Option<T>, d: T) -> T {
     match o {
         Some(x) => { return *x; }   // x: &T  (default binding mode)
         None    => { return d; }

@@ -16,7 +16,8 @@ struct Foo<A> { a: A }
 impl Foo<i64>  { fn bar_int(self: &Foo<i64>) -> i64 { return self.a; } }
 impl Foo<bool> { fn bar_bool(self: &Foo<bool>) -> bool { return self.a; } }
 
-impl<A> Foo<A> {
+// A: Copy — `get(&self) -> A` returns a field by value out of a borrow.
+impl<A: Copy> Foo<A> {
     fn get(self: &Self) -> A { return self.a; }
 }
 

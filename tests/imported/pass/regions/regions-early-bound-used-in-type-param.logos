@@ -9,7 +9,9 @@ trait Get<T> {
 
 struct MyBox<T> { t: T }
 
-impl<T> Get<T> for MyBox<T> {
+// `T: Copy` required: `get(&self) -> T` returns a field by value out of a
+// shared reference; for a non-Copy T that is a move out of `&self` (E0507).
+impl<T: Copy> Get<T> for MyBox<T> {
     fn get(self: &MyBox<T>) -> T { return self.t; }
 }
 

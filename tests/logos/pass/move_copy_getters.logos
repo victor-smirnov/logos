@@ -1,0 +1,12 @@
+// Copy fields/derefs return by value fine; an owned-self field move is a partial
+// move (allowed), not a move-out-of-borrow.
+package move_copy_getters;
+struct W<T> { val: T }
+impl<T: Copy> W<T> { fn get(self: &W<T>) -> T { return self.val; } }   // T:Copy → copy
+struct Owned { name: i64 }
+fn consume(o: Owned) -> i64 { return o.name; }                         // owned self field → OK
+fn main() -> i32 {
+    let w = W::<i64> { val: 5i64 };
+    let o = Owned { name: 9i64 };
+    if w.get() + consume(o) == 14i64 { 0i32 } else { 1i32 }
+}

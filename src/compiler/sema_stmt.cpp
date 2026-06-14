@@ -437,6 +437,8 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                                    "return type mismatch");
                     // T1-12: dyn+auto bound at tail-return coercion.
                     check_dyn_auto_bounds_at_coercion(*inner, ret_type_);
+                    if (ret_type_ && is_move_type(ret_type_) && is_unowned_move_source(inner))
+                        error("cannot move out of a value behind a reference / out of an index (E0507)");
                 }
                 return builder().stmt_return(std::move(inner), node_line_);
             }
@@ -2818,6 +2820,8 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                                /*permissive=*/false);
                 // T1-12: dyn+auto bound at return coercion.
                 check_dyn_auto_bounds_at_coercion(*val, ret_type_);
+                if (is_move_type(ret_type_) && is_unowned_move_source(val))
+                    error("cannot move out of a value behind a reference / out of an index (E0507)");
             }
             // Retype float literal to concrete return type.
             if (ret_type_ && TypeRef(val->type).kind() == LogosType::Kind::FloatLit &&
