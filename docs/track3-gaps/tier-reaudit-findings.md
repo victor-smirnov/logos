@@ -16,24 +16,45 @@ adversarially re-test each — "done" ≠ "hole-free". rustc 1.93 oracle, probes
 | `036a5b55` | T2 #16 | PartialOrd dispatch assumed `partial_cmp -> Ordering`; the canonical Rust `-> Option<Ordering>` crashed mlir-gen (`Option__is_lt` undefined). Route through concrete `cmp_opt_is_{lt,le,gt,ge}` helpers (None ⇒ false). |
 | `94f69732` | T2 (misc) | Tail-position enum literal in a fn returning a MULTI-type-param generic enum left the unconstrained param `<error>` → `unknown tagged enum Either__i64__<error>` + corrupt return ⇒ **runtime segfault**. `fn f()->Result<T,E>{Ok(v)}` is the canonical case. Thread ret_type_ as the enum-inference hint in the tail path (the `return e;` path already did). |
 
-## Documented — confirmed soundness holes, NOT yet fixed (need dedicated work)
+## MOVE-OUT-OF-BORROW (E0507) — PARTIALLY FIXED (457ca8ee), rest documented
 
-### MOVE-OUT-OF-BORROW (E0507) — a whole class, unenforced
-Logos accepts moving a move-type value out of a place it doesn't own — rustc
-E0507. Confirmed cases (all accepted; rustc rejects; runtime double-free/abort):
-- `let t = *r;`  (r: `&String`)              — move out of `*&`
-- `fn f(r: &mut String) -> String { *r }`    — move out of `*&mut`
-- `fn f(r: &S) -> String { r.name }`         — move a field out of `&S`
-- `let s = v[0];` / `f(v[0])`  (Vec<String>) — move out of index (`f2b` aborts EXIT:134, double-free)
+Logos accepted moving a move-type value out of a place it doesn't own — rustc
+E0507/E0508 → double-free/use-after-free. Confirmed cases:
+- `let t = *r;` (r: `&String`)               — **FIXED** (lower_let + is_unowned_move_source)
+- `let s = arr[i];` ([String;N])             — **FIXED** (array index, non-raw)
+- `fn f(r: &mut String) -> String { *r }`    — open (return position)
+- `fn f(r: &S) -> String { r.name }`         — open (field-out-of-&self)
+- `let s = v[0];` (Vec<String>)              — open (Vec index lowers to Deref(index_call))
 
-A naive check (flag a consumed Deref/Index of move-type behind a `&`/`&mut`
-VarRef) was implemented and **reverted**: it false-positives on a destructure
-that binds only Copy fields — `let Fd(s) = *self;` with `Fd(u32)` (test
-`newtype-struct-with-dtor`) is valid (the u32 is copied, Fd is not moved). The
-correct fix is PATTERN-AWARE: a move out of a borrow is an error only when the
-binding actually moves a move-typed part. Also Box deref-move (`let s = *b`)
-must stay allowed (Box owns its content). Needs per-binding Copy analysis at the
-SLet/pattern level, not a node-local Deref check.
+**Fixed slice (457ca8ee):** `is_unowned_move_source` flags `*ref_var`
+(Deref of a `&`/`&mut` VARIABLE) and `arr[i]`/`s[i]` (index of a NON-raw
+container) of a move type, wired at `lower_let`. Raw-ptr deref/index is exempt
+(unsafe; mem/ptr/Vec primitives move out via `p[0]` with p:*mut T). stdlib
+`ArrayIntoIter::next` rewritten to a raw-ptr read (it was the one safe-context
+violation). Copy values copy out; Box deref-move stays allowed.
+
+**Why the rest is hard (do NOT retry naively):**
+- **return/arg position**: a node-local check at the return-coercion site broke
+  131 L2 tests + the stdlib build (`meta.logos head` etc.) — return-position
+  move-out is pervasive (much of it sound-by-overwrite or copy). Needs flow/
+  context awareness.
+- **Vec index** (`let s = v[0]`): lowers to `Deref(Vec::index(&v,i) -> &T)` —
+  STRUCTURALLY IDENTICAL to Box deref-move `*b` = `Deref(Box::deref(&b) -> &T)`,
+  which is LEGAL. Distinguishing needs callee inspection (index/index_mut vs
+  deref/deref_mut, and which deref impls permit move-out).
+- **field-out-of-&self** (`r.name`): same shape as the ubiquitous `let x =
+  self.f` in `&mut self` methods — flagging it surfaces pervasive stdlib uses.
+- **destructure whole-temp**: `let Fd(s) = *self` desugars to a whole-value temp
+  `__pat = *self`; a node-local check false-positives when the pattern binds
+  only Copy fields (`Fd(u32)`, test `newtype-struct-with-dtor` is valid). Needs
+  PATTERN-AWARE per-binding Copy analysis at the SLet/pattern level.
+
+The proper complete fix: rewrite stdlib mem/ptr/Vec move-out primitives onto
+explicit unsafe `ptr::read` (so they're exempt), then enable the check in all
+safe contexts (return/arg/field/destructure) gated on `!inside_unsafe_` with
+per-binding Copy analysis. A dedicated session.
+
+### Box deref-move runtime double-free
 
 ### Box deref-move runtime double-free
 `let s = *b;` (b: `Box<String>`) compiles but aborts (EXIT:134, double-free) —
