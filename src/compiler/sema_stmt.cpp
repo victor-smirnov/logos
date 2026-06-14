@@ -1905,6 +1905,16 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
                                               make_ref(false, inner_t));
             rhs_type = rhs->type;
         }
+        // E0507: `let s = *r` moving a MOVE-typed value out of a `&`/`&mut`
+        // deref of a reference variable — the source doesn't own the value, so
+        // the move duplicates the owner (double-free). Copy values copy out
+        // fine; raw-ptr deref/index, Box deref-move, Vec-index (method-deref),
+        // field-out-of-self, and return/arg positions are NOT caught here —
+        // pervasive or ambiguous (documented in tier-reaudit-findings.md).
+        if (rhs && !is_ref_bind && is_move_type(rhs_type) &&
+            is_unowned_move_source(rhs))
+            error("cannot move out of a value behind a reference / out of an "
+                  "index (E0507)");
     } else if (ann) {
         // B3-bg-01 / B3-bg-02: `let v: T;` / `let mut v: T;` —
         // declare-without-init. Binding takes the annotated type; value

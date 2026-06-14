@@ -849,6 +849,40 @@ private:
         if (s.mirror_offset_ == hermes::arena_offset_t{}) return {};
         return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_offset_);
     }
+    // E0507: is `e` a place from which a MOVE-typed value cannot be moved out by
+    // value — `*r` (deref of a `&`/`&mut` reference VARIABLE) or `v[i]`/`s[i]`
+    // (index of a NON-raw container). Raw-pointer deref/index is exempt (unsafe;
+    // the programmer's job — this is how mem/ptr/Vec primitives legitimately
+    // move out, e.g. `let old = p[0]; p[0] = new` with p:*mut T). Box deref-move
+    // (`*b` = Deref of a `deref()` CALL) and field-out-of-`&self` are also not
+    // flagged here (ambiguous / pervasive — documented).
+    bool is_unowned_move_source(const lir::LExprPtr& e) {
+        if (!e) return false;
+        auto r = expr_ref_of(*e);
+        if (!r) return false;
+        using Code = lir_schema::expr::Code;
+        const auto* pool = cur_prog_->type_pool.impl();
+        auto is_raw = [&](lir_view::ExprRef x) {
+            auto t = x ? x.type(pool) : TypeRef(nullptr);
+            return t && t.kind() == LogosType::Kind::Ptr;
+        };
+        switch (r.kind()) {
+            case Code::IndexRead:
+                return !is_raw(lir_view::EIndexReadView{r}.receiver());
+            case Code::SliceIndex:
+                return !is_raw(lir_view::ESliceIndexView{r}.slice());
+            case Code::Deref: {
+                auto op = lir_view::EDerefView{r}.operand();
+                if (op && op.kind() == Code::VarRef) {
+                    auto ot = op.type(pool);
+                    return ot && (ot.kind() == LogosType::Kind::Ref ||
+                                  ot.kind() == LogosType::Kind::MutRef);
+                }
+                return false;
+            }
+            default: return false;
+        }
+    }
     lir_view::PatRef pat_ref_of(const lir::Pattern& p) const noexcept {
         if (p.mirror_offset_ == hermes::arena_offset_t{}) return {};
         return lir_view::PatRef(cur_prog_->type_pool.arena(), p.mirror_offset_);

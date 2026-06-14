@@ -1,0 +1,10 @@
+// E0508-family: moving a move-typed element out of an array index.
+package move_out_of_array_index;
+use logos.mem.string;
+fn main() -> i32 {
+    let arr: [String; 2] = [String::from("a"), String::from("b")];
+    let s = arr[0];
+    let _ = s;
+    let _ = arr;
+    0i32
+}

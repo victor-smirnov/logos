@@ -28,9 +28,17 @@ pub fn array_into_iter<T, const N: i64>(buf: [T; N]) -> ArrayIntoIter<T, N> {
 impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
     fn next(self: &mut ArrayIntoIter<T, N>) -> Option<T> {
         if self.idx >= N { return Option::<T>::None; }
-        let v: T = self.buf[self.idx];
-        self.idx = self.idx + 1i64;
-        return Option::<T>::Some(v);
+        // Move the element out via a raw-pointer read (Rust's array IntoIter
+        // uses ptr::read). A safe `self.buf[self.idx]` would be a move out of
+        // an array index behind `&mut self` (E0507); the raw-ptr read is the
+        // unsafe primitive that owns that responsibility (idx advances so each
+        // element is yielded once).
+        unsafe {
+            let base: *const T = (&self.buf) as *const T;
+            let v: T = base[self.idx];
+            self.idx = self.idx + 1i64;
+            return Option::<T>::Some(v);
+        }
     }
 }
 

@@ -1,0 +1,13 @@
+// Copy values copy out of a reference / index fine (not move types).
+package move_copy_through_ref;
+fn main() -> i32 {
+    let x: i64 = 5i64;
+    let r: &i64 = &x;
+    let y = *r;                       // Copy deref — OK
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(7i64);
+    let z = v[0];                     // Copy index — OK
+    let arr: [i64; 2] = [1i64, 2i64];
+    let w = arr[1];                   // Copy array index — OK
+    if y + z + w == 14i64 { 0i32 } else { 1i32 }
+}

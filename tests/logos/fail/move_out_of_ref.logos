@@ -1,0 +1,12 @@
+// E0507: `let t = *r` moving a move-typed value out of a `&`/`&mut` reference —
+// the reference doesn't own the pointee, so the move duplicates the owner
+// (double-free). (Copy values copy out fine; Box deref-move stays allowed.)
+package move_out_of_ref;
+use logos.mem.string;
+fn main() -> i32 {
+    let s = String::from("x");
+    let r: &String = &s;
+    let t = *r;
+    let _ = t;
+    0i32
+}
