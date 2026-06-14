@@ -1640,7 +1640,19 @@
     // parsed-and-captured (IS_UNSAFE) but is otherwise structurally identical
     // to the safe fn-pointer type. Must precede the bare alts so `unsafe` is
     // consumed here, not left to fail.
-    fn_ptr_type <- KW_UNSAFE KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+    // T2-23: `extern "ABI" fn(...) -> R` fn-pointer TYPE (the C-callback shape).
+    // VALUE carries the ABI string (mirrors the extern-fn DECL convention);
+    // sema tags the FnPtr type with it and threads it to the MLIR calling
+    // convention. Placed before the bare/unsafe forms.
+    fn_ptr_type <- KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, VALUE: $2, PARAMS: $5, RET_TYPE: $8 }
+                 / KW_EXTERN STRING KW_FN LPAREN fn_ptr_type_args RPAREN
+                => { CODE: FN_PTR_TYPE, VALUE: $2, PARAMS: $5 }
+                 / KW_EXTERN STRING KW_FN LPAREN RPAREN ARROW type_ref
+                => { CODE: FN_PTR_TYPE, VALUE: $2, RET_TYPE: $7 }
+                 / KW_EXTERN STRING KW_FN LPAREN RPAREN
+                => { CODE: FN_PTR_TYPE, VALUE: $2 }
+                 / KW_UNSAFE KW_FN LPAREN fn_ptr_type_args RPAREN ARROW type_ref
                 => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, PARAMS: $4, RET_TYPE: $7 }
                  / KW_UNSAFE KW_FN LPAREN fn_ptr_type_args RPAREN
                 => { CODE: FN_PTR_TYPE, IS_UNSAFE: 1, PARAMS: $4 }

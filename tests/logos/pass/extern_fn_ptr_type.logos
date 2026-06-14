@@ -1,0 +1,27 @@
+// T2-23: `extern "ABI" fn(...) -> R` function-pointer TYPE (the C-callback
+// shape) now parses and resolves to a callable fn-pointer. On the x86-64 SysV
+// target the C calling convention IS the default, so the ABI is functionally
+// transparent here; it parses + type-checks + dispatches. (A distinct extern-ABI
+// fn-pointer TYPE identity and non-default calling-convention threading are a
+// noted follow-up.)
+package test.extern_fn_ptr_type;
+
+fn add(a: i32, b: i32) -> i32 { return a + b; }
+fn noop() {}
+
+// extern-fn-ptr as a parameter type
+fn apply(f: extern "C" fn(i32, i32) -> i32, a: i32, b: i32) -> i32 { return f(a, b); }
+
+fn main() -> i32 {
+    // as a let-annotation, assigned + called
+    let f: extern "C" fn(i32, i32) -> i32 = add;
+    if f(3i32, 4i32) != 7i32 { return 1i32; }
+
+    // no-args / no-ret form
+    let g: extern "C" fn() = noop;
+    g();
+
+    // through a parameter
+    if apply(add, 10i32, 20i32) != 30i32 { return 2i32; }
+    return 0i32;
+}
