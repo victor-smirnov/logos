@@ -506,6 +506,20 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     }
                 }
             }
+            // T2-24 (B): const-arg specialization — a param baked to a
+            // compile-time literal in this spec clone. `result->type` is the
+            // param's (substituted) type, so the emitted literal is well-typed.
+            if (!current_const_args_.empty()) {
+                if (auto cit = current_const_args_.find(n);
+                    cit != current_const_args_.end()) {
+                    const ConstArgVal& cv = cit->second;
+                    result->mirror_offset_ = cv.is_enum
+                        ? lir_mirror_emit_enum_lit(out_, result->type,
+                              cv.enum_name, cv.variant, cv.ival)
+                        : lir_mirror_emit_lit_int(out_, result->type, cv.ival);
+                    break;
+                }
+            }
             result->mirror_offset_ = lir_mirror_emit_var_ref(out_, result->type, n);
             break;
         }
@@ -3236,6 +3250,9 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (!rewritten_as_struct_method)
                     nc.callee = mangle(nc.callee, nc.type_args);
             }
+            // T2-24 (B): redirect to a const-arg specialization when the
+            // callee's const-want params got compile-time literals here.
+            maybe_const_specialize(nc);
             result->mirror_offset_ = lir_mirror_emit_call(
                 out_, result->type, nc.callee, nc.type_args, nc.args);
             break;

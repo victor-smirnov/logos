@@ -1,0 +1,28 @@
+// T2-24 (B): const-arg specialization (interproc const-prop via mono).
+//
+// `ord` forwards from these user-local wrappers straight into the atomic
+// intrinsic's Ordering position. Mono detects the forward (const-want),
+// and at a call passing a LITERAL Ordering it clones a per-value
+// specialization with the literal baked in — so the atomic op carries the
+// precise ordering (acquire / release) instead of the conservative seq_cst
+// fallback the unspecialized body keeps. No fn-inliner or LLVM LTO needed.
+package main;
+
+use logos.lang.atomic;
+
+fn my_load(p: *const i64, ord: Ordering) -> i64 {
+    unsafe { return logos_atomic_load64_ord(p, ord); }
+}
+fn my_store(p: *mut i64, v: i64, ord: Ordering) {
+    unsafe { logos_atomic_store64_ord(p, v, ord); }
+}
+
+fn main() -> i32 {
+    let mut a: AtomicI64 = atomic_i64_new(0i64);
+    unsafe {
+        let pm: *mut i64 = &mut a.val as *mut i64;
+        let pc: *const i64 = &a.val as *const i64;
+        my_store(pm, 5i64, Ordering::Release);
+        return my_load(pc, Ordering::Acquire) as i32;
+    }
+}

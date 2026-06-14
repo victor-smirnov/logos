@@ -1,5 +1,25 @@
 # Const-arg specialization (interproc const-prop via mono) — T2-24 (B)
 
+STATUS (2026-06-14): **engine SHIPPED + proven** (mono_const_arg.cpp). A
+`const`-forwarding wrapper called with a literal Ordering gets a per-value
+spec clone with the literal baked → the atomic op carries the precise
+ordering (acquire/release), not seq_cst. Verified by IR-snapshot test
+`const_arg_atomic` (FileCheck on the spec bodies). L4 5671/5671.
+
+REMAINING — the stdlib last mile: the stdlib `_ordered` wrappers are
+NON-GENERIC, so emit_module compiles them into the `.a` as binary symbols
+(only generic fns get their bodies stashed as templates, emit_module.cpp:450
+/ 452-453). At user-compile their bodies aren't in `in_`, so
+`find_fn_def_by_base` misses them and no spec is made (sound: they keep
+seq_cst). To make REAL atomic call sites benefit, body-export the
+const-spec-source wrappers: at stdlib-emit stash bodies of methods that
+forward a param to a registry intrinsic (even on non-generic structs), and
+reconstruct them into `in_.structs[].methods` in the loader. Scoped, but in
+the (delicate) serialization/trailer subsystem — a separate step.
+
+---
+
+
 Goal: a compile-time-constant value argument at a call site reaches an
 intrinsic that const-evaluates it, even across non-inlined wrapper
 functions. Concrete driver: `a.load_ordered(Ordering::Acquire)` must let

@@ -1,0 +1,12 @@
+; FileCheck spec for const_arg_atomic.logos — T2-24 (B).
+;
+; The forwarder specialized for Ordering::Acquire (disc 1) lowers its atomic
+; load with `acquire`, and the one for Ordering::Release (disc 2) lowers its
+; store with `release` — proving the literal reached the intrinsic across the
+; (non-inlined) wrapper boundary. The unspecialized bodies keep seq_cst.
+
+; CHECK-LABEL: define i64 @{{(\")?[^"]*my_load[^"]*__cv_1_Ordering1(\")?}}
+; CHECK: load atomic i64, ptr {{.*}} acquire
+
+; CHECK-LABEL: define void @{{(\")?[^"]*my_store[^"]*__cv_2_Ordering2(\")?}}
+; CHECK: store atomic i64 {{.*}} release

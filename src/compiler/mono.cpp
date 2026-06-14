@@ -545,7 +545,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             note_fn_worklist_size(worklist_.size());
             continue;
         }
+        // T2-24 (B): const-arg spec — bake the literals into this clone by
+        // exposing them to subst_expr's VarRef case for the body walk only.
+        current_const_args_.clear();
+        for (auto& [pn, cv] : item.const_args) current_const_args_[pn] = cv;
         auto inst = instantiate_fn(*item.tmpl, item.mangled, item.subst, item.packs);
+        current_const_args_.clear();
         out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(inst)));
         auto& fn_ref = *out_.functions.back();
         lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);

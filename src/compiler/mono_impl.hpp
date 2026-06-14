@@ -367,14 +367,40 @@ private:
     // case; current MVP keeps a flat map (no scope/shadow handling).
     std::unordered_map<std::string, lir_view::ExprRef> type_let_inits_;
 
+    // T2-24 (B): a compile-time-constant value baked into a const-arg
+    // specialization. `is_enum` → emit an EnumLit(enum_name, variant, disc);
+    // else an IntLit(ival). `type` is the param's type (the literal's type).
+    struct ConstArgVal {
+        bool        is_enum = false;
+        int64_t     ival = 0;          // int value, or enum discriminant
+        std::string enum_name;
+        std::string variant;
+        TypeRef     type = nullptr;
+    };
+
     struct WorkItem {
         std::string                mangled;
         const lir::LFunction*      tmpl;
         SubstMap                   subst;
         PackMap                    packs;
         int                        depth;
+        // T2-24 (B): param name → baked constant. Empty for ordinary clones.
+        // Set into current_const_args_ around clone_fn so subst_expr replaces
+        // each VarRef(param) with the literal.
+        std::vector<std::pair<std::string, ConstArgVal>> const_args;
     };
     std::vector<WorkItem> worklist_;
+
+    // T2-24 (B): const-arg specialization state.
+    //  * const_want_cache_: fn base name → param indices whose value, when a
+    //    compile-time literal at a call site, is worth baking (the param
+    //    forwards — directly or transitively — to an intrinsic position that
+    //    const-evaluates it, e.g. atomic Ordering). Memoized; recursion-guarded
+    //    by const_want_inflight_.
+    //  * current_const_args_: active during a const-arg-specialised clone_fn.
+    StrMap<std::vector<size_t>> const_want_cache_;
+    StrSet                      const_want_inflight_;
+    StrMap<ConstArgVal>         current_const_args_;
 
     // L1: lazy struct-method instantiation (default OFF — eager scheme is
     // preserved by clone_struct_def; this infrastructure exists so callers
@@ -954,6 +980,25 @@ private:
     // ── Enqueue / instantiate (defined in mono_scan.cpp) ─────────────────
     void enqueue_if_needed(const std::string& mangled_callee,
                            const std::vector<TypeRef>& type_args);
+
+    // T2-24 (B): const-arg specialization helpers (impl in mono_const_arg.cpp).
+    //  * const_intrinsic_positions: the seed registry — for a known intrinsic
+    //    (atomic `*_ord`) returns the arg positions that mlir-gen const-reads
+    //    (mirrors read_ordering_at). Empty for everything else.
+    //  * compute_const_want: memoized const-want positions of `base` — registry
+    //    positions for an intrinsic, else the param indices `base` forwards to a
+    //    const-want position of a callee. Recursion-guarded.
+    //  * find_fn_def_by_base: locate the (unmangled-base) LFunction for the
+    //    forwarding analysis / spec clone — free fns + struct methods in in_.
+    static std::vector<size_t> const_intrinsic_positions(const std::string& name);
+    const std::vector<size_t>& compute_const_want(const std::string& base);
+    const lir::LFunction* find_fn_def_by_base(const std::string& base);
+    // Try to read a compile-time constant out of a (cloned) call argument.
+    bool try_read_const_arg(lir_view::ExprRef arg, ConstArgVal& out);
+    // At a finalized call: if the callee has const-want params filled with
+    // compile-time literals, redirect `nc.callee` to a per-value spec and
+    // enqueue it (clone with the literals baked). No-op otherwise.
+    void maybe_const_specialize(lir::ECall& nc);
 
     // L1: enqueue a single struct-method instance for lazy codegen. Looks up
     // the method template via `struct_method_templates_`, builds a SubstMap

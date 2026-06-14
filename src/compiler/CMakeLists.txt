@@ -62,6 +62,7 @@ add_executable(logosc
     mono_subst.cpp
     mono_clone.cpp
     mono_scan.cpp
+    mono_const_arg.cpp
     reflection_emit.cpp
     sema.cpp
     sema_collect.cpp
