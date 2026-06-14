@@ -1,0 +1,14 @@
+// T2-23: a default-ABI fn-pointer VALUE is NOT compatible with an
+// `extern "C"` fn-pointer parameter — the extern ABI is part of the
+// fn-pointer type identity. (A bare fn ITEM would coerce; a fn-pointer
+// VALUE of a different ABI is rejected, matching Rust.)
+package main;
+
+fn target() -> i32 { return 7i32; }
+fn id_default(f: fn() -> i32) -> fn() -> i32 { return f; }
+fn takes_c(cb: extern "C" fn() -> i32) -> i32 { return cb(); }
+
+fn main() -> i32 {
+    let d: fn() -> i32 = id_default(target);
+    return takes_c(d);
+}

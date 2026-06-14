@@ -1,0 +1,19 @@
+// logos-core §6.7 / T2-23: `extern "ABI" fn(...) -> R` fn-pointer TYPE.
+//
+// The ABI is part of the fn-pointer TYPE IDENTITY (Rust: `extern "C"
+// fn()` is a distinct type from `fn()`). A Logos fn ITEM still coerces
+// to an extern-ABI fn pointer (FnItem→FnPtr is ABI-lenient — Logos fn
+// items carry no ABI tag, and this is the C-callback interop path),
+// and the call dispatches normally. On the x86-64-SysV target the
+// accepted ABIs {C, C-unwind, system, Rust} share one calling
+// convention, so no MLIR cconv attr is needed.
+package core_7_extern_c_fnptr;
+
+fn cb_double(x: i32) -> i32 { return x * 2i32; }
+
+fn apply(cb: extern "C" fn(i32) -> i32, v: i32) -> i32 { return cb(v); }
+
+fn main() -> i32 {
+    let f: extern "C" fn(i32) -> i32 = cb_double;
+    return apply(f, 21i32);   // 42
+}

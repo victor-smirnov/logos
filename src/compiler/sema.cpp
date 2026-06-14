@@ -836,8 +836,13 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_byte(buf, (uint8_t)(t.const_val.value_or(0)));
         for (auto a : t.type_args) put_sub(buf, impl, a);
         break;
-    case K::Closure:
     case K::FnPtr:
+        // T2-23: ABI tag (struct_name; "" = default/Rust) is part of identity.
+        put_str(buf, t.struct_name);
+        for (auto p : t.closure_params) put_sub(buf, impl, p);
+        put_sub(buf, impl, t.closure_ret);
+        break;
+    case K::Closure:
         for (auto p : t.closure_params) put_sub(buf, impl, p);
         put_sub(buf, impl, t.closure_ret);
         break;
@@ -982,8 +987,12 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                t.mut_ptr == r.mut_ptr() &&
                t.const_val == r.const_val() &&   // owning kind (Borrow/Box)
                vec_ptr_eq(t.type_args, r.type_args());
-    case K::Closure:
     case K::FnPtr:
+        // T2-23: extern-ABI tag participates in FnPtr identity.
+        return t.struct_name == r.struct_name() &&
+               vec_ptr_eq(t.closure_params, r.closure_params()) &&
+               t.closure_ret == r.closure_ret();
+    case K::Closure:
         return vec_ptr_eq(t.closure_params, r.closure_params()) &&
                t.closure_ret == r.closure_ret();
     case K::FnItem:
@@ -2057,7 +2066,12 @@ std::string type_str(TypeRef t) {
         r += type_str(TypeRef(t).closure_ret());
         return r; }
     case LogosType::Kind::FnPtr: {
-        std::string r = "fn(";
+        // T2-23: surface the extern ABI tag (struct_name; "" = default) so
+        // an ABI mismatch reads `extern "C" fn() -> i32` vs `fn() -> i32`.
+        std::string r;
+        std::string_view abi = TypeRef(t).struct_name();
+        if (!abi.empty()) { r += "extern \""; r += abi; r += "\" "; }
+        r += "fn(";
         for (size_t i = 0; i < TypeRef(t).closure_params().size(); ++i) {
             if (i) r += ", ";
             r += type_str(TypeRef(t).closure_params()[i]);
@@ -5951,6 +5965,30 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // Reuse closure_params / closure_ret fields.
         LogosTypeBuilder t;
         t.kind = LogosType::Kind::FnPtr;
+        // T2-23: `extern "ABI" fn(...)` carries the ABI on VALUE. The ABI is
+        // part of the fn-pointer TYPE IDENTITY (Rust: `extern "C" fn()` ≠
+        // `fn()`), stored in the FnPtr-unused `struct_name` slot and folded
+        // into the TypeUID + equality below. The default Logos fn-pointer
+        // (no `extern`) and `extern "Rust"` are the SAME type → normalize
+        // both to "" so existing FnPtr identities are unchanged; only a
+        // genuinely foreign ABI ("C"/"C-unwind"/"system") gets a tag.
+        if (node.has_key(la::VALUE)) {
+            std::string_view raw = str_of(node.get(la::VALUE.code));
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+                raw = raw.substr(1, raw.size() - 2);
+            // Same accepted set as extern-fn DECLs (validate_abi). On the
+            // x86-64-SysV target these all share one calling convention, so
+            // the cconv is the default and no MLIR cconv attr is needed; a
+            // non-SysV ABI would require cross-target codegen, so it's
+            // rejected here rather than silently mis-lowered.
+            if (raw != "C" && raw != "C-unwind" && raw != "system"
+                && raw != "Rust") {
+                error(std::format("unsupported ABI string \"{}\" on fn-pointer "
+                    "type — expected \"C\", \"C-unwind\", \"system\", or "
+                    "\"Rust\"", raw));
+            }
+            if (raw != "Rust") t.struct_name = std::string(raw);
+        }
         if (node.has_key(la::PARAMS)) {
             auto params_node = map_of(node.get(la::PARAMS.code));
             if (params_node.has_key(la::ITEMS)) {

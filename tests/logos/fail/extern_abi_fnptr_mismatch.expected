@@ -1,0 +1,3 @@
+exit: 1
+stderr:
+error [fn main]: call to 'takes_c' arg 1: expected extern "C" fn() -> i32, got fn() -> i32
