@@ -4583,7 +4583,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             new_args.push_back(na);
         }
         if (!changed) return t;
-        return make_unsized_dyn_type(t.trait_name(), std::move(new_args));
+        return make_unsized_dyn_type(t.trait_name(), std::move(new_args),
+                                     t.trait_requires_send(), t.trait_requires_sync());
     }
     case LogosType::Kind::DstRef: {
         // Phase 1B-15: substitute type-args.
@@ -5884,7 +5885,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // `&dyn Trait` both produce TraitObject; downstream sema rejects
         // bare-by-value when it matters).
         if (unsized_ok_)
-            return make_unsized_dyn_type(tname, std::move(args));
+            return make_unsized_dyn_type(tname, std::move(args), req_send, req_sync);
         // P2-15: forming a `&dyn Trait` fat trait object requires Trait to be
         // object-safe (dyn-compatible). A non-object-safe method has no vtable
         // slot → dispatch would crash; reject at the type-resolution point.

@@ -281,12 +281,17 @@ public:
     // (see put_u64 in TypeUID hashing). Borrow-form `&dyn T` with no bound
     // returns false for both.
     bool trait_requires_send() const noexcept {
-        if (kind() != LogosType::Kind::TraitObject) return false;
+        // The `+ Send` / `+ Sync` auto-bound rides in const_val bits 8/9 for
+        // BOTH the fat `&dyn` form (TraitObject) and the unsized `dyn Trait`
+        // form (UnsizedDyn — the payload of `Box<dyn …>` / `Rc<dyn …>`).
+        if (kind() != LogosType::Kind::TraitObject &&
+            kind() != LogosType::Kind::UnsizedDyn) return false;
         auto cv = const_val();
         return cv && ((uint64_t(*cv) >> 8) & 1u);
     }
     bool trait_requires_sync() const noexcept {
-        if (kind() != LogosType::Kind::TraitObject) return false;
+        if (kind() != LogosType::Kind::TraitObject &&
+            kind() != LogosType::Kind::UnsizedDyn) return false;
         auto cv = const_val();
         return cv && ((uint64_t(*cv) >> 9) & 1u);
     }

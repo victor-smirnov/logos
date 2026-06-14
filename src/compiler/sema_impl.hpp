@@ -643,10 +643,22 @@ private:
     // Phase 1B-4: bare `dyn Trait` — the unsized trait-object form. Mirror
     // of make_unsized_slice_type for dyn. Args may be empty.
     TypeRef make_unsized_dyn_type(std::string_view tname,
-                                  std::vector<TypeRef> args = {}) {
+                                  std::vector<TypeRef> args = {},
+                                  bool req_send = false,
+                                  bool req_sync = false) {
         LogosTypeBuilder t; t.kind = LogosType::Kind::UnsizedDyn;
         t.trait_name = std::string(tname);
         t.type_args = std::move(args);
+        // `dyn Trait + Send/Sync` inside an owning container (`Box<dyn …>`):
+        // carry the auto-bound bits in const_val (same encoding as
+        // make_trait_object) so the bound survives type construction and the
+        // unsize-coercion check can enforce it (T1-12 residual — the bits were
+        // dropped here, so `Box<dyn T + Send>` ≡ `Box<dyn T>`).
+        uint64_t packed = 0;
+        if (req_send) packed |= TRAIT_BOUND_SEND_BIT;
+        if (req_sync) packed |= TRAIT_BOUND_SYNC_BIT;
+        if (packed != 0)
+            t.const_val = int64_t(packed);
         return pool_->alloc(std::move(t));
     }
     // Phase 1B-14: `&DstStruct` / `&mut DstStruct` / `*const DstStruct` —

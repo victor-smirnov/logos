@@ -12538,25 +12538,45 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
 void SemaChecker::check_dyn_auto_bounds_at_coercion(const lir::LExpr& arg,
                                                      TypeRef pt) {
     if (!pt) return;
-    // Peel a Ref / MutRef to look at the TraitObject target.
-    TypeRef pdyn = pt;
-    auto pk = TypeRef(pt).kind();
-    if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-        TypeRef(pt).pointee())
-        pdyn = TypeRef(pt).pointee();
-    if (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject) return;
+    // Peel pointer/owning-container layers to reach the underlying type.
+    // Targets: `&dyn`, `&mut dyn`, AND owning smart pointers `Box<dyn>` /
+    // `Rc<dyn>` / `Arc<dyn>` — the dyn `+ Send`/`+ Sync` bound rides inside the
+    // container, so without peeling them `want(b: Box<dyn T + Send>)` (and the
+    // let/return/field forms) erased a non-Send concrete silently (T1-12 gap:
+    // only reference targets were peeled). Sources peel the same layers to the
+    // erased concrete type. Loops to handle `Box<Rc<dyn>>`-style nesting.
+    auto is_smart_ptr = [](TypeRef t) {
+        if (TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+        std::string n(TypeRef(t).struct_name());
+        return n == "Box" || n == "Rc" || n == "Arc";
+    };
+    auto peel = [&](TypeRef t) {
+        for (int guard = 0; t && guard < 8; ++guard) {
+            auto k = TypeRef(t).kind();
+            if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+                 k == LogosType::Kind::Ptr) && TypeRef(t).pointee()) {
+                t = TypeRef(t).pointee(); continue;
+            }
+            if (is_smart_ptr(t) && !TypeRef(t).type_args().empty()) {
+                t = TypeRef(t).type_args()[0]; continue;
+            }
+            break;
+        }
+        return t;
+    };
+    TypeRef pdyn = peel(pt);
+    // Accept both the fat `&dyn` form (TraitObject) and the unsized `dyn Trait`
+    // payload of an owning container (UnsizedDyn, reached by peeling Box/Rc/Arc).
+    if (!pdyn || (TypeRef(pdyn).kind() != LogosType::Kind::TraitObject &&
+                  TypeRef(pdyn).kind() != LogosType::Kind::UnsizedDyn)) return;
     bool need_send = TypeRef(pdyn).trait_requires_send();
     bool need_sync = TypeRef(pdyn).trait_requires_sync();
     if (!need_send && !need_sync) return;
-    // The source's structural-Send/Sync check walks the pointee of `arg->type`
-    // (`&Foo → Foo`) or `arg->type` itself if it's already a struct/enum.
+    // The source's structural-Send/Sync check walks to the erased concrete type
+    // (`&Foo → Foo`, `Box<Foo> → Foo`) or `arg->type` itself if already concrete.
     TypeRef src = arg.type;
     if (!src) return;
-    TypeRef src_pointee = src;
-    auto sk = TypeRef(src).kind();
-    if ((sk == LogosType::Kind::Ref || sk == LogosType::Kind::MutRef ||
-         sk == LogosType::Kind::Ptr) && TypeRef(src).pointee())
-        src_pointee = TypeRef(src).pointee();
+    TypeRef src_pointee = peel(src);
     // Only enforce when the source is a CONCRETE type being unsize-erased into
     // a dyn target — Struct / ZonedStruct / Enum. TraitObject-to-TraitObject
     // coercion (e.g. dyn-upcast or identity) carries its own bound info on the

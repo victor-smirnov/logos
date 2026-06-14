@@ -1,0 +1,10 @@
+// Tier1 #12: Send-clean concrete coerces into Box<dyn Trait + Send> fine.
+package dyn_send_box_ok;
+trait Speak { fn say(self: &Self) -> i64; }
+struct OkS { x: i64 }
+impl Speak for OkS { fn say(self: &OkS) -> i64 { self.x } }
+fn want(b: Box<dyn Speak + Send>) -> i64 { b.say() }
+fn main() -> i32 {
+    let r = want(Box::new(OkS { x: 7i64 }));
+    if r == 7i64 { 0i32 } else { 1i32 }
+}

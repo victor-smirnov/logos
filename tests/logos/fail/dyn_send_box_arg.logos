@@ -1,0 +1,13 @@
+// Tier1 #12 residual: `Box<dyn Trait + Send>` (and Rc/Arc<dyn>) dropped the
+// `+ Send` auto-bound at type construction (make_unsized_dyn_type didn't carry
+// the bits), so a non-Send concrete coerced into a Send dyn silently at the
+// arg/let/return/field sites. rustc E0277.
+package dyn_send_box_arg;
+trait Speak { fn say(self: &Self) -> i64; }
+struct NotSend { p: *mut i64 }
+impl Speak for NotSend { fn say(self: &NotSend) -> i64 { 0i64 } }
+fn want(_x: Box<dyn Speak + Send>) {}
+fn main() -> i32 {
+    want(Box::new(NotSend { p: 0 as *mut i64 }));
+    0i32
+}
