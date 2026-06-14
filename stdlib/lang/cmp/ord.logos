@@ -67,6 +67,24 @@ impl Ordering {
     }
 }
 
+// Helpers for the comparison-operator desugar when a user `PartialOrd::
+// partial_cmp` returns the canonical Rust `Option<Ordering>` (None ⇒ the
+// values are incomparable ⇒ every ordered comparison is false). Concrete
+// (non-generic) so they are always available to compiler-generated calls
+// without a mono round-trip. `a < b` ⇒ `cmp_opt_is_lt(a.partial_cmp(&b))`.
+pub fn cmp_opt_is_lt(o: Option<Ordering>) -> bool {
+    match o { Option::Some(x) => { return x.is_lt(); } Option::None => { return false; } }
+}
+pub fn cmp_opt_is_le(o: Option<Ordering>) -> bool {
+    match o { Option::Some(x) => { return x.is_le(); } Option::None => { return false; } }
+}
+pub fn cmp_opt_is_gt(o: Option<Ordering>) -> bool {
+    match o { Option::Some(x) => { return x.is_gt(); } Option::None => { return false; } }
+}
+pub fn cmp_opt_is_ge(o: Option<Ordering>) -> bool {
+    match o { Option::Some(x) => { return x.is_ge(); } Option::None => { return false; } }
+}
+
 pub trait Ord {
     fn cmp(&self, other: &Self) -> Ordering;
 }

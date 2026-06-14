@@ -1947,6 +1947,22 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     auto pc_call = builder().call(
                         pcfit->symbol_name.empty() ? pc_mangled : pcfit->symbol_name,
                         {}, std::move(pcargs), ord_t);
+                    // Canonical Rust signature: `partial_cmp -> Option<Ordering>`.
+                    // Route through the concrete `cmp_opt_is_<op>` helper (None ⇒
+                    // false). The non-standard `-> Ordering` form falls through to
+                    // the direct `Ordering::is_<op>` call below.
+                    if (TypeRef(ord_t).enum_name() == "Option") {
+                        std::string helper =
+                            op == "<"  ? "cmp_opt_is_lt" :
+                            op == "<=" ? "cmp_opt_is_le" :
+                            op == ">"  ? "cmp_opt_is_gt" : "cmp_opt_is_ge";
+                        auto hfit = find_func_by_base_and_signature(helper, {ord_t}, false);
+                        std::string hsym = (hfit && !hfit->symbol_name.empty())
+                                           ? hfit->symbol_name : helper;
+                        std::vector<lir::LExprPtr> hargs;
+                        hargs.push_back(std::move(pc_call));
+                        return builder().call(hsym, {}, std::move(hargs), bool_t());
+                    }
                     std::string is_method =
                         op == "<"  ? "is_lt" :
                         op == "<=" ? "is_le" :

@@ -1,0 +1,23 @@
+package partial_ord_option_ordering;
+use logos.lang.cmp;
+struct P { x: i64 }
+impl PartialEq<P> for P { fn eq(self: &P, o: &P) -> bool { self.x == o.x } }
+impl PartialOrd<P> for P {
+    fn partial_cmp(self: &P, o: &P) -> Option<Ordering> {
+        if self.x < o.x { Option::Some(Ordering::Less) }
+        else if self.x > o.x { Option::Some(Ordering::Greater) }
+        else { Option::Some(Ordering::Equal) }
+    }
+}
+fn main() -> i32 {
+    let a = P{x:1i64}; let b = P{x:2i64}; let c = P{x:1i64};
+    // expected: a<b T, b<a F, a<=c T, a>=c T, a>c F, b>a T, a>=b F
+    if !(a < b) { return 1i32; }
+    if b < a { return 2i32; }
+    if !(a <= c) { return 3i32; }
+    if !(a >= c) { return 4i32; }
+    if a > c { return 5i32; }
+    if !(b > a) { return 6i32; }
+    if a >= b { return 7i32; }
+    0i32
+}
