@@ -59,7 +59,9 @@ extern fn logos_qib_free_blobs(blob: *const u8);
 //   [N_cursors × {count: u64, pods_offset: u64}]
 //   [pods + ident bytes...]
 // Sites in the template are encoded as `NAME_VAR=int(idx | 0x40000000)`.
-extern fn logos_qib_pack_cursors(arr: *const *const Vec<Ident>, n: u64) -> *const u8;
+// `depths[i]` = nesting depth of cursor i (1 = Vec<Ident>, 2 = Vec<Vec<Ident>>
+// for T2-30 nested `#(…)*`). The compiler emits this call directly.
+extern fn logos_qib_pack_cursors(arr: *const *const u8, depths: *const u8, n: u64) -> *const u8;
 extern fn logos_qib_free_cursors(blob: *const u8);
 
 // Slice 5c+8: substitution + repetition shim for `quote_expr!`.

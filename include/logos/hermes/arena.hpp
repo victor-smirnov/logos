@@ -143,6 +143,13 @@ public:
     size_t chunk_count() const noexcept { return chunks_.size(); }
     size_t total_used()  const noexcept;
 
+    // Ensure the (GrowableSingleChunk) head chunk has at least `free_bytes`
+    // of unused capacity, growing it now if needed. Lets a caller front-load
+    // a single realloc BEFORE taking raw pointers into the chunk, so later
+    // allocations never realloc/free it out from under those pointers
+    // (deep_copy_object / metaprog substitution rely on a stable chunk).
+    logos::expected<void> reserve(size_t free_bytes) noexcept;
+
 private:
     ArenaMode              mode_ = ArenaMode::MultiChunk;
     std::atomic<bool>      sealed_{false};

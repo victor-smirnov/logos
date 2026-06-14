@@ -1,0 +1,56 @@
+// T2-30: nested `#( … #( … )* … )*` repetition in quote_item! templates.
+//
+// The inner cursor is a RAGGED `Vec<Vec<Ident>>`: outer iteration 0 has
+// two inner idents (x, y), outer iteration 1 has one (z). The runtime
+// expander pins the outer index into each depth-2 cursor placeholder
+// during the outer pass, so the inner repeat expands to the right
+// per-outer sublist length (2 then 1) — not a fixed product.
+//
+// `##inner` is a str-position cursor (T2-22); each `.len()` is 1, so the
+// body sums one `+1` per inner ident (3 total) plus one `+100` per outer
+// iteration (2 total): 0 + (1+1+100) + (1+100) = 203.
+
+package main;
+
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.anyval;
+use logos.lang.fabric;
+
+#[metaprog_handler("gen_nested")]
+fn gen_nested_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: HAny = view.node_at(target_offset);
+    if view.ast_node_name(item).len == (0 as u64) { return; }
+
+    let sx: str = "x"; let sy: str = "y"; let sz: str = "z";
+    let mut inner: Vec<Vec<Ident>> = Vec::<Vec<Ident>>::new();
+    let mut in0: Vec<Ident> = Vec::<Ident>::new();
+    let mut in1: Vec<Ident> = Vec::<Ident>::new();
+    unsafe {
+        (&mut in0 as *mut Vec<Ident>).push(Ident{ptr:sx.as_ptr(),len:sx.len() as u64});
+        (&mut in0 as *mut Vec<Ident>).push(Ident{ptr:sy.as_ptr(),len:sy.len() as u64});
+        (&mut in1 as *mut Vec<Ident>).push(Ident{ptr:sz.as_ptr(),len:sz.len() as u64});
+        (&mut inner as *mut Vec<Vec<Ident>>).push(in0);
+        (&mut inner as *mut Vec<Vec<Ident>>).push(in1);
+    }
+    let blob: QuoteItemBlob = quote_item! {
+        fn run() -> i32 {
+            let mut __t: i32 = 0i32;
+            #( {
+                #( { __t = __t + (##inner.len() as i32); } )*
+                __t = __t + 100i32;
+            } )*
+            return __t;
+        }
+    };
+    unsafe { logos_emit_item_blob_subst(&blob); }
+    return;
+}
+
+#[gen_nested]
+struct Trigger { n: u64 }
+
+fn main() -> i32 { return run(); }

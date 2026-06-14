@@ -15185,6 +15185,8 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         Kind         kind;
         std::string  var_name;       // String / Cursor
         lir::LExprPtr expr_producer; // Expr / ExprBlob — already lowered
+        uint8_t      cursor_depth = 1; // Cursor: Vec nesting (1, or 2 for T2-30
+                                       // nested `#(…)*` — Vec<Vec<Ident>>)
     };
     std::vector<Placeholder> placeholders;
     TypeRef ident_t = make_struct_type("Ident");
@@ -15203,6 +15205,17 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         auto args = TypeRef(t).type_args();
         if (args.size() != 1) return false;
         return is_ident_type(args[0]);
+    };
+    // T2-30: a cursor's nesting depth. 1 = Vec<Ident>, 2 = Vec<Vec<Ident>>
+    // (drives nested `#(…)*`); 0 = not a cursor type.
+    auto cursor_nesting_depth = [&](TypeRef t) -> int {
+        if (is_vec_ident_qi(t)) return 1;
+        if (TypeRef(t).kind() == LogosType::Kind::Struct
+            && TypeRef(t).struct_name() == "Vec") {
+            auto args = TypeRef(t).type_args();
+            if (args.size() == 1 && is_vec_ident_qi(args[0])) return 2;
+        }
+        return 0;
     };
     int qi_repeat_depth = 0;
     bool walk_failed = false;
@@ -15226,8 +15239,9 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 cd = cav.as_value<int32_t>();
         }
         if (cd == la::REPEAT_GROUP.code) {
-            if (qi_repeat_depth > 0) {
-                error("quote_item!: nested `#(...)` repetition not supported");
+            if (qi_repeat_depth >= 2) {
+                error("quote_item!: `#(...)` repetition nested deeper than 2 "
+                      "levels not supported");
                 walk_failed = true; return;
             }
             ++qi_repeat_depth;
@@ -15257,13 +15271,22 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                         walk_failed = true; return;
                     }
                     if (qi_repeat_depth > 0) {
-                        if (!is_vec_ident_qi(vt)) {
+                        // T2-30: cursor depth = its Vec nesting (1 or 2). A
+                        // depth-d cursor may appear at repeat-depth ≥ d (a
+                        // depth-1 cursor inside an inner loop is constant).
+                        int cdepth = cursor_nesting_depth(vt);
+                        if (cdepth == 0 || cdepth > qi_repeat_depth) {
                             error("quote_item!: `#" + vname
-                                + "` inside `#(...)*` — expected Vec<Ident>");
+                                + "` inside `#(...)*` — expected "
+                                + (qi_repeat_depth >= 2
+                                   ? "Vec<Ident> or Vec<Vec<Ident>>"
+                                   : "Vec<Ident>"));
                             walk_failed = true; return;
                         }
-                        placeholders.push_back(
-                            {Placeholder::Kind::Cursor, std::move(vname), nullptr});
+                        Placeholder ph{Placeholder::Kind::Cursor,
+                                       std::move(vname), nullptr};
+                        ph.cursor_depth = static_cast<uint8_t>(cdepth);
+                        placeholders.push_back(std::move(ph));
                     } else {
                         if (!is_ident_type(vt)) {
                             error("quote_item!: `#" + vname + "` — expected Ident");
@@ -15739,21 +15762,31 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 
     lir::LExprPtr cursors_blob_e = nullptr;
     if (N_cursors > 0) {
-        // Build `[*const Vec<Ident>; N_cursors]` of `&cursor_var` for each
-        // cursor placeholder (DFS order matches the dst encoding).
-        TypeRef vec_ident_t;
+        // Build `[*const u8; N_cursors]` of `&cursor_var` (DFS order matches
+        // the dst encoding) plus a parallel `[u8; N_cursors]` of per-cursor
+        // nesting depths. A depth-1 cursor var is Vec<Ident>; a depth-2 one
+        // (T2-30 nested `#(…)*`) is Vec<Vec<Ident>> — pack reads each per its
+        // depth, so the array element type is the neutral `*const u8`.
+        TypeRef vec_ident_t, vec_vec_ident_t;
         {
-            std::vector<TypeRef> args; args.push_back(ident_t);
-            vec_ident_t = make_generic_struct("Vec", std::move(args));
+            std::vector<TypeRef> a1; a1.push_back(ident_t);
+            vec_ident_t = make_generic_struct("Vec", std::move(a1));
+            std::vector<TypeRef> a2; a2.push_back(vec_ident_t);
+            vec_vec_ident_t = make_generic_struct("Vec", std::move(a2));
         }
-        auto vec_ident_ptr_t = make_ptr(false, vec_ident_t);
-        auto vec_ident_ptr_ptr_t = make_ptr(false, vec_ident_ptr_t);
-        auto arr_t = make_array(vec_ident_ptr_t, N_cursors);
-        std::vector<lir::LExprPtr> elems;
-        elems.reserve(N_cursors);
+        auto u8p = u8_ptr_t;
+        auto arr_t = make_array(u8p, N_cursors);
+        auto depth_arr_t = make_array(u8_t(), N_cursors);
+        std::vector<lir::LExprPtr> elems, depth_elems;
+        elems.reserve(N_cursors); depth_elems.reserve(N_cursors);
         for (auto& ph : placeholders) {
             if (ph.kind != Placeholder::Kind::Cursor) continue;
-            elems.push_back(builder().addr_of(ph.var_name, vec_ident_ptr_t));
+            auto var_ptr_t = make_ptr(false,
+                ph.cursor_depth >= 2 ? vec_vec_ident_t : vec_ident_t);
+            auto a = builder().addr_of(ph.var_name, var_ptr_t);
+            elems.push_back(builder().cast(std::move(a), u8p));
+            depth_elems.push_back(builder().lit_int(
+                static_cast<int64_t>(ph.cursor_depth), u8_t()));
         }
         auto arr_e = builder().arr_lit(std::move(elems), arr_t);
         std::string aname = "__qib_c_" + std::to_string(tmp_var_count_++);
@@ -15764,11 +15797,25 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
             s.value = std::move(arr_e);
             blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
         }
+        auto darr_e = builder().arr_lit(std::move(depth_elems), depth_arr_t);
+        std::string dname = "__qib_cd_" + std::to_string(tmp_var_count_++);
+        define(dname, depth_arr_t);
+        {
+            lir::SLet s;
+            s.name = dname; s.type = depth_arr_t; s.is_mut = false;
+            s.value = std::move(darr_e);
+            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(s)));
+        }
+        auto u8_ptr_ptr_t = make_ptr(false, u8p);
         auto arr_ptr_t = make_ptr(false, arr_t);
         auto raw  = builder().addr_of(aname, arr_ptr_t);
-        auto cast = builder().cast(std::move(raw), vec_ident_ptr_ptr_t);
+        auto cast = builder().cast(std::move(raw), u8_ptr_ptr_t);
+        auto depth_arr_ptr_t = make_ptr(false, depth_arr_t);
+        auto draw = builder().addr_of(dname, depth_arr_ptr_t);
+        auto dcast = builder().cast(std::move(draw), u8p);
         std::vector<lir::LExprPtr> pack_args;
         pack_args.push_back(std::move(cast));
+        pack_args.push_back(std::move(dcast));
         pack_args.push_back(builder().lit_int(
             static_cast<int64_t>(N_cursors), u64_ty));
         auto pack_call = builder().call(

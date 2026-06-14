@@ -163,6 +163,15 @@ uint8_t* Arena::try_allocate_in_tail(size_t size, size_t alignment,
     return base + aligned;
 }
 
+logos::expected<void> Arena::reserve(size_t free_bytes) noexcept {
+    if (mode_ == ArenaMode::GrowableSingleChunk) {
+        const Chunk& chunk = chunks_.front();
+        if (chunk.capacity - chunk.used < free_bytes)
+            return grow(free_bytes);
+    }
+    return {};
+}
+
 logos::expected<void> Arena::grow(size_t needed) noexcept {
     if (mode_ == ArenaMode::GrowableSingleChunk) {
         // Double the single chunk until it fits.

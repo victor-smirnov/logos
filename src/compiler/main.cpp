@@ -339,7 +339,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
 
     struct IdentPod { const uint8_t* ptr; uint64_t len; };
     struct BlobEntry { uint64_t offset; uint64_t size; };
-    struct CursorHdr { uint64_t count; uint64_t pods_offset; };
+    // T2-30 nested repeat: `inner_counts_offset==0` → flat depth-1 cursor
+    // (`count` pods at `pods_offset`). Nonzero → ragged depth-2 cursor:
+    // `count` = OUTER count O; `count` u64 sub-lengths live at
+    // inner_counts_offset; pods_offset holds the FLATTENED inner idents
+    // (CSR). Inner ident [o][n] = pods[prefix_sum(inner_counts,o)+n].
+    struct CursorHdr { uint64_t count; uint64_t pods_offset; uint64_t inner_counts_offset; };
     struct BlobPod {
         const uint8_t* template_ptr;
         uint64_t template_size;
@@ -398,7 +403,17 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         const auto& ch = cursor_hdrs[i];
         const auto* pods = reinterpret_cast<const IdentPod*>(
             cursors_base + ch.pods_offset);
-        for (uint64_t j = 0; j < ch.count; ++j) {
+        // Total pod count: flat (depth-1) = count; ragged (depth-2) = Σ
+        // inner_counts (count = OUTER count there). Both layouts store all
+        // idents contiguously at pods_offset, so one linear sweep keys them.
+        uint64_t total_pods = ch.count;
+        if (ch.inner_counts_offset != 0) {
+            const auto* ic = reinterpret_cast<const uint64_t*>(
+                cursors_base + ch.inner_counts_offset);
+            total_pods = 0;
+            for (uint64_t o = 0; o < ch.count; ++o) total_pods += ic[o];
+        }
+        for (uint64_t j = 0; j < total_pods; ++j) {
             key.push_back('\x1c');
             if (pods[j].ptr && pods[j].len > 0) {
                 key.append(reinterpret_cast<const char*>(pods[j].ptr),
@@ -419,6 +434,35 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
         return 0;
     }
     auto doc = std::move(doc_e).get();
+
+    // `doc` is a GrowableSingleChunk arena: an allocation that reallocs it
+    // FREES the old chunk, dangling the raw pointers deep_copy_object /
+    // expand_cursor_in_subtree hold into it mid-operation. Front-load a
+    // single realloc NOW (nothing points into doc yet) to a size that bounds
+    // the whole expansion, so no later allocation reallocs. Each repeat
+    // iteration copies a body ≤ template_size, and total iterations across
+    // all levels ≤ 2 × Σ(cursor pods); plus the substituted ident bytes.
+    {
+        uint64_t total_idents = 0, total_str = 0;
+        for (uint64_t i = 0; i < cursors_count; ++i) {
+            const auto& ch = cursor_hdrs[i];
+            uint64_t tp = ch.count;
+            if (ch.inner_counts_offset != 0) {
+                const auto* ic = reinterpret_cast<const uint64_t*>(
+                    cursors_base + ch.inner_counts_offset);
+                tp = 0;
+                for (uint64_t o = 0; o < ch.count; ++o) tp += ic[o];
+            }
+            const auto* pods = reinterpret_cast<const IdentPod*>(
+                cursors_base + ch.pods_offset);
+            total_idents += tp;
+            for (uint64_t j = 0; j < tp; ++j) total_str += pods[j].len;
+        }
+        size_t bound = static_cast<size_t>(blob->template_size)
+                         * (2 * total_idents + 2)
+                     + static_cast<size_t>(total_str) + 65536;
+        (void)HermesAccess::arena(doc).reserve(bound);
+    }
 
     // Substitute placeholders. Root is MODULE TOM with ITEMS array.
     auto& arena = HermesAccess::arena(doc);
@@ -503,13 +547,47 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (nv.is_value()) {
                 int32_t enc = nv.as_value<int32_t>();
                 if (enc >= 0 && (enc & 0x400000) != 0) {
-                    int32_t cidx = enc & ~0x400000;
+                    // Encoding: bit 22 = is-cursor, bits 0-7 = cursor index,
+                    // bits 8-21 = pinned-outer-index + 1 (0 = unpinned).
+                    // T2-30: a depth-2 cursor (inner_counts_offset != 0) seen
+                    // unpinned during OUTER expansion records its outer index
+                    // (iter) into bits 8-21 and stays a placeholder; the inner
+                    // REPEAT_GROUP it sits in is expanded later by subst_walk,
+                    // at which point the pin selects the right inner sublist.
+                    int32_t cidx = enc & 0xFF;
+                    int32_t pin  = (enc >> 8) & 0x3FFF;   // 0 = unpinned
+                    int64_t pod_idx = -1;
                     if (static_cast<uint64_t>(cidx) < cursors_count) {
+                        const auto& chh = cursor_hdrs[cidx];
+                        if (chh.inner_counts_offset == 0) {
+                            // depth-1 cursor: indexed by the current repeat iter.
+                            if (iter < chh.count) pod_idx = (int64_t)iter;
+                        } else if (pin == 0) {
+                            // depth-2, outer phase: pin outer = iter, keep node.
+                            if (iter + 1 <= 0x3FFF) {
+                                int32_t pinned = enc | (int32_t)((iter + 1) << 8);
+                                (void)tom->put(la::NAME_VAR.code,
+                                    AnyVal::from_value<int32_t>(pinned), arena);
+                            }
+                            // fall through: no substitution this phase.
+                        } else {
+                            // depth-2, inner phase: outer = pin-1, inner = iter.
+                            const auto* ic = reinterpret_cast<const uint64_t*>(
+                                cursors_base + chh.inner_counts_offset);
+                            uint64_t o = (uint64_t)(pin - 1);
+                            if (o < chh.count && iter < ic[o]) {
+                                uint64_t base = 0;
+                                for (uint64_t t = 0; t < o; ++t) base += ic[t];
+                                pod_idx = (int64_t)(base + iter);
+                            }
+                        }
+                    }
+                    if (pod_idx >= 0) {
                         const auto& ch = cursor_hdrs[cidx];
-                        if (iter < ch.count) {
+                        {
                             const auto* pods = reinterpret_cast<const IdentPod*>(
                                 cursors_base + ch.pods_offset);
-                            const auto& pod = pods[iter];
+                            const auto& pod = pods[pod_idx];
                             auto str_e = ArenaString::create(arena,
                                 std::string_view(
                                     reinterpret_cast<const char*>(pod.ptr),
@@ -593,9 +671,22 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (nv.is_value()) {
                 int32_t enc = nv.as_value<int32_t>();
                 if (enc >= 0 && (enc & 0x400000) != 0) {
-                    int32_t cidx = enc & ~0x400000;
-                    if (static_cast<uint64_t>(cidx) < cursors_count)
-                        return cursor_hdrs[cidx].count;
+                    int32_t cidx = enc & 0xFF;
+                    int32_t pin  = (enc >> 8) & 0x3FFF;
+                    if (static_cast<uint64_t>(cidx) < cursors_count) {
+                        const auto& ch = cursor_hdrs[cidx];
+                        // T2-30: a PINNED depth-2 cursor drives the INNER
+                        // repeat count = its outer sublist length; otherwise
+                        // (depth-1, or depth-2 at the outer level) the count
+                        // is the cursor's outer dimension.
+                        if (ch.inner_counts_offset != 0 && pin != 0) {
+                            const auto* ic = reinterpret_cast<const uint64_t*>(
+                                cursors_base + ch.inner_counts_offset);
+                            uint64_t o = (uint64_t)(pin - 1);
+                            if (o < ch.count) return ic[o];
+                        }
+                        return ch.count;
+                    }
                 }
             }
         }
@@ -1228,52 +1319,91 @@ extern "C" void logos_qib_free_blobs(const uint8_t* blob) {
 //   [N_cursors × {count: u64, pods_offset: u64}]
 //   [pods + ident bytes...]
 // `pods_offset` is absolute-from-buffer-start.
+// `depths[i]` is the nesting depth of cursor i: 1 → arr[i] is
+// `*const Vec<Ident>`; 2 → `*const Vec<Vec<Ident>>` (ragged, T2-30). A null
+// `depths` means all depth-1 (legacy callers). The packed blob keeps all
+// idents contiguous at pods_offset; depth-2 cursors additionally store O
+// sub-lengths at inner_counts_offset (CSR).
 extern "C" const uint8_t* logos_qib_pack_cursors(
-        const void* const* arr, uint64_t n) {
+        const void* const* arr, const uint8_t* depths, uint64_t n) {
     struct IdentPod  { const uint8_t* ptr; uint64_t len; };
-    struct CursorHdr { uint64_t count;     uint64_t pods_offset; };
+    struct CursorHdr { uint64_t count; uint64_t pods_offset; uint64_t inner_counts_offset; };
     struct VecPod    { const IdentPod* ptr; uint64_t len; uint64_t cap; };
+    struct VecVecPod { const VecPod*  ptr; uint64_t len; uint64_t cap; };
+    auto depth_of = [&](uint64_t i) -> uint8_t {
+        return depths ? depths[i] : 1;
+    };
 
     uint64_t hdr_bytes = 8 + n * sizeof(CursorHdr);
-    // First pass: per-cursor count + sum of all ident bytes
-    std::vector<uint64_t> counts(n, 0);
-    uint64_t total_pods = 0;
-    uint64_t total_str  = 0;
+    // First pass: per-cursor OUTER count, total pods, total inner_counts
+    // entries (= Σ outer counts of depth-2 cursors), and total ident bytes.
+    std::vector<uint64_t> outer_counts(n, 0);
+    uint64_t total_pods = 0, total_str = 0, total_ic = 0;
     for (uint64_t i = 0; i < n; ++i) {
-        const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
-        if (!v) continue;
-        counts[i]   = v->len;
-        total_pods += v->len;
-        for (uint64_t j = 0; j < v->len; ++j) {
-            total_str += v->ptr[j].len;
+        if (depth_of(i) >= 2) {
+            const auto* vv = reinterpret_cast<const VecVecPod*>(arr[i]);
+            if (!vv) continue;
+            outer_counts[i] = vv->len;
+            total_ic += vv->len;
+            for (uint64_t o = 0; o < vv->len; ++o) {
+                const VecPod& inner = vv->ptr[o];
+                total_pods += inner.len;
+                for (uint64_t k = 0; k < inner.len; ++k)
+                    total_str += inner.ptr[k].len;
+            }
+        } else {
+            const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
+            if (!v) continue;
+            outer_counts[i] = v->len;
+            total_pods += v->len;
+            for (uint64_t j = 0; j < v->len; ++j) total_str += v->ptr[j].len;
         }
     }
-    uint64_t total = hdr_bytes
-                   + total_pods * sizeof(IdentPod)
-                   + total_str;
+    uint64_t ic_bytes = total_ic * sizeof(uint64_t);
+    uint64_t total = hdr_bytes + ic_bytes
+                   + total_pods * sizeof(IdentPod) + total_str;
     auto* buf = static_cast<uint8_t*>(std::malloc(total));
     if (!buf) return nullptr;
     *reinterpret_cast<uint64_t*>(buf) = n;
     auto* hdrs = reinterpret_cast<CursorHdr*>(buf + 8);
-    uint64_t pod_off = hdr_bytes;
-    uint64_t str_off = hdr_bytes + total_pods * sizeof(IdentPod);
-    for (uint64_t i = 0; i < n; ++i) {
-        hdrs[i].count       = counts[i];
-        hdrs[i].pods_offset = pod_off;
-        const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
-        if (!v) continue;
-        auto* pods = reinterpret_cast<IdentPod*>(buf + pod_off);
-        for (uint64_t j = 0; j < v->len; ++j) {
-            pods[j].len = v->ptr[j].len;
-            if (v->ptr[j].len > 0 && v->ptr[j].ptr) {
-                std::memcpy(buf + str_off, v->ptr[j].ptr, v->ptr[j].len);
-                pods[j].ptr = buf + str_off;
-                str_off += v->ptr[j].len;
-            } else {
-                pods[j].ptr = nullptr;
-            }
+    uint64_t ic_off  = hdr_bytes;
+    uint64_t pod_off = hdr_bytes + ic_bytes;
+    uint64_t str_off = pod_off + total_pods * sizeof(IdentPod);
+    auto emit_pod = [&](IdentPod* pods, uint64_t idx, const IdentPod& src) {
+        pods[idx].len = src.len;
+        if (src.len > 0 && src.ptr) {
+            std::memcpy(buf + str_off, src.ptr, src.len);
+            pods[idx].ptr = buf + str_off;
+            str_off += src.len;
+        } else {
+            pods[idx].ptr = nullptr;
         }
-        pod_off += v->len * sizeof(IdentPod);
+    };
+    for (uint64_t i = 0; i < n; ++i) {
+        hdrs[i].count              = outer_counts[i];
+        hdrs[i].pods_offset        = pod_off;
+        hdrs[i].inner_counts_offset = 0;
+        auto* pods = reinterpret_cast<IdentPod*>(buf + pod_off);
+        if (depth_of(i) >= 2) {
+            const auto* vv = reinterpret_cast<const VecVecPod*>(arr[i]);
+            if (!vv) continue;
+            hdrs[i].inner_counts_offset = ic_off;
+            auto* ic = reinterpret_cast<uint64_t*>(buf + ic_off);
+            uint64_t flat = 0;
+            for (uint64_t o = 0; o < vv->len; ++o) {
+                const VecPod& inner = vv->ptr[o];
+                ic[o] = inner.len;
+                for (uint64_t k = 0; k < inner.len; ++k)
+                    emit_pod(pods, flat++, inner.ptr[k]);
+            }
+            ic_off  += vv->len * sizeof(uint64_t);
+            pod_off += flat * sizeof(IdentPod);
+        } else {
+            const auto* v = reinterpret_cast<const VecPod*>(arr[i]);
+            if (!v) continue;
+            for (uint64_t j = 0; j < v->len; ++j) emit_pod(pods, j, v->ptr[j]);
+            pod_off += v->len * sizeof(IdentPod);
+        }
     }
     return buf;
 }
