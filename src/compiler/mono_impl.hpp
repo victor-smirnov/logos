@@ -999,6 +999,10 @@ private:
     // compile-time literals, redirect `nc.callee` to a per-value spec and
     // enqueue it (clone with the literals baked). No-op otherwise.
     void maybe_const_specialize(lir::ECall& nc);
+    // Core helper (also used at method→call rewrite sites): returns the callee
+    // to emit — `callee` unchanged or a per-value spec name (spec enqueued).
+    std::string const_specialize_callee(const std::string& callee,
+                                        const std::vector<lir::LExprPtr>& args);
 
     // L1: enqueue a single struct-method instance for lazy codegen. Looks up
     // the method template via `struct_method_templates_`, builds a SubstMap

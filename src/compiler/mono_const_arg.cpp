@@ -144,24 +144,29 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
     return const_want_cache_.emplace(base, std::move(result)).first->second;
 }
 
-void Mono::maybe_const_specialize(lir::ECall& nc) {
+// Core: given a finalized callee + its (cloned) args, return the callee to
+// actually emit — either `callee` unchanged, or a per-value spec name (with
+// the spec enqueued for cloning). Works for free calls AND method→call
+// rewrites: in the latter the receiver is args[0] and self is params[0], so a
+// const-want param index maps to the same args index with no offset.
+std::string Mono::const_specialize_callee(
+        const std::string& callee, const std::vector<lir::LExprPtr>& args) {
     // A registry intrinsic is the const-want SEED, never a spec target: its
     // const arg is already a literal here, and renaming it would hide it from
-    // mlir-gen's name-keyed atomic lowering. Leave the call as-is so
-    // read_ordering_at reads the literal directly.
-    if (!const_intrinsic_positions(nc.callee).empty()) return;
-    const auto& cw = compute_const_want(nc.callee);
-    if (cw.empty()) return;
-    const lir::LFunction* fn = find_fn_def_by_base(nc.callee);
+    // mlir-gen's name-keyed atomic lowering.
+    if (!const_intrinsic_positions(callee).empty()) return callee;
+    const auto& cw = compute_const_want(callee);
+    if (cw.empty()) return callee;
+    const lir::LFunction* fn = find_fn_def_by_base(callee);
     if (!fn || fn->body.mirror_offset_ == hermes::arena_offset_t{})
-        return;  // extern / bodyless / unknown callee — can't clone; leave as-is
+        return callee;  // extern / bodyless / unknown — can't clone
 
     std::vector<std::pair<std::string, ConstArgVal>> binds;
     std::string suffix = "__cv";
     auto& arena = out_.type_pool.arena_or_init();
     for (size_t p : cw) {
-        if (p >= nc.args.size() || p >= fn->params.size() || !nc.args[p]) continue;
-        lir_view::ExprRef aref(&arena, nc.args[p]->mirror_offset_);
+        if (p >= args.size() || p >= fn->params.size() || !args[p]) continue;
+        lir_view::ExprRef aref(&arena, args[p]->mirror_offset_);
         ConstArgVal cv;
         if (!try_read_const_arg(aref, cv)) continue;  // runtime arg → no spec
         binds.emplace_back(fn->params[p].name, cv);
@@ -169,9 +174,9 @@ void Mono::maybe_const_specialize(lir::ECall& nc) {
                 + (cv.is_enum ? cv.enum_name : std::string("i"))
                 + std::to_string(cv.ival);
     }
-    if (binds.empty()) return;  // every const-want arg was a runtime value
+    if (binds.empty()) return callee;  // every const-want arg was runtime
 
-    std::string spec = nc.callee + suffix;
+    std::string spec = callee + suffix;
     if (!done_.count(spec)) {
         done_.insert(spec);
         WorkItem wi;
@@ -181,7 +186,11 @@ void Mono::maybe_const_specialize(lir::ECall& nc) {
         wi.const_args = std::move(binds);
         worklist_.push_back(std::move(wi));
     }
-    nc.callee = spec;
+    return spec;
+}
+
+void Mono::maybe_const_specialize(lir::ECall& nc) {
+    nc.callee = const_specialize_callee(nc.callee, nc.args);
 }
 
 bool Mono::try_read_const_arg(lir_view::ExprRef arg, ConstArgVal& out) {

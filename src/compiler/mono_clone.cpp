@@ -3920,6 +3920,19 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 v.each_arg([&](lir_view::ExprRef ar) {
                     nm.args.push_back(subst_child_expr(ar));
                 });
+                // T2-24 (B): const-arg spec for a concrete method kept as a
+                // method call. The receiver is `self` (param 0) but isn't in
+                // nm.args, so build a combined view [recv, args…] to map a
+                // const-want param index directly. No-op unless the callee
+                // body is available to clone.
+                if (!nm.resolved_symbol.empty() && nm.receiver) {
+                    std::vector<lir::LExprPtr> combined;
+                    combined.reserve(nm.args.size() + 1);
+                    combined.push_back(nm.receiver);
+                    for (auto a : nm.args) combined.push_back(a);
+                    nm.resolved_symbol =
+                        const_specialize_callee(nm.resolved_symbol, combined);
+                }
                 result->mirror_offset_ = lir_mirror_emit_method_call(
                     out_, result->type, nm.receiver, nm.method, nm.resolved_symbol,
                     nm.type_args, nm.args, nm.vtable_index, resolved_type,
