@@ -19,15 +19,15 @@ pub auto trait Sync {}
 pub trait Sized {}
 
 // Unpin — a type that can be safely moved even after being pinned. Mirrors
-// `core::marker::Unpin`. Auto-trait in Rust (auto-impl'd unless the type
-// stores a `PhantomPinned`). For now `Unpin` is a regular marker — Logos
-// doesn't ship a Pin<T> ergonomics layer yet, so no impls are wired.
+// `core::marker::Unpin`. Auto-trait: the compiler derives it STRUCTURALLY —
+// a type is Unpin unless it stores a `PhantomPinned` or is `#[pinned]`; refs
+// and raw pointers are always Unpin. The `Pin<P>` ergonomics layer ships in
+// `logos.lang.pin`.
 pub auto trait Unpin {}
 
-// PhantomPinned — a zero-sized field that opts a struct out of Unpin in
-// Rust's auto-trait machinery. Logos doesn't have Pin<T> yet; this lives
-// here as a forward-compatible placeholder so port targets that name it
-// (e.g. self-referential generators) parse.
+// PhantomPinned — a zero-sized field that opts a struct OUT of Unpin: a
+// struct containing one (or marked `#[pinned]`) is `!Unpin`, so it cannot be
+// moved out of a `Pin<P>`. Mirrors `core::marker::PhantomPinned`.
 pub struct PhantomPinned {}
 
 // PhantomData<T> — a zero-sized type-anchor. In Rust this controls
@@ -37,12 +37,12 @@ pub struct PhantomPinned {}
 // `PhantomData::<T>{}` — empty struct literal.
 pub struct PhantomData<T> {}
 
-// Empty (uninhabited) enum — Logos's replacement for Rust's `!` (never)
-// type. Use as the error variant of `Result<T, Never>` to signal
-// "Err is impossible", or as a stand-in for `fn foo() -> !` divergent
-// returns (e.g. `fn abort() -> Never { panic("..."); ... }`). Mirrors
-// the role of `core::convert::Infallible` in stable Rust.
-pub enum Never {}
+// Infallible — an empty (uninhabited) enum: the error type of a `Result`
+// that can never be `Err` (`Result<T, Infallible>`). Mirrors
+// `core::convert::Infallible`. NOT the never type: Logos has a real `!`
+// (the type of a divergent `fn … -> !`, rendered `!`) — use `!` for
+// divergence and `Infallible` only as a "this variant is impossible" stand-in.
+pub enum Infallible {}
 
 // SelfDescribing — a custom-DST (`struct Foo { hdr…, tail: [T] }`) whose tail
 // length is recoverable from its own in-band header. Marking the struct

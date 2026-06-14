@@ -15,21 +15,27 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 *Rust anchor:* `undefined.race`.
 **Status:** PARTIAL.
 
-- The atomic API (`stdlib/lang/atomic/`) accepts an `Ordering` parameter
-  but currently discards it (every atomic op lowers to `seq_cst` on x86).
-  On x86 this is sound (TSO collapses the distinction); on ARM / RISC-V
-  it is unsound — relaxed-store paired with acquire-load may reorder.
-  Tracked in [logos-core.md §6 item 5.1](logos-core.md) as Phase 6 #19.
+- The atomic API (`stdlib/lang/atomic/`) now THREADS the `Ordering`
+  (T2-24): a *literal* ordering at the intrinsic call lowers to the exact
+  MLIR atomic ordering (`read_ordering_at`); a *runtime* ordering through
+  the `_ordered` wrappers lowers a `store` to `SeqCst ? seq_cst : release`
+  — the only ordering that changes x86-64 store codegen (`xchg` vs `mov`) —
+  and keeps `seq_cst` for load / RMW / CAS, which are byte-identical across
+  orderings on x86. On x86-64 (the target) this is precise; the residual is
+  purely conformance (the exact attribute on loads/RMW where x86 codegen
+  coincides anyway). Earlier weak-memory unsoundness on ARM/RISC-V is moot —
+  x86-64 is the only target. See `docs/internals/const-arg-specialization.md`.
 - Outside the atomic API, two threads writing to overlapping `&mut T`
   views is rejected by the borrow checker (single-thread aliasing) at
   *compile time* only when both writers are in the same fn body. Cross-
   thread sharing requires `Sync`; the auto-trait machinery is partly
   permissive (closures-walk-captures landed in logos-core 2.4).
-- **Follow-up:** `logos-core.md §5.1` (atomics Ordering threading) +
-  `logos-core.md §2.4` (auto-trait propagation `dyn+Auto` enforce).
+- **Follow-up:** Ordering threading is now done (above); the open race
+  surface is cross-thread `&mut`/`Sync` enforcement — `logos-core.md §2.4`
+  (auto-trait propagation `dyn+Auto` enforce).
 
 ## Dereferencing a dangling, null, or unaligned raw pointer
-*Rust anchor:* `undefined.deref`.
+*Rust anchor:* `undefined.pointer-access`.
 **Status:** UNENFORCED (within `unsafe`).
 
 - `unsafe { *p }` performs the deref unchecked. Programmer guarantees
@@ -46,19 +52,21 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 *Rust anchor:* `undefined.validity`.
 **Status:** PARTIAL.
 
-- `transmute` of mismatched-size types — REJECTED at compile (size_of
-  comparison at the call site).
-- `transmute` to a niched type with an invalid bit pattern — UNENFORCED.
-- Reading uninitialized memory through `mem::uninitialized()` — Logos
-  uses zero-init via `alloc()`, so this category is reduced but not
-  eliminated when raw-ptr work re-introduces it.
-- **Follow-up:** niche-validity check at `transmute` callsite needs the
-  same niche-optimization metadata used by enum layout; track as a
-  baghunt `UB-validity-niche` entry alongside `#[repr(transparent)]`
-  niche propagation (`logos-core.md §1.5` extension).
+- Logos has **no `mem::transmute`**. The reinterpret path is an explicit
+  unsafe pointer cast — `&x as *const T as *mut U`, then deref — done in an
+  `unsafe` block; size/validity are the programmer's responsibility (no
+  size_of equality check, no niche-validity check). Producing an invalid
+  bit pattern this way is UNENFORCED.
+- Reading uninitialized memory — Logos zero-inits via `alloc()`, so the
+  classic `mem::uninitialized()` hazard is reduced but not eliminated once
+  raw-ptr / manual-alloc work re-introduces uninit storage.
+- **Follow-up:** if a `transmute` builtin is ever added, it should carry a
+  call-site size_of-equality check (the cheap half) and reuse enum-layout
+  niche metadata for the validity half; track as baghunt `UB-validity-niche`
+  alongside `#[repr(transparent)]` niche propagation (`logos-core.md §1.5`).
 
 ## Mutating immutable bytes
-*Rust anchor:* `undefined.mut_immutable`.
+*Rust anchor:* `undefined.immutable`.
 **Status:** ENFORCED.
 
 - Writing through `&T` is rejected at compile time (M2 borrow check).
@@ -96,7 +104,7 @@ the "panic on unwind" entries in the Rust list apply; replace them with
   `logos-core.md §2.1` finish + `§3.1`.
 
 ## Breaking the pointer aliasing rules
-*Rust anchor:* `undefined.aliasing`.
+*Rust anchor:* `undefined.alias`.
 **Status:** PARTIAL.
 
 - `&mut T` exclusivity is enforced at sema + borrow_check (M2 reborrow
@@ -136,13 +144,16 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 
 - `let x: i32 = 256i8;` — integer-literal overflow IS detected (Phase
   1 intlit fits check).
-- Runtime overflow of `+`/`-`/`*` on integers wraps (Rust release-mode
-  default). No debug-mode panic on overflow.
-- **Follow-up:** runtime overflow checks (`debug_assert!`-on-overflow)
-  are tracked in `docs/language/feature-audit/K-unsafe.md` (audit
-  cross-category #1 for K). Not a logos-core item; track via baghunt
-  `UB-integer-overflow` when an import depends on Rust's debug-mode
-  semantics.
+- Runtime overflow of `+`/`-`/`*` on integers is **CHECKED**: each op
+  lowers to `llvm.intr.{s,u}add/sub/mul.with.overflow` + a branch to
+  `llvm.intr.trap` on the overflow bit (verified in MLIR). This is Rust's
+  **debug-mode** semantics (panic/abort on overflow), NOT release-mode
+  wrapping — and it stays on regardless of `-O`. Per the abort-only panic
+  strategy (DIVERGENCES §A7) the trap aborts rather than unwinding.
+- **Follow-up:** wrapping/`checked_*`/`saturating_*` arithmetic as opt-in
+  ops (Rust's `Wrapping<T>` / `i32::wrapping_add`) is the catch-up surface,
+  tracked in `docs/language/feature-audit/K-unsafe.md`; track via baghunt
+  `UB-integer-overflow` when an import needs explicit wrap semantics.
 
 ## Inline assembly
 *Rust anchor:* `undefined.asm`.
@@ -155,8 +166,9 @@ the "panic on unwind" entries in the Rust list apply; replace them with
 - `docs/DIVERGENCES.md` §A7 (panic = abort) — every "panic on unwind"
   rule in Rust's UB list becomes "abort on unwind site".
 - `docs/language/logos-core.md` §1 item 1.1 (Never tightening), §2 item
-  2.4 (auto-trait propagation), §2 item 2.6 (slice mut), §5 item 5.1
-  (atomic Ordering), §6 (coupling rules).
+  2.4 (auto-trait propagation), §2 item 2.6 (slice mut), §6 (coupling
+  rules). Atomic Ordering threading (was §5.1) is done — T2-24,
+  `docs/internals/const-arg-specialization.md`.
 - `docs/language/feature-audit/K-unsafe.md` for the per-category audit
   of the unsafe surface (gap analysis vs Rust spec).
 

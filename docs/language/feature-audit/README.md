@@ -119,10 +119,10 @@ Tier-1.5 (found-by-the-way, 9d2d29e4): **field-level drop-before-replace** — `
 
 ### Tier 3 — documentation / register hygiene (single pass)
 
-31. `DIVERGENCES.md`: add §A rows (package/path model + `use…as`; `dyn Fn*`→Closure collapse; extra int widths; `Void`); prune stale B4/B6 lines.
-32. `undefined-behavior.md`: sync 3 stale entries; re-anchor IDs to spec.
-33. `logos-core.md`: correct §2.4(a)/§6.9/§6.14 rows; surface S25 + match-arm-ICE residuals at the scoreboard level; refresh §1.4 plan row.
-34. Stale stdlib comments: `cell.logos` header ("no compiler magic"), `marker.logos` Pin note; `enum Never` → `Infallible` rename (O,G).
+31. ✅ `DIVERGENCES.md`: §A rows A9 (dotted-package path model + `use…as` design-gate), A10 (`dyn Fn*`→Closure collapse), A11 (Hermes int widths I24/U24/I56/U56), A12 (`Void` vs unit `()`); B6 residual closed (slice mut_ptr in UID), B4 pointer fixed (B1NN per-batch).
+32. ✅ `undefined-behavior.md`: 3 stale entries synced — transmute (none exists → unsafe ptr-cast), Ordering (threaded, T2-24), overflow (TRAPS not wraps); anchors re-anchored (`deref`→`pointer-access`, `mut_immutable`→`immutable`, `aliasing`→`alias`).
+33. ✅ `logos-core.md`: S25 marked RESOLVED (T0-1); §6.9 → ◑ (type-position metacall CTFE still fails); §6.14 refined (T2-24 runtime-store branch); §6.2 static-mut closed; §6.11 → ◑ (match-arm-ICE T0-2 surfaced); §1.4 plan row refreshed (common case ✅, narrow ZST residual); §2.4(a) already correct (closure-captures landed).
+34. ✅ Stale stdlib comments: `cell.logos` "no compiler magic" → UnsafeCell IS a lang-item (auto-`!Sync` + Send-from-T + invariant-T); `marker.logos` Pin notes (Pin shipped, Unpin structural); `enum Never` → `Infallible` rename (no users; disambiguates from the real `!`) (O,G).
 
 ---
 

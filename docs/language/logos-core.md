@@ -851,16 +851,13 @@ Deferred (probed, root identified, fix slated for a follow-up):
   "expected &&[u8], got &[u8]" — a double-`&` on the expected
   side. Likely the const-init type-hint adds an extra `&` when
   the declared type already is a `&str` reference.
-- **S25 (critical)** — cross-fn `static mut` read **segfaults**
-  at runtime. `STATIC_DEF` reuses `collect_const` storage; at
-  mlir-gen each var-ref / addr-of materialises a FRESH stack
-  alloca (the const-inlining convention). For static-mut this
-  must instead emit a real `llvm.mlir.global` once and route
-  every read/write through `llvm.mlir.addressof`. Current main()
-  test passes only because the writer and reader happen to share
-  main's local alloca; cross-fn diverges. Pin: tests pass when
-  both write and read live in `main`, segfault when read moves
-  to another fn (`s25c_via_fn`, `s25d_main_write_fn_read`).
+- **S25 — ✅ RESOLVED (`7ea97718`, T0-1).** Every `static` / `static mut`
+  now lowers to one `llvm.mlir.global`, and every read / write / `&STATIC`
+  routes through `llvm.mlir.addressof` — replacing the const-inline / fresh-
+  alloca convention that made cross-fn `static mut` read segfault. Closed the
+  segfault, read-before-first-write garbage, atomic-in-static (`fetch_add` in
+  fn A visible in `main`), and `&STATIC` identity. Verified: cross-fn
+  write→read returns the written value (was a runtime segfault).
 
 ### ~~6.3. `let-else` divergence assertion~~ ✅
 *Audit: E (Expressions), Tier-1 #10.*
@@ -1572,19 +1569,19 @@ core are recorded here with a rationale. Closing items move to a
 | 4.4 | `PAT_PATH` constants-as-patterns | ✅ | `tests/logos/pass/core_4_4_pat_path_const.logos` ✓ — already wired at `sema_stmt.cpp:4582-4607` (P4-pm-06) |
 | 4.5 | fn-params irrefutable patterns | ✅ | `tests/logos/pass/core_4_5_fn_param_struct_pat.logos` ✓ — PAT_STRUCT shapes wired; PAT_SLICE grammar lands, body-prologue is §4.3 follow-up |
 | 6.1 | `union` item | ✅ | `tests/logos/pass/core_6_1_union_parse.logos` ✓ + 2 fail tests — full soundness (parse + unsafe gate + single-field init + max-of-fields layout) |
-| 6.2 | `static` vs `const` split (immutable half) | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end; `static mut` is the open Wave 5 follow-up |
+| 6.2 | `static` vs `const` split | ✅ | `tests/logos/pass/core_6_2_static_lifetime.logos` ✓ — `&STATIC` types as `&'static T` end-to-end. `static mut` now CLOSED too (T0-1 `7ea97718`): real `llvm.mlir.global` + addressof routing, cross-fn `static mut` read/write/atomic sound (was the S25 segfault). |
 | 6.3 | `let-else` divergence assertion | ✅ | `tests/logos/pass/core_6_3_let_else_diverges.logos` ✓ + `tests/logos/fail/core_6_3_let_else_fallthrough.logos` ✓ |
 | 6.4 | let-chain in if (if-form) | ✅ | `tests/logos/pass/core_6_4_let_chain.logos` ✓ — grammar + desugar via `lower_reparsed_tail_expr` with `0i32` synth-tail trick; while-let and match-guard chain forms are a follow-up slice |
 | 6.5 | `?` on `Try` / `FromResidual` | ✅ | `tests/logos/pass/core_6_5_try_on_user_type.logos` ✓ — stdlib Try/FromResidual/ControlFlow + sema trait dispatch via render+reparse |
 | 6.6 | `lookup_qualified_` pub-bypass tightening | ✅ | verified-by-suite (defense-in-depth pub-check on bare-key fallback) |
 | 6.7 | `extern "ABI" { … }` blocks (parse + ABI gating) | ✅ | `tests/logos/pass/core_6_7_extern_abi_block.logos` ✓ + `tests/logos/fail/core_6_7_extern_unknown_abi.logos` ✓ — calling-convention threading is a Wave 6 follow-up |
 | 6.8 | `#[cfg(all/any/not)]` combinators + `cfg_attr` activate | ✅ | `tests/logos/pass/core_6_8_cfg_combinators.logos` ✓ + `tests/logos/fail/core_6_8_cfg_combinator_drops.logos` ✓ — ANNOT_CALL schema + unified `evaluate_cfg_arg` + cfg_attr wrap activation |
-| 6.9 | `ConstResolver` seam through `metacall` | ✅ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ — interface in ctfe.hpp + threading through do_eval + sema wiring at both metacall sites |
+| 6.9 | `ConstResolver` seam through `metacall` | ◑ | `tests/logos/pass/core_6_9_const_resolver_metacall.logos` ✓ for the wired (expression-position) sites. **RESIDUAL:** the resolver is NOT wired at the TYPE-position CTFE sites — `[i64; metacall { N }]` array-length still fails (`ctfe: not a compile-time constant`, length folds to 0). K10-co-06 canonical repro open. |
 | 6.10 | Derive handlers (Debug/PartialEq/Eq/Default/Hash/Ord/Copy) | ✅ | all 8 derives landed (`tests/logos/pass/core_6_10_derive_{copy,partial_eq,eq,hash,ord,partial_ord,default,debug}.logos` ✓) |
-| 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ✅ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ — compiler builtins routing through `panic!` format-family fast-path |
+| 6.11 | `unreachable!()` / `todo!()` / `unimplemented!()` | ◑ | `tests/logos/pass/core_6_11_never_macros.logos` ✓ in expression / statement position (builtins route through the `panic!` format-family fast-path). **RESIDUAL:** the same builtins as a MATCH-ARM expression ICE / void-type (O-report o3/o3c/o3d) — the sema-inlined `__fmt_panic` block must present `never_t()` to the match-arm type-unifier (and not crash the lowerer). Tracked as Tier-0 T0-2. |
 | 6.12 | `Range`/`RangeFrom`/`RangeTo`/`RangeFull`/`RangeInclusive`/`RangeToInclusive` generics | ✅ | `tests/logos/pass/core_6_12_range_generic.logos` ✓ — Step trait + 6 RangeOf* generic types; operator desugar to generic is Wave 9 follow-up |
 | 6.13 | `DerefMut` autoderef for `&mut self` methods | ✅ | `tests/logos/pass/core_6_13_derefmut_autoderef.logos` ✓ — per-step DerefMut probe at `sema_expr.cpp:6121` |
-| 6.14 | Atomics per-variant Ordering threaded to MLIR | ✅ | `tests/logos/pass/core_6_14_atomics_per_variant_ordering.logos` ✓ — `_ord` intrinsics + const-eval'd Ordering disc → AtomicOrdering |
+| 6.14 | Atomics per-variant Ordering threaded to MLIR | ✅ | `_ord` intrinsics: a LITERAL Ordering const-evals (`read_ordering_at`) → exact MLIR ordering. T2-24 also handles a RUNTIME Ordering (the `_ordered` method-path): `store` branches `SeqCst ? seq_cst : release` (the only x86-64 store-codegen difference), load/RMW/CAS keep `seq_cst` (byte-identical across orderings on x86). On x86-64 (the target) this is precise; emitting the exact attr on loads/RMW where x86 coincides is a conformance-only residual. See `docs/internals/const-arg-specialization.md`. |
 
 **`/goal` convergence rule:** target = first column count where Status = ✅
 equals 37. Score line above is the canonical authority — when an item moves
@@ -1626,7 +1623,7 @@ Goal: shape-correct LIR kinds so later passes don't ride on placeholder unificat
 | # | Item | Effort | Approach |
 |---|------|--------|----------|
 | 7 | **1.3** `Kind::InferredType` + `_` in `type_ref` | M | New `LogosType::Kind::InferredType`; grammar `type_ref` adds `_` alt; sema lowers `_` to a fresh inference var; downstream sites that today reject `_` accept it. |
-| 8 | **1.4** `Kind::FnItem` distinct from `Kind::FnPtr` | M | DEFERRED to focused session — narrow remaining gap. Investigated 2026-05-30: Logos already rejects `if c { foo::<i32> } else { foo::<u32> }` when the type-arg affects the FnPtr signature (the common case — `id::<i32>` vs `id::<i64>` produces distinct `fn(i32)->i32` / `fn(i64)->i64` shapes). The genuine FnItem-vs-FnPtr divergence only fires when type-args do NOT influence the signature (`marker<T>() -> i32` where T is unused) — Rust treats the two instantiations as distinct ZSTs, Logos collapses them. 39 FnPtr touchpoints across 12 files for the full distinct-kind refactor; blast radius high for a rarely-firing shape. Reopen alongside generic-fn-pointer inference work. |
+| 8 | **1.4** `Kind::FnItem` distinct from `Kind::FnPtr` | M | ✅ COMMON CASE CLOSED (scoreboard §1.4) — `Kind::FnItem` exists, 39 touchpoints swept via `is_fn_value_kind`; `if c { foo::<i32> } else { foo::<u32> }` is rejected when the type-arg affects the FnPtr signature (`id::<i32>` vs `id::<i64>` → distinct `fn(i32)->i32` / `fn(i64)->i64`). NARROW RESIDUAL: when type-args do NOT influence the signature (`marker<T>() -> i32`, T unused), Rust treats the two instantiations as distinct ZSTs, Logos collapses them — a rarely-firing shape, reopen alongside generic-fn-pointer inference. (Distinct from T2-23 extern-ABI FnPtr identity, which IS done.) |
 | 9 | **1.5** `#[repr(transparent)]` + `#[repr(uN)]` enum | M | Parse + plumb into `layout_of`; `transparent` collapses single-field struct to field layout; `uN` sets enum discriminant width. `#[repr(C, packed, align)]` parses-rejects with "not in core scope, breadth-future". |
 
 **Phase gate:** `let x: Vec<_> = vec_new()` works; `&fn_item_value as FnPtr` works; one-line `#[repr(transparent)] struct Wrapper(u64);` roundtrips bit-equal.

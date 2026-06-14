@@ -12,13 +12,16 @@
 // from the same cell, racing writes from multiple threads, etc.) is
 // UB, hence the unsafe-block requirement at every dereference site.
 //
-// Logos already allows the `&self.value as *const T as *mut T` cast
-// in `unsafe` blocks, so UnsafeCell is just a typed wrapper — no
-// compiler magic, no `#[lang_item]` registration. (Rust's UnsafeCell
-// is also "just a struct" at the type-system level; the magic is in
-// the alias-analysis rules the borrow checker applies. Logos's
-// borrow checker doesn't yet track interior-mutability divergence;
-// matching Rust's exact rules is a separate workstream.)
+// Logos already allows the `&self.value as *const T as *mut T` cast in
+// `unsafe` blocks, so the struct BODY needs no special powers. The compiler
+// does, however, treat `logos.lang.cell.UnsafeCell` as a lang-item —
+// recognised by qualified name (sema_auto_trait.cpp / sema.cpp): a type
+// reachable through it is auto-`!Sync` (shared `&T` can mutate the interior,
+// so racing readers would race-write), its `Send` follows the wrapped `T`,
+// and `T` is INVARIANT (an `UnsafeCell<&'a X>` can't be lifetime-subtyped).
+// Beyond those auto-trait / variance rules the borrow checker does not yet
+// model interior-mutability aliasing; matching Rust's full alias analysis is
+// a separate workstream.
 
 package logos.lang.cell;
 
