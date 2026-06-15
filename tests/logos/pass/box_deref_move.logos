@@ -1,0 +1,15 @@
+// Box DerefMove (Rust parity): `let s = *b` / `return *b` move the boxed value
+// OUT of the Box — content ownership transfers to s, the heap block is freed,
+// and the content is NOT dropped via the Box (no double-free; valgrind-clean).
+// Desugars to box_take(b), which consumes b.
+package box_deref_move;
+use logos.mem.string;
+fn unbox(b: Box<String>) -> String { return *b; }
+fn unbox_tail(b: Box<String>) -> String { *b }
+fn main() -> i32 {
+    let b: Box<String> = Box::new(String::from("hello"));
+    let s = *b;                                   // let-position DerefMove
+    let a = unbox(Box::new(String::from("ab")));  // return-position
+    let c = unbox_tail(Box::new(String::from("z")));
+    if s.len() == 5i64 && a.len() == 2i64 && c.len() == 1i64 { 0i32 } else { 1i32 }
+}

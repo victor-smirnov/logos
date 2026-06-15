@@ -1,0 +1,13 @@
+// Only Box has DerefMove. Moving a move-typed value out of `*x` over a USER
+// Deref impl is E0507 (the deref returns &T; you can't move out of it).
+package move_out_user_deref;
+use logos.lang.ops;
+use logos.mem.string;
+struct MyBox { v: String }
+impl Deref<String> for MyBox { fn deref(self: &MyBox) -> &String { &self.v } }
+fn main() -> i32 {
+    let m = MyBox { v: String::from("x") };
+    let s = *m;
+    let _ = s;
+    0i32
+}

@@ -2613,6 +2613,45 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     return builder().deref(std::move(operand), res);
 }
 
+lir::LExprPtr SemaChecker::try_lower_box_deref_move(TinyMapView deref_node) {
+    // Only `*<box-variable>` — a bare VarRef operand. Keeps lowering single-eval
+    // (the caller re-lowers the whole deref when we return null) and is the
+    // canonical `let s = *b` form. Complex operands fall through to E0507.
+    auto operand_node = map_of(deref_node.get(la::VALUE.code));
+    if (code_of(operand_node) != la::VAR_REF) return nullptr;
+    auto b = lower_expr(operand_node);
+    if (!b || !b->type) return nullptr;
+    TypeRef bt = b->type;
+    if (TypeRef(bt).kind() != LogosType::Kind::Struct ||
+        std::string(TypeRef(bt).struct_name()) != "Box")
+        return nullptr;
+    auto targs = TypeRef(bt).type_args();
+    if (targs.empty() || !targs[0]) return nullptr;
+    TypeRef elem = targs[0];
+    // Copy element: `*b` copies and leaves b live (Rust) — normal deref path.
+    if (!is_move_type(elem)) return nullptr;
+    // box_take::<T>(b): consumes b, moves the value out, frees the block.
+    // Build the call EXACTLY as lower_call does for a generic free fn: pass the
+    // template's type-param as a placeholder TypeVar (NOT the concrete elem) so
+    // mono infers T from the arg `b: Box<elem>` and instantiates the right
+    // monomorph. (A concrete type-arg here mis-mangles and never instantiates.)
+    const SemaFuncInfo* fit = nullptr;
+    for (auto* c : find_func_candidates("box_take"))
+        if (c->param_types.size() == 1 && c->type_params.size() == 1) { fit = c; break; }
+    if (!fit) return nullptr;
+    // Emit via finish_generic_call (the same path a real `box_take::<elem>(b)`
+    // call takes): infer T=elem from the arg, then instantiate. A hand-built
+    // call with placeholder/concrete type-args mis-mangles or emits the generic
+    // skeleton instead of the concrete monomorph.
+    std::vector<lir::LExprPtr> args;
+    args.push_back(std::move(b));
+    std::vector<TypeRef> inferred;
+    if (!infer_type_args(*fit, args, inferred)) return nullptr;
+    return finish_generic_call(
+        fit->symbol_name.empty() ? std::string_view("box_take") : fit->symbol_name,
+        *fit, std::move(inferred), std::move(args));
+}
+
 std::string SemaChecker::extract_pkg_qualifier(TinyMapView node) {
     // Qualified-call nodes carry RECEIVER (first package segment) + QUAL_PARTS
     // (each {NAME: seg}); unqualified calls have neither → "".

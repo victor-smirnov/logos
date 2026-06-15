@@ -36,6 +36,21 @@ pub fn box_into_raw<T>(b: Box<T>) -> *mut T {
     return md.value.ptr;
 }
 
+// Box DerefMove primitive: consume the Box, MOVE its contents out (no Drop of
+// the contents — ownership transfers to the caller), and free the heap block.
+// This is what Rust's built-in `*b` move (`let x = *b`) does. The compiler
+// desugars `let x = *b` over a move-typed Box to this; `box_into_raw` suppresses
+// Box's destructor, the raw read moves the value out (bit-copy, no drop), and
+// `dealloc` frees only the block.
+pub fn box_take<T>(b: Box<T>) -> T {
+    let p: *mut T = box_into_raw::<T>(b);
+    unsafe {
+        let v: T = p[0];
+        dealloc(p as *mut u8);
+        return v;
+    }
+}
+
 // Reconstitute a Box from a raw pointer previously produced by `box_into_raw`
 // (or any pointer to a heap block allocated with the matching layout). The Box
 // re-takes ownership: its Drop will run T's destructor and free the block.

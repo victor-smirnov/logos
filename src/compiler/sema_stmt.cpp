@@ -411,7 +411,11 @@ lir::LStmt SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 if (ret_type_ &&
                     TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
                     hint_enum_type_ = ret_type_;
-                auto inner = lower_expr(map_of(stmt.get(la::VALUE.code)));
+                auto _vnode = map_of(stmt.get(la::VALUE.code));
+                lir::LExprPtr inner = nullptr;
+                if (code_of(_vnode) == la::DEREF)  // Box DerefMove tail: `*b`
+                    inner = try_lower_box_deref_move(_vnode);
+                if (!inner) inner = lower_expr(_vnode);
                 hint_enum_type_ = _saved_enum_hint;
                 if (inner && inner->type &&
                     TypeRef(inner->type).kind() == LogosType::Kind::Void) {
@@ -1897,7 +1901,15 @@ lir::LStmt SemaChecker::lower_let(TinyMapView node) {
         decl_uninit_vars_.erase(std::string(name));
         currently_uninit_vars_.erase(std::string(name));  // logos-core 2.7
         pending_closure_capture_drops_.clear();  // claim only OUR direct closure RHS
-        rhs      = lower_expr(map_of(node.get(la::VALUE.code)));
+        auto rhs_node = map_of(node.get(la::VALUE.code));
+        // Box DerefMove: `let s = *b` over a move-typed Box<T> moves the content
+        // out (consuming b) and frees the block without dropping the content —
+        // Rust's built-in `*b` move. Desugars to `box_take(b)`. (Copy-T Box and
+        // non-Box derefs fall through to the normal copy/deref path.)
+        if (!is_ref_bind && code_of(rhs_node) == la::DEREF)
+            rhs = try_lower_box_deref_move(rhs_node);
+        if (!rhs)
+            rhs = lower_expr(rhs_node);
         rhs_type = rhs->type;
         if (is_ref_bind) {
             // Wrap the lowered RHS in an addr-of-temp so it produces
@@ -2785,7 +2797,12 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
                     TypeRef(rh).elem())
                     hint_arr_elem_type_ = TypeRef(rh).elem();
             }
-            val = lower_expr(map_of(vav));
+            // Box DerefMove in return position: `return *b;`.
+            auto vnode = map_of(vav);
+            if (code_of(vnode) == la::DEREF)
+                val = try_lower_box_deref_move(vnode);
+            if (!val)
+                val = lower_expr(vnode);
             hint_enum_type_ = saved_hint;
             hint_struct_type_ = saved_struct_hint;
             hint_closure_formal_ = saved_closure_hint;

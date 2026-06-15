@@ -3658,6 +3658,10 @@ private:
     lir::LExprPtr lower_binop(hermes::TinyMapView node);
     lir::LExprPtr lower_unary(hermes::TinyMapView node);
     lir::LExprPtr lower_deref(hermes::TinyMapView node);
+    // Box DerefMove: lowers `*box_var` (move-typed Box) to `box_take(b)`.
+    // Returns null when not applicable (operand isn't a bare Box var, or its
+    // element is Copy) — caller falls through to the normal deref path.
+    lir::LExprPtr try_lower_box_deref_move(hermes::TinyMapView deref_node);
     lir::LExprPtr lower_call(hermes::TinyMapView node);
     // lower_expr literal/cast sub-handlers, factored out of its switch so every
     // case delegates uniformly. Each lowers one expr kind from `expr` + members.
