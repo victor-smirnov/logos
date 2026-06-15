@@ -1,0 +1,10 @@
+// E0507: passing a Vec element (moved out of the index) as a by-value arg.
+package move_out_arg_vec_index;
+use logos.mem.string;
+fn eat(_s: String) {}
+fn main() -> i32 {
+    let mut v: Vec<String> = Vec::<String>::new();
+    v.push(String::from("a"));
+    eat(v[0]);
+    0i32
+}

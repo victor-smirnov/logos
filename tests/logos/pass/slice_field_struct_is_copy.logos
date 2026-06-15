@@ -1,0 +1,12 @@
+// A plain-data struct with a non-owning `&[u8]` slice field is Copy (the slice
+// is a shared fat pointer — Rust parity). So it can be used after a "move".
+package slice_field_struct_is_copy;
+struct View { data: &[u8], len: i64 }
+fn take(v: View) -> i64 { return v.len; }
+fn main() -> i32 {
+    let arr: [u8; 3] = [1u8, 2u8, 3u8];
+    let v = View { data: &arr[..], len: 3i64 };
+    let a = take(v);
+    let b = take(v);          // v still usable — Copy
+    if a + b == 6i64 { 0i32 } else { 1i32 }
+}

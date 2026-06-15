@@ -2829,6 +2829,11 @@ void SemaChecker::compute_auto_copy_types() {
     is_copy_field = [&](TypeRef t) -> bool {
         if (!t) return false;
         auto k = TypeRef(t).kind();
+        // A NON-owning slice `&[T]` is a shared fat pointer — Copy (Rust
+        // parity). An OWNING slice `Box<[T]>` owns its buffer — not Copy. (This
+        // is why a plain-data struct with a `&[u8]` field, e.g. metaprog `Type`,
+        // is Copy and not move-classified.)
+        if (k == K::Slice) return !TypeRef(t).owning_slice();
         if (field_kind_is_trivially_copy(k)) {
             // Enum: Copy iff no variant has a payload AND no impl Drop.
             // (Logos enums-with-payload are tagged unions storing owned data.)

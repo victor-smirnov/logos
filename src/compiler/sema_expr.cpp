@@ -12549,6 +12549,14 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
     // "expected X, got Y" upstream fires too (types_compatible may still
     // return true), so users see both lines.
     check_dyn_auto_bounds_at_coercion(*arg, pt);
+    // E0507: passing a move-typed argument BY VALUE that was moved out of a
+    // borrowed place (`f(*r)`, `f(v[i])`) — same double-free as let/return. Only
+    // when the parameter takes the value by value (not `&`/`&mut`).
+    if (pt && TypeRef(pt).kind() != LogosType::Kind::Ref &&
+        TypeRef(pt).kind() != LogosType::Kind::MutRef &&
+        is_move_type(pt) && is_unowned_move_source(arg))
+        error("cannot move out of a value behind a reference / out of an "
+              "index (E0507)");
 }
 
 void SemaChecker::check_dyn_auto_bounds_at_coercion(const lir::LExpr& arg,

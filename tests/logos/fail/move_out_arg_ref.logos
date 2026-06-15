@@ -1,0 +1,10 @@
+// E0507: passing a move-typed value moved out of a deref/index as a by-value arg.
+package move_out_arg_ref;
+use logos.mem.string;
+fn eat(_s: String) {}
+fn main() -> i32 {
+    let s = String::from("x");
+    let r: &String = &s;
+    eat(*r);
+    0i32
+}

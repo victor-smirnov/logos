@@ -16,6 +16,11 @@ use logos.mem.string;
 use logos.lang.str;
 
 struct Foo {}
+// Restores the original test's `#[derive(Copy, Clone)]` (dropped on import):
+// `Foo::baz(*self)` passes `*self` BY VALUE, which copies Foo. An empty struct
+// is move by default (Rust parity — no auto-Copy for zero-field structs), so
+// without this `*self` would be a move out of `&self` (E0507).
+impl Copy for Foo {}
 
 impl Foo {
     fn foo(&self, x: &Foo) -> i64 {
