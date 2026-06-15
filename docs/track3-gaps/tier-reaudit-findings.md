@@ -19,47 +19,48 @@ adversarially re-test each — "done" ≠ "hole-free". rustc 1.93 oracle, probes
 ## MOVE-OUT-OF-BORROW (E0507) — PARTIALLY FIXED (457ca8ee), rest documented
 
 Logos accepted moving a move-type value out of a place it doesn't own — rustc
-E0507/E0508 → double-free/use-after-free. Confirmed cases:
-- `let t = *r;` (r: `&String`)               — **FIXED** (lower_let + is_unowned_move_source)
-- `let s = arr[i];` ([String;N])             — **FIXED** (array index, non-raw)
-- `fn f(r: &mut String) -> String { *r }`    — open (return position)
-- `fn f(r: &S) -> String { r.name }`         — open (field-out-of-&self)
-- `let s = v[0];` (Vec<String>)              — open (Vec index lowers to Deref(index_call))
+E0507/E0508 → double-free/use-after-free. **NOW FULLY CLOSED** across all
+positions (commits 457ca8ee, 214f04f7, 9753b60f, 8c71acb7, d6c20319):
+- `let t = *r;` / `return *r` / `f(*r)`        (deref of a `&`/`&mut` VARIABLE)
+- `let s = arr[i];` / `return arr[i]` / …      (array/slice index, non-raw)
+- `let s = v[i];` / `f(v[i])` (Vec/user Index) (`*(v.index(i))`)
+- `fn f(r:&S)->T{ r.field }`                    (field out of a `&`/`&mut` receiver)
+- `let s = *b;` (Box/Rc/user Deref move-out)    (`*(x.deref())` — see below)
 
-**Fixed slice (457ca8ee):** `is_unowned_move_source` flags `*ref_var`
-(Deref of a `&`/`&mut` VARIABLE) and `arr[i]`/`s[i]` (index of a NON-raw
-container) of a move type, wired at `lower_let`. Raw-ptr deref/index is exempt
-(unsafe; mem/ptr/Vec primitives move out via `p[0]` with p:*mut T). stdlib
-`ArrayIntoIter::next` rewritten to a raw-ptr read (it was the one safe-context
-violation). Copy values copy out; Box deref-move stays allowed.
+**Mechanism:** `is_unowned_move_source(e)` (sema_impl.hpp) recognizes the
+unowned-place shapes — Deref of a ref VARIABLE; IndexRead/SliceIndex; and Deref
+of an `index`/`index_mut`/`deref`/`deref_mut` call. Wired at the four by-value
+move sites: `lower_let`, both return-coercion sites, and `coerce_arg_to_param`
+(the single call-arg chokepoint). Gated by `is_move_type` (Copy copies out
+fine). Exemptions: any place rooted through a RAW-pointer hop (`(*p).f[i]`,
+`self.data[i]` with self:*mut — unsafe, the programmer owns aliasing; this is how
+mem/ptr/Vec primitives legitimately move out). Owned-self field reads are partial
+moves (receiver is a Struct, not a reference) — allowed.
 
-**Why the rest is hard (do NOT retry naively):**
-- **return/arg position**: a node-local check at the return-coercion site broke
-  131 L2 tests + the stdlib build (`meta.logos head` etc.) — return-position
-  move-out is pervasive (much of it sound-by-overwrite or copy). Needs flow/
-  context awareness.
-- **Vec index** (`let s = v[0]`): lowers to `Deref(Vec::index(&v,i) -> &T)` —
-  STRUCTURALLY IDENTICAL to Box deref-move `*b` = `Deref(Box::deref(&b) -> &T)`,
-  which is LEGAL. Distinguishing needs callee inspection (index/index_mut vs
-  deref/deref_mut, and which deref impls permit move-out).
-- **field-out-of-&self** (`r.name`): same shape as the ubiquitous `let x =
-  self.f` in `&mut self` methods — flagging it surfaces pervasive stdlib uses.
-- **destructure whole-temp**: `let Fd(s) = *self` desugars to a whole-value temp
-  `__pat = *self`; a node-local check false-positives when the pattern binds
-  only Copy fields (`Fd(u32)`, test `newtype-struct-with-dtor` is valid). Needs
-  PATTERN-AWARE per-binding Copy analysis at the SLet/pattern level.
+**Root-cause fixes that unblocked it (vs N local rewrites):**
+- **Non-owning `&[T]` slice is Copy** (compute_auto_copy_types): a shared slice
+  is a fat pointer (Rust parity; `Box<[T]>` owning stays move). Made metaprog
+  `Type` (a `&[u8]`-field struct) Copy, resolving ~8 meta.logos `Type`-array
+  sites at once.
+- stdlib `ArrayIntoIter::next` + meta.logos `head` read via raw pointer (the two
+  genuine safe-context array-index move-outs; Rust uses ptr::read).
 
-The proper complete fix: rewrite stdlib mem/ptr/Vec move-out primitives onto
-explicit unsafe `ptr::read` (so they're exempt), then enable the check in all
-safe contexts (return/arg/field/destructure) gated on `!inside_unsafe_` with
-per-binding Copy analysis. A dedicated session.
+**Box deref-move:** Rust's `Box` has built-in DerefMove; Logos does NOT
+implement it (no `Box::into_inner`; `*b` move-out appears nowhere in
+stdlib/tests and previously bit-copied the content → both copy and Box::drop
+freed it → double-free abort EXIT:134). Now rejected with E0507 (clear error >
+silent UB). Real DerefMove (move content + dealloc block without dropping
+content) remains a separate codegen feature if ever needed.
 
-### Box deref-move runtime double-free
+**Tests fixed (were invalid Rust — unbounded generic getter / `*self` returns a
+field/elem by value out of a borrow; compiled only because instantiations are
+Copy; added the `T: Copy` rustc requires):** regions-early-bound-used-in-type-
+param, generic-struct-methods-st2, generic-pair-methods-b163, generic-multi-impl
+-on-type-arg-b156, generic-two-param-box-b164, generic_match_ergonomics_typevar,
+method-self-arg (`impl Copy for Foo` restored — empty struct is move by default).
 
-### Box deref-move runtime double-free
-`let s = *b;` (b: `Box<String>`) compiles but aborts (EXIT:134, double-free) —
-the String is bit-copied out without suppressing the Box's drop. Pre-existing;
-orthogonal to the E0507 class above.
+Regressions: 12 tests under `move_out_*` / `move_copy_*` / `slice_field_*` /
+`box_deref_*`. Full L4 5698/5698.
 
 ## Verified solid (probed, no divergence)
 Closure auto-traits over captures incl. `*mut`/Rc-move (#7); or-pattern E0408
