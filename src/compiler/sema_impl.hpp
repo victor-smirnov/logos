@@ -886,21 +886,32 @@ private:
             auto t = x ? x.type(pool) : TypeRef(nullptr);
             return t && t.kind() == LogosType::Kind::Ptr;
         };
-        // A `v[i]` over a user Index impl lowers to `*(v.index(i))` —
-        // Deref(MethodCall/Call "index"/"index_mut"). Moving out of an index is
-        // E0507. Distinguish from Box deref-move `*b` = Deref(... "deref" ...),
-        // which is legal — the callee NAME is the discriminator.
-        auto is_index_call = [&](lir_view::ExprRef op) {
+        // `v[i]` over a user Index lowers to `*(v.index(i))`, and `*x` over a
+        // user Deref to `*(x.deref())` — Deref(MethodCall/Call
+        // index|index_mut|deref|deref_mut). Moving a move-typed value out of any
+        // of these is E0507: index/deref return `&Output`, so a by-value move
+        // out of the pointee duplicates the owner (double-free). This includes
+        // Box (`let s = *b`): Rust's `Box` has built-in DerefMove that Logos
+        // does NOT implement — left unchecked it bit-copies the content and both
+        // the copy and the Box's Drop free it (double-free, abort). Rejecting it
+        // turns silent UB into a clear error (Rc/user-Deref move-out is E0507 in
+        // Rust too; only Box is the exception, and only with real DerefMove
+        // support — a separate codegen feature).
+        auto is_deref_or_index_call = [&](lir_view::ExprRef op) {
+            auto tail = [](std::string_view c, std::string_view suf) {
+                return c.size() >= suf.size() &&
+                       c.substr(c.size() - suf.size()) == suf;
+            };
             if (!op) return false;
             if (op.kind() == Code::MethodCall) {
                 auto m = lir_view::EMethodCallView{op}.method();
-                return m == "index" || m == "index_mut";
+                return m == "index" || m == "index_mut" ||
+                       m == "deref" || m == "deref_mut";
             }
             if (op.kind() == Code::Call) {
                 std::string_view c = lir_view::ECallView{op}.callee();
-                return c.size() >= 7 &&
-                       (c.substr(c.size() - 7) == "__index" ||
-                        (c.size() >= 11 && c.substr(c.size() - 11) == "__index_mut"));
+                return tail(c, "__index") || tail(c, "__index_mut") ||
+                       tail(c, "__deref") || tail(c, "__deref_mut");
             }
             return false;
         };
@@ -916,7 +927,7 @@ private:
                     return ot && (ot.kind() == LogosType::Kind::Ref ||
                                   ot.kind() == LogosType::Kind::MutRef);
                 }
-                return is_index_call(op);
+                return is_deref_or_index_call(op);
             }
             case Code::FieldRead: {
                 // Move a move-typed field out of a `&`/`&mut` receiver

@@ -1,0 +1,11 @@
+// Box deref stays fine for: Copy-type by-value deref, and non-consuming uses
+// (method call / reborrow) of a move-type Box.
+package box_deref_copy_and_use;
+use logos.mem.string;
+fn main() -> i32 {
+    let bi: Box<i64> = Box::new(7i64);
+    let x = *bi;                       // Copy deref by value — OK
+    let bs: Box<String> = Box::new(String::from("abcd"));
+    let n = bs.len();                  // deref-to-method (non-consuming) — OK
+    if x == 7i64 && n == 4i64 { 0i32 } else { 1i32 }
+}
