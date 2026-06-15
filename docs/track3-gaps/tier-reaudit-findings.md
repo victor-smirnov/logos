@@ -45,12 +45,17 @@ moves (receiver is a Struct, not a reference) — allowed.
 - stdlib `ArrayIntoIter::next` + meta.logos `head` read via raw pointer (the two
   genuine safe-context array-index move-outs; Rust uses ptr::read).
 
-**Box deref-move:** Rust's `Box` has built-in DerefMove; Logos does NOT
-implement it (no `Box::into_inner`; `*b` move-out appears nowhere in
-stdlib/tests and previously bit-copied the content → both copy and Box::drop
-freed it → double-free abort EXIT:134). Now rejected with E0507 (clear error >
-silent UB). Real DerefMove (move content + dealloc block without dropping
-content) remains a separate codegen feature if ever needed.
+**Box DerefMove — IMPLEMENTED (ff8e243b).** `let s = *b` / `return *b` over a
+move-typed Box now MOVE the boxed value out (Rust parity): ownership transfers
+to the binding, the heap block is freed, the content is NOT dropped via the Box
+(no double-free — valgrind-clean; previously bit-copied → double-free abort
+EXIT:134). New stdlib `box_take<T>(b)->T` = `box_into_raw` (consume b via
+ManuallyDrop, suppress Box::drop) + raw read (move out, no drop) + `dealloc`
+(free block). sema `try_lower_box_deref_move` desugars `*<box-var>` → box_take
+via finish_generic_call, hooked at lower_let / lower_return / tail-return.
+Copy-element Box still copies (b stays live); non-Box Deref (`*rc`, user Deref)
+move-out stays E0507 (only Box has DerefMove); `b` is consumed after `*b`. Arg
+position (`f(*b)`) stays E0507 (rare; `let t=*b; f(t)` workaround).
 
 **Tests fixed (were invalid Rust — unbounded generic getter / `*self` returns a
 field/elem by value out of a borrow; compiled only because instantiations are
