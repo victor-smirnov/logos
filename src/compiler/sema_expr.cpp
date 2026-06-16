@@ -5772,7 +5772,23 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                     // K-misc: `_` placeholder → inference hole (sentinel
                     // TypeVar("_")); finish_generic_call infers it from args.
                     auto tn = map_of(items.get(i));
-                    if (code_of(tn) == la::TYPE_REF &&
+                    if (code_of(tn) == la::ANTIQUOT_PACK) {
+                        // `$fs...` in a generic CALL's type-args — splice a
+                        // runtime [Type] producer (field_types_of / args_of /
+                        // type_refs_of / tuple_elems_of / typelist_tail) into
+                        // the callee's type-args, so a recursive generic fn can
+                        // fold over reflected components (e.g. a struct's field
+                        // types). Mirrors the quote_ty! `Foo<$ts...>` path but
+                        // targets a fn call. Encoded as a marker TypeVar
+                        // `__splicepack$<var>`; it flows like a variadic pack
+                        // and mono expands it by chasing the var to its producer
+                        // (type_let_inits_) and folding the element TypeRefs.
+                        std::string vn = tn.has_key(la::NAME)
+                            ? std::string(str_of(tn.get(la::NAME.code)))
+                            : std::string();
+                        type_args.push_back(make_typevar("__splicepack$" + vn));
+                    }
+                    else if (code_of(tn) == la::TYPE_REF &&
                         str_of(tn.get(la::NAME.code)) == "_")
                         type_args.push_back(make_typevar("_"));
                     else

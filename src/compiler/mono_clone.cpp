@@ -1218,6 +1218,110 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir::ECall nc;
             nc.callee = std::string(v.callee());
             for (auto ta : v.type_args(out_.type_pool.impl())) {
+                // `$fs...` call-splice: sema encodes a reflected-[Type]
+                // producer var as a marker TypeVar `__splicepack$<var>`. Chase
+                // the var to its producer call (type_let_inits_) and fold the
+                // element TypeRefs straight into the callee's type-args — so a
+                // recursive generic fn folds over a struct's field types (or
+                // args / tuple elems / typelist tail). The expanded concrete
+                // types then drive normal variadic instantiation (mirrors how a
+                // `T...` pack expands from cur_packs_, but the source is a
+                // producer rather than a caller pack).
+                if (ta && ta.kind() == LogosType::Kind::TypeVar) {
+                    std::string nm(ta.type_var_name());
+                    static constexpr std::string_view kSplice = "__splicepack$";
+                    if (nm.rfind(kSplice.data(), 0) == 0) {
+                        std::string vn = nm.substr(kSplice.size());
+                        lir_view::ExprRef prod{};
+                        if (auto it = type_let_inits_.find(vn);
+                            it != type_let_inits_.end()) prod = it->second;
+                        for (int hops = 0; hops < 8 && prod &&
+                             prod.kind() == lir_schema::expr::Code::VarRef; ++hops) {
+                            std::string v2(lir_view::EVarRefView{prod}.name());
+                            auto it = type_let_inits_.find(v2);
+                            if (it == type_let_inits_.end()) break;
+                            prod = it->second;
+                        }
+                        bool ok = false;
+                        std::vector<TypeRef> elems;
+                        if (prod && prod.kind() == lir_schema::expr::Code::Call) {
+                            lir_view::ECallView pc{prod};
+                            std::string cn(pc.callee());
+                            auto tas = pc.type_args(out_.type_pool.impl());
+                            if (cn == "__type_refs_of__") {
+                                for (auto a : tas) elems.push_back(subst_type(a, s));
+                                ok = true;
+                            } else if (cn == "__args_of__") {
+                                if (!tas.empty()) {
+                                    TypeRef T = subst_type(tas[0], s);
+                                    for (auto a : T.type_args()) elems.push_back(a);
+                                    ok = true;
+                                }
+                            } else if (cn == "__typelist_tail__") {
+                                if (!tas.empty()) {
+                                    TypeRef T = subst_type(tas[0], s);
+                                    auto pk = T.type_args();
+                                    for (size_t i = 1; i < pk.size(); ++i)
+                                        elems.push_back(pk[i]);
+                                    ok = true;
+                                }
+                            } else if (cn == "__tuple_elems_of__") {
+                                if (!tas.empty()) {
+                                    TypeRef T = subst_type(tas[0], s);
+                                    if (T && T.kind() == LogosType::Kind::Tuple)
+                                        for (auto a : T.tuple_elems()) elems.push_back(a);
+                                    ok = true;
+                                }
+                            } else if (cn == "__field_types_of__") {
+                                if (!tas.empty()) {
+                                    // A non-struct T has no fields → empty pack
+                                    // (matches __field_types_of__'s [Type;0]).
+                                    // Mono monomorphizes BOTH arms of a runtime
+                                    // `if t.is_struct()`, so a leaf type still
+                                    // instantiates the struct-arm splice; it
+                                    // must degrade to empty, not abort. An empty
+                                    // variadic pack resolves to the 0-arg base
+                                    // overload (same as a `T...` pack going empty).
+                                    ok = true;
+                                    TypeRef T = subst_type(tas[0], s);
+                                    if (T && (T.kind() == LogosType::Kind::Struct ||
+                                              T.kind() == LogosType::Kind::ZonedStruct)) {
+                                        std::string base{T.struct_name()};
+                                        std::string tpkg{T.pkg_name()};
+                                        const lir::LStructDef* tmpl = nullptr;
+                                        for (auto& sd : in_.structs)
+                                            if (sd.name == base &&
+                                                (tpkg.empty() || sd.pkg == tpkg)) { tmpl = &sd; break; }
+                                        if (!tmpl)
+                                            for (auto& sd : in_.structs)
+                                                if (sd.name == base) { tmpl = &sd; break; }
+                                        if (tmpl) {
+                                            SubstMap fsubst;
+                                            for (size_t i = 0, j = 0;
+                                                 i < tmpl->type_params.size(); ++i)
+                                                if (j < T.type_args().size())
+                                                    fsubst[tmpl->type_params[i].name] =
+                                                        T.type_args()[j++];
+                                            for (auto& f : tmpl->fields)
+                                                elems.push_back(subst_type(f.type, fsubst));
+                                            ok = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (!ok) {
+                            std::fprintf(stderr,
+                                "mono.splicepack: '%s' is not a recognized "
+                                "[Type] producer (field_types_of / args_of / "
+                                "type_refs_of / tuple_elems_of / typelist_tail)\n",
+                                vn.c_str());
+                            std::abort();
+                        }
+                        for (auto e : elems) nc.type_args.push_back(e);
+                        continue;
+                    }
+                }
                 // Pack-key may be encoded as TypeVar (type pack) or ConstVar
                 // (const pack); both store the pack name in `type_var_name`.
                 if (ta && (ta.kind() == LogosType::Kind::TypeVar ||

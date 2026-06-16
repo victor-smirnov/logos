@@ -1,0 +1,69 @@
+// Deep structural schema-hash via mutual recursion (schema_of <-> sfold),
+// driven by the new `$fs...` field-pack splice. Proves the recursion truly
+// DESCENDS into nested struct fields — not just the flat one-level hash.
+//
+// Isolation trick: InnerI{a:i64} and InnerF{a:f64} have IDENTICAL size(8)/
+// align(8); so a flat hash (immediate fields' kind/size/align, no uid) gives
+// OuterI and OuterF the SAME code. Only a hash that recurses to the i64-vs-f64
+// leaf can tell them apart. So: flat(OuterI)==flat(OuterF) but deep differs.
+
+package meta_schema_recurse_probe;
+
+use logos.std.compiler.metaprog;
+
+fn mix(h: u64, x: u64) -> u64 {
+    return wrapping_mul(h ^ x, 0x100000001b3 as u64);
+}
+
+// fold schema_of over a field type-pack (base + head/tail recursion)
+fn sfold() -> u64 { return 0x9e3779b97f4a7c15 as u64; }
+fn sfold<H, T...>() -> u64 { return mix(schema_of::<H>(), sfold::<T...>()); }
+
+fn schema_of<T>() -> u64 {
+    let t: Type = type_of::<T>();
+    if t.is_struct() {
+        // NOTE: deliberately NO kind/uid here — only size/align + the
+        // recursive body — so distinguishing power comes ONLY from descent.
+        let fs = field_types_of::<T>();
+        let body: u64 = sfold::<$fs...>();
+        return mix(mix(0x57 as u64, mix(t.size as u64, t.align as u64)), body);
+    }
+    // leaf: primitive / pointer / array / enum — kind+size+align, NO recursion
+    // (pointer = natural leaf, which also breaks self-referential cycles).
+    return mix(mix(mix(0x11 as u64, t.kind as u64), t.size as u64), t.align as u64);
+}
+
+// Flat reference: immediate fields only (kind/size/align), no uid, no descent.
+fn flat_of<T>() -> u64 {
+    let t: Type = type_of::<T>();
+    let fs = field_types_of::<T>();
+    let n: i64 = field_count_of::<T>();
+    let mut h: u64 = mix(mix(0x57 as u64, t.size as u64), t.align as u64);
+    let mut i: i64 = 0;
+    while i < n {
+        h = mix(mix(mix(h, fs[i].kind as u64), fs[i].size as u64), fs[i].align as u64);
+        i = i + (1 as i64);
+    }
+    return h;
+}
+
+pub struct InnerI { pub a: i64, }
+pub struct InnerF { pub a: f64, }
+pub struct OuterI { pub p: InnerI, pub n: u32, }
+pub struct OuterF { pub p: InnerF, pub n: u32, }
+
+unsafe fn main() -> i32 {
+    let fi: u64 = flat_of::<OuterI>();
+    let ff: u64 = flat_of::<OuterF>();
+    // Flat CANNOT distinguish (InnerI/InnerF identical size+align; fields look same).
+    if fi != ff { return 1; }
+
+    let di: u64 = schema_of::<OuterI>();
+    let df: u64 = schema_of::<OuterF>();
+    // Deep MUST distinguish — recursion reaches the i64-vs-f64 leaf.
+    if di == df { return 2; }
+
+    // Sanity: identical structure hashes equal.
+    if schema_of::<OuterI>() != schema_of::<OuterI>() { return 3; }
+    return 0;
+}

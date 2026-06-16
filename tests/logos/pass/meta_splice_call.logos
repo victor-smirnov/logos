@@ -1,0 +1,37 @@
+// `f::<$arr...>()` — splice a reflected `[Type]` producer into a generic
+// CALL's type-args (previously only `quote_ty! { Foo<$ts...> }` could splice).
+// This lets a recursive generic fn fold over reflected components — here, a
+// struct's field types drive a variadic head/tail fold. Verifies the
+// __splicepack$ marker path (sema lower_generic_call + mono Call expansion).
+
+package meta_splice_call_probe;
+
+use logos.std.compiler.metaprog;
+
+fn leaf<T>() -> u64 {
+    let t: Type = type_of::<T>();
+    return (t.kind as u64) + (1 as u64);
+}
+
+// variadic head/tail fold + 0-arg base case
+fn sfold() -> u64 { return 1 as u64; }
+fn sfold<H, T...>() -> u64 { return leaf::<H>() ^ sfold::<T...>(); }
+
+pub struct Triple { pub a: i32, pub b: i64, pub c: bool, }
+pub struct One    { pub x: u8, }
+
+// Fold the variadic `sfold` over T's FIELD types via the new splice.
+fn fold_fields<T>() -> u64 {
+    let fs = field_types_of::<T>();
+    return sfold::<$fs...>();
+}
+
+unsafe fn main() -> i32 {
+    // Triple fields i32(1), i64(2), bool(5): leaf 2,3,6; 2^3^6^1 = 6.
+    if fold_fields::<Triple>() != (6 as u64) { return 1; }
+    // One field u8(6): leaf 7; 7^1 = 6.
+    if fold_fields::<One>() != (6 as u64) { return 2; }
+    // Splice also works directly off `args_of` (generic args as the pack).
+    if sfold::<i32, i64>() != (2 ^ 3 ^ (1 as u64)) { return 3; }
+    return 0;
+}
