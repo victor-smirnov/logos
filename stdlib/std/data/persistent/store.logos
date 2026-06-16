@@ -54,12 +54,16 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
     fn alloc_snapshot_id(self: *mut Self) -> SnpId<STORE_CFG>;
     fn alloc_block_id(self:    *mut Self) -> BlockId<STORE_CFG>;
 
-    // Pin a new commit referencing `root` as the directory tree root.
-    // Bumps `root`'s rc — the DAG entry shares ownership. `parent` is
-    // the immediate ancestor (always valid; the genesis root is
-    // seeded directly by store_open and bypasses this fn). The
-    // parent's children list is updated to include the new id.
-    fn register_commit(self: *mut Self, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG>;
+    // Pin a new commit whose directory-tree root is the block at `root_p`
+    // (a raw fat `*mut dyn BTreeNode`). ADOPTS the caller's rc share for that
+    // block: the caller transfers ownership (it neutralises its own handle)
+    // and this fn does NOT bump. A raw pointer — not a NodeARC value — is used
+    // deliberately, so no owning handle crosses this `*mut Self` dispatch
+    // boundary (call-arg move-tracking doesn't fire there, which would
+    // spuriously double-drop a NodeARC argument). `parent` is the immediate
+    // ancestor (always valid; genesis is seeded directly by store_open and
+    // bypasses this fn). The parent's children list gains the new id.
+    fn register_commit(self: *mut Self, root_p: *mut dyn BTreeNode<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG>;
 
     // Return a NodeARC clone of the commit's pinned root. Bumps rc.
     fn checkout(self: *mut Self, id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG>;
@@ -137,16 +141,23 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             return id;
         }
     }
-    fn register_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
+    fn register_commit(self: *mut LockingStore<STORE_CFG>, root_p: *mut dyn BTreeNode<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
             self.lock.lock();
             let id: SnpId<STORE_CFG> = self.dag.length() as SnpId<STORE_CFG>;
             // Update parent's children index before we push the new
             // entry — the lock window covers both mutations atomically.
-            let parent_entry: *mut CommitEntry<STORE_CFG> = self.dag.at(parent as i64);
+            // borrow_mut is bounds-checked (panics on a bad parent id) — never
+            // the unchecked `at` (OOB → wild write). parent is store-internal
+            // and always valid, but uniform bounds-checking costs nothing.
+            let parent_entry: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(parent as i64);
             parent_entry.children.push(id);
+            // Construct the owning NodeARC HERE — inside the struct literal,
+            // where the move into the `root` field IS tracked (cf.
+            // make_parents_vec). We adopt the share the caller transferred via
+            // root_p; no rc bump, no spurious drop.
             self.dag.push(CommitEntry::<STORE_CFG> {
-                root:     root,
+                root:     NodeARC::<STORE_CFG> { p: root_p },
                 parents:  make_parents_vec::<STORE_CFG>(parent),
                 children: vec_new::<SnpId<STORE_CFG>>(),
                 released: false,
@@ -223,7 +234,9 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
     fn release_snapshot(self: *mut LockingStore<STORE_CFG>, id: SnpId<STORE_CFG>) {
         unsafe {
             self.lock.lock();
-            let entry: *mut CommitEntry<STORE_CFG> = self.dag.at(id as i64);
+            // borrow_mut: bounds-checked (panics on OOB id) — was the unchecked
+            // `at`, which on a bad id did a wild out-of-bounds write (UB).
+            let entry: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(id as i64);
             if !entry.released {
                 // Replace root with null-handle NodeARC; arc_replace_in_slot
                 // drops the previous handle's rc → recursive auto-Drop chain.

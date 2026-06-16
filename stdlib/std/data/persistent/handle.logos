@@ -397,24 +397,30 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
 }
 
 impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
-    // Commit the dir tree as a new DAG entry. Transfers the dir's rc to
-    // the entry. Returns the new commit id.
-    pub fn commit(&mut self) -> SnpId<STORE_CFG> {
-        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
-        // Bump rc twice: clone_arc gives us one extra share; the second
-        // explicit bump compensates for `cloned`'s scope-exit auto-drop
-        // at commit fn-end (sema's call-arg move-tracking doesn't catch
-        // the method-on-*mut-pointer dispatch path here, so the local
-        // does drop). Net: snap.dir keeps its share + DAG slot keeps the
-        // share that survives the local's drop.
-        let cloned: NodeARC<STORE_CFG> = self.dir.clone_arc();
+    // Commit the dir tree as a new DAG entry; returns the new commit id.
+    //
+    // CONSUMES the snapshot (takes `self` by value). A committed snap must
+    // not be mutated afterward: commit shares the snap's blocks with the new
+    // (immutable) DAG entry, but make_unique keys on snapshot_id — so a later
+    // in-place write through the same snap, or through a ContainerRef opened
+    // before commit, would land directly in the committed blocks and corrupt
+    // them. By-value `self` makes that a compile error instead of silent
+    // corruption (Rust idiom: commit freezes the snapshot).
+    //
+    // The dir block's rc share is TRANSFERRED to the entry with no rc math:
+    // hand register_commit the raw fat pointer and null this snap's handle so
+    // its scope-exit drop is a no-op. No owning NodeARC crosses the *mut-Self
+    // dispatch boundary, so there is no spurious double-drop to compensate for
+    // (the old code clone_arc'd + bumped rc by hand to paper over exactly that
+    // — a hack that would have flipped to a leak once move-tracking improved).
+    pub fn commit(self: Self) -> SnpId<STORE_CFG> {
+        let mut me: Snap<STORE_CFG> = self;
+        let s: &mut LockingStore<STORE_CFG> = me.arc.deref_mut();
         unsafe {
-            let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cloned);
-            let rcp: *mut u64 = dp as *mut u64;
-            *rcp = *rcp + 1u64;
+            let root_p: *mut dyn BTreeNode<STORE_CFG> = me.dir.p;
+            me.dir.p = 0 as *mut dyn BTreeNode<STORE_CFG>;   // neutralise: drop is now a no-op
+            return (s as *mut LockingStore<STORE_CFG>).register_commit(root_p, me.parent_id);
         }
-        let id: SnpId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).register_commit(cloned, self.parent_id) };
-        return id;
     }
 }
 
@@ -429,12 +435,16 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
 pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub arc:    NodeARC<STORE_CFG>,    // owning rc on the container root
     pub ctr_id: u64,
-    // Pointer into the dir leaf's vals slot. Insert/remove that grow or
-    // collapse the root replace cr.arc with arc_replace_in_slot — the
-    // dir's view of the root would otherwise stay stale, so writeback()
-    // syncs the slot's NodeARC after every mutation. null when the dir
-    // lookup didn't find ctr_id (open_pmap returned an empty handle).
-    pub dir_slot: *mut NodeARC<STORE_CFG>,
+    // Pointer to the originating Snap's `dir` FIELD (its address is stable —
+    // the field doesn't move even when its NodeARC value is CoW-replaced).
+    // writeback() re-resolves the actual dir-tree slot freshly via dir_lookup
+    // each call. We deliberately do NOT cache the interior vals[] slot pointer:
+    // a sibling create_pmap that reallocs the dir leaf's vals buffer, or a dir
+    // split / root-grow that relocates the entry, would leave such a cached
+    // pointer dangling → use-after-free on the next writeback. null only when
+    // this ref came from an open_pmap miss. Valid for the originating Snap's
+    // lifetime (the same contract as snap_id / id_ctr_p below).
+    pub dir_root_p: *mut NodeARC<STORE_CFG>,
     // Snap-side context cached at create/open time so cr.insert /
     // cr.remove don't have to re-thread these from the call site.
     // Both stay valid for the lifetime of the originating Snap.
@@ -467,16 +477,13 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
 
     // Insert into dir tree — dir_insert handles CoW + splits + root grow.
     unsafe { dir_insert::<STORE_CFG>(&mut snap.dir, ctr_id, arc_for_dir, snap.snapshot_id, id_ctr_p); }
-    // Locate the slot that now holds our val (dir_lookup re-descends —
-    // log fanout-based; cheap relative to the insert work).
-    let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
 
     return ContainerRef::<STORE_CFG, CFG> {
-        arc:      arc_for_ref,
-        ctr_id:   ctr_id,
-        dir_slot: slot_p,
-        snap_id:  snap.snapshot_id,
-        id_ctr_p: id_ctr_p,
+        arc:        arc_for_ref,
+        ctr_id:     ctr_id,
+        dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
+        snap_id:    snap.snapshot_id,
+        id_ctr_p:   id_ctr_p,
     };
 }
 
@@ -487,9 +494,10 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
-    // CoW dir up-front so any later writeback through cr.dir_slot lands
-    // in this snapshot's dir. Subsequent descent during dir_lookup reads
-    // the (now-owned) dir; child nodes stay shared until first mutation.
+    // CoW dir up-front so any later writeback (which re-resolves the slot
+    // against snap.dir) lands in this snapshot's dir. Subsequent descent
+    // during dir_lookup reads the (now-owned) dir; child nodes stay shared
+    // until first mutation.
     let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
     let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe {
         &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG>
@@ -498,20 +506,20 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
     if slot_p == 0 as *mut NodeARC<STORE_CFG> {
         return ContainerRef::<STORE_CFG, CFG> {
-            arc:      NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-            ctr_id:   ctr_id,
-            dir_slot: 0 as *mut NodeARC<STORE_CFG>,
-            snap_id:  snap.snapshot_id,
-            id_ctr_p: id_ctr_p,
+            arc:        NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            ctr_id:     ctr_id,
+            dir_root_p: 0 as *mut NodeARC<STORE_CFG>,
+            snap_id:    snap.snapshot_id,
+            id_ctr_p:   id_ctr_p,
         };
     }
     let cloned: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone_arc() };
     return ContainerRef::<STORE_CFG, CFG> {
-        arc:      cloned,
-        ctr_id:   ctr_id,
-        dir_slot: slot_p,
-        snap_id:  snap.snapshot_id,
-        id_ctr_p: id_ctr_p,
+        arc:        cloned,
+        ctr_id:     ctr_id,
+        dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
+        snap_id:    snap.snapshot_id,
+        id_ctr_p:   id_ctr_p,
     };
 }
 
@@ -600,17 +608,20 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         return r;
     }
 
-    // Sync dir_slot's fat-handle with self.arc. Insert/remove that
+    // Sync the dir's slot for ctr_id with self.arc. Insert/remove that
     // grow/collapse the root replaced self.arc (via arc_replace_in_slot)
-    // but the dir's vals[i] still has the pre-mutation handle. Clone-bump
-    // self.arc's block rc into the slot, release the slot's old share.
+    // but the dir's vals[i] still has the pre-mutation handle. The slot is
+    // RE-RESOLVED freshly against the current dir (dir_lookup re-descends —
+    // log-fanout, cheap) so it survives any dir realloc / split / root-grow
+    // since open; never a cached interior pointer. Clone-bump self.arc's
+    // block rc into the slot, release the slot's old share.
     pub fn writeback(&mut self) {
         unsafe {
-            let slot: *mut NodeARC<STORE_CFG> = self.dir_slot;
+            if self.dir_root_p == 0 as *mut NodeARC<STORE_CFG> { return; }
+            let slot: *mut NodeARC<STORE_CFG> =
+                dir_lookup::<STORE_CFG>(&*self.dir_root_p, self.ctr_id);
             if slot == 0 as *mut NodeARC<STORE_CFG> { return; }
             if (*slot).p as *mut u8 == self.arc.p as *mut u8 { return; }
-            // The slot adopts a fresh share of self.arc (clone_arc bumps),
-            // self.arc retains its own; the old slot share is released.
             arc_replace_in_slot::<STORE_CFG>(slot, self.arc.clone_arc());
         }
     }

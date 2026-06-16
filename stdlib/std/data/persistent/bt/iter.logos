@@ -207,6 +207,10 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     // unvisited child, then descend leftmost from that subtree —
     // releasing the old leaf NodeARC and pinning the new one.
     pub unsafe fn step(&mut self) {
+        // Idempotent past the end: once exhausted, leaf_p is null — a stray
+        // step() must be a no-op, not a null deref (mirrors Rust's total
+        // Iterator::next, which keeps returning None).
+        if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> { return; }
         self.cursor = self.cursor + 1u64;
         if self.cursor < self.leaf_p.keys.len() { return; }
         loop {
