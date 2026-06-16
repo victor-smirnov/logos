@@ -38,7 +38,7 @@ fn main() -> i32 {
     // snap2 — fork off snap1, insert 5..10 (shares snap1's blocks for 0..5).
     let mut snap2: Snap<StoreCfg> = store.fork(snap1_id);
     let mut cr2: ContainerRef<StoreCfg, MapCfg> =
-        open_pmap::<MapCfg, StoreCfg>(&mut snap2, 1u64);
+        open_pmap::<MapCfg, StoreCfg>(&mut snap2, 1u64).unwrap();
     i = 5u64;
     while i < 10u64 { cr2.insert(i, i * 2u64); i = i + 1u64; }
     cr2.writeback();
@@ -67,12 +67,14 @@ fn main() -> i32 {
     // snap2 still functional — fork off it, read all 10 keys.
     let mut snap3: Snap<StoreCfg> = store.fork(snap2_id);
     let cr3: ContainerRef<StoreCfg, MapCfg> =
-        open_pmap::<MapCfg, StoreCfg>(&mut snap3, 1u64);
+        open_pmap::<MapCfg, StoreCfg>(&mut snap3, 1u64).unwrap();
     if cr3.len() != 10u64 { return 7; }
     i = 0u64;
     while i < 10u64 {
-        let mut v: u64 = 0u64;
-        if !cr3.get(i, &mut v as *mut u64) { return 100 + i as i32; }
+        let v: u64 = match cr3.get(i) {
+            Option::Some(x) => x,
+            Option::None => { return 100 + i as i32; }
+        };
         if v != i * 2u64 { return 200 + i as i32; }
         i = i + 1u64;
     }

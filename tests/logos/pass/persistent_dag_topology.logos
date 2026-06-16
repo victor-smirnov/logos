@@ -43,13 +43,11 @@ fn commit_with(store: &mut Store<StoreCfg>, parent: u64, ctr_id: u64, k: u64) ->
     let mut snap: Snap<StoreCfg> = store.fork(parent);
     {
         // Probe: if the container doesn't exist in the parent, create it.
-        let probe: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id);
-        let absent: bool = unsafe { (probe.arc.p as *mut u8) == (0 as *mut u8) };
+        let absent: bool = open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id).is_none();
         let mut cr: ContainerRef<StoreCfg, MapCfg> = if absent {
             create_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
         } else {
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id)
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, ctr_id).unwrap()
         };
         cr.insert(k, k * 2u64);
     }
@@ -140,7 +138,7 @@ fn main() -> i32 {
     while i < 6i64 {
         let mut snap: Snap<StoreCfg> = store.fork(cids[i]);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64).unwrap();
         let probe: u64 = probes[i];
         if !cr.contains(probe) { return 60; }
         i = i + 1i64;

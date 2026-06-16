@@ -28,6 +28,7 @@ use logos.lang.mem;
 use logos.mem.sync;
 use logos.lang.rc;
 use logos.lang.cmp;
+use logos.lang.option;
 use logos.lang.drop;
 use logos.lang.fabric;
 use logos.lang.hermes.hstatic;
@@ -94,7 +95,7 @@ unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
         i = i + 1u64;
     }
     while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
-    while leaf.vals.length() > (mid as i64) { let _ = leaf.vals.pop(); }
+    while leaf.vals.len() > (mid as i64) { let _ = leaf.vals.pop(); }
     return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
 }
 
@@ -161,7 +162,7 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
         // ownership transfers from the by-value param into the Vec).
         leaf.keys.insert_at(pos, ctr_id);
         leaf.vals.push(val_arc);
-        let mut k: i64 = leaf.vals.length() - 1i64;
+        let mut k: i64 = leaf.vals.len() - 1i64;
         while k > (pos as i64) {
             let a: *mut NodeARC<STORE_CFG> = leaf.vals.at(k);
             let b: *mut NodeARC<STORE_CFG> = leaf.vals.at(k - 1i64);
@@ -280,7 +281,7 @@ pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
     let br: *mut BranchNode<u64, STORE_CFG, DirCfg> =
         dp as *mut BranchNode<u64, STORE_CFG, DirCfg>;
     let i: u64 = dir_branch_descend_idx::<STORE_CFG>(br, ctr_id);
-    if i >= br.children.length() as u64 {
+    if i >= br.children.len() as u64 {
         return 0 as *mut NodeARC<STORE_CFG>;     // ctr_id > all maxes
     }
     let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
@@ -487,13 +488,13 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     };
 }
 
-// open_pmap — look up ctr_id in the snapshot's dir tree and return a
-// ContainerRef sharing rc with the dir's slot. Returns an empty
-// ContainerRef (arc.p == null) when ctr_id isn't present.
+// open_pmap — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
+// sharing rc with the dir's slot, or None when ctr_id isn't present (Rust
+// parity — no more null-handle sentinel the caller must remember to test).
 pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
-) -> ContainerRef<STORE_CFG, CFG> {
+) -> Option<ContainerRef<STORE_CFG, CFG>> {
     // CoW dir up-front so any later writeback (which re-resolves the slot
     // against snap.dir) lands in this snapshot's dir. Subsequent descent
     // during dir_lookup reads the (now-owned) dir; child nodes stay shared
@@ -505,22 +506,16 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
     let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
     if slot_p == 0 as *mut NodeARC<STORE_CFG> {
-        return ContainerRef::<STORE_CFG, CFG> {
-            arc:        NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
-            ctr_id:     ctr_id,
-            dir_root_p: 0 as *mut NodeARC<STORE_CFG>,
-            snap_id:    snap.snapshot_id,
-            id_ctr_p:   id_ctr_p,
-        };
+        return Option::None;   // ctr_id not present
     }
     let cloned: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone_arc() };
-    return ContainerRef::<STORE_CFG, CFG> {
+    return Option::Some(ContainerRef::<STORE_CFG, CFG> {
         arc:        cloned,
         ctr_id:     ctr_id,
         dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
         snap_id:    snap.snapshot_id,
         id_ctr_p:   id_ctr_p,
-    };
+    });
 }
 
 // ContainerRef methods — full multi-level B+tree on top of NodeARC.
@@ -560,36 +555,39 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
             &self.arc, &key as *const <type:CFG.key>);
     }
 
-    pub fn get(&self, key: <type:CFG.key>::ViewInStore, out: *mut <type:CFG.value>::ViewInStore) -> bool {
+    // Rust BTreeMap::get parity: Some(value) on hit, None on miss.
+    pub fn get(&self, key: <type:CFG.key>::ViewInStore) -> Option<<type:CFG.value>::ViewInStore> {
         unsafe {
             return pmap_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &self.arc, &key as *const <type:CFG.key>, out);
+                &self.arc, &key as *const <type:CFG.key>);
         }
     }
 
-    // Position-indexed lookup: returns (key, value) at the n-th slot in
-    // sorted order (zero-indexed). O(depth) descent via the per-op
+    // Position-indexed lookup: Some((key, value)) at the n-th slot in sorted
+    // order (zero-indexed), None if n >= len. O(depth) descent via the per-op
     // SUM-shuttle wrapper emitted on BranchNode for the `subtree_size`
-    // aggregate column. `n >= len` returns false; out_k/out_v unmodified.
-    pub fn get_at(&self, n: u64,
-                  out_k: *mut <type:CFG.key>::ViewInStore,
-                  out_v: *mut <type:CFG.value>::ViewInStore) -> bool {
+    // aggregate column.
+    pub fn get_at(&self, n: u64)
+        -> Option<(<type:CFG.key>::ViewInStore, <type:CFG.value>::ViewInStore)> {
         unsafe {
             let mut leaf_idx: u64 = 0u64;
             let leaf_arc: NodeARC<STORE_CFG> =
                 pmap_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                     &self.arc, n, &mut leaf_idx as *mut u64);
-            if node_arc_is_null::<STORE_CFG>(&leaf_arc) { return false; }
+            if node_arc_is_null::<STORE_CFG>(&leaf_arc) { return Option::None; }
             let leaf_p: *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
                 node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
-            *out_k = leaf_p.keys.get(leaf_idx);
-            *out_v = leaf_p.vals.get(leaf_idx);
-            return true;
+            let k: <type:CFG.key>::ViewInStore = leaf_p.keys.get(leaf_idx);
+            let v: <type:CFG.value>::ViewInStore = leaf_p.vals.get(leaf_idx);
+            return Option::Some((k, v));
         }
     }
 
-    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore) -> bool {
-        let r: bool = unsafe {
+    // Rust BTreeMap::insert parity: Some(old_value) if the key was present,
+    // None if newly inserted.
+    pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore)
+        -> Option<<type:CFG.value>::ViewInStore> {
+        let r: Option<<type:CFG.value>::ViewInStore> = unsafe {
             pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &mut self.arc, key, val, &key as *const <type:CFG.key>,
                 self.snap_id, self.id_ctr_p)
@@ -655,5 +653,12 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // split (Memoria-style "snapshot frozen for iter" rule).
     pub unsafe fn iter(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
         return pmap_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+    }
+
+    // Reverse iterator: positioned at the largest key. Walk descending order
+    // with step_back() (valid()/key()/val() are direction-agnostic). Same
+    // frozen-snapshot rule as iter().
+    pub unsafe fn iter_rev(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        return pmap_iter_open_back::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 }

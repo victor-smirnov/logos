@@ -144,7 +144,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
     fn register_commit(self: *mut LockingStore<STORE_CFG>, root_p: *mut dyn BTreeNode<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
             self.lock.lock();
-            let id: SnpId<STORE_CFG> = self.dag.length() as SnpId<STORE_CFG>;
+            let id: SnpId<STORE_CFG> = self.dag.len() as SnpId<STORE_CFG>;
             // Update parent's children index before we push the new
             // entry — the lock window covers both mutations atomically.
             // borrow_mut is bounds-checked (panics on a bad parent id) — never
@@ -180,7 +180,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             self.lock.lock();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
-            let n: i64 = entry.parents.length();
+            let n: i64 = entry.parents.len();
             let mut i: i64 = 0i64;
             while i < n {
                 out.push(entry.parents.get(i));
@@ -195,7 +195,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             self.lock.lock();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
-            let n: i64 = entry.children.length();
+            let n: i64 = entry.children.len();
             let mut i: i64 = 0i64;
             while i < n {
                 out.push(entry.children.get(i));
@@ -208,7 +208,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
     fn commit_count(self: *mut LockingStore<STORE_CFG>) -> i64 {
         unsafe {
             self.lock.lock();
-            let n: i64 = self.dag.length();
+            let n: i64 = self.dag.len();
             self.lock.unlock();
             return n;
         }
@@ -217,11 +217,11 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
         unsafe {
             self.lock.lock();
             let mut out: Vec<SnpId<STORE_CFG>> = vec_new::<SnpId<STORE_CFG>>();
-            let n: i64 = self.dag.length();
+            let n: i64 = self.dag.len();
             let mut i: i64 = 0i64;
             while i < n {
                 let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(i);
-                if entry.parents.length() == 0i64 && !entry.released {
+                if entry.parents.len() == 0i64 && !entry.released {
                     out.push(i as SnpId<STORE_CFG>);
                 }
                 i = i + 1i64;

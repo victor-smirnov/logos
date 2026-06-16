@@ -1,0 +1,50 @@
+// Reverse iteration: iter_rev() positions at the largest key; step_back()
+// walks descending. Verifies full reverse order over a multi-level tree
+// (fanout 4) and the empty-tree case.
+package persistent_iter_rev;
+
+use logos.std.data.persistent.handle;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.bt.descent;
+use logos.std.data.persistent.bt.mutate;
+use logos.std.data.persistent.bt.iter;
+use logos.lang.fabric;
+use logos.lang.hermes.hstatic;
+
+pub const StoreCfg: HermesStatic = @{ "name":"rev","ctr_id":<type:u64>,"snp_id":<type:u64>,"block_id":<type:u64>, };
+pub const MapCfg: HermesStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout":4 };
+
+fn main() -> i32 {
+    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut cr: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+
+    // empty: iter_rev invalid
+    unsafe {
+        let it0: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_rev();
+        if it0.valid() { return 1; }
+    }
+
+    let mut i: u64 = 0u64;
+    while i < 12u64 { cr.insert(i, i * 3u64); i = i + 1u64; }
+
+    // reverse walk: expect keys 11,10,...,0
+    unsafe {
+        let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_rev();
+        let mut expect: u64 = 11u64;
+        let mut count: u64 = 0u64;
+        while it.valid() {
+            if it.key() != expect { return 10 + expect as i32; }
+            if it.val() != expect * 3u64 { return 50 + expect as i32; }
+            count = count + 1u64;
+            if expect == 0u64 { it.step_back(); break; }
+            expect = expect - 1u64;
+            it.step_back();
+        }
+        if count != 12u64 { return 2; }
+        if it.valid() { return 3; }   // exhausted past the front
+    }
+    return 0;
+}

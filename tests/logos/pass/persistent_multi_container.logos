@@ -36,8 +36,10 @@ fn check(cr: &ContainerRef<StoreCfg, MapCfg>, n: u64, mul: u64) -> bool {
     if cr.len() != n { return false; }
     let mut i: u64 = 0u64;
     while i < n {
-        let mut out: u64 = 0u64;
-        if !cr.get(i, &mut out as *mut u64) { return false; }
+        let out: u64 = match cr.get(i) {
+            Option::Some(x) => x,
+            Option::None => { return false; }
+        };
         if out != i * mul { return false; }
         i = i + 1u64;
     }
@@ -70,23 +72,20 @@ fn main() -> i32 {
             fill(&mut d, 10u64, 13u64);
         }
 
-        // open_pmap on missing id returns empty handle.
+        // open_pmap on missing id returns None.
         {
-            let missing: ContainerRef<StoreCfg, MapCfg> =
-                open_pmap::<MapCfg, StoreCfg>(&mut snap, 42u64);
-            let p: *mut dyn BTreeNode<StoreCfg> = missing.arc.p;
-            if (p as *mut u8) != (0 as *mut u8) { return 10; }
+            if open_pmap::<MapCfg, StoreCfg>(&mut snap, 42u64).is_some() { return 10; }
         }
 
         // Re-open each container, verify its own data.
         {
-            let a: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            let a: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
             if !check(&a, 30u64, 3u64) { return 11; }
-            let b: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
+            let b: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64).unwrap();
             if !check(&b, 50u64, 5u64) { return 12; }
-            let c: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 99u64);
+            let c: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 99u64).unwrap();
             if !check(&c, 20u64, 9u64) { return 13; }
-            let d: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1000u64);
+            let d: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1000u64).unwrap();
             if !check(&d, 10u64, 13u64) { return 14; }
         }
 
@@ -96,13 +95,13 @@ fn main() -> i32 {
     // Fork: all four containers visible, untouched.
     {
         let mut fork: Snap<StoreCfg> = store.fork(commit);
-        let a: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1u64);
+        let a: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1u64).unwrap();
         if !check(&a, 30u64, 3u64) { return 30; }
-        let b: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 7u64);
+        let b: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 7u64).unwrap();
         if !check(&b, 50u64, 5u64) { return 31; }
-        let c: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 99u64);
+        let c: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 99u64).unwrap();
         if !check(&c, 20u64, 9u64) { return 32; }
-        let d: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1000u64);
+        let d: ContainerRef<StoreCfg, MapCfg> = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1000u64).unwrap();
         if !check(&d, 10u64, 13u64) { return 33; }
     }
 

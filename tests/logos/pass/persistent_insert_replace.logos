@@ -53,8 +53,10 @@ fn main() -> i32 {
         // Verify the LATEST value wins.
         i = 0u64;
         while i < 50u64 {
-            let mut out: u64 = 0u64;
-            if !cr.get(i, &mut out as *mut u64) { return 12; }
+            let out: u64 = match cr.get(i) {
+                Option::Some(x) => x,
+                Option::None => { return 12; }
+            };
             if out != i * 11u64 { return 13; }
             i = i + 1u64;
         }
@@ -75,8 +77,10 @@ fn main() -> i32 {
 
         let mut j: u64 = 0u64;
         while j < 50u64 {
-            let mut out: u64 = 0u64;
-            if !cr.get(j, &mut out as *mut u64) { return 21; }
+            let out: u64 = match cr.get(j) {
+                Option::Some(x) => x,
+                Option::None => { return 21; }
+            };
             if out != j * 7u64 { return 22; }
             j = j + 1u64;
         }
@@ -100,8 +104,10 @@ fn main() -> i32 {
 
         let mut j: u64 = 0u64;
         while j < 50u64 {
-            let mut out: u64 = 0u64;
-            if !cr.get(j, &mut out as *mut u64) { return 31; }
+            let out: u64 = match cr.get(j) {
+                Option::Some(x) => x,
+                Option::None => { return 31; }
+            };
             if out != j + 1000u64 { return 32; }
             j = j + 1u64;
         }

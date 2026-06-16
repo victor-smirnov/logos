@@ -39,17 +39,19 @@ fn main() -> i32 {
         let mut q: u64 = 0u64;
         while q < 50u64 {
             let cr: ContainerRef<StoreCfg, MapCfg> =
-                open_pmap::<MapCfg, StoreCfg>(&mut snap, q);
-            if cr.arc.p as *const u8 == 0 as *const u8 { return 100 + q as i32; }
-            let mut out: u64 = 0u64;
-            if !cr.get(q, &mut out as *mut u64) { return 200 + q as i32; }
+                match open_pmap::<MapCfg, StoreCfg>(&mut snap, q) {
+                    Option::Some(c) => c,
+                    Option::None => { return 100 + q as i32; }
+                };
+            let out: u64 = match cr.get(q) {
+                Option::Some(x) => x,
+                Option::None => { return 200 + q as i32; }
+            };
             if out != q * 1000u64               { return 300 + q as i32; }
             q = q + 1u64;
         }
-        // Look up an absent ctr_id — should return empty handle.
-        let absent: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 9999u64);
-        if absent.arc.p as *const u8 != 0 as *const u8 { return 1; }
+        // Look up an absent ctr_id — should return None.
+        if open_pmap::<MapCfg, StoreCfg>(&mut snap, 9999u64).is_some() { return 1; }
 
         commit = snap.commit();
     }
@@ -60,10 +62,14 @@ fn main() -> i32 {
         let mut q: u64 = 0u64;
         while q < 50u64 {
             let cr: ContainerRef<StoreCfg, MapCfg> =
-                open_pmap::<MapCfg, StoreCfg>(&mut fork, q);
-            if cr.arc.p as *const u8 == 0 as *const u8 { return 400 + q as i32; }
-            let mut out: u64 = 0u64;
-            if !cr.get(q, &mut out as *mut u64) { return 500 + q as i32; }
+                match open_pmap::<MapCfg, StoreCfg>(&mut fork, q) {
+                    Option::Some(c) => c,
+                    Option::None => { return 400 + q as i32; }
+                };
+            let out: u64 = match cr.get(q) {
+                Option::Some(x) => x,
+                Option::None => { return 500 + q as i32; }
+            };
             if out != q * 1000u64               { return 600 + q as i32; }
             q = q + 1u64;
         }

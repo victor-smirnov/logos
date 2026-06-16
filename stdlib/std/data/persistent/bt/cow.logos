@@ -61,7 +61,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
     fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
-    fn child_count(&self) -> u64 { return self.children.length() as u64; }
+    fn child_count(&self) -> u64 { return self.children.len() as u64; }
     fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
         unsafe { return self.children.at_const(idx as i64); }
     }
@@ -80,7 +80,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
             }
             // Children: clone each NodeARC — bumps rc on each child block,
             // both copies own their share.
-            let nc: i64 = self.children.length();
+            let nc: i64 = self.children.len();
             let mut j: i64 = 0i64;
             while j < nc {
                 let c: &NodeARC<STORE_CFG> = self.children.borrow(j);
@@ -187,7 +187,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
     // Dir leaves' vals are NodeARC handles to container roots — those
     // ARE this dir leaf's children for the type-erased walk (drop and
     // save/load both want to recurse through them).
-    fn child_count(&self) -> u64 { return self.vals.length() as u64; }
+    fn child_count(&self) -> u64 { return self.vals.len() as u64; }
     fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
         unsafe { return self.vals.at_const(idx as i64); }
     }
@@ -202,7 +202,7 @@ impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: Herm
             while i < nk { copy.keys.push(self.keys.get(i)); i = i + 1u64; }
             // Vals: each NodeARC clone bumps the child's rc; both leaves
             // own a share of every dir entry.
-            let nv: i64 = self.vals.length();
+            let nv: i64 = self.vals.len();
             let mut j: i64 = 0i64;
             while j < nv {
                 let c: &NodeARC<STORE_CFG> = self.vals.borrow(j);

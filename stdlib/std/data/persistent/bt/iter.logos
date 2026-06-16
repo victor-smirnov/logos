@@ -80,7 +80,7 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
         if arc_is_leaf::<STORE_CFG>(&cur) { return cur; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
-        let last: i64 = br.children.length() - 1i64;
+        let last: i64 = br.children.len() - 1i64;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(last);
         let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
         path.push(IterFrame::<K, STORE_CFG, CFG> {
@@ -155,6 +155,30 @@ pub unsafe fn pmap_iter_open<K: Container + ContainerOrd, V: Container, const ST
     };
 }
 
+// Open a REVERSE iter at the rightmost (largest) entry. Symmetric to
+// pmap_iter_open: descend_rightmost records the path, cursor sits on the
+// last key of the rightmost leaf. Walk backward with step_back(); valid()
+// is the same check (an empty tree yields a 0-key leaf → cursor 0 →
+// valid()==false). This is the entry point the reverse machinery
+// (descend_rightmost / step_back) was always missing.
+pub unsafe fn pmap_iter_open_back<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+    arc: &NodeARC<STORE_CFG>,
+) -> PMapIter<K, V, STORE_CFG, CFG> {
+    let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
+    let leaf_arc: NodeARC<STORE_CFG> = descend_rightmost::<K, V, STORE_CFG, CFG>(
+        arc, &mut path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
+    let leaf_p: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
+    let nkeys: u64 = leaf_p.keys.len();
+    let cursor: u64 = if nkeys > 0u64 { nkeys - 1u64 } else { 0u64 };
+    return PMapIter::<K, V, STORE_CFG, CFG> {
+        path:     path,
+        leaf_arc: leaf_arc,
+        leaf_p:   leaf_p,
+        cursor:   cursor,
+    };
+}
+
 impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> PMapIter<K, V, STORE_CFG, CFG> {
     pub fn valid(&self) -> bool {
         unsafe {
@@ -178,7 +202,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
             return;
         }
         loop {
-            let n: i64 = self.path.length();
+            let n: i64 = self.path.len();
             if n == 0i64 {
                 arc_release_in_slot::<STORE_CFG>(&mut self.leaf_arc as *mut NodeARC<STORE_CFG>);
                 self.leaf_p = 0 as *mut LeafNode<K, V, STORE_CFG, CFG>;
@@ -214,7 +238,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
         self.cursor = self.cursor + 1u64;
         if self.cursor < self.leaf_p.keys.len() { return; }
         loop {
-            let n: i64 = self.path.length();
+            let n: i64 = self.path.len();
             if n == 0i64 {
                 // Exhausted at root level — release leaf, mark done.
                 arc_release_in_slot::<STORE_CFG>(&mut self.leaf_arc as *mut NodeARC<STORE_CFG>);
@@ -223,7 +247,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
                 return;
             }
             let top: *mut IterFrame<K, STORE_CFG, CFG> = self.path.at(n - 1i64);
-            let nc: u64 = top.branch_p.children.length() as u64;
+            let nc: u64 = top.branch_p.children.len() as u64;
             if top.idx + 1u64 < nc {
                 top.idx = top.idx + 1u64;
                 let next_child: &NodeARC<STORE_CFG> = top.branch_p.children.borrow(top.idx as i64);

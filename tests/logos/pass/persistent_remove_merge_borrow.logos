@@ -49,8 +49,10 @@ fn main() -> i32 {
         let mut q: u64 = r + 1u64;
         while q < 30u64 {
             if !cr.contains(q) { return 100 + q as i32; }
-            let mut out: u64 = 0u64;
-            if !cr.get(q, &mut out as *mut u64) { return 200 + q as i32; }
+            let out: u64 = match cr.get(q) {
+                Option::Some(x) => x,
+                Option::None => { return 200 + q as i32; }
+            };
             if out != q * 7u64 { return 300 + q as i32; }
             q = q + 1u64;
         }

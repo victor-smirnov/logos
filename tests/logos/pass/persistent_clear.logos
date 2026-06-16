@@ -43,8 +43,10 @@ fn main() -> i32 {
     cr.insert(99u64, 7u64);
     if cr.is_empty()        { return 7; }
     if cr.len() != 1u64     { return 8; }
-    let mut v: u64 = 0u64;
-    if !cr.get(99u64, &mut v as *mut u64) { return 9; }
+    let v: u64 = match cr.get(99u64) {
+        Option::Some(x) => x,
+        Option::None => { return 9; }
+    };
     if v != 7u64            { return 10; }
 
     return 0;

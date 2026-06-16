@@ -106,8 +106,10 @@ fn main() -> i32 {
         // Evens have new value, odds untouched.
         j = 0u64;
         while j < 20u64 {
-            let mut out: u64 = 0u64;
-            if !cr.get(j, &mut out as *mut u64) { return 34; }
+            let out: u64 = match cr.get(j) {
+                Option::Some(x) => x,
+                Option::None => { return 34; }
+            };
             let want: u64 = if j % 2u64 == 0u64 { j * 100u64 } else { j * 3u64 };
             if out != want { return 35; }
             j = j + 1u64;

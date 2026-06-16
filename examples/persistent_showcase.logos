@@ -73,15 +73,14 @@ fn fill_range(cr: &mut ContainerRef<StoreCfg, ScoresCfg>, lo: u64, hi: u64, mul:
 }
 
 unsafe fn dump_entry(cr: &ContainerRef<StoreCfg, ScoresCfg>, key: u64) {
-    // TODO: get returns bool + writes through *mut V. An Option<V>-shaped
-    // return is the obvious idiomatic surface; the *mut V dance only
-    // exists because mlir-gen sret + generic V is fiddly.
-    let mut out: u64 = 0u64;
-    let found: bool = cr.get(key, &mut out as *mut u64);
-    if found {
-        printf("  scores[%lu] = %lu\n" as *const u8, key, out);
-    } else {
-        printf("  scores[%lu] = (none)\n" as *const u8, key);
+    // get returns Option<V> (Rust BTreeMap::get parity).
+    match cr.get(key) {
+        Option::Some(out) => {
+            printf("  scores[%lu] = %lu\n" as *const u8, key, out);
+        }
+        Option::None => {
+            printf("  scores[%lu] = (none)\n" as *const u8, key);
+        }
     }
 }
 
@@ -127,16 +126,12 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(c0);
         let scores: ContainerRef<StoreCfg, ScoresCfg> =
-            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         unsafe { dump_entry(&scores, 0u64); }
         unsafe { dump_entry(&scores, 15u64); }
         unsafe { dump_entry(&scores, 29u64); }
-        // TODO: open_pmap returns a ContainerRef with arc.p == null on miss.
-        // Option<ContainerRef> is the right shape — eliminates the raw
-        // pointer comparison the user has to do today.
-        let missing: ContainerRef<StoreCfg, ScoresCfg> =
-            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 99u64);
-        let absent: bool = unsafe { (missing.arc.p as *mut u8) == (0 as *mut u8) };
+        // open_pmap returns Option<ContainerRef> — None on miss (Rust parity).
+        let absent: bool = open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 99u64).is_none();
         unsafe { printf("  open(99) absent = %d\n" as *const u8, absent as i32); }
     }
 
@@ -147,7 +142,7 @@ fn main() -> i32 {
         let mut snap: Snap<StoreCfg> = store.fork(c0);
 
         let mut scores: ContainerRef<StoreCfg, ScoresCfg> =
-            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         fill_range(&mut scores, 30u64, 60u64, 5u64);
 
         // Replace existing key (replace-on-hit semantics).
@@ -172,7 +167,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(c0);
         let scores: ContainerRef<StoreCfg, ScoresCfg> =
-            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<ScoresCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         unsafe {
             printf("  C0 scores.len = %lu (expect 30)\n" as *const u8, scores.len());
             // key 7 still has the original value

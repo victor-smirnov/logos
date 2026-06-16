@@ -49,8 +49,10 @@ fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u6
 fn check_range(cr: &ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
     let mut i: u64 = lo;
     while i < hi {
-        let mut out: u64 = 0u64;
-        if !cr.get(i, &mut out as *mut u64) { return 1i32; }
+        let out: u64 = match cr.get(i) {
+            Option::Some(x) => x,
+            Option::None => { return 1i32; }
+        };
         if out != i * mul { return 2i32; }
         i = i + 1u64;
     }
@@ -79,7 +81,7 @@ fn main() -> i32 {
         let mut snap_b: Snap<StoreCfg> = store.fork(c0);
         {
             let mut cr: ContainerRef<StoreCfg, MapCfg> =
-                open_pmap::<MapCfg, StoreCfg>(&mut snap_b, 7u64);
+                open_pmap::<MapCfg, StoreCfg>(&mut snap_b, 7u64).unwrap();
             if cr.len() != 50u64 { return 21; }
             fill_range(&mut cr, 50u64, 100u64, 5u64);
             if cr.len() != 100u64 { return 22; }
@@ -93,7 +95,7 @@ fn main() -> i32 {
         let mut snap_c: Snap<StoreCfg> = store.fork(c0);
         {
             let mut cr: ContainerRef<StoreCfg, MapCfg> =
-                open_pmap::<MapCfg, StoreCfg>(&mut snap_c, 7u64);
+                open_pmap::<MapCfg, StoreCfg>(&mut snap_c, 7u64).unwrap();
             if cr.len() != 50u64 { return 30; }
             fill_range(&mut cr, 100u64, 150u64, 7u64);
             if cr.len() != 100u64 { return 31; }
@@ -105,7 +107,7 @@ fn main() -> i32 {
     {
         let mut snap_d: Snap<StoreCfg> = store.fork(c0);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap_d, 7u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_d, 7u64).unwrap();
         if cr.len() != 50u64 { return 40; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 41; }
         let probe: u64 = 75u64;
@@ -116,7 +118,7 @@ fn main() -> i32 {
     {
         let mut snap_b2: Snap<StoreCfg> = store.fork(c1);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap_b2, 7u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_b2, 7u64).unwrap();
         if cr.len() != 100u64 { return 50; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 51; }
         if check_range(&cr, 50u64, 100u64, 5u64) != 0i32 { return 52; }
@@ -128,7 +130,7 @@ fn main() -> i32 {
     {
         let mut snap_c2: Snap<StoreCfg> = store.fork(c2);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap_c2, 7u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap_c2, 7u64).unwrap();
         if cr.len() != 100u64 { return 60; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 61; }
         if check_range(&cr, 100u64, 150u64, 7u64) != 0i32 { return 62; }

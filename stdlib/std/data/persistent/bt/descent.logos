@@ -10,6 +10,7 @@ package logos.std.data.persistent.bt.descent;
 
 use logos.mem.collections.vec;
 use logos.lang.cmp;
+use logos.lang.option;
 use logos.lang.fabric;
 use logos.lang.hermes.hstatic;
 use logos.lang.hermes.static_view;   // HView2 — hermes2 reader for @{} blobs
@@ -183,28 +184,27 @@ pub fn pmap_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
-        if i >= br.children.length() as u64 { return false; }   // key > all maxes
+        if i >= br.children.len() as u64 { return false; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         return pmap_contains_rec::<K, V, STORE_CFG, CFG>(child, key);
     }
 }
 
 pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>, key: *const K, out: *mut V::ViewInStore
-) -> bool {
+    arc: &NodeARC<STORE_CFG>, key: *const K
+) -> Option<V::ViewInStore> {
     unsafe {
         if arc_is_leaf::<STORE_CFG>(arc) {
             let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
             let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, key);
-            if idx < 0i64 { return false; }
-            *out = leaf.vals.get(idx as u64);
-            return true;
+            if idx < 0i64 { return Option::None; }
+            return Option::Some(leaf.vals.get(idx as u64));
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
-        if i >= br.children.length() as u64 { return false; }   // key > all maxes
+        if i >= br.children.len() as u64 { return Option::None; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
-        return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key, out);
+        return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key);
     }
 }
 
@@ -239,7 +239,7 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
         let br: *const BranchNode<K, STORE_CFG, CFG> =
             dp as *const BranchNode<K, STORE_CFG, CFG>;
         let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
-        let nc: u64 = br.children.length() as u64;
+        let nc: u64 = br.children.len() as u64;
         if r.idx >= nc {
             *out_idx = 0u64;
             return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
@@ -366,7 +366,7 @@ pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG:
             return leaf.keys.len();
         }
         let br = as_branch::<K, STORE_CFG, CFG>(arc);
-        let nc: i64 = br.children.length();
+        let nc: i64 = br.children.len();
         // Fast path: SUM aggregate column maintained — sum slot-by-slot
         // without descending. Slow path: column empty (mutate.logos's
         // insert/remove maintenance not landed yet) — recursive walk.

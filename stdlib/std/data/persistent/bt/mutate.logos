@@ -19,6 +19,7 @@ package logos.std.data.persistent.bt.mutate;
 use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp;
+use logos.lang.option;
 use logos.lang.fabric;
 use logos.lang.hermes.hstatic;
 
@@ -43,7 +44,7 @@ pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
     // Move the caller-transferred share straight into the slot (no clone:
     // the by-value `new_arc` is consumed, so its share IS the slot's).
     v.push(new_arc);
-    let mut i: i64 = v.length() - 1i64;
+    let mut i: i64 = v.len() - 1i64;
     while i > idx {
         let a: *mut NodeARC<STORE_CFG> = v.at(i);
         let b: *mut NodeARC<STORE_CFG> = v.at(i - 1i64);
@@ -139,7 +140,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
         i = i + 1u64;
     }
     // Move children[mid..] into right (parallel, transfer rc shares).
-    let nc: i64 = branch.children.length();
+    let nc: i64 = branch.children.len();
     let mut j: i64 = mid as i64;
     while j < nc {
         let src: *mut NodeARC<STORE_CFG> = branch.children.at(j);
@@ -155,7 +156,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
         sj = sj + 1u64;
     }
     // Shrink left to [0..mid].
-    while branch.children.length() > (mid as i64) {
+    while branch.children.len() > (mid as i64) {
         let _ = branch.children.pop();   // pop's drop releases rc (balanced by bump above)
     }
     while branch.keys.len() > mid { branch.keys.remove_at(branch.keys.len() - 1u64); }
@@ -276,7 +277,12 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
     root: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
-) -> bool {
+) -> Option<V::ViewInStore> {
+    // Rust BTreeMap::insert parity: return the displaced value (Some) or None
+    // if the key is new. Captured by a pre-insert lookup — one extra O(depth)
+    // read against the frozen pre-mutation tree, which keeps the verified
+    // insert/split algorithm (and its InsertOutcome) untouched.
+    let old: Option<V::ViewInStore> = pmap_get_rec::<K, V, STORE_CFG, CFG>(root, qkey);
     let outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
     if outcome.split {
         // Grow root: new branch with [old_root, outcome.right] and
@@ -303,7 +309,8 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
         arc_replace_in_slot::<STORE_CFG>(
             root as *mut NodeARC<STORE_CFG>, new_arc);
     }
-    return outcome.hit;
+    let _ = outcome.hit;   // hit/split consumed above; displaced value is `old`
+    return old;
 }
 
 // ── Remove outcome — propagates underflow signal up the recursion ─────
@@ -340,7 +347,7 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) {
     let max_keys: u64 = max_keys_leaf::<CFG>();
-    let nc: i64 = parent_branch.children.length();
+    let nc: i64 = parent_branch.children.len();
     let has_left:  bool = i > 0i64;
     let has_right: bool = i + 1i64 < nc;
 
@@ -434,7 +441,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) {
     let max_keys: u64 = max_keys_branch::<CFG>();
-    let nc: i64 = parent_branch.children.length();
+    let nc: i64 = parent_branch.children.len();
     let has_left:  bool = i > 0i64;
     let has_right: bool = i + 1i64 < nc;
 
@@ -463,7 +470,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             child.keys.push(right.keys.get(0u64));
             right.keys.remove_at(0u64);
         }
-        while right.children.length() > 0i64 {
+        while right.children.len() > 0i64 {
             let moved: NodeARC<STORE_CFG> = right.children.remove(0i64);
             child.children.push(moved);
         }
@@ -481,7 +488,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
             left.keys.push(child.keys.get(0u64));
             child.keys.remove_at(0u64);
         }
-        while child.children.length() > 0i64 {
+        while child.children.len() > 0i64 {
             let moved: NodeARC<STORE_CFG> = child.children.remove(0i64);
             left.children.push(moved);
         }
@@ -499,7 +506,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         let last: u64 = left.keys.len() - 1u64;
         let moved_key: K::ViewInStore = left.keys.get(last);
         child.keys.insert_at(0u64, moved_key);
-        let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.length() - 1i64);
+        let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.len() - 1i64);
         vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved_child);
         left.keys.remove_at(last);
         parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
@@ -559,7 +566,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
         while br.subtree_size.len > 0u64 {
             br.subtree_size.remove_at(br.subtree_size.len - 1u64);
         }
-        let nc_after: i64 = br.children.length();
+        let nc_after: i64 = br.children.len();
         let mut sk: i64 = 0i64;
         while sk < nc_after {
             let c: &NodeARC<STORE_CFG> = br.children.borrow(sk);
@@ -591,7 +598,7 @@ pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE
     // levels collapse (rare but possible after large drains).
     while !arc_is_leaf::<STORE_CFG>(root) {
         let br = as_branch::<K, STORE_CFG, CFG>(root);
-        if br.children.length() != 1i64 { break; }
+        if br.children.len() != 1i64 { break; }
         let only_child: NodeARC<STORE_CFG> = br.children.remove(0i64);
         arc_replace_in_slot::<STORE_CFG>(
             root as *mut NodeARC<STORE_CFG>, only_child);

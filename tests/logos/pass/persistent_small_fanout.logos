@@ -39,8 +39,10 @@ fn main() -> i32 {
             // Verify all 200.
             i = 0u64;
             while i < 200u64 {
-                let mut out: u64 = 0u64;
-                if !cr.get(i, &mut out as *mut u64) { return 11; }
+                let out: u64 = match cr.get(i) {
+                    Option::Some(x) => x,
+                    Option::None => { return 11; }
+                };
                 if out != i * 13u64 { return 12; }
                 i = i + 1u64;
             }
@@ -66,7 +68,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(commit);
         let mut cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
 
         // Re-add the removed (every 3rd) keys with new values; first
         // mutation in this fork triggers full container CoW from root
@@ -80,8 +82,10 @@ fn main() -> i32 {
         // Verify: i % 3 == 0 → i*17, else → i*13 (inherited).
         i = 0u64;
         while i < 200u64 {
-            let mut out: u64 = 0u64;
-            if !cr.get(i, &mut out as *mut u64) { return 31; }
+            let out: u64 = match cr.get(i) {
+                Option::Some(x) => x,
+                Option::None => { return 31; }
+            };
             let want: u64 = if i % 3u64 == 0u64 { i * 17u64 } else { i * 13u64 };
             if out != want { return 32; }
             i = i + 1u64;
@@ -92,7 +96,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(commit);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         let mut i: u64 = 0u64;
         while i < 200u64 {
             let want: bool = i % 3u64 != 0u64;

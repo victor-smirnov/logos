@@ -40,8 +40,10 @@ fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u6
 }
 
 fn check_value(cr: &ContainerRef<StoreCfg, MapCfg>, k: u64, want: u64) -> bool {
-    let mut out: u64 = 0u64;
-    if !cr.get(k, &mut out as *mut u64) { return false; }
+    let out: u64 = match cr.get(k) {
+        Option::Some(x) => x,
+        Option::None => { return false; }
+    };
     return out == want;
 }
 
@@ -52,7 +54,7 @@ fn extend(store: &mut Store<StoreCfg>, parent: u64, lo: u64, hi: u64, mul: u64) 
         let mut cr: ContainerRef<StoreCfg, MapCfg> = if parent == GENESIS {
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64)
         } else {
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64)
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap()
         };
         fill_range(&mut cr, lo, hi, mul);
     }
@@ -71,7 +73,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(c4);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 100u64 { return 20; }
         let multipliers: [u64; 5] = [2u64, 3u64, 5u64, 7u64, 11u64];
         let mut bucket: u64 = 0u64;
@@ -92,7 +94,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(c2);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 60u64 { return 30; }
         let probe_ahead: u64 = 75u64;
         if cr.contains(probe_ahead) { return 31; }
@@ -108,7 +110,7 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(c0);
         let cr: ContainerRef<StoreCfg, MapCfg> =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 20u64 { return 40; }
         let probe: u64 = 25u64;
         if cr.contains(probe) { return 41; }

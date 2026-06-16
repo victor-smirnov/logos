@@ -54,8 +54,10 @@ fn main() -> i32 {
         let mut probe: u64 = 0u64;
         while (probe < 1000u64) {
             if !cr.contains(probe) { return 10 + probe as i32; }
-            let mut out: u64 = 0u64;
-            if !cr.get(probe, &mut out as *mut u64) { return 50 + probe as i32; }
+            let out: u64 = match cr.get(probe) {
+                Option::Some(x) => x,
+                Option::None => { return 50 + probe as i32; }
+            };
             if out != probe * 7u64 { return 100 + probe as i32; }
             probe = probe + 1u64;
         }
