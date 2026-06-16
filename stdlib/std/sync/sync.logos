@@ -92,6 +92,24 @@ pub unsafe fn mutex_destroy<T: Send>(m: *mut Mutex<T>) {
     m.raw = 0 as *mut u8;
 }
 
+// RAII: a by-value Mutex owns the heap pthread_mutex_t block, so it frees
+// it on drop (the `data: T` field auto-drops afterward). Without this, a
+// Mutex held as a struct field — e.g. LockingStore.lock in the persistent
+// store — leaked its 40-byte raw block every time the owner dropped.
+// Idempotent: guarded on `raw != null`, and mutex_destroy nulls raw, so an
+// explicit mutex_destroy followed by this drop is a safe no-op (no double
+// free / double pthread_mutex_destroy).
+impl<T> Drop for Mutex<T> {
+    fn drop(self: Mutex<T>) {
+        unsafe {
+            if self.raw != 0 as *mut u8 {
+                pthread_mutex_destroy(self.raw);
+                dealloc(self.raw);
+            }
+        }
+    }
+}
+
 // ── RwLock<T: Send + Sync> ────────────────────────────────────────────────────
 //
 // 'raw' points to a 56-byte heap block holding the pthread_rwlock_t.
@@ -156,4 +174,18 @@ pub unsafe fn rwlock_destroy<T: Send + Sync>(rw: *mut RwLock<T>) {
     pthread_rwlock_destroy(rw.raw);
     dealloc(rw.raw);
     rw.raw = 0 as *mut u8;
+}
+
+// RAII twin of Mutex's Drop: free the heap pthread_rwlock_t block on drop.
+// Same idempotent guard (rwlock_destroy nulls raw → drop-after-destroy is a
+// no-op).
+impl<T> Drop for RwLock<T> {
+    fn drop(self: RwLock<T>) {
+        unsafe {
+            if self.raw != 0 as *mut u8 {
+                pthread_rwlock_destroy(self.raw);
+                dealloc(self.raw);
+            }
+        }
+    }
 }

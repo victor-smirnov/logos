@@ -354,6 +354,23 @@ impl<T> PrimVec<T> {
     }
 }
 
+// PrimVec owns its heap buffer, so it frees it on by-value drop — exactly
+// like Buffer (whose drop_store routes here via clear()). Without this, a
+// PrimVec held DIRECTLY as a struct field (not wrapped in a Buffer) — e.g.
+// BranchNode.subtree_size in the persistent B+tree — leaked its buffer when
+// the owner dropped (nothing ever called clear() on it). clear() is
+// idempotent (guards on data != null, then nulls), so this is safe even for
+// the Buffer-wrapped case: Buffer::drop's drop_store clears first, then this
+// field-drop sees a null buffer and no-ops — no double free.
+impl<T> Drop for PrimVec<T> {
+    fn drop(self: PrimVec<T>) {
+        unsafe {
+            let sp: *mut PrimVec<T> = (&self as *const PrimVec<T>) as *mut PrimVec<T>;
+            sp.clear();
+        }
+    }
+}
+
 // PrimVec<T> plugs into the Storage hierarchy as a DynamicStorage<Elem=T>.
 // This lets generic code request any dynamic backing store via the trait
 // rather than naming PrimVec directly.
