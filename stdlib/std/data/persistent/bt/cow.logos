@@ -59,7 +59,7 @@ pub struct LeafNodeForBranch<K: Container + ContainerOrd, V: Container, const ST
 
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for BranchNode<K, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
-    fn block_type_hash(&self) -> u64 { return type_hash::<BranchNode<K, STORE_CFG, CFG>>(); }
+    fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     fn child_count(&self) -> u64 { return self.children.length() as u64; }
     fn child_at(&self, idx: u64) -> *const NodeARC<STORE_CFG> {
@@ -105,6 +105,7 @@ pub fn branch_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, 
     let p: *mut BranchNode<K, STORE_CFG, CFG> = alloc(sizeof::<BranchNode<K, STORE_CFG, CFG>>()) as *mut BranchNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
+        p.base.block_code  = schema_code::<BranchNode<K, STORE_CFG, CFG>>();
         p.base.id          = id;
         p.base.snapshot_id = snapshot_id;
         p.base.is_leaf     = false;
@@ -124,7 +125,7 @@ pub struct LeafNode<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 
 impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafNode<K, V, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
-    fn block_type_hash(&self) -> u64 { return type_hash::<LeafNode<K, V, STORE_CFG, CFG>>(); }
+    fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     // Data leaves carry no NodeARC children — keys/vals are datatype storage.
     fn child_count(&self) -> u64 { return 0u64; }
@@ -154,6 +155,7 @@ pub fn leaf_alloc<K: Container + ContainerOrd, V: Container, const STORE_CFG: He
     let p: *mut LeafNode<K, V, STORE_CFG, CFG> = alloc(sizeof::<LeafNode<K, V, STORE_CFG, CFG>>()) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
+        p.base.block_code  = schema_code::<LeafNode<K, V, STORE_CFG, CFG>>();
         p.base.id          = id;
         p.base.snapshot_id = snapshot_id;
         p.base.is_leaf     = true;
@@ -180,7 +182,7 @@ pub struct LeafDirNode<K: Container + ContainerOrd, const STORE_CFG: HermesStati
 
 impl<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BTreeNode<STORE_CFG> for LeafDirNode<K, STORE_CFG, CFG> {
     fn cfg_hash(&self) -> u64        { return hstatic_hash_of::<CFG>(); }
-    fn block_type_hash(&self) -> u64 { return type_hash::<LeafDirNode<K, STORE_CFG, CFG>>(); }
+    fn block_type_hash(&self) -> u64 { return self.base.block_code; }
 
     // Dir leaves' vals are NodeARC handles to container roots — those
     // ARE this dir leaf's children for the type-erased walk (drop and
@@ -216,6 +218,7 @@ pub fn leaf_dir_alloc<K: Container + ContainerOrd, const STORE_CFG: HermesStatic
     let p: *mut LeafDirNode<K, STORE_CFG, CFG> = alloc(sizeof::<LeafDirNode<K, STORE_CFG, CFG>>()) as *mut LeafDirNode<K, STORE_CFG, CFG>;
     unsafe {
         p.base.rc          = 1u64;
+        p.base.block_code  = schema_code::<LeafDirNode<K, STORE_CFG, CFG>>();
         p.base.id          = id;
         p.base.snapshot_id = snapshot_id;
         p.base.is_leaf     = true;

@@ -49,9 +49,16 @@ pub type BlockId<const STORE_CFG: HermesStatic> = <type:STORE_CFG.block_id>;
 // field reads so an i64 → struct ID widening is layout-driven.
 pub struct NodeBase<const STORE_CFG: HermesStatic> {
     pub rc:          u64,                          // offset 0 — direct field read by NodeARC
-    pub id:          BlockId<STORE_CFG>,    // persistent block id
-    pub snapshot_id: SnpId<STORE_CFG>,      // creating snapshot — CoW skip key
-    pub is_leaf:     bool,                         // branch/leaf discriminator
+    pub id:          BlockId<STORE_CFG>,    // offset 8  — persistent block id
+    pub snapshot_id: SnpId<STORE_CFG>,      // offset 16 — creating snapshot — CoW skip key
+    pub is_leaf:     bool,                         // offset 24 — branch/leaf discriminator
+    // APPENDED after is_leaf (not after rc) to preserve the pinned header
+    // offsets the type-erased layer reads by hand (snapshot_id @16, is_leaf
+    // @24 in descent/iter/handle). schema_code of the concrete node, stamped
+    // at alloc. PHYSICAL (not a vtable method) so a loader can read it from
+    // raw bytes before any vtable exists, then revive the dyn via
+    // vtable_of/dyn_from_parts.
+    pub block_code:  u64,
 }
 
 // ── BTreeNode trait ────────────────────────────────────────────────────
@@ -60,8 +67,11 @@ pub struct NodeBase<const STORE_CFG: HermesStatic> {
 //   cfg_hash()        — hstatic_hash_of::<CFG>() per concrete impl. Used by
 //                       IO consistency check (verify on-disk CFG matches
 //                       runtime CFG when a block is loaded).
-//   block_type_hash() — type_hash::<NodeSchema>() per concrete impl. Same
-//                       IO purpose.
+//   block_type_hash() — returns the PHYSICAL base.block_code (stamped at
+//                       alloc with schema_code::<ConcreteNode>()). Single
+//                       source of truth: the vtable method and the on-disk
+//                       header agree by construction. A loader reads the same
+//                       u64 from raw bytes and reconstructs the dyn from it.
 //   __drop_in_place() — auto-default. Fires per-let auto-Drop on Self;
 //                       runs user `impl Drop` body (if any) + recursive
 //                       field destructors. Concrete impls don't override.

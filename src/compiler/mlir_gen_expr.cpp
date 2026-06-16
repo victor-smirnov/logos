@@ -1776,11 +1776,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // the callee (e.g. `__vtable_of__` → `__vtable_of____Dog`), keeping the
     // type_args on the node. Match the bare prefix; read T from type_args.
     auto match_intr = [&](std::string_view name) {
-        auto dollar = callee.rfind('$');
-        std::string_view s = (dollar == std::string::npos)
-            ? std::string_view{callee}
-            : std::string_view{callee}.substr(dollar + 1);
-        return s.rfind(name, 0) == 0;
+        // The synthesized callee is `__vtable_of__` / `__dyn_from_parts__`,
+        // which mono mangles by APPENDING `__<typearg>` — so the name is always
+        // a prefix at position 0. Check that first. A package-qualified callee
+        // (hypothetically `pkg.path$name…`) is split on the FIRST `$` (package
+        // paths are dotted and never contain `$`); the LAST `$` would land in
+        // the middle of the mangled type-arg suffix (`$G4$u64$…$hs_…`) and lose
+        // the prefix — the bug that made deeply-generic T (LeafNode<…>) miss.
+        if (std::string_view{callee}.rfind(name, 0) == 0) return true;
+        auto dollar = callee.find('$');
+        if (dollar == std::string::npos) return false;
+        return std::string_view{callee}.substr(dollar + 1).rfind(name, 0) == 0;
     };
     auto strip_quotes = [](std::string_view s) {
         if (s.size() >= 2 && s.front() == '"' && s.back() == '"')

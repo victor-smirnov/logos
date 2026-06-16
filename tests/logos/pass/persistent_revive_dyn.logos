@@ -1,0 +1,165 @@
+// End-to-end "load step" for logos.std.data.persistent: reconstruct a working
+// `dyn BTreeNode<CFG>` from a raw block whose only type information is the
+// PHYSICAL block_code stamped in its NodeBase header — no vtable pointer is
+// stored with the block. This is the deserialization kernel: on disk a block
+// carries an integer code (a function of its schema); on load we read that
+// code, map it to the right vtable, and rebuild the fat trait pointer.
+//
+//   alloc concrete node  →  stamps base.block_code = schema_code::<Node>()
+//   raw *mut u8          →  read code via *mut NodeBase<StoreCfg> (header only)
+//   code → vtable        →  library registry (schema_code → vtable_of)
+//   dyn_from_parts       →  *mut dyn BTreeNode<StoreCfg>  (the revived fat ptr)
+//   node_arc_wrap        →  hand to a real NodeARC for dispatch + RAII release
+//
+// The revival is TYPE-ERASED: revive() never names Leaf/Branch/Dir — it only
+// knows NodeBase<StoreCfg> (the store-level header) and the BTreeNode trait.
+
+package persistent_revive_dyn;
+
+use logos.mem.collections.vec;
+use logos.lang.mem;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.hermes.hstatic;
+
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.compiler.metaprog;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "revive",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+pub const DataCfg: HermesStatic = @{
+    "key":    <type:u64>,
+    "value":  <type:u64>,
+    "fanout": 8,
+};
+pub const DirCfg: HermesStatic = @{
+    "key":    <type:u64>,
+    "fanout": 16,
+};
+
+// The "library registry": map a stable block code to the vtable of the
+// concrete node type that produced it. In a real store this is populated once
+// at open() per registered node flavour; here an if-chain is plenty. vtable_of
+// keys on the concrete receiver, so each code resolves to exactly one impl.
+unsafe fn vtable_for_code(code: u64) -> *const u8 {
+    if code == schema_code::<LeafNode<u64, u64, StoreCfg, DataCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, LeafNode<u64, u64, StoreCfg, DataCfg>>();
+    }
+    if code == schema_code::<BranchNode<u64, StoreCfg, DataCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, BranchNode<u64, StoreCfg, DataCfg>>();
+    }
+    if code == schema_code::<LeafDirNode<u64, StoreCfg, DirCfg>>() {
+        return vtable_of::<BTreeNode<StoreCfg>, LeafDirNode<u64, StoreCfg, DirCfg>>();
+    }
+    return 0 as *const u8;
+}
+
+// THE LOAD STEP. Given a raw block pointer, read its code from the physical
+// header and rebuild the dyn. Returns a null-handle NodeARC on a registry miss
+// (schema drift) — the caller's deserialization-error guard.
+unsafe fn revive(data: *mut u8) -> NodeARC<StoreCfg> {
+    let hdr:  *mut NodeBase<StoreCfg> = data as *mut NodeBase<StoreCfg>;
+    let code: u64 = hdr.block_code;                 // physical — no vtable needed
+    let vt:   *const u8 = vtable_for_code(code);
+    if vt == (0 as *const u8) {
+        return node_arc_wrap::<StoreCfg>(0 as *mut dyn BTreeNode<StoreCfg>);
+    }
+    // Reconstruct the fat {data, vtable} pair, then wrap for owning dispatch.
+    return node_arc_wrap::<StoreCfg>(dyn_from_parts::<BTreeNode<StoreCfg>>(data, vt));
+}
+
+fn main() -> i32 {
+    // ── Data leaf ─────────────────────────────────────────────────────
+    {
+        let lp: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(101u64, 1u64)
+        };
+        unsafe { lp.keys.push(10u64); lp.vals.push(100u64); }
+
+        let want: u64 = schema_code::<LeafNode<u64, u64, StoreCfg, DataCfg>>();
+        let arc: NodeARC<StoreCfg> = unsafe { revive(lp as *mut u8) };
+        unsafe {
+            // dispatch THROUGH the revived dyn: the concrete impl reads the
+            // physical code back, proving the right vtable was reattached.
+            if arc.p.block_type_hash() != want   { return 1; }
+            if arc.p.cfg_hash() != hstatic_hash_of::<DataCfg>() { return 2; }
+            if arc.p.child_count() != 0u64       { return 3; }
+        }
+        let _ = arc;   // RAII: leaf rc 1→0 → Buffers drop → dealloc
+    }
+
+    // ── Branch holding two leaves — revived dyn drives a child walk ────
+    {
+        let la: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(201u64, 1u64) };
+        let lb: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(202u64, 1u64) };
+        unsafe { la.keys.push(1u64); la.vals.push(11u64);
+                 lb.keys.push(2u64); lb.vals.push(22u64); }
+        let bp: *mut BranchNode<u64, StoreCfg, DataCfg> = unsafe {
+            branch_alloc::<u64, StoreCfg, DataCfg>(301u64, 1u64) };
+        unsafe {
+            bp.children.push(node_arc_wrap::<StoreCfg>(la as *mut dyn BTreeNode<StoreCfg>));
+            bp.children.push(node_arc_wrap::<StoreCfg>(lb as *mut dyn BTreeNode<StoreCfg>));
+        }
+
+        let want: u64 = schema_code::<BranchNode<u64, StoreCfg, DataCfg>>();
+        let arc: NodeARC<StoreCfg> = unsafe { revive(bp as *mut u8) };
+        unsafe {
+            if arc.p.block_type_hash() != want { return 4; }
+            if arc.p.child_count() != 2u64     { return 5; }
+            // walk a child through the revived dyn and dispatch on IT too
+            let c0: *const NodeARC<StoreCfg> = arc.p.child_at(0u64);
+            if (*c0).p.child_count() != 0u64   { return 6; }
+        }
+        let _ = arc;   // RAII: branch → children → leaves all release
+    }
+
+    // ── Directory leaf (holds NodeARC vals) ───────────────────────────
+    {
+        let leaf_a: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(401u64, 2u64) };
+        let dirp: *mut LeafDirNode<u64, StoreCfg, DirCfg> = unsafe {
+            leaf_dir_alloc::<u64, StoreCfg, DirCfg>(501u64, 2u64) };
+        unsafe {
+            dirp.keys.push(101u64);
+            dirp.vals.push(node_arc_wrap::<StoreCfg>(leaf_a as *mut dyn BTreeNode<StoreCfg>));
+        }
+
+        let want: u64 = schema_code::<LeafDirNode<u64, StoreCfg, DirCfg>>();
+        let arc: NodeARC<StoreCfg> = unsafe { revive(dirp as *mut u8) };
+        unsafe {
+            if arc.p.block_type_hash() != want { return 7; }
+            if arc.p.child_count() != 1u64     { return 8; }
+        }
+        let _ = arc;
+    }
+
+    // ── Unknown code → registry miss → null-handle NodeARC (graceful) ──
+    {
+        let lp: *mut LeafNode<u64, u64, StoreCfg, DataCfg> = unsafe {
+            leaf_alloc::<u64, u64, StoreCfg, DataCfg>(601u64, 1u64) };
+        unsafe {
+            // Corrupt the header code → simulate schema drift on load.
+            let hdr: *mut NodeBase<StoreCfg> = lp as *mut NodeBase<StoreCfg>;
+            let good: u64 = hdr.block_code;
+            hdr.block_code = 0xDEADBEEFu64;
+            let miss: NodeARC<StoreCfg> = revive(lp as *mut u8);
+            if !node_arc_is_null::<StoreCfg>(&miss) { return 9; }
+            let _ = miss;   // null handle — drop is a no-op, took no ownership
+            // restore the real code and revive properly so RAII frees the block
+            hdr.block_code = good;
+            let arc: NodeARC<StoreCfg> = revive(lp as *mut u8);
+            if node_arc_is_null::<StoreCfg>(&arc) { return 10; }
+            let _ = arc;
+        }
+    }
+
+    return 0;
+}

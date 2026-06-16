@@ -5224,6 +5224,14 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // its code can be revived into a working `dyn Trait` (Memoria-style load).
     if (callee == "dyn_from_parts") {
         std::string trait_name;
+        // Carry the trait's OWN type-args so the produced trait object matches
+        // a parameterized annotation exactly: `dyn_from_parts::<BTreeNode<CFG>>`
+        // must yield `*mut dyn BTreeNode<CFG>`, not the arg-less `dyn BTreeNode`.
+        // Dropping them produces a TraitObject with a different TypeUID, so the
+        // value limps along under a permissive local `let`-coercion but
+        // SEGFAULTS the moment it flows through a strictly-typed
+        // `*mut dyn Trait<…>` parameter (vtable layout/binding mismatch).
+        std::vector<TypeRef> trait_args;
         if (node.has_key(la::TYPE_PARAMS)) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
             if (tplist.has_key(la::ITEMS)) {
@@ -5232,6 +5240,20 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                     auto tnode = map_of(items.get(0));
                     if (tnode.has_key(la::NAME))
                         trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+                    // Resolve the trait node's type-args (mirror the DYN_TYPE
+                    // branch in resolve_type): skip lifetime / auto-trait bound
+                    // sub-nodes that the grammar folds into the same ITEMS array.
+                    if (tnode.has_key(la::ITEMS)) {
+                        auto targ_items = arr_of(tnode.get(la::ITEMS.code));
+                        for (uint64_t i = 0; i < targ_items.size(); ++i) {
+                            auto it = map_of(targ_items.get(i));
+                            int32_t ic = code_of(it);
+                            if (ic == la::LIFETIME_PARAM) continue;
+                            if (ic == la::AUTO_TRAIT_BOUND.code) continue;
+                            if (ic == la::AUTO_LIFE_BOUND.code) continue;
+                            trait_args.push_back(resolve_type(it));
+                        }
+                    }
                 }
             }
         }
@@ -5260,10 +5282,18 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             error("dyn_from_parts::<Trait>(data, vtable) requires exactly two value arguments");
             return error_expr();
         }
-        TypeRef tobj = make_trait_object(trait_name, std::vector<TypeRef>{},
+        // Return the BARE trait object: `*mut dyn Trait` canonicalises to a
+        // TraitObject (the inline fat {data,vtable} pair), NOT `Ptr<TraitObject>`
+        // (see resolve_type PTR_TYPE: a literal-`dyn` pointee folds to `inner`).
+        // Returning `make_ptr(true, tobj)` here built a *thin* `*mut TraitObject`
+        // whose value happened to memcpy correctly through an explicitly-typed
+        // `let`, but made the arg-coercion at a strict `*mut dyn Trait` call
+        // site RE-WRAP the fat pair as a data pointer (vtable slot left
+        // uninitialised) → garbage-vtable segfault. The bare TraitObject matches
+        // the canonical `*mut dyn`/`&dyn` representation, so it passes through.
+        TypeRef tobj = make_trait_object(trait_name, std::move(trait_args),
                                          TraitOwningKind::Borrow, false, false);
-        return builder().call("__dyn_from_parts__", {}, std::move(rargs),
-                              make_ptr(true, tobj, false));
+        return builder().call("__dyn_from_parts__", {}, std::move(rargs), tobj);
     }
 
     // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)
