@@ -1,0 +1,38 @@
+// Reconstruct a `dyn Trait` from a (data, code) pair — the Memoria load step.
+// A stable code (schema_code::<T>(), the metaprog layout hash) keys a tiny
+// registry to a vtable (vtable_of::<Trait,T>()); dyn_from_parts assembles the
+// fat {data,vtable} pointer; method dispatch runs the right impl. No vtable
+// pointer was ever stored with the data — only the integer code.
+
+package meta_dyn_from_code_probe;
+
+use logos.std.compiler.metaprog;
+
+trait Speak { fn says(self: &Self) -> i32; }
+
+// Distinct LAYOUTS → distinct schema_code (the hash is layout-based; two
+// same-layout types would collide, which is correct — disambiguating those
+// would need a family/descriptor tag).
+struct Dog { tag: i64, }
+struct Cat { tag: i64, breed: i32, }
+impl Speak for Dog { fn says(self: &Dog) -> i32 { return 1; } }
+impl Speak for Cat { fn says(self: &Cat) -> i32 { return 2; } }
+
+unsafe fn revive(data: *mut u8, code: u64) -> i32 {
+    let mut vt: *const u8 = 0 as *const u8;
+    if code == schema_code::<Dog>()      { vt = vtable_of::<Speak, Dog>(); }
+    else if code == schema_code::<Cat>() { vt = vtable_of::<Speak, Cat>(); }
+    if vt == (0 as *const u8) { return -1; }   // registry miss — caller's guard
+    let d: *mut dyn Speak = dyn_from_parts::<Speak>(data, vt);
+    return (*d).says();
+}
+
+unsafe fn main() -> i32 {
+    let mut dog: Dog = Dog { tag: 7 };
+    let mut cat: Cat = Cat { tag: 9, breed: 3 };
+    if revive((&mut dog) as *mut u8, schema_code::<Dog>()) != 1 { return 1; }
+    if revive((&mut cat) as *mut u8, schema_code::<Cat>()) != 2 { return 2; }
+    // Unknown code → graceful miss (no stored vtable to dereference).
+    if revive((&mut dog) as *mut u8, 0xDEADBEEF as u64) != (-1 as i32) { return 3; }
+    return 0;
+}

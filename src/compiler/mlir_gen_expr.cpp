@@ -1770,6 +1770,60 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         }
     }
 
+    // ── Trait-object reconstruction intrinsics ────────────────────────────────
+    // Both survive mono unfolded and are emitted here (vtables live in mlir-gen).
+    // Prefix match: mono mangles a generic call by appending `__<typearg>` to
+    // the callee (e.g. `__vtable_of__` → `__vtable_of____Dog`), keeping the
+    // type_args on the node. Match the bare prefix; read T from type_args.
+    auto match_intr = [&](std::string_view name) {
+        auto dollar = callee.rfind('$');
+        std::string_view s = (dollar == std::string::npos)
+            ? std::string_view{callee}
+            : std::string_view{callee}.substr(dollar + 1);
+        return s.rfind(name, 0) == 0;
+    };
+    auto strip_quotes = [](std::string_view s) {
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+            return s.substr(1, s.size() - 2);
+        return s;
+    };
+    // vtable_of::<Trait, T>() -> *const u8 : address of the static vtable for
+    // `impl Trait for T`. arg[0] = trait name (lit_str); type_args[0] = concrete T.
+    if (match_intr("__vtable_of__")) {
+        std::string trait;
+        if (!arg_refs.empty() && arg_refs[0].kind() == ec::Code::LitStr)
+            trait = std::string(strip_quotes(lir_view::ELitStrView{arg_refs[0]}.value()));
+        auto tas = v.type_args(pool_impl());
+        if (trait.empty() || tas.empty() || !tas[0]) return nullptr;
+        TypeRef T = tas[0];
+        std::string vt_name =
+            (T.kind() == LogosType::Kind::Struct ||
+             T.kind() == LogosType::Kind::ZonedStruct)
+                ? concrete_struct_name(T)
+                : std::string(type_str(T));
+        return build_inline_vtable(trait, vt_name, T);
+    }
+    // dyn_from_parts::<Trait>(data, vtable) -> *mut dyn Trait : assemble a fat
+    // {data, vtable} pair from raw halves. arg[0]=trait (lit_str, unused at
+    // codegen — layout is uniform), arg[1]=data ptr, arg[2]=vtable ptr.
+    if (match_intr("__dyn_from_parts__")) {
+        if (arg_les.size() != 3) return nullptr;
+        auto data_v  = gen_expr(*arg_les[1]); if (!data_v)  return nullptr;
+        auto vtable_v = gen_expr(*arg_les[2]); if (!vtable_v) return nullptr;
+        auto dyn_struct = dyn_llvm_type();
+        auto alloca = create_entry_alloca(dyn_struct);
+        if (!alloca) return nullptr;
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx0{int32_t(0), int32_t(0)};
+        auto dp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, alloca, idx0);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, data_v, dp);
+        llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
+        auto vp = builder_.create<mlir::LLVM::GEPOp>(
+            loc_, ptr_type(), dyn_struct, alloca, idx1);
+        builder_.create<mlir::LLVM::StoreOp>(loc_, vtable_v, vp);
+        return alloca;
+    }
+
     // After pkg-mangling, intrinsic names ship as
     // `std.lang.text$str_from_raw__f__pcst_u8__i64` etc. Strip pkg
     // prefix and the `__f__<sig>` / `__g__<sig>` suffix to recover

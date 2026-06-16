@@ -5181,6 +5181,91 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // same impl-table recursion as __has_trait__.
     if (callee == "has_trait_of") return lower_intrinsic_has_trait_of(node);
 
+    // vtable_of::<Trait, T>() -> *const u8 — address of the static vtable for
+    // `impl Trait for T`. Pairs with dyn_from_parts to RECONSTRUCT a `dyn Trait`
+    // from a (data, code) pair on deserialization: a registry maps a stable code
+    // (e.g. schema_code::<T>()) to this vtable; dyn_from_parts then forms the fat
+    // pointer. Trait is read by NAME (not resolved as a type); T is resolved.
+    // Lowered to __vtable_of__, preserved through mono (type-arg substituted to
+    // the concrete T), and emitted by mlir-gen via build_inline_vtable.
+    if (callee == "vtable_of") {
+        TypeRef elem = nullptr;
+        std::string trait_name;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 2) {
+                    auto tnode = map_of(items.get(0));
+                    if (tnode.has_key(la::NAME))
+                        trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+                    elem = resolve_type(map_of(items.get(1)));
+                }
+            }
+        }
+        if (!elem || trait_name.empty()) {
+            error("vtable_of::<Trait, T>() requires a trait name and a type argument");
+            return error_expr();
+        }
+        if (!traits_.count(trait_name))
+            error(std::format("unknown trait '{}' in vtable_of", trait_name));
+        std::vector<TypeRef> targs; targs.push_back(elem);
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(builder().lit_str(std::move(trait_name),
+                                          make_slice_type(u8_t())));
+        return builder().call("__vtable_of__", std::move(targs), std::move(rargs),
+                              make_ptr(false, u8_t(), false));
+    }
+
+    // dyn_from_parts::<Trait>(data: *mut u8, vtable: *const u8) -> *mut dyn Trait
+    // Build a fat {data, vtable} trait-object pointer from raw halves. The vtable
+    // usually comes from vtable_of (via a code->vtable registry). Method calls on
+    // the result dispatch through the supplied vtable — so a type-erased block +
+    // its code can be revived into a working `dyn Trait` (Memoria-style load).
+    if (callee == "dyn_from_parts") {
+        std::string trait_name;
+        if (node.has_key(la::TYPE_PARAMS)) {
+            auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
+            if (tplist.has_key(la::ITEMS)) {
+                auto items = arr_of(tplist.get(la::ITEMS.code));
+                if (items.size() == 1) {
+                    auto tnode = map_of(items.get(0));
+                    if (tnode.has_key(la::NAME))
+                        trait_name = std::string(str_of(tnode.get(la::NAME.code)));
+                }
+            }
+        }
+        if (trait_name.empty()) {
+            error("dyn_from_parts::<Trait>(data, vtable) requires one trait argument");
+            return error_expr();
+        }
+        if (!traits_.count(trait_name))
+            error(std::format("unknown trait '{}' in dyn_from_parts", trait_name));
+        check_trait_object_safe(trait_name);
+        std::vector<lir::LExprPtr> rargs;
+        rargs.push_back(builder().lit_str(std::string(trait_name),
+                                          make_slice_type(u8_t())));
+        if (node.has_key(la::ARGS)) {
+            AnyVal av = node.get(la::ARGS.code);
+            if (!av.is_null()) {
+                auto args_list = map_of(av);
+                if (args_list.has_key(la::ITEMS)) {
+                    auto items = arr_of(args_list.get(la::ITEMS.code));
+                    for (uint64_t i = 0; i < items.size(); ++i)
+                        rargs.push_back(lower_expr(map_of(items.get(i))));
+                }
+            }
+        }
+        if (rargs.size() != 3) {
+            error("dyn_from_parts::<Trait>(data, vtable) requires exactly two value arguments");
+            return error_expr();
+        }
+        TypeRef tobj = make_trait_object(trait_name, std::vector<TypeRef>{},
+                                         TraitOwningKind::Borrow, false, false);
+        return builder().call("__dyn_from_parts__", {}, std::move(rargs),
+                              make_ptr(true, tobj, false));
+    }
+
     // typelist_len::<L>() / typelist_head::<L>() / typelist_nth::<L>(i)
     // / typelist_tail::<L>() — O(1) probes over `L`'s type-pack
     // `L.type_args()` (typically `L = TypeList<T...>`, but works on any
