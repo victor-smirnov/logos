@@ -29,6 +29,7 @@ use logos.mem.sync;
 use logos.lang.rc;
 use logos.lang.cmp;
 use logos.lang.option;
+use logos.lang.panic;
 use logos.lang.drop;
 use logos.lang.fabric;
 use logos.lang.hermes.hstatic;
@@ -379,6 +380,15 @@ pub struct Snap<const STORE_CFG: HermesStatic> {
     pub arc: Arc<LockingStore<STORE_CFG>>,
     pub snapshot_id: SnpId<STORE_CFG>,
     pub parent_id:   SnpId<STORE_CFG>,  // commit id this snap forked from
+    // DYNAMIC commit guard: count of ContainerRefs currently open on this
+    // snap. create_pmap/open_pmap bump it; ContainerRef::drop decrements via a
+    // raw pointer to this field. commit() refuses (panics) while any container
+    // is open — a committed snap's blocks become shared/immutable, and a still-
+    // open ContainerRef holds raw pointers into the snap's dir that would
+    // dangle once commit consumes it. We can't enforce this in the type system
+    // without forbidding multiple simultaneously-open mutable containers (the
+    // deliberate multi-container model), so the invariant is checked at runtime.
+    pub open_containers: u64,
 }
 
 // snap_fork — start a new mutable snapshot from a committed parent.
@@ -390,10 +400,11 @@ pub fn snap_fork<const STORE_CFG: HermesStatic>(
     let snap_id: SnpId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_snapshot_id() };
     let dir: NodeARC<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).checkout(parent_commit) };
     return Snap::<STORE_CFG> {
-        dir:         dir,
-        arc:         store.arc.clone_ref(),
-        snapshot_id: snap_id,
-        parent_id:   parent_commit,
+        dir:             dir,
+        arc:             store.arc.clone_ref(),
+        snapshot_id:     snap_id,
+        parent_id:       parent_commit,
+        open_containers: 0u64,
     };
 }
 
@@ -416,6 +427,12 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
     // — a hack that would have flipped to a leak once move-tracking improved).
     pub fn commit(self: Self) -> SnpId<STORE_CFG> {
         let mut me: Snap<STORE_CFG> = self;
+        // Dynamic guard: a snap with open ContainerRefs must not be committed —
+        // commit consumes the snap and the open handles hold raw pointers into
+        // its dir that would dangle. Close (drop) every container first.
+        if me.open_containers > 0u64 {
+            panic("Snap::commit called while container handles are still open");
+        }
         let s: &mut LockingStore<STORE_CFG> = me.arc.deref_mut();
         unsafe {
             let root_p: *mut dyn BTreeNode<STORE_CFG> = me.dir.p;
@@ -451,6 +468,23 @@ pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> 
     // Both stay valid for the lifetime of the originating Snap.
     pub snap_id:    SnpId<STORE_CFG>,
     pub id_ctr_p:   *mut BlockId<STORE_CFG>,
+    // Raw pointer to the originating Snap's `open_containers` counter. Bumped
+    // at create/open, decremented in Drop — the dynamic commit guard. Stable
+    // for the Snap's lifetime (same contract as dir_root_p / id_ctr_p).
+    pub open_ctr_p: *mut u64,
+}
+
+impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> Drop for ContainerRef<STORE_CFG, CFG> {
+    fn drop(self: ContainerRef<STORE_CFG, CFG>) {
+        // Release this snap's open-container claim (the commit guard). Guarded
+        // on non-null (an open_pmap miss never built a ContainerRef, but be
+        // defensive). self.arc auto-drops after this body, releasing its rc.
+        unsafe {
+            if self.open_ctr_p != (0 as *mut u64) {
+                *self.open_ctr_p = *self.open_ctr_p - 1u64;
+            }
+        }
+    }
 }
 
 // create_pmap — alloc a fresh empty leaf for the container, insert it
@@ -479,12 +513,15 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     // Insert into dir tree — dir_insert handles CoW + splits + root grow.
     unsafe { dir_insert::<STORE_CFG>(&mut snap.dir, ctr_id, arc_for_dir, snap.snapshot_id, id_ctr_p); }
 
+    // Claim an open-container slot (released in ContainerRef::drop).
+    snap.open_containers = snap.open_containers + 1u64;
     return ContainerRef::<STORE_CFG, CFG> {
         arc:        arc_for_ref,
         ctr_id:     ctr_id,
         dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
         snap_id:    snap.snapshot_id,
         id_ctr_p:   id_ctr_p,
+        open_ctr_p: &mut snap.open_containers as *mut u64,
     };
 }
 
@@ -509,12 +546,15 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
         return Option::None;   // ctr_id not present
     }
     let cloned: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone_arc() };
+    // Claim an open-container slot (released in ContainerRef::drop).
+    snap.open_containers = snap.open_containers + 1u64;
     return Option::Some(ContainerRef::<STORE_CFG, CFG> {
         arc:        cloned,
         ctr_id:     ctr_id,
         dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
         snap_id:    snap.snapshot_id,
         id_ctr_p:   id_ctr_p,
+        open_ctr_p: &mut snap.open_containers as *mut u64,
     });
 }
 

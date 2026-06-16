@@ -39,6 +39,15 @@ pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: HermesStatic,
 
 // Forward walker. `leaf_arc` is null iff the iter is exhausted.
 // `leaf_p` is the typed view derived from `leaf_arc.p`.
+//
+// #[borrow_carrying]: an iter conceptually borrows the container it walks.
+// It's opened from `&self` (ContainerRef::iter/iter_from/iter_rev), so the
+// borrow checker (result_borrows_self) records a shared borrow of the
+// ContainerRef held by the iter — `cr.insert(...)` / `.remove(...)` while an
+// iter is live is now rejected at compile time (one live iterator borrows the
+// container). The iter still PINS its frozen view via NodeARC clones, so this
+// is a Rust-model exclusivity rule layered over the already-safe snapshot.
+#[borrow_carrying]
 pub struct PMapIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub path:     Vec<IterFrame<K, STORE_CFG, CFG>>,
     pub leaf_arc: NodeARC<STORE_CFG>,

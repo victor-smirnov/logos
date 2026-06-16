@@ -1,0 +1,11 @@
+// A borrow captured into a struct field is held for the holder's lifetime:
+// mutating the borrowed-from while the struct is live is rejected (E0502).
+package borrow_struct_held_mut;
+struct Foo { x: i64, }
+struct Guard<'a> { r: &'a mut Foo, }
+fn main() -> i32 {
+    let mut f: Foo = Foo { x: 1i64 };
+    let g: Guard = Guard { r: &mut f };
+    f.x = 9i64;            // ERROR: f is mutably borrowed by g (live below)
+    return g.r.x as i32;
+}
