@@ -53,21 +53,24 @@ fn main() -> i32 {
     {
         let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
 
-        // Four containers, distinct multipliers.
-        unsafe {
+        // Four containers, distinct multipliers. Each is SCOPED so it drops
+        // (closes) before the next — and before commit (the open-container
+        // guard). create_pmap/fill/insert are all safe; the bare `{ }` is for
+        // scoping only, no `unsafe` needed.
+        {
             let mut a: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
             fill(&mut a, 30u64, 3u64);
             // Drop a here — its slot's NodeARC is in the dir; cr.arc share dropped.
         }
-        unsafe {
+        {
             let mut b: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
             fill(&mut b, 50u64, 5u64);
         }
-        unsafe {
+        {
             let mut c: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 99u64);
             fill(&mut c, 20u64, 9u64);
         }
-        unsafe {
+        {
             let mut d: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1000u64);
             fill(&mut d, 10u64, 13u64);
         }
