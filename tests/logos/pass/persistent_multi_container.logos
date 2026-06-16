@@ -58,37 +58,37 @@ fn main() -> i32 {
         // guard). create_pmap/fill/insert are all safe; the bare `{ }` is for
         // scoping only, no `unsafe` needed.
         {
-            let mut a = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            let mut a = create_pmap::<MapCfg>(&mut snap, 1u64);
             fill(&mut a, 30u64, 3u64);
             // Drop a here — its slot's NodeARC is in the dir; cr.arc share dropped.
         }
         {
-            let mut b = create_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
+            let mut b = create_pmap::<MapCfg>(&mut snap, 7u64);
             fill(&mut b, 50u64, 5u64);
         }
         {
-            let mut c = create_pmap::<MapCfg, StoreCfg>(&mut snap, 99u64);
+            let mut c = create_pmap::<MapCfg>(&mut snap, 99u64);
             fill(&mut c, 20u64, 9u64);
         }
         {
-            let mut d = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1000u64);
+            let mut d = create_pmap::<MapCfg>(&mut snap, 1000u64);
             fill(&mut d, 10u64, 13u64);
         }
 
         // open_pmap on missing id returns None.
         {
-            if open_pmap::<MapCfg, StoreCfg>(&mut snap, 42u64).is_some() { return 10; }
+            if open_pmap::<MapCfg>(&mut snap, 42u64).is_some() { return 10; }
         }
 
         // Re-open each container, verify its own data.
         {
-            let a = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
+            let a = open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
             if !check(&a, 30u64, 3u64) { return 11; }
-            let b = open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64).unwrap();
+            let b = open_pmap::<MapCfg>(&mut snap, 7u64).unwrap();
             if !check(&b, 50u64, 5u64) { return 12; }
-            let c = open_pmap::<MapCfg, StoreCfg>(&mut snap, 99u64).unwrap();
+            let c = open_pmap::<MapCfg>(&mut snap, 99u64).unwrap();
             if !check(&c, 20u64, 9u64) { return 13; }
-            let d = open_pmap::<MapCfg, StoreCfg>(&mut snap, 1000u64).unwrap();
+            let d = open_pmap::<MapCfg>(&mut snap, 1000u64).unwrap();
             if !check(&d, 10u64, 13u64) { return 14; }
         }
 
@@ -98,13 +98,13 @@ fn main() -> i32 {
     // Fork: all four containers visible, untouched.
     {
         let mut fork = store.fork(commit);
-        let a = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1u64).unwrap();
+        let a = open_pmap::<MapCfg>(&mut fork, 1u64).unwrap();
         if !check(&a, 30u64, 3u64) { return 30; }
-        let b = open_pmap::<MapCfg, StoreCfg>(&mut fork, 7u64).unwrap();
+        let b = open_pmap::<MapCfg>(&mut fork, 7u64).unwrap();
         if !check(&b, 50u64, 5u64) { return 31; }
-        let c = open_pmap::<MapCfg, StoreCfg>(&mut fork, 99u64).unwrap();
+        let c = open_pmap::<MapCfg>(&mut fork, 99u64).unwrap();
         if !check(&c, 20u64, 9u64) { return 32; }
-        let d = open_pmap::<MapCfg, StoreCfg>(&mut fork, 1000u64).unwrap();
+        let d = open_pmap::<MapCfg>(&mut fork, 1000u64).unwrap();
         if !check(&d, 10u64, 13u64) { return 33; }
     }
 

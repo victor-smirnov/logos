@@ -31,7 +31,7 @@ fn main() -> i32 {
         let mut id = 0u64;
         while id < 50u64 {
             let mut cr =
-                create_pmap::<MapCfg, StoreCfg>(&mut snap, id);
+                create_pmap::<MapCfg>(&mut snap, id);
             cr.insert(id, id * 1000u64);
             id = id + 1u64;
         }
@@ -39,7 +39,7 @@ fn main() -> i32 {
         let mut q = 0u64;
         while q < 50u64 {
             let cr =
-                match open_pmap::<MapCfg, StoreCfg>(&mut snap, q) {
+                match open_pmap::<MapCfg>(&mut snap, q) {
                     Option::Some(c) => c,
                     Option::None => { return 100 + q as i32; }
                 };
@@ -51,7 +51,7 @@ fn main() -> i32 {
             q = q + 1u64;
         }
         // Look up an absent ctr_id — should return None.
-        if open_pmap::<MapCfg, StoreCfg>(&mut snap, 9999u64).is_some() { return 1; }
+        if open_pmap::<MapCfg>(&mut snap, 9999u64).is_some() { return 1; }
 
         commit = snap.commit();
     }
@@ -62,7 +62,7 @@ fn main() -> i32 {
         let mut q = 0u64;
         while q < 50u64 {
             let cr =
-                match open_pmap::<MapCfg, StoreCfg>(&mut fork, q) {
+                match open_pmap::<MapCfg>(&mut fork, q) {
                     Option::Some(c) => c,
                     Option::None => { return 400 + q as i32; }
                 };

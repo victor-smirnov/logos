@@ -33,7 +33,7 @@ fn main() -> i32 {
     // ── Stage 1: container A, sequential insert, replace-on-hit ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            create_pmap::<MapCfg>(&mut snap, 1u64);
 
         let mut i = 0u64;
         while i < 50u64 {
@@ -65,7 +65,7 @@ fn main() -> i32 {
     // ── Stage 2: container B, REVERSE-order insert ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
+            create_pmap::<MapCfg>(&mut snap, 2u64);
 
         let mut i = 49i64;
         while i >= 0i64 {
@@ -89,7 +89,7 @@ fn main() -> i32 {
     // ── Stage 3: container C, quasi-random order via odd-step modulus ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
+            create_pmap::<MapCfg>(&mut snap, 3u64);
 
         // Step of 7 over 50 keys hits each unique key once (gcd(7,50)=1).
         let mut step = 0u64;

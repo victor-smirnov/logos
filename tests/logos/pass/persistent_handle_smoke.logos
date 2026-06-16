@@ -37,7 +37,7 @@ fn main() -> i32 {
 
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
+            create_pmap::<MapCfg>(&mut snap, 7u64);
 
         if cr.len() != 0u64 { return 1; }
 

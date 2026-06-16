@@ -22,7 +22,7 @@ fn main() -> i32 {
     let mut store = store_open::<StoreCfg>();
     let mut snap = store.fork(GENESIS);
     let mut cr =
-        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+        create_pmap::<MapCfg>(&mut snap, 1u64);
 
     // ── Empty iter ──
     {

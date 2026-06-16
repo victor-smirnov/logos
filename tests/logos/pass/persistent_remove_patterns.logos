@@ -31,7 +31,7 @@ fn main() -> i32 {
     // ── Stage 1: remove from empty container ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+            create_pmap::<MapCfg>(&mut snap, 1u64);
 
         let k = 42u64;
         if cr.remove(k) { return 10; }
@@ -41,7 +41,7 @@ fn main() -> i32 {
     // ── Stage 2: insert N, remove all sequentially ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
+            create_pmap::<MapCfg>(&mut snap, 2u64);
 
         let mut i = 0u64;
         while i < 30u64 {
@@ -74,7 +74,7 @@ fn main() -> i32 {
     // ── Stage 3: interleaved insert + remove ──
     {
         let mut cr =
-            create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
+            create_pmap::<MapCfg>(&mut snap, 3u64);
 
         // Insert 0..20, remove evens, verify odds remain, re-insert evens.
         let mut i = 0u64;

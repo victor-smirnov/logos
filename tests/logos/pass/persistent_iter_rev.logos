@@ -19,7 +19,7 @@ pub const MapCfg: HermesStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout"
 fn main() -> i32 {
     let mut store = store_open::<StoreCfg>();
     let mut snap = store.fork(GENESIS);
-    let mut cr = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+    let mut cr = create_pmap::<MapCfg>(&mut snap, 1u64);
 
     // empty: iter_rev invalid
     {

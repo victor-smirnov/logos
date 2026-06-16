@@ -29,7 +29,7 @@ fn main() -> i32 {
         let mut snap = store.fork(GENESIS);
         {
             let mut cr =
-                create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+                create_pmap::<MapCfg>(&mut snap, 1u64);
             let mut i = 0u64;
             while i < 200u64 {
                 cr.insert(i, i * 13u64);
@@ -68,7 +68,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(commit);
         let mut cr =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
+            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
 
         // Re-add the removed (every 3rd) keys with new values; first
         // mutation in this fork triggers full container CoW from root
@@ -96,7 +96,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(commit);
         let cr =
-            open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
+            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
         let mut i = 0u64;
         while i < 200u64 {
             let want: bool = i % 3u64 != 0u64;
