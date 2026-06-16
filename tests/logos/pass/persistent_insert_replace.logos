@@ -27,15 +27,15 @@ pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fan
 
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
 
     // ── Stage 1: container A, sequential insert, replace-on-hit ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 50u64 {
             cr.insert(i, i * 2u64);
             i = i + 1u64;
@@ -53,7 +53,7 @@ fn main() -> i32 {
         // Verify the LATEST value wins.
         i = 0u64;
         while i < 50u64 {
-            let out: u64 = match cr.get(i) {
+            let out = match cr.get(i) {
                 Option::Some(x) => x,
                 Option::None => { return 12; }
             };
@@ -64,20 +64,20 @@ fn main() -> i32 {
 
     // ── Stage 2: container B, REVERSE-order insert ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
 
-        let mut i: i64 = 49i64;
+        let mut i = 49i64;
         while i >= 0i64 {
-            let k: u64 = i as u64;
+            let k = i as u64;
             cr.insert(k, k * 7u64);
             i = i - 1i64;
         }
         if cr.len() != 50u64 { return 20; }
 
-        let mut j: u64 = 0u64;
+        let mut j = 0u64;
         while j < 50u64 {
-            let out: u64 = match cr.get(j) {
+            let out = match cr.get(j) {
                 Option::Some(x) => x,
                 Option::None => { return 21; }
             };
@@ -88,23 +88,23 @@ fn main() -> i32 {
 
     // ── Stage 3: container C, quasi-random order via odd-step modulus ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
 
         // Step of 7 over 50 keys hits each unique key once (gcd(7,50)=1).
-        let mut step: u64 = 0u64;
-        let mut count: u64 = 0u64;
+        let mut step = 0u64;
+        let mut count = 0u64;
         while count < 50u64 {
-            let k: u64 = step % 50u64;
+            let k = step % 50u64;
             cr.insert(k, k + 1000u64);
             step = step + 7u64;
             count = count + 1u64;
         }
         if cr.len() != 50u64 { return 30; }
 
-        let mut j: u64 = 0u64;
+        let mut j = 0u64;
         while j < 50u64 {
-            let out: u64 = match cr.get(j) {
+            let out = match cr.get(j) {
                 Option::Some(x) => x,
                 Option::None => { return 31; }
             };
@@ -113,6 +113,6 @@ fn main() -> i32 {
         }
     }
 
-    let id: u64 = snap.commit();
+    let id = snap.commit();
     return 0;
 }

@@ -19,14 +19,13 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-    let mut cr: ContainerRef<StoreCfg, MapCfg> =
-        create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
     // Empty iter from any n.
     {
-        let it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(0u64);
+        let it = cr.iter_from(0u64);
         if it.valid() { return 1; }
     }
 
@@ -36,7 +35,7 @@ fn main() -> i32 {
         0u64, 18u64, 6u64, 12u64, 4u64, 16u64, 2u64, 8u64, 14u64, 10u64,
         20u64, 24u64, 22u64, 21u64, 23u64,
     ];
-    let mut i: u64 = 0u64;
+    let mut i = 0u64;
     while i < 25u64 {
         cr.insert(order[i as i64], order[i as i64] * 3u64);
         i = i + 1u64;
@@ -44,12 +43,12 @@ fn main() -> i32 {
 
     // iter_from(7) — should land on key=7. Walk forward through
     // crossing branch boundaries, expect keys 7..24 in order.
-    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(7u64);
-    let mut expect: u64 = 7u64;
-    let mut walked: u64 = 0u64;
+    let mut it = cr.iter_from(7u64);
+    let mut expect = 7u64;
+    let mut walked = 0u64;
     while it.valid() {
-        let k: u64 = it.key();
-        let v: u64 = it.val();
+        let k = it.key();
+        let v = it.val();
         if k != expect          { return 100 + expect as i32; }
         if v != expect * 3u64   { return 200 + expect as i32; }
         expect = expect + 1u64;
@@ -61,19 +60,19 @@ fn main() -> i32 {
 
     // Out-of-range.
     {
-        let oor: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(25u64);
+        let oor = cr.iter_from(25u64);
         if oor.valid() { return 4; }
-        let way: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(99u64);
+        let way = cr.iter_from(99u64);
         if way.valid() { return 5; }
     }
 
     // step_back from iter_from'd position works too — populated path
     // stack means reverse navigation crosses branch boundaries.
-    let mut rev: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(15u64);
-    let mut rexpect: u64 = 15u64;
-    let mut rwalked: u64 = 0u64;
+    let mut rev = cr.iter_from(15u64);
+    let mut rexpect = 15u64;
+    let mut rwalked = 0u64;
     while rev.valid() {
-        let k: u64 = rev.key();
+        let k = rev.key();
         if k != rexpect { return 300 + rexpect as i32; }
         rwalked = rwalked + 1u64;
         if rexpect == 0u64 { rev.step_back(); break; }

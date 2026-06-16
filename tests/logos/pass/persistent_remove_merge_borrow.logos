@@ -26,13 +26,13 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr =
         create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
     // Insert 30 keys → multi-level tree.
-    let mut i: u64 = 0u64;
+    let mut i = 0u64;
     while i < 30u64 {
         cr.insert(i, i * 7u64);
         i = i + 1u64;
@@ -42,14 +42,14 @@ fn main() -> i32 {
     // Sequential drain from low end. Each remove may trigger
     // borrow-from-right or merge-with-right; eventually the root
     // collapses through one or more branch levels.
-    let mut r: u64 = 0u64;
+    let mut r = 0u64;
     while r < 30u64 {
         if !cr.remove(r) { return 10 + r as i32; }
         // Every remaining key must still be reachable.
-        let mut q: u64 = r + 1u64;
+        let mut q = r + 1u64;
         while q < 30u64 {
             if !cr.contains(q) { return 100 + q as i32; }
-            let out: u64 = match cr.get(q) {
+            let out = match cr.get(q) {
                 Option::Some(x) => x,
                 Option::None => { return 200 + q as i32; }
             };
@@ -66,18 +66,18 @@ fn main() -> i32 {
 
     // Re-insert in reverse order — exercise borrow-from-left + merge-
     // with-left paths (drain from high end after).
-    let mut k: u64 = 30u64;
+    let mut k = 30u64;
     while k > 0u64 {
         k = k - 1u64;
         cr.insert(k, k * 11u64);
     }
     if cr.len() != 30u64 { return 3; }
 
-    let mut s: u64 = 30u64;
+    let mut s = 30u64;
     while s > 0u64 {
         s = s - 1u64;
         if !cr.remove(s) { return 600 + s as i32; }
-        let mut q: u64 = 0u64;
+        let mut q = 0u64;
         while q < s {
             if !cr.contains(q) { return 700 + q as i32; }
             q = q + 1u64;

@@ -25,25 +25,25 @@ pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fan
 
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
 
     // ── Stage 1: remove from empty container ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
-        let k: u64 = 42u64;
+        let k = 42u64;
         if cr.remove(k) { return 10; }
         if cr.len() != 0u64 { return 11; }
     }
 
     // ── Stage 2: insert N, remove all sequentially ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
 
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 30u64 {
             cr.insert(i, i * 5u64);
             i = i + 1u64;
@@ -51,7 +51,7 @@ fn main() -> i32 {
         if cr.len() != 30u64 { return 20; }
 
         // Remove non-existent key → false, len unchanged.
-        let absent: u64 = 9999u64;
+        let absent = 9999u64;
         if cr.remove(absent) { return 21; }
         if cr.len() != 30u64 { return 22; }
 
@@ -61,23 +61,23 @@ fn main() -> i32 {
             if !cr.remove(i) { return 23; }
             if cr.contains(i) { return 24; }
             // remaining entries still there
-            let after: u64 = i + 1u64;
+            let after = i + 1u64;
             if after < 30u64 && !cr.contains(after) { return 25; }
             i = i + 1u64;
         }
         if cr.len() != 0u64 { return 26; }
         // Second remove of an already-removed key returns false.
-        let r: u64 = 5u64;
+        let r = 5u64;
         if cr.remove(r) { return 27; }
     }
 
     // ── Stage 3: interleaved insert + remove ──
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 3u64);
 
         // Insert 0..20, remove evens, verify odds remain, re-insert evens.
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 20u64 {
             cr.insert(i, i * 3u64);
             i = i + 1u64;
@@ -89,7 +89,7 @@ fn main() -> i32 {
         }
         if cr.len() != 10u64 { return 31; }
         // odds present, evens absent
-        let mut j: u64 = 0u64;
+        let mut j = 0u64;
         while j < 20u64 {
             let want: bool = j % 2u64 == 1u64;
             let got:  bool = cr.contains(j);
@@ -106,11 +106,11 @@ fn main() -> i32 {
         // Evens have new value, odds untouched.
         j = 0u64;
         while j < 20u64 {
-            let out: u64 = match cr.get(j) {
+            let out = match cr.get(j) {
                 Option::Some(x) => x,
                 Option::None => { return 34; }
             };
-            let want: u64 = if j % 2u64 == 0u64 { j * 100u64 } else { j * 3u64 };
+            let want = if j % 2u64 == 0u64 { j * 100u64 } else { j * 3u64 };
             if out != want { return 35; }
             j = j + 1u64;
         }

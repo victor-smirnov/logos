@@ -39,7 +39,7 @@ pub const MapCfg: HermesStatic = @{
 };
 
 fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) {
-    let mut i: u64 = lo;
+    let mut i = lo;
     while i < hi {
         cr.insert(i, i * mul);
         i = i + 1u64;
@@ -47,9 +47,9 @@ fn fill_range(cr: &mut ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u6
 }
 
 fn check_range(cr: &ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) -> i32 {
-    let mut i: u64 = lo;
+    let mut i = lo;
     while i < hi {
-        let out: u64 = match cr.get(i) {
+        let out = match cr.get(i) {
             Option::Some(x) => x,
             Option::None => { return 1i32; }
         };
@@ -60,14 +60,14 @@ fn check_range(cr: &ContainerRef<StoreCfg, MapCfg>, lo: u64, hi: u64, mul: u64) 
 }
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store = store_open::<StoreCfg>();
 
     // Build base commit C0 — ctr=7 has [0..50) at *3 (multi-level)
     let mut c0: u64 = 0u64;
     {
-        let mut snap_a: Snap<StoreCfg> = store.fork(GENESIS);
+        let mut snap_a = store.fork(GENESIS);
         {
-            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            let mut cr =
                 create_pmap::<MapCfg, StoreCfg>(&mut snap_a, 7u64);
             fill_range(&mut cr, 0u64, 50u64, 3u64);
             if cr.len() != 50u64 { return 10; }
@@ -78,9 +78,9 @@ fn main() -> i32 {
     // Fork B: extend ctr=7 with [50..100) at *5
     let mut c1: u64 = 0u64;
     {
-        let mut snap_b: Snap<StoreCfg> = store.fork(c0);
+        let mut snap_b = store.fork(c0);
         {
-            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            let mut cr =
                 open_pmap::<MapCfg, StoreCfg>(&mut snap_b, 7u64).unwrap();
             if cr.len() != 50u64 { return 21; }
             fill_range(&mut cr, 50u64, 100u64, 5u64);
@@ -92,9 +92,9 @@ fn main() -> i32 {
     // Fork C from C0 — extend ctr=7 with [100..150) at *7
     let mut c2: u64 = 0u64;
     {
-        let mut snap_c: Snap<StoreCfg> = store.fork(c0);
+        let mut snap_c = store.fork(c0);
         {
-            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            let mut cr =
                 open_pmap::<MapCfg, StoreCfg>(&mut snap_c, 7u64).unwrap();
             if cr.len() != 50u64 { return 30; }
             fill_range(&mut cr, 100u64, 150u64, 7u64);
@@ -105,36 +105,36 @@ fn main() -> i32 {
 
     // Fork D from C0 — must see only [0..50), not fork B's nor C's writes.
     {
-        let mut snap_d: Snap<StoreCfg> = store.fork(c0);
-        let cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut snap_d = store.fork(c0);
+        let cr =
             open_pmap::<MapCfg, StoreCfg>(&mut snap_d, 7u64).unwrap();
         if cr.len() != 50u64 { return 40; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 41; }
-        let probe: u64 = 75u64;
+        let probe = 75u64;
         if cr.contains(probe) { return 42; }
     }
 
     // Fork B' from C1 — sees [0..100) merged.
     {
-        let mut snap_b2: Snap<StoreCfg> = store.fork(c1);
-        let cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut snap_b2 = store.fork(c1);
+        let cr =
             open_pmap::<MapCfg, StoreCfg>(&mut snap_b2, 7u64).unwrap();
         if cr.len() != 100u64 { return 50; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 51; }
         if check_range(&cr, 50u64, 100u64, 5u64) != 0i32 { return 52; }
-        let probe: u64 = 120u64;
+        let probe = 120u64;
         if cr.contains(probe) { return 53; }
     }
 
     // Fork C' from C2 — sees [0..50) ∪ [100..150).
     {
-        let mut snap_c2: Snap<StoreCfg> = store.fork(c2);
-        let cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut snap_c2 = store.fork(c2);
+        let cr =
             open_pmap::<MapCfg, StoreCfg>(&mut snap_c2, 7u64).unwrap();
         if cr.len() != 100u64 { return 60; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 61; }
         if check_range(&cr, 100u64, 150u64, 7u64) != 0i32 { return 62; }
-        let probe: u64 = 75u64;
+        let probe = 75u64;
         if cr.contains(probe) { return 63; }
     }
 

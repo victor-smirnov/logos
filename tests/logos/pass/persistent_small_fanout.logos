@@ -21,16 +21,16 @@ pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fan
 
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut commit: u64 = 0u64;
+    let mut store = store_open::<StoreCfg>();
+    let mut commit = 0u64;
 
     // 200 entries with fanout=4 → tree of depth ~4 (4^4 = 256).
     {
-        let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+        let mut snap = store.fork(GENESIS);
         {
-            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            let mut cr =
                 create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
-            let mut i: u64 = 0u64;
+            let mut i = 0u64;
             while i < 200u64 {
                 cr.insert(i, i * 13u64);
                 i = i + 1u64;
@@ -39,7 +39,7 @@ fn main() -> i32 {
             // Verify all 200.
             i = 0u64;
             while i < 200u64 {
-                let out: u64 = match cr.get(i) {
+                let out = match cr.get(i) {
                     Option::Some(x) => x,
                     Option::None => { return 11; }
                 };
@@ -66,14 +66,14 @@ fn main() -> i32 {
 
     // Fork: the inherited tree is multi-level; descend reads must work.
     {
-        let mut snap: Snap<StoreCfg> = store.fork(commit);
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut snap = store.fork(commit);
+        let mut cr =
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
 
         // Re-add the removed (every 3rd) keys with new values; first
         // mutation in this fork triggers full container CoW from root
         // through descent path.
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 200u64 {
             cr.insert(i, i * 17u64);
             i = i + 3u64;
@@ -82,11 +82,11 @@ fn main() -> i32 {
         // Verify: i % 3 == 0 → i*17, else → i*13 (inherited).
         i = 0u64;
         while i < 200u64 {
-            let out: u64 = match cr.get(i) {
+            let out = match cr.get(i) {
                 Option::Some(x) => x,
                 Option::None => { return 31; }
             };
-            let want: u64 = if i % 3u64 == 0u64 { i * 17u64 } else { i * 13u64 };
+            let want = if i % 3u64 == 0u64 { i * 17u64 } else { i * 13u64 };
             if out != want { return 32; }
             i = i + 1u64;
         }
@@ -94,10 +94,10 @@ fn main() -> i32 {
 
     // Original commit must still resolve cleanly post-fork.
     {
-        let mut snap: Snap<StoreCfg> = store.fork(commit);
-        let cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut snap = store.fork(commit);
+        let cr =
             open_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64).unwrap();
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 200u64 {
             let want: bool = i % 3u64 != 0u64;
             let got: bool = cr.contains(i);

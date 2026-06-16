@@ -21,18 +21,18 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn count_blocks(arc: &NodeARC<StoreCfg>) -> u64 {
-    let mut c: u64 = 0u64;
+    let mut c = 0u64;
     unsafe { for_each_block_rec::<StoreCfg>(arc, &mut c as *mut u64); }
     return c;
 }
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
 
     // ── single-leaf container: 1 block (the leaf itself) ──
     {
-        let mut a: ContainerRef<StoreCfg, MapCfg> =
+        let mut a =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
         a.insert(1u64, 10u64);
         a.insert(2u64, 20u64);
@@ -42,20 +42,20 @@ fn main() -> i32 {
 
     // ── multi-leaf container: enough keys to force splits ──
     {
-        let mut b: ContainerRef<StoreCfg, MapCfg> =
+        let mut b =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 2u64);
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 30u64 { b.insert(i, i * 7u64); i = i + 1u64; }
         // 30 keys with fanout=4 → multiple leaves under a branch (and
         // possibly a root branch). Block count must be ≥ 2 (at least
         // root + one leaf), and the dir's count_blocks count below must
         // see the dir leaf + every sub-block of every container.
-        let n: u64 = count_blocks(&b.arc);
+        let n = count_blocks(&b.arc);
         if n < 2u64 { return 2; }
     }
 
     // ── full snap: dir + container_a (1 block) + container_b (n blocks) ──
-    let dir_count: u64 = count_blocks(&snap.dir);
+    let dir_count = count_blocks(&snap.dir);
     // dir leaf (1) + container_a (1) + container_b (≥2) = ≥4
     if dir_count < 4u64 { return 3; }
 

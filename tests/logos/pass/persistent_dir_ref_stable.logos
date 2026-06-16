@@ -31,20 +31,20 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
 
     // First container — keep its ref LIVE for the whole test.
-    let mut cr1: ContainerRef<StoreCfg, MapCfg> =
+    let mut cr1 =
         create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
     cr1.insert(10u64, 100u64);
 
     // Create 24 more containers into the same dir. This crosses the
     // vals-Vec realloc boundary (cap 8→16→32) AND the dir-leaf split
     // boundary (fanout 16) — both used to invalidate cr1's cached slot.
-    let mut id: u64 = 2u64;
+    let mut id = 2u64;
     while id <= 25u64 {
-        let mut crx: ContainerRef<StoreCfg, MapCfg> =
+        let mut crx =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, id);
         crx.insert(id, id * 10u64);
         let _ = crx;            // drop crx; its rc share releases
@@ -56,12 +56,12 @@ fn main() -> i32 {
     // (grown, possibly split) dir. Must not crash; data must be intact.
     cr1.insert(20u64, 200u64);
 
-    let v1: u64 = match cr1.get(10u64) {
+    let v1 = match cr1.get(10u64) {
         Option::Some(x) => x,
         Option::None => { return 1; }
     };
     if v1 != 100u64 { return 2; }
-    let v2: u64 = match cr1.get(20u64) {
+    let v2 = match cr1.get(20u64) {
         Option::Some(x) => x,
         Option::None => { return 3; }
     };
@@ -69,10 +69,10 @@ fn main() -> i32 {
     if cr1.len() != 2u64 { return 5; }
 
     // A sibling container created mid-growth is still correct via a fresh open.
-    let cr7: ContainerRef<StoreCfg, MapCfg> =
+    let cr7 =
         open_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64).unwrap();
     if cr7.len() != 1u64 { return 6; }
-    let v7: u64 = match cr7.get(7u64) {
+    let v7 = match cr7.get(7u64) {
         Option::Some(x) => x,
         Option::None => { return 7; }
     };

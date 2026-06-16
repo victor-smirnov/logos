@@ -20,30 +20,30 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut commit: u64 = 0u64;
+    let mut store = store_open::<StoreCfg>();
+    let mut commit = 0u64;
 
     // ── Build a snap with 50 containers (>> dir fanout=16). Each holds
     // a single key-value (k=ctr_id, v=ctr_id*1000) so we can verify
     // identity-by-content. Pre-commit phase. ──
     {
-        let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-        let mut id: u64 = 0u64;
+        let mut snap = store.fork(GENESIS);
+        let mut id = 0u64;
         while id < 50u64 {
-            let mut cr: ContainerRef<StoreCfg, MapCfg> =
+            let mut cr =
                 create_pmap::<MapCfg, StoreCfg>(&mut snap, id);
             cr.insert(id, id * 1000u64);
             id = id + 1u64;
         }
         // Open every container in the same snap; verify content.
-        let mut q: u64 = 0u64;
+        let mut q = 0u64;
         while q < 50u64 {
-            let cr: ContainerRef<StoreCfg, MapCfg> =
+            let cr =
                 match open_pmap::<MapCfg, StoreCfg>(&mut snap, q) {
                     Option::Some(c) => c,
                     Option::None => { return 100 + q as i32; }
                 };
-            let out: u64 = match cr.get(q) {
+            let out = match cr.get(q) {
                 Option::Some(x) => x,
                 Option::None => { return 200 + q as i32; }
             };
@@ -58,15 +58,15 @@ fn main() -> i32 {
 
     // ── Fork from the commit, verify all 50 containers still resolve. ──
     {
-        let mut fork: Snap<StoreCfg> = store.fork(commit);
-        let mut q: u64 = 0u64;
+        let mut fork = store.fork(commit);
+        let mut q = 0u64;
         while q < 50u64 {
-            let cr: ContainerRef<StoreCfg, MapCfg> =
+            let cr =
                 match open_pmap::<MapCfg, StoreCfg>(&mut fork, q) {
                     Option::Some(c) => c,
                     Option::None => { return 400 + q as i32; }
                 };
-            let out: u64 = match cr.get(q) {
+            let out = match cr.get(q) {
                 Option::Some(x) => x,
                 Option::None => { return 500 + q as i32; }
             };

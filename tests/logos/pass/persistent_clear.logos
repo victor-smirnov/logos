@@ -19,15 +19,15 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr =
         create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
     if !cr.is_empty()       { return 1; }
     if cr.len() != 0u64     { return 2; }
 
-    let mut i: u64 = 0u64;
+    let mut i = 0u64;
     while i < 12u64 {
         cr.insert(i, i * 5u64);
         i = i + 1u64;
@@ -43,7 +43,7 @@ fn main() -> i32 {
     cr.insert(99u64, 7u64);
     if cr.is_empty()        { return 7; }
     if cr.len() != 1u64     { return 8; }
-    let v: u64 = match cr.get(99u64) {
+    let v = match cr.get(99u64) {
         Option::Some(x) => x,
         Option::None => { return 9; }
     };

@@ -17,9 +17,9 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-    let mut cr: ContainerRef<StoreCfg, MapCfg> =
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr =
         create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
     // Empty: any bound is 0.
@@ -27,7 +27,7 @@ fn main() -> i32 {
     if cr.upper_bound(7u64) != 0u64  { return 2; }
 
     // Insert keys 0,2,4,6,8,10,...,38 (even keys).
-    let mut i: u64 = 0u64;
+    let mut i = 0u64;
     while i < 20u64 {
         cr.insert(i * 2u64, i * 2u64 * 5u64);
         i = i + 1u64;
@@ -52,15 +52,15 @@ fn main() -> i32 {
     if cr.upper_bound(99u64) != 20u64 { return 25; }
 
     // Range scan: keys in [10, 30) — should yield 10,12,14,...,28.
-    let lo: u64 = cr.lower_bound(10u64);
-    let hi: u64 = cr.lower_bound(30u64);
+    let lo = cr.lower_bound(10u64);
+    let hi = cr.lower_bound(30u64);
     if lo != 5u64  { return 30; }
     if hi != 15u64 { return 31; }
-    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_from(lo);
-    let mut expect: u64 = 10u64;
-    let mut count: u64 = lo;
+    let mut it = cr.iter_from(lo);
+    let mut expect = 10u64;
+    let mut count = lo;
     while it.valid() && count < hi {
-        let k: u64 = it.key();
+        let k = it.key();
         if k != expect { return 100 + (expect / 2u64) as i32; }
         expect = expect + 2u64;
         count = count + 1u64;

@@ -32,29 +32,29 @@ pub const MapCfg: HermesStatic = @{
 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap:  Snap<StoreCfg>  = store.fork(GENESIS);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap  = store.fork(GENESIS);
 
     {
-        let mut cr: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr =
             create_pmap::<MapCfg, StoreCfg>(&mut snap, 7u64);
 
         if cr.len() != 0u64 { return 1; }
 
         // Push enough entries to force multi-level splits (fanout=8).
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while (i < 1000u64) {
-            let k: u64 = i;
+            let k = i;
             cr.insert(k, k * 7u64);
             i = i + 1u64;
         }
         if cr.len() != 1000u64 { return 2; }
 
         // Verify all keys are reachable through descent.
-        let mut probe: u64 = 0u64;
+        let mut probe = 0u64;
         while (probe < 1000u64) {
             if !cr.contains(probe) { return 10 + probe as i32; }
-            let out: u64 = match cr.get(probe) {
+            let out = match cr.get(probe) {
                 Option::Some(x) => x,
                 Option::None => { return 50 + probe as i32; }
             };
@@ -63,13 +63,13 @@ fn main() -> i32 {
         }
 
         // 8 fits in fanout=8, no split. Just verify reads.
-        let r1: u64 = 5u64;
+        let r1 = 5u64;
         if !cr.remove(r1) { return 4; }
         if cr.len() != 999u64 { return 6; }
         if cr.contains(r1) { return 7; }
     }
 
-    let id: u64 = snap.commit();
+    let id = snap.commit();
     
 
     // snap drops at fn-end — its dir NodeARC's drop chain hits:

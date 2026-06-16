@@ -24,34 +24,34 @@ pub const StoreCfg: HermesStatic = @{
 pub const MapCfg: HermesStatic = @{ "key": <type:u64>, "value": <type:u64>, "fanout": 4 };
 
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
+    let mut store = store_open::<StoreCfg>();
 
     // snap1 — insert keys 0..5 + commit. The container is scoped so it closes
     // (drops) before commit — committing with an open container now panics.
-    let mut snap1: Snap<StoreCfg> = store.fork(GENESIS);
+    let mut snap1 = store.fork(GENESIS);
     {
-        let mut cr1: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr1 =
             create_pmap::<MapCfg, StoreCfg>(&mut snap1, 1u64);
-        let mut i: u64 = 0u64;
+        let mut i = 0u64;
         while i < 5u64 { cr1.insert(i, i * 2u64); i = i + 1u64; }
         cr1.writeback();
     }
-    let snap1_id: SnpId<StoreCfg> = snap1.commit();
+    let snap1_id = snap1.commit();
 
     // snap2 — fork off snap1, insert 5..10 (shares snap1's blocks for 0..5).
-    let mut snap2: Snap<StoreCfg> = store.fork(snap1_id);
+    let mut snap2 = store.fork(snap1_id);
     {
-        let mut cr2: ContainerRef<StoreCfg, MapCfg> =
+        let mut cr2 =
             open_pmap::<MapCfg, StoreCfg>(&mut snap2, 1u64).unwrap();
-        let mut i: u64 = 5u64;
+        let mut i = 5u64;
         while i < 10u64 { cr2.insert(i, i * 2u64); i = i + 1u64; }
         cr2.writeback();
     }
-    let snap2_id: SnpId<StoreCfg> = snap2.commit();
+    let snap2_id = snap2.commit();
 
     if store.is_released(snap1_id) { return 1; }
     if store.is_released(snap2_id) { return 2; }
-    let cc_before: i64 = store.commit_count();
+    let cc_before = store.commit_count();
     if cc_before != 3i64 { return 3; }   // genesis + snap1 + snap2
 
     // Release snap1 — intermediate tombstone.
@@ -60,9 +60,9 @@ fn main() -> i32 {
     if store.commit_count() != cc_before { return 5; }   // count unchanged
 
     // DAG topology preserved: children_of(genesis) still lists snap1_id.
-    let kids: Vec<SnpId<StoreCfg>> = store.children_of(GENESIS);
+    let kids = store.children_of(GENESIS);
     let mut found_snap1: bool = false;
-    let mut k: i64 = 0i64;
+    let mut k = 0i64;
     while k < kids.length() {
         if kids.get(k) == snap1_id { found_snap1 = true; }
         k = k + 1i64;
@@ -70,13 +70,13 @@ fn main() -> i32 {
     if !found_snap1 { return 6; }
 
     // snap2 still functional — fork off it, read all 10 keys.
-    let mut snap3: Snap<StoreCfg> = store.fork(snap2_id);
-    let cr3: ContainerRef<StoreCfg, MapCfg> =
+    let mut snap3 = store.fork(snap2_id);
+    let cr3 =
         open_pmap::<MapCfg, StoreCfg>(&mut snap3, 1u64).unwrap();
     if cr3.len() != 10u64 { return 7; }
-    let mut i: u64 = 0u64;
+    let mut i = 0u64;
     while i < 10u64 {
-        let v: u64 = match cr3.get(i) {
+        let v = match cr3.get(i) {
             Option::Some(x) => x,
             Option::None => { return 100 + i as i32; }
         };
