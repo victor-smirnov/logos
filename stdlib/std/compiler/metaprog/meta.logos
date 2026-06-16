@@ -348,3 +348,41 @@ pub fn argmin_by<T...>(proj: fn(Type) -> i64) -> i64 {
     }
     return best;
 }
+
+// ── Structural schema hash ────────────────────────────────────────────────
+// `schema_code::<T>()` — a layout-faithful structural hash of T's in-memory
+// schema, computed entirely in metaprog (no compiler intrinsic does the
+// recursion). It mixes each type's kind/size/align and, for an aggregate
+// (struct), RECURSES into its field types via the `$fs...` call-splice +
+// variadic head/tail fold. Two structurally identical layouts hash equal
+// regardless of names; any change to a field's type, order, size, or
+// alignment (incl. a nested type's layout) changes the code. Pointers are
+// opaque leaves — recursion stops there, which both matches "schema = the
+// block's own bytes" (a pointer is 8 bytes whatever it targets) and breaks
+// cycles on self-referential types.
+//
+// Intended use: a stable per-type code stamped into a serialized block and,
+// on load, mapped back to a reconstructed object (see `dyn_from_code`).
+fn schema_mix(h: u64, x: u64) -> u64 {
+    return wrapping_mul(h ^ x, 0x100000001b3 as u64);
+}
+
+// Fold `schema_code` over a component type-pack (base + head/tail recursion).
+pub fn schema_pack() -> u64 { return 0xcbf29ce484222325 as u64; }   // FNV-1a offset
+pub fn schema_pack<H, T...>() -> u64 {
+    return schema_mix(schema_code::<H>(), schema_pack::<T...>());
+}
+
+pub fn schema_code<T>() -> u64 {
+    let t: Type = type_of::<T>();
+    let mut h: u64 = schema_mix(0x5c4 as u64, t.kind as u64);
+    h = schema_mix(h, t.size as u64);
+    h = schema_mix(h, t.align as u64);
+    if t.is_struct() {
+        // Recurse into the field types (descend through the splice).
+        let fs = field_types_of::<T>();
+        return schema_mix(h, schema_pack::<$fs...>());
+    }
+    // primitive / pointer / array / enum / tuple: kind+size+align leaf.
+    return h;
+}

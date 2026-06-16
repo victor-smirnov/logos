@@ -1,0 +1,27 @@
+// `schema_code::<T>()` from logos.std.compiler.metaprog — layout-faithful
+// structural hash computed in pure metaprog (recurses field types via the
+// `$fs...` call-splice). Checks name-independence, order/type sensitivity,
+// and TRUE descent (InnerI{a:i64} vs InnerF{a:f64} share size/align, so only
+// recursion into the leaf can tell OuterI from OuterF apart).
+
+package meta_schema_code_probe;
+
+use logos.std.compiler.metaprog;
+
+pub struct A { pub x: i64, pub y: u32, pub z: bool, }
+pub struct B { pub x: i64, pub y: u32, pub z: bool, }   // same layout, diff name
+pub struct C { pub y: u32, pub x: i64, pub z: bool, }   // reordered
+
+pub struct InnerI { pub a: i64, }
+pub struct InnerF { pub a: f64, }                        // same size/align as InnerI
+pub struct OuterI { pub p: InnerI, pub n: u32, }
+pub struct OuterF { pub p: InnerF, pub n: u32, }
+
+unsafe fn main() -> i32 {
+    if schema_code::<A>() == (0 as u64) { return 1; }       // non-trivial
+    if schema_code::<A>() != schema_code::<B>() { return 2; } // name-independent
+    if schema_code::<A>() == schema_code::<C>() { return 3; } // order matters
+    if schema_code::<OuterI>() == schema_code::<OuterF>() { return 4; } // deep descent
+    if schema_code::<OuterI>() != schema_code::<OuterI>() { return 5; } // stable
+    return 0;
+}
