@@ -19,17 +19,17 @@ impl Speak for Dog { fn says(self: &Dog) -> i32 { return 1; } }
 impl Speak for Cat { fn says(self: &Cat) -> i32 { return 2; } }
 
 unsafe fn revive(data: *mut u8, code: u64) -> i32 {
-    let mut vt: *const u8 = 0 as *const u8;
+    let mut vt = 0 as *const u8;
     if code == schema_code::<Dog>()      { vt = vtable_of::<Speak, Dog>(); }
     else if code == schema_code::<Cat>() { vt = vtable_of::<Speak, Cat>(); }
     if vt == (0 as *const u8) { return -1; }   // registry miss — caller's guard
-    let d: *mut dyn Speak = dyn_from_parts::<Speak>(data, vt);
+    let d = dyn_from_parts::<Speak>(data, vt);
     return (*d).says();
 }
 
 unsafe fn main() -> i32 {
-    let mut dog: Dog = Dog { tag: 7 };
-    let mut cat: Cat = Cat { tag: 9, breed: 3 };
+    let mut dog = Dog { tag: 7 };
+    let mut cat = Cat { tag: 9, breed: 3 };
     if revive((&mut dog) as *mut u8, schema_code::<Dog>()) != 1 { return 1; }
     if revive((&mut cat) as *mut u8, schema_code::<Cat>()) != 2 { return 2; }
     // Unknown code → graceful miss (no stored vtable to dereference).

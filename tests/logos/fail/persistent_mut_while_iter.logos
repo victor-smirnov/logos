@@ -14,11 +14,11 @@ use logos.lang.hermes.hstatic;
 pub const StoreCfg: HermesStatic = @{ "name":"m","ctr_id":<type:u64>,"snp_id":<type:u64>,"block_id":<type:u64>, };
 pub const MapCfg: HermesStatic = @{ "key":<type:u64>,"value":<type:u64>,"fanout":4 };
 fn main() -> i32 {
-    let mut store: Store<StoreCfg> = store_open::<StoreCfg>();
-    let mut snap: Snap<StoreCfg> = store.fork(GENESIS);
-    let mut cr: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
     cr.insert(1u64, 1u64);
-    let it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+    let it = cr.iter();
     cr.insert(2u64, 2u64);     // ERROR: cr borrowed by live iter `it`
     if it.valid() { return 0; }
     return 1;
