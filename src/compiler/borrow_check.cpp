@@ -1942,6 +1942,33 @@ class BorrowChecker {
                 });
                 break;
             }
+            // A borrow captured into an aggregate LITERAL — `let g = Guard { r: &mut f }`,
+            // `let t = (&a, &b)`, `let arr = [&x]` — is held for the lifetime of the
+            // binding the aggregate flows into. Recurse into each field/element with
+            // the SAME holder so the loan persists (NLL-released at the holder's last
+            // use). Non-borrow field values hit the default case = the same consuming
+            // visit as before (move tracking preserved). Without this, a struct-/tuple-
+            // held borrow was transient (released at end of the constructing stmt) and a
+            // later mutation/move/commit of the borrowed place while the holder was live
+            // went undetected (Rust E0502/E0505/E0505-on-move).
+            case Code::StructLit: {
+                EStructLitView{e}.each_field_value([&](ExprRef fv) {
+                    take_ref_borrows(fv, line, holder);
+                });
+                break;
+            }
+            case Code::TupleLit: {
+                ETupleLitView{e}.each_elem([&](ExprRef el) {
+                    take_ref_borrows(el, line, holder);
+                });
+                break;
+            }
+            case Code::ArrLit: {
+                EArrLitView{e}.each_elem([&](ExprRef el) {
+                    take_ref_borrows(el, line, holder);
+                });
+                break;
+            }
             default:
                 // EVarRef (ref param forwarded), ECall, EMethodCall, etc.
                 visit(e, /*consuming=*/true, line);
@@ -2332,6 +2359,16 @@ class BorrowChecker {
                 // so its by-ref captures register as borrows held by `name` (the
                 // closure var) — released at the closure's last use (NLL).
                 bool is_closure_t = t && t.kind() == LogosType::Kind::Closure;
+                // An aggregate LITERAL RHS (`let g = Guard { r: &mut snap }`,
+                // tuple/array of borrows) may CAPTURE a borrow into the binding
+                // even when the binding's nominal type isn't itself flagged
+                // borrow-carrying — route it through take_ref_borrows so any
+                // `&`/`&mut` field is recorded as a loan held by `name` (NLL).
+                // Non-borrow fields fall to the same consuming visit as before.
+                bool val_is_agg_lit = val &&
+                    (val.kind() == lir_schema::expr::Code::StructLit ||
+                     val.kind() == lir_schema::expr::Code::TupleLit ||
+                     val.kind() == lir_schema::expr::Code::ArrLit);
                 // A borrow-carrying VALUE binding (`let it = v.iter_mut()`)
                 // holds the receiver's borrow for the binding's lifetime —
                 // route through take_ref_borrows so its MethodCall case
@@ -2340,7 +2377,7 @@ class BorrowChecker {
                 // which is the same consuming visit as before (move
                 // tracking for `let h2 = h` preserved).
                 if (val && (is_ref_kind(t) || is_closure_t ||
-                            is_borrow_carrying_type(t))) {
+                            is_borrow_carrying_type(t) || val_is_agg_lit)) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
@@ -2400,9 +2437,13 @@ class BorrowChecker {
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
                 }
+                bool val_is_agg_lit2 = val &&
+                    (val.kind() == lir_schema::expr::Code::StructLit ||
+                     val.kind() == lir_schema::expr::Code::TupleLit ||
+                     val.kind() == lir_schema::expr::Code::ArrLit);
                 bool is_ref_assign = val &&
                     (prov_.count(name) || is_ref_kind(val.type(pool)));
-                if (is_ref_assign) {
+                if (is_ref_assign || val_is_agg_lit2) {
                     take_ref_borrows(val, ln, name);
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
