@@ -52,12 +52,12 @@ pub struct NodeBase<const STORE_CFG: HermesStatic> {
     pub id:          BlockId<STORE_CFG>,    // offset 8  — persistent block id
     pub snapshot_id: SnpId<STORE_CFG>,      // offset 16 — creating snapshot — CoW skip key
     pub is_leaf:     bool,                         // offset 24 — branch/leaf discriminator
-    // APPENDED after is_leaf (not after rc) to preserve the pinned header
-    // offsets the type-erased layer reads by hand (snapshot_id @16, is_leaf
-    // @24 in descent/iter/handle). schema_code of the concrete node, stamped
-    // at alloc. PHYSICAL (not a vtable method) so a loader can read it from
-    // raw bytes before any vtable exists, then revive the dyn via
-    // vtable_of/dyn_from_parts.
+    // schema_code of the concrete node, stamped at alloc. PHYSICAL (not a
+    // vtable method) so a loader can read it from raw bytes before any vtable
+    // exists, then revive the dyn via vtable_of/dyn_from_parts. Position is
+    // now free: the type-erased layer reads every header field through the
+    // shared NodeBase<STORE_CFG> view (layout-driven), not by hand-computed
+    // offset, so adding/moving a header field can't desync those readers.
     pub block_code:  u64,
 }
 
@@ -188,8 +188,10 @@ pub unsafe fn make_unique<const STORE_CFG: HermesStatic>(
     id_ctr_p:        *mut BlockId<STORE_CFG>,
 ) {
     let data_p: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
-    let snap_p: *mut SnpId<STORE_CFG> = (data_p as i64 + 16i64) as *mut SnpId<STORE_CFG>;
-    if *snap_p == cur_snapshot_id { return; }
+    // Layout-driven header read via the shared NodeBase view (was a hardcoded
+    // `+16`, correct only for u64-id stores).
+    let hdr: *mut NodeBase<STORE_CFG> = data_p as *mut NodeBase<STORE_CFG>;
+    if hdr.snapshot_id == cur_snapshot_id { return; }
     *id_ctr_p = *id_ctr_p + 1u64;
     let new_id: BlockId<STORE_CFG> = *id_ctr_p;
     let cloned: NodeARC<STORE_CFG> = arc.p.cow_clone(new_id, cur_snapshot_id);

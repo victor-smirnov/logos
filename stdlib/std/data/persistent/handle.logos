@@ -65,8 +65,7 @@ pub struct DirInsertOutcome<const STORE_CFG: HermesStatic> {
 // under the max-key invariant).
 unsafe fn dir_node_max_key<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> u64 {
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
-    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-    if *isleaf_p {
+    if arc_is_leaf::<STORE_CFG>(arc) {
         let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> = dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
         return leaf.keys.get(leaf.keys.len() - 1u64);
     }
@@ -141,10 +140,9 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
 ) -> DirInsertOutcome<STORE_CFG> {
     make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
-    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
     let max_keys: u64 = max_keys_leaf::<DirCfg>();
 
-    if *isleaf_p {
+    if arc_is_leaf::<STORE_CFG>(arc) {
         let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
             dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
         let pos: u64 = dir_leaf_lower_bound::<STORE_CFG>(leaf, ctr_id);
@@ -266,8 +264,7 @@ pub unsafe fn dir_lookup<const STORE_CFG: HermesStatic>(
     snap_dir: &NodeARC<STORE_CFG>, ctr_id: u64,
 ) -> *mut NodeARC<STORE_CFG> {
     let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(snap_dir);
-    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-    if *isleaf_p {
+    if arc_is_leaf::<STORE_CFG>(snap_dir) {
         let leaf: *mut LeafDirNode<u64, STORE_CFG, DirCfg> =
             dp as *mut LeafDirNode<u64, STORE_CFG, DirCfg>;
         let n: u64 = leaf.keys.len();

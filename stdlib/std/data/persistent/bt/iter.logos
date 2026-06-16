@@ -56,8 +56,7 @@ unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STOR
     let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p { return cur; }
+        if arc_is_leaf::<STORE_CFG>(&cur) { return cur; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(0i64);
         let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
@@ -79,8 +78,7 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
     let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p { return cur; }
+        if arc_is_leaf::<STORE_CFG>(&cur) { return cur; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let last: i64 = br.children.length() - 1i64;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(last);
@@ -116,8 +114,7 @@ pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const
     let mut target: u64 = n;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p { break; }
+        if arc_is_leaf::<STORE_CFG>(&cur) { break; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);

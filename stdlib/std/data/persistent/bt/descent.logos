@@ -65,9 +65,15 @@ pub unsafe fn min_keys_leaf<const CFG: HermesStatic>() -> u64 {
 
 // ── Header reads via NodeARC ──────────────────────────────────────────
 pub unsafe fn arc_is_leaf<const STORE_CFG: HermesStatic>(arc: &NodeARC<STORE_CFG>) -> bool {
-    let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(arc);
-    let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-    return *isleaf_p;
+    // Layout-driven header read: cast the data pointer to the SHARED
+    // NodeBase<STORE_CFG> view (it is the first field of every node) and read
+    // the field by name. The compiler computes the offset, so STORE_CFG
+    // id-width choices (u64 / u128 / opaque token) and any header field added
+    // later are absorbed automatically. This is the single canonical is_leaf
+    // reader — call it instead of poking a raw offset (the old `+24` was
+    // correct only for u64-id stores and silently broke the config-driven
+    // id-width promise + any header layout change).
+    return (node_arc_data_ptr::<STORE_CFG>(arc) as *mut NodeBase<STORE_CFG>).is_leaf;
 }
 
 pub unsafe fn as_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
@@ -229,8 +235,7 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
     let mut target: u64 = n;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p { break; }
+        if arc_is_leaf::<STORE_CFG>(&cur) { break; }
         let br: *const BranchNode<K, STORE_CFG, CFG> =
             dp as *const BranchNode<K, STORE_CFG, CFG>;
         let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
@@ -274,8 +279,7 @@ pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const 
     let mut accum: u64 = 0u64;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p {
+        if arc_is_leaf::<STORE_CFG>(&cur) {
             let leaf: *mut LeafNode<K, V, STORE_CFG, CFG> =
                 dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
             return accum + leaf_lower_bound::<K, V, STORE_CFG, CFG>(leaf, key);
@@ -322,8 +326,7 @@ pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const 
     let mut accum: u64 = 0u64;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
-        let isleaf_p: *mut bool = (dp as i64 + 24i64) as *mut bool;
-        if *isleaf_p {
+        if arc_is_leaf::<STORE_CFG>(&cur) {
             let leaf: *mut LeafNode<K, V, STORE_CFG, CFG> =
                 dp as *mut LeafNode<K, V, STORE_CFG, CFG>;
             return accum + leaf_upper_bound::<K, V, STORE_CFG, CFG>(leaf, key);
