@@ -22,7 +22,7 @@ fn main() -> i32 {
     let mut cr: ContainerRef<StoreCfg, MapCfg> = create_pmap::<MapCfg, StoreCfg>(&mut snap, 1u64);
 
     // empty: iter_rev invalid
-    unsafe {
+    {
         let it0: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_rev();
         if it0.valid() { return 1; }
     }
@@ -31,7 +31,7 @@ fn main() -> i32 {
     while i < 12u64 { cr.insert(i, i * 3u64); i = i + 1u64; }
 
     // reverse walk: expect keys 11,10,...,0
-    unsafe {
+    {
         let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter_rev();
         let mut expect: u64 = 11u64;
         let mut count: u64 = 0u64;

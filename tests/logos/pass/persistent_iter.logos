@@ -26,7 +26,7 @@ fn main() -> i32 {
 
     // ── Empty iter ──
     {
-        let it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+        let it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter();
         if it.valid() { return 1; }
     }
 
@@ -45,15 +45,15 @@ fn main() -> i32 {
     if cr.len() != 30u64 { return 2; }
 
     // Iter forward — keys 0..29 in order, values = key * 13.
-    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter();
     let mut expect: u64 = 0u64;
     while it.valid() {
-        let k: u64 = unsafe { it.key() };
-        let v: u64 = unsafe { it.val() };
+        let k: u64 = it.key();
+        let v: u64 = it.val();
         if k != expect              { return 100 + expect as i32; }
         if v != expect * 13u64      { return 200 + expect as i32; }
         expect = expect + 1u64;
-        unsafe { it.step(); }
+        it.step();
     }
     if expect != 30u64 { return 3; }
 
@@ -65,15 +65,15 @@ fn main() -> i32 {
     }
     if cr.len() != 15u64 { return 4; }
 
-    let mut it2: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+    let mut it2: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter();
     let mut want: u64 = 1u64;
     let mut count: u64 = 0u64;
     while it2.valid() {
-        let k: u64 = unsafe { it2.key() };
+        let k: u64 = it2.key();
         if k != want                { return 300 + want as i32; }
         want = want + 2u64;
         count = count + 1u64;
-        unsafe { it2.step(); }
+        it2.step();
     }
     if count != 15u64 { return 5; }
 

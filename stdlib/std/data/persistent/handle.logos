@@ -666,39 +666,50 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
 
     // Smallest position N (zero-indexed) such that key-at-N ≥ k.
     // Returns len() if k exceeds every key. O(depth) via shuttle_max_k
-    // + per-level subtree_size accumulation.
-    pub unsafe fn lower_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
-        return pmap_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-            &self.arc, &k as *const <type:CFG.key>);
+    // + per-level subtree_size accumulation. Safe: read-only descent.
+    pub fn lower_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
+        unsafe {
+            return pmap_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &self.arc, &k as *const <type:CFG.key>);
+        }
     }
 
     // Smallest position N such that key-at-N > k (strict). Returns len()
-    // if k ≥ every key.
-    pub unsafe fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
-        return pmap_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-            &self.arc, &k as *const <type:CFG.key>);
+    // if k ≥ every key. Safe: read-only descent.
+    pub fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
+        unsafe {
+            return pmap_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                &self.arc, &k as *const <type:CFG.key>);
+        }
     }
 
     // Open an iter positioned at the n-th entry (zero-indexed) in
     // sorted order. O(depth) construction via the SUM-shuttle descent
     // — no need to walk leftmost + n forward steps. n >= len returns
     // an invalid iter (valid() == false).
-    pub unsafe fn iter_from(&self, n: u64) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
-        return pmap_iter_open_at::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, n);
+    pub fn iter_from(&self, n: u64) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        unsafe {
+            return pmap_iter_open_at::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, n);
+        }
     }
 
-    // Forward iterator over the container's entries in key order.
-    // Caller must not mutate self while the iter is live — typed
-    // pointers in the iter's path/leaf would dangle on CoW-clone or
-    // split (Memoria-style "snapshot frozen for iter" rule).
-    pub unsafe fn iter(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
-        return pmap_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+    // Forward iterator over the container's entries in key order. Safe to
+    // call: PMapIter is #[borrow_carrying] and borrows &self, so the borrow
+    // checker forbids mutating the container while the iterator is live (the
+    // pinned-snapshot pointers can't be invalidated). Internal raw-pointer
+    // walk is wrapped here.
+    pub fn iter(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        unsafe {
+            return pmap_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+        }
     }
 
     // Reverse iterator: positioned at the largest key. Walk descending order
     // with step_back() (valid()/key()/val() are direction-agnostic). Same
-    // frozen-snapshot rule as iter().
-    pub unsafe fn iter_rev(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
-        return pmap_iter_open_back::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+    // borrow rule + safety as iter().
+    pub fn iter_rev(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+        unsafe {
+            return pmap_iter_open_back::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+        }
     }
 }

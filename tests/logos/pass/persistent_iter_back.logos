@@ -39,14 +39,14 @@ fn main() -> i32 {
     // Walk forward stopping at last entry (don't step past it — that
     // invalidates the iter, and step_back on an invalid iter is a
     // no-op by design, symmetric to step on invalid).
-    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = unsafe { cr.iter() };
+    let mut it: PMapIter<u64, u64, StoreCfg, MapCfg> = cr.iter();
     let mut last_seen: u64 = 0u64;
     let mut count: u64 = 0u64;
     while it.valid() {
-        last_seen = unsafe { it.key() };
+        last_seen = it.key();
         count = count + 1u64;
         if count == 30u64 { break; }
-        unsafe { it.step(); }
+        it.step();
     }
     if count != 30u64                   { return 1; }
     if last_seen != 29u64               { return 2; }
@@ -57,17 +57,17 @@ fn main() -> i32 {
     let mut walked: u64 = 0u64;
     loop {
         if !it.valid() { break; }
-        let k: u64 = unsafe { it.key() };
-        let v: u64 = unsafe { it.val() };
+        let k: u64 = it.key();
+        let v: u64 = it.val();
         if k != expect              { return 100 + expect as i32; }
         if v != expect * 11u64      { return 200 + expect as i32; }
         walked = walked + 1u64;
         if expect == 0u64 {
-            unsafe { it.step_back(); }   // crosses lower bound → invalid
+            it.step_back();   // crosses lower bound → invalid
             break;
         }
         expect = expect - 1u64;
-        unsafe { it.step_back(); }
+        it.step_back();
     }
     if walked != 30u64  { return 4; }
     if it.valid()       { return 5; }    // step_back from key=0 invalidates

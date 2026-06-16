@@ -19,6 +19,7 @@ package logos.std.data.persistent.bt.iter;
 use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp;
+use logos.lang.panic;
 use logos.lang.fabric;
 use logos.lang.hermes.hstatic;
 
@@ -196,8 +197,26 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
         }
     }
 
-    pub unsafe fn key(&self) -> K::ViewInStore { return self.leaf_p.keys.get(self.cursor); }
-    pub unsafe fn val(&self) -> V::ViewInStore { return self.leaf_p.vals.get(self.cursor); }
+    // key()/val() are safe to call: they panic on an exhausted/invalid iter
+    // (like indexing out of bounds) rather than dereferencing a null leaf_p —
+    // so the whole valid()/key()/val()/step() loop needs no `unsafe`. Call
+    // them only when valid() (a usage precondition, enforced by the panic).
+    pub fn key(&self) -> K::ViewInStore {
+        unsafe {
+            if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> {
+                panic("PMapIter::key on an exhausted iterator");
+            }
+            return self.leaf_p.keys.get(self.cursor);
+        }
+    }
+    pub fn val(&self) -> V::ViewInStore {
+        unsafe {
+            if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> {
+                panic("PMapIter::val on an exhausted iterator");
+            }
+            return self.leaf_p.vals.get(self.cursor);
+        }
+    }
 
     // Reverse step: move one position backward in sorted order. On
     // leaf exhaustion (cursor==0 with no path), the iter becomes
@@ -205,7 +224,8 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     // up the path stack to the nearest frame whose branch has a
     // previous child (idx > 0); decrement its idx, descend rightmost
     // from that subtree, position cursor at last key of the new leaf.
-    pub unsafe fn step_back(&mut self) {
+    pub fn step_back(&mut self) {
+      unsafe {
         if self.cursor > 0u64 {
             self.cursor = self.cursor - 1u64;
             return;
@@ -233,13 +253,15 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
             // This frame is at its leftmost child; pop and look one level up.
             let _ = self.path.pop();
         }
+      }
     }
 
     // Advance one position. After the leaf is exhausted, walk up the
     // path stack to the nearest frame whose branch has another
     // unvisited child, then descend leftmost from that subtree —
     // releasing the old leaf NodeARC and pinning the new one.
-    pub unsafe fn step(&mut self) {
+    pub fn step(&mut self) {
+      unsafe {
         // Idempotent past the end: once exhausted, leaf_p is null — a stray
         // step() must be a no-op, not a null deref (mirrors Rust's total
         // Iterator::next, which keeps returning None).
@@ -273,5 +295,6 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
             // the SDrop sentinel→struct substitution).
             let _ = self.path.pop();
         }
+      }
     }
 }

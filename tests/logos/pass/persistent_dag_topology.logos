@@ -94,14 +94,14 @@ fn main() -> i32 {
     {
         let ch0: Vec<u64> = store.children_of(c0);
         if ch0.length() != 2i64 { return 30; }
-        if !unsafe { vec_contains_u64(&ch0, c1) } { return 31; }
-        if !unsafe { vec_contains_u64(&ch0, c2) } { return 32; }
+        if !vec_contains_u64(&ch0, c1) { return 31; }
+        if !vec_contains_u64(&ch0, c2) { return 32; }
     }
     {
         let ch1: Vec<u64> = store.children_of(c1);
         if ch1.length() != 2i64 { return 33; }
-        if !unsafe { vec_contains_u64(&ch1, c3) } { return 34; }
-        if !unsafe { vec_contains_u64(&ch1, c4) } { return 35; }
+        if !vec_contains_u64(&ch1, c3) { return 34; }
+        if !vec_contains_u64(&ch1, c4) { return 35; }
     }
     {
         let ch2: Vec<u64> = store.children_of(c2);

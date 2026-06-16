@@ -27,7 +27,7 @@ fn main() -> i32 {
 
     // Empty: get_at(0) → None
     {
-        if unsafe { cr.get_at(0u64) }.is_some() {
+        if cr.get_at(0u64).is_some() {
             return 1;
         }
     }
@@ -47,7 +47,7 @@ fn main() -> i32 {
     // get_at(n) for n=0..19 — each must return key=n, value=n*7.
     let mut n: u64 = 0u64;
     while n < 20u64 {
-        let kv: (u64, u64) = match unsafe { cr.get_at(n) } {
+        let kv: (u64, u64) = match cr.get_at(n) {
             Option::Some(p) => p,
             Option::None => { return 100 + n as i32; }
         };
@@ -60,10 +60,10 @@ fn main() -> i32 {
 
     // Out of range
     {
-        if unsafe { cr.get_at(20u64) }.is_some() {
+        if cr.get_at(20u64).is_some() {
             return 4;
         }
-        if unsafe { cr.get_at(99u64) }.is_some() {
+        if cr.get_at(99u64).is_some() {
             return 5;
         }
     }
