@@ -63,13 +63,13 @@ unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STOR
     start: &NodeARC<STORE_CFG>,
     path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
 ) -> NodeARC<STORE_CFG> {
-    let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = start.clone();
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
         if arc_is_leaf::<STORE_CFG>(&cur) { return cur; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(0i64);
-        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone();
         path.push(IterFrame::<K, STORE_CFG, CFG> {
             branch_arc: cur, branch_p: br, idx: 0u64,
         });
@@ -85,14 +85,14 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
     start: &NodeARC<STORE_CFG>,
     path:  *mut Vec<IterFrame<K, STORE_CFG, CFG>>,
 ) -> NodeARC<STORE_CFG> {
-    let mut cur: NodeARC<STORE_CFG> = start.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = start.clone();
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
         if arc_is_leaf::<STORE_CFG>(&cur) { return cur; }
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let last: i64 = br.children.len() - 1i64;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(last);
-        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone();
         path.push(IterFrame::<K, STORE_CFG, CFG> {
             branch_arc: cur, branch_p: br, idx: last as u64,
         });
@@ -112,15 +112,18 @@ pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
     let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
     if n >= total {
-        // Empty iter — null leaf, valid() returns false.
+        // Empty iter — null leaf_p makes valid() false. leaf_arc holds a
+        // throwaway share of the root (never traversed; dropped with the iter);
+        // there is no null-Arc to construct, and an invalid iter is discarded
+        // immediately so the extra share is short-lived.
         return PMapIter::<K, V, STORE_CFG, CFG> {
             path:     path,
-            leaf_arc: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            leaf_arc: arc.clone(),
             leaf_p:   0 as *mut LeafNode<K, V, STORE_CFG, CFG>,
             cursor:   0u64,
         };
     }
-    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut target: u64 = n;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
@@ -128,7 +131,7 @@ pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let r: ShuttleResult = branchnode_subtree_size_shuttle::<K, STORE_CFG, CFG>(br, target);
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
-        let next_arc: NodeARC<STORE_CFG> = next_child.clone_arc();
+        let next_arc: NodeARC<STORE_CFG> = next_child.clone();
         path.push(IterFrame::<K, STORE_CFG, CFG> {
             branch_arc: cur, branch_p: br, idx: r.idx,
         });

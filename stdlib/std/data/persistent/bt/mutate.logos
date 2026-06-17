@@ -29,28 +29,22 @@ use logos.std.data.persistent.bt.descent;
 use logos.lang.panic;
 
 // ── Vec<NodeARC> insert helper ────────────────────────────────────────
-// Vec lacks `insert_at`. We push a NodeARC carrying the same fat-handle
-// at the end (transfers rc into the slot), then bubble it up to
-// position via fat-handle swaps. Caller's `new_arc` value is neutralised
-// (handle zeroed) before fn-end so its auto-drop is a no-op — this is
-// required because Logos doesn't track move-of-struct-field through
-// function calls (passing `outer.field` as a by-value arg leaves the
-// field "live" in the caller's auto-Drop scan, so without neutralising
-// it we'd double-free the block whose rc just got transferred to the
-// Vec slot).
+// Vec lacks `insert_at`. We push the by-value `new_arc` at the end (its share
+// transfers into the slot — no clone), then bubble it up to position by
+// swapping whole Arc handles with `mem::swap` (a bitwise exchange — no
+// refcount churn). The caller passes a LOCAL by value, so Logos move-tracks
+// the consumption correctly (the old intrusive code had to hand-neutralise a
+// struct-field arg to dodge a double-free; routing through a local + by-value
+// move makes that unnecessary).
 pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
     v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
 ) {
-    // Move the caller-transferred share straight into the slot (no clone:
-    // the by-value `new_arc` is consumed, so its share IS the slot's).
     v.push(new_arc);
     let mut i: i64 = v.len() - 1i64;
     while i > idx {
         let a: *mut NodeARC<STORE_CFG> = v.at(i);
         let b: *mut NodeARC<STORE_CFG> = v.at(i - 1i64);
-        let tmp: *mut dyn BTreeNode<STORE_CFG> = (*a).p;
-        (*a).p = (*b).p;
-        (*b).p = tmp;
+        swap::<NodeARC<STORE_CFG>>(a, b);
         i = i - 1i64;
     }
 }
@@ -67,7 +61,7 @@ pub unsafe fn vec_arc_insert_at<const STORE_CFG: HermesStatic>(
 pub struct InsertOutcome<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub hit:                bool,
     pub split:              bool,
-    pub right:              NodeARC<STORE_CFG>,
+    pub right:              Option<NodeARC<STORE_CFG>>,   // Some iff split
     pub right_max_present:  bool,
     pub right_max:          K::ViewInStore,
 }
@@ -106,8 +100,10 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
     let vcap: u64 = leaf.vals.len();
     if cap != vcap { panic("[split_leaf] keys.len != vals.len"); }
     let mid: u64 = cap / 2u64;
-    let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
+    let rh: NodeARC<STORE_CFG> =
         leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id);
+    let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&rh) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     let mut i: u64 = mid;
     while i < cap {
         right.keys.push(leaf.keys.get(i));
@@ -116,7 +112,7 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
     }
     while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
     while leaf.vals.len() > mid { leaf.vals.remove_at(leaf.vals.len() - 1u64); }
-    return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
+    return rh;
 }
 
 // ── Branch split ──────────────────────────────────────────────────────
@@ -131,8 +127,10 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
 ) -> NodeARC<STORE_CFG> {
     let cap: u64 = branch.keys.len();
     let mid: u64 = cap / 2u64;
-    let right: *mut BranchNode<K, STORE_CFG, CFG> =
+    let rh: NodeARC<STORE_CFG> =
         branch_alloc::<K, STORE_CFG, CFG>(new_id, snapshot_id);
+    let right: *mut BranchNode<K, STORE_CFG, CFG> =
+        node_arc_data_ptr::<STORE_CFG>(&rh) as *mut BranchNode<K, STORE_CFG, CFG>;
     // Move keys[mid..] into right.
     let mut i: u64 = mid;
     while i < cap {
@@ -144,8 +142,8 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
     let mut j: i64 = mid as i64;
     while j < nc {
         let src: *mut NodeARC<STORE_CFG> = branch.children.at(j);
-        // clone_arc bumps rc; the upcoming pop on left releases its share.
-        right.children.push((*src).clone_arc());
+        // clone bumps rc; the upcoming pop on left releases its share.
+        right.children.push((*src).clone());
         j = j + 1i64;
     }
     // SUM aggregate: split parallel subtree_size column same way.
@@ -161,7 +159,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
     }
     while branch.keys.len() > mid { branch.keys.remove_at(branch.keys.len() - 1u64); }
     while branch.subtree_size.len > mid { branch.subtree_size.remove_at(branch.subtree_size.len - 1u64); }
-    return node_arc_wrap::<STORE_CFG>(right as *mut dyn BTreeNode<STORE_CFG>);
+    return rh;
 }
 
 // ── Recursive insert ──────────────────────────────────────────────────
@@ -186,7 +184,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
                     leaf.vals.set(pos, val);
                     return InsertOutcome::<K, STORE_CFG, CFG> {
                         hit: true, split: false,
-                        right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+                        right: Option::None,
                         right_max_present: false, right_max: key,
                     };
                 }
@@ -202,13 +200,13 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
             let rl = as_leaf::<K, V, STORE_CFG, CFG>(&right);
             let rmax: K::ViewInStore = rl.keys.get(rl.keys.len() - 1u64);
             return InsertOutcome::<K, STORE_CFG, CFG> {
-                hit: false, split: true, right: right,
+                hit: false, split: true, right: Option::Some(right),
                 right_max_present: true, right_max: rmax,
             };
         }
         return InsertOutcome::<K, STORE_CFG, CFG> {
             hit: false, split: false,
-            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            right: Option::None,
             right_max_present: false, right_max: key,
         };
     }
@@ -222,11 +220,11 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     let mut i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, qkey);
     if i >= n { i = n - 1u64; }
     let child_ref: &mut NodeARC<STORE_CFG> = br.children.borrow_mut(i as i64);
-    let inner = insert_rec::<K, V, STORE_CFG, CFG>(child_ref, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    let mut inner = insert_rec::<K, V, STORE_CFG, CFG>(child_ref, key, val, qkey, cur_snapshot_id, id_ctr_p);
     if inner.hit {
         return InsertOutcome::<K, STORE_CFG, CFG> {
             hit: true, split: false,
-            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            right: Option::None,
             right_max_present: false, right_max: key,
         };
     }
@@ -245,14 +243,17 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     if !inner.split {
         return InsertOutcome::<K, STORE_CFG, CFG> {
             hit: false, split: false,
-            right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+            right: Option::None,
             right_max_present: false, right_max: key,
         };
     }
-    // Inner split: insert (right_max, right_arc) at i+1.
+    // Inner split: insert (right_max, right_arc) at i+1. Move the child's right
+    // handle out of the Option (split ⇒ Some), leaving None so `inner`'s drop
+    // is a no-op on that field.
+    let right_node: NodeARC<STORE_CFG> = inner.right.take().unwrap();
     br.keys.insert_at(i + 1u64, inner.right_max);
-    let right_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&inner.right);
-    vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, inner.right);
+    let right_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+    vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, right_node);
     if br.subtree_size.len > i + 1u64 { br.subtree_size.insert_at(i + 1u64, right_size); }
     else                              { br.subtree_size.push(right_size); }
     if br.keys.len() > max_keys {
@@ -261,13 +262,13 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let rb = as_branch::<K, STORE_CFG, CFG>(&right);
         let rmax: K::ViewInStore = rb.keys.get(rb.keys.len() - 1u64);
         return InsertOutcome::<K, STORE_CFG, CFG> {
-            hit: false, split: true, right: right,
+            hit: false, split: true, right: Option::Some(right),
             right_max_present: true, right_max: rmax,
         };
     }
     return InsertOutcome::<K, STORE_CFG, CFG> {
         hit: false, split: false,
-        right: NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> },
+        right: Option::None,
         right_max_present: false, right_max: key,
     };
 }
@@ -283,29 +284,31 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
     // read against the frozen pre-mutation tree, which keeps the verified
     // insert/split algorithm (and its InsertOutcome) untouched.
     let old: Option<V::ViewInStore> = pmap_get_rec::<K, V, STORE_CFG, CFG>(root, qkey);
-    let outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
+    let mut outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
     if outcome.split {
         // Grow root: new branch with [old_root, outcome.right] and
         // keys = [old_root_max, right_max] (one per child, max-key invariant).
+        // Move the right handle out of the Option (split ⇒ Some).
+        let right_node: NodeARC<STORE_CFG> = outcome.right.take().unwrap();
         let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
-        let new_root: *mut BranchNode<K, STORE_CFG, CFG> =
+        let new_arc: NodeARC<STORE_CFG> =
             branch_alloc::<K, STORE_CFG, CFG>(new_id, cur_snapshot_id);
+        let new_root: *mut BranchNode<K, STORE_CFG, CFG> =
+            node_arc_data_ptr::<STORE_CFG>(&new_arc) as *mut BranchNode<K, STORE_CFG, CFG>;
         // old_root's max — read before we transfer the handle.
         let old_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(root);
         new_root.keys.push(old_max);
         new_root.keys.push(outcome.right_max);
-        // children[0] = old_root (released from the slot below by
-        // arc_replace_in_slot), children[1] = outcome.right (balanced by
-        // outcome's auto-drop).
-        new_root.children.push(root.clone_arc());
-        new_root.children.push(outcome.right.clone_arc());
         // SUM aggregate column for the freshly grown root: one entry per
-        // child = subtree size below it.
-        new_root.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(root));
-        new_root.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(&outcome.right));
-
-        let new_arc: NodeARC<STORE_CFG> =
-            node_arc_wrap::<STORE_CFG>(new_root as *mut dyn BTreeNode<STORE_CFG>);
+        // child = subtree size below it. Sizes read before moving the handles in.
+        let left_sz:  u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(root);
+        let right_sz: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+        // children[0] = old_root (clone — the slot's original share is released
+        // by arc_replace_in_slot below), children[1] = outcome.right (moved in).
+        new_root.children.push(root.clone());
+        new_root.children.push(right_node);
+        new_root.subtree_size.push(left_sz);
+        new_root.subtree_size.push(right_sz);
         arc_replace_in_slot::<STORE_CFG>(
             root as *mut NodeARC<STORE_CFG>, new_arc);
     }

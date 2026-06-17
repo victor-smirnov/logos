@@ -25,6 +25,7 @@ use logos.mem.collections.vec;
 use logos.lang.mem;
 use logos.lang.cmp; use logos.lang.cmp; use logos.lang.fabric;
 use logos.lang.drop;
+use logos.lang.option;
 use logos.lang.hermes.hstatic;
 
 use logos.std.data.persistent.bt.node;
@@ -51,109 +52,113 @@ pub const DirCfg: HermesStatic = @{
 fn main() -> i32 {
     // ── Stage 1 — single data leaf, NodeARC, drop ─────────────────────
     {
-        let lp = unsafe {
+        let arc = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(101u64, 1u64)
         };
         unsafe {
+            let lp = node_arc_data_ptr::<StoreCfg>(&arc)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
             lp.keys.push(10u64);
             lp.vals.push(100u64);
         }
-        let arc = node_arc_wrap::<StoreCfg>(lp as *mut dyn BTreeNode<StoreCfg>);
         let _ = arc;
-        // arc drops at scope exit → leaf rc 1→0 → leaf's __drop_in_place
-        // (default) fires → keys/vals Buffer auto-drops → dealloc. No way
-        // to assert from outside without a counter, but no segfault = win.
+        // arc drops at scope exit → strong 1→0 → vtable[0] drop_in_place fires
+        // → keys/vals Buffer auto-drops → dealloc. No way to assert from outside
+        // without a counter, but no leak/segfault = win (valgrind-checked).
     }
 
     // ── Stage 2 — branch holding two data leaves ──────────────────────
     {
-        let la = unsafe {
+        let arcA = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(201u64, 1u64)
         };
-        let lb = unsafe {
+        let arcB = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(202u64, 1u64)
         };
         unsafe {
+            let la = node_arc_data_ptr::<StoreCfg>(&arcA)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            let lb = node_arc_data_ptr::<StoreCfg>(&arcB)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
             la.keys.push(1u64);  la.vals.push(11u64);
             lb.keys.push(2u64);  lb.vals.push(22u64);
         }
-        let arcA = node_arc_wrap::<StoreCfg>(la as *mut dyn BTreeNode<StoreCfg>);
-        let arcB = node_arc_wrap::<StoreCfg>(lb as *mut dyn BTreeNode<StoreCfg>);
 
-        let bp = unsafe {
+        let root = unsafe {
             branch_alloc::<u64, StoreCfg, DataCfg>(301u64, 1u64)
         };
         unsafe {
+            let bp = node_arc_data_ptr::<StoreCfg>(&root)
+                as *mut BranchNode<u64, StoreCfg, DataCfg>;
             bp.children.push(arcA);
             bp.children.push(arcB);
         }
-        let root = node_arc_wrap::<StoreCfg>(bp as *mut dyn BTreeNode<StoreCfg>);
         let _ = root;
-        // root drops → branch rc 1→0 → branch's auto-Drop chain:
+        // root drops → branch strong 1→0 → branch's auto-Drop chain:
         //   1. keys Buffer drops (no-op for u64 storage).
         //   2. children Vec drops → per-element NodeARC drops → leaves
-        //      rc 1→0 → leaf auto-Drop chain → keys/vals Buffer drops.
+        //      strong 1→0 → leaf auto-Drop chain → keys/vals Buffer drops.
         //   3. dealloc branch.
     }
 
     // ── Stage 3 — directory leaf holding container roots as NodeARCs ──
     {
-        let leaf_a = unsafe {
+        let arc_a = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(401u64, 2u64)
         };
-        let leaf_b = unsafe {
+        let arc_b = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(402u64, 2u64)
         };
-        let arc_a = node_arc_wrap::<StoreCfg>(leaf_a as *mut dyn BTreeNode<StoreCfg>);
-        let arc_b = node_arc_wrap::<StoreCfg>(leaf_b as *mut dyn BTreeNode<StoreCfg>);
 
-        let dirp = unsafe {
+        let dir_root = unsafe {
             leaf_dir_alloc::<u64, StoreCfg, DirCfg>(501u64, 2u64)
         };
         unsafe {
+            let dirp = node_arc_data_ptr::<StoreCfg>(&dir_root)
+                as *mut LeafDirNode<u64, StoreCfg, DirCfg>;
             dirp.keys.push(101u64);  dirp.vals.push(arc_a);
             dirp.keys.push(202u64);  dirp.vals.push(arc_b);
         }
-        let dir_root = node_arc_wrap::<StoreCfg>(dirp as *mut dyn BTreeNode<StoreCfg>);
         let _ = dir_root;
         // dir_root drops → LeafDirNode auto-Drop:
         //   keys Buffer drops, vals Vec<NodeARC> drops → per-element
-        //   NodeARC drops → child leaves rc 1→0 → leaf auto-Drop → ...
+        //   NodeARC drops → child leaves strong 1→0 → leaf auto-Drop → ...
     }
 
     // ── Stage 4 — cow_clone via vtable, both originals and clones drop cleanly ──
     {
-        let lp = unsafe {
+        let arc = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(601u64, 5u64)
         };
         unsafe {
+            let lp = node_arc_data_ptr::<StoreCfg>(&arc)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
             lp.keys.push(7u64);
             lp.vals.push(700u64);
         }
-        let arc = node_arc_wrap::<StoreCfg>(lp as *mut dyn BTreeNode<StoreCfg>);
 
-        // Trigger cow_clone via vtable. Clone has fresh id+snap_id stamp.
-        let cloned = unsafe { arc.p.cow_clone(701u64, 9u64) };
+        // Trigger cow_clone via vtable dispatch. Clone has fresh id+snap_id stamp.
+        let cloned = unsafe { arc.deref().cow_clone(701u64, 9u64) };
 
         unsafe {
             // Original unchanged — original block keeps id=601, snap=5.
+            // NodeBase layout (rc removed in the Arc migration): id @0, snap @8.
             let op = node_arc_data_ptr::<StoreCfg>(&arc);
-            if *((op as i64 +  8i64) as *mut u64) != 601u64 { return 1; }
-            if *((op as i64 + 16i64) as *mut u64) != 5u64   { return 2; }
+            if *((op as i64 +  0i64) as *mut u64) != 601u64 { return 1; }
+            if *((op as i64 +  8i64) as *mut u64) != 5u64   { return 2; }
             // Cloned has new stamp.
             let cp = node_arc_data_ptr::<StoreCfg>(&cloned);
-            if *((cp as i64 +  8i64) as *mut u64) != 701u64 { return 3; }
-            if *((cp as i64 + 16i64) as *mut u64) != 9u64   { return 4; }
+            if *((cp as i64 +  0i64) as *mut u64) != 701u64 { return 3; }
+            if *((cp as i64 +  8i64) as *mut u64) != 9u64   { return 4; }
         }
         // Both arcs drop at scope exit — independent allocations, no shared rc.
     }
 
     // ── Stage 5 — make_unique CoW skip rule (snapshot_id check) ───────
     {
-        let lp = unsafe {
+        let mut arc = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(801u64, 7u64)
         };
-        let mut arc = node_arc_wrap::<StoreCfg>(lp as *mut dyn BTreeNode<StoreCfg>);
 
         let mut next_id = 800u64;
         // Same snapshot — no clone, no id bump.
@@ -161,7 +166,7 @@ fn main() -> i32 {
         if next_id != 800u64 { return 5; }
         unsafe {
             let dp = node_arc_data_ptr::<StoreCfg>(&arc);
-            if *((dp as i64 + 8i64) as *mut u64) != 801u64 { return 6; }
+            if *((dp as i64 + 0i64) as *mut u64) != 801u64 { return 6; }
         }
 
         // Different snapshot — clone fires, arc swaps to new node.
@@ -169,8 +174,8 @@ fn main() -> i32 {
         if next_id != 801u64 { return 7; }
         unsafe {
             let dp = node_arc_data_ptr::<StoreCfg>(&arc);
-            if *((dp as i64 +  8i64) as *mut u64) != 801u64 { return 8; }
-            if *((dp as i64 + 16i64) as *mut u64) != 9u64   { return 9; }
+            if *((dp as i64 + 0i64) as *mut u64) != 801u64 { return 8; }
+            if *((dp as i64 + 8i64) as *mut u64) != 9u64   { return 9; }
         }
     }
 

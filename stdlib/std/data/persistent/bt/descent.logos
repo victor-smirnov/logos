@@ -216,22 +216,21 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 // BranchNode tells the shuttle which child holds slot N at its level
 // in O(num_children); the descent itself is O(depth).
 //
-// On success returns a clone'd NodeARC for the leaf (rc bumped — caller
-// drops normally) and writes the leaf-relative index into *out_idx.
-// On out-of-range, returns a null-handle NodeARC (NodeARC::drop is a
-// no-op for null) and writes 0 into *out_idx.
+// On success returns Some(leaf NodeARC) (rc bumped — caller drops normally)
+// and writes the leaf-relative index into *out_idx. On out-of-range, returns
+// None and writes 0 into *out_idx (Rust idiom — no null-handle sentinel).
 pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
-) -> NodeARC<STORE_CFG> {
+) -> Option<NodeARC<STORE_CFG>> {
     // Out-of-range guard: shuttle clamps target == total to (last_child,
     // remainder=0) which would resolve to the first key of the last
     // leaf, masking the OOR. Check explicit total upfront.
     let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
     if n >= total {
         *out_idx = 0u64;
-        return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+        return Option::None;
     }
-    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut target: u64 = n;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
@@ -242,10 +241,10 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
         let nc: u64 = br.children.len() as u64;
         if r.idx >= nc {
             *out_idx = 0u64;
-            return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+            return Option::None;
         }
         let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
-        let child_arc: NodeARC<STORE_CFG> = child_ref.clone_arc();
+        let child_arc: NodeARC<STORE_CFG> = child_ref.clone();
         target = r.remainder;
         cur = child_arc;
     }
@@ -255,10 +254,10 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
         dp_leaf as *const LeafNode<K, V, STORE_CFG, CFG>;
     if target >= leaf.keys.len() {
         *out_idx = 0u64;
-        return NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
+        return Option::None;
     }
     *out_idx = target;
-    return cur;
+    return Option::Some(cur);
 }
 
 // ── Key-bound queries via shuttle_max_k + leaf bounds ─────────────────
@@ -275,7 +274,7 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
 pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> u64 {
-    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut accum: u64 = 0u64;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
@@ -302,7 +301,7 @@ pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const 
         // let leaf_lower_bound naturally return leaf.len for that
         // subtree, summing into accum. Recursive descent handles it.
         let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(r.idx as i64);
-        cur = child_ref.clone_arc();
+        cur = child_ref.clone();
     }
 }
 
@@ -322,7 +321,7 @@ pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const 
 pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> u64 {
-    let mut cur: NodeARC<STORE_CFG> = arc.clone_arc();
+    let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut accum: u64 = 0u64;
     loop {
         let dp: *mut u8 = node_arc_data_ptr::<STORE_CFG>(&cur);
@@ -353,7 +352,7 @@ pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const 
             k = k + 1u64;
         }
         let child_ref: &NodeARC<STORE_CFG> = br.children.borrow(idx as i64);
-        cur = child_ref.clone_arc();
+        cur = child_ref.clone();
     }
 }
 

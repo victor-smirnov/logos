@@ -38,7 +38,8 @@ fn main() -> i32 {
         let p: *mut BranchNodeMP<u64, StoreCfg, MapCfg> =
             alloc(sizeof::<BranchNodeMP<u64, StoreCfg, MapCfg>>())
                 as *mut BranchNodeMP<u64, StoreCfg, MapCfg>;
-        p.base.rc      = 1u64;
+        // NodeBase.rc was removed in the Arc migration (refcount now lives in the
+        // external ArcInner control block, not intrusively in the node header).
         p.base.is_leaf = false;
         p.keys         = Buffer::<u64>::new();
         p.children     = Vec::<NodeARC<StoreCfg>>::new();

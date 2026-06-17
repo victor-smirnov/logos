@@ -54,16 +54,12 @@ pub trait IStore<const STORE_CFG: HermesStatic> {
     fn alloc_snapshot_id(self: *mut Self) -> SnpId<STORE_CFG>;
     fn alloc_block_id(self:    *mut Self) -> BlockId<STORE_CFG>;
 
-    // Pin a new commit whose directory-tree root is the block at `root_p`
-    // (a raw fat `*mut dyn BTreeNode`). ADOPTS the caller's rc share for that
-    // block: the caller transfers ownership (it neutralises its own handle)
-    // and this fn does NOT bump. A raw pointer — not a NodeARC value — is used
-    // deliberately, so no owning handle crosses this `*mut Self` dispatch
-    // boundary (call-arg move-tracking doesn't fire there, which would
-    // spuriously double-drop a NodeARC argument). `parent` is the immediate
-    // ancestor (always valid; genesis is seeded directly by store_open and
-    // bypasses this fn). The parent's children list gains the new id.
-    fn register_commit(self: *mut Self, root_p: *mut dyn BTreeNode<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG>;
+    // Pin a new commit whose directory-tree root is `root`. ADOPTS the caller's
+    // share by value — the caller transfers ownership (a moved-out local), so no
+    // rc bump and no double-drop. `parent` is the immediate ancestor (always
+    // valid; genesis is seeded directly by store_open and bypasses this fn). The
+    // parent's children list gains the new id.
+    fn register_commit(self: *mut Self, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG>;
 
     // Return a NodeARC clone of the commit's pinned root. Bumps rc.
     fn checkout(self: *mut Self, id: SnpId<STORE_CFG>) -> NodeARC<STORE_CFG>;
@@ -141,7 +137,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             return id;
         }
     }
-    fn register_commit(self: *mut LockingStore<STORE_CFG>, root_p: *mut dyn BTreeNode<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
+    fn register_commit(self: *mut LockingStore<STORE_CFG>, root: NodeARC<STORE_CFG>, parent: SnpId<STORE_CFG>) -> SnpId<STORE_CFG> {
         unsafe {
             self.lock.lock();
             let id: SnpId<STORE_CFG> = self.dag.len() as SnpId<STORE_CFG>;
@@ -152,12 +148,9 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             // and always valid, but uniform bounds-checking costs nothing.
             let parent_entry: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(parent as i64);
             parent_entry.children.push(id);
-            // Construct the owning NodeARC HERE — inside the struct literal,
-            // where the move into the `root` field IS tracked (cf.
-            // make_parents_vec). We adopt the share the caller transferred via
-            // root_p; no rc bump, no spurious drop.
+            // Move the caller-transferred share into the entry's `root` field.
             self.dag.push(CommitEntry::<STORE_CFG> {
-                root:     NodeARC::<STORE_CFG> { p: root_p },
+                root:     root,
                 parents:  make_parents_vec::<STORE_CFG>(parent),
                 children: vec_new::<SnpId<STORE_CFG>>(),
                 released: false,
@@ -170,7 +163,7 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
         unsafe {
             self.lock.lock();
             let entry: &CommitEntry<STORE_CFG> = self.dag.borrow(id as i64);
-            let cloned: NodeARC<STORE_CFG> = entry.root.clone_arc();
+            let cloned: NodeARC<STORE_CFG> = entry.root.clone();
             self.lock.unlock();
             return cloned;
         }
@@ -238,12 +231,11 @@ impl<const STORE_CFG: HermesStatic> IStore<STORE_CFG> for LockingStore<STORE_CFG
             // `at`, which on a bad id did a wild out-of-bounds write (UB).
             let entry: &mut CommitEntry<STORE_CFG> = self.dag.borrow_mut(id as i64);
             if !entry.released {
-                // Replace root with null-handle NodeARC; arc_replace_in_slot
-                // drops the previous handle's rc → recursive auto-Drop chain.
-                let null_arc: NodeARC<STORE_CFG> =
-                    NodeARC::<STORE_CFG> { p: 0 as *mut dyn BTreeNode<STORE_CFG> };
-                arc_replace_in_slot::<STORE_CFG>(
-                    &mut entry.root as *mut NodeARC<STORE_CFG>, null_arc);
+                // Drop the entry's root share in place (atomic rc-- → recursive
+                // auto-Drop chain), leaving a null/moved-from handle so the
+                // entry's own later drop is a no-op on it.
+                arc_release_in_slot::<STORE_CFG>(
+                    &mut entry.root as *mut NodeARC<STORE_CFG>);
                 entry.released = true;
             }
             self.lock.unlock();

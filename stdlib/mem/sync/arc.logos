@@ -32,7 +32,7 @@ use logos.lang.option;
 // (round_up(8, align(T)) — two atomic i32 counters) for both — one uniform
 // rule. `weak` = live Weak handles + one implicit weak owned collectively by
 // the strong handles; T drops at strong→0, the block frees at weak→0.
-struct ArcInner<T: ?Sized> {
+pub struct ArcInner<T: ?Sized> {
     strong: AtomicI32,
     weak:   AtomicI32,
     val:    T,
@@ -77,6 +77,33 @@ pub fn arc_new<T>(val: T) -> Arc<T> {
     return Arc { inner: inner };
 }
 
+// Allocate an `ArcInner<T>` with strong = weak = 1 and the value UNINITIALISED.
+// The returned handle owns the (sole) strong share; the caller MUST initialise
+// the value in place (via `data_u8` / DerefMut) before the Arc is read or
+// dropped. This is the control-block analog of a raw `alloc` + fill-in-place
+// build — useful when T can't be produced as a single value first (e.g. a
+// macro-derived struct with no literal form, or incremental construction).
+pub unsafe fn arc_new_uninit<T>() -> Arc<T> {
+    let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
+    inner.strong = atomic_i32_new(1);
+    inner.weak   = atomic_i32_new(1);   // implicit weak held by strong refs
+    return Arc { inner: inner };
+}
+
+// Reconstruct an owning `Arc<T>` from a raw control-block pointer, taking a NEW
+// strong share (atomic rc++). `inner` must point at a LIVE `ArcInner<T>` — for an
+// unsized `T` (`dyn`/`[U]`) the pointer is fat and carries the metadata (vtable /
+// len), which the caller reassembles from raw parts. This is the value-preserving
+// half of a deserialization/load kernel: recover the control block from a raw
+// payload pointer (`ArcInner` base = `data - offsetof(val)`), reattach the
+// metadata, then take an independent share. Rust analog: a bumping `Arc::from_raw`
+// over the control block. Field `inner` is private + `#[non_null]`, so this MUST
+// live here (callers can't construct `Arc { inner }` themselves).
+pub unsafe fn arc_from_raw_inner<T: ?Sized>(inner: *mut ArcInner<T>) -> Arc<T> {
+    (&mut inner.strong).fetch_add(1);
+    return Arc { inner: inner };
+}
+
 impl<T: ?Sized> Arc<T> {
     // Immutable access to the contained value.
     pub unsafe fn get(self: *mut Arc<T>) -> *const T {
@@ -91,7 +118,25 @@ impl<T: ?Sized> Arc<T> {
     // persistent B-tree casting to a concrete node type). The block is heap-
     // stable for any live handle.
     pub unsafe fn data_u8(self: *mut Arc<T>) -> *mut u8 {
-        return &self.inner.val as *const T as *mut u8;
+        // For a sized T this is a thin `&T` → the object address. For an unsized
+        // T (`dyn`/`[U]`) `&self.inner.val` is a FAT `&dyn`/`&[U]`; casting to a
+        // thin `*mut u8` extracts the DATA half (the object base). Cast DIRECTLY
+        // (no intermediate `as *const T`: that yields a `*const dyn` /
+        // Ptr<TraitObject> whose `as *mut u8` only extracts for a void dst).
+        return &self.inner.val as *mut u8;
+    }
+
+    // Move the handle out, leaving a null (moved-from) handle behind so the
+    // source's later auto-drop is a no-op. The returned Arc owns the share with
+    // NO refcount change — an ownership TRANSFER, not a clone (the analog of the
+    // old intrusive-handle `p = x.p; x.p = 0` neutralise, and of Rust's
+    // `Arc::into_raw`/`from_raw` round-trip used to thread ownership through a
+    // boundary the borrow checker can't see). Caller must not use the source
+    // handle afterward except to drop it.
+    pub unsafe fn take_arc(self: *mut Arc<T>) -> Arc<T> {
+        let out: Arc<T> = Arc { inner: self.inner };
+        self.inner = 0 as *mut ArcInner<T>;
+        return out;
     }
 
     pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
@@ -99,7 +144,7 @@ impl<T: ?Sized> Arc<T> {
     }
 
     pub unsafe fn is_null(self: *mut Arc<T>) -> bool {
-        return self.inner == 0 as *mut ArcInner<T>;
+        return (self.inner as *mut u8) == (0 as *mut u8);
     }
 
     // Atomically increment the strong count; return a second handle.
@@ -126,7 +171,7 @@ impl<T: ?Sized> Arc<T> {
     // destructor, then release the implicit weak — freeing the block only once
     // no Weak remains (Rust parity). Value drops at strong→0, block at weak→0.
     pub unsafe fn drop_arc(self: *mut Arc<T>) {
-        if self.inner == 0 as *mut ArcInner<T> { return; }
+        if (self.inner as *mut u8) == (0 as *mut u8) { return; }
         // fetch_sub returns the OLD value; old == 1 means we went 1 → 0.
         let prev: i32 = (&mut self.inner.strong).fetch_sub(1);
         if prev == 1 {
@@ -160,7 +205,7 @@ impl<T: ?Sized> Weak<T> {
     pub fn upgrade(&self) -> Option<Arc<T>> {
         unsafe {
             let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
-            if p.inner == 0 as *mut ArcInner<T> { return Option::<Arc<T>>::None; }
+            if (p.inner as *mut u8) == (0 as *mut u8) { return Option::<Arc<T>>::None; }
             if (&p.inner.strong).load() == 0 { return Option::<Arc<T>>::None; }
             (&mut p.inner.strong).fetch_add(1);
             return Option::<Arc<T>>::Some(Arc { inner: p.inner });
@@ -168,7 +213,7 @@ impl<T: ?Sized> Weak<T> {
     }
 
     pub unsafe fn drop_weak(self: *mut Weak<T>) {
-        if self.inner == 0 as *mut ArcInner<T> { return; }
+        if (self.inner as *mut u8) == (0 as *mut u8) { return; }
         let pw: i32 = (&mut self.inner.weak).fetch_sub(1);
         if pw == 1 {
             dealloc(self.inner as *mut u8);
@@ -190,7 +235,7 @@ impl<T: ?Sized> Clone for Weak<T> {
     fn clone(&self) -> Weak<T> {
         unsafe {
             let p: *mut Weak<T> = self as *const Weak<T> as *mut Weak<T>;
-            if p.inner != 0 as *mut ArcInner<T> {
+            if (p.inner as *mut u8) != (0 as *mut u8) {
                 (&mut p.inner.weak).fetch_add(1);
             }
             return Weak { inner: p.inner };

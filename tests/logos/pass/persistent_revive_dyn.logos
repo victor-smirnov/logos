@@ -5,11 +5,13 @@
 // carries an integer code (a function of its schema); on load we read that
 // code, map it to the right vtable, and rebuild the fat trait pointer.
 //
-//   alloc concrete node  →  stamps base.block_code = schema_code::<Node>()
-//   raw *mut u8          →  read code via *mut NodeBase<StoreCfg> (header only)
-//   code → vtable        →  library registry (schema_code → vtable_of)
-//   dyn_from_parts       →  *mut dyn BTreeNode<StoreCfg>  (the revived fat ptr)
-//   node_arc_wrap        →  hand to a real NodeARC for dispatch + RAII release
+//   leaf_alloc / branch_alloc  →  owning NodeARC (Arc<dyn>); block lives inside
+//                                  the ArcInner, base.block_code stamped
+//   node_arc_data_ptr          →  raw *mut u8 at the block's NodeBase (val slot)
+//   read code                  →  *mut NodeBase<StoreCfg> (header only)
+//   code → vtable              →  library registry (schema_code → vtable_of)
+//   node_arc_from_parts        →  reattach the vtable + take a NEW share = the
+//                                  revived owning NodeARC (the fat handle)
 //
 // The revival is TYPE-ERASED: revive() never names Leaf/Branch/Dir — it only
 // knows NodeBase<StoreCfg> (the store-level header) and the BTreeNode trait.
@@ -21,6 +23,7 @@ use logos.lang.mem;
 use logos.lang.cmp;
 use logos.lang.fabric;
 use logos.lang.drop;
+use logos.lang.option;
 use logos.lang.hermes.hstatic;
 
 use logos.std.data.persistent.bt.node;
@@ -60,38 +63,49 @@ unsafe fn vtable_for_code(code: u64) -> *const u8 {
     return 0 as *const u8;
 }
 
-// THE LOAD STEP. Given a raw block pointer, read its code from the physical
-// header and rebuild the dyn. Returns a null-handle NodeARC on a registry miss
-// (schema drift) — the caller's deserialization-error guard.
-unsafe fn revive(data: *mut u8) -> NodeARC<StoreCfg> {
+// THE LOAD STEP. Given a raw block pointer (the NodeBase address), read its code
+// from the physical header and rebuild the dyn. Returns None on a registry miss
+// (schema drift) — the caller's deserialization-error guard; Some(arc) holds a
+// fresh owning share with the right vtable reattached.
+unsafe fn revive(data: *mut u8) -> Option<NodeARC<StoreCfg>> {
     let hdr = data as *mut NodeBase<StoreCfg>;
     let code = hdr.block_code;                 // physical — no vtable needed
     let vt = vtable_for_code(code);
     if vt == (0 as *const u8) {
-        return node_arc_wrap::<StoreCfg>(0 as *mut dyn BTreeNode<StoreCfg>);
+        return Option::<NodeARC<StoreCfg>>::None;
     }
-    // Reconstruct the fat {data, vtable} pair, then wrap for owning dispatch.
-    return node_arc_wrap::<StoreCfg>(dyn_from_parts::<BTreeNode<StoreCfg>>(data, vt));
+    // Reconstruct the fat {data, vtable} pair, reattach + take an owning share.
+    return Option::<NodeARC<StoreCfg>>::Some(
+        node_arc_from_parts::<StoreCfg>(data, vt));
 }
 
 fn main() -> i32 {
     // ── Data leaf ─────────────────────────────────────────────────────
     {
-        let lp = unsafe {
+        let src = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(101u64, 1u64)
         };
-        unsafe { lp.keys.push(10u64); lp.vals.push(100u64); }
+        unsafe {
+            let lp = node_arc_data_ptr::<StoreCfg>(&src)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            lp.keys.push(10u64); lp.vals.push(100u64);
+        }
 
         let want = schema_code::<LeafNode<u64, u64, StoreCfg, DataCfg>>();
-        let arc = unsafe { revive(lp as *mut u8) };
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&src)) {
+                Option::Some(a) => a,
+                Option::None    => { return 1; }
+            }
+        };
         unsafe {
             // dispatch THROUGH the revived dyn: the concrete impl reads the
             // physical code back, proving the right vtable was reattached.
-            if arc.p.block_type_hash() != want   { return 1; }
-            if arc.p.cfg_hash() != hstatic_hash_of::<DataCfg>() { return 2; }
-            if arc.p.child_count() != 0u64       { return 3; }
+            if arc.deref().block_type_hash() != want   { return 2; }
+            if arc.deref().cfg_hash() != hstatic_hash_of::<DataCfg>() { return 3; }
+            if arc.deref().child_count() != 0u64       { return 4; }
         }
-        let _ = arc;   // RAII: leaf rc 1→0 → Buffers drop → dealloc
+        // both `src` (alloc share) and `arc` (revived share) drop → rc 2→1→0
     }
 
     // ── Branch holding two leaves — revived dyn drives a child walk ────
@@ -100,65 +114,88 @@ fn main() -> i32 {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(201u64, 1u64) };
         let lb = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(202u64, 1u64) };
-        unsafe { la.keys.push(1u64); la.vals.push(11u64);
-                 lb.keys.push(2u64); lb.vals.push(22u64); }
-        let bp = unsafe {
+        unsafe {
+            let lap = node_arc_data_ptr::<StoreCfg>(&la)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            let lbp = node_arc_data_ptr::<StoreCfg>(&lb)
+                as *mut LeafNode<u64, u64, StoreCfg, DataCfg>;
+            lap.keys.push(1u64); lap.vals.push(11u64);
+            lbp.keys.push(2u64); lbp.vals.push(22u64);
+        }
+        let bsrc = unsafe {
             branch_alloc::<u64, StoreCfg, DataCfg>(301u64, 1u64) };
         unsafe {
-            bp.children.push(node_arc_wrap::<StoreCfg>(la as *mut dyn BTreeNode<StoreCfg>));
-            bp.children.push(node_arc_wrap::<StoreCfg>(lb as *mut dyn BTreeNode<StoreCfg>));
+            let bp = node_arc_data_ptr::<StoreCfg>(&bsrc)
+                as *mut BranchNode<u64, StoreCfg, DataCfg>;
+            bp.children.push(la.clone());
+            bp.children.push(lb.clone());
         }
 
         let want = schema_code::<BranchNode<u64, StoreCfg, DataCfg>>();
-        let arc = unsafe { revive(bp as *mut u8) };
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&bsrc)) {
+                Option::Some(a) => a,
+                Option::None    => { return 5; }
+            }
+        };
         unsafe {
-            if arc.p.block_type_hash() != want { return 4; }
-            if arc.p.child_count() != 2u64     { return 5; }
+            if arc.deref().block_type_hash() != want { return 6; }
+            if arc.deref().child_count() != 2u64     { return 7; }
             // walk a child through the revived dyn and dispatch on IT too
-            let c0 = arc.p.child_at(0u64);
-            if (*c0).p.child_count() != 0u64   { return 6; }
+            let c0 = arc.deref().child_at(0u64);
+            if (*c0).deref().child_count() != 0u64   { return 8; }
         }
-        let _ = arc;   // RAII: branch → children → leaves all release
+        // arc, bsrc, la, lb all release; branch's children Vec drops its shares
     }
 
     // ── Directory leaf (holds NodeARC vals) ───────────────────────────
     {
         let leaf_a = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(401u64, 2u64) };
-        let dirp = unsafe {
+        let dsrc = unsafe {
             leaf_dir_alloc::<u64, StoreCfg, DirCfg>(501u64, 2u64) };
         unsafe {
+            let dirp = node_arc_data_ptr::<StoreCfg>(&dsrc)
+                as *mut LeafDirNode<u64, StoreCfg, DirCfg>;
             dirp.keys.push(101u64);
-            dirp.vals.push(node_arc_wrap::<StoreCfg>(leaf_a as *mut dyn BTreeNode<StoreCfg>));
+            dirp.vals.push(leaf_a.clone());
         }
 
         let want = schema_code::<LeafDirNode<u64, StoreCfg, DirCfg>>();
-        let arc = unsafe { revive(dirp as *mut u8) };
+        let arc = unsafe {
+            match revive(node_arc_data_ptr::<StoreCfg>(&dsrc)) {
+                Option::Some(a) => a,
+                Option::None    => { return 9; }
+            }
+        };
         unsafe {
-            if arc.p.block_type_hash() != want { return 7; }
-            if arc.p.child_count() != 1u64     { return 8; }
+            if arc.deref().block_type_hash() != want { return 10; }
+            if arc.deref().child_count() != 1u64     { return 11; }
         }
-        let _ = arc;
     }
 
-    // ── Unknown code → registry miss → null-handle NodeARC (graceful) ──
+    // ── Unknown code → registry miss → None (graceful) ────────────────
     {
-        let lp = unsafe {
+        let src = unsafe {
             leaf_alloc::<u64, u64, StoreCfg, DataCfg>(601u64, 1u64) };
         unsafe {
+            let data = node_arc_data_ptr::<StoreCfg>(&src);
             // Corrupt the header code → simulate schema drift on load.
-            let hdr = lp as *mut NodeBase<StoreCfg>;
+            let hdr = data as *mut NodeBase<StoreCfg>;
             let good = hdr.block_code;
             hdr.block_code = 0xDEADBEEFu64;
-            let miss = revive(lp as *mut u8);
-            if !node_arc_is_null::<StoreCfg>(&miss) { return 9; }
-            let _ = miss;   // null handle — drop is a no-op, took no ownership
-            // restore the real code and revive properly so RAII frees the block
+            match revive(data) {
+                Option::Some(a) => { let _ = a; return 12; }   // should NOT revive
+                Option::None    => {}                          // expected
+            }
+            // restore the real code and revive properly
             hdr.block_code = good;
-            let arc = revive(lp as *mut u8);
-            if node_arc_is_null::<StoreCfg>(&arc) { return 10; }
-            let _ = arc;
+            match revive(data) {
+                Option::Some(a) => { let _ = a; }              // expected
+                Option::None    => { return 13; }
+            }
         }
+        // `src` drops → rc 1→0 → block freed
     }
 
     return 0;
