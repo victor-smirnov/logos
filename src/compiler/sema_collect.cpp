@@ -1527,6 +1527,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                                 si.zone_mut        |= f.zone_mut;
                                 si.zoned2          |= f.zoned;
                                 si.borrow_carrying |= f.borrow_carrying;
+                                si.non_null        |= f.non_null;
                             }
                         }
                         // `#[repr(...)]` minimal (logos-core 1.5). For struct

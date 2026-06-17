@@ -1,0 +1,33 @@
+// Regression: `#[non_null]` NullPtr niche for single-pointer wrappers.
+// Box/Rc/Arc are each marked `#[non_null]` (their inner pointer is never null),
+// so `Option<Wrapper>` encodes None as the null pointer and is pointer-sized —
+// no separate discriminant word. Matches Rust's Option<Box/Rc/Arc> niche.
+// Before: NullPtr niche only fired for `&T`/`&mut T` payloads → Option<Arc> = 16B.
+// Also exercises a Some/None round-trip so the niche read/write codegen (None =
+// null at offset 0, Some = the live pointer) is checked end-to-end, not just sizeof.
+package option_ptr_wrapper_niche;
+
+use logos.std.fmt;
+use logos.mem.sync;
+use logos.lang.rc;
+use logos.mem.boxed;
+
+fn unwrap_or_box(o: Option<Box<i32>>, dflt: i32) -> i32 {
+    match o {
+        Option::Some(b) => { return *b; }
+        Option::None => { return dflt; }
+    }
+}
+
+fn main() -> i32 {
+    // (1) sizes: the niche makes Option<Wrapper> pointer-sized.
+    println!("Arc={} Option<Arc>={}", sizeof::<Arc<i32>>(), sizeof::<Option<Arc<i32>>>());
+    println!("Rc={} Option<Rc>={}", sizeof::<Rc<i32>>(), sizeof::<Option<Rc<i32>>>());
+    println!("Box={} Option<Box>={}", sizeof::<Box<i32>>(), sizeof::<Option<Box<i32>>>());
+
+    // (2) round-trip: Some carries the live pointer, None reads as null.
+    let some: Option<Box<i32>> = Option::Some(box_new::<i32>(42));
+    let none: Option<Box<i32>> = Option::None;
+    println!("some={} none={}", unwrap_or_box(some, -1), unwrap_or_box(none, -1));
+    return 0;
+}

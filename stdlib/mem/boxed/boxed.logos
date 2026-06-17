@@ -11,6 +11,7 @@ use logos.lang.marker;
 use logos.lang.ops;
 use logos.mem.manually_drop;
 
+#[non_null]
 pub struct Box<T: ?Sized> {
     ptr: *mut T,
 }

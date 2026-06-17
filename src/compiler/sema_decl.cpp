@@ -1108,6 +1108,8 @@ lir::LStructDef SemaChecker::lower_struct_def(TinyMapView node) {
     // hermes2: propagate `#[borrow_carrying]` so the borrow checker escape-tracks
     // values of this type (HAny) like references.
     sd.borrow_carrying = sinfo->borrow_carrying;
+    // `#[non_null]`: single non-null ptr wrapper → Option<T> NullPtr niche in mlir-gen.
+    sd.non_null = sinfo->non_null;
     // §6.1: propagate union flag so mlir-gen's layout path can branch
     // to max-of-fields aligned to max-alignment.
     sd.is_union = sinfo->is_union;

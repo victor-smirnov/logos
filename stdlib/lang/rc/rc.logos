@@ -35,6 +35,7 @@ pub struct RcInner<T: ?Sized> {
     pub val:    T,
 }
 
+#[non_null]
 pub struct Rc<T: ?Sized> {
     inner: *mut RcInner<T>,
 }

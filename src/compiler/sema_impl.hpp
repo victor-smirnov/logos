@@ -1375,6 +1375,7 @@ private:
         bool pinned          = false;  // #[pinned] — non-movable
         bool borrow_carrying = false;  // #[borrow_carrying] — value may hold an arena Ref
         bool no_auto_drop    = false;  // #[no_auto_drop]
+        bool non_null        = false;  // #[non_null] — single 8B ptr field never null (Box/Rc/Arc); enables Option<T> NullPtr niche
         bool promotes_to_datatype() const { return datatype || annotation; }
     };
     template <typename Annots>
@@ -1391,6 +1392,7 @@ private:
             else if (n == "pinned")          f.pinned          = true;
             else if (n == "borrow_carrying") f.borrow_carrying = true;
             else if (n == "no_auto_drop")    f.no_auto_drop    = true;
+            else if (n == "non_null")        f.non_null        = true;
         }
         return f;
     }
@@ -1414,6 +1416,7 @@ private:
         if (name == "zone_mut")        return bit(AttrTarget::Struct);
         if (name == "borrow_carrying") return bit(AttrTarget::Struct) | bit(AttrTarget::Enum);
         if (name == "no_auto_drop")    return bit(AttrTarget::Struct);
+        if (name == "non_null")        return bit(AttrTarget::Struct);
         if (name == "annotation")      return bit(AttrTarget::Struct) | bit(AttrTarget::Datatype);
         if (name == "tag_dispatch")    return bit(AttrTarget::Trait);
         if (name == "metaprog_handler")return bit(AttrTarget::Fn);
@@ -2358,6 +2361,13 @@ private:
                             // the source's scope is rejected unless laundered through
                             // a holder (HeldAny). (hermes2 HAny escape safety)
                             bool borrow_carrying = false;
+                            // `#[non_null]`: this struct is a single 8-byte pointer
+                            // wrapper whose pointer is GUARANTEED non-null (Box/Rc/Arc).
+                            // Lets `Option<ThisStruct>` use the NullPtr niche (None =
+                            // the null pointer, so the enum is pointer-sized). Opt-in
+                            // soundness contract — the struct author asserts no live
+                            // value holds a null pointer.
+                            bool non_null = false;
                             // logos-core §6.1: this type was declared as `union NAME { … }`
                             // rather than `struct`. Layout is max-of-fields aligned to
                             // max-alignment (vs struct's sum-of-fields); every field READ

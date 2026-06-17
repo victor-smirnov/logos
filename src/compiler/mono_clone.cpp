@@ -5113,6 +5113,7 @@ lir::LStructDef Mono::clone_struct_def(const lir::LStructDef& tmpl,
     nd.zone_mut = tmpl.zone_mut;                // Hermes: fat-`&mut` zone marker preserved.
     nd.zoned2 = tmpl.zoned2;                    // Hermes: auto-relative ptr-field marker preserved.
     nd.borrow_carrying = tmpl.borrow_carrying;  // HAny: escape-tracked value marker preserved.
+    nd.non_null = tmpl.non_null;                // #[non_null]: Option<T> NullPtr-niche marker preserved.
     nd.is_union = tmpl.is_union;  // §6.1: preserved through mono clone.
     // type_params cleared: result is monomorphic.
     // B87: preserve lifetime_params + lifetime_outlives so post-mono

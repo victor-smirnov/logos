@@ -744,10 +744,27 @@ void MLIRGenImpl::register_tagged_enum(const LEnumDef& ed) {
             if (vp.field_types.empty()) none_v = &vp;
             else if (vp.logos_types.size() == 1) some_v = &vp;
         }
-        // (1) Null-pointer niche — Option<&T>-shape (one fieldless + one &T/&mut T).
+        // (1) Null-pointer niche — Option<&T>-shape (one fieldless + one single
+        //     non-null-pointer payload). Two payload shapes qualify:
+        //       (a) `&T`/`&mut T`               — references are always non-null;
+        //       (b) a `#[non_null]` struct that is a single 8-byte pointer wrapper
+        //           (Box/Rc/Arc) — the wrapper's invariant guarantees offset-0 ≠ 0.
+        //     Either way the disc is encoded as null vs non-null at offset 0, no
+        //     separate disc word, so the enum is pointer-sized.
         if (none_v && some_v) {
-            auto k = TypeRef(some_v->logos_types[0]).kind();
-            if (k == K::Ref || k == K::MutRef) {
+            TypeRef pt = some_v->logos_types[0];
+            auto k = TypeRef(pt).kind();
+            bool eligible = (k == K::Ref || k == K::MutRef);
+            if (!eligible && (k == K::Struct || k == K::ZonedStruct)) {
+                auto it = all_struct_defs_.find(concrete_struct_name(pt));
+                if (it == all_struct_defs_.end())
+                    it = all_struct_defs_.find(std::string(TypeRef(pt).struct_name()));
+                if (it != all_struct_defs_.end() && it->second && it->second->non_null) {
+                    std::unordered_set<std::string> seen;
+                    if (logos_abi_byte_size(pt, seen) == 8) eligible = true;
+                }
+            }
+            if (eligible) {
                 info.niche.kind      = TaggedEnumInfo::Niche::NullPtr;
                 info.niche.packed    = true;
                 info.niche.none_disc = none_v->disc;

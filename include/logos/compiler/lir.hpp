@@ -866,6 +866,10 @@ struct LStructDef {
     // `#[borrow_carrying]`: a value type whose value may hold a Ref into an arena
     // (e.g. HAny) — the borrow checker escape-tracks such values like references.
     bool                     borrow_carrying = false;
+    // `#[non_null]`: single 8-byte pointer wrapper (Box/Rc/Arc) whose pointer is
+    // guaranteed non-null → `Option<ThisStruct>` gets the NullPtr niche
+    // (None = null pointer, so the enum is pointer-sized).
+    bool                     non_null = false;
     // `#[zone_mut]`: a `&mut T` to this type is a FAT ref {data, zone=*mut Allocator}
     // carrying its Hermes zone, so grow methods reach the allocator from &mut self;
     // read `&T` stays thin. (hermes2-zone-mut-fat-ref)

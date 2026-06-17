@@ -1,0 +1,4 @@
+Arc=8 Option<Arc>=8
+Rc=8 Option<Rc>=8
+Box=8 Option<Box>=8
+some=42 none=-1
