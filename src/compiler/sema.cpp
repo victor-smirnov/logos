@@ -5490,8 +5490,24 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 continue;
             }
             bool was_ok = unsized_ok_;
-            if (target_params && type_arg_idx < target_params->size() &&
-                !(*target_params)[type_arg_idx].implicit_sized) {
+            bool param_known =
+                target_params && type_arg_idx < target_params->size();
+            if (param_known && !(*target_params)[type_arg_idx].implicit_sized) {
+                unsized_ok_ = true;
+            } else if (!param_known && code_of(item) == la::DYN_TYPE) {
+                // The target's params can't be consulted yet — the struct is
+                // still a pass-0 STUB (empty type_params) because alias RHS
+                // types resolve in phase 2 BEFORE phase 1 fills struct bodies.
+                // A bare `dyn Trait` as a type-ARGUMENT is inherently unsized;
+                // defaulting it to the sized fat-VALUE `TraitObject` (the legacy
+                // by-value bare-dyn shape) is wrong for an owned tail
+                // (`Arc<dyn>`/`Rc<dyn>`) and produced the dual `udyn`/`&dyn`
+                // split: a smart-pointer alias resolved against the stub baked
+                // `Arc<&dyn>` (deref then returns a pointer to a LOCAL fat-pair
+                // → dangling/uninit), while a later use against the filled ssi
+                // resolved `Arc<dyn>` (UnsizedDyn). Scoped to DYN_TYPE only —
+                // `[T]` slices have their own &-canonicalisation that strict
+                // gating must preserve.
                 unsized_ok_ = true;
             }
             args.push_back(resolve_type(item));
