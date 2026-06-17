@@ -127,8 +127,23 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                                        i < args.size(); ++i) {
                         if (sit_ptr->type_params[i].name == tvn) {
                             auto ak = args[i].kind();
+                            // TraitObject = a `dyn Trait` arg canonicalised to
+                            // the uniform fat form (the common case for
+                            // `Arc<dyn>`/`Rc<dyn>`, esp. cross-module). Bound to
+                            // the bare tail param it still makes the instance a
+                            // custom-DST → `*mut/&` to it is FAT. Mirror of
+                            // sema is_effective_dst. (A `&[T]`/Slice arg is a
+                            // SIZED fat-ptr value, not an unsized tail — excluded.)
+                            // A TraitObject arg counts ONLY when it's a BARE
+                            // `dyn` (owning kind Borrow — the unsized object). An
+                            // owning `Box<dyn>`/`Rc<dyn>`/`Arc<dyn>` arg (owning
+                            // Box/Rc/Arc) is a SIZED fat handle VALUE held inline
+                            // (e.g. `HashMap`'s entry value), NOT an unsized tail.
                             inst_dst = (ak == LogosType::Kind::UnsizedDyn ||
-                                        ak == LogosType::Kind::UnsizedSlice);
+                                        ak == LogosType::Kind::UnsizedSlice ||
+                                        (ak == LogosType::Kind::TraitObject &&
+                                         TypeRef(args[i]).trait_owning_kind() ==
+                                             TypeRef::OwningKind::Borrow));
                             break;
                         }
                     }

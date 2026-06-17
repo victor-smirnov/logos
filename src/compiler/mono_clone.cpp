@@ -606,8 +606,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     auto offl = mk_node(i64t, lir_mirror_emit_lit_int(out_, i64t, (int64_t)off));
                     auto fpu8 = mk_node(u8p, lir_mirror_emit_ptr_arith(
                         out_, u8p, (uint8_t)lir::EPtrArith::Op::ByteAdd, data, offl));
-                    if (fk == LogosType::Kind::UnsizedDyn) {
+                    if (fk == LogosType::Kind::UnsizedDyn ||
+                        (fk == LogosType::Kind::TraitObject &&
+                         TypeRef(ftype).trait_owning_kind() == TypeRef::OwningKind::Borrow)) {
                         // dyn tail → `&dyn Tr` {data+off, vtable=DstRef's field1}.
+                        // The tail field substitutes to UnsizedDyn (bare) or
+                        // TraitObject (a `dyn Trait` arg canonicalised to the
+                        // uniform fat form — the common cross-module case); both
+                        // denote the unsized dyn tail, so recover the vtable.
                         // Built via a slice_lit typed as TraitObject (metadata slot
                         // = vtable), mirroring sema's dyn-tail projection.
                         LogosTypeBuilder tb; tb.kind = LogosType::Kind::TraitObject;

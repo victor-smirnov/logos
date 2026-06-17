@@ -3701,7 +3701,22 @@ bool SemaChecker::is_effective_dst(TypeRef t) {
     auto subst_last = subst_type_sema(ssi->fields.back().type, tmp);
     if (!subst_last) return false;
     auto sk = subst_last.kind();
-    return sk == LogosType::Kind::UnsizedSlice || sk == LogosType::Kind::UnsizedDyn;
+    if (sk == LogosType::Kind::UnsizedSlice || sk == LogosType::Kind::UnsizedDyn)
+        return true;
+    // A `dyn Trait` bound to the tail type-param is canonicalised to TraitObject
+    // (the uniform fat form) in many contexts — notably when a generic owner's
+    // signature is resolved for module export, where the unsized `dyn` arg comes
+    // back as TraitObject rather than bare UnsizedDyn. When the template's LAST
+    // field IS that bare tail param, such a binding still makes the instance a
+    // custom-DST (the dyn object is the unsized tail), so `&/*mut Inner<dyn>`
+    // must be FAT {data, vtable} (e.g. `Arc<dyn>`'s `inner: *mut ArcInner<dyn>`).
+    // Gate on the last field being the BARE param so a struct with a literal
+    // `&dyn`/TraitObject VALUE field (sized) is not misclassified as a DST.
+    if (sk == LogosType::Kind::TraitObject &&
+        TypeRef(subst_last).trait_owning_kind() == TypeRef::OwningKind::Borrow &&
+        TypeRef(ssi->fields.back().type).kind() == LogosType::Kind::TypeVar)
+        return true;
+    return false;
 }
 
 bool SemaChecker::ptr_rel_compatible(TypeRef a, TypeRef b) {
