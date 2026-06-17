@@ -225,6 +225,12 @@ private:
     uint64_t mono_abi_size(TypeRef t);
     bool mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                uint64_t& off_out, TypeRef& ftype_out);
+    // True when the let-binding `var`'s initializer is an owned DST-tail dyn
+    // projection (`self.inner.val` where the receiver substitutes to a fat
+    // DstRef and the projected field is the unsized `dyn` tail). Used to gate
+    // drop-in-place for a moved-out tail typed as TraitObject(Borrow) — telling
+    // it apart from a genuine borrowed `&dyn` local of the same type.
+    bool let_init_is_owned_dyn_tail(const std::string& var, const SubstMap& s);
     // Resolve a concrete struct TypeRef to its definition + the substitution that
     // binds the chosen def's type-vars to `t`'s type-args. Prefers the best-matching
     // partial SPECIALISATION (find_best_struct_spec) over the generic base — the same

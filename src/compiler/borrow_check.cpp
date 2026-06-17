@@ -179,10 +179,17 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         if (auto g = n.find("$G"); g != std::string_view::npos)
             ts.residency_exempt.insert(std::string(n.substr(0, g)));
     };
+    // An EXPLICIT `#[borrow_carrying]` annotation is the author declaring the
+    // type enforces a borrow — it WINS over the auto residency-holder heuristic.
+    // (A `#[borrow_carrying]` iterator that also holds an Arc share of the nodes
+    // it walks — PMapIter — is still a borrow-carrying iterator: the explicit
+    // iterator-invalidation guard must not be silently dropped just because the
+    // handle happens to be ref-counted. No laundered-escape type is also
+    // explicitly borrow-carrying — they are opposites.)
     for (auto& sd : prog.structs)
-        if (holds_residency_holder(sd)) reg_exempt_name(sd.name);
+        if (!sd.borrow_carrying && holds_residency_holder(sd)) reg_exempt_name(sd.name);
     for (auto& sd : prog.struct_specializations)
-        if (holds_residency_holder(sd)) reg_exempt_name(sd.name);
+        if (!sd.borrow_carrying && holds_residency_holder(sd)) reg_exempt_name(sd.name);
     bool bc_changed = true;
     while (bc_changed) {
         bc_changed = false;

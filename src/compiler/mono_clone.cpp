@@ -379,6 +379,27 @@ uint64_t Mono::mono_abi_size(TypeRef t) {
     }
 }
 
+bool Mono::let_init_is_owned_dyn_tail(const std::string& var, const SubstMap& s) {
+    auto it = type_let_inits_.find(var);
+    if (it == type_let_inits_.end() || !it->second) return false;
+    lir_view::ExprRef rhs = it->second;
+    if (rhs.kind() != lir_schema::expr::Code::FieldRead) return false;
+    lir_view::EFieldReadView fr{rhs};
+    auto recv = fr.receiver();
+    if (!recv) return false;
+    // Receiver type after substitution: must be a fat custom-DST (`*mut/&
+    // ArcInner<dyn>` → DstRef). A thin Ptr/Ref receiver (genuine `Arc<&dyn>`,
+    // sized inner) is NOT a DST tail → leave the drop a no-op.
+    TypeRef rt = subst_type(recv.type(out_.type_pool.impl()), s);
+    if (!rt || TypeRef(rt).kind() != LogosType::Kind::DstRef) return false;
+    uint64_t off = 0; TypeRef ftype;
+    if (!mono_dst_prefix_field(rt, fr.field(), off, ftype) || !ftype) return false;
+    auto fk = TypeRef(ftype).kind();
+    return fk == LogosType::Kind::UnsizedDyn ||
+           (fk == LogosType::Kind::TraitObject &&
+            TypeRef(ftype).trait_owning_kind() == TypeRef::OwningKind::Borrow);
+}
+
 bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
                                  uint64_t& off_out, TypeRef& ftype_out) {
     using K = LogosType::Kind;
@@ -4525,13 +4546,29 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                 // top-level TraitObject.
                 drop_fn = "__box_dyn__drop";
             }
-            else if (ty && TypeRef(ty).kind() == LogosType::Kind::UnsizedDyn) {
+            else if (ty && (TypeRef(ty).kind() == LogosType::Kind::UnsizedDyn ||
+                            // A `dyn Trait` arg canonicalised to the uniform fat
+                            // form arrives as TraitObject(owning=Borrow) — the
+                            // SAME owned unsized tail (the common cross-module
+                            // `Arc<dyn>`/`Rc<dyn>` case; mirror of 227fe173's
+                            // is_effective_dst / mono inst_dst / field-projection
+                            // additions). It must drop_in_place too, else the
+                            // concrete node's destructor never runs (memory
+                            // leak). GATED on the move SOURCE being an owned
+                            // DST-tail projection (`self.inner.val` off a fat
+                            // DstRef): a genuine borrowed `&dyn` local — same
+                            // TraitObject(Borrow) type — must NOT drop its
+                            // referent, so the bare-type check is insufficient.
+                            (TypeRef(ty).kind() == LogosType::Kind::TraitObject &&
+                             TypeRef(ty).trait_owning_kind() ==
+                                 TypeRef::OwningKind::Borrow &&
+                             let_init_is_owned_dyn_tail(var_name, s)))) {
                 // Move-out drop of an unsized `dyn` TAIL (`let _v: T =
-                // self.inner.val`, T bound to `dyn`): T substitutes to
-                // UnsizedDyn. The RHS re-lowered to a `&dyn` handle; drop the
-                // concrete payload in place via vtable[0] (no free — the block
-                // is freed separately by the surrounding drop). Mirrors the
-                // sized case ("run Drop, don't free the storage").
+                // self.inner.val`, T bound to `dyn`): the RHS re-lowered to a
+                // `&dyn` handle; drop the concrete payload in place via
+                // vtable[0] (no free — the block is freed separately by the
+                // surrounding drop). Mirrors the sized case ("run Drop, don't
+                // free the storage").
                 drop_fn = "__dyn_drop_in_place__";
             }
             else if (ty && (TypeRef(ty).kind() == LogosType::Kind::Enum ||

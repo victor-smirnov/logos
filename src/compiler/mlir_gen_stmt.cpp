@@ -1019,7 +1019,17 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     // enclosing block is freed separately by drop_rc's `free(self.inner)`).
     if (std::string(v.drop_fn()) == "__dyn_drop_in_place__") {
         mlir::Value fp = it->second;
-        if (let_vars_.count(var_name))
+        // Representation split for the moved-out dyn tail:
+        //   • T = UnsizedDyn  → `_v` holds a POINTER to the {data,vtable} pair
+        //     (UnsizedDyn lowers to a single ptr); load it to reach the pair.
+        //   • T = TraitObject → `_v` IS the 16-byte fat pair stored INLINE in its
+        //     alloca; `it->second` already points at the pair — loading would
+        //     read only the data half and gen_drop_dyn_in_place would then
+        //     misread the node's first word as the vtable (→ wild vtable[0]
+        //     call). So skip the load for the inline-pair representation.
+        auto bt = v.type(pool_impl());
+        bool inline_pair = bt && TypeRef(bt).kind() == LogosType::Kind::TraitObject;
+        if (!inline_pair && let_vars_.count(var_name))
             fp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
         gen_drop_dyn_in_place(fp);
         return;

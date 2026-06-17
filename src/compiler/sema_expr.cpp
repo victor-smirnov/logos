@@ -6895,7 +6895,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                     auto oit = traits_.find(owner_trait);
                     auto& tparams = (oit != traits_.end())
                         ? oit->second.type_params : tit->second.type_params;
-                    auto trait_args = TypeRef(recv->type).type_args();
+                    // Trait args live on the TraitObject itself (`dyn_t`), NOT on
+                    // a `&dyn` receiver: when recv is `Ref<TraitObject>` (e.g.
+                    // `arc.deref().m()`), `recv->type.type_args()` is EMPTY and
+                    // the trait's const/type params (`Trait<STORE_CFG>`) would
+                    // stay un-substituted in the return type (`NodeARC<STORE_CFG>`
+                    // leaking to the call site). Read from the peeled `dyn_t`.
+                    auto trait_args = dyn_t.type_args();
                     for (size_t ti = 0; ti < tparams.size() && ti < trait_args.size(); ++ti)
                         trait_subst[tparams[ti].name] = trait_args[ti];
                 }
