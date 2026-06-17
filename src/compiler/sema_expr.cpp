@@ -164,9 +164,11 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
                        tgt_kind == LogosType::Kind::UnsizedSlice;
     TypeRef ref_t;
     if (tgt_kind == LogosType::Kind::UnsizedDyn)
+        // type_args() returns a FRESH vector per call — never iterate
+        // begin()/end() across two calls (different temporaries → garbage
+        // range). Pass the materialised vector directly.
         ref_t = make_trait_object(std::string(TypeRef(target).trait_name()),
-                                  std::vector<TypeRef>(TypeRef(target).type_args().begin(),
-                                                       TypeRef(target).type_args().end()));
+                                  TypeRef(target).type_args());
     else if (tgt_kind == LogosType::Kind::UnsizedSlice)
         ref_t = make_slice_type(TypeRef(target).elem(), want_mut);
     else
@@ -9260,10 +9262,10 @@ lir::LExprPtr SemaChecker::lower_field_read(TinyMapView node) {
                                                 std::move(data_ptr),
                                                 std::move(offset_lit),
                                                 make_ptr(false, u8_t()));
+            // type_args() is a fresh vector per call — pass it directly (no
+            // begin()/end() across two temporaries).
             auto to_t = make_trait_object(std::string(TypeRef(tail_post_).trait_name()),
-                                          std::vector<TypeRef>(
-                                              TypeRef(tail_post_).type_args().begin(),
-                                              TypeRef(tail_post_).type_args().end()));
+                                          TypeRef(tail_post_).type_args());
             return builder().slice_lit(std::move(tail_ptr), std::move(vtable), to_t);
         }
         if (is_tail_access) {

@@ -1235,7 +1235,20 @@ std::vector<TypeRef> type_vec_via_mirror(const TypeRef& self,
     result.reserve(arr->size());
     for (uint64_t i = 0; i < arr->size(); ++i) {
         auto e = const_cast<hermes::ObjectArray*>(arr)->get(i);
-        if (self.pool()) {
+        // Phase 2.B: a vec ELEMENT can itself be a cross-arena ExternalRef
+        // (e.g. a `dyn Trait<CFG>` type-arg where CFG is a HermesStatic const
+        // interned in another arena). Resolve it through the global ArenaPool
+        // exactly like ptr_via_mirror — WITHOUT this, the element was built as
+        // `TypeRef(self.arena(), <external-ref AnyVal>, …)`, a malformed ref
+        // (wrong/null arena) that segfaults the moment kind()/to_builder reads
+        // its mirror (mono interning `Arc<dyn Trait<const>>` hit exactly this).
+        if (hermes::is_external_ref_av(e)) {
+            auto* ref = reinterpret_cast<const hermes::ExternalRef*>(e.resolve());
+            auto r = hermes::resolve_external_ref(*ref);
+            if (!r.ok()) { result.push_back({}); continue; }
+            result.push_back(TypeRef(&r.mem->arena(), r.offset(),
+                                     /*pool=*/nullptr, ref->arena_id()));
+        } else if (self.pool()) {
             result.push_back(self.pool()->ref(e.to_offset(self.mirror_base())));
         } else {
             result.push_back(TypeRef(self.arena(), e,
@@ -5371,7 +5384,8 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                     inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
                               TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
                     TypeRef ti(inner);
-                    std::vector<TypeRef> targs(ti.type_args().begin(), ti.type_args().end());
+                    // type_args() is a fresh vector per call — materialise once.
+                    std::vector<TypeRef> targs = ti.type_args();
                     return make_trait_object(ti.trait_name(), std::move(targs), sp_kind,
                                              /*req_send=*/ti.trait_requires_send(),
                                              /*req_sync=*/ti.trait_requires_sync());

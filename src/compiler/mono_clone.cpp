@@ -612,9 +612,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // = vtable), mirroring sema's dyn-tail projection.
                         LogosTypeBuilder tb; tb.kind = LogosType::Kind::TraitObject;
                         tb.trait_name = std::string(TypeRef(ftype).trait_name());
-                        tb.type_args = std::vector<TypeRef>(
-                            TypeRef(ftype).type_args().begin(),
-                            TypeRef(ftype).type_args().end());
+                        // Materialise the type-args ONCE: `type_args()` returns a
+                        // fresh std::vector each call, so begin()/end() across two
+                        // calls are iterators into DIFFERENT temporaries — a garbage
+                        // range that blows up vector's length check for any
+                        // non-empty list (`dyn Trait<CFG>`). Move the vector wholesale.
+                        tb.type_args = TypeRef(ftype).type_args();
                         TypeRef to_t = out_.type_pool.alloc(std::move(tb));
                         auto vtbl = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
                         result->type = to_t;

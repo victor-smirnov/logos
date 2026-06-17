@@ -1,0 +1,33 @@
+// Regression: Arc<dyn Trait<const CFG>> — a trait object with a const-generic
+// param wrapped in Arc. Previously ICE'd the compiler in mono/sema:
+//   (1) type_vec_via_mirror didn't resolve cross-arena ExternalRef elements
+//       (the CFG const type-arg lives in another arena) → null-arena segfault.
+//   (2) three sites built `vector(type_args().begin(), type_args().end())` from
+//       TWO separate temporaries → garbage iterator range → std::length_error.
+// Exercises construct + unsize-cast + auto-deref dispatch + explicit deref +
+// clone + drop + a function parameter of the type.
+package arc_dyn_param_trait;
+
+use logos.mem.sync;
+use logos.lang.hermes.hstatic;
+
+trait Node<const CFG: HermesStatic> { fn kind(self: &Self) -> i64; }
+
+struct Leaf { tag: i64, }
+impl<const CFG: HermesStatic> Node<CFG> for Leaf { fn kind(self: &Leaf) -> i64 { return self.tag; } }
+unsafe impl Send for Leaf {}
+unsafe impl Sync for Leaf {}
+
+pub const CFG: HermesStatic = @{ "fanout": 4 };
+
+// fn parameter typed Arc<dyn Node<CFG>> (this alone used to ICE).
+fn dispatch(a: &Arc<dyn Node<CFG>>) -> i64 { return a.deref().kind(); }
+
+fn main() -> i32 {
+    let a: Arc<dyn Node<CFG>> = arc_new::<Leaf>(Leaf { tag: 7 }) as Arc<dyn Node<CFG>>;
+    if a.kind() != 7i64 { return 1; }          // auto-deref dispatch
+    if dispatch(&a) != 7i64 { return 2; }      // through a fn param + explicit deref
+    let b = a.clone();                          // shared clone
+    if b.kind() != 7i64 { return 3; }
+    return 0;
+}                                               // a, b drop here (Arc<dyn> drop)
