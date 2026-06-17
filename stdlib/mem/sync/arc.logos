@@ -63,7 +63,11 @@ unsafe impl<T: ?Sized + Send + Sync> Sync for Arc<T> {}
 unsafe impl<T: ?Sized + Send + Sync> Send for Weak<T> {}
 unsafe impl<T: ?Sized + Send + Sync> Sync for Weak<T> {}
 
-pub fn arc_new<T: Send + Sync>(val: T) -> Arc<T> {
+// Rust parity: `Arc::new` carries NO `Send`/`Sync` bound (those live on the
+// conditional `unsafe impl Send/Sync for Arc<T>`, not the constructor). You can
+// build an `Arc<T>` for a non-thread-safe `T`; the resulting handle just isn't
+// itself `Send`/`Sync`.
+pub fn arc_new<T>(val: T) -> Arc<T> {
     let inner: *mut ArcInner<T> = alloc(sizeof::<ArcInner<T>>()) as *mut ArcInner<T>;
     unsafe {
         inner.val    = val;
@@ -77,6 +81,17 @@ impl<T: ?Sized> Arc<T> {
     // Immutable access to the contained value.
     pub unsafe fn get(self: *mut Arc<T>) -> *const T {
         return &self.inner.val as *const T;
+    }
+
+    // Raw data-pointer accessor: the address of the contained value as a thin
+    // `*mut u8`. For `Arc<dyn Trait>` this is the data half of the fat value
+    // pointer (i.e. the object's base address). Returns a plain raw value (not a
+    // reference), so callers can store/cast it without the borrow escaping —
+    // used by intrusive-layout consumers that reinterpret the payload (e.g. the
+    // persistent B-tree casting to a concrete node type). The block is heap-
+    // stable for any live handle.
+    pub unsafe fn data_u8(self: *mut Arc<T>) -> *mut u8 {
+        return &self.inner.val as *const T as *mut u8;
     }
 
     pub unsafe fn strong_count(self: *mut Arc<T>) -> i32 {
