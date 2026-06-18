@@ -86,7 +86,7 @@ pub fn dynval_cmp(code: u64, a: u64, b: u64) -> Ordering {
 // future Primitive+Ord ContainerOrd blanket). `self` is the established phantom
 // receiver (never read); the operands are the stored view and the query pointer.
 impl ContainerOrd for DynVal {
-    unsafe fn cmp_view_key(self: *const DynVal, stored: DynVal, query: *const DynVal) -> Ordering {
-        return dynval_cmp((*query).code, stored.bits, (*query).bits);
+    unsafe fn cmp_views(self: *const DynVal, a: DynVal, b: DynVal) -> Ordering {
+        return dynval_cmp(b.code, a.bits, b.bits);
     }
 }

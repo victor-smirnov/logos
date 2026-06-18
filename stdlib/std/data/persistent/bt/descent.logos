@@ -91,7 +91,7 @@ pub unsafe fn as_branch<K: Container + ContainerOrd, const STORE_CFG: HermesStat
 
 // ── In-leaf find / lower_bound ────────────────────────────────────────
 pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> i64 {
     unsafe {
         let n: u64 = leaf.keys.len();
@@ -99,7 +99,7 @@ pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: Her
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_view_key(kv, key) {
+            match phantom.cmp_views(kv, key) {
                 Ordering::Equal => { return i as i64; }
                 _ => { }
             }
@@ -110,7 +110,7 @@ pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: Her
 }
 
 pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
         let n: u64 = leaf.keys.len();
@@ -118,7 +118,7 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_view_key(kv, key) {
+            match phantom.cmp_views(kv, key) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return i; }
             }
@@ -130,7 +130,7 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 // First in-leaf index where keys[i] > target (strict). Mirrors
 // leaf_lower_bound but with a strict-greater predicate.
 pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: *const K
+    leaf: *mut LeafNode<K, V, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
         let n: u64 = leaf.keys.len();
@@ -138,7 +138,7 @@ pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_C
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_view_key(kv, key) {
+            match phantom.cmp_views(kv, key) {
                 Ordering::Greater => { return i; }
                 _ => { i = i + 1u64; }
             }
@@ -156,7 +156,7 @@ pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_C
 //   • insert: saturate to n−1 (descend last child, extend it); the new
 //     max bubbles up via parent.keys[i] = child.keys[last] update.
 pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    branch: *mut BranchNode<K, STORE_CFG, CFG>, key: *const K
+    branch: *mut BranchNode<K, STORE_CFG, CFG>, key: K::ViewInStore
 ) -> u64 {
     unsafe {
         let n: u64 = branch.keys.len();
@@ -164,7 +164,7 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesSt
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = branch.keys.get(i);
-            match phantom.cmp_view_key(kv, key) {
+            match phantom.cmp_views(kv, key) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return i; }     // keys[i] ≥ key
             }
@@ -175,7 +175,7 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesSt
 
 // ── Recursive walks via NodeARC ───────────────────────────────────────
 pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>, key: *const K
+    arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> bool {
     unsafe {
         if arc_is_leaf::<STORE_CFG>(arc) {
@@ -191,7 +191,7 @@ pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CF
 }
 
 pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>, key: *const K
+    arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> Option<V::ViewInStore> {
     unsafe {
         if arc_is_leaf::<STORE_CFG>(arc) {
@@ -272,7 +272,7 @@ pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const S
 // the per-level child idx into a global position offset. At leaf, add
 // leaf_lower_bound. The accumulator gives the global index.
 pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>, key: *const K
+    arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut accum: u64 = 0u64;
@@ -319,7 +319,7 @@ pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const ST
 // step would be to walk to the right sibling. To keep this O(depth)
 // without sibling-walk plumbing, fall back to scanning slots ourselves.
 pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    arc: &NodeARC<STORE_CFG>, key: *const K
+    arc: &NodeARC<STORE_CFG>, key: K::ViewInStore
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
     let mut accum: u64 = 0u64;
@@ -340,7 +340,7 @@ pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const ST
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = br.keys.get(i);
-            match phantom.cmp_view_key(kv, key) {
+            match phantom.cmp_views(kv, key) {
                 Ordering::Greater => { idx = i; break; }
                 _ => { i = i + 1u64; }
             }

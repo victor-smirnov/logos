@@ -71,14 +71,14 @@ pub fn shuttle_max_u64(slots: *const PrimVec<u64>, target: u64) -> ShuttleResult
 // Generic MAX dimension over K: ContainerOrd. Slots are a Buffer<K>
 // (the `keys` column on BranchNode whose i-th slot equals the max key
 // in children[i]'s subtree by Memoria-style invariant). Target is a
-// query-key pointer; comparison via the Container's cmp_view_key.
+// query-key pointer; comparison via the Container's cmp_views.
 //
 // Returns the smallest i where slots[i] ≥ target. On out-of-range
 // (target > all maxes) clamps to the last child — matches shuttle_max_u64
 // ABI uniformity. `remainder` is unused (zero) — kept for ABI parity
 // across SUM/MAX shuttles.
 pub fn shuttle_max_k<K: Container + ContainerOrd>(
-    slots: *const Buffer<K>, target: *const K
+    slots: *const Buffer<K>, target: K::ViewInStore
 ) -> ShuttleResult {
     unsafe {
         let n: u64 = slots.len();
@@ -86,7 +86,7 @@ pub fn shuttle_max_k<K: Container + ContainerOrd>(
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = slots.get(i);
-            match phantom.cmp_view_key(kv, target) {
+            match phantom.cmp_views(kv, target) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return ShuttleResult { idx: i, remainder: 0u64 }; }
             }

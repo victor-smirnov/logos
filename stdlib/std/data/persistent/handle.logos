@@ -623,14 +623,14 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
 
     pub fn contains(&self, key: <type:CFG.key>::ViewInStore) -> bool {
         return bt_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-            &self.arc, &key as *const <type:CFG.key>);
+            &self.arc, key);
     }
 
     // Rust BTreeMap::get parity: Some(value) on hit, None on miss.
     pub fn get(&self, key: <type:CFG.key>::ViewInStore) -> Option<<type:CFG.value>::ViewInStore> {
         unsafe {
             return bt_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &self.arc, &key as *const <type:CFG.key>);
+                &self.arc, key);
         }
     }
 
@@ -663,7 +663,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         -> Option<<type:CFG.value>::ViewInStore> {
         let r: Option<<type:CFG.value>::ViewInStore> = unsafe {
             bt_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, key, val, &key as *const <type:CFG.key>,
+                &mut self.arc, key, val, key,
                 self.ctx.snap_id, self.ctx.id_ctr_p)
         };
         self.writeback();
@@ -673,7 +673,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     pub fn remove(&mut self, key: <type:CFG.key>::ViewInStore) -> bool {
         let r: bool = unsafe {
             bt_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &mut self.arc, &key as *const <type:CFG.key>,
+                &mut self.arc, key,
                 self.ctx.snap_id, self.ctx.id_ctr_p)
         };
         self.writeback();
@@ -697,7 +697,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     pub fn lower_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
         unsafe {
             return bt_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &self.arc, &k as *const <type:CFG.key>);
+                &self.arc, k);
         }
     }
 
@@ -706,7 +706,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     pub fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
         unsafe {
             return bt_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                &self.arc, &k as *const <type:CFG.key>);
+                &self.arc, k);
         }
     }
 

@@ -484,31 +484,35 @@ impl<DT: PodRef> Container for DT {
 // outside Container today; once that lands, a parallel Primitive blanket
 // becomes possible.
 //
-// `cmp_view_key` is declared as a self-method (with a `*const Self`
-// receiver dereferenced nowhere) instead of an associated fn — established
-// workaround for the assoc-fn-on-type-param mono gap.  Callers do
-// `let phantom: *const K = 0 as *const K; phantom.cmp_view_key(kv, key)`.
+// SYMMETRIC over the view: `cmp_views(a, b)` compares two ViewInStore values —
+// NOT a stored-view vs a `*const Self` query. This lets a BORROWED view (e.g.
+// the layout-free `DView` key) be both operands, and retires the `&key as
+// *const K` query-pointer trick (only valid for value-views, the source of two
+// prior miscompiles). `cmp_views` stays a self-method (phantom `*const Self`
+// receiver, never read) — the assoc-fn-on-type-param mono-gap workaround.
+// Callers do `let phantom: *const K = 0 as *const K; phantom.cmp_views(a, b)`.
 // ---------------------------------------------------------------------------
 
 pub trait ContainerOrd: Container {
-    unsafe fn cmp_view_key(self: *const Self, stored: Self::ViewInStore, query: *const Self) -> Ordering;
+    unsafe fn cmp_views(self: *const Self, a: Self::ViewInStore, b: Self::ViewInStore) -> Ordering;
 }
 
 impl<DT: PodRef + Ord> ContainerOrd for DT {
-    unsafe fn cmp_view_key(self: *const DT, stored: *const DT, query: *const DT) -> Ordering {
-        return (&*stored).cmp(&*query);
+    unsafe fn cmp_views(self: *const DT, a: *const DT, b: *const DT) -> Ordering {
+        return (&*a).cmp(&*b);
     }
 }
 
 // Primitive path: ViewInStore = DT::Prim (by value).  DT and DT::Prim are
-// byte-equivalent (Primitive POD wrapper contract), so we place the
-// stored Prim on the stack and reinterpret as *const DT to dispatch
-// through DT's existing `Ord` impl uniformly with the PodRef path.
+// byte-equivalent (Primitive POD wrapper contract), so each operand is placed
+// on the stack and reinterpreted as *const DT to dispatch through DT's `Ord`.
 impl<DT: Primitive + Ord> ContainerOrd for DT {
-    unsafe fn cmp_view_key(self: *const DT, stored: DT::Prim, query: *const DT) -> Ordering {
-        let s: DT::Prim = stored;
-        let sp: *const DT = (&s) as *const DT::Prim as *const DT;
-        return (&*sp).cmp(&*query);
+    unsafe fn cmp_views(self: *const DT, a: DT::Prim, b: DT::Prim) -> Ordering {
+        let sa: DT::Prim = a;
+        let sb: DT::Prim = b;
+        let pa: *const DT = (&sa) as *const DT::Prim as *const DT;
+        let pb: *const DT = (&sb) as *const DT::Prim as *const DT;
+        return (&*pa).cmp(&*pb);
     }
 }
 

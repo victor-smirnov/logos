@@ -165,7 +165,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
 // ── Recursive insert ──────────────────────────────────────────────────
 pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
-    key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> InsertOutcome<K, STORE_CFG, CFG> {
     // CoW skip: if `arc`'s block was created in another snapshot, clone.
@@ -179,7 +179,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
         if pos < leaf.keys.len() {
             let kv: K::ViewInStore = leaf.keys.get(pos);
             let phantom: *const K = 0 as *const K;
-            match phantom.cmp_view_key(kv, qkey) {
+            match phantom.cmp_views(kv, qkey) {
                 Ordering::Equal => {
                     leaf.vals.set(pos, val);
                     return InsertOutcome::<K, STORE_CFG, CFG> {
@@ -276,7 +276,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
 // ── Top-level insert: descend, possibly grow root ─────────────────────
 pub unsafe fn bt_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>,
-    key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
+    key: K::ViewInStore, val: V::ViewInStore, qkey: K::ViewInStore,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> Option<V::ViewInStore> {
     // Rust BTreeMap::insert parity: return the displaced value (Some) or None
@@ -533,7 +533,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
 // ── Recursive remove with rebalance ───────────────────────────────────
 pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &mut NodeARC<STORE_CFG>,
-    qkey: *const K,
+    qkey: K::ViewInStore,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> RemoveOutcome {
     make_unique::<STORE_CFG>(arc, cur_snapshot_id, id_ctr_p);
@@ -592,7 +592,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
 
 // ── Top-level remove: descend, then collapse root if it shrank to one child ─
 pub unsafe fn bt_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
-    root: &mut NodeARC<STORE_CFG>, qkey: *const K,
+    root: &mut NodeARC<STORE_CFG>, qkey: K::ViewInStore,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {
     let outcome = remove_rec::<K, V, STORE_CFG, CFG>(root, qkey, cur_snapshot_id, id_ctr_p);
