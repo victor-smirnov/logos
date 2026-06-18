@@ -258,6 +258,32 @@ pub unsafe fn ordmap_contains(m: *mut OrdMap, key: *const u8) -> bool {
     return ordmap_get(m, key) != 0 as *const u8;
 }
 
+// Remove `key`; returns whether it was present. Drops the leaf key+value
+// (owning-type release; POD no-op) and removes the slots. No rebalance (задел) —
+// a leaf may underflow and a separator may go stale, both of which still ROUTE
+// correctly (separators are routing copies), so search/iteration stay valid.
+pub unsafe fn ordmap_remove(m: *mut OrdMap, key: *const u8) -> bool {
+    let d: *mut dyn KeyDesc = m.desc;
+    let meta: u64 = m.key_meta;
+    let mut n: *mut Node = m.root;
+    while !n.is_leaf { n = kid_at(n, branch_route(d, meta, n, key)); }
+    let i: u64 = leaf_lb(d, meta, n, key);
+    if i < n.keys.len() {
+        match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
+            Ordering::Equal => {
+                (&*d).drop_raw(keys_c(n).slot(i), meta);
+                (&*m.vdesc).drop_raw(vals_c(n).slot(i), m.val_meta);
+                keys_m(n).remove_at(i);
+                vals_m(n).remove_at(i);
+                m.count = m.count - 1u64;
+                return true;
+            }
+            _ => { }
+        }
+    }
+    return false;
+}
+
 // ── teardown ─────────────────────────────────────────────────────────────────
 // Drop semantics: keys/values are dropped ONLY at leaves (the actual residence).
 // Branch separators are routing COPIES of leaf keys — dropping them too would

@@ -1,18 +1,17 @@
 exit: 0
 stdout:
-== Memoria: one compiled container, runtime key/value types ==
+== Memoria PMap<K, V> — typed, safe, ordered ==
 
-[1] OrdMap<key=u64, val=i64>  (key type resolved at runtime)
-    ordered walk:  1=>100  2=>200  3=>300  4=>400  5=>500
-    get(2)=200  len=5
+[1] PMap<u64, i64>
+    for (k,v) in m.iter():  1=>100  2=>200  3=>300  4=>400  5=>500
+    m.get(2) = Some(200)
+    m.contains(9)=false  m.len()=5
+    after remove(3): contains(3)=false  len()=4
 
-[2] SAME container code, key=DirI64 meta=descending (no new monomorphization)
-    ordered walk: 9 8 7 6 5 4 3 2 1 0   (descending — direction comes from cached meta, via vtable cmp)
+[2] PMap<i64, bool>  (same engine, no new monomorphization of the B+tree)
+    entries:  -1=>true  0=>true  2=>false
 
-[3] snapshot is independent of later mutation
-    after insert: original len=6  snapshot len=5
+[3] snapshot
+    after insert into original: original.len()=5  snapshot.len()=4
 
-[4] owned key handoff (HermesOrdVal, small-buffer optimization)
-    took owned key = 3  inline=true
-
-== done: 3 distinct runtime key types, ONE compiled OrdMap ==
+== safe typed API; one compiled engine for all K/V ==
