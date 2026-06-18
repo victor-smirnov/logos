@@ -1,0 +1,31 @@
+// Regression: taking the address of a by-value PARAMETER must yield a real stack
+// slot, not the parameter's value. Raw-pointer params previously fell through to
+// returning the pointer value → `&p` gave a garbage `*mut *mut T` → segfault.
+package addr_of_ptr_param;
+
+// scalar param: &p is address-of-a-copy; *(&p) == p
+unsafe fn rd_scalar(p: u64) -> u64 { let a: *const u64 = &p as *const u64; return *a; }
+
+// raw-pointer param: &p is address of the slot holding p; *(&p) == p
+unsafe fn rd_ptr(p: *mut u8) -> i64 {
+    let a: *const *mut u8 = &p as *const *mut u8;
+    return (*a) as i64;
+}
+
+// param passed through a helper, address taken inside (the container clone case)
+unsafe fn store_via(slot: *mut *mut u8, p: *mut u8) {
+    let a: *const *mut u8 = &p as *const *mut u8;
+    slot[0] = *a;
+}
+
+fn main() -> i32 {
+    unsafe {
+        if rd_scalar(98765u64) != 98765u64 { return 1; }
+        let x: *mut u8 = 0xBEEF as *mut u8;
+        if rd_ptr(x) != 0xBEEFi64 { return 2; }
+        let mut cell: *mut u8 = 0 as *mut u8;
+        store_via(&mut cell as *mut *mut u8, 0xF00D as *mut u8);
+        if (cell as i64) != 0xF00Di64 { return 3; }
+    }
+    return 0;
+}

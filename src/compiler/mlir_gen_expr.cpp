@@ -1302,25 +1302,37 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         std::fprintf(stderr, "mlir_gen: & undefined '%s'\n", var_name.c_str());
         return nullptr;
     }
-    // Fn parameters are bound as SSA values (not allocas).  Taking `&x` on a
-    // scalar-typed param requires materializing an on-stack copy so callers
-    // can receive a real pointer.
+    // Fn parameters are bound as SSA values (not allocas). Taking `&x` on a
+    // scalar-typed param (SSA value IS the value) requires materializing an
+    // on-stack copy so callers can receive a real pointer.
     if (it->second && it->second.getType() != ptr_type()) {
         auto alloca = create_entry_alloca(it->second.getType());
         builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
         return alloca;
     }
-    // Ref/MutRef-typed param: `&p` means address of the param's own
-    // storage slot, not the value it points at. Spill the SSA arg to
-    // an entry alloca and return the alloca (closes B3-bg-03 / Sprint 6).
-    // Replace the scope entry with the alloca so subsequent reads
-    // and other `&p` calls in the same function body see the same
-    // slot (and so the spill happens exactly once).
+    // Ref/MutRef-typed param: `&p` means address of the param's own storage
+    // slot, not the value it points at. Spill the SSA arg to an entry alloca and
+    // REBIND the scope entry to the alloca so subsequent reads and other `&p`
+    // calls share the one slot — write-through semantics for `&&mut T` chains
+    // (closes B3-bg-03 / Sprint 6).
     if (it->second && ref_param_names_.count(var_name)) {
         auto alloca = create_entry_alloca(it->second.getType());
         builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
         it->second = alloca;
         ref_param_names_.erase(var_name);
+        ptr_param_names_.erase(var_name);
+        return alloca;
+    }
+    // RAW-pointer param (`*mut T`/`*const T`): the SSA value IS the pointer, so
+    // `&p` is the address of the param's own slot — spill to a stack home and
+    // return that address. Previously fell through to `return it->second`,
+    // handing back the pointer VALUE instead (`fn f(p:*mut T){ &p }` → garbage
+    // `*mut *mut T` → segfault). Address-of-a-copy (scope_ untouched: reads /
+    // subscripts keep using the SSA arg). NOT for aggregate-by-value params,
+    // whose SSA value is ALREADY the object address (handled by the fall-through).
+    if (it->second && ptr_param_names_.count(var_name)) {
+        auto alloca = create_entry_alloca(it->second.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, it->second, alloca);
         return alloca;
     }
     // Enum value-repr: `&o` for an enum local is ONE level — the inline

@@ -228,12 +228,17 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     var_dyn_trait_.clear();
     dyn_ptr_to_handle_vars_.clear();
     ref_param_names_.clear();
+    ptr_param_names_.clear();
     loop_stack_.clear();
 
     // Bind parameters.
     for (size_t i = 0; i < fn.params.size(); ++i) {
         auto& p = fn.params[i];
         scope_[p.name] = entry->getArgument(i);
+        // Raw-pointer params need a stack home for `&p` (see EAddrOf); aggregate
+        // by-value params (SSA = the object address) and scalars do not go here.
+        if (p.type && TypeRef(p.type).kind() == LogosType::Kind::Ptr)
+            ptr_param_names_.insert(p.name);
         // Record Ref/MutRef-typed params for the EAddrOfView spill path.
         if (p.type) {
             auto pk = TypeRef(p.type).kind();
