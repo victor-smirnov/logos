@@ -1,0 +1,116 @@
+// The DYNAMIC persistent map, built by REUSING the existing B+tree: PMap
+// instantiated at K = V = DynVal (a runtime-typed self-describing cell). No new
+// node type, descent, mutate or iter — the same Branch / Leaf / algorithms that
+// serve PMap<u64,u64> host this dynamic container. Exercises multi-level insert
+// (splits → Branch root), get, runtime-typed values (u64 + i64 keys), CoW
+// snapshot isolation and commit/reopen.
+
+package persistent_dynval_smoke;
+
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.hermes.hstatic;
+
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.handle;
+use logos.std.data.persistent.dynval;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "dyn",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+// The dynamic map's CFG: key and value are both the runtime-typed cell.
+pub const DynCfg: HermesStatic = @{
+    "key":    <type:DynVal>,
+    "value":  <type:DynVal>,
+    "fanout": 8,
+};
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    // C0: ctr=1 holds u64 keys [0..120) → i*3 (multi-level: forces splits).
+    let mut c0: u64 = 0u64;
+    {
+        let mut snap = store.fork(GENESIS);
+        {
+            let mut cr = create_pmap::<DynCfg>(&mut snap, 1u64);
+            let mut i: u64 = 0u64;
+            while i < 120u64 {
+                cr.insert(DynVal::from_u64(i), DynVal::from_u64(i * 3u64));
+                i = i + 1u64;
+            }
+            if cr.len() != 120u64 { return 10; }
+            match cr.get(DynVal::from_u64(42u64)) {
+                Option::Some(v) => { if v.bits != 126u64 { return 11; } }
+                Option::None    => { return 12; }
+            }
+        }
+        c0 = snap.commit();
+    }
+
+    // Fork A from C0: must see all 120 inherited entries; extend a bit.
+    let mut c1: u64 = 0u64;
+    {
+        let mut snap = store.fork(c0);
+        {
+            let mut cr = open_pmap::<DynCfg>(&mut snap, 1u64).unwrap();
+            if cr.len() != 120u64 { return 20; }
+            match cr.get(DynVal::from_u64(7u64)) {
+                Option::Some(v) => { if v.bits != 21u64 { return 21; } }
+                Option::None    => { return 22; }
+            }
+            let mut i: u64 = 120u64;
+            while i < 150u64 {
+                cr.insert(DynVal::from_u64(i), DynVal::from_u64(i * 5u64));
+                i = i + 1u64;
+            }
+            if cr.len() != 150u64 { return 23; }
+        }
+        c1 = snap.commit();
+    }
+
+    // Fork B from C0: sibling isolation — must NOT see fork A's [120..150).
+    {
+        let mut snap = store.fork(c0);
+        let cr = open_pmap::<DynCfg>(&mut snap, 1u64).unwrap();
+        if cr.len() != 120u64 { return 30; }
+        if cr.contains(DynVal::from_u64(130u64)) { return 31; }
+    }
+
+    // Second container in the same store: i64 keys (runtime-typed: signed
+    // ordering via DynVal's descriptor dispatch), proving the cell carries its
+    // own type. Negative keys must sort below positive ones.
+    {
+        let mut snap = store.fork(c1);
+        {
+            let mut cr = create_pmap::<DynCfg>(&mut snap, 2u64);
+            cr.insert(DynVal::from_i64(-5i64), DynVal::from_i64(100i64));
+            cr.insert(DynVal::from_i64(3i64),  DynVal::from_i64(200i64));
+            cr.insert(DynVal::from_i64(-1i64), DynVal::from_i64(300i64));
+            if cr.len() != 3u64 { return 40; }
+            // Smallest in sorted order is the most-negative key (-5).
+            match cr.get_at(0u64) {
+                Option::Some(kv) => {
+                    if kv.0.bits as i64 != -5i64  { return 41; }
+                    if kv.1.bits as i64 != 100i64 { return 42; }
+                }
+                Option::None => { return 43; }
+            }
+            match cr.get(DynVal::from_i64(3i64)) {
+                Option::Some(v) => { if v.bits as i64 != 200i64 { return 44; } }
+                Option::None    => { return 45; }
+            }
+        }
+        snap.commit();
+    }
+
+    return 0;
+}

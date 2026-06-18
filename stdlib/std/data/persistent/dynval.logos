@@ -1,0 +1,91 @@
+// logos.std.data.persistent.dynval — runtime-typed value cell for the dynamic
+// persistent map.
+//
+// DynVal is a fixed-width (16B) self-describing cell: a Hermes type-code + 8
+// bytes of inline payload (the value's bits). It is the vehicle that lets the
+// EXISTING persistent B+tree host a DYNAMIC container without any change to the
+// tree: a dynamic PMap is simply `PMap` instantiated at K = V = DynVal. Branch /
+// Leaf / descent / mutate / iter / CoW are reused verbatim — DynVal is "just
+// another" `Container + ContainerOrd` Datatype, and ordering / dispatch happen
+// at RUNTIME on `code` rather than per-monomorphisation on a concrete K.
+//
+// Why this and not a new node type: the only thing a container needs from the
+// tree is key storage + a key comparison + a value slot. A self-describing cell
+// supplies all three through the Datatype boundary that already exists — so the
+// dynamic map costs one Datatype impl, not a forked tree. (See the directory
+// leaf for the "same branch, different leaf" precedent; this is "same leaf,
+// runtime-typed cell".)
+//
+// v1 scope: inline POD scalars (u64 / i64 / bool / char-as-u32). Ref / large
+// payloads (string, blob — `code` would mark `bits` as a store-relative
+// pointer) are the next step; they need persistent payload storage, which is
+// orthogonal to the tree reuse proven here.
+
+package logos.std.data.persistent.dynval;
+
+use logos.lang.cmp;                 // Ordering
+use logos.lang.clone;              // Copy
+use logos.lang.fabric;             // Primitive / Container / ContainerOrd
+use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL type codes
+
+// ── DynVal — the runtime-typed cell ────────────────────────────────────────
+pub struct DynVal {
+    pub code: u64,    // Hermes type-code (H2_U64 / H2_I64 / HA_BOOL / …)
+    pub bits: u64,    // inline payload — the scalar value reinterpreted as u64
+}
+
+// 16B POD with no relocation — takes the VALUE-view path: `Prim = Self`, so
+// ViewInStore = DynVal (by value). `Container` is then blanket-derived
+// (fabric.logos), so `Buffer<DynVal>` — the leaf key/val storage — just works,
+// keys/values flow by value (cheap 16B copies), and lookups hand back OWNED
+// cells (no pointer into CoW-mobile leaf storage). We use the value path rather
+// than PodRef deliberately: the handle forms its query key as `&key as *const K`,
+// which is only a valid `*const Self` when the view IS the value — a PodRef view
+// is already a pointer, and `&view` would point at the pointer (read garbage).
+impl Primitive for DynVal { type Prim = DynVal; }
+
+// A 16B POD cell (two Copy fields, no Drop) — Copy, like the scalar keys/values
+// the B+tree algorithms already assume: they reuse a key by value (insert it,
+// then carry it as a split's `right_max`), which requires Copy, not move.
+impl Copy for DynVal {}
+
+impl DynVal {
+    // Tag a scalar with its runtime code.
+    pub static fn from_u64(v: u64) -> DynVal  { return DynVal { code: H2_U64, bits: v }; }
+    pub static fn from_i64(v: i64) -> DynVal  { return DynVal { code: H2_I64, bits: v as u64 }; }
+    pub static fn from_bool(v: bool) -> DynVal { return DynVal { code: HA_BOOL as u64, bits: v as u64 }; }
+
+    pub fn type_code(&self) -> u64 { return self.code; }
+    pub fn as_u64(&self) -> u64    { return self.bits; }
+    pub fn as_i64(&self) -> i64    { return self.bits as i64; }
+    pub fn as_bool(&self) -> bool  { return self.bits != 0u64; }
+}
+
+// Total order over two same-typed payloads, dispatched on the runtime code.
+// Homogeneous-container assumption: every key in a container shares a code (the
+// query's code selects the comparison). Signed codes compare as i64; everything
+// else (u64 / bool / char / …) compares as unsigned bits — which matches each
+// scalar's natural order. This is the single extension point: a richer registry
+// (à la memoria's desc_for) drops in here without touching the tree.
+pub fn dynval_cmp(code: u64, a: u64, b: u64) -> Ordering {
+    if code == H2_I64 {
+        let x: i64 = a as i64;
+        let y: i64 = b as i64;
+        if x < y { return Ordering::Less; }
+        if x > y { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
+    if a < b { return Ordering::Less; }
+    if a > b { return Ordering::Greater; }
+    return Ordering::Equal;
+}
+
+// DynVal supplies its order here, runtime-typed — and deliberately does NOT
+// impl `Ord` (which would mean a fixed byte order and could collide with a
+// future Primitive+Ord ContainerOrd blanket). `self` is the established phantom
+// receiver (never read); the operands are the stored view and the query pointer.
+impl ContainerOrd for DynVal {
+    unsafe fn cmp_view_key(self: *const DynVal, stored: DynVal, query: *const DynVal) -> Ordering {
+        return dynval_cmp((*query).code, stored.bits, (*query).bits);
+    }
+}

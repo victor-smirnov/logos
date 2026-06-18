@@ -1,0 +1,57 @@
+// Regression: binding an enum's TUPLE payload whole (`match o { Some(kv) => … }`)
+// and then indexing it (`kv.0`) must read each element correctly even when the
+// elements are AGGREGATES (structs). The payload tuple's address is the value;
+// the bound name must alias it (+ tuple shape), like a normal tuple `let` and
+// the inline-struct payload case. The bug bound the name to an alloca holding
+// the POINTER, so `kv.N` read the pointer's bytes as tuple data — fine for
+// scalar elements (Option<(u64,u64)>) but garbage for struct elements.
+// (bind_enum_payload, mlir_gen_stmt.cpp.)
+
+package match_enum_tuple_aggregate;
+
+use logos.lang.option;
+use logos.lang.clone;
+
+struct P { a: u64, b: u64 }
+impl Copy for P {}
+
+fn mk_pair(x: u64, y: u64) -> Option<(P, P)> {
+    return Option::Some((P { a: x, b: x + 1u64 }, P { a: y, b: y + 1u64 }));
+}
+fn mk_mixed(x: u64, n: u64) -> Option<(P, u64)> {
+    return Option::Some((P { a: x, b: x + 1u64 }, n));
+}
+
+fn main() -> i32 {
+    // Whole-tuple binding + index, both elements aggregates.
+    match mk_pair(10u64, 20u64) {
+        Option::Some(kv) => {
+            if kv.0.a != 10u64 { return 1; }
+            if kv.0.b != 11u64 { return 2; }
+            if kv.1.a != 20u64 { return 3; }
+            if kv.1.b != 21u64 { return 4; }
+        }
+        Option::None => { return 5; }
+    }
+
+    // Mixed aggregate + scalar element.
+    match mk_mixed(30u64, 99u64) {
+        Option::Some(kv) => {
+            if kv.0.a != 30u64 { return 6; }
+            if kv.0.b != 31u64 { return 7; }
+            if kv.1   != 99u64 { return 8; }
+        }
+        Option::None => { return 9; }
+    }
+
+    // Nested-pattern extraction must still agree (was already correct).
+    match mk_pair(40u64, 50u64) {
+        Option::Some((x, y)) => {
+            if x.a != 40u64 { return 10; }
+            if y.a != 50u64 { return 11; }
+        }
+        Option::None => { return 12; }
+    }
+
+    return 0;
+}

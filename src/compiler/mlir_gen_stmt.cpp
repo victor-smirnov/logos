@@ -208,6 +208,34 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             added.push_back(bindings[bi]);
             continue;
         }
+        // Inline TUPLE payload bound whole (`Some(kv)` where the payload is a
+        // tuple): `fp` already points at the inline tuple bytes — bind it
+        // DIRECTLY (the address IS the value) + carry tuple shape so `kv.N` GEPs
+        // through it, exactly like the inline-struct case and a normal tuple
+        // `let`. A move-type tuple bound by value is copied to a fresh slot
+        // (source drop suppressed by mark_match_scrutinee_moved). Falling
+        // through to the scalar path below stored the POINTER `fp` into an alloca
+        // and bound `kv` to THAT — `kv.N` then read the pointer's bytes as tuple
+        // data: correct for scalar elements (u64) but garbage for aggregate
+        // elements (a struct field), the Option<(Struct, …)> mis-read.
+        if (lt && TypeRef(lt).kind() == LogosType::Kind::Tuple) {
+            mlir::Value bind_ptr = fp;
+            if (value_needs_drop(lt)) {
+                auto tty = tuple_llvm_type(lt);
+                if (tty) {
+                    auto fresh = create_entry_alloca(tty);
+                    builder_.create<mlir::LLVM::MemcpyOp>(
+                        loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
+                    bind_ptr = fresh;
+                }
+            }
+            evict_shapes(bindings[bi]);
+            scope_[bindings[bi]] = bind_ptr;
+            let_vars_.insert(bindings[bi]);
+            var_tuple_.insert(bindings[bi]);
+            added.push_back(bindings[bi]);
+            continue;
+        }
         // Enum value-repr: a nested TAGGED enum payload field is INLINE — `fp`
         // is its storage address (one level). Bind it directly as a tagged-enum
         // var. A C-like enum (no TaggedEnumInfo) is an i32 — scalar-load below.
