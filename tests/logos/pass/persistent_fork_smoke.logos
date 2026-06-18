@@ -68,7 +68,7 @@ fn main() -> i32 {
         let mut snap_a = store.fork(GENESIS);
         {
             let mut cr =
-                create_pmap::<MapCfg>(&mut snap_a, 7u64);
+                create_ctr::<MapCfg>(&mut snap_a, 7u64);
             fill_range(&mut cr, 0u64, 50u64, 3u64);
             if cr.len() != 50u64 { return 10; }
         }
@@ -81,7 +81,7 @@ fn main() -> i32 {
         let mut snap_b = store.fork(c0);
         {
             let mut cr =
-                open_pmap::<MapCfg>(&mut snap_b, 7u64).unwrap();
+                open_ctr::<MapCfg>(&mut snap_b, 7u64).unwrap();
             if cr.len() != 50u64 { return 21; }
             fill_range(&mut cr, 50u64, 100u64, 5u64);
             if cr.len() != 100u64 { return 22; }
@@ -95,7 +95,7 @@ fn main() -> i32 {
         let mut snap_c = store.fork(c0);
         {
             let mut cr =
-                open_pmap::<MapCfg>(&mut snap_c, 7u64).unwrap();
+                open_ctr::<MapCfg>(&mut snap_c, 7u64).unwrap();
             if cr.len() != 50u64 { return 30; }
             fill_range(&mut cr, 100u64, 150u64, 7u64);
             if cr.len() != 100u64 { return 31; }
@@ -107,7 +107,7 @@ fn main() -> i32 {
     {
         let mut snap_d = store.fork(c0);
         let cr =
-            open_pmap::<MapCfg>(&mut snap_d, 7u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap_d, 7u64).unwrap();
         if cr.len() != 50u64 { return 40; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 41; }
         let probe = 75u64;
@@ -118,7 +118,7 @@ fn main() -> i32 {
     {
         let mut snap_b2 = store.fork(c1);
         let cr =
-            open_pmap::<MapCfg>(&mut snap_b2, 7u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap_b2, 7u64).unwrap();
         if cr.len() != 100u64 { return 50; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 51; }
         if check_range(&cr, 50u64, 100u64, 5u64) != 0i32 { return 52; }
@@ -130,7 +130,7 @@ fn main() -> i32 {
     {
         let mut snap_c2 = store.fork(c2);
         let cr =
-            open_pmap::<MapCfg>(&mut snap_c2, 7u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap_c2, 7u64).unwrap();
         if cr.len() != 100u64 { return 60; }
         if check_range(&cr, 0u64, 50u64, 3u64) != 0i32 { return 61; }
         if check_range(&cr, 100u64, 150u64, 7u64) != 0i32 { return 62; }

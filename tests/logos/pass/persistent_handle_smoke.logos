@@ -1,5 +1,5 @@
 // End-to-end smoke for the persistent stack: store_open → snap_begin
-// → create_pmap → insert → commit → drop chain releases everything.
+// → create_ctr → insert → commit → drop chain releases everything.
 //
 // v1 limits: single-leaf inserts only (no branch descent / splits).
 // Snapshot fork + multi-level CoW land when mutate's full BTree
@@ -37,7 +37,7 @@ fn main() -> i32 {
 
     {
         let mut cr =
-            create_pmap::<MapCfg>(&mut snap, 7u64);
+            create_ctr::<MapCfg>(&mut snap, 7u64);
 
         if cr.len() != 0u64 { return 1; }
 

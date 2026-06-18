@@ -174,7 +174,7 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: HermesSt
 }
 
 // ── Recursive walks via NodeARC ───────────────────────────────────────
-pub fn pmap_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> bool {
     unsafe {
@@ -186,11 +186,11 @@ pub fn pmap_contains_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
         if i >= br.children.len() as u64 { return false; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
-        return pmap_contains_rec::<K, V, STORE_CFG, CFG>(child, key);
+        return bt_contains_rec::<K, V, STORE_CFG, CFG>(child, key);
     }
 }
 
-pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> Option<V::ViewInStore> {
     unsafe {
@@ -204,7 +204,7 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
         let i: u64 = branch_descend_idx::<K, STORE_CFG, CFG>(br, key);
         if i >= br.children.len() as u64 { return Option::None; }   // key > all maxes
         let child: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
-        return pmap_get_rec::<K, V, STORE_CFG, CFG>(child, key);
+        return bt_get_rec::<K, V, STORE_CFG, CFG>(child, key);
     }
 }
 
@@ -219,13 +219,13 @@ pub fn pmap_get_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: 
 // On success returns Some(leaf NodeARC) (rc bumped — caller drops normally)
 // and writes the leaf-relative index into *out_idx. On out-of-range, returns
 // None and writes 0 into *out_idx (Rust idiom — no null-handle sentinel).
-pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_descend_to_n<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64, out_idx: *mut u64,
 ) -> Option<NodeARC<STORE_CFG>> {
     // Out-of-range guard: shuttle clamps target == total to (last_child,
     // remainder=0) which would resolve to the first key of the last
     // leaf, masking the OOR. Check explicit total upfront.
-    let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
+    let total: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(arc);
     if n >= total {
         *out_idx = 0u64;
         return Option::None;
@@ -271,7 +271,7 @@ pub unsafe fn pmap_descend_to_n<K: Container + ContainerOrd, V: Container, const
 // sum of preceding children's subtree_size column entries to convert
 // the per-level child idx into a global position offset. At leaf, add
 // leaf_lower_bound. The accumulator gives the global index.
-pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
@@ -318,7 +318,7 @@ pub unsafe fn pmap_lower_bound<K: Container + ContainerOrd, V: Container, const 
 // that case naturally — leaf_upper_bound returns leaf.len, and the next
 // step would be to walk to the right sibling. To keep this O(depth)
 // without sibling-walk plumbing, fall back to scanning slots ourselves.
-pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, key: *const K
 ) -> u64 {
     let mut cur: NodeARC<STORE_CFG> = arc.clone();
@@ -356,7 +356,7 @@ pub unsafe fn pmap_upper_bound<K: Container + ContainerOrd, V: Container, const 
     }
 }
 
-pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub fn bt_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>
 ) -> u64 {
     unsafe {
@@ -384,7 +384,7 @@ pub fn pmap_size_rec<K: Container + ContainerOrd, V: Container, const STORE_CFG:
         let mut i: i64 = 0i64;
         while i < nc {
             let child: &NodeARC<STORE_CFG> = br.children.borrow(i);
-            total = total + pmap_size_rec::<K, V, STORE_CFG, CFG>(child);
+            total = total + bt_size_rec::<K, V, STORE_CFG, CFG>(child);
             i = i + 1i64;
         }
         return total;

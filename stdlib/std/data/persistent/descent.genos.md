@@ -40,7 +40,7 @@ genos descent<K, V, AGGR, ACC, FIN, R>
 ## Algorithm body (pseudocode)
 
 ```logos
-genos pmap_descend<K, V, AGGR, ACC, FIN, R>(
+genos bt_descend<K, V, AGGR, ACC, FIN, R>(
     arc:    NodeARC,           // root or any subtree
     target: AGGR.target_type,  // u64 for SUM, *const K for MAX-on-K, …
     init:   ACC,               // starting accumulator value
@@ -69,26 +69,26 @@ genos pmap_descend<K, V, AGGR, ACC, FIN, R>(
 }
 ```
 
-The `genos` shape lifts via partial application: each concrete descent in `descent.logos` is `pmap_descend` with specific (AGGR, ACC, FIN, R) substituted.
+The `genos` shape lifts via partial application: each concrete descent in `descent.logos` is `bt_descend` with specific (AGGR, ACC, FIN, R) substituted.
 
 ## Concrete instantiations (in `descent.logos`)
 
 | Symbol | AGGR | ACC | FIN | R | Use |
 |---|---|---|---|---|---|
-| `pmap_size_rec` | — (no descent: branch reads SUM column directly) | — | — | u64 | container length |
-| `pmap_descend_to_n` | SUM(subtree_size) | — | `(leaf, off, _) → (leaf, off)` | `(NodeARC, u64)` | position → leaf |
-| `pmap_lower_bound` | MAX-on-K (via shuttle_max_k) | running pos sum | `leaf_lower_bound` | u64 | first pos with key ≥ target |
-| `pmap_upper_bound` | MAX-on-K (strict) | running pos sum | `leaf_upper_bound` | u64 | first pos with key > target |
+| `bt_size_rec` | — (no descent: branch reads SUM column directly) | — | — | u64 | container length |
+| `bt_descend_to_n` | SUM(subtree_size) | — | `(leaf, off, _) → (leaf, off)` | `(NodeARC, u64)` | position → leaf |
+| `bt_lower_bound` | MAX-on-K (via shuttle_max_k) | running pos sum | `leaf_lower_bound` | u64 | first pos with key ≥ target |
+| `bt_upper_bound` | MAX-on-K (strict) | running pos sum | `leaf_upper_bound` | u64 | first pos with key > target |
 
 Future instantiations (currently hand-written or not yet implemented):
 
 | Symbol | AGGR | ACC | FIN | R | Use |
 |---|---|---|---|---|---|
-| `pmap_iter_open_at` | SUM(subtree_size) | path stack | leaf + cursor | PMapIter | open iter at pos N |
-| `pmap_iter_open_lower` | MAX-on-K | path stack + pos | leaf + cursor | PMapIter | open iter at lower_bound(K) |
-| `pmap_count_le(k)` | MAX-on-K | running pos sum | `leaf_upper_bound` | u64 | count of keys ≤ k |
-| `pmap_count_in(lo, hi)` | — | — | — | u64 | `count_le(hi) - count_le(lo)` (composes the above) |
-| `pmap_range_sum(lo, hi, col)` | MAX-on-K + SUM(col) bound by leaf | … | … | u64 | sum of aggregate column over key range |
+| `bt_iter_open_at` | SUM(subtree_size) | path stack | leaf + cursor | BtIter | open iter at pos N |
+| `bt_iter_open_lower` | MAX-on-K | path stack + pos | leaf + cursor | BtIter | open iter at lower_bound(K) |
+| `bt_count_le(k)` | MAX-on-K | running pos sum | `leaf_upper_bound` | u64 | count of keys ≤ k |
+| `bt_count_in(lo, hi)` | — | — | — | u64 | `count_le(hi) - count_le(lo)` (composes the above) |
+| `bt_range_sum(lo, hi, col)` | MAX-on-K + SUM(col) bound by leaf | … | … | u64 | sum of aggregate column over key range |
 
 The pattern: **each new query reuses the same descent shape, varying only the four type-level parameters**. Once the metaprog under this genos lands, adding a new query type becomes a one-line entry in a spec table — no descent loop is rewritten.
 
@@ -115,53 +115,53 @@ A conformance harness runs each instantiation against canonical inputs. Same inp
 
 ```yaml
 - name: empty_tree
-  setup: PMap<u64,u64>, no inserts
+  setup: map<u64,u64>, no inserts
   cases:
-    - pmap_size_rec()           = 0
-    - pmap_descend_to_n(0)      = (null_arc, 0)
-    - pmap_lower_bound(7)       = 0
-    - pmap_upper_bound(7)       = 0
+    - bt_size_rec()           = 0
+    - bt_descend_to_n(0)      = (null_arc, 0)
+    - bt_lower_bound(7)       = 0
+    - bt_upper_bound(7)       = 0
 
 - name: single_leaf_3_keys
   setup: insert (1,10), (3,30), (5,50)
   cases:
-    - pmap_size_rec()           = 3
-    - pmap_descend_to_n(0)      = (leaf, 0)   # key=1
-    - pmap_descend_to_n(2)      = (leaf, 2)   # key=5
-    - pmap_descend_to_n(3)      = null
-    - pmap_lower_bound(0)       = 0
-    - pmap_lower_bound(3)       = 1
-    - pmap_lower_bound(4)       = 2
-    - pmap_lower_bound(6)       = 3
-    - pmap_upper_bound(3)       = 2
-    - pmap_upper_bound(5)       = 3
+    - bt_size_rec()           = 3
+    - bt_descend_to_n(0)      = (leaf, 0)   # key=1
+    - bt_descend_to_n(2)      = (leaf, 2)   # key=5
+    - bt_descend_to_n(3)      = null
+    - bt_lower_bound(0)       = 0
+    - bt_lower_bound(3)       = 1
+    - bt_lower_bound(4)       = 2
+    - bt_lower_bound(6)       = 3
+    - bt_upper_bound(3)       = 2
+    - bt_upper_bound(5)       = 3
 
 - name: multi_level_fanout4
   setup: insert keys 0..29 in shuffled order, fanout=4
   cases:
-    - pmap_size_rec()           = 30
-    - pmap_descend_to_n(7).leaf.keys[idx] = 7
-    - pmap_descend_to_n(29).leaf.keys[idx] = 29
-    - pmap_descend_to_n(30)     = null
-    - pmap_lower_bound(15)      = 15
-    - pmap_upper_bound(15)      = 16
+    - bt_size_rec()           = 30
+    - bt_descend_to_n(7).leaf.keys[idx] = 7
+    - bt_descend_to_n(29).leaf.keys[idx] = 29
+    - bt_descend_to_n(30)     = null
+    - bt_lower_bound(15)      = 15
+    - bt_upper_bound(15)      = 16
 ```
 
 ## Reference instantiations
 
-- `pmap_descend_to_n` — `stdlib/std/data/persistent/descent.logos:197`
-- `pmap_lower_bound`  — `stdlib/std/data/persistent/descent.logos:262`
-- `pmap_upper_bound`  — `stdlib/std/data/persistent/descent.logos:301`
-- `pmap_size_rec`     — `stdlib/std/data/persistent/descent.logos:341`
+- `bt_descend_to_n` — `stdlib/std/data/persistent/descent.logos:197`
+- `bt_lower_bound`  — `stdlib/std/data/persistent/descent.logos:262`
+- `bt_upper_bound`  — `stdlib/std/data/persistent/descent.logos:301`
+- `bt_size_rec`     — `stdlib/std/data/persistent/descent.logos:341`
 
 Test files: `tests/logos/pass/persistent_get_at.logos`, `persistent_bounds.logos`, `persistent_iter*.logos`.
 
 ## How an AI session uses this
 
-When extending the family (add `pmap_iter_range_k`, say):
+When extending the family (add `bt_iter_range_k`, say):
 
 1. Read this genos to understand the shape — the descent loop is fixed; you choose AGGR, ACC, FIN, R.
-2. Choose: AGGR = MAX-on-K (key-driven descent); ACC = path stack (recording for the iter); FIN = construct PMapIter at leaf + cursor.
+2. Choose: AGGR = MAX-on-K (key-driven descent); ACC = path stack (recording for the iter); FIN = construct BtIter at leaf + cursor.
 3. Reference instantiations show how each hook is implemented for similar parameter combinations.
 4. Add to test vectors first. New cases extend the existing yaml — they're the conformance contract for any concrete implementation.
 5. Implement the concrete fn following the genos skeleton; verify against test vectors.

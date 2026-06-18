@@ -3,11 +3,12 @@
 //
 // DynVal is a fixed-width (16B) self-describing cell: a Hermes type-code + 8
 // bytes of inline payload (the value's bits). It is the vehicle that lets the
-// EXISTING persistent B+tree host a DYNAMIC container without any change to the
-// tree: a dynamic PMap is simply `PMap` instantiated at K = V = DynVal. Branch /
-// Leaf / descent / mutate / iter / CoW are reused verbatim — DynVal is "just
-// another" `Container + ContainerOrd` Datatype, and ordering / dispatch happen
-// at RUNTIME on `code` rather than per-monomorphisation on a concrete K.
+// EXISTING persistent B+tree host a DYNAMIC (runtime-typed) container without
+// any change to the tree: the dynamic map is just an ordinary container —
+// `create_ctr::<DynCfg>` with key = value = DynVal. Branch / Leaf / descent /
+// mutate / iter / CoW are reused verbatim — DynVal is "just another"
+// `Container + ContainerOrd` Datatype, and ordering / dispatch happen at RUNTIME
+// on `code` rather than per-monomorphisation on a concrete K.
 //
 // Why this and not a new node type: the only thing a container needs from the
 // tree is key storage + a key comparison + a value slot. A self-describing cell
@@ -65,8 +66,8 @@ impl DynVal {
 // Homogeneous-container assumption: every key in a container shares a code (the
 // query's code selects the comparison). Signed codes compare as i64; everything
 // else (u64 / bool / char / …) compares as unsigned bits — which matches each
-// scalar's natural order. This is the single extension point: a richer registry
-// (à la memoria's desc_for) drops in here without touching the tree.
+// scalar's natural order. This is the single extension point: a richer
+// type-code → comparator registry drops in here without touching the tree.
 pub fn dynval_cmp(code: u64, a: u64, b: u64) -> Ordering {
     if code == H2_I64 {
         let x: i64 = a as i64;

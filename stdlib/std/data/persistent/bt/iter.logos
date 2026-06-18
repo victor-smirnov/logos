@@ -1,6 +1,6 @@
 // logos.std.data.persistent.bt.iter — forward walker over a multi-level BTree.
 //
-// Memoria-style snapshot iter: PMapIter holds NodeARC clones for every
+// Memoria-style snapshot iter: BtIter holds NodeARC clones for every
 // branch on the path AND for the current leaf. Each clone owns an rc
 // share — the underlying blocks stay alive until the iter drops, even
 // if the originating ContainerRef is dropped or its tree is mutated.
@@ -8,7 +8,7 @@
 // container (via ContainerRef.insert / .remove) CoW-clone affected
 // nodes, leaving iter's pinned tree untouched.
 //
-// Drop chain (after compiler debt #12 fix in mono): PMapIter's auto-
+// Drop chain (after compiler debt #12 fix in mono): BtIter's auto-
 // derive Drop walks Vec<IterFrame>; Vec's drop body's per-element
 // `let _x: T = p[i]` for T=IterFrame gets drop_fields=true via the
 // mono SDrop sentinel→struct path → mlir-gen walks IterFrame's fields
@@ -49,7 +49,7 @@ pub struct IterFrame<K: Container + ContainerOrd, const STORE_CFG: HermesStatic,
 // container). The iter still PINS its frozen view via NodeARC clones, so this
 // is a Rust-model exclusivity rule layered over the already-safe snapshot.
 #[borrow_carrying]
-pub struct PMapIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
+pub struct BtIter<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub path:     Vec<IterFrame<K, STORE_CFG, CFG>>,
     pub leaf_arc: NodeARC<STORE_CFG>,
     pub leaf_p:   *mut LeafNode<K, V, STORE_CFG, CFG>,
@@ -102,21 +102,21 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
 
 // Open a forward iter positioned at the n-th entry in sorted order.
 // O(depth) descent via the same SUM-shuttle wrapper as
-// pmap_descend_to_n, but recording the (branch_arc, branch_p, idx)
+// bt_descend_to_n, but recording the (branch_arc, branch_p, idx)
 // frames as it descends — so step/step_back work from the new position.
 //
 // On out-of-range (n >= total): returns an invalid iter (valid()==false).
-pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open_at<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>, n: u64,
-) -> PMapIter<K, V, STORE_CFG, CFG> {
+) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
-    let total: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(arc);
+    let total: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(arc);
     if n >= total {
         // Empty iter — null leaf_p makes valid() false. leaf_arc holds a
         // throwaway share of the root (never traversed; dropped with the iter);
         // there is no null-Arc to construct, and an invalid iter is discarded
         // immediately so the extra share is short-lived.
-        return PMapIter::<K, V, STORE_CFG, CFG> {
+        return BtIter::<K, V, STORE_CFG, CFG> {
             path:     path,
             leaf_arc: arc.clone(),
             leaf_p:   0 as *mut LeafNode<K, V, STORE_CFG, CFG>,
@@ -140,7 +140,7 @@ pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const
     }
     let leaf_p: *mut LeafNode<K, V, STORE_CFG, CFG> =
         node_arc_data_ptr::<STORE_CFG>(&cur) as *mut LeafNode<K, V, STORE_CFG, CFG>;
-    return PMapIter::<K, V, STORE_CFG, CFG> {
+    return BtIter::<K, V, STORE_CFG, CFG> {
         path:     path,
         leaf_arc: cur,
         leaf_p:   leaf_p,
@@ -152,15 +152,15 @@ pub unsafe fn pmap_iter_open_at<K: Container + ContainerOrd, V: Container, const
 // rooted at `arc`. The iter pins its view via NodeARC clones — `arc`'s
 // container can be dropped, mutated, or commit'd; the iter still walks
 // the snapshot observed at iter-open time.
-pub unsafe fn pmap_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>,
-) -> PMapIter<K, V, STORE_CFG, CFG> {
+) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
     let leaf_arc: NodeARC<STORE_CFG> = descend_leftmost::<K, V, STORE_CFG, CFG>(
         arc, &mut path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
     let leaf_p: *mut LeafNode<K, V, STORE_CFG, CFG> =
         node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
-    return PMapIter::<K, V, STORE_CFG, CFG> {
+    return BtIter::<K, V, STORE_CFG, CFG> {
         path:     path,
         leaf_arc: leaf_arc,
         leaf_p:   leaf_p,
@@ -169,14 +169,14 @@ pub unsafe fn pmap_iter_open<K: Container + ContainerOrd, V: Container, const ST
 }
 
 // Open a REVERSE iter at the rightmost (largest) entry. Symmetric to
-// pmap_iter_open: descend_rightmost records the path, cursor sits on the
+// bt_iter_open: descend_rightmost records the path, cursor sits on the
 // last key of the rightmost leaf. Walk backward with step_back(); valid()
 // is the same check (an empty tree yields a 0-key leaf → cursor 0 →
 // valid()==false). This is the entry point the reverse machinery
 // (descend_rightmost / step_back) was always missing.
-pub unsafe fn pmap_iter_open_back<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_iter_open_back<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     arc: &NodeARC<STORE_CFG>,
-) -> PMapIter<K, V, STORE_CFG, CFG> {
+) -> BtIter<K, V, STORE_CFG, CFG> {
     let mut path: Vec<IterFrame<K, STORE_CFG, CFG>> = vec_new::<IterFrame<K, STORE_CFG, CFG>>();
     let leaf_arc: NodeARC<STORE_CFG> = descend_rightmost::<K, V, STORE_CFG, CFG>(
         arc, &mut path as *mut Vec<IterFrame<K, STORE_CFG, CFG>>);
@@ -184,7 +184,7 @@ pub unsafe fn pmap_iter_open_back<K: Container + ContainerOrd, V: Container, con
         node_arc_data_ptr::<STORE_CFG>(&leaf_arc) as *mut LeafNode<K, V, STORE_CFG, CFG>;
     let nkeys: u64 = leaf_p.keys.len();
     let cursor: u64 = if nkeys > 0u64 { nkeys - 1u64 } else { 0u64 };
-    return PMapIter::<K, V, STORE_CFG, CFG> {
+    return BtIter::<K, V, STORE_CFG, CFG> {
         path:     path,
         leaf_arc: leaf_arc,
         leaf_p:   leaf_p,
@@ -192,7 +192,7 @@ pub unsafe fn pmap_iter_open_back<K: Container + ContainerOrd, V: Container, con
     };
 }
 
-impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> PMapIter<K, V, STORE_CFG, CFG> {
+impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic> BtIter<K, V, STORE_CFG, CFG> {
     pub fn valid(&self) -> bool {
         unsafe {
             if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> { return false; }
@@ -207,7 +207,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     pub fn key(&self) -> K::ViewInStore {
         unsafe {
             if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> {
-                panic("PMapIter::key on an exhausted iterator");
+                panic("BtIter::key on an exhausted iterator");
             }
             return self.leaf_p.keys.get(self.cursor);
         }
@@ -215,7 +215,7 @@ impl<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, c
     pub fn val(&self) -> V::ViewInStore {
         unsafe {
             if self.leaf_p == 0 as *mut LeafNode<K, V, STORE_CFG, CFG> {
-                panic("PMapIter::val on an exhausted iterator");
+                panic("BtIter::val on an exhausted iterator");
             }
             return self.leaf_p.vals.get(self.cursor);
         }

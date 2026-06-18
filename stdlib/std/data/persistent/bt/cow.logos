@@ -11,7 +11,7 @@
 //                                     Container datatype (primitives, fixed
 //                                     structs without Drop).
 //   LeafDirNode<K, STORE_CFG, CFG>  — directory leaf. vals: Vec<NodeARC>.
-//                                     Used when the PMap value type is itself
+//                                     Used when the map value type is itself
 //                                     a NodeARC (= directory storing container
 //                                     roots).
 //
@@ -39,7 +39,7 @@ use logos.std.data.persistent.bt.shuttle;  // ShuttleResult — derive emits per
 use logos.std.compiler.metaprog;        // brings #[derive_branch_node] trigger into scope
 
 // Aggregate columns on BranchNode. SUM aggregate over `subtree_size`
-// turns pmap_size_rec from O(N) full-tree walk into O(depth) — read
+// turns bt_size_rec from O(N) full-tree walk into O(depth) — read
 // from the root branch directly. MAX-on-K is implicit in the existing
 // `keys[i] = max-in-children[i]` Memoria invariant; an explicit
 // max-key column would only matter for non-K-typed comparisons.
@@ -48,7 +48,7 @@ use logos.std.compiler.metaprog;        // brings #[derive_branch_node] trigger 
 // inherits from parent; mutate.logos's insert/remove path updates
 // per-level on bubble-up. This slice lands the column + alloc/
 // cow_clone hooks; mutate-side maintenance is deferred (until then
-// the column stays length=0 — pmap_size_rec keeps recursing).
+// the column stays length=0 — bt_size_rec keeps recursing).
 pub const BRANCH_OPS: HermesStatic = @[
     @{ "field": "subtree_size", "type": "u64", "kind": "SUM" },
 ];

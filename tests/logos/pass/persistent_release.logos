@@ -31,7 +31,7 @@ fn main() -> i32 {
     let mut snap1 = store.fork(GENESIS);
     {
         let mut cr1 =
-            create_pmap::<MapCfg>(&mut snap1, 1u64);
+            create_ctr::<MapCfg>(&mut snap1, 1u64);
         let mut i = 0u64;
         while i < 5u64 { cr1.insert(i, i * 2u64); i = i + 1u64; }
         cr1.writeback();
@@ -42,7 +42,7 @@ fn main() -> i32 {
     let mut snap2 = store.fork(snap1_id);
     {
         let mut cr2 =
-            open_pmap::<MapCfg>(&mut snap2, 1u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap2, 1u64).unwrap();
         let mut i = 5u64;
         while i < 10u64 { cr2.insert(i, i * 2u64); i = i + 1u64; }
         cr2.writeback();
@@ -72,7 +72,7 @@ fn main() -> i32 {
     // snap2 still functional — fork off it, read all 10 keys.
     let mut snap3 = store.fork(snap2_id);
     let cr3 =
-        open_pmap::<MapCfg>(&mut snap3, 1u64).unwrap();
+        open_ctr::<MapCfg>(&mut snap3, 1u64).unwrap();
     if cr3.len() != 10u64 { return 7; }
     let mut i = 0u64;
     while i < 10u64 {

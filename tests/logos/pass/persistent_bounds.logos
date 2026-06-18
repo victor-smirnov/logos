@@ -20,7 +20,7 @@ fn main() -> i32 {
     let mut store = store_open::<StoreCfg>();
     let mut snap = store.fork(GENESIS);
     let mut cr =
-        create_pmap::<MapCfg>(&mut snap, 1u64);
+        create_ctr::<MapCfg>(&mut snap, 1u64);
 
     // Empty: any bound is 0.
     if cr.lower_bound(7u64) != 0u64  { return 1; }

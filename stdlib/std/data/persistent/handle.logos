@@ -48,9 +48,9 @@ pub const DirCfg: HermesStatic = @{ "key": <type:u64>, "fanout": 16 };
 
 // ── Dir multi-level mutate (parallel to mutate.logos but for LeafDirNode) ──
 // LeafDirNode holds NodeARC vals (heterogeneous container roots) — it
-// can't share the data-leaf code path because PMap's V: Container bound
+// can't share the data-leaf code path because map's V: Container bound
 // excludes NodeARC. These helpers mirror split_leaf + insert_rec +
-// pmap_insert for the dir-flavoured layout.
+// bt_insert for the dir-flavoured layout.
 
 // DirInsertOutcome — paired with InsertOutcome's max-key model. On split,
 // `right_max` carries the max ctr_id in the new right subtree; the parent
@@ -381,7 +381,7 @@ pub struct Snap<const STORE_CFG: HermesStatic> {
     pub snapshot_id: SnpId<STORE_CFG>,
     pub parent_id:   SnpId<STORE_CFG>,  // commit id this snap forked from
     // DYNAMIC commit guard: count of ContainerRefs currently open on this
-    // snap. create_pmap/open_pmap bump it; ContainerRef::drop decrements via a
+    // snap. create_ctr/open_ctr bump it; ContainerRef::drop decrements via a
     // raw pointer to this field. commit() refuses (panics) while any container
     // is open — a committed snap's blocks become shared/immutable, and a still-
     // open ContainerRef holds raw pointers into the snap's dir that would
@@ -442,7 +442,7 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
     // ── reusable container infrastructure ───────────────────────────────────
     // The store/snapshot/directory layer is container-AGNOSTIC: a container is
     // just a root NodeARC (any BTreeNode) planted in this snap's `dir`. A
-    // specialization (PMap below, or a future one) brings its OWN node types,
+    // specialization (map below, or a future one) brings its OWN node types,
     // descent and handle API, and reuses these to live in the snapshot + commit
     // DAG. `attach`/`lookup` return a SnapCtx the specialization embeds.
 
@@ -529,7 +529,7 @@ impl<const STORE_CFG: HermesStatic> SnapCtx<STORE_CFG> {
 }
 
 // ── ContainerRef<STORE_CFG, CFG> ─────────────────────────────────────
-// PMap's handle — the FIRST specialization on the reusable infra above. It
+// The map container's handle — the FIRST specialization on the reusable infra above. It
 // owns the container root rc (`arc`) and embeds a `SnapCtx` (the shared
 // snap-side wiring: dir slot / CoW key / id allocator / commit guard). A new
 // container brings its OWN handle (its own root type + method surface) and
@@ -552,18 +552,18 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> Drop for ContainerR
     }
 }
 
-// create_pmap — alloc a fresh empty leaf for the container, insert it
+// create_ctr — alloc a fresh empty leaf for the container, insert it
 // into the dir under ctr_id (descending the dir tree, splitting on
 // overflow), return a ContainerRef holding the open-claim handle.
 //
 // CoW: dir nodes touched on the descent are make_unique'd via
 // dir_insert_rec so the parent commit's dir stays untouched.
-pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
+pub fn create_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
     let block_id: BlockId<STORE_CFG> = snap.alloc_block();
-    // Allocate the container's initial empty leaf (data flavour) — PMap's own
+    // Allocate the container's initial empty leaf (data flavour) — map's own
     // root node type. A second share goes to the handle; `attach` transfers the
     // first into the dir entry.
     let root: NodeARC<STORE_CFG> = unsafe {
@@ -574,10 +574,10 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     return ContainerRef::<STORE_CFG, CFG> { arc: arc_for_ref, ctx: ctx };
 }
 
-// open_pmap — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
+// open_ctr — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
 // sharing rc with the dir's slot, or None when ctr_id isn't present (Rust
 // parity — no more null-handle sentinel the caller must remember to test).
-pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
+pub fn open_ctr<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> Option<ContainerRef<STORE_CFG, CFG>> {
@@ -598,7 +598,7 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
 // through the Store.
 impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_CFG, CFG> {
     pub fn len(&self) -> u64 {
-        return pmap_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+        return bt_size_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -622,14 +622,14 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     }
 
     pub fn contains(&self, key: <type:CFG.key>::ViewInStore) -> bool {
-        return pmap_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+        return bt_contains_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
             &self.arc, &key as *const <type:CFG.key>);
     }
 
     // Rust BTreeMap::get parity: Some(value) on hit, None on miss.
     pub fn get(&self, key: <type:CFG.key>::ViewInStore) -> Option<<type:CFG.value>::ViewInStore> {
         unsafe {
-            return pmap_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            return bt_get_rec::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &self.arc, &key as *const <type:CFG.key>);
         }
     }
@@ -643,7 +643,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         unsafe {
             let mut leaf_idx: u64 = 0u64;
             let leaf_opt: Option<NodeARC<STORE_CFG>> =
-                pmap_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                bt_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                     &self.arc, n, &mut leaf_idx as *mut u64);
             let leaf_arc: NodeARC<STORE_CFG> = match leaf_opt {
                 Option::Some(a) => { a }
@@ -662,7 +662,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     pub fn insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore)
         -> Option<<type:CFG.value>::ViewInStore> {
         let r: Option<<type:CFG.value>::ViewInStore> = unsafe {
-            pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            bt_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &mut self.arc, key, val, &key as *const <type:CFG.key>,
                 self.ctx.snap_id, self.ctx.id_ctr_p)
         };
@@ -672,7 +672,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
 
     pub fn remove(&mut self, key: <type:CFG.key>::ViewInStore) -> bool {
         let r: bool = unsafe {
-            pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            bt_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &mut self.arc, &key as *const <type:CFG.key>,
                 self.ctx.snap_id, self.ctx.id_ctr_p)
         };
@@ -696,7 +696,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // + per-level subtree_size accumulation. Safe: read-only descent.
     pub fn lower_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
         unsafe {
-            return pmap_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            return bt_lower_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &self.arc, &k as *const <type:CFG.key>);
         }
     }
@@ -705,7 +705,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // if k ≥ every key. Safe: read-only descent.
     pub fn upper_bound(&self, k: <type:CFG.key>::ViewInStore) -> u64 {
         unsafe {
-            return pmap_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+            return bt_upper_bound::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &self.arc, &k as *const <type:CFG.key>);
         }
     }
@@ -714,29 +714,29 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // sorted order. O(depth) construction via the SUM-shuttle descent
     // — no need to walk leftmost + n forward steps. n >= len returns
     // an invalid iter (valid() == false).
-    pub fn iter_from(&self, n: u64) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+    pub fn iter_from(&self, n: u64) -> BtIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
         unsafe {
-            return pmap_iter_open_at::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, n);
+            return bt_iter_open_at::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc, n);
         }
     }
 
     // Forward iterator over the container's entries in key order. Safe to
-    // call: PMapIter is #[borrow_carrying] and borrows &self, so the borrow
+    // call: BtIter is #[borrow_carrying] and borrows &self, so the borrow
     // checker forbids mutating the container while the iterator is live (the
     // pinned-snapshot pointers can't be invalidated). Internal raw-pointer
     // walk is wrapped here.
-    pub fn iter(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+    pub fn iter(&self) -> BtIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
         unsafe {
-            return pmap_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+            return bt_iter_open::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
         }
     }
 
     // Reverse iterator: positioned at the largest key. Walk descending order
     // with step_back() (valid()/key()/val() are direction-agnostic). Same
     // borrow rule + safety as iter().
-    pub fn iter_rev(&self) -> PMapIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
+    pub fn iter_rev(&self) -> BtIter<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> {
         unsafe {
-            return pmap_iter_open_back::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
+            return bt_iter_open_back::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(&self.arc);
         }
     }
 }

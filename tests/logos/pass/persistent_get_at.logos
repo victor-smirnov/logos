@@ -1,5 +1,5 @@
 // Position-indexed lookup via ContainerRef::get_at — exercises the
-// shuttle-driven descent (pmap_descend_to_n) over the SUM aggregate
+// shuttle-driven descent (bt_descend_to_n) over the SUM aggregate
 // column on BranchNode. Inserts shuffled-order keys to force a
 // multi-level tree, then reads each position-N key and verifies it
 // matches the sorted order.
@@ -23,7 +23,7 @@ fn main() -> i32 {
     let mut store = store_open::<StoreCfg>();
     let mut snap = store.fork(GENESIS);
     let mut cr =
-        create_pmap::<MapCfg>(&mut snap, 1u64);
+        create_ctr::<MapCfg>(&mut snap, 1u64);
 
     // Empty: get_at(0) → None
     {

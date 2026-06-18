@@ -41,7 +41,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(GENESIS);
         {
-            let mut cr = create_pmap::<DynCfg>(&mut snap, 1u64);
+            let mut cr = create_ctr::<DynCfg>(&mut snap, 1u64);
             let mut i: u64 = 0u64;
             while i < 120u64 {
                 cr.insert(DynVal::from_u64(i), DynVal::from_u64(i * 3u64));
@@ -61,7 +61,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c0);
         {
-            let mut cr = open_pmap::<DynCfg>(&mut snap, 1u64).unwrap();
+            let mut cr = open_ctr::<DynCfg>(&mut snap, 1u64).unwrap();
             if cr.len() != 120u64 { return 20; }
             match cr.get(DynVal::from_u64(7u64)) {
                 Option::Some(v) => { if v.bits != 21u64 { return 21; } }
@@ -80,7 +80,7 @@ fn main() -> i32 {
     // Fork B from C0: sibling isolation — must NOT see fork A's [120..150).
     {
         let mut snap = store.fork(c0);
-        let cr = open_pmap::<DynCfg>(&mut snap, 1u64).unwrap();
+        let cr = open_ctr::<DynCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 120u64 { return 30; }
         if cr.contains(DynVal::from_u64(130u64)) { return 31; }
     }
@@ -91,7 +91,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c1);
         {
-            let mut cr = create_pmap::<DynCfg>(&mut snap, 2u64);
+            let mut cr = create_ctr::<DynCfg>(&mut snap, 2u64);
             cr.insert(DynVal::from_i64(-5i64), DynVal::from_i64(100i64));
             cr.insert(DynVal::from_i64(3i64),  DynVal::from_i64(200i64));
             cr.insert(DynVal::from_i64(-1i64), DynVal::from_i64(300i64));

@@ -33,7 +33,7 @@ fn main() -> i32 {
     // ── single-leaf container: 1 block (the leaf itself) ──
     {
         let mut a =
-            create_pmap::<MapCfg>(&mut snap, 1u64);
+            create_ctr::<MapCfg>(&mut snap, 1u64);
         a.insert(1u64, 10u64);
         a.insert(2u64, 20u64);
         a.insert(3u64, 30u64);
@@ -43,7 +43,7 @@ fn main() -> i32 {
     // ── multi-leaf container: enough keys to force splits ──
     {
         let mut b =
-            create_pmap::<MapCfg>(&mut snap, 2u64);
+            create_ctr::<MapCfg>(&mut snap, 2u64);
         let mut i = 0u64;
         while i < 30u64 { b.insert(i, i * 7u64); i = i + 1u64; }
         // 30 keys with fanout=4 → multiple leaves under a branch (and

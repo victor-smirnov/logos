@@ -175,7 +175,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
         let max_keys: u64 = max_keys_leaf::<CFG>();
         let pos: u64 = leaf_lower_bound::<K, V, STORE_CFG, CFG>(leaf, qkey);
-        // replace-on-hit (PMap MAX semantics)
+        // replace-on-hit (map MAX semantics)
         if pos < leaf.keys.len() {
             let kv: K::ViewInStore = leaf.keys.get(pos);
             let phantom: *const K = 0 as *const K;
@@ -234,9 +234,9 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     let new_left_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
     br.keys.set(i, new_left_max);
     // SUM aggregate: refresh subtree_size[i] to reflect the new size of
-    // children[i] post-insert. Maintained slot-by-slot so pmap_size_rec
+    // children[i] post-insert. Maintained slot-by-slot so bt_size_rec
     // (and future seek-by-N) read O(1) at the parent.
-    let new_left_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+    let new_left_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(child_after);
     if br.subtree_size.len > i { br.subtree_size.set(i, new_left_size); }
     else                       { br.subtree_size.push(new_left_size); }
 
@@ -252,7 +252,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     // is a no-op on that field.
     let right_node: NodeARC<STORE_CFG> = inner.right.take().unwrap();
     br.keys.insert_at(i + 1u64, inner.right_max);
-    let right_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+    let right_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, right_node);
     if br.subtree_size.len > i + 1u64 { br.subtree_size.insert_at(i + 1u64, right_size); }
     else                              { br.subtree_size.push(right_size); }
@@ -274,7 +274,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
 }
 
 // ── Top-level insert: descend, possibly grow root ─────────────────────
-pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_insert<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>,
     key: K::ViewInStore, val: V::ViewInStore, qkey: *const K,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
@@ -283,7 +283,7 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
     // if the key is new. Captured by a pre-insert lookup — one extra O(depth)
     // read against the frozen pre-mutation tree, which keeps the verified
     // insert/split algorithm (and its InsertOutcome) untouched.
-    let old: Option<V::ViewInStore> = pmap_get_rec::<K, V, STORE_CFG, CFG>(root, qkey);
+    let old: Option<V::ViewInStore> = bt_get_rec::<K, V, STORE_CFG, CFG>(root, qkey);
     let mut outcome = insert_rec::<K, V, STORE_CFG, CFG>(root, key, val, qkey, cur_snapshot_id, id_ctr_p);
     if outcome.split {
         // Grow root: new branch with [old_root, outcome.right] and
@@ -301,8 +301,8 @@ pub unsafe fn pmap_insert<K: Container + ContainerOrd, V: Container, const STORE
         new_root.keys.push(outcome.right_max);
         // SUM aggregate column for the freshly grown root: one entry per
         // child = subtree size below it. Sizes read before moving the handles in.
-        let left_sz:  u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(root);
-        let right_sz: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
+        let left_sz:  u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(root);
+        let right_sz: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
         // children[0] = old_root (clone — the slot's original share is released
         // by arc_replace_in_slot below), children[1] = outcome.right (moved in).
         new_root.children.push(root.clone());
@@ -573,7 +573,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let mut sk: i64 = 0i64;
         while sk < nc_after {
             let c: &NodeARC<STORE_CFG> = br.children.borrow(sk);
-            br.subtree_size.push(pmap_size_rec::<K, V, STORE_CFG, CFG>(c));
+            br.subtree_size.push(bt_size_rec::<K, V, STORE_CFG, CFG>(c));
             sk = sk + 1i64;
         }
     } else {
@@ -582,7 +582,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let child_after: &NodeARC<STORE_CFG> = br.children.borrow(i as i64);
         let new_max: K::ViewInStore = node_max_key::<K, V, STORE_CFG, CFG>(child_after);
         br.keys.set(i, new_max);
-        let new_size: u64 = pmap_size_rec::<K, V, STORE_CFG, CFG>(child_after);
+        let new_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(child_after);
         if br.subtree_size.len > i { br.subtree_size.set(i, new_size); }
         else                       { br.subtree_size.push(new_size); }
     }
@@ -591,7 +591,7 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
 }
 
 // ── Top-level remove: descend, then collapse root if it shrank to one child ─
-pub unsafe fn pmap_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
+pub unsafe fn bt_remove<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     root: &mut NodeARC<STORE_CFG>, qkey: *const K,
     cur_snapshot_id: SnpId<STORE_CFG>, id_ctr_p: *mut BlockId<STORE_CFG>,
 ) -> bool {

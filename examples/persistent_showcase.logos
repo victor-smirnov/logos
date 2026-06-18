@@ -91,7 +91,7 @@ fn main() -> i32 {
         // Each container is scoped so it closes before commit (open containers
         // would block the commit).
         {
-            let mut scores = create_pmap::<ScoresCfg>(&mut snap, 1u64);
+            let mut scores = create_ctr::<ScoresCfg>(&mut snap, 1u64);
             fill_range(&mut scores, 0u64, 30u64, 2u64);
             unsafe { printf("  scores.len = %lu\n" as *const u8, scores.len()); }
         }
@@ -100,7 +100,7 @@ fn main() -> i32 {
             // layout. Two containers coexist via dir lookup. (We reuse a
             // ScoresCfg-typed handle for the second container because TagsCfg
             // has the same K/V — purely showcase, not real usage.)
-            let mut tags = create_pmap::<ScoresCfg>(&mut snap, 2u64);
+            let mut tags = create_ctr::<ScoresCfg>(&mut snap, 2u64);
             let mut k = 0u64;
             while k < 10u64 {
                 tags.insert(k, k + 100u64);
@@ -117,12 +117,12 @@ fn main() -> i32 {
     section("read fork of C0");
     {
         let mut snap = store.fork(c0);
-        let scores = open_pmap::<ScoresCfg>(&mut snap, 1u64).unwrap();
+        let scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
         dump_entry(&scores, 0u64);
         dump_entry(&scores, 15u64);
         dump_entry(&scores, 29u64);
-        // open_pmap returns Option<ContainerRef> — None on miss (Rust parity).
-        let absent = open_pmap::<ScoresCfg>(&mut snap, 99u64).is_none();
+        // open_ctr returns Option<ContainerRef> — None on miss (Rust parity).
+        let absent = open_ctr::<ScoresCfg>(&mut snap, 99u64).is_none();
         unsafe { printf("  open(99) absent = %d\n" as *const u8, absent as i32); }
     }
 
@@ -132,7 +132,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c0);
         {
-            let mut scores = open_pmap::<ScoresCfg>(&mut snap, 1u64).unwrap();
+            let mut scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
             fill_range(&mut scores, 30u64, 60u64, 5u64);
 
             // Replace existing key (insert returns Some(old) on replace).
@@ -154,7 +154,7 @@ fn main() -> i32 {
     section("re-fork C0 — isolation check");
     {
         let mut snap = store.fork(c0);
-        let scores = open_pmap::<ScoresCfg>(&mut snap, 1u64).unwrap();
+        let scores = open_ctr::<ScoresCfg>(&mut snap, 1u64).unwrap();
         unsafe {
             printf("  C0 scores.len = %lu (expect 30)\n" as *const u8, scores.len());
         }

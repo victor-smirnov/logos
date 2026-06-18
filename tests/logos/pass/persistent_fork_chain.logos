@@ -52,9 +52,9 @@ fn extend(store: &mut Store<StoreCfg>, parent: u64, lo: u64, hi: u64, mul: u64) 
     {
         // GENESIS has no container yet; later commits open the existing one.
         let mut cr = if parent == GENESIS {
-            create_pmap::<MapCfg>(&mut snap, 1u64)
+            create_ctr::<MapCfg>(&mut snap, 1u64)
         } else {
-            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap()
+            open_ctr::<MapCfg>(&mut snap, 1u64).unwrap()
         };
         fill_range(&mut cr, lo, hi, mul);
     }
@@ -73,7 +73,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c4);
         let cr =
-            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 100u64 { return 20; }
         let multipliers = [2u64, 3u64, 5u64, 7u64, 11u64];
         let mut bucket = 0u64;
@@ -94,7 +94,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c2);
         let cr =
-            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 60u64 { return 30; }
         let probe_ahead = 75u64;
         if cr.contains(probe_ahead) { return 31; }
@@ -110,7 +110,7 @@ fn main() -> i32 {
     {
         let mut snap = store.fork(c0);
         let cr =
-            open_pmap::<MapCfg>(&mut snap, 1u64).unwrap();
+            open_ctr::<MapCfg>(&mut snap, 1u64).unwrap();
         if cr.len() != 20u64 { return 40; }
         let probe = 25u64;
         if cr.contains(probe) { return 41; }
