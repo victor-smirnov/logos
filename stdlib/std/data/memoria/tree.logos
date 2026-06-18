@@ -109,18 +109,42 @@ unsafe fn split_branch(n: *mut Node, ksz: u64) -> Split {
     return Split { sep: sep, right: r, added: true };
 }
 
+// ── ordered search (binary, via descriptor cmp) ─────────────────────────────
+// Lower bound in a leaf's keys: first idx whose key is NOT ordered-before `key`
+// (i.e. >= key under the descriptor's order, which already honours `meta`).
+unsafe fn leaf_lb(d: *mut dyn KeyDesc, meta: u64, n: *mut Node, key: *const u8) -> u64 {
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = n.keys.len();
+    while lo < hi {
+        let mid: u64 = (lo + hi) / 2u64;
+        match (&*d).cmp_raw(keys_c(n).slot(mid) as *const u8, key, meta) {
+            Ordering::Less => { lo = mid + 1u64; }
+            _ => { hi = mid; }
+        }
+    }
+    return lo;
+}
+
+// Branch routing index: number of separators ordered <= `key` (first sep > key).
+unsafe fn branch_route(d: *mut dyn KeyDesc, meta: u64, n: *mut Node, key: *const u8) -> u64 {
+    let mut lo: u64 = 0u64;
+    let mut hi: u64 = n.keys.len();
+    while lo < hi {
+        let mid: u64 = (lo + hi) / 2u64;
+        match (&*d).cmp_raw(keys_c(n).slot(mid) as *const u8, key, meta) {
+            Ordering::Greater => { hi = mid; }         // sep > key
+            _ => { lo = mid + 1u64; }                  // sep <= key
+        }
+    }
+    return lo;
+}
+
 // ── insert ──────────────────────────────────────────────────────────────────
 unsafe fn insert_rec(d: *mut dyn KeyDesc, meta: u64, n: *mut Node,
                      key: *const u8, val: *const u8, ksz: u64, vsz: u64) -> Split {
     if n.is_leaf {
         let nlen: u64 = n.keys.len();
-        let mut i: u64 = 0u64;
-        while i < nlen {
-            match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
-                Ordering::Less => { i = i + 1u64; }
-                _ => { break; }
-            }
-        }
+        let i: u64 = leaf_lb(d, meta, n, key);
         if i < nlen {
             match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
                 Ordering::Equal => {
@@ -135,15 +159,8 @@ unsafe fn insert_rec(d: *mut dyn KeyDesc, meta: u64, n: *mut Node,
         if n.keys.len() > MAX_KEYS { return split_leaf(n, ksz, vsz); }
         return Split { sep: 0 as *mut u8, right: 0 as *mut Node, added: true };
     }
-    // branch: route to child ci = #separators <= key
-    let nk: u64 = n.keys.len();
-    let mut ci: u64 = 0u64;
-    while ci < nk {
-        match (&*d).cmp_raw(keys_c(n).slot(ci) as *const u8, key, meta) {
-            Ordering::Greater => { break; }            // sep > key → descend here
-            _ => { ci = ci + 1u64; }                   // sep <= key → go right
-        }
-    }
+    // branch: route to child ci = #separators <= key (binary)
+    let ci: u64 = branch_route(d, meta, n, key);
     let child: *mut Node = kid_at(n, ci);
     let s: Split = insert_rec(d, meta, child, key, val, ksz, vsz);
     if s.right != 0 as *mut Node {
@@ -168,6 +185,22 @@ pub struct OrdMap {
     val_meta: u64,                // cached value meta word
     val_size: u64,                // cached vdesc.key_size()
     count:    u64,
+}
+
+// Full constructor: key/value types AND their cached meta words (the immutable
+// container-wide type metadata — e.g. a Decimal scale, or a DirI64Key direction
+// flag). Resolved once, cached in the handle; the hot path reads meta from here.
+pub unsafe fn ordmap_new_full(key_code: u64, key_meta: u64,
+                              val_code: u64, val_meta: u64) -> OrdMap {
+    let d:  *mut dyn KeyDesc = desc_for(key_code);
+    let vd: *mut dyn KeyDesc = desc_for(val_code);
+    let ksz: u64 = (&*d).key_size();
+    let vsz: u64 = (&*vd).key_size();
+    let root: *mut Node = node_new(true, ksz, vsz);
+    return OrdMap {
+        root: root, desc: d, key_code: key_code, key_meta: key_meta,
+        vdesc: vd, val_code: val_code, val_meta: val_meta, val_size: vsz, count: 0u64,
+    };
 }
 
 // Both key and value types are chosen at RUNTIME by Hermes type-code; the value
@@ -208,23 +241,14 @@ pub unsafe fn ordmap_get(m: *mut OrdMap, key: *const u8) -> *const u8 {
     let meta: u64 = m.key_meta;
     let mut n: *mut Node = m.root;
     while !n.is_leaf {
-        let nk: u64 = n.keys.len();
-        let mut ci: u64 = 0u64;
-        while ci < nk {
-            match (&*d).cmp_raw(keys_c(n).slot(ci) as *const u8, key, meta) {
-                Ordering::Greater => { break; }
-                _ => { ci = ci + 1u64; }
-            }
-        }
-        n = kid_at(n, ci);
+        n = kid_at(n, branch_route(d, meta, n, key));   // binary route
     }
-    let nl: u64 = n.keys.len();
-    let mut i: u64 = 0u64;
-    while i < nl {
+    // leaf: lower-bound, then check exact match
+    let i: u64 = leaf_lb(d, meta, n, key);
+    if i < n.keys.len() {
         match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
-            Ordering::Equal   => { return vals_c(n).slot(i) as *const u8; }
-            Ordering::Greater => { return 0 as *const u8; }
-            _ => { i = i + 1u64; }
+            Ordering::Equal => { return vals_c(n).slot(i) as *const u8; }
+            _ => { }
         }
     }
     return 0 as *const u8;

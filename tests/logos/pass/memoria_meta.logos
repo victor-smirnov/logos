@@ -1,0 +1,46 @@
+// S5 conformance: cached key-meta threads into cmp + view (the meta-zone design).
+// DirI64Key reads a direction flag from the container-wide cached key_meta:
+// bit0=1 => descending. Proves meta flows creation → cmp_raw (order) → build_view.
+package memoria_meta;
+use logos.std.data.memoria.tree;
+use logos.std.data.memoria.keydesc;   // MK_DIR_I64 / KeyView
+use logos.lang.hermes.anyval;         // H2_I64
+use logos.lang.mem;
+
+fn main() -> i32 {
+    unsafe {
+        // key = DirI64Key with meta=1 (descending); value = i64
+        let mut m: OrdMap = ordmap_new_full(MK_DIR_I64, 1u64, H2_I64, 0u64);
+        let mp: *mut OrdMap = &mut m as *mut OrdMap;
+        let mut i: u64 = 0u64;
+        while i < 30u64 {
+            let k: i64 = ((i * 13u64 + 7u64) % 30u64) as i64;   // permutation of 0..29
+            let v: i64 = k * 2i64;
+            ordmap_insert(mp, &k as *const i64 as *const u8, &v as *const i64 as *const u8);
+            i = i + 1u64;
+        }
+        // cursor yields DESCENDING (29..0) because cmp_raw honours cached meta
+        let mut c: Cursor = cursor_open(mp);
+        let cp: *mut Cursor = &mut c as *mut Cursor;
+        let mut expect: i64 = 29i64;
+        let mut seen: u64 = 0u64;
+        while cursor_valid(cp as *const Cursor) {
+            let kv: KeyView = cursor_key(cp);
+            if *(kv.data as *const i64) != expect { cursor_close(cp); return 1; }
+            if kv.meta != 1u64 { cursor_close(cp); return 2; }          // view carries meta
+            if *(cursor_val(cp) as *const i64) != expect * 2i64 { cursor_close(cp); return 3; }
+            expect = expect - 1i64;
+            seen = seen + 1u64;
+            cursor_next(cp);
+        }
+        cursor_close(cp);
+        if seen != 30u64 { return 4; }
+        // point lookup honours the same custom order
+        let qk: i64 = 15i64;
+        let g: *const u8 = ordmap_get(mp, &qk as *const i64 as *const u8);
+        if (g as i64) == 0i64 { return 5; }
+        if *(g as *const i64) != 30i64 { return 6; }
+        ordmap_free(mp);
+    }
+    return 0;
+}

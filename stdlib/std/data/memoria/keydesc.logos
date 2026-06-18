@@ -103,6 +103,37 @@ impl KeyDesc for I64Key {
     fn drop_raw(&self, data: *mut u8, meta: u64) { }
 }
 
+// Directional i64 key — DEMONSTRATES the meta path: the raw slot is an i64, and
+// the container-wide key meta (cached, immutable) carries a direction flag in
+// bit 0 (0 = ascending, 1 = descending). cmp_raw consumes `meta`; build_view
+// carries it inline (meta_is_ptr = false). This proves the cached key-meta
+// threads end-to-end (creation → cmp ordering → view) — the meta-zone design,
+// without a remote metadata block (small meta rides as a value).
+pub struct DirI64Key {}
+impl KeyDesc for DirI64Key {
+    fn key_size(&self) -> u64     { return 8u64; }
+    fn meta_is_ptr(&self) -> bool { return false; }
+    fn cmp_raw(&self, a: *const u8, b: *const u8, meta: u64) -> Ordering {
+        unsafe {
+            let x: i64 = *(a as *const i64);
+            let y: i64 = *(b as *const i64);
+            let base: Ordering = if x < y { Ordering::Less }
+                                 else if x > y { Ordering::Greater }
+                                 else { Ordering::Equal };
+            if (meta & 1u64) == 1u64 { return base.reverse(); }   // descending
+            return base;
+        }
+    }
+    fn build_view(&self, data: *const u8, meta: u64) -> KeyView {
+        return KeyView { data: data, meta: meta };
+    }
+    fn hash_raw(&self, data: *const u8, meta: u64) -> u64 { unsafe { return *(data as *const u64); } }
+    fn drop_raw(&self, data: *mut u8, meta: u64) { }
+}
+
+// Memoria-local key type code (outside the Hermes wire range) for DirI64Key.
+pub const MK_DIR_I64: u64 = 200u64;
+
 // ── Registry: type-code → runtime descriptor ───────────────────────────────
 // Reuses the Hermes type codes (H2_I64 / H2_U64) so a Memoria key type-code is
 // the same wire tag as the Hermes datatype. The descriptor is reconstructed as
@@ -116,6 +147,9 @@ pub unsafe fn desc_for(code: u64) -> *mut dyn KeyDesc {
     }
     if code == H2_I64 {
         return dyn_from_parts::<KeyDesc>(dummy, vtable_of::<KeyDesc, I64Key>());
+    }
+    if code == MK_DIR_I64 {
+        return dyn_from_parts::<KeyDesc>(dummy, vtable_of::<KeyDesc, DirI64Key>());
     }
     return 0 as *mut dyn KeyDesc;        // unknown code — caller's error guard
 }
