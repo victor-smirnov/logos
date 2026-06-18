@@ -1,0 +1,99 @@
+// Showcase: one compiled runtime-typed container, many runtime key/value types.
+package memoria_showcase;
+
+use logos.std.data.memoria.tree;
+use logos.std.data.memoria.keydesc;   // MK_DIR_I64 / KeyView
+use logos.std.data.memoria.ordval;    // HermesOrdVal
+use logos.lang.hermes.anyval;         // H2_U64 / H2_I64
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.str;
+use logos.std.io;
+use logos.lang.mem;
+
+unsafe fn put_u64_i64(m: *mut OrdMap, k: u64, v: i64) {
+    ordmap_insert(m, &k as *const u64 as *const u8, &v as *const i64 as *const u8);
+}
+unsafe fn put_i64_i64(m: *mut OrdMap, k: i64, v: i64) {
+    ordmap_insert(m, &k as *const i64 as *const u8, &v as *const i64 as *const u8);
+}
+fn line(s: str) { println(s); }
+
+unsafe fn main() -> i32 {
+    line("== Memoria: one compiled container, runtime key/value types ==");
+    line("");
+
+    // [1] u64 -> i64, key type chosen at RUNTIME (H2_U64).
+    line("[1] OrdMap<key=u64, val=i64>  (key type resolved at runtime)");
+    let mut prices: OrdMap = ordmap_new(H2_U64, H2_I64);
+    let pp: *mut OrdMap = &mut prices as *mut OrdMap;
+    // insert in scrambled order
+    put_u64_i64(pp, 3u64, 300i64);
+    put_u64_i64(pp, 1u64, 100i64);
+    put_u64_i64(pp, 4u64, 400i64);
+    put_u64_i64(pp, 2u64, 200i64);
+    put_u64_i64(pp, 5u64, 500i64);
+    print("    ordered walk:");
+    let mut c: Cursor = cursor_open(pp);
+    let cp: *mut Cursor = &mut c as *mut Cursor;
+    while cursor_valid(cp as *const Cursor) {
+        let kv: KeyView = cursor_key(cp);
+        let k: u64 = *(kv.data as *const u64);
+        let v: i64 = *(cursor_val(cp) as *const i64);
+        let s: String = format::<u64, i64>("  {}=>{}", k, v);
+        print_string(&s);
+        cursor_next(cp);
+    }
+    cursor_close(cp);
+    let g: i64 = *(ordmap_get(pp, (&2u64) as *const u64 as *const u8) as *const i64);
+    let s1: String = format::<i64, u64>("\n    get(2)={}  len={}", g, ordmap_len(pp as *const OrdMap));
+    println_string(&s1);
+    line("");
+
+    // [2] SAME compiled OrdMap, DIFFERENT runtime key type: descending i64.
+    line("[2] SAME container code, key=DirI64 meta=descending (no new monomorphization)");
+    let mut desc: OrdMap = ordmap_new_full(MK_DIR_I64, 1u64, H2_I64, 0u64);
+    let dp: *mut OrdMap = &mut desc as *mut OrdMap;
+    let mut i: i64 = 0i64;
+    while i < 10i64 { put_i64_i64(dp, (i * 7i64) % 10i64, i); i = i + 1i64; }
+    print("    ordered walk:");
+    let mut c2: Cursor = cursor_open(dp);
+    let c2p: *mut Cursor = &mut c2 as *mut Cursor;
+    while cursor_valid(c2p as *const Cursor) {
+        let kv: KeyView = cursor_key(c2p);
+        let s: String = format::<i64>(" {}", *(kv.data as *const i64));
+        print_string(&s);
+        cursor_next(c2p);
+    }
+    cursor_close(c2p);
+    line("   (descending — direction comes from cached meta, via vtable cmp)");
+    line("");
+
+    // [3] snapshot independence.
+    line("[3] snapshot is independent of later mutation");
+    let mut snap: OrdMap = ordmap_snapshot(pp as *const OrdMap);
+    let sp: *mut OrdMap = &mut snap as *mut OrdMap;
+    put_u64_i64(pp, 9u64, 900i64);                 // mutate the ORIGINAL
+    let s3: String = format::<u64, u64>("    after insert: original len={}  snapshot len={}",
+                                        ordmap_len(pp as *const OrdMap),
+                                        ordmap_len(sp as *const OrdMap));
+    println_string(&s3);
+    line("");
+
+    // [4] owned key handoff (HermesOrdVal, SBO).
+    line("[4] owned key handoff (HermesOrdVal, small-buffer optimization)");
+    let mut c4: Cursor = cursor_open(pp);
+    let c4p: *mut Cursor = &mut c4 as *mut Cursor;
+    cursor_next(c4p); cursor_next(c4p);            // 3rd key in order
+    let owned: HermesOrdVal = cursor_take_key(c4p);
+    let op: *const HermesOrdVal = &owned as *const HermesOrdVal;
+    let s4: String = format::<u64, bool>("    took owned key = {}  inline={}",
+                                         *(op.ptr() as *const u64), op.is_inline());
+    println_string(&s4);
+    cursor_close(c4p);
+
+    ordmap_free(sp); ordmap_free(dp); ordmap_free(pp);
+    line("");
+    line("== done: 3 distinct runtime key types, ONE compiled OrdMap ==");
+    return 0;
+}
