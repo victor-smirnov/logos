@@ -1,0 +1,242 @@
+// Logos stdlib — logos.std.data.memoria.tree
+//
+// OrdMap — the universal, RUNTIME-TYPED ordered map (B+tree). The key type is
+// chosen at creation (a `dyn KeyDesc` resolved by type-code) and the body is
+// compiled ONCE: every comparison dispatches through the descriptor's vtable,
+// every key/value cell is a raw slot of descriptor-given stride. No per-key-type
+// monomorphisation.
+//
+// SKELETON + THIN SURFACE (per [[design]]): the B+tree algorithm here (descend /
+// split / grow) is the reusable SKELETON; the container-specific surface is tiny
+// — the descriptor wiring + cached key meta in OrdMap. A later metaprog handler
+// will EMIT the surface and reuse this skeleton (cf. #[derive_branch_node]).
+//
+// SCOPE (S2): mutable in-place nodes (no snapshot copy-on-write yet — that is the
+// persistent-store layer, S4) and removal without rebalance. The runtime-typed
+// architecture — the novel part — is fully here. Key/value drop for OWNING types
+// is a задел (drop_raw exists on the descriptor; POD keys no-op).
+
+package logos.std.data.memoria.tree;
+
+use logos.lang.mem;                     // alloc / dealloc / memcpy
+use logos.lang.cmp;                     // Ordering
+use logos.std.data.memoria.keydesc;     // KeyDesc / desc_for
+use logos.std.data.memoria.rawbuf;      // RawSlotBuf
+
+// Max keys per node; a node splits when it would exceed this.
+pub const MAX_KEYS: u64 = 8u64;
+
+// One node shape for both flavours (is_leaf discriminates). Everything is a
+// RawSlotBuf: keys (sorted), vals (leaf payload), kids (branch child pointers,
+// 8-byte slots holding *mut Node). A branch with k keys has k+1 kids.
+pub struct Node {
+    is_leaf: bool,
+    keys:    RawSlotBuf,
+    vals:    RawSlotBuf,   // leaf only
+    kids:    RawSlotBuf,   // branch only (slots = *mut Node)
+}
+
+// Result of an insert step: a node split (right != null) carries the separator
+// to push into the parent; `added` distinguishes a fresh insert from an update.
+pub struct Split {
+    sep:   *mut u8,     // owned copy of the separator key (caller frees), or null
+    right: *mut Node,   // new right sibling, or null when no split
+    added: bool,        // true iff a new key was inserted (not an update)
+}
+
+// ── field-address helpers (centralise the through-raw-ptr place pattern) ────
+unsafe fn keys_c(n: *mut Node) -> *const RawSlotBuf { return &n.keys as *const RawSlotBuf; }
+unsafe fn keys_m(n: *mut Node) -> *mut RawSlotBuf   { return &mut n.keys as *mut RawSlotBuf; }
+unsafe fn vals_c(n: *mut Node) -> *const RawSlotBuf { return &n.vals as *const RawSlotBuf; }
+unsafe fn vals_m(n: *mut Node) -> *mut RawSlotBuf   { return &mut n.vals as *mut RawSlotBuf; }
+unsafe fn kids_c(n: *mut Node) -> *const RawSlotBuf { return &n.kids as *const RawSlotBuf; }
+unsafe fn kids_m(n: *mut Node) -> *mut RawSlotBuf   { return &mut n.kids as *mut RawSlotBuf; }
+
+unsafe fn kid_at(n: *mut Node, i: u64) -> *mut Node {
+    return *(kids_c(n).slot(i) as *const *mut Node);
+}
+
+unsafe fn node_new(is_leaf: bool, ksz: u64, vsz: u64) -> *mut Node {
+    let n: *mut Node = alloc(sizeof::<Node>()) as *mut Node;
+    n.is_leaf = is_leaf;
+    n.keys = RawSlotBuf::new(ksz);
+    n.vals = RawSlotBuf::new(vsz);
+    n.kids = RawSlotBuf::new(8u64);
+    return n;
+}
+
+// ── splits ─────────────────────────────────────────────────────────────────
+// Leaf split (B+tree): right gets [mid, len); separator = COPY of right's first
+// key (the key stays in the leaf). Left truncated to [0, mid).
+unsafe fn split_leaf(n: *mut Node, ksz: u64, vsz: u64) -> Split {
+    let total: u64 = n.keys.len();
+    let mid: u64 = total / 2u64;
+    let r: *mut Node = node_new(true, ksz, vsz);
+    let mut i: u64 = mid;
+    while i < total {
+        keys_m(r).push(keys_c(n).slot(i) as *const u8);
+        vals_m(r).push(vals_c(n).slot(i) as *const u8);
+        i = i + 1u64;
+    }
+    keys_m(n).truncate(mid);
+    vals_m(n).truncate(mid);
+    let sep: *mut u8 = alloc(ksz as i64);
+    memcpy(sep, keys_c(r).slot(0u64) as *const u8, ksz as i64);
+    return Split { sep: sep, right: r, added: true };
+}
+
+// Branch split: separator = keys[mid] MOVED up. right gets keys (mid, total) and
+// kids (mid, total]. Left truncated to keys[0,mid) / kids[0,mid].
+unsafe fn split_branch(n: *mut Node, ksz: u64) -> Split {
+    let total: u64 = n.keys.len();
+    let mid: u64 = total / 2u64;
+    let r: *mut Node = node_new(false, ksz, 0u64);
+    let mut i: u64 = mid + 1u64;
+    while i < total { keys_m(r).push(keys_c(n).slot(i) as *const u8); i = i + 1u64; }
+    let mut j: u64 = mid + 1u64;
+    while j <= total { kids_m(r).push(kids_c(n).slot(j) as *const u8); j = j + 1u64; }
+    let sep: *mut u8 = alloc(ksz as i64);
+    memcpy(sep, keys_c(n).slot(mid) as *const u8, ksz as i64);
+    keys_m(n).truncate(mid);
+    kids_m(n).truncate(mid + 1u64);
+    return Split { sep: sep, right: r, added: true };
+}
+
+// ── insert ──────────────────────────────────────────────────────────────────
+unsafe fn insert_rec(d: *mut dyn KeyDesc, meta: u64, n: *mut Node,
+                     key: *const u8, val: *const u8, ksz: u64, vsz: u64) -> Split {
+    if n.is_leaf {
+        let nlen: u64 = n.keys.len();
+        let mut i: u64 = 0u64;
+        while i < nlen {
+            match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
+                Ordering::Less => { i = i + 1u64; }
+                _ => { break; }
+            }
+        }
+        if i < nlen {
+            match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
+                Ordering::Equal => {
+                    vals_m(n).set(i, val);                 // update existing
+                    return Split { sep: 0 as *mut u8, right: 0 as *mut Node, added: false };
+                }
+                _ => { }
+            }
+        }
+        keys_m(n).insert_at(i, key);
+        vals_m(n).insert_at(i, val);
+        if n.keys.len() > MAX_KEYS { return split_leaf(n, ksz, vsz); }
+        return Split { sep: 0 as *mut u8, right: 0 as *mut Node, added: true };
+    }
+    // branch: route to child ci = #separators <= key
+    let nk: u64 = n.keys.len();
+    let mut ci: u64 = 0u64;
+    while ci < nk {
+        match (&*d).cmp_raw(keys_c(n).slot(ci) as *const u8, key, meta) {
+            Ordering::Greater => { break; }            // sep > key → descend here
+            _ => { ci = ci + 1u64; }                   // sep <= key → go right
+        }
+    }
+    let child: *mut Node = kid_at(n, ci);
+    let s: Split = insert_rec(d, meta, child, key, val, ksz, vsz);
+    if s.right != 0 as *mut Node {
+        keys_m(n).insert_at(ci, s.sep as *const u8);
+        kids_m(n).insert_at(ci + 1u64, &s.right as *const *mut Node as *const u8);
+        dealloc(s.sep);
+        if n.keys.len() > MAX_KEYS { return split_branch(n, ksz); }
+    }
+    return Split { sep: 0 as *mut u8, right: 0 as *mut Node, added: s.added };
+}
+
+// ── public container ─────────────────────────────────────────────────────────
+// Cached-meta handle: holds the runtime key descriptor + cached key meta
+// (immutable per [[design]]) so the hot path never re-resolves it.
+pub struct OrdMap {
+    root:     *mut Node,
+    desc:     *mut dyn KeyDesc,
+    key_code: u64,
+    key_meta: u64,       // cached key metadata word (value | abs ptr); 0 for u64
+    val_size: u64,
+    count:    u64,
+}
+
+pub unsafe fn ordmap_new(key_code: u64, val_size: u64) -> OrdMap {
+    let d: *mut dyn KeyDesc = desc_for(key_code);
+    let ksz: u64 = (&*d).key_size();
+    let root: *mut Node = node_new(true, ksz, val_size);
+    return OrdMap {
+        root: root, desc: d, key_code: key_code,
+        key_meta: 0u64, val_size: val_size, count: 0u64,
+    };
+}
+
+pub unsafe fn ordmap_len(m: *const OrdMap) -> u64 { return m.count; }
+
+pub unsafe fn ordmap_insert(m: *mut OrdMap, key: *const u8, val: *const u8) {
+    let ksz: u64 = (&*m.desc).key_size();
+    let s: Split = insert_rec(m.desc, m.key_meta, m.root, key, val, ksz, m.val_size);
+    if s.right != 0 as *mut Node {
+        // root split → new branch root over [old_root | sep | right]
+        let nr: *mut Node = node_new(false, ksz, 0u64);
+        kids_m(nr).push(&m.root as *const *mut Node as *const u8);
+        keys_m(nr).push(s.sep as *const u8);
+        kids_m(nr).push(&s.right as *const *mut Node as *const u8);
+        dealloc(s.sep);
+        m.root = nr;
+    }
+    if s.added { m.count = m.count + 1u64; }
+}
+
+// Raw value pointer for `key`, or null if absent. (The view/HermesOrdVal handoff
+// is S3; this returns the in-leaf value slot.)
+pub unsafe fn ordmap_get(m: *mut OrdMap, key: *const u8) -> *const u8 {
+    let d: *mut dyn KeyDesc = m.desc;
+    let meta: u64 = m.key_meta;
+    let mut n: *mut Node = m.root;
+    while !n.is_leaf {
+        let nk: u64 = n.keys.len();
+        let mut ci: u64 = 0u64;
+        while ci < nk {
+            match (&*d).cmp_raw(keys_c(n).slot(ci) as *const u8, key, meta) {
+                Ordering::Greater => { break; }
+                _ => { ci = ci + 1u64; }
+            }
+        }
+        n = kid_at(n, ci);
+    }
+    let nl: u64 = n.keys.len();
+    let mut i: u64 = 0u64;
+    while i < nl {
+        match (&*d).cmp_raw(keys_c(n).slot(i) as *const u8, key, meta) {
+            Ordering::Equal   => { return vals_c(n).slot(i) as *const u8; }
+            Ordering::Greater => { return 0 as *const u8; }
+            _ => { i = i + 1u64; }
+        }
+    }
+    return 0 as *const u8;
+}
+
+pub unsafe fn ordmap_contains(m: *mut OrdMap, key: *const u8) -> bool {
+    return ordmap_get(m, key) != 0 as *const u8;
+}
+
+// ── teardown ─────────────────────────────────────────────────────────────────
+// NOTE (задел): owning key/value types would drop_raw each live slot here before
+// freeing the buffers. POD keys (u64/i64) are no-op, so S2 just frees buffers.
+unsafe fn node_free(n: *mut Node) {
+    if !n.is_leaf {
+        let nk: u64 = n.keys.len();
+        let mut i: u64 = 0u64;
+        while i <= nk { node_free(kid_at(n, i)); i = i + 1u64; }
+        kids_m(n).free();
+    } else {
+        vals_m(n).free();
+    }
+    keys_m(n).free();
+    dealloc(n as *mut u8);
+}
+
+pub unsafe fn ordmap_free(m: *mut OrdMap) {
+    node_free(m.root);
+    m.root = 0 as *mut Node;
+}

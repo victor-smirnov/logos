@@ -1,0 +1,41 @@
+// S2 conformance: runtime-typed ordered B+tree (logos.std.data.memoria.tree).
+// Insert a 257-key permutation (forces leaf + branch splits + a multi-level
+// tree), read every key back, exercise update + absent, free.
+package memoria_tree;
+use logos.std.data.memoria.tree;
+use logos.lang.hermes.anyval;   // H2_U64
+use logos.lang.mem;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: OrdMap = ordmap_new(H2_U64, 8u64);
+        let mp: *mut OrdMap = &mut m as *mut OrdMap;
+        let n: u64 = 257u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let k: u64 = (i * 97u64 + 13u64) % 257u64;   // permutation of 0..256
+            let v: u64 = k + 1000000u64;
+            ordmap_insert(mp, &k as *const u64 as *const u8, &v as *const u64 as *const u8);
+            i = i + 1u64;
+        }
+        if ordmap_len(mp as *const OrdMap) != 257u64 { return 1; }
+        // every key present with the right value
+        let mut k: u64 = 0u64;
+        while k < n {
+            let vp: *const u8 = ordmap_get(mp, &k as *const u64 as *const u8);
+            if (vp as i64) == 0i64 { return 2; }
+            if *(vp as *const u64) != k + 1000000u64 { return 3; }
+            k = k + 1u64;
+        }
+        // absent key
+        let miss: u64 = 99999u64;
+        if (ordmap_get(mp, &miss as *const u64 as *const u8) as i64) != 0i64 { return 4; }
+        // update existing: value changes, count unchanged
+        let uk: u64 = 100u64; let uv: u64 = 7u64;
+        ordmap_insert(mp, &uk as *const u64 as *const u8, &uv as *const u64 as *const u8);
+        if ordmap_len(mp as *const OrdMap) != 257u64 { return 5; }
+        if *(ordmap_get(mp, &uk as *const u64 as *const u8) as *const u64) != 7u64 { return 6; }
+        ordmap_free(mp);
+    }
+    return 0;
+}

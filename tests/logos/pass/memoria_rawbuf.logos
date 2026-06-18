@@ -1,0 +1,35 @@
+// S1 conformance: RawSlotBuf — runtime-stride raw slot buffer.
+package memoria_rawbuf;
+use logos.std.data.memoria.rawbuf;
+use logos.lang.mem;
+
+unsafe fn put(b: *mut RawSlotBuf, v: u64) { b.push(&v as *const u64 as *const u8); }
+unsafe fn at(b: *const RawSlotBuf, i: u64) -> u64 { return *(b.slot(i) as *const u64); }
+
+fn main() -> i32 {
+    unsafe {
+        let mut b: RawSlotBuf = RawSlotBuf::new(8u64);
+        let bp: *mut RawSlotBuf = &mut b as *mut RawSlotBuf;
+        // push 10,20,30,40,50 (force a grow past cap 4)
+        put(bp, 10u64); put(bp, 20u64); put(bp, 30u64); put(bp, 40u64); put(bp, 50u64);
+        if b.len() != 5u64 { return 1; }
+        if at(bp, 0u64) != 10u64 || at(bp, 4u64) != 50u64 { return 2; }
+        // set middle
+        let nv: u64 = 99u64; bp.set(2u64, &nv as *const u64 as *const u8);
+        if at(bp, 2u64) != 99u64 { return 3; }
+        // insert_at front and middle: [5,10,20,99,40,50] then insert 25 at idx 3
+        let f: u64 = 5u64; bp.insert_at(0u64, &f as *const u64 as *const u8);
+        if at(bp, 0u64) != 5u64 || at(bp, 1u64) != 10u64 || b.len() != 6u64 { return 4; }
+        let m: u64 = 25u64; bp.insert_at(3u64, &m as *const u64 as *const u8);
+        // now [5,10,20,25,99,40,50]
+        if at(bp, 3u64) != 25u64 || at(bp, 4u64) != 99u64 || b.len() != 7u64 { return 5; }
+        // remove idx 4 (99) -> [5,10,20,25,40,50]
+        bp.remove_at(4u64);
+        if at(bp, 4u64) != 40u64 || at(bp, 5u64) != 50u64 || b.len() != 6u64 { return 6; }
+        // append at end via insert_at(len)
+        let z: u64 = 60u64; bp.insert_at(6u64, &z as *const u64 as *const u8);
+        if at(bp, 6u64) != 60u64 || b.len() != 7u64 { return 7; }
+        bp.free();
+    }
+    return 0;
+}

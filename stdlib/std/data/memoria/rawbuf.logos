@@ -1,0 +1,107 @@
+// Logos stdlib — logos.std.data.memoria.rawbuf
+//
+// RawSlotBuf — a contiguous buffer of fixed-size raw slots whose stride is a
+// RUNTIME value (from a KeyDesc / value descriptor), not a compile-time
+// `sizeof::<T>()`. This is the storage primitive under the dynamically-typed
+// Memoria nodes: one compiled buffer serves every key/value type, slot size
+// chosen per container at creation.
+//
+// Pure bytes — it knows nothing about the element type. Element drop (for owning
+// key/value types) is the CONTAINER's job (it holds the descriptor); RawSlotBuf
+// only owns its backing allocation. Slot operations copy `stride` raw bytes.
+
+package logos.std.data.memoria.rawbuf;
+
+use logos.lang.mem;     // alloc / realloc_buf / dealloc / memcpy / memmove
+
+pub struct RawSlotBuf {
+    data:   *mut u8,
+    len:    u64,    // number of live slots
+    cap:    u64,    // capacity in slots
+    stride: u64,    // bytes per slot (runtime, from descriptor)
+}
+
+impl RawSlotBuf {
+    pub fn new(stride: u64) -> RawSlotBuf {
+        return RawSlotBuf { data: 0 as *mut u8, len: 0u64, cap: 0u64, stride: stride };
+    }
+
+    pub fn len(&self) -> u64    { return self.len; }
+    pub fn stride(&self) -> u64 { return self.stride; }
+
+    // Address of slot `idx` (no bounds check — caller validates). Mutable; read
+    // sites cast to *const.
+    pub unsafe fn slot(self: *const RawSlotBuf, idx: u64) -> *mut u8 {
+        return (self.data as i64 + (idx as i64) * (self.stride as i64)) as *mut u8;
+    }
+
+    // Ensure capacity for at least `need` slots (geometric growth).
+    unsafe fn reserve(self: *mut RawSlotBuf, need: u64) {
+        if need <= self.cap { return; }
+        let mut nc: u64 = if self.cap == 0u64 { 4u64 } else { self.cap * 2u64 };
+        while nc < need { nc = nc * 2u64; }
+        let bytes: i64 = (nc as i64) * (self.stride as i64);
+        let nb: *mut u8 = if self.data == 0 as *mut u8 {
+            alloc(bytes)
+        } else {
+            realloc_buf(self.data, bytes)
+        };
+        self.data = nb;
+        self.cap  = nc;
+    }
+
+    // Append a slot, copying `stride` bytes from `src`.
+    pub unsafe fn push(self: *mut RawSlotBuf, src: *const u8) {
+        self.reserve(self.len + 1u64);
+        let dst: *mut u8 = self.slot(self.len);
+        memcpy(dst, src, self.stride as i64);
+        self.len = self.len + 1u64;
+    }
+
+    // Overwrite slot `idx` in place.
+    pub unsafe fn set(self: *mut RawSlotBuf, idx: u64, src: *const u8) {
+        if idx >= self.len { return; }
+        memcpy(self.slot(idx), src, self.stride as i64);
+    }
+
+    // Insert a slot at `idx`, shifting [idx, len) right by one. `idx == len`
+    // appends.
+    pub unsafe fn insert_at(self: *mut RawSlotBuf, idx: u64, src: *const u8) {
+        if idx > self.len { return; }
+        self.reserve(self.len + 1u64);
+        let st: i64 = self.stride as i64;
+        let tail: u64 = self.len - idx;          // slots to move right
+        if tail > 0u64 {
+            let from: *mut u8 = self.slot(idx);
+            let to:   *mut u8 = self.slot(idx + 1u64);
+            memmove(to, from as *const u8, (tail as i64) * st);
+        }
+        memcpy(self.slot(idx), src, st);
+        self.len = self.len + 1u64;
+    }
+
+    // Remove slot `idx`, shifting (idx, len) left by one.
+    pub unsafe fn remove_at(self: *mut RawSlotBuf, idx: u64) {
+        if idx >= self.len { return; }
+        let st: i64 = self.stride as i64;
+        let tail: u64 = self.len - idx - 1u64;   // slots to move left
+        if tail > 0u64 {
+            let to:   *mut u8 = self.slot(idx);
+            let from: *mut u8 = self.slot(idx + 1u64);
+            memmove(to, from as *const u8, (tail as i64) * st);
+        }
+        self.len = self.len - 1u64;
+    }
+
+    // Drop the live count to `n` (no realloc; keeps capacity). Used by node
+    // split to keep the left half after copying the tail into a new node.
+    pub unsafe fn truncate(self: *mut RawSlotBuf, n: u64) {
+        if n < self.len { self.len = n; }
+    }
+
+    // Release the backing allocation (call from the owner's Drop / node free).
+    pub unsafe fn free(self: *mut RawSlotBuf) {
+        if self.data != 0 as *mut u8 { dealloc(self.data); self.data = 0 as *mut u8; }
+        self.len = 0u64; self.cap = 0u64;
+    }
+}
