@@ -1,21 +1,21 @@
-// logos.lang.hermes.hview — HView: a non-owning, type-erased Hermes value view.
+// logos.lang.hermes.dview — DView: a non-owning, type-erased Hermes value view.
 //
-// HView is the Rust-`&dyn` of Hermes: it borrows a concrete value's bytes and
+// DView is the Rust-`&dyn` of Hermes: it borrows a concrete value's bytes and
 // carries its Hermes type tag, so the value can take part in tag-dispatch
 // (compare / equality / stringify / hash …) WITHOUT owning or allocating. It
 // does NOT extend lifetimes — when you need to own a runtime-typed value, use
-// the Hermes container (`HAny` + arena). "Ord" is just one of HView's
+// the Hermes container (`HAny` + arena). "Ord" is just one of DView's
 // capabilities, hence the neutral name.
 //
 // Unification with HAny: the per-type BEHAVIOUR (the machinery) lives in a
 // single tag-keyed capability layer (`htag_*` below) — the same type_code-
-// dispatch idiom as `equal()`. HView and HAny are two ADAPTERS over that layer:
-// each maps its own memory layout to `(tag, object-bytes)` and calls in. HView's
+// dispatch idiom as `equal()`. DView and HAny are two ADAPTERS over that layer:
+// each maps its own memory layout to `(tag, object-bytes)` and calls in. DView's
 // layout (tag/obj in fields) makes its adapters trivial; HAny's adapter (future)
 // normalises niche/Ref/addr-1 — its only friction is a Pod value's inline bits
 // having no address (spill to a scratch before calling the layer).
 
-package logos.lang.hermes.hview;
+package logos.lang.hermes.dview;
 
 use logos.lang.cmp;                 // Ordering
 use logos.lang.option;
@@ -33,20 +33,20 @@ impl HermesTag for i64  { fn h_tag(self: *const i64)  -> u32 { return H2_I64 as 
 impl HermesTag for u64  { fn h_tag(self: *const u64)  -> u32 { return H2_U64 as u32; } }
 impl HermesTag for bool { fn h_tag(self: *const bool) -> u32 { return HA_BOOL as u32; } }
 
-// ── HView — the borrowed, type-erased view ──────────────────────────────────
-pub struct HView {
+// ── DView — the borrowed, type-erased view ──────────────────────────────────
+pub struct DView {
     obj:  *const u8,     // → object bytes (borrowed; not owned)
     len:  u32,           // object byte length
     tag:  u32,           // Hermes type tag
     meta: u64,           // packed per-value metadata (e.g. Decimal {P,S}); 0 if none
 }
 
-impl HView {
+impl DView {
     // Type-erase a concrete value into a non-owning view (borrows `v`). T is
-    // inferred from the argument (`HView::erase(&v)`).
-    pub static fn erase<T: HermesTag>(v: &T) -> HView {
+    // inferred from the argument (`DView::erase(&v)`).
+    pub static fn erase<T: HermesTag>(v: &T) -> DView {
         let phantom: *const T = 0 as *const T;
-        return HView {
+        return DView {
             obj:  v as *const T as *const u8,
             len:  sizeof::<T>() as u32,
             tag:  unsafe { phantom.h_tag() },
@@ -55,8 +55,8 @@ impl HView {
     }
 
     // Explicit-zones constructor (for in-container views: a stored object + tag).
-    pub static fn from_parts(obj: *const u8, len: u32, tag: u32, meta: u64) -> HView {
-        return HView { obj: obj, len: len, tag: tag, meta: meta };
+    pub static fn from_parts(obj: *const u8, len: u32, tag: u32, meta: u64) -> DView {
+        return DView { obj: obj, len: len, tag: tag, meta: meta };
     }
 
     pub fn type_code(&self) -> u32 { return self.tag; }
@@ -79,7 +79,7 @@ impl HView {
         return unsafe { *(self.obj as *const T) };
     }
     // runtime-dispatched (over self.tag, via the shared layer):
-    pub fn compare(&self, other: &HView) -> Ordering {
+    pub fn compare(&self, other: &DView) -> Ordering {
         return unsafe { htag_cmp(self.tag, self.meta, self.obj, self.len, other.obj, other.len) };
     }
 }

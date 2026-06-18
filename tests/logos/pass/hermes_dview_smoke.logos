@@ -1,18 +1,18 @@
-// HView: non-owning type-erased Hermes view. Erase concrete values (i64/u64/
+// DView: non-owning type-erased Hermes view. Erase concrete values (i64/u64/
 // bool) into views, type-check (is), extract (as/to), and compare via the
 // shared tag-keyed capability layer. No owning container, no allocation.
 
-package hermes_hview_smoke;
+package hermes_dview_smoke;
 
 use logos.lang.cmp;
 use logos.lang.option;
-use logos.lang.hermes.hview;
+use logos.lang.hermes.dview;
 
 fn main() -> i32 {
     let a: i64 = 5i64;
     let b: i64 = -3i64;
-    let va: HView = HView::erase(&a);
-    let vb: HView = HView::erase(&b);
+    let va: DView = DView::erase(&a);
+    let vb: DView = DView::erase(&b);
 
     // type-check + extract
     if !va.is_a::<i64>() { return 1; }
@@ -28,11 +28,11 @@ fn main() -> i32 {
     // u64 (unsigned) + bool
     let c: u64 = 10u64;
     let d: u64 = 10u64;
-    if HView::erase(&c).compare(&HView::erase(&d)) as i32 != Ordering::Equal as i32 { return 9; }
+    if DView::erase(&c).compare(&DView::erase(&d)) as i32 != Ordering::Equal as i32 { return 9; }
 
     let f: bool = false;
     let t: bool = true;
-    match HView::erase(&f).compare(&HView::erase(&t)) { Ordering::Less => {} _ => { return 10; } }
+    match DView::erase(&f).compare(&DView::erase(&t)) { Ordering::Less => {} _ => { return 10; } }
 
     return 0;
 }
