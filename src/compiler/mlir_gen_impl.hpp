@@ -314,14 +314,13 @@ private:
     // spill, `&p` returns p itself (the inner pointer), breaking
     // `&&mut T` chains (was B3-bg-03 / Sprint 6).
     std::unordered_set<std::string>               ref_param_names_;
-    // RAW-pointer params (`*mut T` / `*const T`) bound as SSA args. Their SSA
-    // value IS the pointer, so `&p` must spill to a stack home and return its
-    // address; otherwise it fell through to returning the pointer VALUE
-    // (`fn f(p:*mut T){ &p }` → garbage `*mut *mut T` → segfault). NOT aggregate
-    // params (struct/array/tuple/enum by-value), whose SSA value is ALREADY the
-    // object's address — there `&p` correctly returns the SSA value as-is.
-    // Cleared/filled per function in gen_fn; consulted by EAddrOf.
-    std::unordered_set<std::string>               ptr_param_names_;
+    // Pointer-family params (`*mut`/`*const`/`&`/`&mut`) bound as SSA args. Their
+    // arg IS a pointer value, so `&p` is the address of the param's own slot →
+    // EAddrOf must spill. (Scalars are caught in EAddrOf by an SSA-type check;
+    // aggregate by-value params arrive AS a pointer = the object address and are
+    // NOT here, so `&p` returns that address unchanged.) Together these unify the
+    // EAddrOf `&p` rule into one condition "the SSA arg holds a value".
+    std::unordered_set<std::string>               ptr_family_param_;
     mlir::Type                                    cur_ret_type_;
     TypeRef                              cur_fn_ret_logos_type_ = nullptr;
     std::string                                   cur_fn_name_;

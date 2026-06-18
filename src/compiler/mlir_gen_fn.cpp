@@ -228,20 +228,26 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     var_dyn_trait_.clear();
     dyn_ptr_to_handle_vars_.clear();
     ref_param_names_.clear();
-    ptr_param_names_.clear();
+    ptr_family_param_.clear();
     loop_stack_.clear();
 
     // Bind parameters.
     for (size_t i = 0; i < fn.params.size(); ++i) {
         auto& p = fn.params[i];
         scope_[p.name] = entry->getArgument(i);
-        // Raw-pointer params need a stack home for `&p` (see EAddrOf); aggregate
-        // by-value params (SSA = the object address) and scalars do not go here.
-        if (p.type && TypeRef(p.type).kind() == LogosType::Kind::Ptr)
-            ptr_param_names_.insert(p.name);
-        // Record Ref/MutRef-typed params for the EAddrOfView spill path.
+        // Pointer-family params (`*mut`/`*const`/`&`/`&mut`): their SSA arg IS a
+        // pointer VALUE, so `&p` is the address of the param's own slot — record
+        // them so EAddrOf spills (scalars are caught there by an SSA-type check;
+        // aggregate by-value params arrive AS a pointer = the object address and
+        // are NOT recorded, so `&p` returns that address unchanged). Classified
+        // by logos kind only (no MLIR-arg query — safe for zero-size/`!` params
+        // that are elided from the signature). Ref/MutRef additionally rebind
+        // for `&&mut T` write-through.
         if (p.type) {
             auto pk = TypeRef(p.type).kind();
+            if (pk == LogosType::Kind::Ptr || pk == LogosType::Kind::Ref ||
+                pk == LogosType::Kind::MutRef)
+                ptr_family_param_.insert(p.name);
             if (pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef)
                 ref_param_names_.insert(p.name);
         }
