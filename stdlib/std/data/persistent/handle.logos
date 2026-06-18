@@ -478,14 +478,16 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
     }
 
     // Find an existing container root under ctr_id (CoW the dir up-front so a
-    // later writeback lands in this snap's dir). Some(root_clone) sharing the
-    // dir slot's rc, or None. The caller pairs the root with make_ctx(ctr_id).
-    pub fn find_root(&mut self, ctr_id: u64) -> Option<NodeARC<STORE_CFG>> {
+    // later writeback lands in this snap's dir). Some((root_clone, ctx)) — the
+    // root sharing the dir slot's rc, paired with the handle's context (which
+    // claimed the open slot) — or None when ctr_id isn't present.
+    pub fn lookup(&mut self, ctr_id: u64) -> Option<(NodeARC<STORE_CFG>, SnapCtx<STORE_CFG>)> {
         let idp: *mut BlockId<STORE_CFG> = self.id_ctr();
         unsafe { make_unique::<STORE_CFG>(&mut self.dir, self.snapshot_id, idp); }
         let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&self.dir, ctr_id) };
         if slot_p == 0 as *mut NodeARC<STORE_CFG> { return Option::None; }
-        return Option::Some(unsafe { (*slot_p).clone() });
+        let root: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone() };
+        return Option::Some((root, self.make_ctx(ctr_id)));
     }
 }
 
@@ -579,12 +581,11 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> Option<ContainerRef<STORE_CFG, CFG>> {
-    // `find_root` CoWs the dir up-front (so a later writeback lands in this
-    // snapshot's dir) and resolves ctr_id; None when not present. On a hit we
-    // pair the root with a fresh SnapCtx (which claims the open slot).
-    match snap.find_root(ctr_id) {
-        Option::Some(root) => {
-            let ctx: SnapCtx<STORE_CFG> = snap.make_ctx(ctr_id);
+    // `lookup` CoWs the dir up-front (so a later writeback lands in this
+    // snapshot's dir), resolves ctr_id, claims the open slot, and returns the
+    // root clone paired with the handle context. None when ctr_id isn't present.
+    match snap.lookup(ctr_id) {
+        Option::Some((root, ctx)) => {
             return Option::Some(ContainerRef::<STORE_CFG, CFG> { arc: root, ctx: ctx });
         }
         Option::None => { return Option::None; }

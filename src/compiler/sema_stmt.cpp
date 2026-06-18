@@ -810,6 +810,11 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
                   n_named, arity));
         }
         // Spill the source to a temp so each element read references it once.
+        // Spilling MOVES `src` into src_tmp — mark the source place moved so its
+        // owner's scope-exit drop is suppressed (else double-free). At the top
+        // level `src` is var_ref(tmp) → the whole tuple is marked moved; at a
+        // nested level it is tuple_index(parent_src_tmp, pos) → that one element.
+        if (is_move_type(src_ty)) mark_moved_expr(expr_ref_of(*src));
         std::string src_tmp = std::format("__destruct_{}", destruct_counter_++);
         define(src_tmp, src_ty);
         lir::SLet sl;
@@ -840,6 +845,9 @@ lir::LStmt SemaChecker::lower_let_destruct(TinyMapView node) {
                 std::string nm(str_of(bnode.get(la::NAME.code)));
                 all_names.push_back(nm);
                 define(nm, elem_t);
+                // Binding moves the element OUT of src_tmp — mark src_tmp.<pos>
+                // moved so src_tmp's scope-exit drop skips it (double-free else).
+                if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(*elem_expr));
                 lir::SLet el;
                 el.name = nm; el.type = elem_t; el.is_mut = false; el.value = std::move(elem_expr);
                 blk->stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
@@ -7660,6 +7668,50 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                 // A `_` or `ref` binding moves nothing. (G156-2 enum-half.)
                 if (code_of(lhs) == la::PAT_VARIANT_DATA) {
                     bool moves = false;
+                    // Does a sub-pattern bind ANY value out by value (not `_`,
+                    // not `ref`)? Recurses through nested tuple / struct shapes:
+                    // `Some((r, n))` binds `r` by value through a PAT_TUPLE, so
+                    // the payload is consumed and the scrutinee must be marked
+                    // moved (else its scope-exit enum Drop double-frees the
+                    // moved-out element — the G154-4 double-free, enum+nested half).
+                    std::function<bool(hermes::TinyMapView)> binds_by_value =
+                        [&](hermes::TinyMapView sp) -> bool {
+                        auto c = code_of(sp);
+                        if (c == la::PAT_OR && sp.has_key(la::ITEMS)) {
+                            auto alts = arr_of(sp.get(la::ITEMS.code));
+                            if (alts.size() == 1) return binds_by_value(map_of(alts.get(0)));
+                            return false;
+                        }
+                        if (c == la::PAT_FIELD) {
+                            if (!sp.has_key(la::VALUE)) return true;  // `{ name }` shorthand
+                            return binds_by_value(map_of(sp.get(la::VALUE.code)));
+                        }
+                        if (c == la::PAT_WILD) {
+                            if (!sp.has_key(la::NAME)) return false;  // anonymous `_`
+                            auto nm = str_of(sp.get(la::NAME.code));
+                            if (nm.empty() || nm == "_") return false;
+                            if (sp.has_key(la::IS_REF) && sp.get(la::IS_REF.code).is_value() &&
+                                sp.get(la::IS_REF.code).as_value<uint8_t>() != 0)
+                                return false;                          // `ref` borrows
+                            return true;                               // by-value name binding
+                        }
+                        if (c == la::PAT_TUPLE && sp.has_key(la::ITEMS)) {
+                            auto items = arr_of(sp.get(la::ITEMS.code));
+                            for (uint64_t i = 0; i < items.size(); ++i)
+                                if (binds_by_value(map_of(items.get(i)))) return true;
+                            return false;
+                        }
+                        if (c == la::PAT_STRUCT && sp.has_key(la::ITEMS)) {
+                            auto fl = map_of(sp.get(la::ITEMS.code));
+                            if (fl.has_key(la::ITEMS)) {
+                                auto items = arr_of(fl.get(la::ITEMS.code));
+                                for (uint64_t i = 0; i < items.size(); ++i)
+                                    if (binds_by_value(map_of(items.get(i)))) return true;
+                            }
+                            return false;
+                        }
+                        return false;
+                    };
                     auto scan_subs = [&](hermes::AnyVal items_av) {
                         if (items_av.is_null()) return;
                         auto subs = arr_of(items_av);
@@ -7675,6 +7727,13 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                             if (code_of(sub) == la::PAT_FIELD) {
                                 if (!sub.has_key(la::VALUE)) { moves = true; continue; }
                                 sub = map_of(sub.get(la::VALUE.code));
+                            }
+                            // Nested tuple / struct sub-pattern (`V((a, b))`,
+                            // `V(S { x })`): a move out of any leaf consumes the
+                            // payload — recurse rather than skip it.
+                            if (code_of(sub) == la::PAT_TUPLE || code_of(sub) == la::PAT_STRUCT) {
+                                if (binds_by_value(sub)) moves = true;
+                                continue;
                             }
                             if (code_of(sub) != la::PAT_WILD || !sub.has_key(la::NAME)) continue;
                             auto nm = str_of(sub.get(la::NAME.code));
@@ -7914,7 +7973,11 @@ void SemaChecker::emit_nested_pat_destructure(
                 auto items = arr_of(tnode.get(la::ITEMS.code));
                 auto elems = TypeRef(tty).tuple_elems();
                 // Spill the source to a temp so each element read
-                // references it once.
+                // references it once. The spill MOVES `src` — mark its place
+                // moved so the owner's scope-exit Drop is suppressed (else
+                // double-free): top level is var_ref(synth payload) → the whole
+                // tuple; a nested level is tuple_index(parent, i) → one element.
+                if (is_move_type(tty)) mark_moved_expr(expr_ref_of(*src));
                 std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
                 define(stmp, tty);
                 {
@@ -7942,6 +8005,9 @@ void SemaChecker::emit_nested_pat_destructure(
                         std::string nm(str_of(en.get(la::NAME.code)));
                         if (nm == "_") continue;
                         define(nm, et);
+                        // Binding moves the element OUT of stmp — mark stmp.<i>
+                        // moved so stmp's scope-exit Drop skips it (else double).
+                        if (is_move_type(et)) mark_moved_expr(expr_ref_of(*elem_expr));
                         lir::SLet el; el.name = nm; el.type = et;
                         el.is_mut = false; el.value = std::move(elem_expr);
                         nested_destructure_stmts.push_back(

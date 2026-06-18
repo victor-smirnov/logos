@@ -1,0 +1,74 @@
+// Regression: moving a Drop-typed value OUT of a tuple — via a `let (a, b)`
+// destructure, or a nested tuple/struct sub-pattern inside an enum variant
+// (`Some((r, n))`) — must mark the SOURCE place moved so the source's
+// scope-exit Drop does not double-free the element the binding now owns.
+//
+// Was a double/triple-free: lower_let_destruct and emit_tuple_lets built the
+// element-binding `SLet`s by hand and never called mark_moved_expr on the
+// spilled source / moved-out elements (sema_stmt.cpp). Each `Res` drop bumps a
+// counter; every scenario asserts EXACTLY one drop per constructed Res.
+
+package tuple_destruct_drop_move;
+
+use logos.lang.option;
+use logos.lang.drop;
+
+struct Res { tag: *mut u64 }
+impl Drop for Res {
+    fn drop(self: Res) { unsafe { *self.tag = *self.tag + 1u64; } }
+}
+
+fn pair(tag: *mut u64) -> (Res, u64) { return (Res { tag: tag }, 5u64); }
+fn opt_pair(tag: *mut u64) -> Option<(Res, u64)> {
+    return Option::Some((Res { tag: tag }, 5u64));
+}
+fn opt_nested(tag1: *mut u64, tag2: *mut u64) -> Option<(Res, (Res, u64))> {
+    return Option::Some((Res { tag: tag1 }, (Res { tag: tag2 }, 9u64)));
+}
+
+fn main() -> i32 {
+    // 1. `let (r, n) = …` over a tuple temporary (one Res → one drop).
+    let mut d1: u64 = 0u64;
+    { let (r, n) = pair(&mut d1 as *mut u64); if n != 5u64 { return 1; } }
+    if d1 != 1u64 { return 10i32 + (d1 as i32); }
+
+    // 2. match a TEMPORARY enum scrutinee, nested tuple in the variant.
+    let mut d2: u64 = 0u64;
+    match opt_pair(&mut d2 as *mut u64) {
+        Option::Some((r, n)) => { if n != 5u64 { return 2; } }
+        Option::None => { return 3; }
+    }
+    if d2 != 1u64 { return 20i32 + (d2 as i32); }
+
+    // 3. match a NAMED (place) enum scrutinee, nested tuple in the variant.
+    let mut d3: u64 = 0u64;
+    let o = opt_pair(&mut d3 as *mut u64);
+    match o {
+        Option::Some((r, n)) => { if n != 5u64 { return 4; } }
+        Option::None => { return 5; }
+    }
+    if d3 != 1u64 { return 30i32 + (d3 as i32); }
+
+    // 4. deep nesting: Some((r, (r2, n))) — two distinct Res, one drop each.
+    let mut d4: u64 = 0u64;
+    let mut d5: u64 = 0u64;
+    match opt_nested(&mut d4 as *mut u64, &mut d5 as *mut u64) {
+        Option::Some((r, (r2, n))) => { if n != 9u64 { return 6; } }
+        Option::None => { return 7; }
+    }
+    if d4 != 1u64 { return 40i32 + (d4 as i32); }
+    if d5 != 1u64 { return 50i32 + (d5 as i32); }
+
+    // 5. nested tuple in `let`: let (a, (b, n)) = … — two Res, one drop each.
+    let mut d6: u64 = 0u64;
+    let mut d7: u64 = 0u64;
+    {
+        let (a, (b, n)) = (Res { tag: &mut d6 as *mut u64 },
+                           (Res { tag: &mut d7 as *mut u64 }, 3u64));
+        if n != 3u64 { return 8; }
+    }
+    if d6 != 1u64 { return 60i32 + (d6 as i32); }
+    if d7 != 1u64 { return 70i32 + (d7 as i32); }
+
+    return 0;
+}
