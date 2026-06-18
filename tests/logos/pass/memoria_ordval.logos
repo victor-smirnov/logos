@@ -1,0 +1,29 @@
+// S0 conformance: SBO owned key/value (logos.std.data.memoria.ordval).
+// Small payload stays inline (no heap); large spills to heap (freed by Drop).
+package memoria_ordval;
+
+use logos.std.data.memoria.ordval;
+use logos.lang.mem;
+
+fn main() -> i32 {
+    unsafe {
+        // small (8B) -> inline, no allocation.
+        let src: u64 = 0xDEADBEEFu64;
+        let small: HermesOrdVal = HermesOrdVal::materialize(&src as *const u64 as *const u8, 8u64);
+        if !small.is_inline()  { return 1; }
+        if small.len() != 8u64 { return 2; }
+        let sp: *const HermesOrdVal = &small as *const HermesOrdVal;
+        if *(sp.ptr() as *const u64) != 0xDEADBEEFu64 { return 3; }
+
+        // large (64B) -> heap.
+        let big: *mut u8 = alloc(64i64);
+        *(big as *mut u64) = 0x1122334455667788u64;
+        let owned: HermesOrdVal = HermesOrdVal::materialize(big as *const u8, 64u64);
+        if owned.is_inline()    { return 4; }
+        if owned.len() != 64u64 { return 5; }
+        let op: *const HermesOrdVal = &owned as *const HermesOrdVal;
+        if *(op.ptr() as *const u64) != 0x1122334455667788u64 { return 6; }
+        dealloc(big);
+    }
+    return 0;
+}
