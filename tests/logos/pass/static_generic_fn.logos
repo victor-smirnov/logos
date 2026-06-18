@@ -1,22 +1,32 @@
 // Grammar: an associated (static) fn may carry its OWN generic params
-// (`static fn make<T>(...)`), like Rust and the instance/free fn forms. The
-// type param is inferred from the argument at the call site.
+// (`static fn make<T>(...)`), like Rust and the instance/free fn forms. Covers
+// both call forms: inference from the argument, and turbofish on the method
+// (`Type::method::<T>()`) when T isn't in the arguments.
 
 package static_generic_fn;
 
-struct Wrap { tag: u32 }
-impl Wrap {
-    pub static fn of<T: TagOf>(v: T) -> Wrap { return Wrap { tag: tag_of_val(v) }; }
-}
 trait TagOf { fn t(self: *const Self) -> u32; }
-impl TagOf for i64 { fn t(self: *const i64) -> u32 { return 26u32; } }
+impl TagOf for i64  { fn t(self: *const i64)  -> u32 { return 26u32; } }
 impl TagOf for bool { fn t(self: *const bool) -> u32 { return 2u32; } }
 fn tag_of_val<T: TagOf>(v: T) -> u32 { let p: *const T = 0 as *const T; return unsafe { p.t() }; }
 
+struct Wrap { tag: u32 }
+impl Wrap {
+    // T inferred from the argument
+    pub static fn of<T: TagOf>(v: T) -> Wrap { return Wrap { tag: tag_of_val(v) }; }
+    // T only in the body → must be given by turbofish at the call site
+    pub static fn tag_for<T: TagOf>() -> u32 { let p: *const T = 0 as *const T; return unsafe { p.t() }; }
+}
+
 fn main() -> i32 {
-    let a: Wrap = Wrap::of(5i64);     // T = i64 inferred
-    let b: Wrap = Wrap::of(true);     // T = bool inferred
+    let a: Wrap = Wrap::of(5i64);          // inferred T = i64
+    let b: Wrap = Wrap::of(true);          // inferred T = bool
     if a.tag != 26u32 { return 1; }
     if b.tag != 2u32  { return 2; }
+
+    let c: u32 = Wrap::tag_for::<i64>();   // turbofish on the method
+    let d: u32 = Wrap::tag_for::<bool>();
+    if c != 26u32 { return 3; }
+    if d != 2u32  { return 4; }
     return 0;
 }

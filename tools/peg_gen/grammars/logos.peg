@@ -3186,6 +3186,12 @@
                // the method, so the trait is consumed and dropped).
                / LT IDENT KW_AS simple_type GT_TYPE COLONCOLON IDENT LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $2, NAME: $7, ARGS: $9 }
+               // `Type::method::<T>(args)` — turbofish on the METHOD (its own
+               // generics), distinct from `Type::<T>::method(...)` (turbofish on
+               // the type). TYPE_PARAMS are the method's args; sema applies them
+               // to the associated fn. Must precede the plain `Type::method(...)`.
+               / IDENT COLONCOLON IDENT COLONCOLON LT_TYPE type_arg_list GT_TYPE LPAREN call_arg_list? RPAREN
+              => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, TYPE_PARAMS: $6, ARGS: $9 }
                / IDENT COLONCOLON IDENT  LPAREN call_arg_list? RPAREN
               => { CODE: STATIC_CALL, RECEIVER: $1, NAME: $3, ARGS: $5 }
                / IDENT COLONCOLON KW_NEW LPAREN call_arg_list? RPAREN
