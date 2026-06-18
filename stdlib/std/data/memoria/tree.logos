@@ -57,6 +57,12 @@ unsafe fn kid_at(n: *mut Node, i: u64) -> *mut Node {
     return *(kids_c(n).slot(i) as *const *mut Node);
 }
 
+// Append a child pointer to a branch's kids buffer (by value — robust vs taking
+// the address of a loop-local pointer).
+unsafe fn kid_push(n: *mut Node, child: *mut Node) {
+    kids_m(n).push_ptr(child as *mut u8);
+}
+
 unsafe fn node_new(is_leaf: bool, ksz: u64, vsz: u64) -> *mut Node {
     let n: *mut Node = alloc(sizeof::<Node>()) as *mut Node;
     n.is_leaf = is_leaf;
@@ -154,20 +160,27 @@ unsafe fn insert_rec(d: *mut dyn KeyDesc, meta: u64, n: *mut Node,
 // (immutable per [[design]]) so the hot path never re-resolves it.
 pub struct OrdMap {
     root:     *mut Node,
-    desc:     *mut dyn KeyDesc,
+    desc:     *mut dyn KeyDesc,   // key descriptor (cmp/build_view/drop)
     key_code: u64,
-    key_meta: u64,       // cached key metadata word (value | abs ptr); 0 for u64
-    val_size: u64,
+    key_meta: u64,                // cached key meta word (value | abs ptr); 0 for u64
+    vdesc:    *mut dyn KeyDesc,   // value descriptor (build_view/drop; cmp unused)
+    val_code: u64,
+    val_meta: u64,                // cached value meta word
+    val_size: u64,                // cached vdesc.key_size()
     count:    u64,
 }
 
-pub unsafe fn ordmap_new(key_code: u64, val_size: u64) -> OrdMap {
-    let d: *mut dyn KeyDesc = desc_for(key_code);
+// Both key and value types are chosen at RUNTIME by Hermes type-code; the value
+// reuses the KeyDesc trait (its ordering simply goes unused). Body compiled once.
+pub unsafe fn ordmap_new(key_code: u64, val_code: u64) -> OrdMap {
+    let d:  *mut dyn KeyDesc = desc_for(key_code);
+    let vd: *mut dyn KeyDesc = desc_for(val_code);
     let ksz: u64 = (&*d).key_size();
-    let root: *mut Node = node_new(true, ksz, val_size);
+    let vsz: u64 = (&*vd).key_size();
+    let root: *mut Node = node_new(true, ksz, vsz);
     return OrdMap {
-        root: root, desc: d, key_code: key_code,
-        key_meta: 0u64, val_size: val_size, count: 0u64,
+        root: root, desc: d, key_code: key_code, key_meta: 0u64,
+        vdesc: vd, val_code: val_code, val_meta: 0u64, val_size: vsz, count: 0u64,
     };
 }
 
@@ -222,23 +235,34 @@ pub unsafe fn ordmap_contains(m: *mut OrdMap, key: *const u8) -> bool {
 }
 
 // ── teardown ─────────────────────────────────────────────────────────────────
-// NOTE (задел): owning key/value types would drop_raw each live slot here before
-// freeing the buffers. POD keys (u64/i64) are no-op, so S2 just frees buffers.
-unsafe fn node_free(n: *mut Node) {
+// Drop semantics: keys/values are dropped ONLY at leaves (the actual residence).
+// Branch separators are routing COPIES of leaf keys — dropping them too would
+// double-drop an owning key, so a branch only frees its buffers. drop_raw is a
+// no-op for POD descriptors (u64/i64), the real release for owning types.
+unsafe fn node_free(n: *mut Node, kd: *mut dyn KeyDesc, km: u64,
+                    vd: *mut dyn KeyDesc, vm: u64) {
     if !n.is_leaf {
         let nk: u64 = n.keys.len();
         let mut i: u64 = 0u64;
-        while i <= nk { node_free(kid_at(n, i)); i = i + 1u64; }
+        while i <= nk { node_free(kid_at(n, i), kd, km, vd, vm); i = i + 1u64; }
         kids_m(n).free();
+        keys_m(n).free();                       // separators: no drop (routing copies)
     } else {
+        let nl: u64 = n.keys.len();
+        let mut i: u64 = 0u64;
+        while i < nl {
+            (&*vd).drop_raw(vals_c(n).slot(i), vm);
+            (&*kd).drop_raw(keys_c(n).slot(i), km);
+            i = i + 1u64;
+        }
         vals_m(n).free();
+        keys_m(n).free();
     }
-    keys_m(n).free();
     dealloc(n as *mut u8);
 }
 
 pub unsafe fn ordmap_free(m: *mut OrdMap) {
-    node_free(m.root);
+    node_free(m.root, m.desc, m.key_meta, m.vdesc, m.val_meta);
     m.root = 0 as *mut Node;
 }
 
@@ -344,3 +368,48 @@ pub unsafe fn cursor_take_key(c: *mut Cursor) -> HermesOrdVal {
 
 // Public accessor for the runtime key descriptor (for lower-level keyview_take).
 pub unsafe fn ordmap_desc(m: *const OrdMap) -> *mut dyn KeyDesc { return m.desc; }
+
+// ── S4: value views + snapshot (persistent-store hook) ──────────────────────
+
+// Value view / owned value at the cursor (symmetric to the key side, via vdesc).
+pub unsafe fn cursor_val_view(c: *mut Cursor) -> KeyView {
+    return (&*c.m.vdesc).build_view(vals_c(c.leaf).slot(c.li) as *const u8, c.m.val_meta);
+}
+pub unsafe fn cursor_take_val(c: *mut Cursor) -> HermesOrdVal {
+    return HermesOrdVal::materialize(vals_c(c.leaf).slot(c.li) as *const u8, c.m.val_size);
+}
+
+// Deep structural clone of a subtree. SHALLOW for owning element types (shares
+// pointees via RawSlotBuf::clone) — a deep snapshot of owning keys/values needs
+// the descriptor's clone_raw (задел); POD elements are fully independent.
+unsafe fn clone_node(n: *mut Node) -> *mut Node {
+    let c: *mut Node = alloc(sizeof::<Node>()) as *mut Node;
+    c.is_leaf = n.is_leaf;
+    c.keys = keys_c(n).clone();
+    c.vals = vals_c(n).clone();
+    c.kids = RawSlotBuf::new(8u64);
+    if !n.is_leaf {
+        let nk: u64 = n.keys.len();
+        let mut i: u64 = 0u64;
+        while i <= nk {
+            kid_push(c, clone_node(kid_at(n, i)));
+            i = i + 1u64;
+        }
+    }
+    return c;
+}
+
+// Persistent-store hook: an independent snapshot of the map. The descriptors are
+// immutable → shared by pointer (key type can't change across versions, per
+// [[design]]). BASE: full deep clone (correct persistence; mutating one side
+// never affects the other). OPTIMIZATION (S5+): structural sharing CoW — node
+// refcounts + path-copy-on-write so unchanged subtrees are shared between
+// versions instead of copied. This function is the seam that becomes that.
+pub unsafe fn ordmap_snapshot(m: *const OrdMap) -> OrdMap {
+    return OrdMap {
+        root: clone_node(m.root),
+        desc: m.desc, key_code: m.key_code, key_meta: m.key_meta,
+        vdesc: m.vdesc, val_code: m.val_code, val_meta: m.val_meta,
+        val_size: m.val_size, count: m.count,
+    };
+}

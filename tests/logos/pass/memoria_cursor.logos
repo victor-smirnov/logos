@@ -10,7 +10,7 @@ use logos.lang.mem;
 
 fn main() -> i32 {
     unsafe {
-        let mut m: OrdMap = ordmap_new(H2_U64, 8u64);
+        let mut m: OrdMap = ordmap_new(H2_U64, H2_U64);
         let mp: *mut OrdMap = &mut m as *mut OrdMap;
         let n: u64 = 257u64;
         let mut i: u64 = 0u64;

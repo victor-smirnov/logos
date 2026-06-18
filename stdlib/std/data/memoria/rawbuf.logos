@@ -58,6 +58,16 @@ impl RawSlotBuf {
         self.len = self.len + 1u64;
     }
 
+    // Append a pointer value BY VALUE into an 8-byte slot (no address-of a
+    // temporary — robust regardless of where the pointer came from). For buffers
+    // of raw pointers (B+tree child links). Requires stride == 8.
+    pub unsafe fn push_ptr(self: *mut RawSlotBuf, p: *mut u8) {
+        self.reserve(self.len + 1u64);
+        let dst: *mut *mut u8 = self.slot(self.len) as *mut *mut u8;
+        dst[0] = p;
+        self.len = self.len + 1u64;
+    }
+
     // Overwrite slot `idx` in place.
     pub unsafe fn set(self: *mut RawSlotBuf, idx: u64, src: *const u8) {
         if idx >= self.len { return; }
@@ -97,6 +107,21 @@ impl RawSlotBuf {
     // split to keep the left half after copying the tail into a new node.
     pub unsafe fn truncate(self: *mut RawSlotBuf, n: u64) {
         if n < self.len { self.len = n; }
+    }
+
+    // Byte-for-byte copy into a fresh buffer (same stride/len, tight capacity).
+    // SHALLOW for owning element types (shares pointees) — a deep clone needs the
+    // descriptor's clone_raw (задел). POD elements are fully independent.
+    pub unsafe fn clone(self: *const RawSlotBuf) -> RawSlotBuf {
+        let mut out: RawSlotBuf = RawSlotBuf::new(self.stride);
+        if self.len > 0u64 {
+            let bytes: i64 = (self.len as i64) * (self.stride as i64);
+            let nb: *mut u8 = alloc(bytes);
+            memcpy(nb, self.data as *const u8, bytes);
+            let op: *mut RawSlotBuf = &mut out as *mut RawSlotBuf;
+            op.data = nb; op.len = self.len; op.cap = self.len;
+        }
+        return out;
     }
 
     // Release the backing allocation (call from the owner's Drop / node free).
