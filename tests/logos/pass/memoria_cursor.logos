@@ -1,0 +1,50 @@
+// S3 conformance: in-order cursor + 2-block KeyView assembly + HermesOrdVal.
+// Insert a scrambled permutation, walk via cursor — keys must come out in
+// ascending order (validates ordering across all splits); materialize a key.
+package memoria_cursor;
+use logos.std.data.memoria.tree;
+use logos.std.data.memoria.keydesc;   // KeyView
+use logos.std.data.memoria.ordval;    // HermesOrdVal
+use logos.lang.hermes.anyval;         // H2_U64
+use logos.lang.mem;
+
+fn main() -> i32 {
+    unsafe {
+        let mut m: OrdMap = ordmap_new(H2_U64, 8u64);
+        let mp: *mut OrdMap = &mut m as *mut OrdMap;
+        let n: u64 = 257u64;
+        let mut i: u64 = 0u64;
+        while i < n {
+            let k: u64 = (i * 97u64 + 13u64) % 257u64;
+            let v: u64 = k + 500u64;
+            ordmap_insert(mp, &k as *const u64 as *const u8, &v as *const u64 as *const u8);
+            i = i + 1u64;
+        }
+
+        // Walk in order: expect keys 0,1,2,...,256 with value = key+500.
+        let mut c: Cursor = cursor_open(mp);
+        let cp: *mut Cursor = &mut c as *mut Cursor;
+        let mut expect: u64 = 0u64;
+        let mut seen: u64 = 0u64;
+        while cursor_valid(cp as *const Cursor) {
+            let kv: KeyView = cursor_key(cp);
+            let kval: u64 = *(kv.data as *const u64);
+            if kval != expect { cursor_close(cp); return 1; }       // out of order
+            let vp: *const u8 = cursor_val(cp);
+            if *(vp as *const u64) != kval + 500u64 { cursor_close(cp); return 2; }
+            // materialize key 42 into an owned HermesOrdVal and read it back
+            if kval == 42u64 {
+                let owned: HermesOrdVal = cursor_take_key(cp);
+                let op: *const HermesOrdVal = &owned as *const HermesOrdVal;
+                if *(op.ptr() as *const u64) != 42u64 { cursor_close(cp); return 3; }
+            }
+            expect = expect + 1u64;
+            seen = seen + 1u64;
+            cursor_next(cp);
+        }
+        cursor_close(cp);
+        if seen != 257u64 { return 4; }
+        ordmap_free(mp);
+    }
+    return 0;
+}

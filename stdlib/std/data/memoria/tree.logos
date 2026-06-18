@@ -20,8 +20,9 @@ package logos.std.data.memoria.tree;
 
 use logos.lang.mem;                     // alloc / dealloc / memcpy
 use logos.lang.cmp;                     // Ordering
-use logos.std.data.memoria.keydesc;     // KeyDesc / desc_for
+use logos.std.data.memoria.keydesc;     // KeyDesc / desc_for / KeyView
 use logos.std.data.memoria.rawbuf;      // RawSlotBuf
+use logos.std.data.memoria.ordval;      // HermesOrdVal
 
 // Max keys per node; a node splits when it would exceed this.
 pub const MAX_KEYS: u64 = 8u64;
@@ -240,3 +241,106 @@ pub unsafe fn ordmap_free(m: *mut OrdMap) {
     node_free(m.root);
     m.root = 0 as *mut Node;
 }
+
+// ── S3: in-order cursor + multi-block view assembly + owned handoff ──────────
+//
+// Cursor walks the tree in key order via an explicit path stack (no leaf links
+// yet). At each position it assembles the 2-block KeyView (data = leaf key slot,
+// absolute; meta = cached key-meta word) through the descriptor's build_view, and
+// the value slot pointer. keyview_take materialises a view into an owning
+// HermesOrdVal (SBO) for escape past the borrowed nodes.
+pub struct Cursor {
+    m:          *mut OrdMap,
+    path_nodes: RawSlotBuf,   // *mut Node stack (root → parent-of-leaf)
+    path_idxs:  RawSlotBuf,   // u64 stack: child index descended at each level
+    leaf:       *mut Node,
+    li:         u64,          // index within the current leaf
+    valid:      bool,
+}
+
+unsafe fn pnodes(c: *mut Cursor) -> *mut RawSlotBuf { return &mut c.path_nodes as *mut RawSlotBuf; }
+unsafe fn pidxs(c: *mut Cursor)  -> *mut RawSlotBuf { return &mut c.path_idxs as *mut RawSlotBuf; }
+unsafe fn path_node_at(c: *mut Cursor, i: u64) -> *mut Node {
+    return *((&c.path_nodes as *const RawSlotBuf).slot(i) as *const *mut Node);
+}
+unsafe fn path_idx_at(c: *mut Cursor, i: u64) -> u64 {
+    return *((&c.path_idxs as *const RawSlotBuf).slot(i) as *const u64);
+}
+
+// Push branch levels from `start` down to the leftmost leaf; set leaf + li=0.
+unsafe fn descend_leftmost(c: *mut Cursor, start: *mut Node) {
+    let mut n: *mut Node = start;
+    while !n.is_leaf {
+        pnodes(c).push(&n as *const *mut Node as *const u8);
+        let z: u64 = 0u64;
+        pidxs(c).push(&z as *const u64 as *const u8);
+        n = kid_at(n, 0u64);
+    }
+    c.leaf = n;
+    c.li   = 0u64;
+}
+
+pub unsafe fn cursor_open(m: *mut OrdMap) -> Cursor {
+    let mut c: Cursor = Cursor {
+        m: m, path_nodes: RawSlotBuf::new(8u64), path_idxs: RawSlotBuf::new(8u64),
+        leaf: 0 as *mut Node, li: 0u64, valid: false,
+    };
+    let cp: *mut Cursor = &mut c as *mut Cursor;
+    descend_leftmost(cp, m.root);
+    cp.valid = cp.leaf.keys.len() > 0u64;   // empty only for an empty tree
+    return c;
+}
+
+pub unsafe fn cursor_valid(c: *const Cursor) -> bool { return c.valid; }
+
+// The 2-block key view at the cursor (data = leaf slot, meta = cached).
+pub unsafe fn cursor_key(c: *mut Cursor) -> KeyView {
+    return (&*c.m.desc).build_view(keys_c(c.leaf).slot(c.li) as *const u8, c.m.key_meta);
+}
+pub unsafe fn cursor_val(c: *mut Cursor) -> *const u8 {
+    return vals_c(c.leaf).slot(c.li) as *const u8;
+}
+
+pub unsafe fn cursor_next(c: *mut Cursor) {
+    if !c.valid { return; }
+    c.li = c.li + 1u64;
+    if c.li < c.leaf.keys.len() { return; }   // still inside the current leaf
+    // ascend: find the nearest ancestor with an un-walked right child
+    loop {
+        let depth: u64 = c.path_nodes.len();
+        if depth == 0u64 { c.valid = false; return; }
+        let top: u64 = depth - 1u64;
+        let node: *mut Node = path_node_at(c, top);
+        let idx:  u64 = path_idx_at(c, top);
+        if idx < node.keys.len() {
+            let nidx: u64 = idx + 1u64;
+            pidxs(c).set(top, &nidx as *const u64 as *const u8);
+            descend_leftmost(c, kid_at(node, nidx));   // pushes below this top
+            return;
+        }
+        pnodes(c).truncate(top);   // pop exhausted level
+        pidxs(c).truncate(top);
+    }
+}
+
+pub unsafe fn cursor_close(c: *mut Cursor) {
+    pnodes(c).free();
+    pidxs(c).free();
+}
+
+// Materialise a key view into an owning HermesOrdVal (SBO). BASE: copies the
+// key_size raw bytes (POD / inline keys). задел: a meta-by-pointer key would
+// also copy/absolutise its meta block to stay self-contained.
+pub unsafe fn keyview_take(d: *mut dyn KeyDesc, v: KeyView) -> HermesOrdVal {
+    return HermesOrdVal::materialize(v.data, (&*d).key_size());
+}
+
+// Convenience: materialise the key at the cursor directly (uses the map's cached
+// descriptor). The owned HermesOrdVal outlives the borrowed nodes.
+pub unsafe fn cursor_take_key(c: *mut Cursor) -> HermesOrdVal {
+    let kv: KeyView = cursor_key(c);
+    return HermesOrdVal::materialize(kv.data, (&*c.m.desc).key_size());
+}
+
+// Public accessor for the runtime key descriptor (for lower-level keyview_take).
+pub unsafe fn ordmap_desc(m: *const OrdMap) -> *mut dyn KeyDesc { return m.desc; }
