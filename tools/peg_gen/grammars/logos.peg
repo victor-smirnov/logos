@@ -1040,33 +1040,36 @@
 
 
     // pub static fn name(params) -> ret_type { ... }
-    pub_static_fn_def <- KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
-                       / KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, PARAMS: $7, BODY: $9 }
-                       / KW_PUB KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
-                       / KW_PUB KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, BODY: $8 }
-                       / KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
-                       / KW_PUB KW_STATIC KW_FN IDENT LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, PARAMS: $6, BODY: $8 }
+    // `type_param_list?` after the name gives associated fns their OWN generics
+    // (`static fn make<T>(...)`), matching Rust + the instance/free fn_def forms.
+    // sema collect_fn reads TYPE_PARAMS uniformly for FN and STATIC_FN.
+    pub_static_fn_def <- KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
+                       / KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
+                       / KW_PUB KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
+                       / KW_PUB KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
+                       / KW_PUB KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
+                       / KW_PUB KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
 
     // static fn name(params) -> ret_type { ... }
     // 'new' and 'delete' are allowed as method names (common constructor/destructor conventions).
-    static_fn_def <- KW_STATIC KW_UNSAFE KW_FN IDENT  LPAREN param_list? RPAREN ARROW type_ref block
-                  => { CODE: STATIC_FN, IS_UNSAFE: 1, NAME: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
-                   / KW_STATIC KW_UNSAFE KW_FN IDENT  LPAREN param_list? RPAREN block
-                  => { CODE: STATIC_FN, IS_UNSAFE: 1, NAME: $4, PARAMS: $6, BODY: $8 }
-                   / KW_STATIC KW_FN IDENT  LPAREN param_list? RPAREN ARROW type_ref block
-                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
-                   / KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN ARROW type_ref block
-                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, RET_TYPE: $8, BODY: $9 }
-                   / KW_STATIC KW_FN IDENT  LPAREN param_list? RPAREN block
-                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
-                   / KW_STATIC KW_FN KW_NEW LPAREN param_list? RPAREN block
-                  => { CODE: STATIC_FN, NAME: $3, PARAMS: $5, BODY: $7 }
+    static_fn_def <- KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                  => { CODE: STATIC_FN, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
+                   / KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                  => { CODE: STATIC_FN, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
+                   / KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                  => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                   / KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                  => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, BODY: $10 }
+                   / KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                  => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
+                   / KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN block
+                  => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
     pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE

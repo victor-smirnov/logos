@@ -1,0 +1,22 @@
+// Grammar: an associated (static) fn may carry its OWN generic params
+// (`static fn make<T>(...)`), like Rust and the instance/free fn forms. The
+// type param is inferred from the argument at the call site.
+
+package static_generic_fn;
+
+struct Wrap { tag: u32 }
+impl Wrap {
+    pub static fn of<T: TagOf>(v: T) -> Wrap { return Wrap { tag: tag_of_val(v) }; }
+}
+trait TagOf { fn t(self: *const Self) -> u32; }
+impl TagOf for i64 { fn t(self: *const i64) -> u32 { return 26u32; } }
+impl TagOf for bool { fn t(self: *const bool) -> u32 { return 2u32; } }
+fn tag_of_val<T: TagOf>(v: T) -> u32 { let p: *const T = 0 as *const T; return unsafe { p.t() }; }
+
+fn main() -> i32 {
+    let a: Wrap = Wrap::of(5i64);     // T = i64 inferred
+    let b: Wrap = Wrap::of(true);     // T = bool inferred
+    if a.tag != 26u32 { return 1; }
+    if b.tag != 2u32  { return 2; }
+    return 0;
+}
