@@ -438,50 +438,115 @@ impl<const STORE_CFG: HermesStatic> Snap<STORE_CFG> {
             return (s as *mut LockingStore<STORE_CFG>).register_commit(root, me.parent_id);
         }
     }
+
+    // ── reusable container infrastructure ───────────────────────────────────
+    // The store/snapshot/directory layer is container-AGNOSTIC: a container is
+    // just a root NodeARC (any BTreeNode) planted in this snap's `dir`. A
+    // specialization (PMap below, or a future one) brings its OWN node types,
+    // descent and handle API, and reuses these to live in the snapshot + commit
+    // DAG. `attach`/`lookup` return a SnapCtx the specialization embeds.
+
+    pub fn id_ctr(&mut self) -> *mut BlockId<STORE_CFG> {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
+    }
+    pub fn alloc_block(&mut self) -> BlockId<STORE_CFG> {
+        let s: &mut LockingStore<STORE_CFG> = self.arc.deref_mut();
+        return unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
+    }
+
+    // Build the snap-side context for ctr_id and CLAIM an open-container slot
+    // (released in the handle's Drop). The shared tail of attach/lookup.
+    pub fn make_ctx(&mut self, ctr_id: u64) -> SnapCtx<STORE_CFG> {
+        let idp: *mut BlockId<STORE_CFG> = self.id_ctr();
+        self.open_containers = self.open_containers + 1u64;
+        return SnapCtx::<STORE_CFG> {
+            dir_root_p: &mut self.dir as *mut NodeARC<STORE_CFG>,
+            ctr_id:     ctr_id,
+            snap_id:    self.snapshot_id,
+            id_ctr_p:   idp,
+            open_ctr_p: &mut self.open_containers as *mut u64,
+        };
+    }
+
+    // Plant a freshly-built container root under ctr_id (CoW into the dir;
+    // TRANSFERS root's share to the dir entry) and return the handle's context.
+    pub fn attach(&mut self, ctr_id: u64, root: NodeARC<STORE_CFG>) -> SnapCtx<STORE_CFG> {
+        let idp: *mut BlockId<STORE_CFG> = self.id_ctr();
+        unsafe { dir_insert::<STORE_CFG>(&mut self.dir, ctr_id, root, self.snapshot_id, idp); }
+        return self.make_ctx(ctr_id);
+    }
+
+    // Find an existing container root under ctr_id (CoW the dir up-front so a
+    // later writeback lands in this snap's dir). Some(root_clone) sharing the
+    // dir slot's rc, or None. The caller pairs the root with make_ctx(ctr_id).
+    pub fn find_root(&mut self, ctr_id: u64) -> Option<NodeARC<STORE_CFG>> {
+        let idp: *mut BlockId<STORE_CFG> = self.id_ctr();
+        unsafe { make_unique::<STORE_CFG>(&mut self.dir, self.snapshot_id, idp); }
+        let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&self.dir, ctr_id) };
+        if slot_p == 0 as *mut NodeARC<STORE_CFG> { return Option::None; }
+        return Option::Some(unsafe { (*slot_p).clone() });
+    }
+}
+
+// ── SnapCtx — the snap-side wiring every container handle embeds ─────────────
+// Independent of the container's node types / API: the directory slot, the
+// snapshot id (CoW key), the block-id allocator, and the open-container guard.
+// A specialization stores a SnapCtx + its own root/handle, and uses these
+// methods for writeback / id allocation / release.
+pub struct SnapCtx<const STORE_CFG: HermesStatic> {
+    pub dir_root_p: *mut NodeARC<STORE_CFG>,   // &Snap.dir — stable for the snap's life
+    pub ctr_id:     u64,                        // this container's id within the dir
+    pub snap_id:    SnpId<STORE_CFG>,           // CoW key (make_unique)
+    pub id_ctr_p:   *mut BlockId<STORE_CFG>,    // &store.next_block_id
+    pub open_ctr_p: *mut u64,                    // &Snap.open_containers (commit guard)
+}
+
+impl<const STORE_CFG: HermesStatic> SnapCtx<STORE_CFG> {
+    // Bump + return the next block id (for the specialization's node allocs).
+    pub fn next_block_id(&self) -> BlockId<STORE_CFG> {
+        unsafe {
+            let n: BlockId<STORE_CFG> = *self.id_ctr_p + 1u64;
+            *self.id_ctr_p = n;
+            return n;
+        }
+    }
+    // Sync the dir's slot for ctr_id with `root` (re-resolved freshly each call —
+    // survives dir realloc/split/root-grow; never a cached interior pointer).
+    pub unsafe fn writeback(&self, root: &NodeARC<STORE_CFG>) {
+        if self.dir_root_p == 0 as *mut NodeARC<STORE_CFG> { return; }
+        let slot: *mut NodeARC<STORE_CFG> = dir_lookup::<STORE_CFG>(&*self.dir_root_p, self.ctr_id);
+        if slot == 0 as *mut NodeARC<STORE_CFG> { return; }
+        if node_arc_same::<STORE_CFG>(&*slot, root) { return; }
+        arc_replace_in_slot::<STORE_CFG>(slot, root.clone());
+    }
+    // Release this container's open-claim (the commit guard).
+    pub unsafe fn release(&self) {
+        if self.open_ctr_p != 0 as *mut u64 { *self.open_ctr_p = *self.open_ctr_p - 1u64; }
+    }
 }
 
 // ── ContainerRef<STORE_CFG, CFG> ─────────────────────────────────────
-// Handle to one container's root. Holds a NodeARC (open-claim rc) and
-// the container's id within the dir. Drop writes back + releases.
+// PMap's handle — the FIRST specialization on the reusable infra above. It
+// owns the container root rc (`arc`) and embeds a `SnapCtx` (the shared
+// snap-side wiring: dir slot / CoW key / id allocator / commit guard). A new
+// container brings its OWN handle (its own root type + method surface) and
+// reuses SnapCtx the same way — the store/snapshot/directory layer is untouched.
 //
 // v1: ContainerRef holds a typed pointer cast to the concrete leaf
 // type. Multi-level descent (where root may be a BranchNode) lands
 // when mutate gains splits. Single-leaf bring-up first.
 
 pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
-    pub arc:    NodeARC<STORE_CFG>,    // owning rc on the container root
-    pub ctr_id: u64,
-    // Pointer to the originating Snap's `dir` FIELD (its address is stable —
-    // the field doesn't move even when its NodeARC value is CoW-replaced).
-    // writeback() re-resolves the actual dir-tree slot freshly via dir_lookup
-    // each call. We deliberately do NOT cache the interior vals[] slot pointer:
-    // a sibling create_pmap that reallocs the dir leaf's vals buffer, or a dir
-    // split / root-grow that relocates the entry, would leave such a cached
-    // pointer dangling → use-after-free on the next writeback. null only when
-    // this ref came from an open_pmap miss. Valid for the originating Snap's
-    // lifetime (the same contract as snap_id / id_ctr_p below).
-    pub dir_root_p: *mut NodeARC<STORE_CFG>,
-    // Snap-side context cached at create/open time so cr.insert /
-    // cr.remove don't have to re-thread these from the call site.
-    // Both stay valid for the lifetime of the originating Snap.
-    pub snap_id:    SnpId<STORE_CFG>,
-    pub id_ctr_p:   *mut BlockId<STORE_CFG>,
-    // Raw pointer to the originating Snap's `open_containers` counter. Bumped
-    // at create/open, decremented in Drop — the dynamic commit guard. Stable
-    // for the Snap's lifetime (same contract as dir_root_p / id_ctr_p).
-    pub open_ctr_p: *mut u64,
+    pub arc: NodeARC<STORE_CFG>,    // owning rc on the container root
+    pub ctx: SnapCtx<STORE_CFG>,    // shared snap-side wiring (dir / CoW / ids / guard)
 }
 
 impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> Drop for ContainerRef<STORE_CFG, CFG> {
     fn drop(self: ContainerRef<STORE_CFG, CFG>) {
-        // Release this snap's open-container claim (the commit guard). Guarded
-        // on non-null (an open_pmap miss never built a ContainerRef, but be
-        // defensive). self.arc auto-drops after this body, releasing its rc.
-        unsafe {
-            if self.open_ctr_p != (0 as *mut u64) {
-                *self.open_ctr_p = *self.open_ctr_p - 1u64;
-            }
-        }
+        // Release this snap's open-container claim (the commit guard).
+        // self.arc auto-drops after this body, releasing its rc.
+        unsafe { self.ctx.release(); }
     }
 }
 
@@ -495,30 +560,16 @@ pub fn create_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> ContainerRef<STORE_CFG, CFG> {
-    let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
-    let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe { &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG> };
-    let block_id: BlockId<STORE_CFG> = unsafe { (s as *mut LockingStore<STORE_CFG>).alloc_block_id() };
-    // Allocate the container's initial empty leaf (data flavour).
-    let arc_for_dir: NodeARC<STORE_CFG> = unsafe {
+    let block_id: BlockId<STORE_CFG> = snap.alloc_block();
+    // Allocate the container's initial empty leaf (data flavour) — PMap's own
+    // root node type. A second share goes to the handle; `attach` transfers the
+    // first into the dir entry.
+    let root: NodeARC<STORE_CFG> = unsafe {
         leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(block_id, snap.snapshot_id)
     };
-    // A second share for the open-claim ContainerRef (the first goes to the dir
-    // entry, transferring its share).
-    let arc_for_ref: NodeARC<STORE_CFG> = arc_for_dir.clone();
-
-    // Insert into dir tree — dir_insert handles CoW + splits + root grow.
-    unsafe { dir_insert::<STORE_CFG>(&mut snap.dir, ctr_id, arc_for_dir, snap.snapshot_id, id_ctr_p); }
-
-    // Claim an open-container slot (released in ContainerRef::drop).
-    snap.open_containers = snap.open_containers + 1u64;
-    return ContainerRef::<STORE_CFG, CFG> {
-        arc:        arc_for_ref,
-        ctr_id:     ctr_id,
-        dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
-        snap_id:    snap.snapshot_id,
-        id_ctr_p:   id_ctr_p,
-        open_ctr_p: &mut snap.open_containers as *mut u64,
-    };
+    let arc_for_ref: NodeARC<STORE_CFG> = root.clone();
+    let ctx: SnapCtx<STORE_CFG> = snap.attach(ctr_id, root);
+    return ContainerRef::<STORE_CFG, CFG> { arc: arc_for_ref, ctx: ctx };
 }
 
 // open_pmap — look up ctr_id in the snapshot's dir tree. Some(ContainerRef)
@@ -528,30 +579,16 @@ pub fn open_pmap<const CFG: HermesStatic, const STORE_CFG: HermesStatic>(
     snap:   &mut Snap<STORE_CFG>,
     ctr_id: u64,
 ) -> Option<ContainerRef<STORE_CFG, CFG>> {
-    // CoW dir up-front so any later writeback (which re-resolves the slot
-    // against snap.dir) lands in this snapshot's dir. Subsequent descent
-    // during dir_lookup reads the (now-owned) dir; child nodes stay shared
-    // until first mutation.
-    let s: &mut LockingStore<STORE_CFG> = snap.arc.deref_mut();
-    let id_ctr_p: *mut BlockId<STORE_CFG> = unsafe {
-        &mut (*(s as *mut LockingStore<STORE_CFG>)).next_block_id as *mut BlockId<STORE_CFG>
-    };
-    unsafe { make_unique::<STORE_CFG>(&mut snap.dir, snap.snapshot_id, id_ctr_p); }
-    let slot_p: *mut NodeARC<STORE_CFG> = unsafe { dir_lookup::<STORE_CFG>(&snap.dir, ctr_id) };
-    if slot_p == 0 as *mut NodeARC<STORE_CFG> {
-        return Option::None;   // ctr_id not present
+    // `find_root` CoWs the dir up-front (so a later writeback lands in this
+    // snapshot's dir) and resolves ctr_id; None when not present. On a hit we
+    // pair the root with a fresh SnapCtx (which claims the open slot).
+    match snap.find_root(ctr_id) {
+        Option::Some(root) => {
+            let ctx: SnapCtx<STORE_CFG> = snap.make_ctx(ctr_id);
+            return Option::Some(ContainerRef::<STORE_CFG, CFG> { arc: root, ctx: ctx });
+        }
+        Option::None => { return Option::None; }
     }
-    let cloned: NodeARC<STORE_CFG> = unsafe { (*slot_p).clone() };
-    // Claim an open-container slot (released in ContainerRef::drop).
-    snap.open_containers = snap.open_containers + 1u64;
-    return Option::Some(ContainerRef::<STORE_CFG, CFG> {
-        arc:        cloned,
-        ctr_id:     ctr_id,
-        dir_root_p: &mut snap.dir as *mut NodeARC<STORE_CFG>,
-        snap_id:    snap.snapshot_id,
-        id_ctr_p:   id_ctr_p,
-        open_ctr_p: &mut snap.open_containers as *mut u64,
-    });
 }
 
 // ContainerRef methods — full multi-level B+tree on top of NodeARC.
@@ -573,11 +610,10 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // the previous tree (modulo blocks shared with another snapshot).
     pub fn clear(&mut self) {
         unsafe {
-            let new_id: BlockId<STORE_CFG> = *self.id_ctr_p + 1u64;
-            *self.id_ctr_p = new_id;
+            let new_id: BlockId<STORE_CFG> = self.ctx.next_block_id();
             let new_arc: NodeARC<STORE_CFG> =
                 leaf_alloc::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
-                    new_id, self.snap_id);
+                    new_id, self.ctx.snap_id);
             arc_replace_in_slot::<STORE_CFG>(
                 &mut self.arc as *mut NodeARC<STORE_CFG>, new_arc);
         }
@@ -627,7 +663,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         let r: Option<<type:CFG.value>::ViewInStore> = unsafe {
             pmap_insert::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &mut self.arc, key, val, &key as *const <type:CFG.key>,
-                self.snap_id, self.id_ctr_p)
+                self.ctx.snap_id, self.ctx.id_ctr_p)
         };
         self.writeback();
         return r;
@@ -637,7 +673,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         let r: bool = unsafe {
             pmap_remove::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
                 &mut self.arc, &key as *const <type:CFG.key>,
-                self.snap_id, self.id_ctr_p)
+                self.ctx.snap_id, self.ctx.id_ctr_p)
         };
         self.writeback();
         return r;
@@ -651,14 +687,7 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
     // since open; never a cached interior pointer. Clone-bump self.arc's
     // block rc into the slot, release the slot's old share.
     pub fn writeback(&mut self) {
-        unsafe {
-            if self.dir_root_p == 0 as *mut NodeARC<STORE_CFG> { return; }
-            let slot: *mut NodeARC<STORE_CFG> =
-                dir_lookup::<STORE_CFG>(&*self.dir_root_p, self.ctr_id);
-            if slot == 0 as *mut NodeARC<STORE_CFG> { return; }
-            if node_arc_same::<STORE_CFG>(&*slot, &self.arc) { return; }
-            arc_replace_in_slot::<STORE_CFG>(slot, self.arc.clone());
-        }
+        unsafe { self.ctx.writeback(&self.arc); }
     }
 
     // Smallest position N (zero-indexed) such that key-at-N ≥ k.
