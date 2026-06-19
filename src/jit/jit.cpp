@@ -9,6 +9,7 @@
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Support/DynamicLibrary.h>
 #include <llvm/Support/Error.h>
 #include <llvm/Support/TargetSelect.h>
 
@@ -89,6 +90,14 @@ bool Jit::add_static_archive(std::string_view path) {
 bool Jit::enable_process_symbols() {
     if (!impl_->lljit) { last_err_ = "Jit::init not called"; return false; }
     auto& jd = impl_->lljit->getMainJITDylib();
+    // The Logos metaprog JIT loads stdlib runtime objects that reference
+    // io_uring (thread_uring.c). On distros that bundle a STATIC liburing.a it
+    // is loaded into the JIT via add_static_archive; where only the shared
+    // liburing.so exists (e.g. Fedora) there is no archive to load, so make
+    // its symbols visible to the process-symbol generator below by loading the
+    // shared library permanently. Best-effort: harmless/no-op where absent or
+    // already resolved.
+    llvm::sys::DynamicLibrary::LoadLibraryPermanently("liburing.so.2");
     auto gen = llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
         impl_->lljit->getDataLayout().getGlobalPrefix());
     if (!gen) {

@@ -31,9 +31,16 @@ set_target_properties(logos_fibers PROPERTIES
 
 add_library(logos_rt STATIC atomic_ops.S thread_uring.c env.c metaprog_stubs.c fs_meta.c fmt_native.c test_recovery.c)
 target_include_directories(logos_rt PRIVATE /usr/include)
+# Position-independent: these objects are loaded into the metaprog ORC JIT,
+# which may map them anywhere in the address space. Non-PIC codegen emits
+# absolute R_X86_64_32 (Pointer32) relocations that overflow when the JIT
+# places code/data above 4 GiB — observed on Fedora (whose clang doesn't
+# default to PIE) but not on Ubuntu (PIE default). -fPIC makes the relocations
+# GOT/PC-relative so the JIT can place them anywhere, on every distro.
 set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
-    OUTPUT_NAME lstdlib_rt)
+    OUTPUT_NAME lstdlib_rt
+    POSITION_INDEPENDENT_CODE ON)
 
 # Bundle the system STATIC liburing.a as liblstdlib_uring.a so run_test.sh's
 # lib*.a glob picks it up (named to sort after liblstdlib_rt.a — provider

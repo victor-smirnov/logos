@@ -156,12 +156,14 @@ target_compile_options(logosc PRIVATE -fno-rtti)
 set_target_properties(logosc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# Keep an RPATH to the LLVM/MLIR lib dir in the INSTALLED binary. The distro's
-# libMLIR.so lives only under the private /usr/lib/llvm-NN/lib (not a default
-# loader path), so without this the installed/packaged logosc fails at startup
-# with "libMLIR.so.NN: cannot open shared object file". Harmless for a static
-# (Jenny) build — that dir just holds no .so logosc needs.
-if (LLVM_LIBRARY_DIR)
+# Keep an RPATH to the LLVM/MLIR lib dir in the INSTALLED binary ONLY when that
+# dir is non-standard. On Debian the distro's libMLIR.so lives under the
+# private /usr/lib/llvm-NN/lib (not a default loader path), so without this the
+# installed/packaged logosc fails at startup with "libMLIR.so.NN: cannot open
+# shared object file". On Fedora the libs are on the standard /usr/lib64 — the
+# RPATH is both unnecessary AND trips rpmbuild's check-rpaths QA gate, so skip
+# it for standard loader paths.
+if (LLVM_LIBRARY_DIR AND NOT LLVM_LIBRARY_DIR MATCHES "^(/usr/lib|/usr/lib64|/lib|/lib64)$")
     set_target_properties(logosc PROPERTIES
         INSTALL_RPATH "${LLVM_LIBRARY_DIR}")
 endif()

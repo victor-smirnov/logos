@@ -1,0 +1,46 @@
+# Self-contained build + package + runtime for Fedora — produces a .rpm.
+#
+# Pinned to Fedora 43 = stock LLVM/MLIR 21 (LLVM_LINK_LLVM_DYLIB ON, libs on
+# the standard /usr/lib64), gcc libstdc++ for C++23 <print>. Exercises the
+# llvm_compat.hpp `LLVM_VERSION_MAJOR >= 21` shim path. Fedora 44 ships LLVM
+# 22, whose ORC JITLink places the metaprog-JIT'd objects out of range of
+# their Pointer32 relocations (small code model) — a separate LLVM-22 fix;
+# 43/LLVM-21 matches the validated Ubuntu path. Build context = repo root:
+#
+#   docker build -f docker/Dockerfile.fedora -t logos:fedora .
+#   docker run --rm logos:fedora --version
+#   docker build -f docker/Dockerfile.fedora --target rpm -o type=local,dest=dist .
+
+FROM fedora:43 AS builder
+RUN dnf install -y \
+        clang lld llvm-devel mlir-devel gcc-c++ \
+        cmake ninja-build pkgconf-pkg-config rpm-build \
+        liburing-devel zlib-devel libzstd-devel \
+    && dnf clean all
+
+WORKDIR /src
+COPY . .
+# Fedora keeps the LLVM/MLIR cmake config on the standard /usr/lib64; point at
+# it explicitly (the /usr/lib/llvm-NN auto-discovery is Debian-only).
+RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+        -DLOGOS_LLVM_DIR=/usr/lib64/cmake/llvm \
+        -DLOGOS_MLIR_DIR=/usr/lib64/cmake/mlir \
+    && cmake --build build -j"$(nproc)" \
+    && cd build && cpack -G RPM
+
+FROM scratch AS rpm
+COPY --from=builder /src/build/logos-*.rpm /
+
+FROM fedora:43 AS runtime
+COPY --from=builder /src/build/logos-*.rpm /tmp/
+# gcc + liburing-devel give a built Logos program its final link (cc + -luring;
+# Fedora has no static liburing so the shared one is used). The .rpm's own
+# Requires pull libLLVM/libMLIR/libstdc++.
+RUN dnf install -y /tmp/logos-*.rpm gcc liburing-devel \
+    && dnf clean all && rm -f /tmp/logos-*.rpm
+RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
+    && logosc /tmp/s.logos -o /tmp/s.o \
+    && cc /tmp/s.o /usr/lib/logos/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && /tmp/s && echo "logos toolchain OK"
+ENTRYPOINT ["logosc"]
