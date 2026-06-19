@@ -1,0 +1,35 @@
+// Cross-tier Datum: a heap String (mem tier) presents itself as a DView (lang
+// tier) — `impl Datum for String` lives in mem (where String is declared and
+// Datum/DView are visible downward). Proves the distributed conversion model:
+// the same storage form (UTF-8 content, H2_STRING) as a str literal, usable as a
+// runtime-typed container key.
+
+package mem_string_datum;
+
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.hermes.dview;
+use logos.mem.string;
+
+fn main() -> i32 {
+    let s: String = String::from("apple");
+
+    // capture heap String → storage DView (content + H2_STRING, not the struct)
+    let dv: DView = DView::from(&s);
+    if dv.type_code() != 130u64 { return 1; }                 // H2_STRING
+
+    // same storage form as the str literal "apple"
+    match dv.compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 2; } }
+
+    // store the heap-String key in Buffer<DView>; read back + compare
+    let mut b: Buffer<DView> = Buffer::<DView>::new();
+    b.push(DView::from(&s));
+    if b.get(0u64).as_str().len() != 5i64 { return 3; }
+    match b.get(0u64).compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 4; } }
+
+    // ordering across heap-String and str (same space/code)
+    let z: String = String::from("zebra");
+    match DView::from(&s).compare(&DView::from(&z)) { Ordering::Less => {} _ => { return 5; } }
+
+    return 0;
+}

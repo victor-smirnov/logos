@@ -29,6 +29,8 @@ use logos.lang.marker;
 use logos.lang.drop;
 use logos.lang.str;
 use logos.lang.cmp;
+use logos.lang.hermes.dview;       // Datum / DView (capture into a runtime-typed container)
+use logos.lang.hermes.anyval;      // H2_STRING
 
 // ── String ─────────────────────────────────────────────────────────────────
 
@@ -476,5 +478,18 @@ unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
 impl Eq for String {
     fn eq(self: &Self, other: &Self) -> bool {
         return self.eq_string(other);
+    }
+}
+
+// Datum: present a heap String as a runtime-typed cell (datatype String,
+// H2_STRING). Its STORAGE form is the UTF-8 CONTENT, not the {ptr,len,cap}
+// struct — so override as_datum (the default would capture the struct bytes).
+// Lives here, in String's own tier, per the "impl where the type is declared"
+// rule (mem depends on lang ⇒ sees Datum/DView). Lets `DView::from(&s)` /
+// Buffer<DView> / Map<DView,…> accept a heap String as a key/value.
+impl Datum for String {
+    fn datum_tag(self: *const String) -> u64 { return H2_STRING; }
+    fn as_datum(&self) -> DView {
+        return DView::from_parts(self.as_ptr(), self.len() as u64, H2_STRING, 0u64);
     }
 }
