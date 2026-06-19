@@ -131,64 +131,129 @@ pub fn htag_size(tag: u64, meta: u64) -> u64 {
     return 0u64;
 }
 
-// ── Buffer<DView> — DView as a Container element (the at-rest key store) ──────
-// A DView is non-owning; to STORE it (as a B+tree key) the buffer must own the
-// bytes. The Store is a vector of fixed-width self-describing cells (DCell):
-// store_push(DView) ENCODES the view into a cell; store_get returns a DView
-// pointing INTO the cell (not a copy → no dangling), valid until the buffer
-// reallocs (the in-container borrow contract). v1 is fixed-width (object ≤
-// DVIEW_CELL_CAP, covering scalars / small Decimal); variable-width TLV packing
-// — true compaction — is a Container-internal follow-up that leaves the tree
-// untouched.
-
-pub const DVIEW_CELL_CAP: u64 = 16u64;   // inline object bytes per cell
-
-pub struct DCell {
-    tag:  u64,
-    meta: u64,
-    len:  u64,
-    data: [u8; 16],     // object bytes (DVIEW_CELL_CAP)
+// Required alignment of a tag's object bytes (a power of two). The Buffer aligns
+// every element's entry to this so in-place reads (`to::<T>` pointer-casts, a
+// byte-copied compactified Hermes object) are valid.
+pub fn htag_align(tag: u64, meta: u64) -> u64 {
+    if tag == H2_I64       { return 8u64; }
+    if tag == H2_U64       { return 8u64; }
+    if tag == HA_BOOL as u64 { return 1u64; }
+    return 8u64;   // conservative default (covers ≤8-byte scalars)
 }
-impl Copy for DCell {}
 
-unsafe fn dcell_encode(v: DView) -> DCell {
-    let mut c: DCell = DCell { tag: v.tag, meta: v.meta, len: v.len, data: [0u8; 16] };
-    let n: u64 = if v.len <= DVIEW_CELL_CAP { v.len } else { DVIEW_CELL_CAP };
-    let dst: *mut u8 = &mut c.data as *mut u8;
-    let mut i: u64 = 0u64;
-    while i < n {
-        *(((dst as i64) + (i as i64)) as *mut u8) = *(((v.obj as i64) + (i as i64)) as *const u8);
-        i = i + 1u64;
+fn align_up(x: u64, a: u64) -> u64 { return ((x + a - 1u64) / a) * a; }
+
+// ── DViewStore — the variable-width, aligned at-rest store for DView ─────────
+// A DView is non-owning; to STORE it (as a B+tree key/value) the buffer owns the
+// bytes. Homogeneous: ONE `tag` + `meta` describe the element type (learned from
+// the first element). Two arrays: `data` ([u8] arena, base + every entry start
+// aligned to align(tag)) and `offsets` ([u64], N+1: offsets[0]=0, offsets[N]=
+// first free byte; element i = data[offsets[i] .. offsets[i+1]]). store_get
+// returns a DView pointing INTO the arena (no copy → valid until the arena
+// reallocs — the in-container borrow contract). Object zone is the variable
+// block; `meta` is the separate u64 zone (carried on the store, per the
+// homogeneous-container model).
+pub struct DViewStore {
+    tag:     u64,
+    meta:    u64,
+    data:    PrimVec<u8>,
+    offsets: PrimVec<u64>,
+}
+
+impl Storage for DViewStore {
+    type Elem = DView;
+    fn storage_len(s: *const DViewStore) -> u64 { unsafe { return (*s).offsets.len - 1u64; } }
+    fn storage_get(s: *const DViewStore, idx: u64) -> DView {
+        unsafe {
+            let o0: u64 = (*s).offsets.get(idx);
+            let o1: u64 = (*s).offsets.get(idx + 1u64);
+            let p: *const u8 = (((*s).data.data as i64) + (o0 as i64)) as *const u8;
+            return DView::from_parts(p, o1 - o0, (*s).tag, (*s).meta);
+        }
     }
-    return c;
 }
 
-// A DView borrowing cell `c` in place (its `data` field's address).
-unsafe fn dcell_view(c: *const DCell) -> DView {
-    return DView::from_parts(&(*c).data as *const u8, (*c).len, (*c).tag, (*c).meta);
+impl OwningStorage for DViewStore {
+    fn storage_drop(s: *mut DViewStore) { unsafe { (*s).data.clear(); (*s).offsets.clear(); } }
 }
 
+impl DynamicStorage for DViewStore {
+    fn storage_new() -> DViewStore {
+        let mut st: DViewStore = DViewStore {
+            tag: 0u64, meta: 0u64,
+            data: PrimVec::<u8>::empty(), offsets: PrimVec::<u64>::empty(),
+        };
+        st.offsets.push(0u64);   // offsets[0] = 0 (empty)
+        return st;
+    }
+
+    fn storage_push(s: *mut DViewStore, v: DView) {
+        unsafe {
+            if (*s).offsets.len == 1u64 { (*s).tag = v.tag; (*s).meta = v.meta; }
+            let stored: u64 = align_up(v.len, htag_align((*s).tag, (*s).meta));
+            let mut i: u64 = 0u64;
+            while i < v.len  { (*s).data.push(*(((v.obj as i64) + (i as i64)) as *const u8)); i = i + 1u64; }
+            while i < stored { (*s).data.push(0u8); i = i + 1u64; }   // zero pad to alignment
+            (*s).offsets.push((*s).data.len);
+        }
+    }
+
+    fn storage_clear(s: *mut DViewStore) {
+        unsafe {
+            (*s).data.clear(); (*s).offsets.clear(); (*s).offsets.push(0u64);
+            (*s).tag = 0u64; (*s).meta = 0u64;
+        }
+    }
+
+    fn storage_set(s: *mut DViewStore, idx: u64, v: DView) {
+        DViewStore::storage_remove_at(s, idx);
+        DViewStore::storage_insert_at(s, idx, v);
+    }
+
+    fn storage_insert_at(s: *mut DViewStore, idx: u64, v: DView) {
+        unsafe {
+            if (*s).offsets.len == 1u64 { (*s).tag = v.tag; (*s).meta = v.meta; }
+            let stored: u64 = align_up(v.len, htag_align((*s).tag, (*s).meta));
+            let start: u64 = (*s).offsets.get(idx);
+            let mut k: u64 = 0u64;
+            while k < stored { (*s).data.insert_at(start, 0u8); k = k + 1u64; }   // open a gap
+            k = 0u64;
+            while k < v.len { (*s).data.set(start + k, *(((v.obj as i64) + (k as i64)) as *const u8)); k = k + 1u64; }
+            let mut j: u64 = idx + 1u64;
+            while j < (*s).offsets.len { (*s).offsets.set(j, (*s).offsets.get(j) + stored); j = j + 1u64; }
+            (*s).offsets.insert_at(idx + 1u64, start + stored);
+        }
+    }
+
+    fn storage_remove_at(s: *mut DViewStore, idx: u64) {
+        unsafe {
+            let start: u64 = (*s).offsets.get(idx);
+            let sz: u64 = (*s).offsets.get(idx + 1u64) - start;
+            let mut k: u64 = 0u64;
+            while k < sz { (*s).data.remove_at(start); k = k + 1u64; }
+            (*s).offsets.remove_at(idx + 1u64);
+            let mut j: u64 = idx + 1u64;
+            while j < (*s).offsets.len { (*s).offsets.set(j, (*s).offsets.get(j) - sz); j = j + 1u64; }
+        }
+    }
+}
+
+// ── Buffer<DView> — DView as a Container element ─────────────────────────────
 impl Datatype for DView {
     type View<S: Storage> = DView;
 }
 
 impl Container for DView {
-    type Store       = PrimVec<DCell>;
+    type Store       = DViewStore;
     type ViewInStore = DView;
-    fn new_store() -> PrimVec<DCell> { return PrimVec::<DCell>::empty(); }
-    fn drop_store(s: *mut PrimVec<DCell>) { unsafe { s.clear(); } }
-    fn store_len(s: *const PrimVec<DCell>) -> u64 { unsafe { return s.len; } }
-    fn store_push(s: *mut PrimVec<DCell>, v: DView) { unsafe { s.push(dcell_encode(v)); } }
-    fn store_get(s: *const PrimVec<DCell>, idx: u64) -> DView {
-        unsafe {
-            let stride: i64 = sizeof::<DCell>();
-            let cell: *const DCell = ((s.data as i64) + (idx as i64) * stride) as *const DCell;
-            return dcell_view(cell);
-        }
-    }
-    fn store_set(s: *mut PrimVec<DCell>, idx: u64, v: DView) { unsafe { s.set(idx, dcell_encode(v)); } }
-    fn store_insert_at(s: *mut PrimVec<DCell>, idx: u64, v: DView) { unsafe { s.insert_at(idx, dcell_encode(v)); } }
-    fn store_remove_at(s: *mut PrimVec<DCell>, idx: u64) { unsafe { s.remove_at(idx); } }
+    fn new_store() -> DViewStore { return DViewStore::storage_new(); }
+    fn drop_store(s: *mut DViewStore) { DViewStore::storage_drop(s); }
+    fn store_len(s: *const DViewStore) -> u64 { return DViewStore::storage_len(s); }
+    fn store_push(s: *mut DViewStore, v: DView) { DViewStore::storage_push(s, v); }
+    fn store_get(s: *const DViewStore, idx: u64) -> DView { return DViewStore::storage_get(s, idx); }
+    fn store_set(s: *mut DViewStore, idx: u64, v: DView) { DViewStore::storage_set(s, idx, v); }
+    fn store_insert_at(s: *mut DViewStore, idx: u64, v: DView) { DViewStore::storage_insert_at(s, idx, v); }
+    fn store_remove_at(s: *mut DViewStore, idx: u64) { DViewStore::storage_remove_at(s, idx); }
 }
 
 // Ordered: two stored/queried views compared via the shared tag-keyed layer.
