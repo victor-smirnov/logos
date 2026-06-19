@@ -95,7 +95,7 @@ unsafe fn dir_split_leaf<const STORE_CFG: HermesStatic>(
         right.vals.push((*src).clone());
         i = i + 1u64;
     }
-    while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
+    while leaf.keys.len() > mid { leaf.keys.erase(leaf.keys.len() - 1u64); }
     while leaf.vals.len() > (mid as i64) { let _ = leaf.vals.pop(); }
     return rh;
 }
@@ -161,7 +161,7 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
         }
         // Insert at pos — move val_arc's share into the new slot (no rc bump:
         // ownership transfers from the by-value param into the Vec).
-        leaf.keys.insert_at(pos, ctr_id);
+        leaf.keys.insert(pos, ctr_id);
         leaf.vals.push(val_arc);
         let mut k: i64 = leaf.vals.len() - 1i64;
         while k > (pos as i64) {
@@ -211,7 +211,7 @@ unsafe fn dir_insert_rec<const STORE_CFG: HermesStatic>(
     // Inner split: insert (right_max, right_arc) at i+1. Move the child's right
     // handle out of the Option (split ⇒ Some).
     let right_node: NodeARC<STORE_CFG> = inner.right.take().unwrap();
-    br.keys.insert_at(i + 1u64, inner.right_max);
+    br.keys.insert(i + 1u64, inner.right_max);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, right_node);
     if br.keys.len() > max_branch {
         let new_id: BlockId<STORE_CFG> = alloc_id_dir::<STORE_CFG>(id_ctr_p);

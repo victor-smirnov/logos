@@ -141,7 +141,7 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
-    pub fn insert_at(&mut self, idx: u64, v: DT::ViewInStore) {
+    pub fn insert(&mut self, idx: u64, v: DT::ViewInStore) {
         unsafe {
             let sp: *mut DT::Store =
                 (&self.storage as *const DT::Store) as *mut DT::Store;
@@ -149,12 +149,34 @@ impl<DT: Container> Buffer<DT> {
         }
     }
 
-    pub fn remove_at(&mut self, idx: u64) {
+    pub fn erase(&mut self, idx: u64) {
         unsafe {
             let sp: *mut DT::Store =
                 (&self.storage as *const DT::Store) as *mut DT::Store;
             DT::store_remove_at(sp, idx);
         }
+    }
+
+    // Split off elements [at, len) into a NEW Buffer; self keeps [0, at).
+    // The B+tree leaf/branch split. Element-wise through the Container interface,
+    // so it works for every DT (DView re-encodes into the right buffer's cells;
+    // HAny/primitives copy by value). O(len - at).
+    pub fn split_at(&mut self, at: u64) -> Buffer<DT> {
+        let mut right: Buffer<DT> = Buffer::<DT>::new();
+        let n: u64 = self.len();
+        let mut i: u64 = at;
+        while i < n { right.push(self.get(i)); i = i + 1u64; }   // self unmutated → borrows valid
+        let mut k: u64 = n;
+        while k > at { self.erase(k - 1u64); k = k - 1u64; }     // truncate self to [0, at)
+        return right;
+    }
+
+    // Append all of `other` (consumed) onto self — the leaf/branch merge. `other`
+    // is dropped at the end, freeing its backing storage.
+    pub fn merge(&mut self, other: Buffer<DT>) {
+        let n: u64 = other.len();
+        let mut i: u64 = 0u64;
+        while i < n { self.push(other.get(i)); i = i + 1u64; }
     }
 
     // Pointer-receiver counterpart to `Drop::drop` — releases the backing

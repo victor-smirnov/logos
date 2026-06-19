@@ -91,7 +91,7 @@ unsafe fn alloc_id<const STORE_CFG: HermesStatic>(p: *mut BlockId<STORE_CFG>) ->
 // Take the right half of `leaf`'s entries into a fresh leaf. Original
 // retains [0..mid]; right gets [mid..]. Both halves carry full entries.
 // Caller propagates max keys: parent.keys[i] = left.keys.last (new max
-// of left), parent.keys.insert_at(i+1, right.keys.last).
+// of left), parent.keys.insert(i+1, right.keys.last).
 pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
     leaf: *mut LeafNode<K, V, STORE_CFG, CFG>,
     new_id: BlockId<STORE_CFG>, snapshot_id: SnpId<STORE_CFG>,
@@ -104,14 +104,11 @@ pub unsafe fn split_leaf<K: Container + ContainerOrd, V: Container, const STORE_
         leaf_alloc::<K, V, STORE_CFG, CFG>(new_id, snapshot_id);
     let right: *mut LeafNode<K, V, STORE_CFG, CFG> =
         node_arc_data_ptr::<STORE_CFG>(&rh) as *mut LeafNode<K, V, STORE_CFG, CFG>;
-    let mut i: u64 = mid;
-    while i < cap {
-        right.keys.push(leaf.keys.get(i));
-        right.vals.push(leaf.vals.get(i));
-        i = i + 1u64;
-    }
-    while leaf.keys.len() > mid { leaf.keys.remove_at(leaf.keys.len() - 1u64); }
-    while leaf.vals.len() > mid { leaf.vals.remove_at(leaf.vals.len() - 1u64); }
+    // Split [mid..] of keys/vals into the fresh right leaf — Buffer::split_at
+    // truncates the left and returns the right half (works for any K/V incl.
+    // DView, which re-encodes into right's cells).
+    right.keys = leaf.keys.split_at(mid);
+    right.vals = leaf.vals.split_at(mid);
     return rh;
 }
 
@@ -157,7 +154,7 @@ pub unsafe fn split_branch<K: Container + ContainerOrd, const STORE_CFG: HermesS
     while branch.children.len() > (mid as i64) {
         let _ = branch.children.pop();   // pop's drop releases rc (balanced by bump above)
     }
-    while branch.keys.len() > mid { branch.keys.remove_at(branch.keys.len() - 1u64); }
+    while branch.keys.len() > mid { branch.keys.erase(branch.keys.len() - 1u64); }
     while branch.subtree_size.len > mid { branch.subtree_size.remove_at(branch.subtree_size.len - 1u64); }
     return rh;
 }
@@ -191,8 +188,8 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
                 _ => { }
             }
         }
-        leaf.keys.insert_at(pos, key);
-        leaf.vals.insert_at(pos, val);
+        leaf.keys.insert(pos, key);
+        leaf.vals.insert(pos, val);
         if leaf.keys.len() > max_keys {
             let new_id: BlockId<STORE_CFG> = alloc_id::<STORE_CFG>(id_ctr_p);
             let right: NodeARC<STORE_CFG> = split_leaf::<K, V, STORE_CFG, CFG>(leaf, new_id, cur_snapshot_id);
@@ -251,7 +248,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
     // handle out of the Option (split ⇒ Some), leaving None so `inner`'s drop
     // is a no-op on that field.
     let right_node: NodeARC<STORE_CFG> = inner.right.take().unwrap();
-    br.keys.insert_at(i + 1u64, inner.right_max);
+    br.keys.insert(i + 1u64, inner.right_max);
     let right_size: u64 = bt_size_rec::<K, V, STORE_CFG, CFG>(&right_node);
     vec_arc_insert_at::<STORE_CFG>(&mut br.children as *mut Vec<NodeARC<STORE_CFG>>, (i as i64) + 1i64, right_node);
     if br.subtree_size.len > i + 1u64 { br.subtree_size.insert_at(i + 1u64, right_size); }
@@ -339,10 +336,10 @@ pub struct RemoveOutcome {
 //                      parent.keys[i]   unchanged (child's max unchanged).
 //   borrow-from-right: parent.keys[i]   = the moved key (= child.keys.last);
 //                      parent.keys[i+1] unchanged (right's max unaffected).
-//   merge-with-right:  parent.keys.remove_at(i) — keys[i+1] (right's max =
+//   merge-with-right:  parent.keys.erase(i) — keys[i+1] (right's max =
 //                      merged child's new max) slides to i.
 //                      parent.children.remove_at(i+1).
-//   merge-with-left:   parent.keys.remove_at(i-1) — keys[i] (child's old
+//   merge-with-left:   parent.keys.erase(i-1) — keys[i] (child's old
 //                      max = merged left's new max) slides to i-1.
 //                      parent.children.remove_at(i).
 pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, const STORE_CFG: HermesStatic, const CFG: HermesStatic>(
@@ -379,10 +376,10 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
         while right.keys.len() > 0u64 {
             child.keys.push(right.keys.get(0u64));
             child.vals.push(right.vals.get(0u64));
-            right.keys.remove_at(0u64);
-            right.vals.remove_at(0u64);
+            right.keys.erase(0u64);
+            right.vals.erase(0u64);
         }
-        parent_branch.keys.remove_at(i as u64);
+        parent_branch.keys.erase(i as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
@@ -395,10 +392,10 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
         while child.keys.len() > 0u64 {
             left.keys.push(child.keys.get(0u64));
             left.vals.push(child.vals.get(0u64));
-            child.keys.remove_at(0u64);
-            child.vals.remove_at(0u64);
+            child.keys.erase(0u64);
+            child.vals.erase(0u64);
         }
-        parent_branch.keys.remove_at((i - 1i64) as u64);
+        parent_branch.keys.erase((i - 1i64) as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
         return;
     }
@@ -413,10 +410,10 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
         let last: u64 = left.keys.len() - 1u64;
         let k: K::ViewInStore = left.keys.get(last);
         let v: V::ViewInStore = left.vals.get(last);
-        child.keys.insert_at(0u64, k);
-        child.vals.insert_at(0u64, v);
-        left.keys.remove_at(last);
-        left.vals.remove_at(last);
+        child.keys.insert(0u64, k);
+        child.vals.insert(0u64, v);
+        left.keys.erase(last);
+        left.vals.erase(last);
         parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
         return;
     }
@@ -430,8 +427,8 @@ pub unsafe fn rebalance_leaf_child<K: Container + ContainerOrd, V: Container, co
         let v: V::ViewInStore = right.vals.get(0u64);
         child.keys.push(k);
         child.vals.push(v);
-        right.keys.remove_at(0u64);
-        right.vals.remove_at(0u64);
+        right.keys.erase(0u64);
+        right.vals.erase(0u64);
         parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
     }
 }
@@ -471,13 +468,13 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
         while right.keys.len() > 0u64 {
             child.keys.push(right.keys.get(0u64));
-            right.keys.remove_at(0u64);
+            right.keys.erase(0u64);
         }
         while right.children.len() > 0i64 {
             let moved: NodeARC<STORE_CFG> = right.children.remove(0i64);
             child.children.push(moved);
         }
-        parent_branch.keys.remove_at(i as u64);
+        parent_branch.keys.erase(i as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i + 1i64);
         return;
     }
@@ -489,13 +486,13 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
         while child.keys.len() > 0u64 {
             left.keys.push(child.keys.get(0u64));
-            child.keys.remove_at(0u64);
+            child.keys.erase(0u64);
         }
         while child.children.len() > 0i64 {
             let moved: NodeARC<STORE_CFG> = child.children.remove(0i64);
             left.children.push(moved);
         }
-        parent_branch.keys.remove_at((i - 1i64) as u64);
+        parent_branch.keys.erase((i - 1i64) as u64);
         let dropped: NodeARC<STORE_CFG> = parent_branch.children.remove(i);
         return;
     }
@@ -508,10 +505,10 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         let child = as_branch::<K, STORE_CFG, CFG>(child_ref);
         let last: u64 = left.keys.len() - 1u64;
         let moved_key: K::ViewInStore = left.keys.get(last);
-        child.keys.insert_at(0u64, moved_key);
+        child.keys.insert(0u64, moved_key);
         let moved_child: NodeARC<STORE_CFG> = left.children.remove(left.children.len() - 1i64);
         vec_arc_insert_at::<STORE_CFG>(&mut child.children as *mut Vec<NodeARC<STORE_CFG>>, 0i64, moved_child);
-        left.keys.remove_at(last);
+        left.keys.erase(last);
         parent_branch.keys.set((i - 1i64) as u64, left.keys.get(left.keys.len() - 1u64));
         return;
     }
@@ -525,7 +522,7 @@ pub unsafe fn rebalance_branch_child<K: Container + ContainerOrd, V: Container, 
         child.keys.push(moved_key);
         let moved_child: NodeARC<STORE_CFG> = right.children.remove(0i64);
         child.children.push(moved_child);
-        right.keys.remove_at(0u64);
+        right.keys.erase(0u64);
         parent_branch.keys.set(i as u64, child.keys.get(child.keys.len() - 1u64));
     }
 }
@@ -542,8 +539,8 @@ pub unsafe fn remove_rec<K: Container + ContainerOrd, V: Container, const STORE_
         let leaf = as_leaf::<K, V, STORE_CFG, CFG>(arc);
         let idx: i64 = leaf_find::<K, V, STORE_CFG, CFG>(leaf, qkey);
         if idx < 0i64 { return RemoveOutcome { hit: false, underflow: false }; }
-        leaf.keys.remove_at(idx as u64);
-        leaf.vals.remove_at(idx as u64);
+        leaf.keys.erase(idx as u64);
+        leaf.vals.erase(idx as u64);
         let under: bool = leaf.keys.len() < min_keys_leaf::<CFG>();
         return RemoveOutcome { hit: true, underflow: under };
     }
