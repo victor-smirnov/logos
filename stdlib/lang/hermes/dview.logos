@@ -24,20 +24,21 @@ use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL type codes
 // ── HermesTag — concrete type → its Hermes tag (the type-erasure source) ─────
 // `h_tag` uses the phantom-`self` form (a `*const Self` never read) — the
 // established side-step for the assoc-fn-on-type-param mono gap (cf. fabric
-// ContainerOrd::cmp_view_key). `h_meta` reports packed per-value metadata.
+// ContainerOrd::cmp_views). `h_meta` reports packed per-value metadata.
 pub trait HermesTag {
-    fn h_tag(self: *const Self) -> u32;
+    fn h_tag(self: *const Self) -> u64;
     fn h_meta(&self) -> u64 { return 0u64; }
 }
-impl HermesTag for i64  { fn h_tag(self: *const i64)  -> u32 { return H2_I64 as u32; } }
-impl HermesTag for u64  { fn h_tag(self: *const u64)  -> u32 { return H2_U64 as u32; } }
-impl HermesTag for bool { fn h_tag(self: *const bool) -> u32 { return HA_BOOL as u32; } }
+impl HermesTag for i64  { fn h_tag(self: *const i64)  -> u64 { return H2_I64; } }
+impl HermesTag for u64  { fn h_tag(self: *const u64)  -> u64 { return H2_U64; } }
+impl HermesTag for bool { fn h_tag(self: *const bool) -> u64 { return HA_BOOL as u64; } }
 
 // ── DView — the borrowed, type-erased view ──────────────────────────────────
+// `tag` and `len` are u64 — the native Hermes widths (type codes are u64).
 pub struct DView {
     obj:  *const u8,     // → object bytes (borrowed; not owned)
-    len:  u32,           // object byte length
-    tag:  u32,           // Hermes type tag
+    len:  u64,           // object byte length
+    tag:  u64,           // Hermes type tag
     meta: u64,           // packed per-value metadata (e.g. Decimal {P,S}); 0 if none
 }
 
@@ -48,20 +49,20 @@ impl DView {
         let phantom: *const T = 0 as *const T;
         return DView {
             obj:  v as *const T as *const u8,
-            len:  sizeof::<T>() as u32,
+            len:  sizeof::<T>() as u64,
             tag:  unsafe { phantom.h_tag() },
             meta: v.h_meta(),
         };
     }
 
     // Explicit-zones constructor (for in-container views: a stored object + tag).
-    pub static fn from_parts(obj: *const u8, len: u32, tag: u32, meta: u64) -> DView {
+    pub static fn from_parts(obj: *const u8, len: u64, tag: u64, meta: u64) -> DView {
         return DView { obj: obj, len: len, tag: tag, meta: meta };
     }
 
-    pub fn type_code(&self) -> u32 { return self.tag; }
+    pub fn type_code(&self) -> u64 { return self.tag; }
     pub fn obj_ptr(&self) -> *const u8 { return self.obj; }
-    pub fn obj_len(&self) -> u32 { return self.len; }
+    pub fn obj_len(&self) -> u64 { return self.len; }
     pub fn meta_word(&self) -> u64 { return self.meta; }
 
     // ── capabilities ────────────────────────────────────────────────────────
@@ -89,19 +90,19 @@ impl DView {
 // (+ a HermesTag impl). Reads object bytes via LE assembly — works at any
 // (possibly unaligned) borrowed offset.
 
-unsafe fn load_le(p: *const u8, n: u32) -> u64 {
+unsafe fn load_le(p: *const u8, n: u64) -> u64 {
     let mut v: u64 = 0u64;
-    let mut i: u32 = 0u32;
+    let mut i: u64 = 0u64;
     while i < n {
-        v = v | ((*(((p as i64) + (i as i64)) as *const u8) as u64) << ((i as u64) * 8u64));
-        i = i + 1u32;
+        v = v | ((*(((p as i64) + (i as i64)) as *const u8) as u64) << (i * 8u64));
+        i = i + 1u64;
     }
     return v;
 }
 
 // Total order over two same-tagged object-byte runs.
-pub unsafe fn htag_cmp(tag: u32, meta: u64, a: *const u8, alen: u32, b: *const u8, blen: u32) -> Ordering {
-    if tag == H2_I64 as u32 {
+pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u8, blen: u64) -> Ordering {
+    if tag == H2_I64 {
         let x: i64 = load_le(a, alen) as i64;
         let y: i64 = load_le(b, blen) as i64;
         if x < y { return Ordering::Less; }
@@ -117,9 +118,9 @@ pub unsafe fn htag_cmp(tag: u32, meta: u64, a: *const u8, alen: u32, b: *const u
 }
 
 // Object byte stride for a tag (for the at-rest / store path). 0 = unknown.
-pub fn htag_size(tag: u32, meta: u64) -> u64 {
-    if tag == H2_I64 as u32  { return 8u64; }
-    if tag == H2_U64 as u32  { return 8u64; }
-    if tag == HA_BOOL as u32 { return 1u64; }
+pub fn htag_size(tag: u64, meta: u64) -> u64 {
+    if tag == H2_I64       { return 8u64; }
+    if tag == H2_U64       { return 8u64; }
+    if tag == HA_BOOL as u64 { return 1u64; }
     return 0u64;
 }
