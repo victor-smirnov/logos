@@ -1,0 +1,7 @@
+package vec;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let mut v: Vec<&i64> = Vec::<&i64>::new();
+    { let x: i64 = 7i64; v.push(&x); }
+    return *v.get(0) as i32;
+}

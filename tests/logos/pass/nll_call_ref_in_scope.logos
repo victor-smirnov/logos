@@ -1,0 +1,12 @@
+// Valid: a free fn returning a borrow of its args; the args' locals outlive the
+// result `r`, which is used in scope. Must compile (no E0597) — guards the
+// free-Call source-tracking against over-firing.
+package nll_call_ref_in_scope;
+fn pick<'a>(c: bool, a: &'a i64, b: &'a i64) -> &'a i64 { if c { return a; } return b; }
+fn main() -> i32 {
+    let x: i64 = 1i64;
+    let y: i64 = 2i64;
+    let r: &i64 = pick(true, &x, &y);
+    if *r != 1i64 { return 1; }
+    return 0;
+}

@@ -919,6 +919,40 @@ class BorrowChecker {
                 }
                 return;
             }
+            case EC::EnumLitData:
+                lir_view::EEnumLitDataView{e}.each_payload(
+                    [&](lir_view::ExprRef pl) { collect_ref_sources(pl, out); });
+                return;
+            case EC::IfExpr: {
+                lir_view::EIfExprView v{e};
+                collect_ref_sources(v.then_val(), out);
+                collect_ref_sources(v.else_val(), out);
+                return;
+            }
+            case EC::BlockExpr:
+                // `if c { &x } else { … }` lowers each branch to a block whose
+                // TAIL is the borrow — recurse into the result expr.
+                collect_ref_sources(lir_view::EBlockExprView{e}.result(), out);
+                return;
+            case EC::Call: {
+                // Free fn returning a borrow ties it to its ref args (elision).
+                lir_view::ECallView v{e};
+                if (is_ref_kind(e.type(pool)) || is_borrow_carrying_type(e.type(pool)))
+                    v.each_arg([&](lir_view::ExprRef a) {
+                        if (a && is_ref_kind(a.type(pool))) collect_ref_sources(a, out);
+                    });
+                return;
+            }
+            // Ref-to-ref provenance chaining: `o = r` (r another reference
+            // binding) makes o borrow whatever r borrows. Propagates sources so
+            // an aliased borrow can't escape a referent's scope via a copy.
+            case EC::VarRef: {
+                std::string n(lir_view::EVarRefView{e}.name());
+                if (auto it = ref_borrow_sources_.find(n);
+                    it != ref_borrow_sources_.end())
+                    for (auto& s : it->second) out.push_back(s);
+                return;
+            }
             default:
                 return;
         }
@@ -1321,6 +1355,30 @@ class BorrowChecker {
     }
     void declare_pat_bindings(const Pattern& p) {
         declare_pat_bindings(pat_ref(p));
+    }
+
+    // §B6: a `match scrut { Variant(r) => … }` binds `r` to a piece of `scrut`;
+    // if scrut carries borrows (e.g. `Option<&i64>` holding `&x`), the by-REF
+    // binding inherits them so `o = r` can't smuggle the borrow past x's scope.
+    // Gated on the binding's type being a reference / borrow-carrying — a
+    // by-value binding copies out and carries no borrow (no false positive).
+    void propagate_pat_sources(lir_view::PatRef pr,
+                               const std::vector<std::string>& srcs, uint32_t ln) {
+        if (!pr || srcs.empty()) return;
+        if (pr.kind() != lir_schema::pat::Code::VariantData) return;
+        lir_view::PatVariantDataView pv{pr};
+        std::vector<std::string> names;
+        std::vector<TypeRef>      types;
+        pv.each_binding([&](std::string_view b) { names.emplace_back(b); });
+        pv.each_binding_type(prog_.type_pool.impl(),
+                             [&](TypeRef t) { types.push_back(t); });
+        for (size_t i = 0; i < names.size(); ++i) {
+            TypeRef t = i < types.size() ? types[i] : TypeRef(nullptr);
+            if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
+                ref_borrow_sources_[names[i]] = srcs;
+                ref_borrow_line_[names[i]] = ln;
+            }
+        }
     }
 
     // Escape-analysis Front (a) support. Lazily index every callee by its mangled
@@ -2901,8 +2959,20 @@ class BorrowChecker {
             case Code::Match: {
                 SMatchView v{sr};
                 visit(v.scrut(), /*consuming=*/false, ln);
+                std::vector<std::string> scrut_sources;  // §B6: borrows held by scrut
+                collect_ref_sources(v.scrut(), scrut_sources);
                 auto saved_s = states_;
                 auto saved_p = prov_;
+                // §B6: snapshot the borrow-source / dangling maps so each arm
+                // starts from the pre-match state, then UNION the arms' results
+                // (a binding borrows X / dangles if ANY arm makes it so — Rust
+                // requires a borrow valid on every path).
+                auto saved_rbs  = ref_borrow_sources_;
+                auto saved_rbl  = ref_borrow_line_;
+                auto saved_dang = dangling_;
+                decltype(ref_borrow_sources_) acc_rbs;
+                decltype(ref_borrow_line_)    acc_rbl;
+                decltype(dangling_)           acc_dang;
                 std::optional<StateMap> merged_s;
                 std::optional<ProvMap>  merged_p;
                 bool any_arm = false, all_diverged = true;
@@ -2910,10 +2980,14 @@ class BorrowChecker {
                     any_arm = true;
                     states_ = saved_s;
                     prov_   = saved_p;
+                    ref_borrow_sources_ = saved_rbs;
+                    ref_borrow_line_    = saved_rbl;
+                    dangling_           = saved_dang;
                     bool saved_div = cur_diverged_;
                     cur_diverged_ = false;
                     push_scope();
                     declare_pat_bindings(arm.pat());
+                    propagate_pat_sources(arm.pat(), scrut_sources, ln);  // §B6
                     if (auto g = arm.guard()) visit(g, /*consuming=*/true, ln);
                     if (auto body = block_ptr(arm.body())) visit_block(*body);
                     pop_scope();
@@ -2926,6 +3000,15 @@ class BorrowChecker {
                     // when Vec became move-classified, adversarial #2).
                     if (arm_div) return;
                     all_diverged = false;
+                    // §B6: union this arm's surviving borrow-sources / danglers.
+                    for (auto& [k, v2] : ref_borrow_sources_) {
+                        auto& dst = acc_rbs[k];
+                        for (auto& s : v2)
+                            if (std::find(dst.begin(), dst.end(), s) == dst.end())
+                                dst.push_back(s);
+                        acc_rbl[k] = ref_borrow_line_.count(k) ? ref_borrow_line_[k] : ln;
+                    }
+                    for (auto& [k, d] : dangling_) acc_dang.emplace(k, d);
                     if (!merged_s) {
                         merged_s = states_;
                         merged_p = prov_;
@@ -2942,9 +3025,15 @@ class BorrowChecker {
                     for (auto& [name, st] : *merged_s)
                         if (saved_s.count(name)) states_[name] = st;
                     merge_provs(prov_, *merged_p);
+                    ref_borrow_sources_ = std::move(acc_rbs);
+                    ref_borrow_line_    = std::move(acc_rbl);
+                    dangling_           = std::move(acc_dang);
                 } else {
                     states_ = saved_s;
                     prov_   = saved_p;
+                    ref_borrow_sources_ = std::move(saved_rbs);
+                    ref_borrow_line_    = std::move(saved_rbl);
+                    dangling_           = std::move(saved_dang);
                     if (any_arm && all_diverged) cur_diverged_ = true;
                 }
                 break;
@@ -3332,10 +3421,29 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 std::string rn(lir_view::EVarRefView{recv}.name());
                 if (states_.count(rn)) {
                     RefProv cap = {};
+                    // §B6: element types of the receiver container (`Vec<&T>` →
+                    // [&T]). A by-value arg whose type IS an element type is being
+                    // STORED as an element (push/insert) — distinct from a `&self`
+                    // read or a `&element` arg (`contains(&&T)`: type ≠ element).
+                    TypeRef rt = recv.type(pool);
+                    std::vector<TypeRef> elems;
+                    if (rt) for (auto el : rt.type_args()) elems.push_back(el);
                     v.each_arg([&](lir_view::ExprRef a){
-                        if (a && !is_ref_kind(a.type(pool)) &&
-                            is_borrow_carrying_type(a.type(pool)))
+                        if (!a) return;
+                        TypeRef at = a.type(pool);
+                        bool by_value_bc =
+                            !is_ref_kind(at) && is_borrow_carrying_type(at);
+                        bool stored_ref_elem = false;
+                        if (is_ref_kind(at))
+                            for (auto el : elems)
+                                if (at == el) { stored_ref_elem = true; break; }
+                        if (by_value_bc)
                             cap = merge_prov(cap, prov_of(a));
+                        // The receiver now holds the arg's borrow of a local —
+                        // record so a later use after that local dies is E0597
+                        // (a `Vec<&T>` / view-buffer outliving its sources).
+                        if (by_value_bc || stored_ref_elem)
+                            add_ref_sources(rn, a, line);
                     });
                     if (!cap.params.empty() || cap.is_local || cap.is_temp)
                         prov_[rn] = merge_prov(prov_[rn], cap);

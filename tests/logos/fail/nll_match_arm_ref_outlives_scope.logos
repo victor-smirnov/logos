@@ -1,0 +1,7 @@
+package p3;
+use logos.lang.option;
+fn main() -> i32 {
+    let mut o: &i64;
+    { let x: i64 = 7i64; let op: Option<&i64> = Option::Some(&x); match op { Option::Some(r) => { o = r; } Option::None => { o = &0i64; } } }
+    return *o as i32;
+}

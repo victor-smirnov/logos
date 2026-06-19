@@ -1,0 +1,3 @@
+exit: 1
+stderr:
+error [fn main]: 'x' does not live long enough

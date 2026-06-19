@@ -1,0 +1,3 @@
+package p6b;
+fn pick<'a>(c: bool, a: &'a i64, b: &'a i64) -> &'a i64 { if c { return a; } return b; }
+fn main() -> i32 { let mut o: &i64; { let x: i64 = 3i64; o = pick(true, &x, &x); } return *o as i32; }

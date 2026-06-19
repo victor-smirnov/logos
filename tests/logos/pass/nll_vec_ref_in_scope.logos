@@ -1,0 +1,12 @@
+// Valid: a Vec<&T> holding a borrow of a local that OUTLIVES the vec, read in
+// scope. Must compile (no E0597) — guards the container-store source-tracking
+// (v.push(&x)) against over-firing on a legitimately-outliving borrow.
+package nll_vec_ref_in_scope;
+use logos.mem.collections.vec;
+fn main() -> i32 {
+    let x: i64 = 7i64;
+    let mut v: Vec<&i64> = Vec::<&i64>::new();
+    v.push(&x);
+    if *v.get(0) != 7i64 { return 1; }
+    return 0;
+}
