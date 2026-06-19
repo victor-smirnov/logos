@@ -240,6 +240,26 @@ pub struct DViewStore {
     offsets: PrimVec<u64>,
 }
 
+// The first element DECLARES the container's runtime type (tag+meta) — a
+// homogeneous container. `storage_push`/`insert_at` are the TRUSTED path: they
+// declare-on-first and store, no per-element check (callers on a hot path who
+// know the type is consistent pay nothing).
+unsafe fn dvs_declare(s: *mut DViewStore, v: DView) {
+    if (*s).offsets.len == 1u64 {
+        (*s).tag = v.tag;
+        (*s).meta = v.meta;
+    }
+}
+
+// Would `v` be consistent with this buffer's declared type? Empty ⇒ yes (it
+// would declare it). The CHECKED path (ContainerRef::try_insert) consults this
+// to reject a heterogeneous element with a recoverable error instead of
+// silently mis-storing — compare/materialize key off the buffer's single tag,
+// so a mismatched element would corrupt them.
+unsafe fn dvs_accepts(s: *const DViewStore, v: DView) -> bool {
+    return (*s).offsets.len == 1u64 || (v.tag == (*s).tag && v.meta == (*s).meta);
+}
+
 impl Storage for DViewStore {
     type Elem = DView;
     fn storage_len(s: *const DViewStore) -> u64 { unsafe { return (*s).offsets.len - 1u64; } }
@@ -269,7 +289,7 @@ impl DynamicStorage for DViewStore {
 
     fn storage_push(s: *mut DViewStore, v: DView) {
         unsafe {
-            if (*s).offsets.len == 1u64 { (*s).tag = v.tag; (*s).meta = v.meta; }
+            dvs_declare(s, v);
             let stored: u64 = align_up(v.len, htag_align((*s).tag, (*s).meta));
             let mut i: u64 = 0u64;
             while i < v.len  { (*s).data.push(*(((v.obj as i64) + (i as i64)) as *const u8)); i = i + 1u64; }
@@ -292,7 +312,7 @@ impl DynamicStorage for DViewStore {
 
     fn storage_insert_at(s: *mut DViewStore, idx: u64, v: DView) {
         unsafe {
-            if (*s).offsets.len == 1u64 { (*s).tag = v.tag; (*s).meta = v.meta; }
+            dvs_declare(s, v);
             let stored: u64 = align_up(v.len, htag_align((*s).tag, (*s).meta));
             let start: u64 = (*s).offsets.get(idx);
             let mut k: u64 = 0u64;
@@ -334,6 +354,7 @@ impl Container for DView {
     fn store_set(s: *mut DViewStore, idx: u64, v: DView) { DViewStore::storage_set(s, idx, v); }
     fn store_insert_at(s: *mut DViewStore, idx: u64, v: DView) { DViewStore::storage_insert_at(s, idx, v); }
     fn store_remove_at(s: *mut DViewStore, idx: u64) { DViewStore::storage_remove_at(s, idx); }
+    fn store_accepts(s: *const DViewStore, v: DView) -> bool { return unsafe { dvs_accepts(s, v) }; }
 }
 
 // Ordered: two stored/queried views compared via the shared tag-keyed layer.

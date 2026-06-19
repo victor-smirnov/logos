@@ -21,6 +21,7 @@ package dynmap_showcase;
 
 use logos.lang.cmp;
 use logos.lang.option;
+use logos.lang.result;
 use logos.lang.fabric;
 use logos.lang.drop;
 use logos.lang.str;
@@ -86,6 +87,15 @@ fn main() -> i32 {
                 Option::Some(v) => { unsafe { printf("  get(\"apple\") = %lu\n" as *const u8, v.to::<u64>()); } }
                 Option::None     => {}
             }
+            // checked insert: the container is runtime-typed (String -> u64). A
+            // wrong-typed value is REJECTED with a recoverable error, not panicked
+            // and not silently mis-stored. Plain `insert` is the trusted/fast path.
+            let bad: i64 = 99i64;
+            match cr.try_insert(DView::from_str("durian"), DView::from(&bad)) {
+                Result::Ok(_)  => { unsafe { printf("  try_insert(\"durian\" -> i64) unexpectedly accepted\n" as *const u8); } }
+                Result::Err(_) => { unsafe { printf("  try_insert(\"durian\" -> i64) rejected: values are u64\n" as *const u8); } }
+            }
+            if cr.len() != 3u64 { return 1; }   // rejection left the map untouched
         }
         c0 = snap.commit();
     }

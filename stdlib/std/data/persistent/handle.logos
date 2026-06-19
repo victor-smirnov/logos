@@ -29,6 +29,7 @@ use logos.mem.sync;
 use logos.lang.rc;
 use logos.lang.cmp;
 use logos.lang.option;
+use logos.lang.result;
 use logos.lang.panic;
 use logos.lang.drop;
 use logos.lang.fabric;
@@ -539,6 +540,14 @@ impl<const STORE_CFG: HermesStatic> SnapCtx<STORE_CFG> {
 // type. Multi-level descent (where root may be a BranchNode) lands
 // when mutate gains splits. Single-leaf bring-up first.
 
+// Why a checked insert may fail: the offered key or value is inconsistent with
+// the container's runtime-discovered element type (a DView container is
+// homogeneous — one tag per buffer). Static-typed containers never produce this.
+pub enum InsertError {
+    KeyType,
+    ValueType,
+}
+
 pub struct ContainerRef<const STORE_CFG: HermesStatic, const CFG: HermesStatic> {
     pub arc: NodeARC<STORE_CFG>,    // owning rc on the container root
     pub ctx: SnapCtx<STORE_CFG>,    // shared snap-side wiring (dir / CoW / ids / guard)
@@ -668,6 +677,34 @@ impl<const STORE_CFG: HermesStatic, const CFG: HermesStatic> ContainerRef<STORE_
         };
         self.writeback();
         return r;
+    }
+
+    // CHECKED insert: reject a key/value whose runtime type is inconsistent with
+    // what the container already holds (Err) instead of mis-storing, otherwise
+    // insert and return Ok(old). For a homogeneous DView container this is the
+    // safe entry point; plain `insert` is the trusted/fast one. The check peeks
+    // the leftmost leaf — the element type is uniform across the container, so
+    // any existing element witnesses it; an empty container accepts anything (it
+    // declares its type on that first insert).
+    pub fn try_insert(&mut self, key: <type:CFG.key>::ViewInStore, val: <type:CFG.value>::ViewInStore)
+        -> Result<Option<<type:CFG.value>::ViewInStore>, InsertError> {
+        unsafe {
+            let mut leaf_idx: u64 = 0u64;
+            let leaf_opt: Option<NodeARC<STORE_CFG>> =
+                bt_descend_to_n::<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>(
+                    &self.arc, 0u64, &mut leaf_idx as *mut u64);
+            match leaf_opt {
+                Option::Some(leaf_arc) => {
+                    let leaf_p: *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG> =
+                        node_arc_data_ptr::<STORE_CFG>(&leaf_arc)
+                            as *const LeafNode<<type:CFG.key>, <type:CFG.value>, STORE_CFG, CFG>;
+                    if !leaf_p.keys.accepts(key) { return Result::Err(InsertError::KeyType); }
+                    if !leaf_p.vals.accepts(val) { return Result::Err(InsertError::ValueType); }
+                }
+                Option::None => {}
+            }
+        }
+        return Result::Ok(self.insert(key, val));
     }
 
     pub fn remove(&mut self, key: <type:CFG.key>::ViewInStore) -> bool {

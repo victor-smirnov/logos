@@ -93,6 +93,12 @@ pub trait Container: Datatype {
     fn store_set(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
     fn store_insert_at(s: *mut Self::Store, idx: u64, v: Self::ViewInStore);
     fn store_remove_at(s: *mut Self::Store, idx: u64);
+    // Would the store accept `v` (consistent with whatever it already holds)?
+    // DEFAULT yes — most stores have no per-element invariant. A store that is
+    // homogeneous in some runtime-discovered way (DView: one tag per buffer)
+    // overrides this so the CHECKED insert path can reject a violator with a
+    // recoverable error instead of mis-storing. Read-only.
+    fn store_accepts(s: *const Self::Store, v: Self::ViewInStore) -> bool { return true; }
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +136,15 @@ impl<DT: Container> Buffer<DT> {
         unsafe {
             let sp: *const DT::Store = &self.storage as *const DT::Store;
             return DT::store_get(sp, idx);
+        }
+    }
+
+    // Would pushing/inserting `v` keep this buffer consistent? (Default true;
+    // DView's homogeneous store says false on a tag/meta mismatch.) Read-only.
+    pub fn accepts(&self, v: DT::ViewInStore) -> bool {
+        unsafe {
+            let sp: *const DT::Store = &self.storage as *const DT::Store;
+            return DT::store_accepts(sp, v);
         }
     }
 

@@ -1,0 +1,77 @@
+// Checked insert into a runtime-typed (DView) container: try_insert validates
+// the offered key/value against the container's declared element type and
+// returns a recoverable Err on a mismatch — NO panic, NO silent mis-store. The
+// first insert declares the type (i64 keys → u64 values); a wrong-typed key or
+// value is rejected and the container is left untouched.
+
+package dview_try_insert;
+
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.dview;
+
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "dv",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+pub const DvCfg: HermesStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut snap = store.fork(GENESIS);
+    let mut cr = create_ctr::<DvCfg>(&mut snap, 1u64);
+
+    // Empty container accepts anything — this first insert DECLARES (i64 → u64).
+    let k0: i64 = 1i64;
+    let v0: u64 = 10u64;
+    match cr.try_insert(DView::from(&k0), DView::from(&v0)) {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { return 1; }
+    }
+
+    // A matching-typed insert succeeds.
+    let k1: i64 = 2i64;
+    let v1: u64 = 20u64;
+    match cr.try_insert(DView::from(&k1), DView::from(&v1)) {
+        Result::Ok(_)  => {}
+        Result::Err(_) => { return 2; }
+    }
+    if cr.len() != 2u64 { return 3; }
+
+    // Wrong KEY type (u64 key into an i64-keyed container) → Err(KeyType), no store.
+    let bad_k: u64 = 3u64;
+    let okv:   u64 = 30u64;
+    match cr.try_insert(DView::from(&bad_k), DView::from(&okv)) {
+        Result::Ok(_) => { return 4; }
+        Result::Err(e) => { match e { InsertError::KeyType => {} _ => { return 5; } } }
+    }
+
+    // Wrong VALUE type (i64 value into a u64-valued container) → Err(ValueType).
+    let okk:   i64 = 4i64;
+    let bad_v: i64 = 40i64;
+    match cr.try_insert(DView::from(&okk), DView::from(&bad_v)) {
+        Result::Ok(_) => { return 6; }
+        Result::Err(e) => { match e { InsertError::ValueType => {} _ => { return 7; } } }
+    }
+
+    // Both rejections left the container untouched (still the 2 good entries).
+    if cr.len() != 2u64 { return 8; }
+    let q: i64 = 2i64;
+    match cr.get(DView::from(&q)) {
+        Option::Some(dv) => { if dv.to::<u64>() != 20u64 { return 9; } }
+        Option::None     => { return 10; }
+    }
+
+    return 0;
+}
