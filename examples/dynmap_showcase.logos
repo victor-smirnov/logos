@@ -1,0 +1,129 @@
+//
+// DView showcase — a DYNAMICALLY-TYPED persistent map.
+//
+// ONE compiled B+tree (`create_ctr::<DvCfg>`, key = value = DView) serves MANY
+// runtime types: a word→count map (String→u64) AND an id→name map (i64→String)
+// live in the same store, sharing the SAME compiled container code — the element
+// type is chosen at RUNTIME (the DView tag), not monomorphised per type.
+//
+// Demonstrated:
+//   1. String keys + u64 values; sorted traversal (get_at) + point get.
+//   2. i64 keys + String values in the SAME store / SAME compiled container —
+//      runtime-typed differently; owned values materialized out (to::<String>).
+//   3. CoW snapshots: fork an earlier commit; the later container is unseen.
+//
+// The DView seam is bidirectional: `DView::from(&v)` captures any Datum type into
+// the container (per-tier impls — String's lives in mem); `dv.to::<T>()`
+// materializes it back (scalars by value, String as an owned heap copy).
+//
+
+package dynmap_showcase;
+
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.str;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.dview;
+use logos.mem.string;
+
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.handle;
+
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "dyn",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+// One CFG, used for BOTH maps below — the container is runtime-typed via DView.
+pub const DvCfg: HermesStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
+
+fn section(label: str) {
+    unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
+}
+
+fn put_count(cr: &mut ContainerRef<StoreCfg, DvCfg>, w: str, n: u64) {
+    let nn: u64 = n;                                  // live for the capture
+    cr.insert(DView::from_str(w), DView::from(&nn));
+}
+fn put_name(cr: &mut ContainerRef<StoreCfg, DvCfg>, id: i64, name: str) {
+    let i: i64 = id;
+    let s: String = String::from(name);              // heap String; captured by content
+    cr.insert(DView::from(&i), DView::from(&s));
+}
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+    let mut c0: u64 = 0u64;
+
+    section("1. word -> count   (String keys, u64 values)");
+    {
+        let mut snap = store.fork(GENESIS);
+        {
+            let mut cr = create_ctr::<DvCfg>(&mut snap, 1u64);
+            put_count(&mut cr, "banana", 3u64);
+            put_count(&mut cr, "apple",  7u64);
+            put_count(&mut cr, "cherry", 5u64);
+            let mut i: u64 = 0u64;
+            let n: u64 = cr.len();
+            while i < n {
+                match cr.get_at(i) {
+                    Option::Some(kv) => {
+                        let k: str = kv.0.as_str();
+                        unsafe { printf("  %.*s -> %lu\n" as *const u8, k.len() as i32, k.as_ptr(), kv.1.to::<u64>()); }
+                    }
+                    Option::None => {}
+                }
+                i = i + 1u64;
+            }
+            match cr.get(DView::from_str("apple")) {
+                Option::Some(v) => { unsafe { printf("  get(\"apple\") = %lu\n" as *const u8, v.to::<u64>()); } }
+                Option::None     => {}
+            }
+        }
+        c0 = snap.commit();
+    }
+
+    section("2. id -> name   (i64 keys, String values) -- SAME compiled container");
+    let mut c1: u64 = 0u64;
+    {
+        let mut snap = store.fork(c0);
+        {
+            let mut cr = create_ctr::<DvCfg>(&mut snap, 2u64);
+            put_name(&mut cr, 7i64, "Ada");
+            put_name(&mut cr, 1i64, "Linus");
+            put_name(&mut cr, 4i64, "Grace");
+            let mut i: u64 = 0u64;
+            let n: u64 = cr.len();
+            while i < n {
+                match cr.get_at(i) {
+                    Option::Some(kv) => {
+                        let name: String = kv.1.to::<String>();   // owned copy, out of the tree
+                        unsafe { printf("  id %ld -> %s\n" as *const u8, kv.0.to::<i64>(), name.as_ptr()); }
+                    }
+                    Option::None => {}
+                }
+                i = i + 1u64;
+            }
+        }
+        c1 = snap.commit();
+    }
+
+    section("3. snapshots -- fork the earlier commit c0 (word map only)");
+    {
+        let mut snap = store.fork(c0);
+        let w = open_ctr::<DvCfg>(&mut snap, 1u64).unwrap();
+        unsafe { printf("  fork(c0): word map len = %lu\n" as *const u8, w.len()); }
+        let id_present: bool = !open_ctr::<DvCfg>(&mut snap, 2u64).is_none();
+        unsafe { printf("  fork(c0): id map present = %d  (0 = unseen, added only in c1)\n" as *const u8, id_present as i32); }
+    }
+
+    unsafe { printf("\nOK: one runtime-typed B+tree, two element-type pairs, snapshots.\n" as *const u8); }
+    return 0;
+}
