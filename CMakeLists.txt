@@ -70,9 +70,10 @@ set(LOGOS_LIB_RELDIR "lib/logos" CACHE STRING
 set(LOGOS_BUILD_LIB_DIR ${CMAKE_BINARY_DIR}/${LOGOS_LIB_RELDIR})
 file(MAKE_DIRECTORY ${LOGOS_BUILD_LIB_DIR})
 
-# Find dependencies
+# Find dependencies. PkgConfig is used by sub-targets (reactor/hrpc) which
+# re-`find_package` it themselves; the SQLite3 dependency was dropped together
+# with the verification SQLite trace sink.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(SQLite3 REQUIRED IMPORTED_TARGET sqlite3)
 
 # Global includes
 include_directories(include)

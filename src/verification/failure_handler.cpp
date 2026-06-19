@@ -2,10 +2,7 @@
 
 #include <logos/verification/assert.hpp>
 #include <logos/verification/call_chain.hpp>
-#include <logos/verification/sqlite_sink.hpp>
 #include <iostream>
-#include <chrono>
-#include <thread>
 #include <cstdlib>
 #include <stdexcept>
 #include <string_view>
@@ -20,14 +17,6 @@ namespace logos {
     const char* file,
     int line)
 {
-    auto now = std::chrono::steady_clock::now().time_since_epoch();
-    uint64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
-
-    uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-    uint64_t fiber_id = 0;
-
-    std::string stack_json = capture_call_chain_json();
-
     // Print to stderr
     std::cerr << "\n[LOGOS ASSERTION FAILURE]\n"
               << "Requirement: " << req_id << "\n"
@@ -36,12 +25,6 @@ namespace logos {
               << "Message:     " << message << "\n\n"
               << format_call_chain() << "\n";
 
-    // Write to SQLite
-    record_assertion(timestamp, thread_id, fiber_id, req_id, condition, message, file, line, stack_json);
-    
-    // Give time to flush before abort
-    shutdown_sqlite_sink();
-    
 #ifndef NDEBUG
     std::abort();
 #else
@@ -74,12 +57,9 @@ void __attribute__((no_instrument_function)) enable_trace(std::string_view tag_p
     g_traces_enabled = true;
 }
 
-void __attribute__((no_instrument_function)) write_trace(std::string_view tag, std::string_view json_data, const char* file, int line) noexcept {
-    auto now = std::chrono::steady_clock::now().time_since_epoch();
-    uint64_t timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now).count();
-    uint64_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
-
-    record_trace(timestamp, thread_id, 0, tag, file, line, json_data);
+void __attribute__((no_instrument_function)) write_trace(std::string_view /*tag*/, std::string_view /*json_data*/, const char* /*file*/, int /*line*/) noexcept {
+    // The SQLite trace sink was removed; LOGOS_TRACE is now a no-op at the
+    // backend. The is_trace_enabled() gate still applies at call sites.
 }
 
 } // namespace logos
