@@ -23,6 +23,27 @@ use logos.lang.option;
 use logos.lang.fabric;             // Datatype / Container / ContainerOrd / PrimVec / Storage
 use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL type codes
 
+// ── tag layout: (space, code) ────────────────────────────────────────────────
+// DView.tag is u64 but a Hermes in-band datatag only carries ≤56 bits (the
+// 8-byte pre-object slot = 1 header byte + ≤7 code bytes). The spare HIGH 8 bits
+// are a CODE-SPACE selector: the low 56 bits are a code WITHIN that space.
+//   space 0 (Hermes) — code = the Hermes datatag (storage format). High bits 0
+//     means a raw Hermes tag IS already a valid DView.tag (a compactified
+//     single-segment Hermes copies in with its tag untouched).
+//   space 1 (Logos)  — code = the captured Logos type (a processing format,
+//     e.g. heap String / str), a DIFFERENT code space; the dispatcher for that
+//     space knows how to compare and how to convert to the storage format on
+//     store_push.
+pub const DV_CODE_MASK:    u64 = 0x00FFFFFFFFFFFFFFu64;   // low 56 bits
+pub const DV_SPACE_HERMES: u8  = 0u8;
+pub const DV_SPACE_LOGOS:  u8  = 1u8;
+
+pub fn dv_space(tag: u64) -> u8  { return (tag >> 56u64) as u8; }
+pub fn dv_code(tag: u64)  -> u64 { return tag & DV_CODE_MASK; }
+pub fn dv_make_tag(space: u8, code: u64) -> u64 {
+    return ((space as u64) << 56u64) | (code & DV_CODE_MASK);
+}
+
 // ── HermesTag — concrete type → its Hermes tag (the type-erasure source) ─────
 // `h_tag` uses the phantom-`self` form (a `*const Self` never read) — the
 // established side-step for the assoc-fn-on-type-param mono gap (cf. fabric
@@ -106,9 +127,12 @@ unsafe fn load_le(p: *const u8, n: u64) -> u64 {
     return v;
 }
 
-// Total order over two same-tagged object-byte runs.
+// Total order over two same-tagged object-byte runs. Dispatched on (space,
+// code): only the Hermes space (0) is wired today; other spaces route here once
+// their comparators land.
 pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u8, blen: u64) -> Ordering {
-    if tag == H2_I64 {
+    let code: u64 = dv_code(tag);
+    if dv_space(tag) == DV_SPACE_HERMES && code == H2_I64 {
         let x: i64 = load_le(a, alen) as i64;
         let y: i64 = load_le(b, blen) as i64;
         if x < y { return Ordering::Less; }
@@ -125,9 +149,12 @@ pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u
 
 // Object byte stride for a tag (for the at-rest / store path). 0 = unknown.
 pub fn htag_size(tag: u64, meta: u64) -> u64 {
-    if tag == H2_I64       { return 8u64; }
-    if tag == H2_U64       { return 8u64; }
-    if tag == HA_BOOL as u64 { return 1u64; }
+    if dv_space(tag) == DV_SPACE_HERMES {
+        let code: u64 = dv_code(tag);
+        if code == H2_I64       { return 8u64; }
+        if code == H2_U64       { return 8u64; }
+        if code == HA_BOOL as u64 { return 1u64; }
+    }
     return 0u64;
 }
 
@@ -135,9 +162,12 @@ pub fn htag_size(tag: u64, meta: u64) -> u64 {
 // every element's entry to this so in-place reads (`to::<T>` pointer-casts, a
 // byte-copied compactified Hermes object) are valid.
 pub fn htag_align(tag: u64, meta: u64) -> u64 {
-    if tag == H2_I64       { return 8u64; }
-    if tag == H2_U64       { return 8u64; }
-    if tag == HA_BOOL as u64 { return 1u64; }
+    if dv_space(tag) == DV_SPACE_HERMES {
+        let code: u64 = dv_code(tag);
+        if code == H2_I64       { return 8u64; }
+        if code == H2_U64       { return 8u64; }
+        if code == HA_BOOL as u64 { return 1u64; }
+    }
     return 8u64;   // conservative default (covers ≤8-byte scalars)
 }
 

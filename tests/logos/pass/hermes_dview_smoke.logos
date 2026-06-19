@@ -34,5 +34,15 @@ fn main() -> i32 {
     let t: bool = true;
     match DView::from(&f).compare(&DView::from(&t)) { Ordering::Less => {} _ => { return 10; } }
 
+    // tag = (space:8, code:56). A captured i64's tag is Hermes-space, code H2_I64.
+    if dv_space(va.type_code()) != DV_SPACE_HERMES { return 11; }
+    if dv_code(va.type_code()) != 26u64 { return 12; }   // H2_I64
+    // pack/unpack a Logos-space tag (e.g. captured heap String, code 130) —
+    // distinct space, code preserved, no collision with the 56-bit code.
+    let lt: u64 = dv_make_tag(DV_SPACE_LOGOS, 130u64);
+    if dv_space(lt) != DV_SPACE_LOGOS { return 13; }
+    if dv_code(lt)  != 130u64 { return 14; }
+    if lt == 130u64 { return 15; }   // the space byte makes it != the raw code
+
     return 0;
 }
