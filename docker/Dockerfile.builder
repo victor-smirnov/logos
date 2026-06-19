@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         # build system
         cmake ninja-build pkg-config \
         # third-party libraries Logos links against
-        libsqlite3-dev liburing-dev zlib1g-dev libzstd-dev \
+        liburing-dev zlib1g-dev libzstd-dev \
         # misc
         ca-certificates git \
     && rm -rf /var/lib/apt/lists/*

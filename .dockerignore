@@ -1,0 +1,8 @@
+# Keep the Docker build context small: exclude local build trees, VCS, and
+# scratch artifacts. (Docker does not read .gitignore.)
+build/
+build-*/
+.git/
+*.o
+Testing/
+**/*.deb
