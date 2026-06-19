@@ -130,3 +130,35 @@ install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
     DESTINATION ${LOGOS_LIB_RELDIR})
+
+# ── Packaging (.deb via CPack) ───────────────────────────────────────────
+#
+# `cpack -G DEB` (run from a build dir configured against stock distro LLVM)
+# produces a relocatable Debian package installing logosc + the modular stdlib
+# archives under /usr. Needs `dpkg-dev`.
+#
+# Depends are set explicitly rather than via dpkg-shlibdeps: the distro ships
+# libMLIR.so only under the private /usr/lib/llvm-NN/lib (not a standard
+# loader path), which shlibdeps cannot resolve. The list covers what logosc
+# itself needs to RUN plus the linker/runtime a built Logos program needs.
+# libllvm/libmlir package names encode the LLVM major the build linked
+# against (stock Ubuntu 24.04 = 20); bump together with the toolchain.
+set(CPACK_PACKAGE_NAME    "logos")
+set(CPACK_PACKAGE_VERSION "0.1.0")
+set(CPACK_PACKAGE_VENDOR  "Victor Smirnov")
+set(CPACK_PACKAGE_CONTACT "Victor Smirnov <aist11@gmail.com>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Logos compiler (logosc) and standard library")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Victor Smirnov <aist11@gmail.com>")
+set(CPACK_DEBIAN_PACKAGE_SECTION    "devel")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE
+    "https://github.com/victor-smirnov/logos")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS
+    "libllvm20, libmlir-20, libstdc++6, libc6, zlib1g, libzstd1, liburing2")
+# A built Logos program is linked with `cc`/`ld` against the static stdlib
+# archives, so the toolchain wants a C compiler present.
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gcc | clang")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logos_0.1.0_amd64.deb
+include(CPack)

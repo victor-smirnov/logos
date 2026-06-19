@@ -156,6 +156,16 @@ target_compile_options(logosc PRIVATE -fno-rtti)
 set_target_properties(logosc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Keep an RPATH to the LLVM/MLIR lib dir in the INSTALLED binary. The distro's
+# libMLIR.so lives only under the private /usr/lib/llvm-NN/lib (not a default
+# loader path), so without this the installed/packaged logosc fails at startup
+# with "libMLIR.so.NN: cannot open shared object file". Harmless for a static
+# (Jenny) build — that dir just holds no .so logosc needs.
+if (LLVM_LIBRARY_DIR)
+    set_target_properties(logosc PROPERTIES
+        INSTALL_RPATH "${LLVM_LIBRARY_DIR}")
+endif()
+
 # Bake the bin-relative system library path into the binary. Resolving
 # /proc/self/exe at runtime + appending this gives both the build-tree
 # and install-tree directories with the same compiled-in suffix.
