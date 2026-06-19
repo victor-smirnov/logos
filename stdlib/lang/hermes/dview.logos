@@ -44,8 +44,8 @@ pub struct DView {
 
 impl DView {
     // Type-erase a concrete value into a non-owning view (borrows `v`). T is
-    // inferred from the argument (`DView::erase(&v)`).
-    pub static fn erase<T: HermesTag>(v: &T) -> DView {
+    // inferred from the argument (`DView::from(&v)`).
+    pub static fn from<T: HermesTag>(v: &T) -> DView {
         let phantom: *const T = 0 as *const T;
         return DView {
             obj:  v as *const T as *const u8,

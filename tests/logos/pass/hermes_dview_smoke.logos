@@ -11,8 +11,8 @@ use logos.lang.hermes.dview;
 fn main() -> i32 {
     let a: i64 = 5i64;
     let b: i64 = -3i64;
-    let va: DView = DView::erase(&a);
-    let vb: DView = DView::erase(&b);
+    let va: DView = DView::from(&a);
+    let vb: DView = DView::from(&b);
 
     // type-check + extract
     if !va.is_a::<i64>() { return 1; }
@@ -28,11 +28,11 @@ fn main() -> i32 {
     // u64 (unsigned) + bool
     let c: u64 = 10u64;
     let d: u64 = 10u64;
-    if DView::erase(&c).compare(&DView::erase(&d)) as i32 != Ordering::Equal as i32 { return 9; }
+    if DView::from(&c).compare(&DView::from(&d)) as i32 != Ordering::Equal as i32 { return 9; }
 
     let f: bool = false;
     let t: bool = true;
-    match DView::erase(&f).compare(&DView::erase(&t)) { Ordering::Less => {} _ => { return 10; } }
+    match DView::from(&f).compare(&DView::from(&t)) { Ordering::Less => {} _ => { return 10; } }
 
     return 0;
 }
