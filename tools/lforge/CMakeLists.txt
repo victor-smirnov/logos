@@ -34,8 +34,15 @@ set(_link_archives
     ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
-    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
+    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a)
+# liburing: bundled static archive where the distro ships one, else the shared
+# -luring (Fedora). See stdlib/rt/CMakeLists.txt.
+set(_extra_link_libs -lpthread -lm)
+if(LOGOS_BUNDLE_URING_STATIC)
+    list(APPEND _link_archives ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
+else()
+    list(APPEND _extra_link_libs -luring)
+endif()
 
 add_custom_command(
     OUTPUT ${LFORGE_OBJ}
@@ -49,7 +56,7 @@ add_custom_command(
 
 add_custom_command(
     OUTPUT ${LFORGE_BIN}
-    COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${LFORGE_OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -o ${LFORGE_BIN}
+    COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${LFORGE_OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition ${_extra_link_libs} -o ${LFORGE_BIN}
     DEPENDS ${LFORGE_OBJ} ${_link_archives}
     COMMENT "link: lforge"
 )

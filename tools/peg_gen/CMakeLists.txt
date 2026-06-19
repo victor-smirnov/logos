@@ -67,5 +67,7 @@ set_source_files_properties(${HERMES_PARSER_CPP} PROPERTIES
     COMPILE_OPTIONS "-Wno-unused-variable;-Wno-unused-but-set-variable"
 )
 
-# Install bundled grammars alongside the executable.
-install(DIRECTORY grammars/ DESTINATION share/peg_gen/grammars)
+# Install bundled grammars under the project share dir (/usr/share/logos/peg_gen
+# with the package prefix). Reference/tooling data — the parser is generated
+# into logosc at build time, so nothing reads this at runtime.
+install(DIRECTORY grammars/ DESTINATION share/logos/peg_gen)

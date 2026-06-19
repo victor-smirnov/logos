@@ -1,0 +1,42 @@
+# Self-contained build + package + runtime for Ubuntu 26.04 with clang-21.
+#
+# Same shape as docker/Dockerfile (24.04 / LLVM 20) but on the newer release:
+# stock LLVM/MLIR 21 + clang-21, gcc-15 libstdc++ for C++23 <print>. Exercises
+# the llvm_compat.hpp `LLVM_VERSION_MAJOR >= 21` shim path. Build context =
+# repo root:
+#
+#   docker build -f docker/Dockerfile.ubuntu26 -t logos:ubuntu26 .
+#   docker run --rm logos:ubuntu26 --version
+
+FROM ubuntu:26.04 AS builder
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        clang-21 lld-21 llvm-21-dev libmlir-21-dev mlir-21-tools \
+        cmake ninja-build pkg-config dpkg-dev \
+        liburing-dev zlib1g-dev libzstd-dev \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-21   100 \
+    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-21 100
+
+WORKDIR /src
+COPY . .
+RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+    && cmake --build build -j"$(nproc)" \
+    && cd build && cpack -G DEB
+
+FROM scratch AS deb
+COPY --from=builder /src/build/logos_*.deb /
+
+FROM ubuntu:26.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+COPY --from=builder /src/build/logos_*.deb /tmp/
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        /tmp/logos_*.deb gcc liburing-dev \
+    && rm -rf /var/lib/apt/lists/* /tmp/logos_*.deb
+RUN printf 'package smoke;\nfn main() -> i32 { return 0; }\n' > /tmp/s.logos \
+    && logosc /tmp/s.logos -o /tmp/s.o \
+    && cc /tmp/s.o /usr/lib/logos/lib*.a -lpthread -lm -luring -o /tmp/s \
+    && /tmp/s && echo "logos toolchain OK"
+ENTRYPOINT ["logosc"]

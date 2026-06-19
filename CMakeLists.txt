@@ -47,15 +47,20 @@ set(LOGOS_LLVM_DIR  "" CACHE PATH "LLVM cmake dir (empty = auto-discover stock)"
 set(LOGOS_MLIR_DIR  "" CACHE PATH "MLIR cmake dir (empty = auto-discover stock)")
 set(LOGOS_CLANG_DIR "" CACHE PATH "Clang cmake dir (empty = auto-discover stock)")
 if(NOT LOGOS_LLVM_DIR)
-    foreach(_v 21 20 19 18)
+    foreach(_v 22 21 20 19 18)
         if(EXISTS "/usr/lib/llvm-${_v}/lib/cmake/llvm/LLVMConfig.cmake")
             set(LOGOS_LLVM_DIR  "/usr/lib/llvm-${_v}/lib/cmake/llvm"  CACHE PATH "" FORCE)
             set(LOGOS_MLIR_DIR  "/usr/lib/llvm-${_v}/lib/cmake/mlir"  CACHE PATH "" FORCE)
             set(LOGOS_CLANG_DIR "/usr/lib/llvm-${_v}/lib/cmake/clang" CACHE PATH "" FORCE)
+            set(LOGOS_LLVM_MAJOR "${_v}" CACHE STRING "Discovered stock LLVM major" FORCE)
             message(STATUS "logos: auto-discovered stock LLVM/MLIR series ${_v} at /usr/lib/llvm-${_v}")
             break()
         endif()
     endforeach()
+endif()
+# Fallback: recover the major from an explicitly-set (Debian-layout) cmake dir.
+if(NOT DEFINED LOGOS_LLVM_MAJOR AND LOGOS_LLVM_DIR MATCHES "llvm-([0-9]+)")
+    set(LOGOS_LLVM_MAJOR "${CMAKE_MATCH_1}")
 endif()
 
 # ── System module path (bin-relative, baked into logosc) ─────────────────
@@ -128,21 +133,20 @@ install(FILES
     ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
     ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-    ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
     DESTINATION ${LOGOS_LIB_RELDIR})
+# liblstdlib_uring.a is the bundled static liburing — only present on distros
+# that ship a static liburing.a (see stdlib/rt/CMakeLists.txt). Where absent
+# (Fedora), consumers link the shared -luring.
+if(LOGOS_BUNDLE_URING_STATIC)
+    install(FILES ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a
+        DESTINATION ${LOGOS_LIB_RELDIR})
+endif()
 
-# ── Packaging (.deb via CPack) ───────────────────────────────────────────
+# ── Packaging (.deb / .rpm via CPack) ────────────────────────────────────
 #
-# `cpack -G DEB` (run from a build dir configured against stock distro LLVM)
-# produces a relocatable Debian package installing logosc + the modular stdlib
-# archives under /usr. Needs `dpkg-dev`.
-#
-# Depends are set explicitly rather than via dpkg-shlibdeps: the distro ships
-# libMLIR.so only under the private /usr/lib/llvm-NN/lib (not a standard
-# loader path), which shlibdeps cannot resolve. The list covers what logosc
-# itself needs to RUN plus the linker/runtime a built Logos program needs.
-# libllvm/libmlir package names encode the LLVM major the build linked
-# against (stock Ubuntu 24.04 = 20); bump together with the toolchain.
+# `cpack -G DEB` (Debian/Ubuntu) or `cpack -G RPM` (Fedora/RHEL), run from a
+# build dir configured against the distro's stock LLVM. Installs logosc + the
+# modular stdlib archives under /usr. Needs `dpkg-dev` resp. `rpm-build`.
 set(CPACK_PACKAGE_NAME    "logos")
 set(CPACK_PACKAGE_VERSION "0.1.0")
 set(CPACK_PACKAGE_VENDOR  "Victor Smirnov")
@@ -151,14 +155,36 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "Logos compiler (logosc) and standard library")
 set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_GENERATOR "DEB")
+
+# ── DEB ──
+# Depends are set explicitly rather than via dpkg-shlibdeps: Debian ships
+# libMLIR.so only under the private /usr/lib/llvm-NN/lib (not a standard loader
+# path), which shlibdeps cannot resolve. The libllvm/libmlir package names
+# encode the LLVM major the build linked against — derived from the discovered
+# toolchain (Ubuntu 24.04=20, 26.04=21), default 20 if unknown.
+if(NOT LOGOS_LLVM_MAJOR)
+    set(LOGOS_LLVM_MAJOR 20)
+endif()
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Victor Smirnov <aist11@gmail.com>")
 set(CPACK_DEBIAN_PACKAGE_SECTION    "devel")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE
     "https://github.com/victor-smirnov/logos")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libllvm20, libmlir-20, libstdc++6, libc6, zlib1g, libzstd1, liburing2")
+    "libllvm${LOGOS_LLVM_MAJOR}, libmlir-${LOGOS_LLVM_MAJOR}, libstdc++6, libc6, zlib1g, libzstd1, liburing2")
 # A built Logos program is linked with `cc`/`ld` against the static stdlib
 # archives, so the toolchain wants a C compiler present.
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "gcc | clang")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)  # logos_0.1.0_amd64.deb
+
+# ── RPM ──
+# Fedora keeps its libs on standard /usr/lib64, so rpm's automatic
+# dependency generator (autoreqprov) resolves the shared-lib Requires
+# correctly — no explicit list needed.
+set(CPACK_RPM_PACKAGE_LICENSE  "Apache-2.0 OR MIT")
+set(CPACK_RPM_PACKAGE_GROUP    "Development/Languages")
+set(CPACK_RPM_PACKAGE_URL      "https://github.com/victor-smirnov/logos")
+set(CPACK_RPM_PACKAGE_SUMMARY  "Logos compiler (logosc) and standard library")
+set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+set(CPACK_RPM_PACKAGE_SUGGESTS "gcc, liburing-devel")
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)   # logos-0.1.0-1.x86_64.rpm
 include(CPack)

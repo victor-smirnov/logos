@@ -37,8 +37,14 @@ function(logos_add_example NAME)
         ${LOGOS_BUILD_LIB_DIR}/liblogos-mem.a
         ${LOGOS_BUILD_LIB_DIR}/liblogos-std.a
         ${LOGOS_BUILD_LIB_DIR}/liblstdlib_fibers.a
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a
-        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
+        ${LOGOS_BUILD_LIB_DIR}/liblstdlib_rt.a)
+    # liburing: bundled static where available, else shared -luring (Fedora).
+    set(_extra_link_libs -lpthread -lm -lstdc++)
+    if(LOGOS_BUNDLE_URING_STATIC)
+        list(APPEND _link_archives ${LOGOS_BUILD_LIB_DIR}/liblstdlib_uring.a)
+    else()
+        list(APPEND _extra_link_libs -luring)
+    endif()
 
     add_custom_command(
         OUTPUT ${OBJ}
@@ -49,7 +55,7 @@ function(logos_add_example NAME)
 
     add_custom_command(
         OUTPUT ${BIN}
-        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition -lpthread -lm -lstdc++ -o ${BIN}
+        COMMAND ${CMAKE_CXX_COMPILER} -Wl,--gc-sections ${OBJ} -Wl,--start-group ${_link_archives} -Wl,--end-group -Wl,--allow-multiple-definition ${_extra_link_libs} -o ${BIN}
         DEPENDS ${OBJ} ${_link_archives}
         COMMENT "link: ${NAME}"
     )

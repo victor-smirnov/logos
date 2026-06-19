@@ -35,14 +35,32 @@ set_target_properties(logos_rt PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${STDLIB_BIN_DIR}
     OUTPUT_NAME lstdlib_rt)
 
-# Copy liburing.a into STDLIB_BIN_DIR so run_test.sh's glob picks it up.
-# Named liblstdlib_uring.a so it sorts after liblstdlib_rt.a (provider order).
+# Bundle the system STATIC liburing.a as liblstdlib_uring.a so run_test.sh's
+# lib*.a glob picks it up (named to sort after liblstdlib_rt.a — provider
+# order). Located portably across distros (Debian multiarch /usr/lib/<triple>,
+# Fedora /usr/lib64, …). Some distros (Fedora) ship only the shared
+# liburing.so with NO static archive — there we skip the bundle and consumers
+# link `-luring` (shared) instead. LOGOS_BUNDLE_URING_STATIC tells the
+# top-level install rule whether the file exists.
 set(STDLIB_URING_DST ${STDLIB_BIN_DIR}/liblstdlib_uring.a)
-add_custom_command(
-    OUTPUT  ${STDLIB_URING_DST}
-    COMMAND ${CMAKE_COMMAND} -E copy
-            /usr/lib/x86_64-linux-gnu/liburing.a
-            ${STDLIB_URING_DST}
-    COMMENT "Copy liburing.a → liblstdlib_uring.a"
-)
-add_custom_target(stdlib_uring ALL DEPENDS ${STDLIB_URING_DST})
+find_file(LOGOS_LIBURING_STATIC
+    NAMES liburing.a
+    PATHS /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib /lib/x86_64-linux-gnu)
+if(LOGOS_LIBURING_STATIC)
+    add_custom_command(
+        OUTPUT  ${STDLIB_URING_DST}
+        COMMAND ${CMAKE_COMMAND} -E copy ${LOGOS_LIBURING_STATIC} ${STDLIB_URING_DST}
+        COMMENT "Copy ${LOGOS_LIBURING_STATIC} → liblstdlib_uring.a"
+        DEPENDS ${LOGOS_LIBURING_STATIC}
+    )
+    # `stdlib_uring` target carries the copy; dependents (lforge, tests) keep
+    # depending on it unconditionally.
+    add_custom_target(stdlib_uring ALL DEPENDS ${STDLIB_URING_DST})
+    set(LOGOS_BUNDLE_URING_STATIC ON CACHE INTERNAL "static liburing.a bundled")
+else()
+    # No static liburing.a (e.g. Fedora): keep the target so dependents still
+    # resolve, but it produces nothing — consumers link the shared -luring.
+    message(STATUS "stdlib_uring: no static liburing.a — consumers link -luring (shared)")
+    add_custom_target(stdlib_uring ALL)
+    set(LOGOS_BUNDLE_URING_STATIC OFF CACHE INTERNAL "static liburing.a bundled")
+endif()
