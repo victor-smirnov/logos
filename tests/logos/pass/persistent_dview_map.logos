@@ -1,0 +1,99 @@
+// Map<DView, DView> in the persistent B+tree — the payoff of the DView work: a
+// non-owning, type-erased view is BOTH the stored key AND value. Keys are i64
+// DViews, values u64 DViews (different tags, independent key/val buffers). The
+// borrowed-view key flows through the tree's cmp_views — the live proof that the
+// `&key as *const K` mine is gone. Multi-level (forces splits), commit/reopen.
+
+package persistent_dview_map;
+
+use logos.lang.option;
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.drop;
+use logos.lang.hermes.hstatic;
+use logos.lang.hermes.dview;
+
+use logos.std.data.persistent.bt.node;
+use logos.std.data.persistent.bt.cow;
+use logos.std.data.persistent.store;
+use logos.std.data.persistent.handle;
+
+pub const StoreCfg: HermesStatic = @{
+    "name":     "dv",
+    "ctr_id":   <type:u64>,
+    "snp_id":   <type:u64>,
+    "block_id": <type:u64>,
+};
+
+// Both key and value are the datum view.
+pub const DvCfg: HermesStatic = @{
+    "key":    <type:DView>,
+    "value":  <type:DView>,
+    "fanout": 8,
+};
+
+fn main() -> i32 {
+    let mut store = store_open::<StoreCfg>();
+
+    // C0: ctr=1 — i64 keys [0..100) → u64 value i*7 (multi-level: splits).
+    let mut c0: u64 = 0u64;
+    {
+        let mut snap = store.fork(GENESIS);
+        {
+            let mut cr = create_ctr::<DvCfg>(&mut snap, 1u64);
+            let mut i: u64 = 0u64;
+            while i < 100u64 {
+                let k: i64 = i as i64;
+                let v: u64 = i * 7u64;
+                cr.insert(DView::from(&k), DView::from(&v));
+                i = i + 1u64;
+            }
+            if cr.len() != 100u64 { return 10; }
+            let q: i64 = 42i64;
+            match cr.get(DView::from(&q)) {
+                Option::Some(dv) => { if dv.to::<u64>() != 294u64 { return 11; } }   // 42*7
+                Option::None     => { return 12; }
+            }
+        }
+        c0 = snap.commit();
+    }
+
+    // Reopen from the commit: all 100 inherited; check a value + ordering.
+    {
+        let mut snap = store.fork(c0);
+        let cr = open_ctr::<DvCfg>(&mut snap, 1u64).unwrap();
+        if cr.len() != 100u64 { return 20; }
+
+        let q: i64 = 7i64;
+        match cr.get(DView::from(&q)) {
+            Option::Some(dv) => { if dv.to::<u64>() != 49u64 { return 21; } }
+            Option::None     => { return 22; }
+        }
+
+        // get_at(0) — smallest key in sorted order is 0 → value 0
+        match cr.get_at(0u64) {
+            Option::Some(kv) => {
+                if kv.0.to::<i64>() != 0i64 { return 23; }
+                if kv.1.to::<u64>() != 0u64 { return 24; }
+            }
+            Option::None => { return 25; }
+        }
+        // get_at(99) — largest key 99 → value 693
+        match cr.get_at(99u64) {
+            Option::Some(kv) => {
+                if kv.0.to::<i64>() != 99i64  { return 26; }
+                if kv.1.to::<u64>() != 693u64 { return 27; }
+            }
+            Option::None => { return 28; }
+        }
+
+        // absent key
+        let absent: i64 = 12345i64;
+        match cr.get(DView::from(&absent)) {
+            Option::Some(_) => { return 29; }
+            Option::None    => {}
+        }
+    }
+
+    return 0;
+}
