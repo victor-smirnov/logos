@@ -1,0 +1,7 @@
+package b;
+struct Ref { p: &i64 }
+fn main() -> i32 {
+    let outer: Ref;
+    { let x: i64 = 7i64; outer = Ref { p: &x }; }
+    return *outer.p as i32;
+}

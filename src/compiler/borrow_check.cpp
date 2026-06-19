@@ -28,6 +28,7 @@
 #include <logos/compiler/lir_view.hpp>
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/outlives.hpp>
+#include <algorithm>
 #include <logos/compiler/region_infer.hpp>
 #include <logos/compiler/move_classify.hpp>
 
@@ -609,6 +610,17 @@ class BorrowChecker {
     // B87: line at which each dropck-relevant binding was last bound, for
     // diagnostic reporting.
     std::unordered_map<std::string, uint32_t> dropck_binding_line_;
+    // §B6 (NLL scope lifetime, rustc E0597): for EVERY reference / borrow-
+    // carrying binding, the LOCAL variables it borrows from + the line of the
+    // borrow. Generalises dropck_borrow_sources_ (which is gated on a Drop
+    // impl) to all borrows. On scope-pop, a binding that OUTLIVES one of its
+    // source locals is recorded in `dangling_`; the FIRST subsequent use of it
+    // is rejected (E0597) — matching NLL (a stored borrow that is never used
+    // after its referent dies is fine; only the use is the error).
+    std::unordered_map<std::string, std::vector<std::string>> ref_borrow_sources_;
+    std::unordered_map<std::string, uint32_t>                 ref_borrow_line_;
+    struct DanglingRef { std::string source; uint32_t borrow_line; };
+    std::unordered_map<std::string, DanglingRef>              dangling_;
     // Declared lifetime parameters of the current function (e.g. ["'a", "'b"]).
     std::vector<std::string>             fn_lifetime_params_;
     // B66: outlives graph from fn.lifetime_outlives — used to accept the
@@ -711,12 +723,31 @@ class BorrowChecker {
                 }
             }
         }
+        // §B6 (E0597): a reference binding in an OUTER scope that borrows a
+        // local dying here now dangles. Don't report yet — NLL flags only the
+        // first USE past this point (handled in check_live). A binding dying in
+        // THIS same scope is fine (it can't outlive its source).
+        if (!frame.declared.empty()) {
+            std::unordered_set<std::string> dying;
+            for (auto& n : frame.declared) dying.insert(n);
+            for (auto& [binding, sources] : ref_borrow_sources_) {
+                if (dying.count(binding) || dangling_.count(binding)) continue;
+                for (auto& src : sources) {
+                    if (!dying.count(src)) continue;
+                    dangling_[binding] = DanglingRef{ src, ref_borrow_line_[binding] };
+                    break;
+                }
+            }
+        }
         // Remove variables declared in this scope.
         for (auto& name : frame.declared) {
             states_.erase(name);
             prov_.erase(name);
             dropck_borrow_sources_.erase(name);
             dropck_binding_line_.erase(name);
+            ref_borrow_sources_.erase(name);
+            ref_borrow_line_.erase(name);
+            dangling_.erase(name);
         }
         scopes_.pop_back();
     }
@@ -793,6 +824,82 @@ class BorrowChecker {
             case EC::Cast:
                 collect_borrow_locals(lir_view::ECastView{e}.operand(), out);
                 return;
+            default:
+                return;
+        }
+    }
+
+    // §B6 (E0597): record the LOCAL variables that binding `name` borrows from,
+    // so pop_scope can flag `name` dangling if it outlives one of them. Clears
+    // any stale dangling/sources first (a rebind re-owns). Only records when the
+    // value actually borrows a local — pure moves/copies record nothing.
+    void record_ref_sources(const std::string& name, lir_view::ExprRef val,
+                            uint32_t ln) {
+        dangling_.erase(name);
+        ref_borrow_sources_.erase(name);
+        ref_borrow_line_.erase(name);
+        if (!val) return;
+        std::vector<std::string> sources;
+        collect_ref_sources(val, sources);
+        if (sources.empty()) return;
+        // A binding never borrows ITSELF (a reborrow `let r2 = &*r` roots at r,
+        // but recording r as r2's source is fine; recording name==source is not).
+        sources.erase(std::remove(sources.begin(), sources.end(), name),
+                      sources.end());
+        if (sources.empty()) return;
+        ref_borrow_sources_[name] = std::move(sources);
+        ref_borrow_line_[name] = ln;
+    }
+
+    // Like collect_borrow_locals but also follows borrow-returning calls to
+    // their borrowed local (receiver / ref args) for §B6 source tracking.
+    void collect_ref_sources(lir_view::ExprRef e,
+                             std::vector<std::string>& out) const {
+        if (!e) return;
+        using EC = lir_schema::expr::Code;
+        const auto* pool = prog_.type_pool.impl();
+        switch (e.kind()) {
+            case EC::AddrOf: {
+                std::string n(lir_view::EAddrOfView{e}.var_name());
+                if (states_.count(n) && !param_names_.count(n))
+                    out.push_back(std::move(n));
+                return;
+            }
+            case EC::AddrOfTemp: {
+                // `&x.f`, `&x[i]`, `&*r` → root local via the shared place walker.
+                BorrowPlace bp = extract_borrow_place(
+                    lir_view::EAddrOfTempView{e}.inner(), pool);
+                if (!bp.root.empty() && states_.count(bp.root) &&
+                    !param_names_.count(bp.root))
+                    out.push_back(bp.root);
+                return;
+            }
+            case EC::StructLit:
+                lir_view::EStructLitView{e}.each_field_value(
+                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                return;
+            case EC::TupleLit:
+                lir_view::ETupleLitView{e}.each_elem(
+                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                return;
+            case EC::ArrLit:
+                lir_view::EArrLitView{e}.each_elem(
+                    [&](lir_view::ExprRef fv) { collect_ref_sources(fv, out); });
+                return;
+            case EC::Cast:
+                collect_ref_sources(lir_view::ECastView{e}.operand(), out);
+                return;
+            case EC::MethodCall: {
+                lir_view::EMethodCallView v{e};
+                // Only a borrow-returning call ties the result to its inputs.
+                if (is_ref_kind(e.type(pool)) || is_borrow_carrying_type(e.type(pool))) {
+                    collect_ref_sources(v.receiver(), out);
+                    v.each_arg([&](lir_view::ExprRef a) {
+                        if (a && is_ref_kind(a.type(pool))) collect_ref_sources(a, out);
+                    });
+                }
+                return;
+            }
             default:
                 return;
         }
@@ -1118,6 +1225,14 @@ class BorrowChecker {
     }
 
     void check_live(const std::string& name, uint32_t line) {
+        // §B6 (E0597): using a reference whose referent has gone out of scope.
+        if (auto dit = dangling_.find(name); dit != dangling_.end()) {
+            report(line, std::format(
+                "'{}' does not live long enough: it is borrowed by '{}', which is "
+                "used here after '{}' goes out of scope (E0597)",
+                dit->second.source, name, dit->second.source));
+            dangling_.erase(dit);   // report once per binding
+        }
         auto it = states_.find(name);
         if (it == states_.end()) return;
         if (it->second.moved) {
@@ -2419,6 +2534,9 @@ class BorrowChecker {
                         dropck_binding_line_[name] = ln;
                     }
                 }
+                // §B6 (E0597): record local borrow sources for EVERY binding so
+                // pop_scope can detect a stored borrow outliving its referent.
+                record_ref_sources(name, val, ln);
                 break;
             }
 
@@ -2471,6 +2589,9 @@ class BorrowChecker {
                         }
                     }
                 }
+                // §B6 (E0597): (re-)record sources on assign — a rebind re-owns
+                // (clears any prior dangling), then tracks the new borrow.
+                record_ref_sources(name, val, ln);
                 break;
             }
 

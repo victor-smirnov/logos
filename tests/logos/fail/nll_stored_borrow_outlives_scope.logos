@@ -1,0 +1,9 @@
+package a;
+fn main() -> i32 {
+    let outer: &i64;
+    {
+        let x: i64 = 5i64;
+        outer = &x;
+    }
+    return *outer as i32;
+}

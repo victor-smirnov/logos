@@ -1,0 +1,12 @@
+// NLL: a reference binding may be assigned a short-lived borrow even if the
+// binding outlives the referent, AS LONG AS it is not used afterwards. Here
+// `r` (declared outer) borrows `x` and is read INSIDE x's scope; after the
+// block it is never used again — so this is sound and must compile.
+package nll_borrow_not_used_after_scope;
+fn main() -> i32 {
+    let mut acc: i64 = 0i64;
+    let mut r: &i64;
+    { let x: i64 = 5i64; r = &x; acc = *r; }
+    if acc != 5i64 { return 1; }
+    return 0;
+}

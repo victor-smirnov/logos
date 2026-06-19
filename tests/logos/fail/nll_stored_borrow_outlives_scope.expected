@@ -1,0 +1,3 @@
+exit: 1
+stderr:
+error [fn main]: 'x' does not live long enough: it is borrowed by 'outer', which is used here after 'x' goes out of scope (E0597)

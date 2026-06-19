@@ -1,0 +1,8 @@
+package d;
+struct Box1 { v: i64 }
+impl Box1 { fn borrow(&self) -> &i64 { return &self.v; } }
+fn main() -> i32 {
+    let outer: &i64;
+    { let b: Box1 = Box1 { v: 9i64 }; outer = b.borrow(); }
+    return *outer as i32;
+}
