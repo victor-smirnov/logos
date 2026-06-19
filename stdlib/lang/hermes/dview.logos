@@ -68,6 +68,14 @@ pub trait Datum {
             unsafe { phantom.datum_tag() },
             self.datum_meta());
     }
+    // READ (inverse of as_datum): materialize Self from a storage DView. The
+    // DEFAULT reads a sized POD by value (the storage bytes ARE Self); types
+    // whose storage form ≠ Self (String → an OWNED heap copy of the content
+    // bytes) override it. Phantom `self` (never read) sidesteps the
+    // assoc-fn-on-type-param mono gap, like datum_tag.
+    fn from_datum(self: *const Self, d: DView) -> Self {
+        return unsafe { *(d.obj_ptr() as *const Self) };
+    }
 }
 impl Datum for i64  { fn datum_tag(self: *const i64)  -> u64 { return H2_I64; } }
 impl Datum for u64  { fn datum_tag(self: *const u64)  -> u64 { return H2_U64; } }
@@ -123,13 +131,14 @@ impl DView {
         let phantom: *const T = 0 as *const T;
         return self.tag == unsafe { phantom.datum_tag() };
     }
-    pub fn try_to<T: Datum>(&self) -> Option<T> { // checked copy-out
+    pub fn try_to<T: Datum>(&self) -> Option<T> { // checked materialize
         let phantom: *const T = 0 as *const T;
         if self.tag != unsafe { phantom.datum_tag() } { return Option::None; }
-        return Option::Some(unsafe { *(self.obj as *const T) });
+        return Option::Some(unsafe { phantom.from_datum(*self) });
     }
-    pub fn to<T: Datum>(&self) -> T {              // asserted copy-out
-        return unsafe { *(self.obj as *const T) };
+    pub fn to<T: Datum>(&self) -> T {              // asserted materialize
+        let phantom: *const T = 0 as *const T;
+        return unsafe { phantom.from_datum(*self) };
     }
     // runtime-dispatched (over self.tag, via the shared layer):
     pub fn compare(&self, other: &DView) -> Ordering {

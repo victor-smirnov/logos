@@ -492,4 +492,10 @@ impl Datum for String {
     fn as_datum(&self) -> DView {
         return DView::from_parts(self.as_ptr(), self.len() as u64, H2_STRING, 0u64);
     }
+    // READ: materialize an OWNED heap String from the stored content bytes
+    // (override — the default's by-value POD read would misread the bytes as a
+    // {ptr,len,cap} struct). The copy is independent of the view's source.
+    fn from_datum(self: *const String, d: DView) -> String {
+        return unsafe { String::from_bytes(d.obj_ptr(), d.obj_len() as i64) };
+    }
 }

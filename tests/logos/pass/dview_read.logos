@@ -1,0 +1,32 @@
+// READ side: materialize concrete types OUT of a stored DView via to::<T>() /
+// try_to::<T>() — the inverse of Datum::as_datum. Scalars copy by value; a heap
+// String is rebuilt as an OWNED copy (independent of the view's source). Proves
+// you can pull owned values back out of a Buffer<DView> / the tree.
+
+package dview_read;
+
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.lang.fabric;
+use logos.lang.hermes.dview;
+use logos.mem.string;
+
+fn main() -> i32 {
+    // scalar: to / try_to round-trip + tag-checked try_to
+    let x: i64 = -7i64;
+    let dv: DView = DView::from(&x);
+    if dv.to::<i64>() != -7i64 { return 1; }
+    match dv.try_to::<i64>() { Option::Some(v) => { if v != -7i64 { return 2; } } Option::None => { return 3; } }
+    match dv.try_to::<u64>() { Option::Some(_) => { return 4; } Option::None => {} }   // tag mismatch → None
+
+    // String: materialize an owned heap String from a STORED content view
+    let mut b: Buffer<DView> = Buffer::<DView>::new();
+    let s: String = String::from("apple");
+    b.push(DView::from(&s));
+    let owned: String = b.get(0u64).to::<String>();   // heap copy out of the buffer
+    if owned.len() != 5i64 { return 5; }
+    match owned.as_datum().compare(&DView::from_str("apple")) { Ordering::Equal => {} _ => { return 6; } }
+
+    // owned outlives the buffer: drop b, owned still valid
+    return 0;
+}
