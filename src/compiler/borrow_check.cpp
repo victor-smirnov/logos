@@ -851,6 +851,25 @@ class BorrowChecker {
         ref_borrow_line_[name] = ln;
     }
 
+    // §B6: ADD borrow sources to a binding without clearing existing ones — for
+    // a field/tuple write `root.f = &x` that stores a borrow into ONE field while
+    // other fields keep their borrows. (record_ref_sources overwrites; this
+    // merges.) Params are filtered by collect_ref_sources.
+    void add_ref_sources(const std::string& name, lir_view::ExprRef val,
+                         uint32_t ln) {
+        if (name.empty() || !val) return;
+        std::vector<std::string> sources;
+        collect_ref_sources(val, sources);
+        sources.erase(std::remove(sources.begin(), sources.end(), name),
+                      sources.end());
+        if (sources.empty()) return;
+        auto& dst = ref_borrow_sources_[name];
+        for (auto& s : sources)
+            if (std::find(dst.begin(), dst.end(), s) == dst.end())
+                dst.push_back(s);
+        ref_borrow_line_[name] = ln;
+    }
+
     // Like collect_borrow_locals but also follows borrow-returning calls to
     // their borrowed local (receiver / ref args) for §B6 source tracking.
     void collect_ref_sources(lir_view::ExprRef e,
@@ -2630,6 +2649,10 @@ class BorrowChecker {
                 }
                 check_live(recv_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                // §B6: `root.f = &x` stores a borrow into root — record so a
+                // later use of root after x dies is E0597 (field sibling of the
+                // struct-literal case).
+                add_ref_sources(recv_nm, v.value(), ln);
                 break;
             }
 
@@ -2685,6 +2708,7 @@ class BorrowChecker {
                 SChainFieldWriteView v{sr};
                 check_live(std::string(v.receiver()), ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                add_ref_sources(std::string(v.receiver()), v.value(), ln);  // §B6
                 break;
             }
 
@@ -2763,6 +2787,23 @@ class BorrowChecker {
                                 erase_reinit(it->second.moved_fields, fpath);
                         }
                     }
+                    // §B6: `root.f = &x` / `root.0 = &x` stores a borrow into
+                    // root's OWN storage. Walk a PURE field/tuple chain to the
+                    // root local (bail on a deref/index — those write through a
+                    // pointer or into an element, not root's storage). Record so
+                    // a later use of root after x dies is E0597.
+                    ExprRef c = atv.inner();
+                    while (c) {
+                        if (c.kind() == EC::FieldRead)       c = EFieldReadView{c}.receiver();
+                        else if (c.kind() == EC::TupleIndex) c = ETupleIndexView{c}.receiver();
+                        else break;
+                    }
+                    if (c && c.kind() == EC::VarRef &&
+                        atv.inner().kind() != EC::VarRef) {
+                        std::string root(EVarRefView{c}.name());
+                        if (states_.count(root) && !param_names_.count(root))
+                            add_ref_sources(root, v.value(), ln);
+                    }
                 }
                 visit(v.ptr(),   /*consuming=*/false, ln);
                 visit(v.value(), /*consuming=*/true,  ln);
@@ -2774,6 +2815,7 @@ class BorrowChecker {
                 STupleWriteView v{sr};
                 check_live(std::string(v.receiver()), ln);
                 visit(v.value(), /*consuming=*/true, ln);
+                add_ref_sources(std::string(v.receiver()), v.value(), ln);  // §B6
                 break;
             }
 
