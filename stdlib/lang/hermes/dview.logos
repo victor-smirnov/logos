@@ -20,8 +20,9 @@ package logos.lang.hermes.dview;
 use logos.lang.cmp;                 // Ordering
 use logos.lang.clone;              // Copy
 use logos.lang.option;
+use logos.lang.str;                // str_from_raw (String materialization)
 use logos.lang.fabric;             // Datatype / Container / ContainerOrd / PrimVec / Storage
-use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL type codes
+use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL / H2_STRING type codes
 
 // ── tag layout: (space, code) ────────────────────────────────────────────────
 // DView.tag is u64 but a Hermes in-band datatag only carries ≤56 bits (the
@@ -87,6 +88,20 @@ impl DView {
         return DView { obj: obj, len: len, tag: tag, meta: meta };
     }
 
+    // Type-erase a string (datatype String, code H2_STRING). str is unsized (a
+    // {ptr,len} fat value), so it can't ride the generic `from<T>` (which assumes
+    // a sized T + thin ptr); dedicated. The block IS the UTF-8 bytes — directly
+    // the Hermes String content, so it stays the Hermes space.
+    pub static fn from_str(s: str) -> DView {
+        return DView { obj: s.as_ptr(), len: s.len() as u64, tag: H2_STRING, meta: 0u64 };
+    }
+
+    // Materialize a string from the view's bytes (str over obj/len). Borrows the
+    // same bytes the view does (valid for the view's lifetime).
+    pub fn as_str(&self) -> str {
+        return unsafe { str_from_raw(self.obj, self.len as i64) };
+    }
+
     pub fn type_code(&self) -> u64 { return self.tag; }
     pub fn obj_ptr(&self) -> *const u8 { return self.obj; }
     pub fn obj_len(&self) -> u64 { return self.len; }
@@ -139,6 +154,21 @@ pub unsafe fn htag_cmp(tag: u64, meta: u64, a: *const u8, alen: u64, b: *const u
         if x > y { return Ordering::Greater; }
         return Ordering::Equal;
     }
+    if dv_space(tag) == DV_SPACE_HERMES && code == H2_STRING {
+        // lexicographic byte compare; shorter is less on a common prefix.
+        let n: u64 = if alen < blen { alen } else { blen };
+        let mut i: u64 = 0u64;
+        while i < n {
+            let x: u8 = *(((a as i64) + (i as i64)) as *const u8);
+            let y: u8 = *(((b as i64) + (i as i64)) as *const u8);
+            if x < y { return Ordering::Less; }
+            if x > y { return Ordering::Greater; }
+            i = i + 1u64;
+        }
+        if alen < blen { return Ordering::Less; }
+        if alen > blen { return Ordering::Greater; }
+        return Ordering::Equal;
+    }
     // default (u64 / bool / any unsigned-comparable tag): unsigned bytes.
     let x: u64 = load_le(a, alen);
     let y: u64 = load_le(b, blen);
@@ -167,6 +197,7 @@ pub fn htag_align(tag: u64, meta: u64) -> u64 {
         if code == H2_I64       { return 8u64; }
         if code == H2_U64       { return 8u64; }
         if code == HA_BOOL as u64 { return 1u64; }
+        if code == H2_STRING    { return 1u64; }   // UTF-8 bytes
     }
     return 8u64;   // conservative default (covers ≤8-byte scalars)
 }
