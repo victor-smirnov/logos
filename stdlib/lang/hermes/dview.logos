@@ -18,7 +18,9 @@
 package logos.lang.hermes.dview;
 
 use logos.lang.cmp;                 // Ordering
+use logos.lang.clone;              // Copy
 use logos.lang.option;
+use logos.lang.fabric;             // Datatype / Container / ContainerOrd / PrimVec / Storage
 use logos.lang.hermes.anyval;      // H2_U64 / H2_I64 / HA_BOOL type codes
 
 // ── HermesTag — concrete type → its Hermes tag (the type-erasure source) ─────
@@ -41,6 +43,10 @@ pub struct DView {
     tag:  u64,           // Hermes type tag
     meta: u64,           // packed per-value metadata (e.g. Decimal {P,S}); 0 if none
 }
+
+// A view is a small Copy handle (pointer + 3 words) — passed by value as a key
+// query and threaded through the tree.
+impl Copy for DView {}
 
 impl DView {
     // Type-erase a concrete value into a non-owning view (borrows `v`). T is
@@ -123,4 +129,71 @@ pub fn htag_size(tag: u64, meta: u64) -> u64 {
     if tag == H2_U64       { return 8u64; }
     if tag == HA_BOOL as u64 { return 1u64; }
     return 0u64;
+}
+
+// ── Buffer<DView> — DView as a Container element (the at-rest key store) ──────
+// A DView is non-owning; to STORE it (as a B+tree key) the buffer must own the
+// bytes. The Store is a vector of fixed-width self-describing cells (DCell):
+// store_push(DView) ENCODES the view into a cell; store_get returns a DView
+// pointing INTO the cell (not a copy → no dangling), valid until the buffer
+// reallocs (the in-container borrow contract). v1 is fixed-width (object ≤
+// DVIEW_CELL_CAP, covering scalars / small Decimal); variable-width TLV packing
+// — true compaction — is a Container-internal follow-up that leaves the tree
+// untouched.
+
+pub const DVIEW_CELL_CAP: u64 = 16u64;   // inline object bytes per cell
+
+pub struct DCell {
+    tag:  u64,
+    meta: u64,
+    len:  u64,
+    data: [u8; 16],     // object bytes (DVIEW_CELL_CAP)
+}
+impl Copy for DCell {}
+
+unsafe fn dcell_encode(v: DView) -> DCell {
+    let mut c: DCell = DCell { tag: v.tag, meta: v.meta, len: v.len, data: [0u8; 16] };
+    let n: u64 = if v.len <= DVIEW_CELL_CAP { v.len } else { DVIEW_CELL_CAP };
+    let dst: *mut u8 = &mut c.data as *mut u8;
+    let mut i: u64 = 0u64;
+    while i < n {
+        *(((dst as i64) + (i as i64)) as *mut u8) = *(((v.obj as i64) + (i as i64)) as *const u8);
+        i = i + 1u64;
+    }
+    return c;
+}
+
+// A DView borrowing cell `c` in place (its `data` field's address).
+unsafe fn dcell_view(c: *const DCell) -> DView {
+    return DView::from_parts(&(*c).data as *const u8, (*c).len, (*c).tag, (*c).meta);
+}
+
+impl Datatype for DView {
+    type View<S: Storage> = DView;
+}
+
+impl Container for DView {
+    type Store       = PrimVec<DCell>;
+    type ViewInStore = DView;
+    fn new_store() -> PrimVec<DCell> { return PrimVec::<DCell>::empty(); }
+    fn drop_store(s: *mut PrimVec<DCell>) { unsafe { s.clear(); } }
+    fn store_len(s: *const PrimVec<DCell>) -> u64 { unsafe { return s.len; } }
+    fn store_push(s: *mut PrimVec<DCell>, v: DView) { unsafe { s.push(dcell_encode(v)); } }
+    fn store_get(s: *const PrimVec<DCell>, idx: u64) -> DView {
+        unsafe {
+            let stride: i64 = sizeof::<DCell>();
+            let cell: *const DCell = ((s.data as i64) + (idx as i64) * stride) as *const DCell;
+            return dcell_view(cell);
+        }
+    }
+    fn store_set(s: *mut PrimVec<DCell>, idx: u64, v: DView) { unsafe { s.set(idx, dcell_encode(v)); } }
+    fn store_insert_at(s: *mut PrimVec<DCell>, idx: u64, v: DView) { unsafe { s.insert_at(idx, dcell_encode(v)); } }
+    fn store_remove_at(s: *mut PrimVec<DCell>, idx: u64) { unsafe { s.remove_at(idx); } }
+}
+
+// Ordered: two stored/queried views compared via the shared tag-keyed layer.
+impl ContainerOrd for DView {
+    unsafe fn cmp_views(self: *const DView, a: DView, b: DView) -> Ordering {
+        return htag_cmp(a.tag, a.meta, a.obj, a.len, b.obj, b.len);
+    }
 }

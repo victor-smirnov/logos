@@ -1,0 +1,48 @@
+// Buffer<DView> (type-erased keys) + Buffer<HAny> (runtime-typed values) — the
+// at-rest storage halves of the planned Map<DView, HAny>. A DView stored into a
+// Buffer is encoded into an owned cell; reading it back yields a DView pointing
+// INTO the buffer (valid until the buffer mutates). HAny stores by value.
+
+package hermes_dview_buffer;
+
+use logos.lang.cmp;
+use logos.lang.fabric;
+use logos.lang.hermes.dview;
+use logos.lang.hermes.anyval;
+
+fn main() -> i32 {
+    // ── Buffer<DView>: store/retrieve type-erased keys ───────────────────────
+    let mut kb: Buffer<DView> = Buffer::<DView>::new();
+    let a: i64 = 5i64;
+    let b: i64 = -3i64;
+    let c: i64 = 100i64;
+    kb.push(DView::from(&a));
+    kb.push(DView::from(&b));
+    kb.push(DView::from(&c));
+    if kb.len() != 3u64 { return 1; }
+
+    // read back — values survive the encode→cell→decode round-trip
+    if kb.get(0u64).to::<i64>() != 5i64   { return 2; }
+    if kb.get(1u64).to::<i64>() != -3i64  { return 3; }
+    if kb.get(2u64).to::<i64>() != 100i64 { return 4; }
+
+    // tag survives; ordering via two stored views (signed)
+    if !kb.get(0u64).is_a::<i64>() { return 5; }
+    match kb.get(0u64).compare(&kb.get(1u64)) { Ordering::Greater => {} _ => { return 6; } }
+    match kb.get(1u64).compare(&kb.get(2u64)) { Ordering::Less    => {} _ => { return 7; } }
+
+    // ── Buffer<HAny>: store/retrieve runtime-typed values ────────────────────
+    let mut vb: Buffer<HAny> = Buffer::<HAny>::new();
+    vb.push(HAny::from(7i32));
+    vb.push(HAny::from(true));
+    if vb.len() != 2u64 { return 8; }
+
+    let h0: HAny = vb.get(0u64);
+    if !h0.is_int() { return 9; }
+    if h0.as_i64() != 7i64 { return 10; }
+
+    let h1: HAny = vb.get(1u64);
+    if !h1.is_bool() { return 11; }
+
+    return 0;
+}

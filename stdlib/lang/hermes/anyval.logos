@@ -23,6 +23,8 @@
 package logos.lang.hermes.anyval;
 
 use logos.lang.ptr;
+use logos.lang.clone;    // Copy
+use logos.lang.fabric;   // Primitive → blanket Datatype/Container (Buffer<HAny>)
 
 // HAny — the heterogeneous Hermes slot, a niche-packed `#[zoned]` enum (F3).
 // ONE 8-byte word: `Ref` = a type-erased pointer to a tagged zone object
@@ -36,6 +38,15 @@ pub enum HAny {
     Ref(*const u8),   // tagged zone object (low-bit-0; zoned)
     Pod(u64),         // inline tagged word (low-bit-1; position-independent)
 }
+
+// HAny is a non-owning 8-byte handle (the arena owns Ref pointees) — Copy. Its
+// value form is position-independent (Pod inline; Ref absolute), so it stores by
+// value: `Primitive { Prim = Self }` gives the blanket Datatype + Container, i.e.
+// Buffer<HAny> for runtime-typed CONTAINER VALUES. (Ref pointees live in a
+// Hermes arena, not the persistent store — Buffer<HAny> is in-memory / Pod-safe
+// until arena↔store integration.) No ordering: values aren't compared.
+impl Copy for HAny {}
+impl Primitive for HAny { type Prim = HAny; }
 
 // (HAnyRel — the old distinct at-rest marker type — is RETIRED. The at-rest form
 // is the same HAny, reached through a `*zoned HAny` slot; the compiler bridges.
