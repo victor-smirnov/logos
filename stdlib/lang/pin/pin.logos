@@ -17,7 +17,6 @@ package logos.lang.pin;
 
 use logos.lang.marker;     // Unpin, PhantomPinned
 use logos.lang.ops;        // Deref / DerefMut
-use logos.mem.boxed;       // Box (Box::pin)
 
 pub struct Pin<P> {
     pointer: P,
@@ -27,6 +26,29 @@ pub struct Pin<P> {
 // earlier blanket `impl<P> Copy` made Pin<Box<T>> Copy — a "move" of it
 // bitwise-copied and BOTH bindings dropped: double free (adversarial t03).
 impl<P: Copy> Copy for Pin<P> {}
+
+// ── Generic core (Rust's core::pin::Pin primitives) ──────────────────────────
+// The single unsafe constructor plus controlled accessors over the private
+// `pointer` field. Every Pin<P> is built and unwrapped through here. The
+// alloc-tier impls — Pin<Box<T>>, which name Box and so live in the mem tier
+// (logos.mem.boxed, Rust's alloc Box::pin) — reach the wrapped pointer through
+// these accessors, so the field stays private AND lang never depends on mem.
+impl<P> Pin<P> {
+    // Rust's Pin::new_unchecked: the caller promises P's pointee never moves.
+    pub unsafe fn new_unchecked(pointer: P) -> Pin<P> {
+        return Pin { pointer: pointer };
+    }
+    pub unsafe fn pointer_ref(self: &Pin<P>) -> &P {
+        return &self.pointer;
+    }
+    pub unsafe fn pointer_mut(self: &mut Pin<P>) -> &mut P {
+        return &mut self.pointer;
+    }
+    // Rust's Pin::into_inner_unchecked.
+    pub unsafe fn into_pointer_unchecked(self: Pin<P>) -> P {
+        return self.pointer;
+    }
+}
 
 // ── Construction ─────────────────────────────────────────────────────────────
 
@@ -50,10 +72,6 @@ impl<T: Unpin> Pin<&mut T> {
 }
 
 impl<T> Pin<&T> {
-    // Unsafe: the caller promises the pointee never moves again.
-    pub unsafe fn new_unchecked(r: &T) -> Pin<&T> {
-        return Pin { pointer: r };
-    }
     // Shared access never moves — safe for any T.
     pub fn get_ref(self: Pin<&T>) -> &T {
         return self.pointer;
@@ -61,9 +79,6 @@ impl<T> Pin<&T> {
 }
 
 impl<T> Pin<&mut T> {
-    pub unsafe fn new_unchecked(r: &mut T) -> Pin<&mut T> {
-        return Pin { pointer: r };
-    }
     // Downgrade to a shared pin.
     pub fn as_ref(self: &Pin<&mut T>) -> Pin<&T> {
         return Pin { pointer: &*self.pointer };
@@ -98,40 +113,7 @@ impl<T: Unpin> DerefMut<T> for Pin<&mut T> {
     fn deref_mut(self: &mut Pin<&mut T>) -> &mut T { return &mut *self.pointer; }
 }
 
-// ── Box::pin — heap-pin a value ──────────────────────────────────────────────
-
-impl<T> Pin<Box<T>> {
-    pub unsafe fn new_unchecked_box(b: Box<T>) -> Pin<Box<T>> {
-        return Pin { pointer: b };
-    }
-    pub fn as_ref(self: &Pin<Box<T>>) -> Pin<&T> {
-        return Pin { pointer: &*self.pointer };
-    }
-    pub fn as_mut(self: &mut Pin<Box<T>>) -> Pin<&mut T> {
-        return Pin { pointer: &mut *self.pointer };
-    }
-}
-
-impl<T: Unpin> Pin<Box<T>> {
-    pub fn new(b: Box<T>) -> Pin<Box<T>> {
-        return Pin { pointer: b };
-    }
-    pub fn into_inner(self: Pin<Box<T>>) -> Box<T> {
-        return self.pointer;
-    }
-}
-
-impl<T> Deref<T> for Pin<Box<T>> {
-    fn deref(self: &Pin<Box<T>>) -> &T { return &*self.pointer; }
-}
-
-impl<T: Unpin> DerefMut<T> for Pin<Box<T>> {
-    fn deref_mut(self: &mut Pin<Box<T>>) -> &mut T { return &mut *self.pointer; }
-}
-
-// The value moves INTO the box, then is never moved again: sound for any T
-// because the unpinned phase ends at this call (Rust's Box::pin).
-pub fn box_pin<T>(val: T) -> Pin<Box<T>> {
-    let b: Box<T> = box_new(val);
-    return Pin { pointer: b };
-}
+// Pin<Box<T>> (heap-pinning, Rust's alloc Box::pin) lives in the mem tier
+// next to Box — see logos.mem.boxed (stdlib/mem/boxed/pin_box.logos). It
+// reaches Pin's private pointer through the generic accessors above, so the
+// lang tier does not depend on mem.

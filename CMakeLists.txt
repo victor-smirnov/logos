@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.28)
 
-# Jenny toolchain (custom Clang 21).
-set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/toolchains/jenny.cmake"
-    CACHE STRING "Jenny (custom Clang 21) compiler toolchain")
+# Toolchain: Logos builds with the distribution's stock C++23 toolchain
+# (any recent clang or gcc) against stock LLVM/MLIR dev packages. The Jenny
+# (custom Clang 21) fork is no longer required. To pick a specific stock
+# compiler pass -DCMAKE_CXX_COMPILER=clang++-20 (or set CC/CXX). The legacy
+# Jenny toolchain remains available opt-in via
+#   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/jenny.cmake
 
 project(logos LANGUAGES CXX C ASM)
 
@@ -21,10 +24,39 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Logos uses no C++20 modules. CMake 3.28 turns on per-TU module dependency
+# scanning by default for C++20+ targets, which pulls in a `clang-scan-deps`
+# requirement for no benefit here. Turn it off — fewer toolchain pieces, and
+# faster scanning.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 # Strict warnings
 add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 
 include(GNUInstallDirs)
+
+# ── LLVM / MLIR toolchain discovery ──────────────────────────────────────
+#
+# Logos builds against the distribution's STOCK LLVM/MLIR dev packages —
+# on Ubuntu 24.04 that is `llvm-20-dev` + `libmlir-20-dev` + `mlir-20-tools`
+# (or the 19 series), installed straight from the distro repos, no
+# apt.llvm.org and no Jenny fork. We auto-discover the newest stock series
+# present under /usr/lib/llvm-NN. Override for a custom toolchain with:
+#   -DLOGOS_LLVM_DIR=/path/to/lib/cmake/llvm -DLOGOS_MLIR_DIR=/path/to/lib/cmake/mlir
+set(LOGOS_LLVM_DIR  "" CACHE PATH "LLVM cmake dir (empty = auto-discover stock)")
+set(LOGOS_MLIR_DIR  "" CACHE PATH "MLIR cmake dir (empty = auto-discover stock)")
+set(LOGOS_CLANG_DIR "" CACHE PATH "Clang cmake dir (empty = auto-discover stock)")
+if(NOT LOGOS_LLVM_DIR)
+    foreach(_v 21 20 19 18)
+        if(EXISTS "/usr/lib/llvm-${_v}/lib/cmake/llvm/LLVMConfig.cmake")
+            set(LOGOS_LLVM_DIR  "/usr/lib/llvm-${_v}/lib/cmake/llvm"  CACHE PATH "" FORCE)
+            set(LOGOS_MLIR_DIR  "/usr/lib/llvm-${_v}/lib/cmake/mlir"  CACHE PATH "" FORCE)
+            set(LOGOS_CLANG_DIR "/usr/lib/llvm-${_v}/lib/cmake/clang" CACHE PATH "" FORCE)
+            message(STATUS "logos: auto-discovered stock LLVM/MLIR series ${_v} at /usr/lib/llvm-${_v}")
+            break()
+        endif()
+    endforeach()
+endif()
 
 # ── System module path (bin-relative, baked into logosc) ─────────────────
 #

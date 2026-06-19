@@ -1,0 +1,56 @@
+// logos.mem.boxed — Pin<Box<T>>: heap-pinning (Rust's alloc Box::pin).
+//
+// Pin's generic core lives in logos.lang.pin (= core::pin). The Box-specific
+// construction (Box::pin / new_unchecked_box) and the Deref/DerefMut impls
+// that NAME Box<T> belong here in the mem tier, next to Box — exactly as Rust
+// keeps `Box::pin` in alloc, not core. Keeping them out of lang is what lets
+// lang stay below mem in the tier order (no lang→mem dependency cycle).
+//
+// Pin's `pointer` field is private to core::pin; we reach it through the
+// generic unsafe accessors logos.lang.pin exposes (new_unchecked, pointer_ref,
+// pointer_mut, into_pointer_unchecked).
+package logos.mem.boxed;
+
+use logos.lang.pin;        // Pin + generic accessors
+use logos.lang.marker;     // Unpin
+use logos.lang.ops;        // Deref / DerefMut
+
+impl<T> Pin<Box<T>> {
+    pub unsafe fn new_unchecked_box(b: Box<T>) -> Pin<Box<T>> {
+        return Pin::new_unchecked(b);
+    }
+    // Downgrade a heap pin to a borrowed pin (shared / mutable).
+    pub fn as_ref(self: &Pin<Box<T>>) -> Pin<&T> {
+        return unsafe { Pin::new_unchecked(&**self.pointer_ref()) };
+    }
+    pub fn as_mut(self: &mut Pin<Box<T>>) -> Pin<&mut T> {
+        return unsafe { Pin::new_unchecked(&mut **self.pointer_mut()) };
+    }
+}
+
+impl<T: Unpin> Pin<Box<T>> {
+    // Safe for Unpin targets: the pin guarantee is vacuous.
+    pub fn new(b: Box<T>) -> Pin<Box<T>> {
+        return unsafe { Pin::new_unchecked(b) };
+    }
+    pub fn into_inner(self: Pin<Box<T>>) -> Box<T> {
+        return unsafe { self.into_pointer_unchecked() };
+    }
+}
+
+impl<T> Deref<T> for Pin<Box<T>> {
+    fn deref(self: &Pin<Box<T>>) -> &T { return unsafe { &**self.pointer_ref() }; }
+}
+
+impl<T: Unpin> DerefMut<T> for Pin<Box<T>> {
+    fn deref_mut(self: &mut Pin<Box<T>>) -> &mut T {
+        return unsafe { &mut **self.pointer_mut() };
+    }
+}
+
+// Box::pin — heap-pin a value. The value moves INTO the box, then is never
+// moved again: sound for any T because the unpinned phase ends at this call.
+pub fn box_pin<T>(val: T) -> Pin<Box<T>> {
+    let b: Box<T> = box_new(val);
+    return unsafe { Pin::new_unchecked(b) };
+}

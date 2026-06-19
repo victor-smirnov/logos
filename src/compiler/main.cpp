@@ -8,6 +8,7 @@
 #include "metaprog_dispatch.hpp"
 #include "mlir_gen.hpp"
 #include "compile_pipeline.hpp"
+#include "llvm_compat.hpp"
 #include "module_manifest.hpp"
 #include <chrono>
 #include <map>
@@ -2574,7 +2575,7 @@ int run_metaprog_dispatch(
             }
         }
         mlir::PassManager meta_pm(&meta_mlir_ctx);
-        meta_pm.addPass(mlir::createSCFToControlFlowPass());
+        meta_pm.addPass(logos::compat::create_scf_to_cf_pass());
         meta_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
         meta_pm.addPass(mlir::createArithToLLVMConversionPass());
         meta_pm.addPass(mlir::createConvertFuncToLLVMPass());
@@ -2593,7 +2594,7 @@ int run_metaprog_dispatch(
         auto meta_llvm = mlir::translateModuleToLLVMIR(*meta_mlir, *meta_llvm_ctx_ptr);
         if (!meta_llvm) { std::fprintf(stderr, "logosc: metaprog LLVM IR translate failed\n"); return 1; }
         stat_step(_t3, "llvm_ir", iter);
-        meta_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+        logos::compat::set_default_target_triple(*meta_llvm);
         llvm::InitializeNativeTarget();
         llvm::InitializeNativeTargetAsmPrinter();
 
@@ -3615,7 +3616,7 @@ int main(int argc, char** argv) {
             if (!mc_mlir) { std::fprintf(stderr, "logosc: metacall MLIR gen failed\n"); return 1; }
             mc_stat_step(_mc_t, "mlir_gen", mi);
             mlir::PassManager mc_pm(&mc_ctx);
-            mc_pm.addPass(mlir::createSCFToControlFlowPass());
+            mc_pm.addPass(logos::compat::create_scf_to_cf_pass());
             mc_pm.addPass(mlir::createConvertControlFlowToLLVMPass());
             mc_pm.addPass(mlir::createArithToLLVMConversionPass());
             mc_pm.addPass(mlir::createConvertFuncToLLVMPass());
@@ -3630,7 +3631,7 @@ int main(int argc, char** argv) {
             auto mc_llvm = mlir::translateModuleToLLVMIR(*mc_mlir, mc_llvm_ctx);
             if (!mc_llvm) { std::fprintf(stderr, "logosc: metacall LLVM IR translate failed\n"); return 1; }
             mc_stat_step(_mc_t, "llvm_ir", mi);
-            mc_llvm->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+            logos::compat::set_default_target_triple(*mc_llvm);
             llvm::InitializeNativeTarget();
             llvm::InitializeNativeTargetAsmPrinter();
 

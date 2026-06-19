@@ -3,6 +3,7 @@
 // mlir_gen_expr.cpp — Expression code generation.
 
 #include "mlir_gen_impl.hpp"
+#include "llvm_compat.hpp"
 
 #include <logos/compiler/sha256.hpp>
 #include <logos/hermes/compat.hpp>
@@ -184,12 +185,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitFloatView v, TypeRef type) 
     bool is_f32 = type && TypeRef(type).kind() == LogosType::Kind::F32;
     if (is_f32) {
         auto f32 = builder_.getF32Type();
-        return builder_.create<mlir::arith::ConstantFloatOp>(
-            loc_, f32, llvm::APFloat(float(v.value())));
+        return logos::compat::const_float(builder_, loc_, f32,
+                                          llvm::APFloat(float(v.value())));
     }
     auto f64 = builder_.getF64Type();
-    return builder_.create<mlir::arith::ConstantFloatOp>(
-        loc_, f64, llvm::APFloat(v.value()));
+    return logos::compat::const_float(builder_, loc_, f64,
+                                      llvm::APFloat(v.value()));
 }
 
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitBoolView v, TypeRef) {

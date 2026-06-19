@@ -6,14 +6,23 @@
 # Requires the Clang/LLVM development libraries from the Jenny toolchain.
 # Skipped silently if not found so the main build is unaffected.
 
-set(LOGOS_LLVM_DIR  /opt/jenny-21x/lib/cmake/llvm  CACHE PATH "LLVM cmake dir")
-set(LOGOS_CLANG_DIR /opt/jenny-21x/lib/cmake/clang CACHE PATH "Clang cmake dir")
+# LOGOS_LLVM_DIR / LOGOS_CLANG_DIR are discovered (or -D-overridden) at the
+# top-level CMakeLists.
+find_package(LLVM CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
 
-find_package(LLVM  CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
+# logos-audit links the full Clang dev libraries (libclang*.a — shipped in
+# libclang-NN-dev). A stock toolchain install that only pulled llvm/mlir does
+# NOT have them, and ClangConfig.cmake hard-errors on include when its target
+# files reference absent archives. Probe for the archive first and skip this
+# dev-only tool entirely if it's missing, before find_package(Clang) can fail.
+if (NOT LLVM_FOUND OR NOT EXISTS "${LLVM_LIBRARY_DIR}/libclangBasic.a")
+    message(STATUS "logos-audit: full Clang dev libs not found — skipping")
+    return()
+endif()
+
 find_package(Clang CONFIG QUIET HINTS ${LOGOS_CLANG_DIR})
-
-if (NOT Clang_FOUND OR NOT LLVM_FOUND)
-    message(STATUS "logos-audit: Clang/LLVM dev libs not found — skipping")
+if (NOT Clang_FOUND)
+    message(STATUS "logos-audit: Clang cmake package not found — skipping")
     return()
 endif()
 

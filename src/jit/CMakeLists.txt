@@ -7,7 +7,7 @@
 # No Hermes integration, no Logos-pipeline integration, no split-stack —
 # just enough surface to bring up ORC and prove the link works.
 
-set(LOGOS_LLVM_DIR /opt/jenny-21x/lib/cmake/llvm CACHE PATH "LLVM cmake dir")
+# LOGOS_LLVM_DIR is discovered (or -D-overridden) at the top-level CMakeLists.
 find_package(LLVM CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
 
 if (NOT LLVM_FOUND)
@@ -24,30 +24,22 @@ target_include_directories(logos_jit PUBLIC
     ${LLVM_INCLUDE_DIRS}
 )
 
-target_link_libraries(logos_jit PUBLIC
-    LLVMOrcJIT
-    LLVMExecutionEngine
-    LLVMRuntimeDyld
-    LLVMJITLink
-    LLVMOrcShared
-    LLVMOrcTargetProcess
-    LLVMCore
-    LLVMSupport
-    LLVMTarget
-    LLVMTargetParser
-    LLVMMC
-    LLVMAsmPrinter
-    LLVMCodeGen
-    LLVMAnalysis
-    LLVMTransformUtils
-    LLVMScalarOpts
-    LLVMipo
-    LLVMPasses
-    LLVMX86CodeGen
-    LLVMX86AsmParser
-    LLVMX86Desc
-    LLVMX86Info
-)
+# Distro-stock LLVM links the single libLLVM.so dylib; a static toolchain
+# links the explicit component archives. Mixing the two pulls a second copy of
+# LLVM's global state (see src/compiler/CMakeLists.txt for the full rationale).
+if (LLVM_LINK_LLVM_DYLIB)
+    set(LOGOS_JIT_LLVM_LIBS LLVM)
+else()
+    set(LOGOS_JIT_LLVM_LIBS
+        LLVMOrcJIT LLVMExecutionEngine LLVMRuntimeDyld LLVMJITLink
+        LLVMOrcShared LLVMOrcTargetProcess
+        LLVMCore LLVMSupport LLVMTarget LLVMTargetParser LLVMMC
+        LLVMAsmPrinter LLVMCodeGen LLVMAnalysis LLVMTransformUtils
+        LLVMScalarOpts LLVMipo LLVMPasses
+        LLVMX86CodeGen LLVMX86AsmParser LLVMX86Desc LLVMX86Info)
+endif()
+
+target_link_libraries(logos_jit PUBLIC ${LOGOS_JIT_LLVM_LIBS})
 
 # Match logosc — LLVM is built without RTTI.
 target_compile_options(logos_jit PRIVATE -fno-rtti)

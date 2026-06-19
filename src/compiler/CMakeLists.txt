@@ -6,9 +6,8 @@
 # Pipeline: .logos source → PEG parser → Hermes AST → MLIR → LLVM IR → native.
 # Requires MLIR/LLVM dev libraries from the Jenny toolchain.
 
-set(LOGOS_LLVM_DIR /opt/jenny-21x/lib/cmake/llvm CACHE PATH "LLVM cmake dir")
-set(LOGOS_MLIR_DIR /opt/jenny-21x/lib/cmake/mlir CACHE PATH "MLIR cmake dir")
-
+# LOGOS_LLVM_DIR / LOGOS_MLIR_DIR are discovered (or -D-overridden) at the
+# top-level CMakeLists; here we just consume them.
 find_package(LLVM CONFIG QUIET HINTS ${LOGOS_LLVM_DIR})
 find_package(MLIR CONFIG QUIET HINTS ${LOGOS_MLIR_DIR})
 
@@ -101,58 +100,48 @@ target_include_directories(logosc PRIVATE
 
 # MLIR/LLVM libraries for the pipeline:
 #   func dialect → arith dialect → scf/cf → LLVM dialect → LLVM IR → target
+#
+# How we link LLVM/MLIR depends on how the toolchain was built:
+#
+#  * Distro-stock (Ubuntu llvm-20-dev): LLVM_LINK_LLVM_DYLIB is ON and the
+#    distro's MLIR component archives are themselves built against the single
+#    libLLVM.so. Linking the individual static LLVM component archives here
+#    would pull a SECOND copy of LLVM's process-global state (cl::opt option
+#    registry, ManagedStatic) next to that libLLVM.so — which manifested as
+#    cl::opt strings constructed-from-null and a double-free at exit. So we
+#    link the two aggregate dylibs (libMLIR.so + libLLVM.so), one copy each.
+#
+#  * Static toolchain (custom from-source LLVM with the dylib off): there is
+#    no shared library to collide with, so we link the explicit component
+#    archives.
+if (LLVM_LINK_LLVM_DYLIB)
+    set(LOGOS_MLIR_LLVM_LIBS MLIR LLVM)
+else()
+    set(LOGOS_MLIR_LLVM_LIBS
+        # MLIR dialects
+        MLIRFuncDialect MLIRArithDialect MLIRSCFDialect
+        MLIRControlFlowDialect MLIRLLVMDialect
+        # MLIR → LLVM lowering passes
+        MLIRFuncToLLVM MLIRArithToLLVM MLIRSCFToControlFlow
+        MLIRControlFlowToLLVM MLIRReconcileUnrealizedCasts
+        # MLIR infrastructure
+        MLIRIR MLIRPass MLIRTransforms MLIRSupport
+        # MLIR → LLVM IR translation
+        MLIRTargetLLVMIRExport MLIRTargetLLVM
+        MLIRBuiltinToLLVMIRTranslation MLIRLLVMToLLVMIRTranslation
+        # LLVM backend (x86)
+        LLVMX86CodeGen LLVMX86AsmParser LLVMX86Desc LLVMX86Info
+        # LLVM core
+        LLVMCore LLVMSupport LLVMTarget LLVMTargetParser LLVMMC
+        LLVMAsmPrinter LLVMCodeGen LLVMAnalysis LLVMTransformUtils
+        LLVMScalarOpts LLVMipo LLVMPasses LLVMIRReader LLVMAsmParser
+        LLVMBitReader)
+endif()
+
 target_link_libraries(logosc PRIVATE
     logos_hermes
     logos_jit
-
-    # MLIR dialects
-    MLIRFuncDialect
-    MLIRArithDialect
-    MLIRSCFDialect
-    MLIRControlFlowDialect
-    MLIRLLVMDialect
-
-    # MLIR → LLVM lowering passes
-    MLIRFuncToLLVM
-    MLIRArithToLLVM
-    MLIRSCFToControlFlow
-    MLIRControlFlowToLLVM
-    MLIRReconcileUnrealizedCasts
-
-    # MLIR infrastructure
-    MLIRIR
-    MLIRPass
-    MLIRTransforms
-    MLIRSupport
-
-    # MLIR → LLVM IR translation
-    MLIRTargetLLVMIRExport
-    MLIRTargetLLVM
-    MLIRBuiltinToLLVMIRTranslation
-    MLIRLLVMToLLVMIRTranslation
-
-    # LLVM backend (x86)
-    LLVMX86CodeGen
-    LLVMX86AsmParser
-    LLVMX86Desc
-    LLVMX86Info
-
-    # LLVM core
-    LLVMCore
-    LLVMSupport
-    LLVMTarget
-    LLVMTargetParser
-    LLVMMC
-    LLVMAsmPrinter
-    LLVMCodeGen
-    LLVMAnalysis
-    LLVMTransformUtils
-    LLVMScalarOpts
-    LLVMipo
-    LLVMPasses
-    LLVMIRReader
-    LLVMAsmParser
-    LLVMBitReader
+    ${LOGOS_MLIR_LLVM_LIBS}
 )
 
 # Note: MLIR/LLVM built without RTTI, but Hermes requires it.

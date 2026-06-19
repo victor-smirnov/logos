@@ -4,6 +4,7 @@
 // main.cpp's user pipeline and emit_module.cpp's compile_to_object.
 #include "compile_pipeline.hpp"
 #include "mlir_gen.hpp"
+#include "llvm_compat.hpp"
 
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -93,7 +94,7 @@ int lower_and_emit_object(lir::LProgram& prog,
         });
     }
     mlir::PassManager pm(&mlir_ctx);
-    pm.addPass(mlir::createSCFToControlFlowPass());
+    pm.addPass(logos::compat::create_scf_to_cf_pass());
     pm.addPass(mlir::createConvertControlFlowToLLVMPass());
     pm.addPass(mlir::createArithToLLVMConversionPass());
     pm.addPass(mlir::createConvertFuncToLLVMPass());
@@ -196,7 +197,7 @@ int lower_and_emit_object(lir::LProgram& prog,
         }
     }
 
-    llvm_module->setTargetTriple(llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+    logos::compat::set_default_target_triple(*llvm_module);
 
     if (opts.emit_llvm) { llvm_module->print(llvm::outs(), nullptr); return 0; }
     if (opts.jit_module_out) { *opts.jit_module_out = std::move(llvm_module); return 0; }

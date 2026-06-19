@@ -530,6 +530,33 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                         const std::vector<TypeParam>& sd_tpars =
                             stt_ptr ? stt_ptr->type_params : empty_tpars;
                         size_t n_struct = sd_tpars.size();
+                        // Cross-package impl method on a generic receiver: the
+                        // impl's type-params (e.g. T in `impl<T> Pin<&T>`) are
+                        // NOT carried in the method's own LFunction.type_params
+                        // (they would have come from the struct-template path,
+                        // which a foreign-package impl bypasses). The body is in
+                        // terms of those impl params, and the call's type_args
+                        // are exactly them in pattern order. Recover the names
+                        // from the impl-target pattern and bind by name —
+                        // otherwise type_args get mis-bound to the struct's own
+                        // tparams (wrong name AND wrong value: `P=i64` instead
+                        // of `T=i64`) and the body's T stays unresolved, lowering
+                        // to an `llvm.unreachable` stub. See
+                        // docs/track3-gaps/cross-package-impl-method-mono.md.
+                        std::vector<std::string> impl_tvs;
+                        if (tmpl->type_params.empty() && tmpl->impl_target_pattern)
+                            collect_pattern_typevars(
+                                TypeRef(tmpl->impl_target_pattern), impl_tvs);
+                        if (!impl_tvs.empty() && impl_tvs.size() == type_args.size()) {
+                            SubstMap subst;
+                            for (size_t i = 0; i < impl_tvs.size(); ++i)
+                                subst[impl_tvs[i]] = type_args[i];
+                            done_.insert(mangled_callee);
+                            worklist_.push_back({mangled_callee, tmpl,
+                                                 std::move(subst), {},
+                                                 depth_ + 1});
+                            return;
+                        }
                         if (type_args.size() >= n_struct) {
                             // Build SubstMap: struct tparams from prefix +
                             // method tparams from suffix.

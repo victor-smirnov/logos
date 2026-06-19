@@ -954,6 +954,26 @@ private:
         }
     }
 
+    // Collect the free TypeVar/ConstVar names of an impl-target pattern in
+    // first-appearance order, mirroring unify_impl_target's traversal. Used to
+    // recover the impl-level type-param names (e.g. T in `impl<T> Pin<&T>`) for
+    // a cross-package impl method whose own LFunction.type_params is empty —
+    // the method-instantiation enqueue binds the call's type_args to these.
+    static void collect_pattern_typevars(TypeRef p, std::vector<std::string>& out) {
+        if (!p) return;
+        auto k = p.kind();
+        if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar) {
+            std::string n(p.type_var_name());
+            for (auto& e : out) if (e == n) return;  // dedup, keep first position
+            out.push_back(std::move(n));
+            return;
+        }
+        if (p.pointee()) collect_pattern_typevars(p.pointee(), out);
+        if (p.elem())    collect_pattern_typevars(p.elem(), out);
+        for (auto a : p.type_args())    collect_pattern_typevars(a, out);
+        for (auto e : p.tuple_elems())  collect_pattern_typevars(e, out);
+    }
+
     static int type_specificity(TypeRef tr) noexcept {
         if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
         if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());
