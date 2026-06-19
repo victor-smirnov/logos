@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.28)
 # Jenny toolchain remains available opt-in via
 #   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/jenny.cmake
 
-project(logos LANGUAGES CXX C ASM)
+project(logos VERSION 0.1.0 LANGUAGES CXX C ASM)
 
 # Default to an optimised build when the user hasn't explicitly picked one.
 # Single-config generators (Ninja, Make) leave CMAKE_BUILD_TYPE empty by
@@ -148,7 +148,7 @@ endif()
 # build dir configured against the distro's stock LLVM. Installs logosc + the
 # modular stdlib archives under /usr. Needs `dpkg-dev` resp. `rpm-build`.
 set(CPACK_PACKAGE_NAME    "logos")
-set(CPACK_PACKAGE_VERSION "0.1.0")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_VENDOR  "Victor Smirnov")
 set(CPACK_PACKAGE_CONTACT "Victor Smirnov <aist11@gmail.com>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
