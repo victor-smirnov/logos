@@ -50,12 +50,19 @@ P1. Add `sym` module reproducing CURRENT encoding EXACTLY (module per §2b rules
     free fns qualified, methods/structs bare). Re-express function_symbol_name,
     function_signature_key, concrete_struct_name(_raw), mangle_type_for_name,
     bare_fn_name as thin wrappers over `sym`. Byte-identical → L4 5733/5733.
-P2. Route the (b) resolution sites onto an explicit bare `struct_inst(t,false)`
-    so they NEVER see a qualified form (decouple from the link form). Inert.
-P3. Flip the link form: `mangle` emits `[module..]pkg` for methods+structs too
-    (struct_inst(t,true) in (a) sites + LFunction.name + callees). Because (a)
-    parsers route through `sym::parse` (not substr) and (b) uses bare, no
-    positional breakage and dedup stays consistent (keys move together).
+P2. ~~Route the (b) resolution sites onto an explicit bare struct_inst(t,false)
+    so they never see a qualified form.~~ **OBSOLETE / dropped.** P2 was needed
+    ONLY for the abandoned "qualify concrete_struct_name in-place" plan (which
+    needed resolution insulated from qualified names — attempts 1/2 exploded).
+    The chosen EMISSION-BOUNDARY approach keeps concrete_struct_name FULLY BARE
+    in sema AND mono — qualification is a pure final string-prefix in mlir-gen
+    (link_name). Resolution/mono are never exposed to a qualified struct name →
+    nothing to decouple. The OTHER aspect P2 implied — qualifying nested type-arg
+    components so `Vec<A::Foo>` ≠ `Vec<B::Foo>` — is DEFERRED (emission-boundary
+    leaves the owner's type-args bare; this is the cross-module same-named-type
+    case, unneeded for coherent source-dist; future = resolution filter).
+P3. Emission-boundary qualification (mlir-gen link_name). DONE/viable — see
+    Progress. (Replaces the old "flip concrete_struct_name" P3.)
 P4. Resolution filter += fi->module_id (cross-module same-pkg). Delete the
     mlir-gen canonical() bridge + bare↔pkg bridging; survivors = unrouted sites.
 
