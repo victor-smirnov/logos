@@ -1438,6 +1438,22 @@ std::vector<ParsedModule> load_modules(
                     }
                 }
             }
+            // Stamp the owning module identity (canonical name + mangle id)
+            // onto every file decoded from this archive, read from its single
+            // `@module` .pkgi header. Downstream sema uses module_id to qualify
+            // these items' symbols (one module per archive).
+            {
+                std::string mod_name, mod_id;
+                for (auto& pm : ar_read_members_streaming(archive_path, ".pkgi")) {
+                    auto unwrapped = unwrap_elf_section(pm, ".lpkgindex");
+                    parse_pkgi_member(unwrapped, &mod_name, &mod_id);
+                    if (!mod_id.empty() || !mod_name.empty()) break;
+                }
+                for (auto& pm : decoded) {
+                    pm.module_id   = mod_id;
+                    pm.module_name = mod_name;
+                }
+            }
             if (trace)
                 std::fprintf(stderr, "module_loader: decoded %zu file(s) from %zu .hermes0 member(s) in %s\n",
                              decoded.size(), members.size(), archive_path.c_str());
@@ -1476,6 +1492,8 @@ std::vector<ParsedModule> load_modules(
             if (!pm.package.empty()) visited_packages.insert(pm.package);
             modules.push_back({pm.path, pm.package, pm.ast,
                                /*from_binary_module=*/true,
+                               /*module_id=*/pm.module_id,
+                               /*module_name=*/pm.module_name,
                                /*is_lazy=*/pm.is_lazy});
         }
     };

@@ -842,6 +842,17 @@ bool emit_module(const ModuleManifest& manifest,
         };
         load_bucket(codegen_files);
         load_bucket(ast_only_files);
+
+        // Stamp this module's OWN (source) files with the manifest identity so
+        // downstream sema mangles their symbols under this module. Binary deps
+        // already carry their own id (set in module_loader::visit_binary_module).
+        std::string self_id = module_effective_id(manifest, output_path);
+        for (auto& m : modules) {
+            if (!m.from_binary_module) {
+                m.module_id   = self_id;
+                m.module_name = manifest.name;
+            }
+        }
     }
 
     if (modules.empty()) {
