@@ -1036,19 +1036,34 @@ ar_read_members_streaming(const std::string& archive_path,
 }
 
 // Parse a `.pkgi` text member: one package per line, comments (# …) skipped.
+// A leading `@module <name> <id>` header line (emit_module, one module per
+// archive) is parsed into out_module_name/out_module_id and kept OUT of the
+// package list. Any other `@`-line is an unknown directive, skipped for
+// forward-compat.
 static std::vector<std::string>
-parse_pkgi_member(const std::vector<uint8_t>& data) {
+parse_pkgi_member(const std::vector<uint8_t>& data,
+                  std::string* out_module_name = nullptr,
+                  std::string* out_module_id   = nullptr) {
     std::vector<std::string> out;
     std::string line;
-    for (uint8_t b : data) {
-        if (b == '\n') {
-            if (!line.empty() && line[0] != '#') out.push_back(std::move(line));
-            line.clear();
-        } else {
-            line += (char)b;
+    auto handle = [&](std::string& ln) {
+        if (ln.empty() || ln[0] == '#') return;
+        if (ln.rfind("@module ", 0) == 0) {
+            std::istringstream iss(ln.substr(8));
+            std::string nm, id;
+            iss >> nm >> id;
+            if (out_module_name) *out_module_name = nm;
+            if (out_module_id)   *out_module_id   = id;
+            return;
         }
+        if (ln[0] == '@') return;   // unknown directive — forward-compat skip
+        out.push_back(std::move(ln));
+    };
+    for (uint8_t b : data) {
+        if (b == '\n') { handle(line); line.clear(); }
+        else line += (char)b;
     }
-    if (!line.empty() && line[0] != '#') out.push_back(std::move(line));
+    handle(line);
     return out;
 }
 

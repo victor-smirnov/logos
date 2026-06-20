@@ -262,6 +262,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                StdlibExports* out_exports = nullptr,
                                std::vector<uint8_t>* out_lir_blob = nullptr,
                                const std::string& module_name = "",
+                               const std::string& module_id = "",
                                const std::string& implicit_prelude = "",
                                const std::vector<std::string>& dep_archives = {}) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
@@ -930,10 +931,16 @@ bool emit_module(const ModuleManifest& manifest,
         // the dep .o) and links them; it never reads a published body. Passing
         // nullptr also skips the (expensive) compactify pass. The exports
         // trailer is computed for the verbose summary but no longer written.
+        // Module identifier baked into the .pkgi (and, downstream, into symbol
+        // mangling): explicit manifest `id`, else a hash of the output archive
+        // path. Computed once here; consumers READ it from the .pkgi rather than
+        // re-deriving, so it stays consistent regardless of derivation.
+        std::string module_id = module_effective_id(manifest, output_path);
         if (!compile_to_object(asts, filenames, ast_only_flags,
                                from_binary_module_flags, obj_path,
                                only_file_canon, &exports, /*out_lir_blob=*/nullptr,
                                /*module_name=*/manifest.name,
+                               /*module_id=*/module_id,
                                /*implicit_prelude=*/manifest.prelude,
                                /*dep_archives=*/all_lib_files)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
@@ -1155,6 +1162,14 @@ bool emit_module(const ModuleManifest& manifest,
         // entry, so resolution always finds the fresh archive. (The embedded
         // copy in .hm0 stays for sema self-containment but is never selected
         // over the owner.)
+        // Header: the owning module's canonical name + mangle id (one module
+        // per archive). Consumers map every package below to this id. The `@`
+        // sigil keeps it out of the package list; legacy readers that predate
+        // this skip `@`-lines (see parse_pkgi_member). Recomputed here (cheap,
+        // deterministic — same inputs as the compile_to_object call site).
+        if (!manifest.name.empty())
+            f << "@module " << manifest.name << " "
+              << module_effective_id(manifest, output_path) << "\n";
         std::set<std::string> seen;
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];

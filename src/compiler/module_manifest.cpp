@@ -3,6 +3,8 @@
 #include <fstream>
 #include <sstream>
 #include <cctype>
+#include <cstdint>
+#include <cstdio>
 
 namespace logos::compiler {
 
@@ -32,6 +34,7 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
 
         if      (key == "module")  m.name    = val;
         else if (key == "version") m.version = val;
+        else if (key == "id")      m.id      = val;
         else if (key == "root")    m.root    = val;
         else if (key == "depends")  { if (!val.empty()) m.depends.push_back(val); }
         else if (key == "exclude")  { if (!val.empty()) m.excludes.push_back(val); }
@@ -68,6 +71,30 @@ std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
     if (m.version.empty()) m.version = "0.0";
 
     return m;
+}
+
+// Reduce an arbitrary string to a mangle-legal token ([A-Za-z0-9_]).
+static std::string sanitize_mangle(std::string_view s) {
+    std::string r;
+    r.reserve(s.size());
+    for (char c : s)
+        r += (std::isalnum(static_cast<unsigned char>(c)) || c == '_') ? c : '_';
+    return r;
+}
+
+std::string module_effective_id(const ModuleManifest& m,
+                                std::string_view target_path) {
+    // Explicit id wins — it's the stable, location-independent ABI handle.
+    if (!m.id.empty()) return sanitize_mangle(m.id);
+    // Derived: FNV-1a 64-bit of the target install path → 16 hex digits.
+    // Prefixed with 'm' so the token never starts with a digit. Non-crypto
+    // is fine here — this only needs to be stable + collision-free across a
+    // build's distinct module paths.
+    uint64_t h = 1469598103934665603ull;          // FNV offset basis
+    for (unsigned char c : target_path) { h ^= c; h *= 1099511628211ull; }  // FNV prime
+    char buf[20];
+    std::snprintf(buf, sizeof(buf), "m%016llx", static_cast<unsigned long long>(h));
+    return buf;
 }
 
 } // namespace logos::compiler
