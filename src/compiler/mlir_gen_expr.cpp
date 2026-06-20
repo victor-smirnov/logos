@@ -2378,10 +2378,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             }
         }
         if (i < param_types.size()) {
-            // Aggregate returned by value but param expects pointer — spill to alloca.
+            // A by-value aggregate / tagged-enum param has ptr SSA repr
+            // (logos_to_mlir → ptr; the value lives in storage). When the arg
+            // arrives as a VALUE — a struct, or a niche-packed enum word (i64,
+            // e.g. an HAny read straight from `*zoned` storage) — spill it to an
+            // alloca and pass the pointer, matching the callee's ptr param.
+            // (Previously only structs spilled; a scalar niche word fell to
+            // coerce_numeric, which can't make a ptr → arg/param type mismatch.)
+            bool param_tagged_enum =
+                (fpit != fn_param_types_.end() && i < fpit->second.size() &&
+                 fpit->second[i] &&
+                 TypeRef(fpit->second[i]).kind() == LogosType::Kind::Enum &&
+                 resolve_tagged_enum(
+                     std::string(TypeRef(fpit->second[i]).enum_name()),
+                     fpit->second[i]) != nullptr);
             if (v.getType() != param_types[i] &&
                 param_types[i] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+                v.getType() != ptr_type() &&
+                (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()) || param_tagged_enum))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
                 v = coerce_numeric(v, param_types[i], arg_refs[i].type(pool_impl()));
@@ -2630,9 +2644,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             }
         }
         if (pi < param_types.size()) {
+            // See gen_call: a by-value aggregate / tagged-enum param is ptr-repr;
+            // spill a value arg (struct OR niche-enum word i64) to alloca so the
+            // pointer matches the callee param (else a scalar niche word would
+            // hit coerce_numeric, which can't make a ptr → type mismatch).
+            bool param_tagged_enum =
+                (m_fpit != fn_param_types_.end() && pi < m_fpit->second.size() &&
+                 m_fpit->second[pi] &&
+                 TypeRef(m_fpit->second[pi]).kind() == LogosType::Kind::Enum &&
+                 resolve_tagged_enum(
+                     std::string(TypeRef(m_fpit->second[pi]).enum_name()),
+                     m_fpit->second[pi]) != nullptr);
             if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                val.getType() != ptr_type() &&
+                (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) || param_tagged_enum))
                 val = spill_to_alloca(val);
             else
                 val = coerce_numeric(val, param_types[pi], arg_refs[i].type(pool_impl()));
