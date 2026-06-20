@@ -80,8 +80,39 @@ This makes the sema-core re-keying its own gated sub-stage — the largest part,
 now identified. The earlier "keep canonical() bridge as net" does NOT help here
 (this is pre-mlir-gen, sema-level resolution).
 
+## Stage-2 SECOND attempt (2026-06-20, "делаем всё тут") — REVERTED, layered finding
+Split concrete_struct_name into `concrete_struct_name_bare` (resolution) +
+`concrete_struct_name` (qualified emission); `struct_name_from_type` → bare;
+global pkg→module pointer set in sema/mono/mlir-gen. Result: peeled THREE layers,
+each a distinct name-keyed sema subsystem:
+  L1 method dispatch — FIXED by struct_name_from_type→bare (RevIter found 'next').
+  L2/L3 trait-bound + impl-SELECTION — `HMap<HString>` now fails `K: HIntKeyTag`
+     ('HString does not implement HIntKeyTag' / 'HMap__get arg1 expected HString
+     got &[u8]'). NOTE: type_str uses BARE struct_name (sema.cpp:2081), so the
+     bound key is already bare — the failure is NOT a name-key miss but the
+     qualified INSTANCE name perturbing instantiation / impl-selection / type-arg
+     binding deep in the trait engine. Not a localized fix.
+⇒ Full qualification of concrete_struct_name ripples through sema's ENTIRE
+type-name/instantiation infrastructure, layer after layer. Genuinely multi-day.
+
+DISCOVERY: mlir-gen ALREADY has `MLIRGenImpl::qualify_pkg(pkg,name)` → `pkg.name`
+(mlir_gen_impl.hpp:623) and keys all_struct_defs_ by it — so EMISSION-side struct
+keys are already pkg-qualified there. (Name-clashes my free lir.hpp `qualify_pkg`
+— member shadows in mlir-gen so 3823425f stays green, but RENAME the free fn to
+`module_qualify_pkg` to avoid confusion before resuming.)
+
+## Open decision (for Victor) — two paths, evidence above
+A. Full sema re-keying: migrate ALL ~46 sema resolution sites + trait engine to a
+   consistent bare key + module/pkg FILTER (fi->module_id), keep concrete_struct_name
+   qualified for emission. Correct + module-distinct-in-resolution, but large.
+B. Emission-boundary qualification only: concrete_struct_name stays BARE
+   (resolution untouched, as today); qualify ONLY the final link symbols
+   (LFunction.name + call callees) at the mono/mlir-gen emission boundary.
+   Small, lands now; cross-module-SAME-package distinction deferred (handled later
+   via the resolution filter). For coherent source-dist builds (unique packages)
+   this already gives distinct .a link symbols — the actual near-term need.
+
 ## Status
-Foundation committed 3823425f (doc + qualify_pkg/split_qualified_pkg primitives),
-on free-fn checkpoint 47199179 (free fns + module-level qualified, L4 5733/5733).
-concrete_struct_name flip REVERTED. Methods exempt. Branch module-system.
-NEXT = stage 2a (sema dispatch qualified-name-tolerant), fresh session.
+Foundation committed (3823425f primitives; bfd85e0c finding), on free-fn
+checkpoint 47199179 (L4 5733/5733). concrete_struct_name flip REVERTED twice.
+Methods exempt. Branch module-system, green.
