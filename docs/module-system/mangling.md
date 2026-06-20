@@ -56,6 +56,32 @@ call + emit TOGETHER → consistent → no mismatch, no storm, no bridge.
   bare key (rfind('.') takes the last segment) — keep it as the bare-key helper
   for any place that legitimately needs the short name.
 
+## Stage-2 first attempt (2026-06-20) — REVERTED, crucial scope finding
+Flipped `concrete_struct_name` → `[<module>..]<pkg>.<Struct>$G…` (global pkg→module
+pointer `g_pkg_module_ids` set in sema/mono/mlir-gen run). logosc compiled, but
+the FIRST stdlib file (`stdlib/lang/iter/iter.logos`) failed AT SEMA:
+  `'m58232a1d094f719f..logos.lang.iter.RevIter$G2$I$T' has no method 'next'`
+i.e. the blast radius reaches **sema's OWN method/impl dispatch**, not just
+mono/mlir-gen codegen. `concrete_struct_name` is used by sema to form the
+method-lookup key, but sema's method/impl/struct REGISTRIES are keyed by the
+BARE struct name. Qualifying the lookup key (even just pkg, let alone module)
+desyncs it from the bare-keyed tables → self-method resolution fails everywhere.
+
+⇒ REVISED STAGING. Stage 2 must be SPLIT:
+  2a. Make sema's type/method/impl resolution **qualified-name-tolerant** FIRST —
+      key (or normalize) the dispatch tables by the SAME form `concrete_struct_name`
+      will produce. Find every sema site that builds a struct/method/impl key from
+      a struct name (lower_method_call, impls_all_, struct method tables,
+      struct_specs, datatypes_) and route through one key form. Gate L2 WHILE
+      concrete_struct_name is still bare (inert wrt output) — proves the tables
+      tolerate the future form.
+  2b. THEN flip concrete_struct_name (pkg first, then module). Then mono/mlir-gen.
+This makes the sema-core re-keying its own gated sub-stage — the largest part,
+now identified. The earlier "keep canonical() bridge as net" does NOT help here
+(this is pre-mlir-gen, sema-level resolution).
+
 ## Status
-Builds on free-fn checkpoint 47199179 (free fns + module-level already qualified,
-L4 5733/5733). Methods still exempt until stage 3. Branch module-system.
+Foundation committed 3823425f (doc + qualify_pkg/split_qualified_pkg primitives),
+on free-fn checkpoint 47199179 (free fns + module-level qualified, L4 5733/5733).
+concrete_struct_name flip REVERTED. Methods exempt. Branch module-system.
+NEXT = stage 2a (sema dispatch qualified-name-tolerant), fresh session.
