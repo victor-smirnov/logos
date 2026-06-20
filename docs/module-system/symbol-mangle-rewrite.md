@@ -123,6 +123,36 @@ resolved symbol), or (c) make `canonical()` signature-aware so distinct-sig
 methods don't collapse. (b)/(c) are the tractable ones. REVERTED to P1 (green);
 all the diagnosis above is reusable.
 
+## P3 attempt #3 (2026-06-20, autonomous "доделываем") — 827/828 L2, but breaks
+## the HERMES tag-dispatch / HAny class in the FULL suite. PRESERVED in git
+## stash (`stash@{0}` off 67b2010e) + recoverable.
+Re-applied all of P3 + the dyn/tag-dispatch+vtable link_name routing. L2 SAMPLE
+= 827/828 (1 fail). But the FULL ctest fails ~dozens of hermes_* tests
+(hermes_equal/hmap/hbs/scalars, persistent_dview, …). hermes_equal builds CLEAN
+at P1 (verified by stash+rebuild) → P3 regression. Symptom: a DIRECT
+`func.call` to `…HMap$G2$HString$HAny__set__f__…__slice_u8__HAny` with
+`(!llvm.ptr, !llvm.ptr, i64)` operands vs the func's `(ptr, ptr, ptr)` decl —
+i.e. the HAny value-param is passed as i64 (niche value) but `make_fn_type`
+declares it as the tagged-enum llvm_type (ptr). ZERO bridge renames for this
+test (callee already resolves), so it's NOT a name-resolution miss. Module ids
+verified CONSISTENT (lang.a all `ma15d566..`). Could not pinpoint why P3
+(NAME-only changes) flips this HAny repr/decl — make_fn_type + call-arg lowering
+are P3-invariant by inspection, yet the verifier disagrees only under P3.
+Hypothesis: is_binary_skip(link_name) flips a specific HMap<HString,HAny>
+instance from defined→declared (or the reverse) so the call binds to a
+declaration whose make_fn_type HAny-repr differs from the call's — i.e. a
+PRE-EXISTING HAny dual-repr (i64 niche value vs *zoned/enum ptr) latent
+inconsistency that P3 exposes via the skip-path. Needs HAny-lowering debugging.
+
+CONCLUSION: the emission-boundary P3 repeatedly hits deep interactions (perf →
+dyn-dispatch → HAny). The name-qualified/bare boundary is too pervasive. RECON-
+SIDER: either (1) the truly-global LIR-qualification (blocked by Hermes-mirror
+immutability + mono scan_fn re-parsing — needs solving that first), or (2) ship
+with methods EXEMPT (committed P1 + §2b free-fns, green) and qualify method link
+symbols at LINK time (objcopy `--redefine-syms` on the .a using the pkg→module
+map) — a post-compiler step that sidesteps the whole in-compiler boundary. (2)
+is likely the pragmatic winner. P1 stands green (L4 5733/5733).
+
 ## Invariants
 - (b) `::`-keys stay source-identity (pkg::name / Trait::Type), never module.
 - mono dedup keys (done_/done_methods_/concrete_struct_types_) use the SAME form
