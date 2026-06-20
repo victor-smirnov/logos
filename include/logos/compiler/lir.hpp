@@ -1338,6 +1338,28 @@ inline std::string_view bare_fn_name(std::string_view nm) noexcept {
     return nm;
 }
 
+// ── Module-qualified package encoding (docs/module-system/mangling.md) ──────
+// Qualified package = `[<module_id>..]<pkg>`. The `..` sentinel separates the
+// module-id from the package; packages have no empty segments, so `..` is
+// unambiguous. Absent module → no prefix (back-compat with the pre-module
+// mangle). Pure; the caller resolves module_id from LProgram::pkg_module_ids.
+inline std::string qualify_pkg(std::string_view module_id, std::string_view pkg) {
+    if (module_id.empty()) return std::string(pkg);
+    std::string r(module_id);
+    r += "..";
+    r += pkg;
+    return r;
+}
+
+// Inverse: split a qualified package into {module_id, pkg}. No `..` → module
+// empty (global module / package-less). Used by the single demangle path.
+inline std::pair<std::string_view, std::string_view>
+split_qualified_pkg(std::string_view qp) noexcept {
+    if (auto p = qp.find(".."); p != std::string_view::npos)
+        return { qp.substr(0, p), qp.substr(p + 2) };
+    return { std::string_view{}, qp };
+}
+
 } // namespace logos::compiler
 
 // B.6 Stage 3.5 step 7e: variant `kind` fields removed from
