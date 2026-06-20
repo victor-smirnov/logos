@@ -112,7 +112,33 @@ B. Emission-boundary qualification only: concrete_struct_name stays BARE
    via the resolution filter). For coherent source-dist builds (unique packages)
    this already gives distinct .a link symbols — the actual near-term need.
 
+## CORRECTED option A (Victor chose A, 2026-06-20) — the RIGHT implementation
+CRITICAL: "A = full re-keying" does NOT mean "qualify concrete_struct_name" —
+that is exactly what exploded (3 sema-resolution layers) AND perf-blew-up (mono
+dedup parses the name string). The correct A:
+1. `concrete_struct_name` STAYS BARE — it is the RESOLUTION key AND the mono
+   DEDUP key (done_methods_, concrete_struct_types_, struct_done_). Leaving it
+   bare means zero resolution-layer breakage and zero re-instantiation storm.
+2. Module distinction IN RESOLUTION = extend the FILTER, not the key. `find_func_
+   candidates` (sema.cpp:1607+) already filters candidates by `fi->package`
+   against cur_package_/cur_imports_; add an `fi->module_id` dimension so two
+   same-package-different-module candidates are disambiguated by the using
+   context. (Same pattern for impl resolution / trait engine.) This is how
+   "module is intrinsic to identity" holds in resolution WITHOUT a string key.
+3. Link-symbol distinctness = qualify at the EMISSION BOUNDARY only — the final
+   FuncOp symbol name in mlir-gen + its call callees — with mono's internal
+   bookkeeping (dedup/lookup) staying bare. Because def-name and callee are
+   qualified by the SAME boundary fn, they match; mono_scan never parses a
+   qualified call (no garbling → no storm). The existing canonical() bridge can
+   reconcile bare-call→qualified-def for COHERENT builds during transition;
+   cross-module-same-pkg needs the calls qualified via the module-aware filter
+   (step 2) before the bridge is deleted (stage 4).
+
+So the explosion/​blowup both came from putting module in the KEY STRING. Keep
+keys bare; module lives in (a) the resolution filter and (b) the emission-time
+link name. This is the plan to execute — NOT re-qualifying concrete_struct_name.
+
 ## Status
-Foundation committed (3823425f primitives; bfd85e0c finding), on free-fn
-checkpoint 47199179 (L4 5733/5733). concrete_struct_name flip REVERTED twice.
-Methods exempt. Branch module-system, green.
+Foundation committed (3823425f primitives; bfd85e0c + 3702a299 findings), on
+free-fn checkpoint 47199179 (L4 5733/5733). concrete_struct_name stays BARE.
+Methods exempt pending corrected-A. Branch module-system, green.
