@@ -59,6 +59,35 @@ P3. Flip the link form: `mangle` emits `[module..]pkg` for methods+structs too
 P4. Resolution filter += fi->module_id (cross-module same-pkg). Delete the
     mlir-gen canonical() bridge + bare↔pkg bridging; survivors = unrouted sites.
 
+## Progress
+- **P1 DONE + committed (abfe4997, L4 5733/5733):** `sym::Sym` + `sym::mangle`
+  (lir.hpp); `function_symbol_name` routes through it byte-identically. The
+  module-qualification policy (incl. the methods-exempt carve-out) now lives in
+  ONE place — flipping methods is dropping `!s.is_method` in sym::mangle.
+- **P3 emission qualification — ATTEMPTED, REVERTED, but PROVEN VIABLE.**
+  Added `MLIRGenImpl::link_name(fn)` = insert `<module>..` before a method's
+  package (method shape = `fn.name` starts with `fn.package + "."`; free fns use
+  `$` boundary → unchanged); module from `prog.pkg_module_ids[fn.package]`.
+  Routed forward_declare (FuncOp/llvm.func/declared_fn_names_/fn_param_types_/
+  vararg_fns_), the body-emit FuncOp lookups (mlir_gen.cpp:495,502), cur_fn_name_,
+  and is_binary_skip through link_name. RESULT: methods correctly module-qualified
+  — `nm liblogos-lang.a` shows `m58232a1d094f719f..logos.lang.fabric.PrimVec$G1$bool__push__g__…`
+  (5530 syms); lang + mem build CLEAN; sema + mono untouched (NO explosion, NO
+  perf storm — the whole point of the emission-boundary approach). **BLOCKER:**
+  the std build's METAPROG-JIT fails with `jit add_module: duplicate definition
+  of symbol m1ff69f5e219a5697..logos.lang.option.Option__is_some__g__ref_Option__File`.
+  Root: the dispatch loop add_module's the growing program each iteration; a
+  cross-module method INSTANCE (Option<File>::is_some — File is std) is emitted
+  External in iteration K and again in K+1 → ORC duplicate. The FINAL `.a` avoids
+  this via lazy archive member-selection, but the in-process ORC JIT can't.
+  CANDIDATE FIXES (next): (a) emit generic/method INSTANCES with LinkonceODR/
+  WeakODR linkage (ODR-mergeable — ORC keeps one; also correct for cross-module
+  final dedup) — needs setting linkage on the func.func→llvm.func path (today
+  only the vararg llvm.func path sets linkage; normal methods are External by
+  default); OR (b) dedup symbols across dispatch-iteration JIT modules before
+  add_module. (a) is the principled one. P3 edits are reverted (tree green at
+  abfe4997); re-apply + the linkage fix is the next step.
+
 ## Invariants
 - (b) `::`-keys stay source-identity (pkg::name / Trait::Type), never module.
 - mono dedup keys (done_/done_methods_/concrete_struct_types_) use the SAME form
