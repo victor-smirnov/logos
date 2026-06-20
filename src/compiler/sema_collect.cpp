@@ -478,6 +478,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
+        cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
@@ -503,6 +504,7 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
+        cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
         cur_imports_ = build_import_scope(root);
@@ -1852,6 +1854,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
     SemaEnumInfo info;
     // T1-9: cross-package visibility (lookup_qualified_<true> checks it).
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     if (node.has_key(la::IS_PUB)) {
         AnyVal pv = node.get(la::IS_PUB.code);
         info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
@@ -3760,6 +3763,7 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
 
     SemaStructInfo info;
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     info.base_name = sname;
     info.spec_patterns = spec_patterns;
     std::string spec_field_sweep_doc;
@@ -3794,6 +3798,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     info.is_annotation_type = is_annotation_type;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
@@ -3909,6 +3914,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
         for (auto& p : where_outlives) info.lifetime_outlives.push_back(std::move(p));
     }
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
@@ -4471,6 +4477,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.base_name = base_name;
     info.source_file = file_;
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     // B-gn-05: warn when a type-param shadows a known type/trait — this
     // currently breaks fn-name resolution at the call site, surfacing as
     // a misleading "undefined function" error.  Use the qualified

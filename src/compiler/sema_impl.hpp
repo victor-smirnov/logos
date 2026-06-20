@@ -155,6 +155,11 @@ public:
     // borrowed; caller (sema_lower) keeps the vector alive across run().
     // Null or empty → all asts treated as non-lazy (back-compat).
     void set_is_lazy(const std::vector<bool>* v) { is_lazy_ = v; }
+    // Module system: per-AST owning-module id (mangle key). Parallel to
+    // from_binary_/is_lazy_. Lifetime-borrowed; caller (sema_lower) keeps
+    // the vector alive across run(). Null/empty or a per-index empty string
+    // → no module-qualified mangling for that AST (plain user program).
+    void set_module_ids(const std::vector<std::string>* v) { module_ids_ = v; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -1057,10 +1062,16 @@ private:
     // LFunction.from_lazy_module; consumed by post-mono reach analysis to
     // skip mlir-gen for lazy fns not reached from any non-lazy caller.
     const std::vector<bool>*        is_lazy_      = nullptr;
+    // Module system: per-AST owning-module id, parallel to from_binary_.
+    // Empty/null → no module (plain user program); a non-empty id is baked
+    // into the symbol mangle so same-named packages from different modules
+    // (or versions) get distinct symbols (C++ module-linkage model).
+    const std::vector<std::string>* module_ids_   = nullptr;
     std::string  file_;
     std::string  cur_package_;
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
     bool         cur_from_binary_ = false;   // current file is from a binary module
+    std::string  cur_module_id_;             // owning-module id of the current file (mangle key)
     bool         cur_from_lazy_   = false;   // current file is from a lazy archive
     uint32_t     node_line_ = 0;
 
@@ -2312,6 +2323,7 @@ private:
                             std::vector<std::pair<std::string, std::string>> lifetime_outlives;
                             bool is_pub = false; std::string source_file;
                             std::string package;
+                            std::string module_id;  // owning-module id (mangle key); empty = no module
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
@@ -2419,6 +2431,7 @@ private:
                             std::string signature_key;
                             std::string symbol_name;
                             std::string source_file; std::string package;
+                            std::string module_id;  // owning-module id (mangle key); empty = no module
                             std::string doc;     // outer `///` doc-comment
                             // Trait-aware method mangling: the trait this
                             // method implements (`impl Trait for X`), empty for
@@ -2462,6 +2475,7 @@ private:
         std::vector<SemaVariantInfo> variants;
         bool is_pub = false;                 // T1-9: cross-pkg visibility
         std::string package;                 // pkg this enum was declared in
+        std::string module_id;               // owning-module id (mangle key); empty = no module
         std::vector<TypeParam> type_params;  // for generic enums
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)

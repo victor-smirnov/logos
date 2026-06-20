@@ -1414,7 +1414,8 @@ lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
                           SemaOptions opts = {},
-                          const std::vector<bool>& is_lazy = {});
+                          const std::vector<bool>& is_lazy = {},
+                          const std::vector<std::string>& module_ids = {});
 
 // Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
 // Populates prog.reflection_globals with LReflectGlobal entries.
