@@ -1067,6 +1067,11 @@ private:
     // into the symbol mangle so same-named packages from different modules
     // (or versions) get distinct symbols (C++ module-linkage model).
     const std::vector<std::string>* module_ids_   = nullptr;
+    // Module system: package dotted-name → owning-module id, accumulated across
+    // all files (own + binary). Copied into LProgram::pkg_module_ids so mono
+    // can module-qualify synthesised method-call symbols. One package maps to
+    // one module in a coherent build.
+    std::unordered_map<std::string, std::string> pkg_module_ids_;
     std::string  file_;
     std::string  cur_package_;
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call

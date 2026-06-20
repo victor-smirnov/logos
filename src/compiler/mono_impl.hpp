@@ -102,6 +102,19 @@ private:
     int            depth_ = 0;
     PackMap        cur_packs_;
 
+    // Module system: module-qualify a package for synthesised symbols. Returns
+    // `<module_id>.<pkg>` when pkg belongs to a non-global module, else pkg
+    // unchanged — mirroring function_symbol_name's definition-side mangle so a
+    // method-call symbol synthesised from a type's package matches the emitted
+    // definition. Reads the package→module map handed over by sema.
+    std::string mq(const std::string& pkg) const {
+        if (pkg.empty()) return pkg;
+        auto it = in_.pkg_module_ids.find(pkg);
+        if (it != in_.pkg_module_ids.end() && !it->second.empty())
+            return it->second + "." + pkg;
+        return pkg;
+    }
+
 protected:
     // Phase 5.A: source arena for refs constructed from the IN_-side variants.
     // mono moves in_.type_pool into out_ at run() start so historically these

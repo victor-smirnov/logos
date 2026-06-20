@@ -481,6 +481,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         cur_imports_ = build_import_scope(root);
         maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 2);
@@ -507,6 +509,8 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         cur_imports_ = build_import_scope(root);
         maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 1);

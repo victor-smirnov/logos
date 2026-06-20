@@ -108,6 +108,11 @@ bool*                                g_any_emitted = nullptr;
 std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
+// Module system: per-AST owning-module id, parallel to g_from_binary. New
+// asts appended by metaprog hooks belong to the module being compiled, so
+// they're stamped with g_self_module_id (empty for a plain user program).
+std::vector<std::string>*            g_module_ids  = nullptr;
+std::string                          g_self_module_id;
 size_t                               g_user_root_idx = 0;
 // Phase 7 diagnostics: hooks call logos_metaprog_error(msg) to push
 // a structured error. The driver drains this after each hook and
@@ -275,6 +280,7 @@ extern "C" int32_t logos_emit_source(const char* src) {
     g_asts->push_back(std::move(ast));
     g_filenames->emplace_back("<metaprog>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -305,6 +311,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     g_asts->push_back(std::move(doc).get());
     g_filenames->emplace_back("<metaprog-blob>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -1179,6 +1186,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     g_asts->push_back(std::move(doc));
     g_filenames->emplace_back("<metaprog-blob-subst>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -2352,6 +2360,15 @@ int run_metaprog_dispatch(
     g_filenames     = &filenames;
     g_from_binary   = &from_binary;
     g_user_root_idx = entry_ast_idx;
+    // Module system: point the append-time globals at the caller's module_ids
+    // vector + own id, restored on exit so nested dispatches don't leak state.
+    struct ModIdRestore {
+        std::vector<std::string>* prev_mids;
+        std::string               prev_self;
+        ~ModIdRestore() { g_module_ids = prev_mids; g_self_module_id = std::move(prev_self); }
+    } _mid_restore{ g_module_ids, g_self_module_id };
+    g_module_ids     = opts.module_ids;
+    g_self_module_id = opts.self_module_id;
     // logos_emit_source()/_blob() push NEW asts onto this vector from INSIDE a
     // metaprog handler running mid-sema_lower — which holds a `Hermes&` into `asts`.
     // A vector realloc there moves that element (Hermes move nulls the source), so the
@@ -2444,7 +2461,8 @@ int run_metaprog_dispatch(
         // Phase 6: metaprog dispatch loop doesn't currently thread is_lazy
         // through (no use case yet — metaprog handlers + their callees stay
         // eager regardless). Pass {} to keep the existing behaviour.
-        prog = sema_lower(asts, filenames, from_binary, opts_iter, {});
+        prog = sema_lower(asts, filenames, from_binary, opts_iter, {},
+                          opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
@@ -2512,7 +2530,8 @@ int run_metaprog_dispatch(
                 resema_opts.cache = nullptr;
                 resema_opts.delta_start_idx = 0;
             }
-            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {});
+            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {},
+                                   opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }
         meta_prog.functions.erase(
@@ -3370,6 +3389,8 @@ int main(int argc, char** argv) {
         mopts.stats_out      = stats_flag ? &top_stats : nullptr;
         mopts.sema_cache     = &sema_cache;
         mopts.implicit_prelude = implicit_prelude_pkg;
+        mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        mopts.self_module_id = "";           // a plain user program is in the global module (no id)
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;

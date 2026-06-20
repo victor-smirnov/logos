@@ -78,6 +78,14 @@ struct MetaprogDispatchOpts {
     // the metaprog-mode sema_lower calls so unqualified prelude names resolve
     // during discovery the same way they do in the final pass.
     std::string implicit_prelude;
+    // Module system: per-AST owning-module id, parallel to from_binary. A
+    // pointer (not a copy) because metaprog hooks GROW asts mid-dispatch and
+    // the dispatcher appends matching ids (stamped self_module_id) so the
+    // discovery-pass mangle stays consistent with the final pass. Null disables
+    // module-qualified mangling (legacy). self_module_id is the id stamped onto
+    // hook-appended asts (they belong to the module being compiled).
+    std::vector<std::string>* module_ids = nullptr;
+    std::string               self_module_id;
 };
 
 // Run the metaprog discovery loop:

@@ -1476,12 +1476,30 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     //     by their struct's pkg-qualified name in mlir_gen.
     bool is_method = base_name.find("__") != std::string_view::npos;
     bool with_pkg  = !info.package.empty() && !info.is_extern;
+    // Module system: the owning-module id is the OUTERMOST namespace segment,
+    // prepended to the package as if it were a top-level package component
+    // (`<mid>.<pkg>`). It rides the existing pkg encoding — `.`-joined
+    // segments, a single `$`/`.` boundary to the base — so the mangle
+    // parsers that extract-and-reattach the package keep working unchanged.
+    // extern fns keep their bare C ABI name (no module qualification).
+    //
+    // Methods (base_name contains `__`) are EXEMPT for now: their call sites
+    // are synthesised ad-hoc as bare `<pkg>.<Struct>__<method>` in sema/mono
+    // (not via this function), so module-qualifying the definition alone would
+    // desync def from call. Free fns + module-level symbols route through
+    // function_symbol_name on BOTH sides, so they qualify consistently.
+    // Module-qualified method mangling is a follow-up (route method call-site
+    // synthesis through a module-aware path), tracked in DIVERGENCES §B-mod.
+    bool with_mod  = !info.module_id.empty() && !info.is_extern && !is_method;
 
     std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
     auto suffix = key.substr(std::string(base_name).size() + 2);
     std::string out;
-    if (with_pkg) {
-        out = info.package;
+    if (with_pkg || with_mod) {
+        std::string pkg_seg;
+        if (with_mod) pkg_seg = info.module_id;
+        if (with_pkg) { if (!pkg_seg.empty()) pkg_seg += '.'; pkg_seg += info.package; }
+        out = pkg_seg;
         out += is_method ? '.' : '$';
     }
     out += std::string(base_name);
@@ -2218,6 +2236,9 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     phase_ = SemaPhase::Collect;
     collect(asts);
     sema_tick("collect");
+    // Module system: hand the package→module-id map to mono for synthesised
+    // method-call qualification. Filled during collect() across all files.
+    prog.pkg_module_ids = pkg_module_ids_;
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -6686,6 +6707,8 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         auto root = asts[i].root_object().as_tiny_map();
         cur_root_ = root;
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         // M5 step 6: bundle hit → binary AST is already in prog; skip the
         // entire lower walk for it.
         if (m5_bundle_active && cur_from_binary_) {

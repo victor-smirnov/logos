@@ -1121,6 +1121,14 @@ struct LProgram {
 
     TypePool               type_pool;  // owns all LogosType*
 
+    // Module system: package dotted-name → owning-module id (the mangle key).
+    // Populated by sema during collection; read by mono so method-symbol
+    // synthesis sites can module-qualify a callee built from a type's package
+    // (`<module_id>.<pkg>.<Struct>__<method>`), matching function_symbol_name's
+    // definition mangle. A package absent here (or mapped to "") is in the
+    // global module → no module qualification (byte-identical legacy mangle).
+    std::unordered_map<std::string, std::string> pkg_module_ids;
+
     // ADR 0007 slice 1b: pool that owns every LExpr in this program. Builder
     // and mono allocate through `alloc_expr(prog)`; variant fields hold raw
     // LExpr* into this pool. Pool is append-only and survives until LProgram

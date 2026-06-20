@@ -289,6 +289,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
             from_binary[i] = true;
     }
+    // Module system: mutable copy of the per-AST module ids. Metaprog dispatch
+    // grows `asts` and the dispatcher appends matching ids (the own module_id)
+    // so this stays parallel to `asts` for the final sema pass below.
+    std::vector<std::string> module_ids = per_ast_module_ids;
 
     // Collect the `nm --defined-only` symbol set of the dependency archives
     // ONCE, up front. It's the skeleton-skip gate (sema skips lowering bodies
@@ -315,6 +319,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     {
         MetaprogDispatchOpts mopts;
         mopts.binary_symbols = dep_symbols;  // skeleton-skip gate for dispatch sema
+        mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
         // The metaprog mlir module spans the whole stdlib, so JIT lookup
@@ -416,7 +422,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     SemaOptions sema_opts;
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
-    auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, per_ast_module_ids);
+    auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
