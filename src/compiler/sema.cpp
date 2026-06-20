@@ -1474,38 +1474,20 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     //   - extern fns: ABI symbols (malloc, printf) must keep their C name.
     //   - struct methods (base_name contains `__`): already disambiguated
     //     by their struct's pkg-qualified name in mlir_gen.
-    bool is_method = base_name.find("__") != std::string_view::npos;
-    bool with_pkg  = !info.package.empty() && !info.is_extern;
-    // Module system: the owning-module id is the OUTERMOST namespace segment,
-    // prepended to the package as if it were a top-level package component
-    // (`<mid>.<pkg>`). It rides the existing pkg encoding — `.`-joined
-    // segments, a single `$`/`.` boundary to the base — so the mangle
-    // parsers that extract-and-reattach the package keep working unchanged.
-    // extern fns keep their bare C ABI name (no module qualification).
-    //
-    // Methods (base_name contains `__`) are EXEMPT for now: their call sites
-    // are synthesised ad-hoc as bare `<pkg>.<Struct>__<method>` in sema/mono
-    // (not via this function), so module-qualifying the definition alone would
-    // desync def from call. Free fns + module-level symbols route through
-    // function_symbol_name on BOTH sides, so they qualify consistently.
-    // Module-qualified method mangling is a follow-up (route method call-site
-    // synthesis through a module-aware path), tracked in DIVERGENCES §B-mod.
-    bool with_mod  = !info.module_id.empty() && !info.is_extern && !is_method;
-
+    // Canonical link-symbol mangle: assemble the structured Sym and route it
+    // through the single sym::mangle encoder (lir.hpp). The module-qualification
+    // policy (incl. the methods-exempt carve-out) lives THERE, so it's the one
+    // flip point for the bridge-free rewrite. extern carve-out: bare ABI name.
     std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
-    auto suffix = key.substr(std::string(base_name).size() + 2);
-    std::string out;
-    if (with_pkg || with_mod) {
-        std::string pkg_seg;
-        if (with_mod) pkg_seg = info.module_id;
-        if (with_pkg) { if (!pkg_seg.empty()) pkg_seg += '.'; pkg_seg += info.package; }
-        out = pkg_seg;
-        out += is_method ? '.' : '$';
-    }
-    out += std::string(base_name);
-    out += info.type_params.empty() ? "__f__" : "__g__";
-    out += suffix;
-    return out;
+    sym::Sym s;
+    s.module_id  = info.module_id;
+    s.package    = info.package;
+    s.base       = std::string(base_name);
+    s.sig        = key.substr(std::string(base_name).size() + 2);
+    s.is_generic = !info.type_params.empty();
+    s.is_method  = base_name.find("__") != std::string_view::npos;
+    s.is_extern  = info.is_extern;
+    return sym::mangle(s);
 }
 
 const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_symbol(std::string_view symbol) const {

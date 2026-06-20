@@ -1360,6 +1360,52 @@ split_qualified_pkg(std::string_view qp) noexcept {
     return { std::string_view{}, qp };
 }
 
+// ── Canonical symbol-name mechanism (docs/module-system/symbol-mangle-rewrite.md)
+// The SINGLE source of truth for LINK-symbol encoding: where the module / pkg /
+// base / signature boundaries sit, and the module-qualification policy. Every
+// link-name builder routes through sym::mangle; nobody hand-assembles the string.
+namespace sym {
+
+// Structured link-symbol identity. `base` is the free-fn name OR the combined
+// `Owner__method` for a method (is_method then true); `sig` is the already-
+// mangled signature suffix (the part after `base__`).
+struct Sym {
+    std::string module_id;   // owning module; "" = global module
+    std::string package;     // dotted package; "" = package-less
+    std::string base;        // free-fn name | "Owner__method"
+    std::string sig;         // mangled signature fragment (params)
+    bool is_generic = false; // __g__ vs __f__
+    bool is_method  = false; // base contains a `__` owner/method join
+    bool is_extern  = false; // C ABI: no pkg/module qualification
+};
+
+// Build the canonical link symbol. Encoding:
+//   [ [<module_id>] [.<pkg> | <pkg>] {$ (free) | . (method)} ] base {__f__|__g__} sig
+// extern → no pkg/module prefix (but still carries __f__/sig as today).
+//
+// MODULE POLICY lives HERE (the single flip point): module-id is prepended to
+// the package segment when the symbol is non-extern and — for now — NOT a method
+// (methods exempt pending the bridge-free rewrite, see the doc). Flip = drop the
+// `!s.is_method` term.
+inline std::string mangle(const Sym& s) {
+    bool with_pkg = !s.package.empty() && !s.is_extern;
+    bool with_mod = !s.module_id.empty() && !s.is_extern && !s.is_method;
+    std::string out;
+    if (with_pkg || with_mod) {
+        std::string seg;
+        if (with_mod) seg = s.module_id;
+        if (with_pkg) { if (!seg.empty()) seg += '.'; seg += s.package; }
+        out = std::move(seg);
+        out += s.is_method ? '.' : '$';
+    }
+    out += s.base;
+    out += s.is_generic ? "__g__" : "__f__";
+    out += s.sig;
+    return out;
+}
+
+} // namespace sym
+
 } // namespace logos::compiler
 
 // B.6 Stage 3.5 step 7e: variant `kind` fields removed from
