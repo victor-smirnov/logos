@@ -95,6 +95,34 @@ P4. Resolution filter += fi->module_id (cross-module same-pkg). Delete the
   add_module. (a) is the principled one. P3 edits are reverted (tree green at
   abfe4997); re-apply + the linkage fix is the next step.
 
+## P3 attempt #2 (2026-06-20, autonomous) — reached 823/828, REVERTED
+Re-applied link_name + fixed the metaprog-JIT duplicate via the SHARED
+`sym::link_name` free fn (lir.hpp) used by BOTH mlir-gen (forward_declare /
+is_binary_skip / body-emit) AND the dispatch emitted-set tracking (main.cpp
+M6.3) — the desync there caused the duplicate. Then a 370-fail PERF BLOWUP:
+`is_binary_skip`/link_name read `pkg_module_ids`, but it was MISSING entries for
+cache-skipped binary stdlib files (collect `continue`d before recording) →
+stdlib methods looked un-binary → re-emitted (O(n²) lookupSymbol). FIXED by
+recording pkg→module for EVERY ast in pass 0 BEFORE the skips (sema_collect.cpp).
+→ 823/828. Then the dyn/tag-dispatch + vtable paths looked up methods by BARE
+name (gen_tagged_dispatch / vtable slots) → routed through link_name/link_name_str
+(mlir_gen_dyn.cpp). RESIDUAL (5 L2 + hermes_container_showcase example): a
+`func.call operand type mismatch` (expected ptr, got i64) — a NO-SIGNATURE method
+callee (operator / method-as-call paths emit `<pkg>.<Owner>__<m>` without
+`__f__sig`) resolves through the lossy `canonical()` bridge (which strips the
+signature) to a SINGLE def of that base whose signature differs from what the
+call passes. Module IDs are CONSISTENT (verified: lang.a + std.a both
+`m1ff..logos.lang.iter`), so NOT an id bug. `link_name_str` handles WITH-sig
+callees exactly; the no-sig ones can't be disambiguated by the bridge.
+TRUE GLOBAL FIX (next): make call resolution non-lossy — either (a) qualify call
+callees in the LIR so mlir-gen needs no bridge (blocked: bodies live in the
+immutable Hermes mirror, and mono's scan_fn re-parses callees off that mirror, so
+qualifying there breaks the scan), or (b) make the no-sig method-call SITES emit a
+signature (route operator/method-as-call callee synthesis through the real
+resolved symbol), or (c) make `canonical()` signature-aware so distinct-sig
+methods don't collapse. (b)/(c) are the tractable ones. REVERTED to P1 (green);
+all the diagnosis above is reusable.
+
 ## Invariants
 - (b) `::`-keys stay source-identity (pkg::name / Trait::Type), never module.
 - mono dedup keys (done_/done_methods_/concrete_struct_types_) use the SAME form
