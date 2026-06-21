@@ -1,0 +1,9 @@
+// §3.2b: the from-restriction covers TYPES/enums, not just free fns. Importing
+// logos.lang.option `from "logos-mem"` excludes the Option enum (defined in
+// logos-lang), so naming the type fails to resolve.
+package use_from_wrong_module_type;
+use logos.lang.option from "logos-mem";
+fn main() -> i32 {
+    let x: Option<i32> = Option::Some(7i32);
+    return match x { Option::Some(v) => v, Option::None => 0i32 };
+}

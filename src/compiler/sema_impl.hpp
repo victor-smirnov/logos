@@ -3014,6 +3014,18 @@ private:
         for (auto& pkg : effective_import_pkgs()) {
             auto it = m.find(sema_key(pkg, std::string(name)));
             if (it != m.end()) {
+                // §3.2b: `use pkg from <module>;` restricts a package's TYPES /
+                // enums / traits (not just its free fns) to the named module —
+                // skip a match imported `from` a different module than the one
+                // owning this package. (pkg_module_ids_[pkg] is the package's
+                // owning module.) Empty restriction map ⇒ no-op (common case).
+                if (auto rit = cur_imports_.pkg_from_module_id.find(pkg);
+                    rit != cur_imports_.pkg_from_module_id.end()) {
+                    auto mit = pkg_module_ids_.find(pkg);
+                    std::string pkg_mod =
+                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                    if (pkg_mod != rit->second) continue;
+                }
                 if constexpr (PubCheck) {
                     check_pub_access(it->second.is_pub,
                                      it->second.package, name);
