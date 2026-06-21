@@ -2442,10 +2442,26 @@ void SemaChecker::collect_trait(TinyMapView node) {
         AnyVal av = node.get(la::IS_AUTO);
         info.is_auto = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // Validate: auto traits must have an empty body
+    // Validate: auto traits must declare no members.
+    //
+    // ITEMS holds more than just body members: the grammar's `$...` collector
+    // also slurps in non-member capture nodes from the rule's leading items —
+    // the `pub_vis` visibility node (`pub` / `pub(module)`), and the
+    // type-param / supertrait lists for `auto trait T<…>: … {}`. Those are not
+    // body items, so a raw `size() > 0` check spuriously rejects every auto
+    // trait that carries a visibility modifier, type params, or a supertrait
+    // (e.g. `pub auto trait Send {}`). Count only genuine trait members — the
+    // same FN / ASSOC_TYPE_DEF / ASSOC_CONST_DEF codes the member-collection
+    // loop below recognises.
     if (info.is_auto && node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
-        if (items.size() > 0) {
+        bool has_member = false;
+        for (uint64_t i = 0; i < items.size() && !has_member; ++i) {
+            auto code = code_of(map_of(items.get(i)));
+            has_member = (code == la::FN || code == la::ASSOC_TYPE_DEF
+                          || code == la::ASSOC_CONST_DEF);
+        }
+        if (has_member) {
             error(std::format("auto trait '{}' must have an empty body", tname));
             // Bug 1 fix: clean up Self and trait name before early return to
             // avoid polluting scope for subsequent trait collections.
