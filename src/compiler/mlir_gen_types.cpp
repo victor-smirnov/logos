@@ -381,7 +381,18 @@ bool MLIRGenImpl::register_struct(const LStructDef& sd) {
     // Back-compat alias under the bare name for paths that look up via
     // concrete_struct_name (which doesn't carry pkg). First-registered wins.
     if (!sd.pkg.empty() && !struct_types_.count(sd.name))
-        struct_types_[sd.name] = std::move(info);
+        struct_types_[sd.name] = info;
+    // Coexistence: mlir_struct_key = qualify_pkg(pkg, concrete_struct_name),
+    // and concrete_struct_name now carries "$M<module_id>" for non-stdlib module
+    // types. Register matching aliases — both the pkg-qualified form (the actual
+    // lookup key) and the bare suffixed form (concrete_struct_name-only paths).
+    std::string msuffix = type_module_suffix(sd.pkg);
+    if (!msuffix.empty()) {
+        std::string qbare = sd.name + msuffix;
+        std::string qkey  = qualify_pkg(sd.pkg, qbare);
+        if (!struct_types_.count(qkey))  struct_types_[qkey]  = info;
+        if (!struct_types_.count(qbare)) struct_types_[qbare] = info;
+    }
     return true;
 }
 

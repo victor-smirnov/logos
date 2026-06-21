@@ -86,6 +86,9 @@ struct MetaprogDispatchOpts {
     // hook-appended asts (they belong to the module being compiled).
     std::vector<std::string>* module_ids = nullptr;
     std::string               self_module_id;
+    // §3/§B-coex: module canonical-NAME → id, for resolving `use pkg from <name>`
+    // during the discovery passes (else cross-module same-name types mis-resolve).
+    std::unordered_map<std::string, std::string> module_name_to_id;
 };
 
 // Run the metaprog discovery loop:

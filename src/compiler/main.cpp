@@ -2411,6 +2411,7 @@ int run_metaprog_dispatch(
     // prelude names too (the final pass below does the real type resolution,
     // but metaprog handlers may reference Option/Result/String/etc.).
     meta_opts.implicit_prelude = opts.implicit_prelude;
+    meta_opts.module_name_to_id = opts.module_name_to_id;  // §B-coex: `use … from` in discovery
 
     // M6.1: enable incremental dispatch. Cache preserves user-AST state
     // across iters; each iter's sema_lower is given a delta_start_idx so
@@ -3415,6 +3416,7 @@ int main(int argc, char** argv) {
         mopts.implicit_prelude = implicit_prelude_pkg;
         mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
         mopts.self_module_id = "";           // a plain user program is in the global module (no id)
+        mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;

@@ -101,6 +101,33 @@ add_custom_command(
 )
 add_custom_target(coex_binary ALL DEPENDS ${COEX_BIN})
 
+# Full same-pkg-same-name type coexistence: two SEPARATE modules (coex2a, coex2b)
+# each declare `package widgets; pub struct Widget {...}` with DIFFERENT layouts
+# + a Box<Widget> generic, a method, a static. A consumer picks one via
+# `use widgets from <module>`; BOTH archives link into the same binary without
+# symbol collision (type identity is module-qualified). coex_from_a→7, coex_from_b→9.
+set(COEX2A_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/coex2a/coex2a.module)
+set(COEX2B_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/coex2b/coex2b.module)
+set(COEX2A_BIN ${CMAKE_CURRENT_BINARY_DIR}/libcoex2a.a)
+set(COEX2B_BIN ${CMAKE_CURRENT_BINARY_DIR}/libcoex2b.a)
+file(GLOB COEX2A_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/coex2a/*.logos)
+file(GLOB COEX2B_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/coex2b/*.logos)
+add_custom_command(
+    OUTPUT  ${COEX2A_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${COEX2A_MANIFEST} -L ${STDLIB_BIN_DIR} -o ${COEX2A_BIN}
+    DEPENDS logosc ${COEX2A_MANIFEST} ${COEX2A_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libcoex2a.a")
+add_custom_command(
+    OUTPUT  ${COEX2B_BIN}
+    COMMAND $<TARGET_FILE:logosc>
+            --emit-module ${COEX2B_MANIFEST} -L ${STDLIB_BIN_DIR} -o ${COEX2B_BIN}
+    DEPENDS logosc ${COEX2B_MANIFEST} ${COEX2B_SOURCES} ${LOGOS_LANG_BIN} ${LOGOS_MEM_BIN} ${LOGOS_STD_BIN}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building test fixture: libcoex2b.a")
+add_custom_target(coex2_binary ALL DEPENDS ${COEX2A_BIN} ${COEX2B_BIN})
+
 # Build liblazy_pkg.a from the lazy-mode fixture (Phase 6 multi-arena IR).
 # Manifest has `lowering lazy`, so the archive ships only parsed AST
 # (.hm0 member; no .o, no LIR blob). Consumer compile lowers locally.
@@ -395,6 +422,10 @@ function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_PUBLIB_USERS pub_module_internal_use pub_module_type_internal pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
     set(LOCAL_COEX_USERS cross_pkg_coexistence)
+    # Full same-pkg-same-name TYPE coexistence: each consumer `use widgets from
+    # <module>` selects one of two modules that both declare `widgets::Widget`;
+    # both archives link without collision (module-qualified type identity).
+    set(LOCAL_COEX2_USERS coex_from_a coex_from_b)
     # Phase 6 (multi-arena IR) lazy-mode fixture: archive ships AST only.
     set(LOCAL_LAZY_PKG_USERS lazy_pkg_basic)
     # Phase 6 lazy→lazy chain: consumer pulls upper (lazy) which pulls
@@ -438,6 +469,8 @@ function(logos_pass_extra_args BASE OUT_VAR)
         set(_extra -l ${PUB_LIB_BIN})
     elseif (BASE IN_LIST LOCAL_COEX_USERS)
         set(_extra -l ${COEX_BIN})
+    elseif (BASE IN_LIST LOCAL_COEX2_USERS)
+        set(_extra -l ${COEX2A_BIN} -l ${COEX2B_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_PKG_USERS)
         set(_extra -l ${LAZY_PKG_BIN})
     elseif (BASE IN_LIST LOCAL_LAZY_CHAIN_USERS)

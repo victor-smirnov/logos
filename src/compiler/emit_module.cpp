@@ -265,7 +265,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                const std::string& module_id = "",
                                const std::string& implicit_prelude = "",
                                const std::vector<std::string>& dep_archives = {},
-                               const std::vector<std::string>& per_ast_module_ids = {}) {
+                               const std::vector<std::string>& per_ast_module_ids = {},
+                               const std::unordered_map<std::string, std::string>& module_name_to_id = {}) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -321,6 +322,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         mopts.binary_symbols = dep_symbols;  // skeleton-skip gate for dispatch sema
         mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
         mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
+        mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
         // The metaprog mlir module spans the whole stdlib, so JIT lookup
@@ -422,6 +424,7 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     SemaOptions sema_opts;
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
+    sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
@@ -913,6 +916,7 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<bool>        ast_only_flags;       // parallel to asts
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
     std::vector<std::string> per_ast_module_ids;    // parallel to asts (owning-module mangle key)
+    std::unordered_map<std::string, std::string> module_name_to_id;  // §B-coex: NAME→id for `from`
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
@@ -921,6 +925,8 @@ bool emit_module(const ModuleManifest& manifest,
         ast_only_flags.push_back(ao);
         from_binary_module_flags.push_back(m.from_binary_module);
         per_ast_module_ids.push_back(m.module_id);  // own files: self_id (stamped above); deps: archive id
+        if (!m.module_name.empty() && !m.module_id.empty())
+            module_name_to_id.emplace(m.module_name, m.module_id);
         asts.push_back(std::move(m.ast));
     }
 
@@ -963,7 +969,8 @@ bool emit_module(const ModuleManifest& manifest,
                                /*module_id=*/module_id,
                                /*implicit_prelude=*/manifest.prelude,
                                /*dep_archives=*/all_lib_files,
-                               /*per_ast_module_ids=*/per_ast_module_ids)) {
+                               /*per_ast_module_ids=*/per_ast_module_ids,
+                               /*module_name_to_id=*/module_name_to_id)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }

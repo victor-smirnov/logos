@@ -4988,8 +4988,9 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
     // does for dst_len resolution), then fall back to the bare name (non-generic).
     auto targs = TypeRef(t).type_args();
     std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string concrete_pkg(TypeRef(t).pkg_name());
     std::string concrete = concrete_struct_name_raw(
-        std::string(TypeRef(t).struct_name()), targ_vec);
+        std::string(TypeRef(t).struct_name()), targ_vec, concrete_pkg);
     for (const std::string& nm : {concrete, std::string(TypeRef(t).struct_name())}) {
         auto it = all_struct_defs_.find(nm);
         if (it != all_struct_defs_.end() && it->second)
@@ -5100,8 +5101,9 @@ mlir::Value MLIRGenImpl::emit_dst_len(mlir::Value thin_ptr, TypeRef dstref_t) {
     // `Foo__dst_len` (which only exists for non-generic structs).
     auto targs = TypeRef(dstref_t).type_args();
     std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string dstref_pkg(TypeRef(dstref_t).pkg_name());
     std::string sname = concrete_struct_name_raw(
-        std::string(TypeRef(dstref_t).struct_name()), targ_vec);
+        std::string(TypeRef(dstref_t).struct_name()), targ_vec, dstref_pkg);
     auto sym = resolve_method_symbol(sname, "dst_len");
     auto parent_mod = builder_.getBlock()->getParent()
                           ->getParentOfType<mlir::ModuleOp>();

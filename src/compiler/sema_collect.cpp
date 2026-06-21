@@ -1886,9 +1886,19 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // No VALUE ⇒ extern-block decl: links against the BARE name.
                 collect_const(item);
                 auto sm_name = std::string(str_of(item.get(la::NAME.code)));
-                module_statics_[sm_name] = item.has_key(la::VALUE)
-                    ? std::string(cur_package_) + "$" + sm_name
-                    : sm_name;
+                // Coexistence: module-qualify the static's link symbol
+                // (`<module_id>.<pkg>$<name>`) like functions so two modules that
+                // each declare `pkg::NAME` don't collide at link. cur_module_id_
+                // is the symbol's OWNING module (own source or the binary AST it
+                // came from), so imported statics resolve to their definer's sym.
+                // extern statics (no VALUE) link against the BARE name — never qualify.
+                if (item.has_key(la::VALUE)) {
+                    std::string base = std::string(cur_package_) + "$" + sm_name;
+                    module_statics_[sm_name] = cur_module_id_.empty()
+                        ? base : cur_module_id_ + "." + base;
+                } else {
+                    module_statics_[sm_name] = sm_name;
+                }
                 // T1-13: extern statics (no VALUE) — every ACCESS requires
                 // `unsafe` (Rust items.extern.static), tracked separately
                 // from `static mut`.

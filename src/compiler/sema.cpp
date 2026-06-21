@@ -1348,10 +1348,41 @@ static std::string mangle_type_for_name(TypeRef t);
 // is stable across the impl's TypeVars A,B,C. Toggled by function_signature_key.
 static bool g_mangle_erase_fnptr = false;
 
+// ── Type module-qualification (same-pkg-same-name coexistence) ───────────────
+//
+// Two modules can each declare the same `pkg::Type` (one per module — unique
+// within a module). Their *separately compiled* archives must not collide at
+// link, so every type-keyed symbol (generic mono instances, drop glue, vtables,
+// the type's own type_id helper) embeds the type's owning module_id.
+//
+// concrete_struct_name is a free function shared by sema/mono/mlir, so the
+// current phase's pkg→module map is threaded via a thread_local pointer (the
+// SAME map function-symbol mangling rides — proven populated for stdlib in
+// normal compiles). stdlib packages (`logos.*`) are globally unique and never
+// coexist, so they are NOT qualified → zero stdlib mangling churn. An empty map
+// (plain non-module compiles) likewise yields no suffix → byte-identical output.
+thread_local const std::unordered_map<std::string, std::string>* g_type_pkg_module_ids = nullptr;
+
+void set_type_module_map(const std::unordered_map<std::string, std::string>* m) {
+    g_type_pkg_module_ids = m;
+}
+const std::unordered_map<std::string, std::string>* get_type_module_map() {
+    return g_type_pkg_module_ids;
+}
+
+std::string type_module_suffix(std::string_view pkg) {
+    if (!g_type_pkg_module_ids || pkg.empty()) return {};
+    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: globally unique
+    auto it = g_type_pkg_module_ids->find(std::string(pkg));
+    if (it == g_type_pkg_module_ids->end() || it->second.empty()) return {};
+    return "$M" + it->second;
+}
+
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
     std::string base(TypeRef(t).struct_name());
+    base += type_module_suffix(TypeRef(t).pkg_name());  // coexistence: module-qualify
     if (!TypeRef(t).type_args().empty()) {
         base += "$G";
         base += std::to_string(TypeRef(t).type_args().size());
@@ -1360,10 +1391,16 @@ std::string concrete_struct_name(TypeRef t) {
     return base;
 }
 
+// pkg-aware variant: callers that build a name from a base string must pass the
+// owning package so the same module suffix is applied as the TypeRef path (else
+// definition≠use → link error). Empty pkg ⇒ no suffix (legacy callers).
 std::string concrete_struct_name_raw(std::string_view base_name,
-                                     const std::vector<TypeRef>& type_args) {
-    if (type_args.empty()) return std::string(base_name);
+                                     const std::vector<TypeRef>& type_args,
+                                     std::string_view pkg) {
+    std::string suffix = type_module_suffix(pkg);
+    if (type_args.empty()) return std::string(base_name) + suffix;
     std::string r(base_name);
+    r += suffix;
     r += "$G";
     r += std::to_string(type_args.size());
     for (auto a : type_args) { r += "$"; r += mangle_type_for_name(a); }
@@ -1384,6 +1421,10 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
         return concrete_struct_name(t);
+    case LogosType::Kind::Enum:
+        // Coexistence: module-qualify the enum's mangled name (as a type-arg)
+        // so two modules' same-named enums don't collide in generic symbols.
+        return type_str(t) + type_module_suffix(TypeRef(t).pkg_name());
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
         for (auto e : TypeRef(t).tuple_elems()) { r += "$"; r += mangle_type_for_name(e); }
@@ -2177,6 +2218,11 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
                                 const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
     from_binary_ = from_binary.empty() ? nullptr : &from_binary;
+    // Coexistence: type-keyed symbol names (mono insts, drop glue, vtables,
+    // type_id helpers) qualify by the owning module. pkg_module_ids_ is filled
+    // during collect below; the guard holds a live pointer so post-collect
+    // mangling sees the complete map. Matches mono/mlir so def==use.
+    TypeModuleScope _type_module_scope(&pkg_module_ids_);
 
     const bool sema_phase_timing = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -7751,6 +7797,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             cd.is_mut    = item.has_key(la::IS_MUT);
             cd.is_extern = !item.has_key(la::VALUE);
             if (cd.is_extern) cd.value = nullptr;  // external: no initializer
+            // Symbol was registered (module-qualified) in module_statics_ during
+            // collect; non-static-collected statics fall back to pkg$name.
             auto sit = module_statics_.find(cd.name);
             cd.sym = sit != module_statics_.end()
                 ? sit->second

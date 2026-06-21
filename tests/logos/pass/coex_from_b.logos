@@ -1,0 +1,3 @@
+package coex_from_b;
+use widgets from coex2b;
+fn main() -> i32 { let w: Widget = Widget { p: 1i64, q: 2i64, r: 9i64 }; return w.val(); }

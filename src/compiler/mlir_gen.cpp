@@ -63,6 +63,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     prog_   = &prog;
     mirror_ = prog.mirror_table.get();
 
+    // Coexistence: module-qualify type-keyed symbol names (drop glue, vtables,
+    // mono insts) consistently with sema/mono so emitted defs match their uses.
+    TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
+
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs) {
@@ -74,6 +78,15 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // qualified entry).
         if (!sd.pkg.empty() && !all_struct_defs_.count(sd.name))
             all_struct_defs_[sd.name] = &sd;
+        // Coexistence: concrete_struct_name lookups (field access, DST resolve)
+        // now carry the "$M<module_id>" suffix for non-stdlib module types, so
+        // register a matching alias. Generic-instance sd.name already carries it
+        // (built via concrete_struct_name in mono) → suffix is empty, no dup.
+        std::string msuffix = type_module_suffix(sd.pkg);
+        if (!msuffix.empty()) {
+            std::string qname = sd.name + msuffix;
+            if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = &sd;
+        }
     }
 
     // Pass 0.5: register enum types (needs all_struct_defs_ populated above).

@@ -3374,7 +3374,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     if (resolved) args = std::move(pargs);
                                 }
                             }
-                            std::string cname = concrete_struct_name_raw(struct_part, args);
+                            std::string cname = concrete_struct_name_raw(struct_part, args, sit_ptr->pkg);
                             nc.callee = cname + method_part;
                             nc.type_args.clear();
                             rewritten_as_struct_method = true;

@@ -81,19 +81,23 @@ static bool file_opts_out_of_implicit_prelude(const hermes::HermesView& ast) {
 // Three-layer split Phase 3.4: extract `use` deps from an AST, optionally
 // appending an implicit prelude package (if `implicit_prelude` is non-empty
 // AND the file does not carry `#![no_implicit_prelude]`).
-static std::vector<std::string> extract_uses(const hermes::HermesView& ast,
-                                              std::string_view implicit_prelude = {}) {
-    std::vector<std::string> result;
+// §B-coex: each entry is (package, from_module). `from_module` is the module
+// named by `use pkg from <module>;` (empty = no `from` → default resolution).
+using UseRef = std::pair<std::string, std::string>;
+static std::vector<UseRef> extract_uses(const hermes::HermesView& ast,
+                                        std::string_view implicit_prelude = {}) {
+    std::vector<UseRef> result;
     auto holder = ast.holder();
     auto root = ast.root_object().as_tiny_map();
 
     // Helper: implicit-prelude tail used by every exit path. Idempotent
     // (deduped against already-collected explicit uses).
-    auto finalize = [&]() -> std::vector<std::string> {
+    auto finalize = [&]() -> std::vector<UseRef> {
         if (!implicit_prelude.empty() && !file_opts_out_of_implicit_prelude(ast)) {
-            if (std::find(result.begin(), result.end(), implicit_prelude)
+            if (std::find_if(result.begin(), result.end(),
+                    [&](const UseRef& u){ return u.first == implicit_prelude; })
                 == result.end())
-                result.emplace_back(implicit_prelude);
+                result.emplace_back(std::string(implicit_prelude), std::string{});
         }
         return std::move(result);
     };
@@ -107,6 +111,26 @@ static std::vector<std::string> extract_uses(const hermes::HermesView& ast,
         AnyVal use_av = uses.get(i);
         if (use_av.is_null() || !use_av.is_pointer()) continue;
         auto use_node = TinyMapView(use_av, holder);
+
+        // §B-coex: `use pkg from <module>;` — the module name disambiguates which
+        // archive provides pkg (two modules can share a package name). Bare IDENT
+        // or quoted string (strip quotes); empty = no `from`.
+        std::string from_module;
+        if (use_node.has_key(la::mod::FROM_MODULE)) {
+            AnyVal fmav = use_node.get(la::mod::FROM_MODULE);
+            if (!fmav.is_null() && fmav.is_pointer()) {
+                auto fm = TinyMapView(fmav, holder);
+                if (fm.has_key(la::NAME)) {
+                    AnyVal nv = fm.get(la::NAME);
+                    if (!nv.is_null() && nv.is_pointer()) {
+                        from_module = std::string(StringView(nv, holder).view());
+                        if (from_module.size() >= 2 && from_module.front() == '"' &&
+                            from_module.back() == '"')
+                            from_module = from_module.substr(1, from_module.size() - 2);
+                    }
+                }
+            }
+        }
 
         // Reconstruct dotted path from NAME + PATH_PARTS.
         // `use a.b.c;` → NAME="a", PATH_PARTS=[{NAME:"b"},{NAME:"c"}] → "a.b.c".
@@ -166,7 +190,7 @@ static std::vector<std::string> extract_uses(const hermes::HermesView& ast,
                                 if (nv.is_null() || !nv.is_pointer()) continue;
                                 std::string bare(StringView(nv, holder).view());
                                 std::string full = prefix + "." + bare;
-                                result.push_back(std::move(full));
+                                result.push_back({std::move(full), std::string{}});
                             }
                         }
                     }
@@ -175,12 +199,12 @@ static std::vector<std::string> extract_uses(const hermes::HermesView& ast,
                 // Uppercase: real enum-variant import. dotted is the
                 // enum's pkg; load it as a wildcard so the type itself
                 // is in scope.
-                if (!dotted.empty()) result.push_back(dotted);
+                if (!dotted.empty()) result.push_back({dotted, std::string{}});
                 continue;
             }
         }
         if (!dotted.empty())
-            result.push_back(dotted);
+            result.push_back({dotted, from_module});
     }
 
     return finalize();
@@ -247,7 +271,8 @@ topo_sort_modules(std::vector<ParsedModule> in,
                 ? std::string_view{} : implicit_prelude;
             auto uses = extract_uses(in[i].ast, ip);
             size_t u = rank[pkg];
-            for (auto& used : uses) {
+            for (auto& used_ref : uses) {
+                const std::string& used = used_ref.first;  // §B-coex: (pkg, from)
                 if (used == pkg) continue;
                 auto it = rank.find(used);
                 if (it == rank.end()) continue;
@@ -1076,7 +1101,8 @@ parse_pkgi_member(const std::vector<uint8_t>& data,
 // .hm0 blob. Legacy archives without `.pkgi` fall through to scanning
 // the .hm0 directly (slow but correct).
 static std::unordered_map<std::string, std::string>
-build_binary_index(const std::vector<std::string>& search_paths) {
+build_binary_index(const std::vector<std::string>& search_paths,
+                   std::unordered_map<std::string, std::string>* module_archives = nullptr) {
     auto t0 = std::chrono::steady_clock::now();
     std::unordered_map<std::string, std::string> idx;
     size_t bytes_read = 0;
@@ -1100,8 +1126,11 @@ build_binary_index(const std::vector<std::string>& search_paths) {
                 for (auto& m : pkgi_members) {
                     bytes_read += m.size();
                     auto unwrapped = unwrap_elf_section(m, ".lpkgindex");
-                    for (auto& pkg : parse_pkgi_member(unwrapped))
+                    std::string mod_name;  // §B-coex: capture @module name
+                    for (auto& pkg : parse_pkgi_member(unwrapped, &mod_name))
                         if (!idx.count(pkg)) idx[pkg] = archive;
+                    if (module_archives && !mod_name.empty())
+                        module_archives->emplace(mod_name, archive);
                 }
                 continue;
             }
@@ -1193,7 +1222,9 @@ std::vector<ParsedModule> load_modules(
     bool had_error = false;
 
     PackageIndex index = build_package_index(search_paths, abs_excludes);
-    auto binary_index  = build_binary_index(search_paths);
+    // §B-coex: module canonical-NAME → archive, for `use pkg from <module>;`.
+    std::unordered_map<std::string, std::string> module_archives;
+    auto binary_index  = build_binary_index(search_paths, &module_archives);
 
     // Fold explicit `-l FILE` archives into the binary index. Each file
     // contributes its packages exactly like a *.a found in a search dir.
@@ -1211,6 +1242,12 @@ std::vector<ParsedModule> load_modules(
             for (auto& pkg : pkgs) {
                 if (!binary_index.count(pkg)) binary_index[pkg] = archive;
             }
+        }
+        // §B-coex: capture the explicit archive's @module name for `from`.
+        for (auto& pm : ar_read_members_streaming(archive, ".pkgi")) {
+            std::string mod_name;
+            parse_pkgi_member(unwrap_elf_section(pm, ".lpkgindex"), &mod_name);
+            if (!mod_name.empty()) { module_archives.emplace(mod_name, archive); break; }
         }
     }
 
@@ -1231,7 +1268,7 @@ std::vector<ParsedModule> load_modules(
     // Parse one .logos file. On success returns the AST and its use-list;
     // on failure logs to stderr and returns empty.
     auto parse_one = [&](const std::string& canonical)
-        -> std::pair<hermes::Hermes, std::vector<std::string>>
+        -> std::pair<hermes::Hermes, std::vector<UseRef>>
     {
         auto source = read_file(canonical);
         if (source.empty()) {
@@ -1294,7 +1331,7 @@ std::vector<ParsedModule> load_modules(
         return {std::move(ast), std::move(uses)};
     };
 
-    std::function<void(const std::string&)> visit_package;
+    std::function<void(const std::string&, const std::string&)> visit_package;
     std::function<void(const std::string&, const std::string&)> visit_file;
 
     // Load and emit files belonging to `requested_pkg` plus the implicit
@@ -1478,13 +1515,13 @@ std::vector<ParsedModule> load_modules(
             return true;
         };
 
-        std::vector<std::string> pkg_uses;
+        std::vector<UseRef> pkg_uses;
         for (auto& pm : cit->second) {
             if (!wanted(pm.package)) continue;
             auto uses = extract_uses(pm.ast);
             for (auto& u : uses) pkg_uses.push_back(std::move(u));
         }
-        for (const auto& u : pkg_uses) visit_package(u);
+        for (const auto& u : pkg_uses) visit_package(u.first, u.second);
 
         for (auto& pm : cit->second) {
             if (!wanted(pm.package)) continue;
@@ -1499,15 +1536,31 @@ std::vector<ParsedModule> load_modules(
     };
 
     // Visit every file belonging to a package, post-order on dependencies.
-    visit_package = [&](const std::string& pkg) {
-        if (!visited_packages.insert(pkg).second) return;
+    visit_package = [&](const std::string& pkg, const std::string& from_module) {
+        // §B-coex: a no-`from` load keeps the bare pkg key (unchanged behavior); a
+        // `from <M>` load keys by (M, pkg) so `use pkg from A;` and `from B;` BOTH
+        // load (distinct modules sharing a package name).
+        std::string vkey = from_module.empty() ? pkg : (from_module + "\x01" + pkg);
+        if (!visited_packages.insert(vkey).second) return;
+
+        // §B-coex: an explicit `from <module>` pins the source archive — load pkg
+        // from THAT module (lets two modules' same-named package coexist).
+        if (!from_module.empty()) {
+            auto mit = module_archives.find(from_module);
+            if (mit != module_archives.end()) {
+                visit_binary_module(mit->second, mit->second, pkg);
+                return;
+            }
+            // Unknown module name: fall through to default resolution; sema's
+            // `use … from` check emits the precise "no loaded module" error.
+        }
 
         // Check text index first (source build takes priority).
         auto it = index.find(pkg);
         if (it != index.end()) {
             struct Pending { std::string path; hermes::Hermes ast; };
             std::vector<Pending> pending;
-            std::vector<std::string> pkg_uses;
+            std::vector<UseRef> pkg_uses;
             for (const auto& file : it->second) {
                 if (!visited_files.insert(file).second) continue;
                 auto [ast, uses] = parse_one(file);
@@ -1515,7 +1568,7 @@ std::vector<ParsedModule> load_modules(
                 for (auto& u : uses) pkg_uses.push_back(std::move(u));
                 pending.push_back({file, std::move(ast)});
             }
-            for (const auto& u : pkg_uses) visit_package(u);
+            for (const auto& u : pkg_uses) visit_package(u.first, u.second);
             for (auto& p : pending) modules.push_back({std::move(p.path), pkg, std::move(p.ast)});
             return;
         }
@@ -1547,13 +1600,13 @@ std::vector<ParsedModule> load_modules(
                     if (!visited_files.insert(sib).second) continue;
                     auto [sast, suses] = parse_one(sib);
                     if (sast.is_null()) continue;
-                    for (const auto& u : suses) visit_package(u);
+                    for (const auto& u : suses) visit_package(u.first, u.second);
                     modules.push_back({sib, declared_pkg, std::move(sast)});
                 }
             }
         }
         // Recurse into this file's own uses (post-order).
-        for (const auto& u : uses) visit_package(u);
+        for (const auto& u : uses) visit_package(u.first, u.second);
         modules.push_back({canonical, declared_pkg, std::move(ast)});
     };
 
