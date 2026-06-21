@@ -771,6 +771,27 @@ public:
         }
         return result;
     }
+
+    // Canonical type-identity STRING for nominal runtime UID hashing
+    // (`type_uid::<T>()` → Any / type_id / quote_ty reification). Same bytes as
+    // type_str EXCEPT a non-stdlib MODULE type gets its "$M<module_id>" suffix,
+    // so two modules' same-named `pkg::Type` hash to DISTINCT runtime UIDs and
+    // cross-module Any/downcast can't confuse them (Cat C coexistence). stdlib
+    // (`logos.*`) + no-module compiles ⇒ empty suffix ⇒ byte-identical to
+    // type_str (UIDs unchanged). Top-level nominal name only — a nested
+    // `Box<pkg::Widget>` still distinguishes only when Box itself is the module
+    // type; the deeper recursive case is a documented edge.
+    static std::string type_id_canon(TypeRef t) {
+        std::string s = type_str(t);
+        if (t) {
+            auto k = t.kind();
+            if (k == LogosType::Kind::Struct ||
+                k == LogosType::Kind::ZonedStruct ||
+                k == LogosType::Kind::Enum)
+                s += type_module_suffix(t.pkg_name());
+        }
+        return s;
+    }
 private:
 
     // ── Expression/statement cloning (large — defined in mono_clone.cpp) ─
