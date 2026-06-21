@@ -722,8 +722,12 @@ public:
                 if (t.elem() && has_tv(t.elem())) return true;
                 return false;
             };
-            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name());
-            std::string r = std::string(tr.enum_name());
+            // Coexistence: module-qualify the enum name (matches sema's
+            // mangle_type_for_name) so two modules' same-named enums get
+            // distinct generic-symbol type-args.
+            std::string esuf = type_module_suffix(tr.pkg_name());
+            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name()) + esuf;
+            std::string r = std::string(tr.enum_name()) + esuf;
             for (auto a : tr.type_args()) {
                 r += "__";
                 r += mangle_type(a);
