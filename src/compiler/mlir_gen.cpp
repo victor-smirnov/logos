@@ -190,9 +190,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // binary-module templates are NOT in the archive and must be
     // compiled, so we use binary_symbols rather than the
     // from_binary_module flag (mono erases the flag during clone).
-    auto is_binary_skip = [&prog](const lir::LFunction& fn) -> bool {
+    auto is_binary_skip = [&prog, this](const lir::LFunction& fn) -> bool {
         if (fn.is_extern || prog.binary_symbols.empty()) return false;
-        return prog.binary_symbols.count(fn.name) > 0;
+        // Module system: archive nm carries QUALIFIED link symbols → match on link_name.
+        return prog.binary_symbols.count(link_name(fn)) > 0;
     };
 
     // Phase 6 (multi-arena IR) item-level lazy reach analysis.
@@ -492,14 +493,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
             if (is_binary_skip(*m) || is_lazy_skip(*m)) continue;
-            auto func = mod.lookupSymbol<mlir::func::FuncOp>(m->name);
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*m));
             if (!gen_function_body(func, *m)) return nullptr;
             ++method_bodies; ++bodies_emitted;
         }
     }
     for (auto& fn : prog.functions) {
         if (fn->is_extern || is_binary_skip(*fn) || is_lazy_skip(*fn)) continue;
-        auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
+        auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*fn));
         if (!gen_function_body(func, *fn)) return nullptr;
         ++fn_bodies; ++bodies_emitted;
     }
@@ -606,6 +607,12 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
 
         auto rewrite = [&](const std::string& callee) -> std::string {
             if (existing_names.count(callee)) return callee;
+            // Module system: try the EXACT module-qualified link name first — it
+            // preserves the full signature, so a method resolves to the right def
+            // (the signature-stripping canonical() below is ambiguous and would
+            // mis-resolve multi-signature methods).
+            if (auto q = link_name_str(callee); q != callee && existing_names.count(q))
+                return q;
             auto c = canonical(callee);
             auto try_lookup = [&](const std::string& key) -> const std::string* {
                 if (ambiguous_canon.count(key)) return nullptr;

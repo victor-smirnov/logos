@@ -227,7 +227,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
             auto it = sys_all_binary.find(de.tag_system);
             if (it == sys_all_binary.end())
                 sys_all_binary[de.tag_system] = true;
-            if (!prog.binary_symbols.count(de.fn_symbol))
+            if (!prog.binary_symbols.count(link_name_str(de.fn_symbol)))
                 sys_all_binary[de.tag_system] = false;
         }
         for (auto& [sys, all_bin] : sys_all_binary)
@@ -307,10 +307,13 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         // contains a single underscore (e.g. "My_System__Trait__method" is
         // unambiguous; "My_System_Trait_method" is not).
         auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
+        // Module system: dispatch entry stores a bare-module method symbol;
+        // qualify it to the emitted link name so the table references resolve.
+        auto fsym = link_name_str(de.fn_symbol);
         if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
-            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, de.fn_symbol});
+            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, fsym});
         } else {
-            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, de.fn_symbol});
+            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, fsym});
         }
     }
     if (tier1_tables.empty() && tier2_tables.empty()) return;
@@ -851,14 +854,14 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     };
                     for (auto& fp : ib.methods) {
                         if (!fp) continue;
-                        if (try_match(*fp)) { sym = fp->name; break; }
+                        if (try_match(*fp)) { sym = link_name(*fp); break; }
                     }
                     if (sym.empty()) {
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
                             for (auto* fp : it->second) {
                                 if (belongs_to_target(fp->name)) {
-                                    sym = fp->name; break;
+                                    sym = link_name(*fp); break;
                                 }
                             }
                         }
@@ -870,7 +873,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                                 it != sit->second.end()) {
                                 for (auto* mp : it->second) {
                                     if (belongs_to_target(mp->name)) {
-                                        sym = mp->name; break;
+                                        sym = link_name(*mp); break;
                                     }
                                 }
                             }
@@ -1282,7 +1285,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
                 if (try_match(mp->name)) {
-                    rtc_sym = mp->name;
+                    rtc_sym = link_name(*mp);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }
@@ -1293,7 +1296,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
             for (auto& fn : prog_->functions) {
                 if (!fn) continue;
                 if (try_match(fn->name)) {
-                    rtc_sym = fn->name;
+                    rtc_sym = link_name(*fn);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }

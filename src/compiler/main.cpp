@@ -2583,14 +2583,22 @@ int run_metaprog_dispatch(
         // next iter's binary_symbols extension covers them. "Emitted"
         // means name is in prog.functions / struct.methods AND NOT in
         // the current binary_symbols set (which already excludes them).
+        // Module system: track the QUALIFIED LINK names (the same form mlir_gen
+        // emits + is_binary_skip checks) via the single shared sym::link_name —
+        // else methods (qualified at emission) desync from the bare tracking and
+        // get re-emitted across iters → ORC duplicate-definition.
         for (auto& fp : meta_prog.functions) {
-            if (fp && !meta_prog.binary_symbols.count(fp->name))
-                m6_prev_emitted_fns.insert(fp->name);
+            if (!fp) continue;
+            auto ln = sym::link_name(*fp, meta_prog.pkg_module_ids);
+            if (!meta_prog.binary_symbols.count(ln))
+                m6_prev_emitted_fns.insert(std::move(ln));
         }
         for (auto& sd : meta_prog.structs) {
             for (auto& m : sd.methods) {
-                if (m && !meta_prog.binary_symbols.count(m->name))
-                    m6_prev_emitted_fns.insert(m->name);
+                if (!m) continue;
+                auto ln = sym::link_name(*m, meta_prog.pkg_module_ids);
+                if (!meta_prog.binary_symbols.count(ln))
+                    m6_prev_emitted_fns.insert(std::move(ln));
             }
         }
         mlir::PassManager meta_pm(&meta_mlir_ctx);
@@ -3154,8 +3162,20 @@ int main(int argc, char** argv) {
             std::string_view sv(line);
             while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                 sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/')
+            if (!sv.empty() && sv.front() != '/') {
                 binary_symbols.emplace(sv);
+                // Module system: a METHOD symbol is emitted module-qualified as
+                // `<module>..<pkg>.<rest>` (mlir-gen link_name), but mono's
+                // precompiled-skip checks use the BARE `<pkg>.<rest>` form
+                // (function_symbol_name exempts methods from the module segment).
+                // Insert the bare alias (everything after the `..` sentinel) so a
+                // stdlib method is recognised as already compiled — else mono
+                // re-monomorphises the ENTIRE stdlib in every consumer compile
+                // (mono+borrow re-instantiation storm: borrow 12ms→1300ms). Free
+                // fns use a single `.`/`$` boundary (no `..`) and are unaffected.
+                if (auto dd = sv.find(".."); dd != std::string_view::npos)
+                    binary_symbols.emplace(sv.substr(dd + 2));
+            }
         }
         ::pclose(pipe);
     };

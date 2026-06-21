@@ -35,37 +35,77 @@ static mlir::func::FuncOp find_fn_matching(mlir::ModuleOp mod, Pred&& pred) {
     return {};
 }
 
-static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name) {
+}  // namespace
+
+// find_func_op — THE callee-resolution chokepoint. Resolve a callee symbol to
+// its FuncOp, tolerating the bare↔module-qualified and sig-stripped forms the
+// LIR/mono/bridge produce. A member (not a file-static) so it can consult the
+// per-package module map via link_name_str.
+mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
+                                             std::string_view name) const {
+    // Fast path: a direct symbol-table hit (free fns — already qualified in the
+    // LIR — and intra-module bare names). O(1); no cache key allocation.
     if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name))
         return fn;
-    auto found = find_fn_matching(mod,
-        [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; });
-    if (found) return found;
-    // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
-    // must also resolve the post-unify pkg-qualified + sig-suffixed form
-    // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
-    auto canonical = [](std::string_view nm) -> std::string_view {
-        // Strip free-fn `pkg$` prefix.
-        if (auto d = nm.find('$'); d != std::string_view::npos) {
-            bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
-                        nm[d + 2] >= '0' && nm[d + 2] <= '9');
-            if (!gen) nm = nm.substr(d + 1);
+    // Bare miss (the common case for a module-qualified METHOD callee). The
+    // remaining resolution is the expensive part (string-building + possible
+    // O(n) walks), and the SAME callee recurs across many call sites, so memoise
+    // it. Misses are NOT cached — a name may resolve once a later forward-decl
+    // is emitted; only stable HITS are stored (FuncOp defs never change name).
+    std::string key(name);
+    if (auto it = find_func_op_cache_.find(key); it != find_func_op_cache_.end())
+        return it->second;
+    auto resolve = [&]() -> mlir::func::FuncOp {
+        // Module system: the callee is BARE but its FuncOp is module-qualified.
+        // Try the EXACT qualified form via an O(1) symbol-table lookup IMMEDIATELY
+        // — BEFORE any O(n) find_fn_matching walk. Under modules nearly every
+        // method callee misses the bare lookup, so deferring the qualified hash
+        // probe past the linear walks would make resolution O(calls × functions)
+        // = O(n²). It also wins correctness: the exact qualified symbol beats the
+        // sig-stripping canonical fallback, which would collapse distinct-base /
+        // distinct-signature defs onto the wrong one (String::from→new, or
+        // set(_,HAny) for an i64 arg).
+        std::string qualified;
+        if (auto q = link_name_str(key); q != name) {
+            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(q))
+                return fn;
+            qualified = std::move(q);
         }
-        // Strip method `pkg.` prefix (last dot before bare name).
-        if (auto d = nm.rfind('.'); d != std::string_view::npos)
-            nm = nm.substr(d + 1);
-        // Strip sig suffix.
-        if (auto p = nm.find("__f__"); p != std::string_view::npos)
-            nm = nm.substr(0, p);
-        else if (auto p = nm.find("__g__"); p != std::string_view::npos)
-            nm = nm.substr(0, p);
-        return nm;
+        if (auto found = find_fn_matching(mod,
+                [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; }))
+            return found;
+        if (!qualified.empty())
+            if (auto fn = find_fn_matching(mod,
+                    [&](mlir::func::FuncOp f) { return f.getName().str() == qualified; }))
+                return fn;
+        // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
+        // must also resolve the post-unify pkg-qualified + sig-suffixed form
+        // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
+        auto canonical = [](std::string_view nm) -> std::string_view {
+            // Strip free-fn `pkg$` prefix.
+            if (auto d = nm.find('$'); d != std::string_view::npos) {
+                bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
+                            nm[d + 2] >= '0' && nm[d + 2] <= '9');
+                if (!gen) nm = nm.substr(d + 1);
+            }
+            // Strip method `pkg.` prefix (last dot before bare name).
+            if (auto d = nm.rfind('.'); d != std::string_view::npos)
+                nm = nm.substr(d + 1);
+            // Strip sig suffix.
+            if (auto p = nm.find("__f__"); p != std::string_view::npos)
+                nm = nm.substr(0, p);
+            else if (auto p = nm.find("__g__"); p != std::string_view::npos)
+                nm = nm.substr(0, p);
+            return nm;
+        };
+        return find_fn_matching(mod, [&](mlir::func::FuncOp fn) {
+            return canonical(fn.getName()) == name;
+        });
     };
-    return find_fn_matching(mod, [&](mlir::func::FuncOp fn) {
-        return canonical(fn.getName()) == name;
-    });
+    auto resolved = resolve();
+    if (resolved) find_func_op_cache_.emplace(std::move(key), resolved);
+    return resolved;
 }
-}  // namespace
 
 // ---------------------------------------------------------------------------
 // gen_expr — main dispatcher
@@ -2527,6 +2567,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
 
     auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    // find_func_op resolves the module-qualified link form internally (THE
+    // chokepoint), so the EXACT overload binds before the signature-blind suffix
+    // fallbacks below — no per-site qualification needed here.
     auto callee_fn   = find_func_op(parent_mod, callee_name);
     auto walk_prefix = [&](const std::string& cn) -> mlir::func::FuncOp {
         std::string generic_prefix = cn + "__g__";

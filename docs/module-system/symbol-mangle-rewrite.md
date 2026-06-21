@@ -144,6 +144,52 @@ declaration whose make_fn_type HAny-repr differs from the call's — i.e. a
 PRE-EXISTING HAny dual-repr (i64 niche value vs *zoned/enum ptr) latent
 inconsistency that P3 exposes via the skip-path. Needs HAny-lowering debugging.
 
+## P3 LANDED (2026-06-20, autonomous) — methods module-qualified, L4 5733/5733
+The earlier attempts' "HAny repr bug" was a RED HERRING. The whole failure class
+(hermes operand-type mismatch, box_deref arity, String::from→new, Rc/Box/RAII/
+persistent/zoned runtime drop holes) reduced to ONE root: **method/drop callees
+are BARE in the LIR but their FuncOps are emitted module-QUALIFIED**, and every
+resolution site that looked up by the bare name missed → either picked the wrong
+overload (signature-blind suffix fallback) or silently skipped the call.
+
+THE FIX is DERIVE-from-foundation: make `find_func_op` (THE callee-resolution
+chokepoint, now a member) module-aware — after a bare miss it tries the EXACT
+`link_name_str`-qualified form (full signature preserved, O(1) hash) BEFORE any
+O(n) walk — and route the two drop-emission sites (`gen_drop_value` struct/enum +
+the `SDrop` handler in mlir_gen_stmt.cpp) through it instead of direct
+`mod.lookupSymbol`. Edits:
+- `find_func_op`: member; qualified-hash-probe-before-walk (correctness + avoids
+  O(n²)); memoises successful resolutions (`find_func_op_cache_`).
+- forward_declare: `fn_param_types_`/`fn_param_owning_box_dyn_` dual-keyed by BOTH
+  the bare `fn.name` AND the qualified link name (call-arg coercion looks up by
+  the bare callee during body emission).
+- gen_method_call: rely on the chokepoint (removed the per-site qualify patch).
+- drop glue: `gen_drop_value` (struct+enum user-Drop) + SDrop `drop_fn` lookups →
+  `find_func_op`.
+
+PERF (Victor flagged a regression — root-caused + fixed):
+- **find_func_op O(n²)**: first cut placed the qualified probe AFTER the O(n)
+  find_fn_matching walk; under modules nearly every method callee misses the bare
+  lookup → O(calls×functions). Fixed by ordering the qualified O(1) hash first.
+- **mono+borrow re-instantiation STORM** (borrow 12ms→1321ms on a TRIVIAL test):
+  the P3 `.a` emits METHODS module-qualified (`<module>..<pkg>.<rest>` via
+  link_name), but mono's precompiled-skip check uses the BARE `<pkg>.<rest>`
+  (function_symbol_name exempts methods) → mono didn't recognise stdlib methods
+  as precompiled → RE-MONOMORPHISED the whole stdlib in EVERY consumer compile;
+  the linker dedups the final `.a` (same symbol count) so it was invisible there.
+  Isolated by P3-logosc × HEAD-.a (fast) vs × P3-.a (slow). Fixed at the single
+  `binary_symbols` load point (main.cpp `collect_syms`): also insert the BARE
+  alias (everything after the `..` sentinel) for each qualified method symbol.
+  RESULT: light tests at parity (lit_i64 0.45s vs HEAD 0.46s; hermes 0.47 vs
+  0.51), heavy mono/codegen tests ~1.25-1.4× (inherent longer-name cost); full
+  stdlib build 1:43 vs 1:09.
+
+DEFERRED RESIDUAL: the ~1.25-1.4× on codegen-heavy tests (and ~1.5× stdlib build)
+is the inherent cost of longer module-qualified symbols in MLIR emission + the
+canonical() bridge's per-name string ops; not a storm. Future micro-opt, not a
+blocker.
+
+## (superseded) earlier conclusion — kept for context
 CONCLUSION: the emission-boundary P3 repeatedly hits deep interactions (perf →
 dyn-dispatch → HAny). The name-qualified/bare boundary is too pervasive. RECON-
 SIDER: either (1) the truly-global LIR-qualification (blocked by Hermes-mirror
@@ -151,7 +197,9 @@ immutability + mono scan_fn re-parsing — needs solving that first), or (2) shi
 with methods EXEMPT (committed P1 + §2b free-fns, green) and qualify method link
 symbols at LINK time (objcopy `--redefine-syms` on the .a using the pkg→module
 map) — a post-compiler step that sidesteps the whole in-compiler boundary. (2)
-is likely the pragmatic winner. P1 stands green (L4 5733/5733).
+is likely the pragmatic winner. P1 stands green (L4 5733/5733). [RESOLVED: the
+in-compiler boundary WAS tractable via the find_func_op chokepoint + the mono
+binary_symbols bare-alias — see "P3 LANDED" above.]
 
 ## Invariants
 - (b) `::`-keys stay source-identity (pkg::name / Trait::Type), never module.

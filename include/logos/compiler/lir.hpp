@@ -1404,6 +1404,24 @@ inline std::string mangle(const Sym& s) {
     return out;
 }
 
+// The qualified LINK symbol for an already-lowered function/method (emission
+// boundary). Free fns are module-qualified by function_symbol_name; METHODS are
+// emitted bare (`<pkg>.<Owner>__<m>…`) and gain the `<module>..` prefix here.
+// Method shape = name starts with `<pkg>.`; free fns use a `$` boundary (or
+// already carry the module) → unchanged. THE SINGLE definition used by both
+// mlir-gen (FuncOp names / is_binary_skip) AND the metaprog-dispatch emitted-set
+// tracking, so the two can never desync. `Fn` is LFunction (has .package/.name).
+template <class Fn>
+inline std::string link_name(const Fn& fn,
+                             const std::unordered_map<std::string, std::string>& pkg_module_ids) {
+    if (fn.package.empty()) return fn.name;
+    auto it = pkg_module_ids.find(fn.package);
+    if (it == pkg_module_ids.end() || it->second.empty()) return fn.name;
+    std::string prefix = fn.package + ".";
+    if (fn.name.rfind(prefix, 0) == 0) return it->second + ".." + fn.name;
+    return fn.name;
+}
+
 } // namespace sym
 
 } // namespace logos::compiler

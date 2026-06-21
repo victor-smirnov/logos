@@ -299,6 +299,17 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // First pass: register names (so forward references work).
     for (size_t pass0_ai = 0; pass0_ai < asts.size(); ++pass0_ai) {
+        // Module system: record pkg→module for EVERY ast — including cached
+        // binary + delta-skipped ones — so LProgram::pkg_module_ids is COMPLETE
+        // downstream. Otherwise mlir-gen's link_name() can't recognise a binary
+        // stdlib method's module → it isn't binary-skipped → every stdlib method
+        // body is re-emitted in the consumer (O(n²) lookupSymbol blowup). Cheap
+        // (one package-name read); done before the skips below.
+        if (module_ids_ && pass0_ai < module_ids_->size() &&
+            !(*module_ids_)[pass0_ai].empty()) {
+            auto pk = read_package_name(asts[pass0_ai].root_object().as_tiny_map());
+            if (!pk.empty()) pkg_module_ids_[pk] = (*module_ids_)[pass0_ai];
+        }
         // M6.1: delta mode — skip asts already processed in a prior
         // sema_lower call within this same compile session.
         if (pass0_ai < delta_start_idx_) continue;

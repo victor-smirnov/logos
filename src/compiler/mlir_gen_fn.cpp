@@ -154,7 +154,11 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
     // MLIR's symbol table cache is invalidated by every push_back, so each
     // lookupSymbol re-walks the module — O(n) per call, O(n²) across the
     // 3500+ forward_declare iterations.
-    if (!declared_fn_names_.insert(fn.name).second) return;
+    // Module system: emit under the qualified LINK symbol (methods gain the
+    // module prefix here; free fns/extern unchanged). Symbol-identity uses below
+    // key off `link`; only the diagnostic keeps the raw fn.name.
+    const std::string link = link_name(fn);
+    if (!declared_fn_names_.insert(link).second) return;
     if (fn.is_vararg) {
         // Vararg extern fns use llvm.func (func dialect doesn't support varargs)
         llvm::SmallVector<mlir::Type> param_types;
@@ -166,13 +170,13 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
         if (!ret) ret = mlir::LLVM::LLVMVoidType::get(builder_.getContext());
         auto llvm_fn_type = mlir::LLVM::LLVMFunctionType::get(ret, param_types,
                                                                 /*isVarArg=*/true);
-        auto llvm_fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, fn.name, llvm_fn_type);
+        auto llvm_fn = builder_.create<mlir::LLVM::LLVMFuncOp>(loc_, link, llvm_fn_type);
         llvm_fn.setLinkage(mlir::LLVM::Linkage::External);
         mod.push_back(llvm_fn);
-        vararg_fns_.insert(fn.name);
+        vararg_fns_.insert(link);
         return;
     }
-    auto f = mlir::func::FuncOp::create(loc_, fn.name, make_fn_type(fn));
+    auto f = mlir::func::FuncOp::create(loc_, link, make_fn_type(fn));
     // Binary-skip and extern fns are declaration-only — set private at
     // creation time to avoid the separate setPrivate-by-name pass.
     if (fn.is_extern || is_binary_skip) f.setPrivate();
@@ -181,8 +185,18 @@ void MLIRGenImpl::forward_declare(mlir::ModuleOp mod, const LFunction& fn,
     std::vector<TypeRef> ptypes;
     std::vector<bool> powning;
     for (auto& p : fn.params) { ptypes.push_back(p.type); powning.push_back(p.owning_box_dyn); }
-    fn_param_types_[fn.name] = std::move(ptypes);
-    fn_param_owning_box_dyn_[fn.name] = std::move(powning);
+    // Module system: key the Logos-level param maps by BOTH the qualified link
+    // name (the FuncOp's actual name) AND the bare fn.name. Bodies reference
+    // BARE callees during emission (the canonical() bridge only fixes call names
+    // post-hoc), so call-arg coercion (fn_param_types_.find(callee)) must hit on
+    // the bare key too — else args are passed un-coerced (e.g. a by-value enum
+    // word not spilled to its ptr param → operand type mismatch).
+    if (link != fn.name) {
+        fn_param_types_[fn.name] = ptypes;
+        fn_param_owning_box_dyn_[fn.name] = powning;
+    }
+    fn_param_types_[link] = std::move(ptypes);
+    fn_param_owning_box_dyn_[link] = std::move(powning);
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +402,7 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     auto ret_types = func.getFunctionType().getResults();
     cur_ret_type_ = ret_types.empty() ? mlir::Type{} : ret_types[0];
     cur_fn_ret_logos_type_ = fn.ret_type;
-    cur_fn_name_ = fn.name;
+    cur_fn_name_ = link_name(fn);
 
     // B8 drop elaboration: decide which declared-uninit vars need a runtime drop
     // flag (any conditional/loop assignment) BEFORE codegen — a flagged var must
