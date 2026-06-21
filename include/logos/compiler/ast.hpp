@@ -363,6 +363,12 @@ inline constexpr int32_t VIS_PUBLIC  = 1;
 // with the globals but can reuse slots that are never populated on mod nodes.
 namespace mod {
     inline constexpr Key PATH_PARTS {"PATH_PARTS", 16};  // array of {NAME} per component after the first
+    // §3 module system: `use pkg from <module>;`. FROM_MODULE = target module
+    // name as a {NAME} sub-node (bare IDENT, or a quoted string sema strips);
+    // FROM_KW = the contextual `from` keyword word (sema validates == "from").
+    // Reuse BODY/THEN slots — USE/MODULE nodes never carry a body/then-branch.
+    inline constexpr Key FROM_MODULE {"FROM_MODULE", 5};
+    inline constexpr Key FROM_KW     {"FROM_KW",     9};
 }
 
 // P4-pm-01: fields scoped to VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA

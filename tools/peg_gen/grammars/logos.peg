@@ -86,6 +86,13 @@
     // names to this group when the rule is tagged `:group mod:`.
     group mod {
         PATH_PARTS = 16    // array of sub-nodes (one per component after NAME)
+        // §3 module system: `use pkg from <module>;`. `from` is a CONTEXTUAL
+        // keyword (matched as a bare IDENT, validated == "from" in sema — a
+        // global keyword would clash with the `From::from` method). FROM_MODULE
+        // = target module name (bare IDENT or stripped quoted string). Both reuse
+        // slots USE/MODULE nodes never populate (BODY/THEN).
+        FROM_MODULE = 5    // reuses BODY — USE/MODULE never carry a body
+        FROM_KW     = 9    // reuses THEN — USE/MODULE never carry a then-branch
     }
     // ── Group: variant ────────────────────────────────────────────────────
     // Fields scoped to VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA nodes.
@@ -483,7 +490,13 @@
 
     any_use_decl <- pub_use_decl / use_variants_decl / use_decl
 
-    pub_use_decl :group mod: <- KW_PUB KW_USE IDENT path_dot_ident* SEMI
+    // §3: `[pub] use pkg.path [from <module>];`. The from-bearing alt is tried
+    // FIRST. After `path_dot_ident*`, a bare IDENT can only be the contextual
+    // `from` keyword (path_dot_ident requires a leading DOT, so it never eats it);
+    // `use_module` is the target (bare name or quoted string for hyphenated ids).
+    pub_use_decl :group mod: <- KW_PUB KW_USE IDENT path_dot_ident* IDENT use_module SEMI
+                 => { CODE: USE, IS_PUB: 1, NAME: $3, PATH_PARTS: $4, FROM_KW: $5, FROM_MODULE: $6 }
+                              / KW_PUB KW_USE IDENT path_dot_ident* SEMI
                  => { CODE: USE, IS_PUB: 1, NAME: $3, PATH_PARTS: $4 }
 
     // CP-cm-02: `use pkg.Path.Type.{V1, V2, ...};` — enum variant bare-name
@@ -496,8 +509,15 @@
     variant_name <- IDENT
                   => { NAME: $1 }
 
-    use_decl :group mod: <- KW_USE IDENT path_dot_ident* SEMI
+    use_decl :group mod: <- KW_USE IDENT path_dot_ident* IDENT use_module SEMI
+             => { CODE: USE, NAME: $2, PATH_PARTS: $3, FROM_KW: $4, FROM_MODULE: $5 }
+                          / KW_USE IDENT path_dot_ident* SEMI
              => { CODE: USE, NAME: $2, PATH_PARTS: $3 }
+
+    // §3 module target: a bare module name, or a quoted string (hyphenated ids
+    // like "logos-lang" aren't a single IDENT). Sema strips the quotes.
+    use_module <- IDENT  => { NAME: $1 }
+                / STRING => { NAME: $1 }
 
     // Negative lookahead `!(DOT LBRACE)` keeps the last `.IDENT` before a
     // `.{...}` brace-list for use_variants_decl to claim. Without it,
