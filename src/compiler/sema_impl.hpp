@@ -160,6 +160,7 @@ public:
     // the vector alive across run(). Null/empty or a per-index empty string
     // → no module-qualified mangling for that AST (plain user program).
     void set_module_ids(const std::vector<std::string>* v) { module_ids_ = v; }
+    void set_module_name_to_id(const std::unordered_map<std::string, std::string>* m) { module_name_to_id_ = m; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -1072,6 +1073,9 @@ private:
     // can module-qualify synthesised method-call symbols. One package maps to
     // one module in a coherent build.
     std::unordered_map<std::string, std::string> pkg_module_ids_;
+    // §3: module canonical NAME → id (from SemaOptions; resolves `use pkg from
+    // <name>`). nullptr/empty → `from` clauses can't resolve.
+    const std::unordered_map<std::string, std::string>* module_name_to_id_ = nullptr;
     std::string  file_;
     std::string  cur_package_;
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
@@ -1083,6 +1087,10 @@ private:
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
     struct ImportScope {
         std::vector<std::string> wildcard_packages;
+        // §3: `use pkg from <module>;` — package dotted-name → REQUIRED owning
+        // module id. A candidate for such a package is visible only if its
+        // fi->module_id matches. Absent ⇒ plain `use pkg;` (any module).
+        std::unordered_map<std::string, std::string> pkg_from_module_id;
         // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` brings enum variants
         // into bare scope. Map keyed by the bare variant name → the dotted
         // enum-type qualifier so lookup paths can resolve `V1` as if it

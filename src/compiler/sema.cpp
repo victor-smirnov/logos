@@ -1594,16 +1594,28 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     }
     std::vector<const SemaChecker::SemaFuncInfo*> out;
     out.reserve(all.size());
+    // §3: a `use pkg from <module>;` import is DELIBERATE exclusion — track it so
+    // the empty→all robustness fallback below doesn't silently re-admit a
+    // candidate the user explicitly scoped to a different module.
+    bool from_excluded_any = false;
     for (auto* fi : all) {
-        if (fi->package.empty() ||
-            fi->package == cur_package_ ||
-            std::find(cur_imports_.wildcard_packages.begin(),
-                      cur_imports_.wildcard_packages.end(),
-                      fi->package) != cur_imports_.wildcard_packages.end()) {
-            out.push_back(fi);
+        bool visible = fi->package.empty() ||
+                       fi->package == cur_package_ ||
+                       std::find(cur_imports_.wildcard_packages.begin(),
+                                 cur_imports_.wildcard_packages.end(),
+                                 fi->package) != cur_imports_.wildcard_packages.end();
+        if (!visible) continue;
+        if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
+            it != cur_imports_.pkg_from_module_id.end() &&
+            fi->module_id != it->second) {
+            from_excluded_any = true;
+            continue;   // imported `from` a different module → not visible here
         }
+        out.push_back(fi);
     }
-    if (out.empty()) return all;
+    // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness
+    // is an intentional `from`-restriction (else the negative case never errors).
+    if (out.empty() && !from_excluded_any) return all;
     return out;
 }
 
@@ -6798,6 +6810,30 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                             }
                         }
                     }
+                    // §3: `use pkg from <module>;` — mirror sema_collect's
+                    // build_import_scope so the from-restriction is present during
+                    // LOWERING too (this loop rebuilds cur_imports_ independently;
+                    // without it find_func_candidates sees no restriction). Done
+                    // before the std::move(dotted) below.
+                    if (!dotted.empty() && use_node.has_key(mod::FROM_MODULE)) {
+                        std::string kw;
+                        if (use_node.has_key(mod::FROM_KW))
+                            kw = std::string(str_of(use_node.get(mod::FROM_KW.code)));
+                        if (kw == "from") {
+                            std::string mname;
+                            auto fm = map_of(use_node.get(mod::FROM_MODULE.code));
+                            if (fm.has_key(NAME))
+                                mname = std::string(str_of(fm.get(NAME.code)));
+                            if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                                mname = mname.substr(1, mname.size() - 2);
+                            if (!mname.empty() && module_name_to_id_ &&
+                                !module_name_to_id_->empty()) {
+                                if (auto it = module_name_to_id_->find(mname);
+                                    it != module_name_to_id_->end())
+                                    cur_imports_.pkg_from_module_id[dotted] = it->second;
+                            }
+                        }
+                    }
                     if (!dotted.empty())
                         cur_imports_.wildcard_packages.push_back(std::move(dotted));
                 }
@@ -8132,6 +8168,8 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     // Empty default → module_ids_ stays effectively unused (inert) and the
     // mangle is identical to the pre-module-system output.
     checker.set_module_ids(&module_ids);
+    // §3: module NAME→id map for resolving `use pkg from <name>` clauses.
+    checker.set_module_name_to_id(&opts.module_name_to_id);
     auto prog = checker.run(asts, filenames, from_binary);
     if (phase_dbg) {
         auto t_after_run = std::chrono::steady_clock::now();

@@ -1493,6 +1493,13 @@ struct SemaOptions {
     // Files loaded from binary archives skip injection (their producer
     // already applied its own prelude when the archive was built).
     std::string implicit_prelude;
+
+    // §3 module system: maps a module's canonical NAME (the human handle written
+    // in `use pkg from <name>`) to its mangle ID. Built once from the loaded
+    // modules' @module descriptors. Lets sema resolve a `from <name>` clause to
+    // the id `find_func_candidates` filters by. Empty → no module is known by
+    // name, so a `from` clause cannot resolve (sema errors at the use site).
+    std::unordered_map<std::string, std::string> module_name_to_id;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.

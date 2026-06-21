@@ -209,6 +209,40 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                                  "(own package is always in scope)", dotted));
             }
             scope.wildcard_packages.push_back(dotted);
+            // §3: `use pkg from <module>;` — restrict this package's candidates
+            // to the named module. The contextual `from` keyword is matched as a
+            // bare IDENT in the grammar (so `From::from` stays valid), so validate
+            // it here; resolve the module NAME (bare or quoted) to its mangle id.
+            if (use_node.has_key(la::mod::FROM_MODULE)) {
+                std::string kw;
+                if (use_node.has_key(la::mod::FROM_KW))
+                    kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
+                if (kw != "from") {
+                    error(std::format("expected 'from' before the module name in "
+                                      "`use {} ...;`, found '{}'", dotted, kw));
+                } else {
+                    std::string mname;
+                    auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
+                    if (fm.has_key(la::NAME))
+                        mname = std::string(str_of(fm.get(la::NAME.code)));
+                    // The STRING token keeps its surrounding quotes — strip them.
+                    if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                        mname = mname.substr(1, mname.size() - 2);
+                    if (mname.empty()) {
+                        error(std::format("`use {} from`: missing module name", dotted));
+                    } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
+                        // Map not primed (e.g. a metaprog discovery pass before the
+                        // loaded-module set is threaded). Skip the restriction
+                        // silently here; the final pass carries the real map.
+                    } else if (auto it = module_name_to_id_->find(mname);
+                               it == module_name_to_id_->end()) {
+                        error(std::format("`use {} from {}`: no loaded module is "
+                                          "named '{}'", dotted, mname, mname));
+                    } else {
+                        scope.pkg_from_module_id[dotted] = it->second;
+                    }
+                }
+            }
             // `pub use pkg;` — register as re-export from current package
             bool is_pub = use_node.has_key(la::IS_PUB) &&
                           !use_node.get(la::IS_PUB.code).is_null() &&

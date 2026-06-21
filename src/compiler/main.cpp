@@ -3069,6 +3069,8 @@ int main(int argc, char** argv) {
     std::vector<bool> from_binary;
     std::vector<bool> is_lazy;
     std::vector<std::string> module_ids;   // parallel to asts (owning-module mangle key)
+    // §3: module canonical NAME → mangle id, for resolving `use pkg from <name>`.
+    std::unordered_map<std::string, std::string> module_name_to_id;
     logos::compiler::StrSet binary_archives_seen;
     logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
@@ -3082,6 +3084,8 @@ int main(int argc, char** argv) {
         from_binary.push_back(m.from_binary_module && !m.is_lazy);
         is_lazy.push_back(m.is_lazy);
         module_ids.push_back(m.module_id);   // empty for the user program's own files; set for binary modules
+        if (!m.module_name.empty() && !m.module_id.empty())
+            module_name_to_id.emplace(m.module_name, m.module_id);  // §3: name→id
         asts.push_back(std::move(m.ast));
     }
     // Collect symbol tables from binary archives on the search path.
@@ -3579,6 +3583,7 @@ int main(int argc, char** argv) {
     default_opts.cache          = &sema_cache;  // M5
     default_opts.binary_symbols = binary_symbols;  // skeleton-skip gate
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
+    default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
     prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;

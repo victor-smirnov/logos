@@ -1,0 +1,9 @@
+// §3: importing logos.lang.option `from "logos-mem"` restricts its symbols to
+// the logos-mem module; is_some_i32 (defined in logos-lang) is excluded, so the
+// call fails to resolve.
+package use_from_wrong_module;
+use logos.lang.option from "logos-mem";
+fn main() -> i32 {
+    let x: Option<i32> = Option::Some(7i32);
+    return if is_some_i32(x) { 1i32 } else { 0i32 };
+}

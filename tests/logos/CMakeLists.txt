@@ -379,6 +379,7 @@ endfunction()
 
 function(logos_pass_extra_args BASE OUT_VAR)
     set(LOCAL_STDLIB_USERS
+        use_from_module
         wrapping_arith
         format_basic format_types variadic_format debug_primitives meta_has_trait
         hello stdlib_demo option_chain try_option mem_take_basic if_while_let while_let_chain closure_in_struct_field string_basic std_hash_basic std_cmp_basic annotation_has_get

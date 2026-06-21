@@ -1,0 +1,9 @@
+// §3 module system: `use pkg from <module>;` resolves a package's symbols only
+// from the named module. Here logos.lang.option's free fn is_some_i32 lives in
+// the logos-lang module, so importing `from "logos-lang"` resolves it.
+package use_from_module;
+use logos.lang.option from "logos-lang";
+fn main() -> i32 {
+    let x: Option<i32> = Option::Some(7i32);
+    return if is_some_i32(x) { 42i32 } else { 0i32 };
+}
