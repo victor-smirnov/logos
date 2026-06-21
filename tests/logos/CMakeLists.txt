@@ -419,7 +419,7 @@ function(logos_pass_extra_args BASE OUT_VAR)
         map_comp_basic
         reflect_api
         reflect_annotated_auto)
-    set(LOCAL_PUBLIB_USERS pub_module_internal_use pub_module_type_internal pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg pub_static_cross_module)
+    set(LOCAL_PUBLIB_USERS pub_module_internal_use pub_module_type_internal pub_cross_package pkg_multifile pub_reexport pub_enum_trait_cross_pkg pub_static_cross_module pub_dyn_cross_module)
     # B-mv-01 fixture: two packages defining same-base+sig fns coexist.
     set(LOCAL_COEX_USERS cross_pkg_coexistence)
     # Full same-pkg-same-name TYPE coexistence: each consumer `use widgets from

@@ -42,3 +42,11 @@ pub(module) struct ModuleData {
 pub const MYLIB_CONST: i32 = 1234i32;
 pub static MYLIB_STATIC: i32 = 5678i32;
 pub static mut MYLIB_COUNTER: i32 = 0i32;
+
+// Cross-module dynamic dispatch + generic-with-imported-bound: a consumer
+// coercing an imported type to `&dyn ImportedTrait`, or instantiating a generic
+// bounded by an imported trait, must resolve the imported method (vtable +
+// find_func_op). Regressed silently under the type-coexistence symbol-qualifier.
+pub struct Gadget { pub g: i32 }
+pub trait Describe { fn describe(&self) -> i32; }
+impl Describe for Gadget { fn describe(&self) -> i32 { return self.g; } }

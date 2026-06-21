@@ -1058,6 +1058,21 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
     if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end())
         return git->second;
     auto vit = dyn_vtable_methods_.find(key);
+    // Coexistence: the lookup's type_name is concrete_struct_name, which carries
+    // a "$M<module_id>" suffix for a non-stdlib MODULE type, but the registration
+    // keyed on the bare `ib.target_type`. Within one compile a (trait, type) pair
+    // is unique, so fall back to the bare key — the vtable SYMBOL stays
+    // module-qualified (built from the qualified type_name) for link distinctness.
+    // Without this, `&ImportedWidget as &dyn ImportedTrait` finds no methods →
+    // null vtable → SIGSEGV.
+    if (vit == dyn_vtable_methods_.end()) {
+        if (auto mp = type_name.find("$M"); mp != std::string_view::npos) {
+            std::string bare_key(trait_name);
+            bare_key += "::";
+            bare_key.append(type_name.substr(0, mp));
+            vit = dyn_vtable_methods_.find(bare_key);
+        }
+    }
     // Blanket fallback: no explicit (trait, type) vtable was registered, but
     // the trait has a blanket impl (`impl<T> Trait for T`) — so this concrete
     // type's methods are the blanket instantiations `<type>__<method>`.

@@ -81,7 +81,24 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
         // must also resolve the post-unify pkg-qualified + sig-suffixed form
         // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
-        auto canonical = [](std::string_view nm) -> std::string_view {
+        auto canonical = [](std::string_view in) -> std::string {
+            // Coexistence: a type-keyed name may carry a "$M<module_id>" suffix
+            // (type_module_suffix) on the base AND/OR on a nested type-arg, while
+            // the same method's REAL symbol is module-qualified by find_func_op's
+            // prefix scheme instead — so the two only match once the `$M…` runs
+            // are removed from both. Strip every "$M<alnum>" run first.
+            std::string s;
+            s.reserve(in.size());
+            for (size_t i = 0; i < in.size();) {
+                if (i + 1 < in.size() && in[i] == '$' && in[i + 1] == 'M') {
+                    i += 2;
+                    while (i < in.size() &&
+                           (std::isalnum((unsigned char)in[i]))) ++i;
+                } else {
+                    s.push_back(in[i++]);
+                }
+            }
+            std::string_view nm = s;
             // Strip free-fn `pkg$` prefix.
             if (auto d = nm.find('$'); d != std::string_view::npos) {
                 bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
@@ -96,7 +113,7 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
                 nm = nm.substr(0, p);
             else if (auto p = nm.find("__g__"); p != std::string_view::npos)
                 nm = nm.substr(0, p);
-            return nm;
+            return std::string(nm);
         };
         // Symmetric canonical match: canonicalise BOTH the callee and each
         // candidate (the deleted §P4 bridge did the same). A no-sig / differently

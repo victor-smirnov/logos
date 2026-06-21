@@ -3391,7 +3391,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     if (resolved) args = std::move(pargs);
                                 }
                             }
-                            std::string cname = concrete_struct_name_raw(struct_part, args, sit_ptr->pkg);
+                            // Method-call callee: the BASE struct name stays bare
+                            // (a generic type-arg still qualifies via mangle_type_for_name).
+                            // The method's module qualification is applied later by the
+                            // find_func_op chokepoint (§P3); qualifying the base here too
+                            // would double-apply and produce a symbol find_func_op can't
+                            // resolve (cross-module `&imported as &dyn`, generic method on
+                            // an imported type).
+                            std::string cname = concrete_struct_name_raw(struct_part, args);
                             nc.callee = cname + method_part;
                             nc.type_args.clear();
                             rewritten_as_struct_method = true;
