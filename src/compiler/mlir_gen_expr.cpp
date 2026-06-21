@@ -230,6 +230,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitIntView v, TypeRef type) {
         default: break;
         }
     }
+    // 128-bit literal: assemble the full value from both halves (low = value,
+    // high = value_hi) — a bare int64 would lose the top 64 bits. APInt takes
+    // the words low-first.
+    if (width == 128) {
+        uint64_t words[2] = { (uint64_t)value, (uint64_t)v.value_hi() };
+        llvm::APInt big(128, llvm::ArrayRef<uint64_t>(words, 2));
+        return builder_.create<mlir::arith::ConstantOp>(
+            loc_, builder_.getIntegerType(128),
+            builder_.getIntegerAttr(builder_.getIntegerType(128), big));
+    }
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, value, width);
 }
 

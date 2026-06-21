@@ -27,6 +27,7 @@ public:
     // ── Expression leaves ────────────────────────────────────────────────
 
     lir::LExprPtr lit_int   (int64_t v, TypeRef ty);
+    lir::LExprPtr lit_int_128(uint64_t lo, uint64_t hi, TypeRef ty);
     lir::LExprPtr lit_bool  (bool v,    TypeRef ty);
     lir::LExprPtr lit_str   (std::string v, TypeRef ty);
     lir::LExprPtr lit_float (double v,  TypeRef ty);

@@ -189,6 +189,27 @@ lir::LExprPtr SemaChecker::lit_int_from_text(std::string_view sv, bool negate) {
         error(std::format("malformed integer literal '{}'", sv));
         return error_expr();
     }
+    // 128-bit literals (`…u128` / `…i128`): carry the full magnitude via two
+    // 64-bit halves in the LIR. The default i64 path below would reject (or
+    // truncate) any value beyond 64 bits, so route the wide suffixes here first.
+    {
+        auto wsuf = int_suffix_kind(sv);
+        if (wsuf == LogosType::Kind::U128 || wsuf == LogosType::Kind::I128) {
+            if (parse_int_literal_overflows_128(sv)) {
+                error(std::format("integer literal '{}' is out of range", sv));
+                return error_expr();
+            }
+            bool src_negative = negate || (!sv.empty() && sv[0] == '-');
+            if (wsuf == LogosType::Kind::U128 && src_negative) {
+                error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
+                return error_expr();
+            }
+            unsigned __int128 mag = parse_int_literal_u128(sv);
+            unsigned __int128 val = src_negative
+                ? (unsigned __int128)(-(__int128)mag) : mag;
+            return builder().lit_int_128((uint64_t)val, (uint64_t)(val >> 64), prim(wsuf));
+        }
+    }
     // Sprint 2.3: reject silently-saturating literals (B-ex-07, B-he-04, B-lx-04).
     if (parse_int_literal_overflows(sv)) {
         error(std::format("integer literal '{}' is out of range", sv));

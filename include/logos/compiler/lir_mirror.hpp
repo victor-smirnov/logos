@@ -89,6 +89,8 @@ void lir_mirror_emit_into(lir::LProgram& prog, LirMirrorTable& table);
 // to `LExpr::mirror_offset_`.
 hermes::arena_offset_t lir_mirror_emit_lit_bool(lir::LProgram& prog, TypeRef ty, bool v);
 hermes::arena_offset_t lir_mirror_emit_lit_int  (lir::LProgram& prog, TypeRef ty, int64_t v);
+hermes::arena_offset_t lir_mirror_emit_lit_int_128(lir::LProgram& prog, TypeRef ty,
+                                                   uint64_t lo, uint64_t hi);
 hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v);
 hermes::arena_offset_t lir_mirror_emit_lit_str  (lir::LProgram& prog, TypeRef ty, std::string_view v);
 hermes::arena_offset_t lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty, std::string_view name);

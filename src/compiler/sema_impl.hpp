@@ -4566,6 +4566,55 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
     return (int64_t)result;
 }
 
+// 128-bit magnitude parse (sign ignored — caller negates). Mirrors
+// parse_int_literal but accumulates into unsigned __int128, so `u128`/`i128`
+// literals whose value exceeds 64 bits round-trip intact. Stops at the suffix.
+inline unsigned __int128 parse_int_literal_u128(std::string_view sv) noexcept {
+    if (!sv.empty() && sv[0] == '-') sv = sv.substr(1);
+    int base = 10;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') { base = 16; sv = sv.substr(2); }
+        else if (sv[1] == 'b' || sv[1] == 'B') { base = 2;  sv = sv.substr(2); }
+        else if (sv[1] == 'o' || sv[1] == 'O') { base = 8;  sv = sv.substr(2); }
+    }
+    unsigned __int128 result = 0;
+    for (char c : sv) {
+        if (c == '_') continue;
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) break;  // suffix start
+        result = result * (unsigned __int128)base + (unsigned __int128)d;
+    }
+    return result;
+}
+
+// Does the literal's magnitude exceed 128 bits? (the wide analogue of
+// parse_int_literal_overflows, used for `u128`/`i128` suffixed literals).
+inline bool parse_int_literal_overflows_128(std::string_view sv) noexcept {
+    if (!sv.empty() && sv[0] == '-') sv = sv.substr(1);
+    int base = 10;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') { base = 16; sv = sv.substr(2); }
+        else if (sv[1] == 'b' || sv[1] == 'B') { base = 2;  sv = sv.substr(2); }
+        else if (sv[1] == 'o' || sv[1] == 'O') { base = 8;  sv = sv.substr(2); }
+    }
+    unsigned __int128 result = 0;
+    for (char c : sv) {
+        if (c == '_') continue;
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) break;
+        unsigned __int128 prev = result;
+        result = result * (unsigned __int128)base + (unsigned __int128)d;
+        if (result / (unsigned __int128)base != prev) return true;  // overflowed 128 bits
+    }
+    return false;
+}
+
 template <class Pred>
 inline bool valid_digit_groups(std::string_view sv, Pred pred) noexcept {
     if (sv.empty()) return false;

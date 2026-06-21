@@ -1,0 +1,22 @@
+// LIR 128-bit integer constants: a `u128`/`i128` literal whose magnitude
+// exceeds 64 bits must round-trip through the LIR (low+high halves) and
+// codegen to a full 128-bit constant — not get rejected or truncated.
+package u128_wide_literal;
+
+fn main() -> i32 {
+    // 2^100 and 2^100 + 5 — both need the high 64 bits.
+    let base: u128 = 1267650600228229401496703205376u128;   // 2^100
+    let plus5: u128 = 1267650600228229401496703205381u128;   // 2^100 + 5
+    if plus5 - base != 5u128 { return 1i32; }
+    if plus5 <= base { return 2i32; }
+
+    // Hex form, top bit of the high word set.
+    let hi: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0001u128;
+    if hi - 1u128 != 0x8000_0000_0000_0000_0000_0000_0000_0000u128 { return 3i32; }
+
+    // i128 negative literal beyond 64 bits.
+    let neg: i128 = -1267650600228229401496703205376i128;    // -(2^100)
+    if neg + plus5 as i128 != 5i128 { return 4i32; }
+
+    return 0i32;
+}
