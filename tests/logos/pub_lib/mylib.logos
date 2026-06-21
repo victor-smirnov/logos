@@ -31,3 +31,8 @@ pub trait PubTrait { fn qh(&self) -> i32; }
 pub(module) fn module_secret() -> i32 {
     return 99i32;
 }
+
+// §4.1b: a pub(module) STRUCT — usable within the mylib module, hidden from consumers.
+pub(module) struct ModuleData {
+    pub val: i32,
+}

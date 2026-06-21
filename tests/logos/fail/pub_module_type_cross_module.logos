@@ -1,0 +1,8 @@
+// §4.1b: a pub(module) struct (ModuleData in mylib) is not visible to a consumer
+// in a different module.
+package pub_module_type_cross_module;
+use mylib;
+fn main() -> i32 {
+    let d: ModuleData = ModuleData { val: 1i32 };
+    return d.val;
+}

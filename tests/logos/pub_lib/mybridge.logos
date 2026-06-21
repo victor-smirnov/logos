@@ -7,3 +7,9 @@ pub use mylib;
 pub fn bridge_calls_secret() -> i32 {
     return module_secret();
 }
+
+// §4.1b: within-module use of the pub(module) struct ModuleData.
+pub fn bridge_make_data() -> i32 {
+    let d: ModuleData = ModuleData { val: 7i32 };
+    return d.val;
+}

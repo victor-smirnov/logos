@@ -588,8 +588,8 @@
     // `pub instantiate Foo<T>;` additionally marks the instance as part of the
     // package's public API surface (lib-site re-export); semantically identical
     // until separate codegen lands.
-    pub_instantiate_decl <- KW_PUB KW_INSTANTIATE type_ref SEMI
-                         => { CODE: INSTANTIATE_DECL, IS_PUB: 1, TYPE: $3 }
+    pub_instantiate_decl <- pub_vis KW_INSTANTIATE type_ref SEMI
+                         => { CODE: INSTANTIATE_DECL, IS_PUB: 1, VIS: $1, TYPE: $3 }
 
     instantiate_decl <- KW_INSTANTIATE type_ref SEMI
                      => { CODE: INSTANTIATE_DECL, TYPE: $2 }
@@ -685,16 +685,16 @@
     //
     // `pub let` stays non-generic; `pub const` admits an optional type-param
     // list. Both produce CONST_DEF nodes; sema reads TYPE_PARAMS when present.
-    const_def <- KW_PUB KW_CONST IDENT type_param_list COLON type_ref ASSIGN expr SEMI
-              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, VALUE: $8 }
-               / KW_PUB KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+    const_def <- pub_vis KW_CONST IDENT type_param_list COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, VALUE: $8 }
+               / pub_vis KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_CONST IDENT type_param_list COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE_PARAMS: $3, TYPE: $5, VALUE: $7 }
                / KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
-               / KW_PUB KW_LET IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: CONST_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+               / pub_vis KW_LET IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: CONST_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_LET IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
             // Module-level `static mut NAME: T = expr;` — true mutable global
@@ -702,25 +702,25 @@
             // so sema can require `unsafe` on read/write per
             // `items.static.mut.safety`. MATCHED BEFORE the immutable form so
             // the `mut` token isn't swallowed by the IDENT alternative.
-               / KW_PUB KW_STATIC KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: STATIC_DEF, IS_PUB: 1, IS_MUT: 1, NAME: $4, TYPE: $6, VALUE: $8 }
+               / pub_vis KW_STATIC KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: STATIC_DEF, IS_PUB: 1, VIS: $1, IS_MUT: 1, NAME: $4, TYPE: $6, VALUE: $8 }
                / KW_STATIC KW_MUT IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: STATIC_DEF, IS_MUT: 1, NAME: $3, TYPE: $5, VALUE: $7 }
             // Immutable module-level `static NAME: T = expr;` — REAL global
             // storage like the mut form (one llvm.mlir.global; stable address,
             // `&STATIC` identity holds), distinct from `const` (inline
             // substitution). No IS_MUT ⇒ reads are safe, writes reject.
-               / KW_PUB KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
-              => { CODE: STATIC_DEF, IS_PUB: 1, NAME: $3, TYPE: $5, VALUE: $7 }
+               / pub_vis KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
+              => { CODE: STATIC_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE: $5, VALUE: $7 }
                / KW_STATIC IDENT COLON type_ref ASSIGN expr SEMI
               => { CODE: STATIC_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
 
     // static NAME: type = expr;  (module-level mutable static — same repr as const for now)
     // type NAME = type_ref;
-    type_alias <- KW_PUB KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
-               => { CODE: TYPE_ALIAS, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6 }
-                / KW_PUB KW_TYPE IDENT ASSIGN type_ref SEMI
-               => { CODE: TYPE_ALIAS, IS_PUB: 1, NAME: $3, TYPE: $5 }
+    type_alias <- pub_vis KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6 }
+                / pub_vis KW_TYPE IDENT ASSIGN type_ref SEMI
+               => { CODE: TYPE_ALIAS, IS_PUB: 1, VIS: $1, NAME: $3, TYPE: $5 }
                 / KW_TYPE IDENT type_param_list ASSIGN type_ref SEMI
                => { CODE: TYPE_ALIAS, NAME: $2, TYPE_PARAMS: $3, TYPE: $5 }
                 / KW_TYPE IDENT ASSIGN type_ref SEMI
@@ -732,14 +732,14 @@
     // enum Tags : u64 { X = 0xdead }          — explicit backing integer type
     // B68.3: enum where-clauses only on IDENT-NAME alts (NAME_VAR alts
     // collide with WHERE on slot 38).
-    pub_enum_def <- KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, TYPE: $9, ITEMS: $11 }
-                  / KW_PUB KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, ITEMS: $9 }
-                  / KW_PUB KW_ENUM IDENT type_param_list? COLON type_ref where_clause? LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, WHERE: $7, ITEMS: $9 }
-                  / KW_PUB KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
-                 => { CODE: ENUM, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $7 }
+    pub_enum_def <- pub_vis KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, TYPE: $9, ITEMS: $11 }
+                  / pub_vis KW_ENUM HASH LPAREN expr RPAREN type_param_list? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, ITEMS: $9 }
+                  / pub_vis KW_ENUM IDENT type_param_list? COLON type_ref where_clause? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, TYPE: $6, WHERE: $7, ITEMS: $9 }
+                  / pub_vis KW_ENUM IDENT type_param_list? where_clause? LBRACE variant_list? RBRACE
+                 => { CODE: ENUM, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, ITEMS: $7 }
 
     enum_def <- KW_ENUM HASH LPAREN expr RPAREN type_param_list? COLON type_ref LBRACE variant_list? RBRACE
              => { CODE: ENUM, NAME_VAR: $4, TYPE_PARAMS: $6, TYPE: $8, ITEMS: $10 }
@@ -825,30 +825,30 @@
     // GENOS_DEF AST code retained for the upcoming spec form.
     trait_kw <- KW_TRAIT
 
-    pub_trait_def <- KW_PUB KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_AUTO: 1, NAME: $4, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, SUPERS: $4, ITEMS: $... }
-                  / KW_PUB trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
-                  => { CODE: TRAIT_DEF, IS_PUB: 1, NAME: $3, ITEMS: $... }
+    pub_trait_def <- pub_vis KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
+                  / pub_vis KW_AUTO trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_AUTO: 1, NAME: $4, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, SUPERS: $6, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, SUPERS: $5, ITEMS: $... }
+                  / pub_vis KW_UNSAFE trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, ITEMS: $... }
+                  / pub_vis trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
+                  / pub_vis trait_kw IDENT type_param_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, ITEMS: $... }
+                  / pub_vis trait_kw IDENT super_list LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, SUPERS: $4, ITEMS: $... }
+                  / pub_vis trait_kw IDENT LBRACE trait_method_or_doc* RBRACE
+                  => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, NAME: $3, ITEMS: $... }
 
     trait_def <- KW_AUTO trait_kw IDENT type_param_list super_list LBRACE trait_method_or_doc* RBRACE
               => { CODE: TRAIT_DEF, IS_AUTO: 1, NAME: $3, TYPE_PARAMS: $4, SUPERS: $5, ITEMS: $... }
@@ -1064,18 +1064,18 @@
     // `type_param_list?` after the name gives associated fns their OWN generics
     // (`static fn make<T>(...)`), matching Rust + the instance/free fn_def forms.
     // sema collect_fn reads TYPE_PARAMS uniformly for FN and STATIC_FN.
-    pub_static_fn_def <- KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
-                       / KW_PUB KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
-                       / KW_PUB KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
-                       / KW_PUB KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
-                       / KW_PUB KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
-                       / KW_PUB KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
-                      => { CODE: STATIC_FN, IS_PUB: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
+    pub_static_fn_def <- pub_vis KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, RET_TYPE: $11, BODY: $12 }
+                       / pub_vis KW_STATIC KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $5, TYPE_PARAMS: $6, PARAMS: $8, BODY: $10 }
+                       / pub_vis KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
+                       / pub_vis KW_STATIC KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
+                       / pub_vis KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, BODY: $11 }
+                       / pub_vis KW_STATIC KW_FN IDENT type_param_list? LPAREN param_list? RPAREN block
+                      => { CODE: STATIC_FN, IS_PUB: 1, VIS: $1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, BODY: $9 }
 
     // static fn name(params) -> ret_type { ... }
     // 'new' and 'delete' are allowed as method names (common constructor/destructor conventions).
@@ -1093,8 +1093,8 @@
                   => { CODE: STATIC_FN, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, BODY: $8 }
 
     // ── Datatype definition (Hermes — C POD layout, no heap types) ──
-    pub_datatype_def <- KW_PUB KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
-                     => { CODE: DATATYPE, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
+    pub_datatype_def <- pub_vis KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
+                     => { CODE: DATATYPE, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $6 }
 
     datatype_def <- KW_EIDOS IDENT type_param_list? LBRACE field_def_or_doc* RBRACE
                  => { CODE: DATATYPE, NAME: $2, TYPE_PARAMS: $3, FIELDS: $5 }
@@ -1102,8 +1102,8 @@
     // ── Explicit instantiation declarations (no body) ────────────
     // Binds metadata annotations to a generic instantiation.
     // E.g.: #[type_code=42] datatype Array<i32>;
-    pub_datatype_inst <- KW_PUB KW_EIDOS type_ref SEMI
-                      => { CODE: DATATYPE, IS_PUB: 1, TYPE: $3 }
+    pub_datatype_inst <- pub_vis KW_EIDOS type_ref SEMI
+                      => { CODE: DATATYPE, IS_PUB: 1, VIS: $1, TYPE: $3 }
 
     datatype_inst <- KW_EIDOS type_ref SEMI
                   => { CODE: DATATYPE, TYPE: $2 }
@@ -1111,8 +1111,8 @@
     // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.
     // Binds annotations (type_code, future metadata) to a logical-family
     // specialization; implementing eidos inherit via impl.
-    pub_trait_inst <- KW_PUB trait_kw type_ref SEMI
-                   => { CODE: TRAIT_DEF, IS_PUB: 1, TYPE: $3 }
+    pub_trait_inst <- pub_vis trait_kw type_ref SEMI
+                   => { CODE: TRAIT_DEF, IS_PUB: 1, VIS: $1, TYPE: $3 }
 
     trait_inst <- trait_kw type_ref SEMI
                => { CODE: TRAIT_DEF, TYPE: $2 }
@@ -1124,15 +1124,15 @@
     // struct; the generic form `struct Foo<i64>;` (IDENT then `<`) falls through
     // to struct_inst (explicit instantiation). `instantiate Foo<T>;` is the
     // preferred dedicated form for the latter.
-    pub_struct_unit <- KW_PUB KW_STRUCT IDENT SEMI
-                    => { CODE: STRUCT, IS_PUB: 1, NAME: $3 }
+    pub_struct_unit <- pub_vis KW_STRUCT IDENT SEMI
+                    => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME: $3 }
 
     struct_unit <- KW_STRUCT IDENT SEMI
                 => { CODE: STRUCT, NAME: $2 }
 
     // Explicit struct instantiation declaration (binds annotations to generic instantiation).
-    pub_struct_inst <- KW_PUB KW_STRUCT type_ref SEMI
-                    => { CODE: STRUCT, IS_PUB: 1, TYPE: $3 }
+    pub_struct_inst <- pub_vis KW_STRUCT type_ref SEMI
+                    => { CODE: STRUCT, IS_PUB: 1, VIS: $1, TYPE: $3 }
 
     struct_inst <- KW_STRUCT type_ref SEMI
                 => { CODE: STRUCT, TYPE: $2 }
@@ -1142,14 +1142,14 @@
     // so where-clauses are only accepted on the IDENT-NAME alternatives —
     // the antiquot (NAME_VAR / HASH-prefixed) alts never carry where in
     // practice, and emitting both would collide on the slot.
-    pub_struct_def <- KW_PUB KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10 }
-                    / KW_PUB KW_STRUCT HASH IDENT type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
-                    / KW_PUB KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
-                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7, ITEMS: $8 }
-                    / KW_PUB KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
-                   => { CODE: STRUCT, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $... }
+    pub_struct_def <- pub_vis KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, FIELDS: $9, ITEMS: $10 }
+                    / pub_vis KW_STRUCT HASH IDENT type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME_VAR: $4, TYPE_PARAMS: $5, FIELDS: $7, ITEMS: $8 }
+                    / pub_vis KW_STRUCT IDENT type_param_list? where_clause? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
+                   => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7, ITEMS: $8 }
+                    / pub_vis KW_STRUCT IDENT type_param_list? LPAREN tuple_field (COMMA tuple_field)* RPAREN SEMI
+                   => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, FIELDS: $... }
 
     struct_def <- KW_STRUCT HASH LPAREN expr RPAREN type_param_list? LBRACE field_def_or_doc* method_def_or_doc* RBRACE
                => { CODE: STRUCT, NAME_VAR: $4, TYPE_PARAMS: $6, FIELDS: $8, ITEMS: $9 }
@@ -1166,8 +1166,8 @@
     // with `is_union=true` so layout / field-access checks branch
     // accordingly. No tuple-shape, no methods, no `#[…]` form
     // pre-positions in slice 1.
-    pub_union_def <- KW_PUB KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
-                  => { CODE: UNION_DEF, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7 }
+    pub_union_def <- pub_vis KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
+                  => { CODE: UNION_DEF, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, WHERE: $5, FIELDS: $7 }
     union_def    <- KW_UNION IDENT type_param_list? where_clause? LBRACE field_def_or_doc* RBRACE
                  => { CODE: UNION_DEF, NAME: $2, TYPE_PARAMS: $3, WHERE: $4, FIELDS: $6 }
 
