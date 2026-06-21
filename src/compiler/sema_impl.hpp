@@ -3055,19 +3055,16 @@ private:
                         (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
                     if (pkg_mod != rit->second) continue;
                 }
-                // §4: a `pub(module)` type/enum/trait has module-linkage — visible
-                // only within its owning module, never to a consumer in another
-                // module. (pkg_module_ids_[pkg] = the package's owning module;
-                // uniform across infos, incl. traits which carry no module_id.)
-                if (it->second.is_module_only && pkg != cur_package_) {
+                if constexpr (PubCheck) {
+                    // §4: pass the module-linkage info so a `pub(module)` type
+                    // accessed from another module gets a "module-private"
+                    // diagnostic (pkg_module_ids_[pkg] = the package's owning
+                    // module — uniform across infos, incl. traits with no own id).
                     auto mit = pkg_module_ids_.find(pkg);
                     std::string pkg_mod =
                         (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
-                    if (pkg_mod != cur_module_id_) continue;
-                }
-                if constexpr (PubCheck) {
-                    check_pub_access(it->second.is_pub,
-                                     it->second.package, name);
+                    check_pub_access(it->second.is_pub, it->second.package, name,
+                                     it->second.is_module_only, pkg_mod);
                 }
                 return {pkg, &it->second};
             }
@@ -3511,7 +3508,9 @@ private:
         std::vector<std::string>& upcast_supers);
     std::string read_package_name(hermes::TinyMapView mod);
     void check_pub_access(bool is_pub, const std::string& def_package,
-                          std::string_view item_name);
+                          std::string_view item_name,
+                          bool is_module_only = false,
+                          const std::string& def_module_id = {});
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args);

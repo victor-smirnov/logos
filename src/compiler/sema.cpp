@@ -1611,15 +1611,9 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
             from_excluded_any = true;
             continue;   // imported `from` a different module → not visible here
         }
-        // §4: a `pub(module)` fn has module-linkage — visible only within its
-        // owning module (any package) or its own package, never to a consumer in
-        // a different module.
-        if (fi->is_module_only &&
-            fi->module_id != cur_module_id_ &&
-            fi->package   != cur_package_) {
-            from_excluded_any = true;   // deliberate exclusion — don't fall back to `all`
-            continue;
-        }
+        // §4: a `pub(module)` fn is left in the candidate set here; the visibility
+        // violation is diagnosed by check_pub_access at the call site (3-tier),
+        // giving a "module-private" error rather than a bare "undefined function".
         out.push_back(fi);
     }
     // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness

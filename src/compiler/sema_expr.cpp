@@ -3145,7 +3145,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     if (const SemaFuncInfo* exact_fi = resolve_function_call(callee, arg_exprs, false, false);
         exact_fi && exact_fi->type_params.empty() && !call_has_pack_expand) {
-        check_pub_access(exact_fi->is_pub, exact_fi->package, callee);
+        check_pub_access(exact_fi->is_pub, exact_fi->package, callee, exact_fi->is_module_only, exact_fi->module_id);
         if (exact_fi->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         if (exact_fi->is_vararg) {
@@ -3337,7 +3337,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Pub check and unsafe check.
     {
         const SemaFuncInfo* fi_chk = fi_sel;
-        check_pub_access(fi_chk->is_pub, fi_chk->package, callee);
+        check_pub_access(fi_chk->is_pub, fi_chk->package, callee, fi_chk->is_module_only, fi_chk->module_id);
         if (fi_chk->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
     }
@@ -5866,7 +5866,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, {}, error_t());
     }
-    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee, fi_ptr->is_module_only, fi_ptr->module_id);
 
     // Resolve explicit type arguments from TYPE_PARAMS.
     // Phase 1B-2: when the i-th target type param has `implicit_sized=false`
@@ -6014,7 +6014,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
         error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
         return error_expr();
     }
-    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee, fi_ptr->is_module_only, fi_ptr->module_id);
 
     // Phase 1B-6: now resolve type args with per-arg unsized_ok_ based on
     // the target fn's type-param bounds.
@@ -8639,7 +8639,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto& fi = *fi_ptr;
-    check_pub_access(fi.is_pub, fi.package, mangled);
+    check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
@@ -13433,7 +13433,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     }
 
     auto& fi = *fi_ptr;
-    check_pub_access(fi.is_pub, fi.package, mangled);
+    check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 

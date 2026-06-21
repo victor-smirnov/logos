@@ -765,9 +765,20 @@ std::string SemaChecker::read_package_name(TinyMapView mod) {
 }
 
 void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
-                          std::string_view item_name) {
-    if (is_pub || def_package.empty() || cur_package_.empty()) return;
-    if (def_package != cur_package_)
+                          std::string_view item_name,
+                          bool is_module_only, const std::string& def_module_id) {
+    if (def_package.empty() || cur_package_.empty()) return;  // no scope context
+    if (def_package == cur_package_) return;                  // own package: always OK
+    // §4: cross-package access. `pub(module)` has module-linkage — visible to other
+    // packages in its OWNING module, but not to a consumer in a different module.
+    // Checked BEFORE is_pub, since a pub(module) item also sets is_pub.
+    if (is_module_only) {
+        if (def_module_id != cur_module_id_)
+            error(std::format("'{}' is module-private (declared `pub(module)` in "
+                              "package '{}')", item_name, def_package));
+        return;
+    }
+    if (!is_pub)
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
 }
 
@@ -2674,8 +2685,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!trait_name.empty()) {
         auto [tpkg, tinfo] = find_trait_by_name(trait_name);
         (void)tpkg;
-        if (tinfo)
-            check_pub_access(tinfo->is_pub, tinfo->package, trait_name);
+        if (tinfo) {
+            auto mit = pkg_module_ids_.find(tinfo->package);  // §4: trait's module
+            check_pub_access(tinfo->is_pub, tinfo->package, trait_name,
+                             tinfo->is_module_only,
+                             mit != pkg_module_ids_.end() ? mit->second : std::string{});
+        }
     }
     bool impl_is_unsafe = false;
     if (node.has_key(la::IS_UNSAFE)) {
