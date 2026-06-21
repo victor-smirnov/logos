@@ -772,24 +772,46 @@ public:
         return result;
     }
 
+    // Walk a type tree and append a "<name>$M<module_id>" tag for EVERY nominal
+    // (struct/enum) node that belongs to a non-stdlib module. Recurses through
+    // every composite child (ptr/ref/array/slice/tuple/generic-args/closure) so
+    // a nested module type — e.g. the `Widget` in `Box<pkg::Widget>` — still
+    // contributes its module identity even when the outer type is stdlib.
+    static void collect_module_tags(TypeRef t, std::string& out) {
+        if (!t) return;
+        switch (t.kind()) {
+        case LogosType::Kind::Struct:
+        case LogosType::Kind::ZonedStruct: {
+            std::string suf = type_module_suffix(t.pkg_name());
+            if (!suf.empty()) { out += "|"; out += std::string(t.struct_name()); out += suf; }
+            break;
+        }
+        case LogosType::Kind::Enum: {
+            std::string suf = type_module_suffix(t.pkg_name());
+            if (!suf.empty()) { out += "|"; out += std::string(t.enum_name()); out += suf; }
+            break;
+        }
+        default: break;
+        }
+        if (t.pointee())     collect_module_tags(t.pointee(), out);
+        if (t.elem())        collect_module_tags(t.elem(), out);
+        for (auto a : t.type_args())     collect_module_tags(a, out);
+        for (auto e : t.tuple_elems())   collect_module_tags(e, out);
+        for (auto p : t.closure_params()) collect_module_tags(p, out);
+        if (t.closure_ret()) collect_module_tags(t.closure_ret(), out);
+    }
+
     // Canonical type-identity STRING for nominal runtime UID hashing
-    // (`type_uid::<T>()` → Any / type_id / quote_ty reification). Same bytes as
-    // type_str EXCEPT a non-stdlib MODULE type gets its "$M<module_id>" suffix,
-    // so two modules' same-named `pkg::Type` hash to DISTINCT runtime UIDs and
-    // cross-module Any/downcast can't confuse them (Cat C coexistence). stdlib
-    // (`logos.*`) + no-module compiles ⇒ empty suffix ⇒ byte-identical to
-    // type_str (UIDs unchanged). Top-level nominal name only — a nested
-    // `Box<pkg::Widget>` still distinguishes only when Box itself is the module
-    // type; the deeper recursive case is a documented edge.
+    // (`type_uid::<T>()` → Any / type_id / quote_ty reification). It is type_str
+    // PLUS a module fingerprint: every non-stdlib MODULE type anywhere in the
+    // tree contributes a "<name>$M<module_id>" tag, so two modules' same-named
+    // `pkg::Type` (incl. when nested, e.g. `Box<pkg::Widget>`) hash to DISTINCT
+    // runtime UIDs and cross-module Any/downcast can't confuse them (Cat C
+    // coexistence). stdlib (`logos.*`) + no-module compiles ⇒ no tags ⇒
+    // byte-identical to type_str (UIDs unchanged).
     static std::string type_id_canon(TypeRef t) {
         std::string s = type_str(t);
-        if (t) {
-            auto k = t.kind();
-            if (k == LogosType::Kind::Struct ||
-                k == LogosType::Kind::ZonedStruct ||
-                k == LogosType::Kind::Enum)
-                s += type_module_suffix(t.pkg_name());
-        }
+        collect_module_tags(t, s);
         return s;
     }
 private:
