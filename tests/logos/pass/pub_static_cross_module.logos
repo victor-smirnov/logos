@@ -1,0 +1,19 @@
+// Reading an imported `pub static` (+ const, + mut static) from another module.
+// Regression: this used to SIGSEGV — the consumer didn't recognise the imported
+// static as a static (empty `main` body), and the library's static storage/init
+// collided with the consumer's. Now the exe owns storage+init; reads resolve.
+package pub_static_cross_module;
+use mylib;
+
+unsafe fn main() -> i32 {
+    let c: i32 = MYLIB_CONST;
+    if c != 1234i32 { return 1i32; }
+    let s: i32 = MYLIB_STATIC;
+    if s != 5678i32 { return 2i32; }
+    // the let + && shape that crashed before the fix
+    if !(c == 1234i32 && s == 5678i32) { return 3i32; }
+    // mut static read/write across the module boundary
+    MYLIB_COUNTER = MYLIB_COUNTER + 5i32;
+    if MYLIB_COUNTER != 5i32 { return 4i32; }
+    return 0i32;
+}

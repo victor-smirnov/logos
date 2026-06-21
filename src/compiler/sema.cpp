@@ -6701,6 +6701,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         prog.functions.insert              (prog.functions.end(),              c.functions.begin(),              c.functions.end());
         prog.specializations.insert        (prog.specializations.end(),        c.specializations.begin(),        c.specializations.end());
         prog.consts.insert                 (prog.consts.end(),                 c.consts.begin(),                 c.consts.end());
+        // Imported `pub static`s arrive via this cache merge, bypassing the
+        // collect STATIC_DEF path that registers a static in module_statics_.
+        // Without that registration a consumer's READ of an imported static
+        // isn't recognised as a static — it stays a bare VarRef that resolves to
+        // nothing (empty fn body → SIGSEGV). Register them here so reads lower to
+        // the static's global address (its already-qualified link symbol).
+        for (auto& cc : c.consts)
+            if (cc.is_static) {
+                module_statics_[cc.name] = cc.sym;
+                if (cc.is_mut) module_static_muts_.insert(cc.name);
+            }
         prog.type_aliases.insert           (prog.type_aliases.end(),           c.type_aliases.begin(),           c.type_aliases.end());
         prog.traits.insert                 (prog.traits.end(),                 c.traits.begin(),                 c.traits.end());
         prog.impls.insert                  (prog.impls.end(),                  c.impls.begin(),                  c.impls.end());

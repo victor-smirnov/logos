@@ -661,6 +661,21 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     for (auto& c : prog.consts) if (c.is_static) { any = true; break; }
     if (!any) return;
 
+    // A LIBRARY build (`--emit-module`, no `main`) does NOT own its statics'
+    // storage or runtime initialization — only the final executable does. The
+    // exe that links this archive re-emits + initializes every transitively-used
+    // static (it has them in its prog.consts, lowered from the imported
+    // .hermes0) inside ITS own `__logos_static_init`, called from `main`. If a
+    // library ALSO emitted defined globals + its own `__logos_static_init`, the
+    // two collide under the linker's `--allow-multiple-definition`: two
+    // `__logos_static_init` symbols and two definitions of each static — the
+    // linker resolves them pathologically and `main`'s init call lands inside a
+    // data symbol → SIGSEGV (cross-module `pub static` crash). So a library
+    // emits EXTERNAL declarations only and no initializer; the exe provides both.
+    bool is_library = true;
+    for (auto& f : prog.functions)
+        if (f && f->name == "main") { is_library = false; break; }
+
     auto set_end = [&]{ builder_.setInsertionPointToEnd(mod.getBody()); };
 
     // Pass A: emit the globals (skip if already present — stdlib precompiled +
@@ -671,8 +686,9 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         auto llty = logos_to_mlir(c.type);
         if (!llty) llty = builder_.getI32Type();
         set_end();
-        if (c.is_extern) {
-            // External declaration — defined in another object.
+        if (c.is_extern || is_library) {
+            // External declaration — defined in another object (FFI, or — for a
+            // library build — the final executable that links it).
             builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
                 c.sym, mlir::Attribute{}, /*alignment=*/0);
@@ -693,8 +709,9 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     }
 
     // Pass B: @__logos_static_init runs every defined static's initializer into
-    // its global address. Reuses the SDerefWrite store conventions: aggregates
-    // (ptr-represented) memcpy their footprint; scalars store the value.
+    // its global address. A library build emits no initializer (see above) —
+    // the final executable owns it.
+    if (is_library) return;
     std::vector<const LConst*> with_init;
     for (auto& c : prog.consts)
         if (c.is_static && !c.is_extern && c.value) with_init.push_back(&c);

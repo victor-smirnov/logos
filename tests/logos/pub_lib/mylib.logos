@@ -36,3 +36,9 @@ pub(module) fn module_secret() -> i32 {
 pub(module) struct ModuleData {
     pub val: i32,
 }
+
+// Cross-module statics/consts: a consumer reading these exercises the
+// imported-static read path (storage + init owned by the final exe, not mylib.a).
+pub const MYLIB_CONST: i32 = 1234i32;
+pub static MYLIB_STATIC: i32 = 5678i32;
+pub static mut MYLIB_COUNTER: i32 = 0i32;
