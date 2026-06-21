@@ -501,7 +501,30 @@ std::string concrete_struct_name(TypeRef t);
 // LogosType (which bypasses TypePool's Hermes mirror). The args must already
 // be concrete — no TypeVar / IntLit.
 std::string concrete_struct_name_raw(std::string_view base_name,
-                                     const std::vector<TypeRef>& type_args);
+                                     const std::vector<TypeRef>& type_args,
+                                     std::string_view pkg = {});
+
+// Set/get the current phase's pkg→module_id map for type module-qualification
+// (same-pkg-same-name coexistence). Threaded as a thread_local; null disables.
+void set_type_module_map(const std::unordered_map<std::string, std::string>* m);
+const std::unordered_map<std::string, std::string>* get_type_module_map();
+
+// The module suffix appended to a type's mangled name for a given owning
+// package ("$M<module_id>", or "" for stdlib/no-module). Public so struct/enum
+// registration can mint a matching qualified alias for concrete_struct_name
+// lookups.
+std::string type_module_suffix(std::string_view pkg);
+
+// RAII guard: installs `m` as the active type-module map for the current phase
+// (sema run / mono run / mlir generate) and restores the previous on scope exit.
+struct TypeModuleScope {
+    const std::unordered_map<std::string, std::string>* prev_;
+    explicit TypeModuleScope(const std::unordered_map<std::string, std::string>* m)
+        : prev_(get_type_module_map()) { set_type_module_map(m); }
+    ~TypeModuleScope() { set_type_module_map(prev_); }
+    TypeModuleScope(const TypeModuleScope&) = delete;
+    TypeModuleScope& operator=(const TypeModuleScope&) = delete;
+};
 
 
 // ── TypePool ───────────────────────────────────────────────────────────────

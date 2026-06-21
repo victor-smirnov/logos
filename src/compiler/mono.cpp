@@ -45,7 +45,11 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
         if (concrete_pkg.empty())
             for (auto& ed : out_.enums)
                 if (ed.name == concrete) { concrete_pkg = ed.pkg; break; }
-        std::string bare_dest = concrete + "__" + method;
+        // Coexistence: module-qualify the type part (matches concrete_struct_name
+        // used at the call site) so two modules' blanket-method instances (e.g.
+        // `Widget__type_id` from `impl<T> Any for T`) don't collide at link.
+        std::string concrete_q = concrete + type_module_suffix(concrete_pkg);
+        std::string bare_dest = concrete_q + "__" + method;
         std::string dest = concrete_pkg.empty() ? bare_dest
                                                 : concrete_pkg + "." + bare_dest;
         if (done_.count(dest)) continue;
@@ -72,6 +76,9 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
 
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
+
+    // Coexistence: module-qualify type-keyed names consistently with sema/mlir.
+    TypeModuleScope _type_module_scope(&in_.pkg_module_ids);
 
     // Stage 3g.1: in_.mirror_table is already comprehensive — sema's end-of-
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
@@ -112,6 +119,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // values as prev_out_'s (via SemaCache), so this move is effectively a
     // no-op for the pointed-to data — refcounts stay the same.
     out_.expr_pool_          = std::move(in_.expr_pool_);
+    // Module system: carry the package→module map forward so metaprog delta
+    // iters (which feed out_ back in as the next in_) keep qualifying symbols.
+    out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.hstatic_registry_   = std::move(in_.hstatic_registry_);
     out_.block_pool_         = std::move(in_.block_pool_);
     out_.hermes_val_pool_    = std::move(in_.hermes_val_pool_);

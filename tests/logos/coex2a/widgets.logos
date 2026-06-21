@@ -1,0 +1,16 @@
+package widgets;
+use logos.mem.boxed;
+
+pub struct Widget { pub a: i32, }
+pub enum Shape { Dot, Line(i32), }
+
+pub trait Show { fn show(&self) -> i32; }
+impl Show for Widget { fn show(&self) -> i32 { return self.a; } }
+impl Widget { pub fn val(&self) -> i32 { return self.a; } }
+
+pub const WMARK: i32 = 7i32;
+pub static WCOUNT: i32 = 7i32;
+
+pub fn make() -> Widget { return Widget { a: 7i32 }; }
+pub fn boxed() -> i32 { let b: Box<Widget> = Box::new(make()); return b.val(); }
+pub fn dynshow() -> i32 { let w: Widget = make(); let d: &dyn Show = &w; return d.show(); }

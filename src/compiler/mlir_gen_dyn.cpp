@@ -227,7 +227,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
             auto it = sys_all_binary.find(de.tag_system);
             if (it == sys_all_binary.end())
                 sys_all_binary[de.tag_system] = true;
-            if (!prog.binary_symbols.count(de.fn_symbol))
+            if (!prog.binary_symbols.count(link_name_str(de.fn_symbol)))
                 sys_all_binary[de.tag_system] = false;
         }
         for (auto& [sys, all_bin] : sys_all_binary)
@@ -307,10 +307,13 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
         // contains a single underscore (e.g. "My_System__Trait__method" is
         // unambiguous; "My_System_Trait_method" is not).
         auto base = de.tag_system + "__" + de.trait_name + "__" + de.method_name;
+        // Module system: dispatch entry stores a bare-module method symbol;
+        // qualify it to the emitted link name so the table references resolve.
+        auto fsym = link_name_str(de.fn_symbol);
         if (de.type_code < static_cast<uint64_t>(kTier1Size)) {
-            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, de.fn_symbol});
+            tier1_tables["__logos_tag_dispatch__" + base].push_back({de.type_code, fsym});
         } else {
-            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, de.fn_symbol});
+            tier2_tables["__logos_tier2__" + base].push_back({de.type_code, fsym});
         }
     }
     if (tier1_tables.empty() && tier2_tables.empty()) return;
@@ -658,6 +661,21 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     for (auto& c : prog.consts) if (c.is_static) { any = true; break; }
     if (!any) return;
 
+    // A LIBRARY build (`--emit-module`, no `main`) does NOT own its statics'
+    // storage or runtime initialization — only the final executable does. The
+    // exe that links this archive re-emits + initializes every transitively-used
+    // static (it has them in its prog.consts, lowered from the imported
+    // .hermes0) inside ITS own `__logos_static_init`, called from `main`. If a
+    // library ALSO emitted defined globals + its own `__logos_static_init`, the
+    // two collide under the linker's `--allow-multiple-definition`: two
+    // `__logos_static_init` symbols and two definitions of each static — the
+    // linker resolves them pathologically and `main`'s init call lands inside a
+    // data symbol → SIGSEGV (cross-module `pub static` crash). So a library
+    // emits EXTERNAL declarations only and no initializer; the exe provides both.
+    bool is_library = true;
+    for (auto& f : prog.functions)
+        if (f && f->name == "main") { is_library = false; break; }
+
     auto set_end = [&]{ builder_.setInsertionPointToEnd(mod.getBody()); };
 
     // Pass A: emit the globals (skip if already present — stdlib precompiled +
@@ -668,8 +686,9 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         auto llty = logos_to_mlir(c.type);
         if (!llty) llty = builder_.getI32Type();
         set_end();
-        if (c.is_extern) {
-            // External declaration — defined in another object.
+        if (c.is_extern || is_library) {
+            // External declaration — defined in another object (FFI, or — for a
+            // library build — the final executable that links it).
             builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
                 c.sym, mlir::Attribute{}, /*alignment=*/0);
@@ -690,8 +709,9 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     }
 
     // Pass B: @__logos_static_init runs every defined static's initializer into
-    // its global address. Reuses the SDerefWrite store conventions: aggregates
-    // (ptr-represented) memcpy their footprint; scalars store the value.
+    // its global address. A library build emits no initializer (see above) —
+    // the final executable owns it.
+    if (is_library) return;
     std::vector<const LConst*> with_init;
     for (auto& c : prog.consts)
         if (c.is_static && !c.is_extern && c.value) with_init.push_back(&c);
@@ -851,14 +871,14 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                     };
                     for (auto& fp : ib.methods) {
                         if (!fp) continue;
-                        if (try_match(*fp)) { sym = fp->name; break; }
+                        if (try_match(*fp)) { sym = link_name(*fp); break; }
                     }
                     if (sym.empty()) {
                         if (auto it = method_base_idx.find(mname);
                             it != method_base_idx.end()) {
                             for (auto* fp : it->second) {
                                 if (belongs_to_target(fp->name)) {
-                                    sym = fp->name; break;
+                                    sym = link_name(*fp); break;
                                 }
                             }
                         }
@@ -870,7 +890,7 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
                                 it != sit->second.end()) {
                                 for (auto* mp : it->second) {
                                     if (belongs_to_target(mp->name)) {
-                                        sym = mp->name; break;
+                                        sym = link_name(*mp); break;
                                     }
                                 }
                             }
@@ -1038,6 +1058,21 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
     if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end())
         return git->second;
     auto vit = dyn_vtable_methods_.find(key);
+    // Coexistence: the lookup's type_name is concrete_struct_name, which carries
+    // a "$M<module_id>" suffix for a non-stdlib MODULE type, but the registration
+    // keyed on the bare `ib.target_type`. Within one compile a (trait, type) pair
+    // is unique, so fall back to the bare key — the vtable SYMBOL stays
+    // module-qualified (built from the qualified type_name) for link distinctness.
+    // Without this, `&ImportedWidget as &dyn ImportedTrait` finds no methods →
+    // null vtable → SIGSEGV.
+    if (vit == dyn_vtable_methods_.end()) {
+        if (auto mp = type_name.find("$M"); mp != std::string_view::npos) {
+            std::string bare_key(trait_name);
+            bare_key += "::";
+            bare_key.append(type_name.substr(0, mp));
+            vit = dyn_vtable_methods_.find(bare_key);
+        }
+    }
     // Blanket fallback: no explicit (trait, type) vtable was registered, but
     // the trait has a blanket impl (`impl<T> Trait for T`) — so this concrete
     // type's methods are the blanket instantiations `<type>__<method>`.
@@ -1282,7 +1317,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
             for (auto& mp : sd.methods) {
                 if (!mp) continue;
                 if (try_match(mp->name)) {
-                    rtc_sym = mp->name;
+                    rtc_sym = link_name(*mp);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }
@@ -1293,7 +1328,7 @@ mlir::Value MLIRGenImpl::gen_tagged_dispatch(lir_view::EMethodCallView v,
             for (auto& fn : prog_->functions) {
                 if (!fn) continue;
                 if (try_match(fn->name)) {
-                    rtc_sym = fn->name;
+                    rtc_sym = link_name(*fn);  // module-qualified emitted name
                     rtc_fn = parent_mod.lookupSymbol<mlir::func::FuncOp>(rtc_sym);
                     if (rtc_fn) break;
                 }

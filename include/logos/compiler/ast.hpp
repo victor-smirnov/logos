@@ -34,6 +34,11 @@ inline constexpr Key VALUE    {"VALUE",     7};  // initializer / literal value
 inline constexpr Key COND     {"COND",      8};  // condition (if/while)
 inline constexpr Key THEN     {"THEN",      9};  // then branch
 inline constexpr Key ELSE     {"ELSE",     10};  // else branch
+// §4 module system: visibility sub-node on item decls (FN/STRUCT/ENUM/TRAIT/
+// CONST/…) produced by the grammar `pub_vis` rule. NAME=="module" → pub(module)
+// (module-linkage); present-but-no-NAME → plain pub. Reuses the ELSE slot — item
+// decls never carry an else-branch.
+inline constexpr Key VIS      {"VIS",      10};
 inline constexpr Key OP       {"OP",       11};  // operator string ("+", "==", etc.)
 inline constexpr Key LHS      {"LHS",      12};  // left-hand side
 inline constexpr Key RHS      {"RHS",      13};  // right-hand side
@@ -363,6 +368,12 @@ inline constexpr int32_t VIS_PUBLIC  = 1;
 // with the globals but can reuse slots that are never populated on mod nodes.
 namespace mod {
     inline constexpr Key PATH_PARTS {"PATH_PARTS", 16};  // array of {NAME} per component after the first
+    // §3 module system: `use pkg from <module>;`. FROM_MODULE = target module
+    // name as a {NAME} sub-node (bare IDENT, or a quoted string sema strips);
+    // FROM_KW = the contextual `from` keyword word (sema validates == "from").
+    // Reuse BODY/THEN slots — USE/MODULE nodes never carry a body/then-branch.
+    inline constexpr Key FROM_MODULE {"FROM_MODULE", 5};
+    inline constexpr Key FROM_KW     {"FROM_KW",     9};
 }
 
 // P4-pm-01: fields scoped to VARIANT_DEF / ENUM_LIT_DATA / PAT_VARIANT_DATA

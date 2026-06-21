@@ -1,0 +1,4 @@
+// §4.1b: pub(module) struct used internally, exposed via a public wrapper.
+package pub_module_type_internal;
+use mybridge;
+fn main() -> i32 { return bridge_make_data(); }

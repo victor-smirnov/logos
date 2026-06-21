@@ -2,6 +2,7 @@
 
 #pragma once
 #include <string>
+#include <string_view>
 #include <vector>
 #include <optional>
 
@@ -9,8 +10,21 @@ namespace logos::compiler {
 
 // Parsed logos.module manifest.
 struct ModuleManifest {
-    std::string name;      // e.g. "stdlogos"
+    std::string name;      // e.g. "stdlogos" — CANONICAL module name (human-facing
+                           //   identity; what consumers write in `use … from <name>`).
+                           //   Unique within a project's declared module set.
     std::string version;   // e.g. "0.1"
+
+    // Module IDENTIFIER — the token baked into symbol mangling so same-named
+    // packages from different modules (or versions) don't collide. DISTINCT
+    // from `name`: `name` is the human handle, `id` is the mangle key.
+    //   - explicit (`id <value>` directive): a stable, location-independent ID;
+    //     REQUIRED for binary-distributed modules (a published, stable ABI).
+    //   - empty: derived as a hash of the module's target install path (see
+    //     module_effective_id). Fine for source distribution, where the whole
+    //     artifact is compiled coherently against one known install layout.
+    std::string id;
+
     std::string root;      // directory containing .logos files (relative or absolute)
     std::vector<std::string> depends;  // other module names (for future use)
     std::vector<std::string> excludes; // path-prefixes to drop from the archive entirely (no .o, no .hermes0)
@@ -55,5 +69,13 @@ struct ModuleManifest {
 // Parse a logos.module manifest file.  Returns nullopt + message on error.
 std::optional<ModuleManifest> parse_module_manifest(const std::string& path,
                                                     std::string& err_out);
+
+// Effective module identifier used in symbol mangling: the explicit manifest
+// `id` if set, otherwise a short stable hash derived from `target_path` (the
+// path the module's compiled `.a` is destined for). `target_path` is ignored
+// when an explicit id is present. The result is a mangle-legal token
+// ([A-Za-z0-9_]).
+std::string module_effective_id(const ModuleManifest& m,
+                                std::string_view target_path);
 
 } // namespace logos::compiler

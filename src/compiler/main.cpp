@@ -108,6 +108,11 @@ bool*                                g_any_emitted = nullptr;
 std::vector<logos::hermes::Hermes>*  g_asts        = nullptr;
 std::vector<std::string>*            g_filenames   = nullptr;
 std::vector<bool>*                   g_from_binary = nullptr;
+// Module system: per-AST owning-module id, parallel to g_from_binary. New
+// asts appended by metaprog hooks belong to the module being compiled, so
+// they're stamped with g_self_module_id (empty for a plain user program).
+std::vector<std::string>*            g_module_ids  = nullptr;
+std::string                          g_self_module_id;
 size_t                               g_user_root_idx = 0;
 // Phase 7 diagnostics: hooks call logos_metaprog_error(msg) to push
 // a structured error. The driver drains this after each hook and
@@ -275,6 +280,7 @@ extern "C" int32_t logos_emit_source(const char* src) {
     g_asts->push_back(std::move(ast));
     g_filenames->emplace_back("<metaprog>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -305,6 +311,7 @@ extern "C" int32_t logos_emit_item_blob(const uint8_t* data, uint64_t size) {
     g_asts->push_back(std::move(doc).get());
     g_filenames->emplace_back("<metaprog-blob>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -1179,6 +1186,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     g_asts->push_back(std::move(doc));
     g_filenames->emplace_back("<metaprog-blob-subst>");
     g_from_binary->push_back(false);
+    if (g_module_ids) g_module_ids->push_back(g_self_module_id);
     *g_any_emitted = true;
     record_emit_provenance();
     return 1;
@@ -2352,6 +2360,15 @@ int run_metaprog_dispatch(
     g_filenames     = &filenames;
     g_from_binary   = &from_binary;
     g_user_root_idx = entry_ast_idx;
+    // Module system: point the append-time globals at the caller's module_ids
+    // vector + own id, restored on exit so nested dispatches don't leak state.
+    struct ModIdRestore {
+        std::vector<std::string>* prev_mids;
+        std::string               prev_self;
+        ~ModIdRestore() { g_module_ids = prev_mids; g_self_module_id = std::move(prev_self); }
+    } _mid_restore{ g_module_ids, g_self_module_id };
+    g_module_ids     = opts.module_ids;
+    g_self_module_id = opts.self_module_id;
     // logos_emit_source()/_blob() push NEW asts onto this vector from INSIDE a
     // metaprog handler running mid-sema_lower — which holds a `Hermes&` into `asts`.
     // A vector realloc there moves that element (Hermes move nulls the source), so the
@@ -2394,6 +2411,7 @@ int run_metaprog_dispatch(
     // prelude names too (the final pass below does the real type resolution,
     // but metaprog handlers may reference Option/Result/String/etc.).
     meta_opts.implicit_prelude = opts.implicit_prelude;
+    meta_opts.module_name_to_id = opts.module_name_to_id;  // §B-coex: `use … from` in discovery
 
     // M6.1: enable incremental dispatch. Cache preserves user-AST state
     // across iters; each iter's sema_lower is given a delta_start_idx so
@@ -2444,7 +2462,8 @@ int run_metaprog_dispatch(
         // Phase 6: metaprog dispatch loop doesn't currently thread is_lazy
         // through (no use case yet — metaprog handlers + their callees stay
         // eager regardless). Pass {} to keep the existing behaviour.
-        prog = sema_lower(asts, filenames, from_binary, opts_iter, {});
+        prog = sema_lower(asts, filenames, from_binary, opts_iter, {},
+                          opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
         stat_step(_t, "sema_lower", iter);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
@@ -2512,7 +2531,8 @@ int run_metaprog_dispatch(
                 resema_opts.cache = nullptr;
                 resema_opts.delta_start_idx = 0;
             }
-            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {});
+            meta_prog = sema_lower(asts, filenames, from_binary, resema_opts, {},
+                                   opts.module_ids ? *opts.module_ids : std::vector<std::string>{});
             if (!meta_prog.ok()) { meta_prog.print_diags(stderr); return 1; }
         }
         meta_prog.functions.erase(
@@ -2564,14 +2584,22 @@ int run_metaprog_dispatch(
         // next iter's binary_symbols extension covers them. "Emitted"
         // means name is in prog.functions / struct.methods AND NOT in
         // the current binary_symbols set (which already excludes them).
+        // Module system: track the QUALIFIED LINK names (the same form mlir_gen
+        // emits + is_binary_skip checks) via the single shared sym::link_name —
+        // else methods (qualified at emission) desync from the bare tracking and
+        // get re-emitted across iters → ORC duplicate-definition.
         for (auto& fp : meta_prog.functions) {
-            if (fp && !meta_prog.binary_symbols.count(fp->name))
-                m6_prev_emitted_fns.insert(fp->name);
+            if (!fp) continue;
+            auto ln = sym::link_name(*fp, meta_prog.pkg_module_ids);
+            if (!meta_prog.binary_symbols.count(ln))
+                m6_prev_emitted_fns.insert(std::move(ln));
         }
         for (auto& sd : meta_prog.structs) {
             for (auto& m : sd.methods) {
-                if (m && !meta_prog.binary_symbols.count(m->name))
-                    m6_prev_emitted_fns.insert(m->name);
+                if (!m) continue;
+                auto ln = sym::link_name(*m, meta_prog.pkg_module_ids);
+                if (!meta_prog.binary_symbols.count(ln))
+                    m6_prev_emitted_fns.insert(std::move(ln));
             }
         }
         mlir::PassManager meta_pm(&meta_mlir_ctx);
@@ -3041,6 +3069,9 @@ int main(int argc, char** argv) {
     std::vector<std::string> filenames;
     std::vector<bool> from_binary;
     std::vector<bool> is_lazy;
+    std::vector<std::string> module_ids;   // parallel to asts (owning-module mangle key)
+    // §3: module canonical NAME → mangle id, for resolving `use pkg from <name>`.
+    std::unordered_map<std::string, std::string> module_name_to_id;
     logos::compiler::StrSet binary_archives_seen;
     logos::compiler::StrSet binary_symbols;
     for (auto& m : modules) {
@@ -3053,6 +3084,9 @@ int main(int argc, char** argv) {
         // tag LFunction.from_lazy_module for post-mono reach filtering.
         from_binary.push_back(m.from_binary_module && !m.is_lazy);
         is_lazy.push_back(m.is_lazy);
+        module_ids.push_back(m.module_id);   // empty for the user program's own files; set for binary modules
+        if (!m.module_name.empty() && !m.module_id.empty())
+            module_name_to_id.emplace(m.module_name, m.module_id);  // §3: name→id
         asts.push_back(std::move(m.ast));
     }
     // Collect symbol tables from binary archives on the search path.
@@ -3133,8 +3167,20 @@ int main(int argc, char** argv) {
             std::string_view sv(line);
             while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
                 sv.remove_suffix(1);
-            if (!sv.empty() && sv.front() != '/')
+            if (!sv.empty() && sv.front() != '/') {
                 binary_symbols.emplace(sv);
+                // Module system: a METHOD symbol is emitted module-qualified as
+                // `<module>..<pkg>.<rest>` (mlir-gen link_name), but mono's
+                // precompiled-skip checks use the BARE `<pkg>.<rest>` form
+                // (function_symbol_name exempts methods from the module segment).
+                // Insert the bare alias (everything after the `..` sentinel) so a
+                // stdlib method is recognised as already compiled — else mono
+                // re-monomorphises the ENTIRE stdlib in every consumer compile
+                // (mono+borrow re-instantiation storm: borrow 12ms→1300ms). Free
+                // fns use a single `.`/`$` boundary (no `..`) and are unaffected.
+                if (auto dd = sv.find(".."); dd != std::string_view::npos)
+                    binary_symbols.emplace(sv.substr(dd + 2));
+            }
         }
         ::pclose(pipe);
     };
@@ -3368,6 +3414,9 @@ int main(int argc, char** argv) {
         mopts.stats_out      = stats_flag ? &top_stats : nullptr;
         mopts.sema_cache     = &sema_cache;
         mopts.implicit_prelude = implicit_prelude_pkg;
+        mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        mopts.self_module_id = "";           // a plain user program is in the global module (no id)
+        mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         if (logos::compiler::run_metaprog_dispatch(
                 asts, filenames, from_binary, pre_dispatch_entry_idx, mopts) != 0)
             return 1;
@@ -3387,7 +3436,7 @@ int main(int argc, char** argv) {
         std::set<std::string> consumed_triggers;
         {
             auto post_prog = logos::compiler::sema_lower(asts, filenames, from_binary,
-                                                          logos::compiler::SemaOptions{}, is_lazy);
+                                                          logos::compiler::SemaOptions{}, is_lazy, module_ids);
             for (auto& mh : post_prog.metaprog_handlers) {
                 if (mh.trigger != "<missing>") consumed_triggers.insert(mh.trigger);
             }
@@ -3536,7 +3585,8 @@ int main(int argc, char** argv) {
     default_opts.cache          = &sema_cache;  // M5
     default_opts.binary_symbols = binary_symbols;  // skeleton-skip gate
     default_opts.implicit_prelude = implicit_prelude_pkg;  // default-on prelude
-    prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
+    default_opts.module_name_to_id = module_name_to_id;    // §3: resolve `use … from <name>`
+    prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return 1;
 
@@ -3574,7 +3624,7 @@ int main(int argc, char** argv) {
             if (emitted_any_thunk) {
                 // Re-sema so the JIT module below picks up the new thunks.
                 auto _t_resema = std::chrono::steady_clock::now();
-                prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
+                prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
                 mc_stat_step(_t_resema, "resema_after_emit", mi);
                 prog.print_diags(stderr);
                 if (!prog.ok()) return 1;
@@ -3944,7 +3994,7 @@ int main(int argc, char** argv) {
             // Loop continues only if new sites somehow appeared.
             (void)any_spliced;
             auto _mc_t_resema = std::chrono::steady_clock::now();
-            prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy);
+            prog = logos::compiler::sema_lower(asts, filenames, from_binary, default_opts, is_lazy, module_ids);
             mc_stat_step(_mc_t_resema, "resema_after_splice", mi);
             prog.print_diags(stderr);
             if (!prog.ok()) return 1;
@@ -4087,7 +4137,7 @@ int main(int argc, char** argv) {
         g_user_root_idx = asts.size() - 1;
         logos::compiler::SemaOptions runner_opts;
         runner_opts.cfg_flags = cfg_flags;
-        prog = logos::compiler::sema_lower(asts, filenames, from_binary, runner_opts, is_lazy);
+        prog = logos::compiler::sema_lower(asts, filenames, from_binary, runner_opts, is_lazy, module_ids);
         prog.print_diags(stderr);
         if (!prog.ok()) return 1;
         if (!prog.metacall_sites.empty()) {

@@ -157,7 +157,11 @@ inline constexpr Key TYPE              {"TYPE",             0};   // RelPtr<Logo
 
 namespace expr_keys {
 // Literals
-inline constexpr Key LIT_I64           {"LIT_I64",          1};   // i64
+inline constexpr Key LIT_I64           {"LIT_I64",          1};   // i64 (low half of the value)
+inline constexpr Key LIT_I64_HI        {"LIT_I64_HI",       8};   // i64: HIGH half of a 128-bit LitInt
+                                                                  // (i128/u128 literals). Absent ⇒ 0.
+                                                                  // Reuses DISC slot — a LitInt never
+                                                                  // carries an enum discriminant.
 inline constexpr Key LIT_F64           {"LIT_F64",          2};   // f64
 inline constexpr Key LIT_BOOL          {"LIT_BOOL",         3};   // u8
 inline constexpr Key LIT_STR           {"LIT_STR",          4};   // Varchar

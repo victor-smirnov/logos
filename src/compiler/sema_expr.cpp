@@ -189,6 +189,27 @@ lir::LExprPtr SemaChecker::lit_int_from_text(std::string_view sv, bool negate) {
         error(std::format("malformed integer literal '{}'", sv));
         return error_expr();
     }
+    // 128-bit literals (`…u128` / `…i128`): carry the full magnitude via two
+    // 64-bit halves in the LIR. The default i64 path below would reject (or
+    // truncate) any value beyond 64 bits, so route the wide suffixes here first.
+    {
+        auto wsuf = int_suffix_kind(sv);
+        if (wsuf == LogosType::Kind::U128 || wsuf == LogosType::Kind::I128) {
+            if (parse_int_literal_overflows_128(sv)) {
+                error(std::format("integer literal '{}' is out of range", sv));
+                return error_expr();
+            }
+            bool src_negative = negate || (!sv.empty() && sv[0] == '-');
+            if (wsuf == LogosType::Kind::U128 && src_negative) {
+                error(std::format("integer literal '{}': negative value with unsigned suffix", sv));
+                return error_expr();
+            }
+            unsigned __int128 mag = parse_int_literal_u128(sv);
+            unsigned __int128 val = src_negative
+                ? (unsigned __int128)(-(__int128)mag) : mag;
+            return builder().lit_int_128((uint64_t)val, (uint64_t)(val >> 64), prim(wsuf));
+        }
+    }
     // Sprint 2.3: reject silently-saturating literals (B-ex-07, B-he-04, B-lx-04).
     if (parse_int_literal_overflows(sv)) {
         error(std::format("integer literal '{}' is out of range", sv));
@@ -3145,7 +3166,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
 
     if (const SemaFuncInfo* exact_fi = resolve_function_call(callee, arg_exprs, false, false);
         exact_fi && exact_fi->type_params.empty() && !call_has_pack_expand) {
-        check_pub_access(exact_fi->is_pub, exact_fi->package, callee);
+        check_pub_access(exact_fi->is_pub, exact_fi->package, callee, exact_fi->is_module_only, exact_fi->module_id);
         if (exact_fi->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         if (exact_fi->is_vararg) {
@@ -3337,7 +3358,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // Pub check and unsafe check.
     {
         const SemaFuncInfo* fi_chk = fi_sel;
-        check_pub_access(fi_chk->is_pub, fi_chk->package, callee);
+        check_pub_access(fi_chk->is_pub, fi_chk->package, callee, fi_chk->is_module_only, fi_chk->module_id);
         if (fi_chk->is_unsafe && !inside_unsafe_)
             error(std::format("call to unsafe function '{}' requires unsafe context", callee));
     }
@@ -5021,6 +5042,19 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().call("__type_uid_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
+    // type_uid_hi::<T>() — the HIGH 64 bits of the 128-bit nominal type UID
+    // (type_uid is the low half). Together they form `TypeId { lo, hi }`,
+    // making cross-type collision 2^-128 instead of 2^-64. Folded at mono via
+    // __type_uid_hi_of__.
+    if (callee == "type_uid_hi") {
+        auto ts = collect_type_args(node);
+        if (ts.size() != 1 || !ts[0]) {
+            error("type_uid_hi::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        return builder().call("__type_uid_hi_of__", std::move(ts), {},
+                              prim(LogosType::Kind::U64));
+    }
     // Phase 1B-14: `dst_from_raw_parts::<DstStruct>(ptr, len)` — unsafe
     // builtin that materialises a `*const DstStruct` fat pointer from a
     // raw data pointer and an i64 tail length. DstStruct must be a
@@ -5866,7 +5900,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             error(std::format("call to undefined function '{}'", callee));
         return builder().call(std::string(callee), {}, {}, error_t());
     }
-    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee, fi_ptr->is_module_only, fi_ptr->module_id);
 
     // Resolve explicit type arguments from TYPE_PARAMS.
     // Phase 1B-2: when the i-th target type param has `implicit_sized=false`
@@ -6014,7 +6048,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
         error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
         return error_expr();
     }
-    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee);
+    check_pub_access(fi_ptr->is_pub, fi_ptr->package, callee, fi_ptr->is_module_only, fi_ptr->module_id);
 
     // Phase 1B-6: now resolve type args with per-arg unsized_ok_ based on
     // the target fn's type-param bounds.
@@ -8639,7 +8673,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto& fi = *fi_ptr;
-    check_pub_access(fi.is_pub, fi.package, mangled);
+    check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
@@ -13433,7 +13467,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     }
 
     auto& fi = *fi_ptr;
-    check_pub_access(fi.is_pub, fi.package, mangled);
+    check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
     if (fi.is_unsafe && !inside_unsafe_)
         error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 

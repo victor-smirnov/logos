@@ -1121,6 +1121,14 @@ struct LProgram {
 
     TypePool               type_pool;  // owns all LogosType*
 
+    // Module system: package dotted-name → owning-module id (the mangle key).
+    // Populated by sema during collection; read by mono so method-symbol
+    // synthesis sites can module-qualify a callee built from a type's package
+    // (`<module_id>.<pkg>.<Struct>__<method>`), matching function_symbol_name's
+    // definition mangle. A package absent here (or mapped to "") is in the
+    // global module → no module qualification (byte-identical legacy mangle).
+    std::unordered_map<std::string, std::string> pkg_module_ids;
+
     // ADR 0007 slice 1b: pool that owns every LExpr in this program. Builder
     // and mono allocate through `alloc_expr(prog)`; variant fields hold raw
     // LExpr* into this pool. Pool is append-only and survives until LProgram
@@ -1330,6 +1338,92 @@ inline std::string_view bare_fn_name(std::string_view nm) noexcept {
     return nm;
 }
 
+// ── Module-qualified package encoding (docs/module-system/mangling.md) ──────
+// Qualified package = `[<module_id>..]<pkg>`. The `..` sentinel separates the
+// module-id from the package; packages have no empty segments, so `..` is
+// unambiguous. Absent module → no prefix (back-compat with the pre-module
+// mangle). Pure; the caller resolves module_id from LProgram::pkg_module_ids.
+inline std::string qualify_pkg(std::string_view module_id, std::string_view pkg) {
+    if (module_id.empty()) return std::string(pkg);
+    std::string r(module_id);
+    r += "..";
+    r += pkg;
+    return r;
+}
+
+// Inverse: split a qualified package into {module_id, pkg}. No `..` → module
+// empty (global module / package-less). Used by the single demangle path.
+inline std::pair<std::string_view, std::string_view>
+split_qualified_pkg(std::string_view qp) noexcept {
+    if (auto p = qp.find(".."); p != std::string_view::npos)
+        return { qp.substr(0, p), qp.substr(p + 2) };
+    return { std::string_view{}, qp };
+}
+
+// ── Canonical symbol-name mechanism (docs/module-system/symbol-mangle-rewrite.md)
+// The SINGLE source of truth for LINK-symbol encoding: where the module / pkg /
+// base / signature boundaries sit, and the module-qualification policy. Every
+// link-name builder routes through sym::mangle; nobody hand-assembles the string.
+namespace sym {
+
+// Structured link-symbol identity. `base` is the free-fn name OR the combined
+// `Owner__method` for a method (is_method then true); `sig` is the already-
+// mangled signature suffix (the part after `base__`).
+struct Sym {
+    std::string module_id;   // owning module; "" = global module
+    std::string package;     // dotted package; "" = package-less
+    std::string base;        // free-fn name | "Owner__method"
+    std::string sig;         // mangled signature fragment (params)
+    bool is_generic = false; // __g__ vs __f__
+    bool is_method  = false; // base contains a `__` owner/method join
+    bool is_extern  = false; // C ABI: no pkg/module qualification
+};
+
+// Build the canonical link symbol. Encoding:
+//   [ [<module_id>] [.<pkg> | <pkg>] {$ (free) | . (method)} ] base {__f__|__g__} sig
+// extern → no pkg/module prefix (but still carries __f__/sig as today).
+//
+// MODULE POLICY lives HERE (the single flip point): module-id is prepended to
+// the package segment when the symbol is non-extern and — for now — NOT a method
+// (methods exempt pending the bridge-free rewrite, see the doc). Flip = drop the
+// `!s.is_method` term.
+inline std::string mangle(const Sym& s) {
+    bool with_pkg = !s.package.empty() && !s.is_extern;
+    bool with_mod = !s.module_id.empty() && !s.is_extern && !s.is_method;
+    std::string out;
+    if (with_pkg || with_mod) {
+        std::string seg;
+        if (with_mod) seg = s.module_id;
+        if (with_pkg) { if (!seg.empty()) seg += '.'; seg += s.package; }
+        out = std::move(seg);
+        out += s.is_method ? '.' : '$';
+    }
+    out += s.base;
+    out += s.is_generic ? "__g__" : "__f__";
+    out += s.sig;
+    return out;
+}
+
+// The qualified LINK symbol for an already-lowered function/method (emission
+// boundary). Free fns are module-qualified by function_symbol_name; METHODS are
+// emitted bare (`<pkg>.<Owner>__<m>…`) and gain the `<module>..` prefix here.
+// Method shape = name starts with `<pkg>.`; free fns use a `$` boundary (or
+// already carry the module) → unchanged. THE SINGLE definition used by both
+// mlir-gen (FuncOp names / is_binary_skip) AND the metaprog-dispatch emitted-set
+// tracking, so the two can never desync. `Fn` is LFunction (has .package/.name).
+template <class Fn>
+inline std::string link_name(const Fn& fn,
+                             const std::unordered_map<std::string, std::string>& pkg_module_ids) {
+    if (fn.package.empty()) return fn.name;
+    auto it = pkg_module_ids.find(fn.package);
+    if (it == pkg_module_ids.end() || it->second.empty()) return fn.name;
+    std::string prefix = fn.package + ".";
+    if (fn.name.rfind(prefix, 0) == 0) return it->second + ".." + fn.name;
+    return fn.name;
+}
+
+} // namespace sym
+
 } // namespace logos::compiler
 
 // B.6 Stage 3.5 step 7e: variant `kind` fields removed from
@@ -1399,6 +1493,13 @@ struct SemaOptions {
     // Files loaded from binary archives skip injection (their producer
     // already applied its own prelude when the archive was built).
     std::string implicit_prelude;
+
+    // §3 module system: maps a module's canonical NAME (the human handle written
+    // in `use pkg from <name>`) to its mangle ID. Built once from the loaded
+    // modules' @module descriptors. Lets sema resolve a `from <name>` clause to
+    // the id `find_func_candidates` filters by. Empty → no module is known by
+    // name, so a `from` clause cannot resolve (sema errors at the use site).
+    std::unordered_map<std::string, std::string> module_name_to_id;
 };
 
 // Run semantic analysis and produce L-IR from all parsed module ASTs.
@@ -1414,7 +1515,8 @@ lir::LProgram sema_lower(const std::vector<hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames = {},
                           const std::vector<bool>& from_binary = {},
                           SemaOptions opts = {},
-                          const std::vector<bool>& is_lazy = {});
+                          const std::vector<bool>& is_lazy = {},
+                          const std::vector<std::string>& module_ids = {});
 
 // Build TypeInfo rodata blobs for types in reflect_requests and annotated datatypes.
 // Populates prog.reflection_globals with LReflectGlobal entries.

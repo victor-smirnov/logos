@@ -1,0 +1,4 @@
+// §3: `from <name>` must name a loaded module.
+package use_from_unknown_module;
+use logos.lang.option from "no-such-module";
+fn main() -> i32 { return 0i32; }

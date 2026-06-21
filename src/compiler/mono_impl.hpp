@@ -102,6 +102,19 @@ private:
     int            depth_ = 0;
     PackMap        cur_packs_;
 
+    // Module system: module-qualify a package for synthesised symbols. Returns
+    // `<module_id>.<pkg>` when pkg belongs to a non-global module, else pkg
+    // unchanged — mirroring function_symbol_name's definition-side mangle so a
+    // method-call symbol synthesised from a type's package matches the emitted
+    // definition. Reads the package→module map handed over by sema.
+    std::string mq(const std::string& pkg) const {
+        if (pkg.empty()) return pkg;
+        auto it = in_.pkg_module_ids.find(pkg);
+        if (it != in_.pkg_module_ids.end() && !it->second.empty())
+            return it->second + "." + pkg;
+        return pkg;
+    }
+
 protected:
     // Phase 5.A: source arena for refs constructed from the IN_-side variants.
     // mono moves in_.type_pool into out_ at run() start so historically these
@@ -709,8 +722,12 @@ public:
                 if (t.elem() && has_tv(t.elem())) return true;
                 return false;
             };
-            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name());
-            std::string r = std::string(tr.enum_name());
+            // Coexistence: module-qualify the enum name (matches sema's
+            // mangle_type_for_name) so two modules' same-named enums get
+            // distinct generic-symbol type-args.
+            std::string esuf = type_module_suffix(tr.pkg_name());
+            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name()) + esuf;
+            std::string r = std::string(tr.enum_name()) + esuf;
             for (auto a : tr.type_args()) {
                 r += "__";
                 r += mangle_type(a);
@@ -753,6 +770,49 @@ public:
             result += mangle_type(t);
         }
         return result;
+    }
+
+    // Walk a type tree and append a "<name>$M<module_id>" tag for EVERY nominal
+    // (struct/enum) node that belongs to a non-stdlib module. Recurses through
+    // every composite child (ptr/ref/array/slice/tuple/generic-args/closure) so
+    // a nested module type — e.g. the `Widget` in `Box<pkg::Widget>` — still
+    // contributes its module identity even when the outer type is stdlib.
+    static void collect_module_tags(TypeRef t, std::string& out) {
+        if (!t) return;
+        switch (t.kind()) {
+        case LogosType::Kind::Struct:
+        case LogosType::Kind::ZonedStruct: {
+            std::string suf = type_module_suffix(t.pkg_name());
+            if (!suf.empty()) { out += "|"; out += std::string(t.struct_name()); out += suf; }
+            break;
+        }
+        case LogosType::Kind::Enum: {
+            std::string suf = type_module_suffix(t.pkg_name());
+            if (!suf.empty()) { out += "|"; out += std::string(t.enum_name()); out += suf; }
+            break;
+        }
+        default: break;
+        }
+        if (t.pointee())     collect_module_tags(t.pointee(), out);
+        if (t.elem())        collect_module_tags(t.elem(), out);
+        for (auto a : t.type_args())     collect_module_tags(a, out);
+        for (auto e : t.tuple_elems())   collect_module_tags(e, out);
+        for (auto p : t.closure_params()) collect_module_tags(p, out);
+        if (t.closure_ret()) collect_module_tags(t.closure_ret(), out);
+    }
+
+    // Canonical type-identity STRING for nominal runtime UID hashing
+    // (`type_uid::<T>()` → Any / type_id / quote_ty reification). It is type_str
+    // PLUS a module fingerprint: every non-stdlib MODULE type anywhere in the
+    // tree contributes a "<name>$M<module_id>" tag, so two modules' same-named
+    // `pkg::Type` (incl. when nested, e.g. `Box<pkg::Widget>`) hash to DISTINCT
+    // runtime UIDs and cross-module Any/downcast can't confuse them (Cat C
+    // coexistence). stdlib (`logos.*`) + no-module compiles ⇒ no tags ⇒
+    // byte-identical to type_str (UIDs unchanged).
+    static std::string type_id_canon(TypeRef t) {
+        std::string s = type_str(t);
+        collect_module_tags(t, s);
+        return s;
     }
 private:
 

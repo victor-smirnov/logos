@@ -19,6 +19,16 @@ struct ParsedModule {
     std::string    package;               // dotted package name (e.g. "std.io"); may be empty
     hermes::Hermes ast;
     bool           from_binary_module = false;  // loaded from a .hermes0 in a .a archive
+
+    // Owning MODULE identity (the unit of distribution this file belongs to).
+    // module_id is the mangle key (module_manifest.module_effective_id);
+    // module_name is the canonical human handle. For binary modules both come
+    // from the archive's `@module` .pkgi header; for the module currently being
+    // compiled, emit_module stamps them from the manifest. Empty for a plain
+    // user program (no module → no module-qualified mangling).
+    std::string    module_id;
+    std::string    module_name;
+
     // Phase 6 (multi-arena IR): lazy-mode archive. When true, the consumer
     // must lower this module's items locally (sema/mono/mlir-gen treats
     // them as user code) even though they came from a binary archive —

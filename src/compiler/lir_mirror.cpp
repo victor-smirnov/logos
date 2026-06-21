@@ -103,6 +103,15 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
+    // 128-bit variant: low half in LIT_I64, high half in LIT_I64_HI (omitted
+    // when 0, so 64-bit-fitting values stay byte-identical to the i64 path).
+    hermes::arena_offset_t emit_lit_int_direct_128(TypeRef ty, uint64_t lo, uint64_t hi) {
+        auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitInt));
+        put(map_off, ek::LIT_I64, put_i64((int64_t)lo));
+        if (hi != 0) put(map_off, ek::LIT_I64_HI, put_i64((int64_t)hi));
+        if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
     hermes::arena_offset_t emit_lit_float_direct(TypeRef ty, double v) {
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::LitFloat));
         put(map_off, ek::LIT_F64, put_f64(v));
@@ -1699,6 +1708,12 @@ hermes::arena_offset_t lir_mirror_emit_lit_int(lir::LProgram& prog, TypeRef ty, 
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_int_direct(ty, v);
+}
+hermes::arena_offset_t lir_mirror_emit_lit_int_128(lir::LProgram& prog, TypeRef ty,
+                                                   uint64_t lo, uint64_t hi) {
+    auto& arena = prog.type_pool.arena_or_init();
+    LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
+    return em.emit_lit_int_direct_128(ty, lo, hi);
 }
 hermes::arena_offset_t lir_mirror_emit_lit_float(lir::LProgram& prog, TypeRef ty, double v) {
     auto& arena = prog.type_pool.arena_or_init();

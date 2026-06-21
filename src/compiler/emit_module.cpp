@@ -262,8 +262,11 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                                StdlibExports* out_exports = nullptr,
                                std::vector<uint8_t>* out_lir_blob = nullptr,
                                const std::string& module_name = "",
+                               const std::string& module_id = "",
                                const std::string& implicit_prelude = "",
-                               const std::vector<std::string>& dep_archives = {}) {
+                               const std::vector<std::string>& dep_archives = {},
+                               const std::vector<std::string>& per_ast_module_ids = {},
+                               const std::unordered_map<std::string, std::string>& module_name_to_id = {}) {
     // Run metaprog discovery loop (#21 closure) so #[derive_*] hooks
     // and metacall thunks fire during stdlib build. asts/filenames
     // grow with synthesised docs that subsequent sema picks up.
@@ -287,6 +290,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         if (i < from_binary_module_flags.size() && from_binary_module_flags[i])
             from_binary[i] = true;
     }
+    // Module system: mutable copy of the per-AST module ids. Metaprog dispatch
+    // grows `asts` and the dispatcher appends matching ids (the own module_id)
+    // so this stays parallel to `asts` for the final sema pass below.
+    std::vector<std::string> module_ids = per_ast_module_ids;
 
     // Collect the `nm --defined-only` symbol set of the dependency archives
     // ONCE, up front. It's the skeleton-skip gate (sema skips lowering bodies
@@ -313,6 +320,9 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     {
         MetaprogDispatchOpts mopts;
         mopts.binary_symbols = dep_symbols;  // skeleton-skip gate for dispatch sema
+        mopts.module_ids     = &module_ids;  // module system: parallel to asts; grows with it
+        mopts.self_module_id = module_id;    // hook-appended asts belong to THIS module
+        mopts.module_name_to_id = module_name_to_id;  // §B-coex: `use … from` in discovery
         // Stdlib build chicken-and-egg: dispatch needs to JIT-compile
         // handler fns whose bodies reach into stdlib (Vec, AnyVal, etc.).
         // The metaprog mlir module spans the whole stdlib, so JIT lookup
@@ -414,7 +424,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
     SemaOptions sema_opts;
     sema_opts.implicit_prelude = implicit_prelude;
     sema_opts.binary_symbols = dep_symbols;  // skeleton-skip gate
-    auto prog = sema_lower(asts, filenames, from_binary, sema_opts);
+    sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
+    auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);
     prog.print_diags(stderr);
     if (!prog.ok()) return false;
 
@@ -841,6 +852,17 @@ bool emit_module(const ModuleManifest& manifest,
         };
         load_bucket(codegen_files);
         load_bucket(ast_only_files);
+
+        // Stamp this module's OWN (source) files with the manifest identity so
+        // downstream sema mangles their symbols under this module. Binary deps
+        // already carry their own id (set in module_loader::visit_binary_module).
+        std::string self_id = module_effective_id(manifest, output_path);
+        for (auto& m : modules) {
+            if (!m.from_binary_module) {
+                m.module_id   = self_id;
+                m.module_name = manifest.name;
+            }
+        }
     }
 
     if (modules.empty()) {
@@ -893,6 +915,8 @@ bool emit_module(const ModuleManifest& manifest,
     std::vector<std::string> filenames;
     std::vector<bool>        ast_only_flags;       // parallel to asts
     std::vector<bool>        from_binary_module_flags;  // parallel to asts
+    std::vector<std::string> per_ast_module_ids;    // parallel to asts (owning-module mangle key)
+    std::unordered_map<std::string, std::string> module_name_to_id;  // §B-coex: NAME→id for `from`
     std::vector<ParsedModule> modules_for_h0;
     for (auto& m : modules) {
         modules_for_h0.push_back({m.path, m.package, m.ast});  // Hermes is copy-on-write safe
@@ -900,6 +924,9 @@ bool emit_module(const ModuleManifest& manifest,
         filenames.push_back(m.path);
         ast_only_flags.push_back(ao);
         from_binary_module_flags.push_back(m.from_binary_module);
+        per_ast_module_ids.push_back(m.module_id);  // own files: self_id (stamped above); deps: archive id
+        if (!m.module_name.empty() && !m.module_id.empty())
+            module_name_to_id.emplace(m.module_name, m.module_id);
         asts.push_back(std::move(m.ast));
     }
 
@@ -930,12 +957,20 @@ bool emit_module(const ModuleManifest& manifest,
         // the dep .o) and links them; it never reads a published body. Passing
         // nullptr also skips the (expensive) compactify pass. The exports
         // trailer is computed for the verbose summary but no longer written.
+        // Module identifier baked into the .pkgi (and, downstream, into symbol
+        // mangling): explicit manifest `id`, else a hash of the output archive
+        // path. Computed once here; consumers READ it from the .pkgi rather than
+        // re-deriving, so it stays consistent regardless of derivation.
+        std::string module_id = module_effective_id(manifest, output_path);
         if (!compile_to_object(asts, filenames, ast_only_flags,
                                from_binary_module_flags, obj_path,
                                only_file_canon, &exports, /*out_lir_blob=*/nullptr,
                                /*module_name=*/manifest.name,
+                               /*module_id=*/module_id,
                                /*implicit_prelude=*/manifest.prelude,
-                               /*dep_archives=*/all_lib_files)) {
+                               /*dep_archives=*/all_lib_files,
+                               /*per_ast_module_ids=*/per_ast_module_ids,
+                               /*module_name_to_id=*/module_name_to_id)) {
             std::fprintf(stderr, "emit_module: compilation failed\n");
             return false;
         }
@@ -1155,6 +1190,14 @@ bool emit_module(const ModuleManifest& manifest,
         // entry, so resolution always finds the fresh archive. (The embedded
         // copy in .hm0 stays for sema self-containment but is never selected
         // over the owner.)
+        // Header: the owning module's canonical name + mangle id (one module
+        // per archive). Consumers map every package below to this id. The `@`
+        // sigil keeps it out of the package list; legacy readers that predate
+        // this skip `@`-lines (see parse_pkgi_member). Recomputed here (cheap,
+        // deterministic — same inputs as the compile_to_object call site).
+        if (!manifest.name.empty())
+            f << "@module " << manifest.name << " "
+              << module_effective_id(manifest, output_path) << "\n";
         std::set<std::string> seen;
         for (size_t i = 0; i < modules_for_h0.size(); ++i) {
             auto& m = modules_for_h0[i];

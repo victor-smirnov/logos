@@ -47,8 +47,8 @@ fn test_any_referenced() {
 fn test_dyn_type_id() {
     let x: Alpha = Alpha { a: 1i32 };
     let ax: &dyn Any = &x as &dyn Any;
-    assert!(ax.type_id().code == type_id_of::<Alpha>().code);
-    assert!(ax.type_id().code != type_id_of::<Beta>().code);
+    assert!(ax.type_id() == type_id_of::<Alpha>());
+    assert!(ax.type_id() != type_id_of::<Beta>());
 }
 
 // Direct (non-dyn) `.type_id()` via the Any blanket — sound for ALL types,
@@ -57,18 +57,18 @@ fn test_dyn_type_id() {
 fn test_direct_type_id() {
     let i: i32 = 5i32;
     let x: Alpha = Alpha { a: 1i32 };
-    assert!(i.type_id().code == type_id_of::<i32>().code);
-    assert!(x.type_id().code == type_id_of::<Alpha>().code);
-    assert!(i.type_id().code != x.type_id().code);
+    assert!(i.type_id() == type_id_of::<i32>());
+    assert!(x.type_id() == type_id_of::<Alpha>());
+    assert!(i.type_id() != x.type_id());
 }
 
 // TypeId is a nominal, comparable identity: distinct named types differ,
 // the same type is stable, and TypeId is Eq.
 #[test]
 fn test_type_id_identity() {
-    assert!(type_id_of::<i32>().code == type_id_of::<i32>().code);
-    assert!(type_id_of::<i32>().code != type_id_of::<u32>().code);
-    assert!(type_id_of::<Alpha>().code != type_id_of::<Beta>().code);
+    assert!(type_id_of::<i32>() == type_id_of::<i32>());
+    assert!(type_id_of::<i32>() != type_id_of::<u32>());
+    assert!(type_id_of::<Alpha>() != type_id_of::<Beta>());
     let a: TypeId = type_id_of::<Alpha>();
     let b: TypeId = type_id_of::<Alpha>();
     let c: TypeId = type_id_of::<Beta>();

@@ -1,0 +1,144 @@
+# Symbol mangling — module-qualified, bridge-free (design, LOCKED 2026-06-20)
+
+Goal: one canonical symbol form, produced by sema, carried through mono
+UNCHANGED, no reconstruction → the `canonical()` bare↔pkg bridge
+(mlir_gen.cpp:564) and all ad-hoc bare re-synthesis are DELETED. Module-id is an
+intrinsic part of identity (distinguishes same-named `foo.Bar::baz` from
+different modules in ONE compilation — the `use … from` case), so it is present
+in the name wherever mono compares/keys/dedups identity. Decided with Victor.
+
+## Encoding — `..` sentinel
+Qualified package = `[<module_id>..]<pkg>` (module-id sanitized `[A-Za-z0-9_]`;
+pkg is `.`-dotted, never empty segments ⇒ `..` is unambiguous).
+
+- free fn:  `[<mid>..]<pkg>$<base>__f__|__g__<sig>`
+- method:   `[<mid>..]<pkg>.<Owner>__<method>__f__|__g__<sig>`
+- type/struct name (concrete_struct_name): `[<mid>..]<pkg>.<Struct>$G<n>$<arg…>`
+- extern:   bare `<name>` (own ABI — NEVER qualified)
+- absent module → no `<mid>..`; absent pkg → collapses; both absent → bare.
+  ONE parser: "contains `..` ⇒ left of it is module-id"; the rest is the
+  existing `[pkg][$|.]owner…` logic, unchanged. Safe omission falls out.
+
+`module-id` source: `LProgram::pkg_module_ids[pkg]` (filled by sema §2a). Both
+roles of `concrete_struct_name` (method-OWNER and type-ARG component) get the
+SAME qualification — else `Vec<A::Foo>` and `Vec<B::Foo>` collide.
+
+## Why this avoids the perf blowup (the §2b-methods attempts' failure)
+The blowup came from qualifying the call/emit name OUTSIDE `concrete_struct_name`
+while registry KEYS still came from (bare) `concrete_struct_name` → mismatch →
+`concrete_struct_types_`/`done_methods_` miss → re-instantiation storm. Putting
+the qualification INSIDE `concrete_struct_name` moves registry-insert + lookup +
+call + emit TOGETHER → consistent → no mismatch, no storm, no bridge.
+
+## Single API (source of truth — sema + mono + mlir-gen all route through it)
+- `qualify_pkg(module, pkg) -> string`  (`[mid..]pkg`)
+- `split_symbol(sym) -> {module, pkg, rest}`  (strip on `..`, then existing)
+- `concrete_struct_name` builds via qualify_pkg (uses the global pkg→module map
+  pointer, set per-compilation like `g_mangle_erase_fnptr`).
+- `function_symbol_name`: methods un-exempted; must NOT double-add pkg when the
+  base already carries it from `concrete_struct_name`.
+
+## Staging (each step gates L2 on CORRECTNESS **and** compile-TIME, then L4)
+1. canonical API + global pkg→module pointer plumbed (sema run + mono run).
+2. FLIP `concrete_struct_name` → fully qualified (both roles). Keep the
+   `canonical()` bridge as a SAFETY NET this stage (reconciles any straggler).
+   Gate L2 (watch wall-time — a regression = a surviving bare re-synthesis site).
+3. un-exempt methods in `function_symbol_name`; kill ad-hoc bare re-synthesis in
+   mono (blanket emit, `T→Concrete`, dest_name builders) — make them build from
+   the full template name / qualified `concrete_struct_name`.
+4. DELETE `canonical()` + bare↔pkg bridging. Any breakage now = a real surviving
+   re-synthesis site → fix THAT, never restore the bridge.
+
+## Carve-outs / invariants
+- extern fns: bare, never touched.
+- package-less / `main` / runtime-entry: bare (no module, no pkg) — `..`-absent.
+- `bare_fn_name` (lir.hpp:1317) already strips module+pkg+suffix to a canonical
+  bare key (rfind('.') takes the last segment) — keep it as the bare-key helper
+  for any place that legitimately needs the short name.
+
+## Stage-2 first attempt (2026-06-20) — REVERTED, crucial scope finding
+Flipped `concrete_struct_name` → `[<module>..]<pkg>.<Struct>$G…` (global pkg→module
+pointer `g_pkg_module_ids` set in sema/mono/mlir-gen run). logosc compiled, but
+the FIRST stdlib file (`stdlib/lang/iter/iter.logos`) failed AT SEMA:
+  `'m58232a1d094f719f..logos.lang.iter.RevIter$G2$I$T' has no method 'next'`
+i.e. the blast radius reaches **sema's OWN method/impl dispatch**, not just
+mono/mlir-gen codegen. `concrete_struct_name` is used by sema to form the
+method-lookup key, but sema's method/impl/struct REGISTRIES are keyed by the
+BARE struct name. Qualifying the lookup key (even just pkg, let alone module)
+desyncs it from the bare-keyed tables → self-method resolution fails everywhere.
+
+⇒ REVISED STAGING. Stage 2 must be SPLIT:
+  2a. Make sema's type/method/impl resolution **qualified-name-tolerant** FIRST —
+      key (or normalize) the dispatch tables by the SAME form `concrete_struct_name`
+      will produce. Find every sema site that builds a struct/method/impl key from
+      a struct name (lower_method_call, impls_all_, struct method tables,
+      struct_specs, datatypes_) and route through one key form. Gate L2 WHILE
+      concrete_struct_name is still bare (inert wrt output) — proves the tables
+      tolerate the future form.
+  2b. THEN flip concrete_struct_name (pkg first, then module). Then mono/mlir-gen.
+This makes the sema-core re-keying its own gated sub-stage — the largest part,
+now identified. The earlier "keep canonical() bridge as net" does NOT help here
+(this is pre-mlir-gen, sema-level resolution).
+
+## Stage-2 SECOND attempt (2026-06-20, "делаем всё тут") — REVERTED, layered finding
+Split concrete_struct_name into `concrete_struct_name_bare` (resolution) +
+`concrete_struct_name` (qualified emission); `struct_name_from_type` → bare;
+global pkg→module pointer set in sema/mono/mlir-gen. Result: peeled THREE layers,
+each a distinct name-keyed sema subsystem:
+  L1 method dispatch — FIXED by struct_name_from_type→bare (RevIter found 'next').
+  L2/L3 trait-bound + impl-SELECTION — `HMap<HString>` now fails `K: HIntKeyTag`
+     ('HString does not implement HIntKeyTag' / 'HMap__get arg1 expected HString
+     got &[u8]'). NOTE: type_str uses BARE struct_name (sema.cpp:2081), so the
+     bound key is already bare — the failure is NOT a name-key miss but the
+     qualified INSTANCE name perturbing instantiation / impl-selection / type-arg
+     binding deep in the trait engine. Not a localized fix.
+⇒ Full qualification of concrete_struct_name ripples through sema's ENTIRE
+type-name/instantiation infrastructure, layer after layer. Genuinely multi-day.
+
+DISCOVERY: mlir-gen ALREADY has `MLIRGenImpl::qualify_pkg(pkg,name)` → `pkg.name`
+(mlir_gen_impl.hpp:623) and keys all_struct_defs_ by it — so EMISSION-side struct
+keys are already pkg-qualified there. (Name-clashes my free lir.hpp `qualify_pkg`
+— member shadows in mlir-gen so 3823425f stays green, but RENAME the free fn to
+`module_qualify_pkg` to avoid confusion before resuming.)
+
+## Open decision (for Victor) — two paths, evidence above
+A. Full sema re-keying: migrate ALL ~46 sema resolution sites + trait engine to a
+   consistent bare key + module/pkg FILTER (fi->module_id), keep concrete_struct_name
+   qualified for emission. Correct + module-distinct-in-resolution, but large.
+B. Emission-boundary qualification only: concrete_struct_name stays BARE
+   (resolution untouched, as today); qualify ONLY the final link symbols
+   (LFunction.name + call callees) at the mono/mlir-gen emission boundary.
+   Small, lands now; cross-module-SAME-package distinction deferred (handled later
+   via the resolution filter). For coherent source-dist builds (unique packages)
+   this already gives distinct .a link symbols — the actual near-term need.
+
+## CORRECTED option A (Victor chose A, 2026-06-20) — the RIGHT implementation
+CRITICAL: "A = full re-keying" does NOT mean "qualify concrete_struct_name" —
+that is exactly what exploded (3 sema-resolution layers) AND perf-blew-up (mono
+dedup parses the name string). The correct A:
+1. `concrete_struct_name` STAYS BARE — it is the RESOLUTION key AND the mono
+   DEDUP key (done_methods_, concrete_struct_types_, struct_done_). Leaving it
+   bare means zero resolution-layer breakage and zero re-instantiation storm.
+2. Module distinction IN RESOLUTION = extend the FILTER, not the key. `find_func_
+   candidates` (sema.cpp:1607+) already filters candidates by `fi->package`
+   against cur_package_/cur_imports_; add an `fi->module_id` dimension so two
+   same-package-different-module candidates are disambiguated by the using
+   context. (Same pattern for impl resolution / trait engine.) This is how
+   "module is intrinsic to identity" holds in resolution WITHOUT a string key.
+3. Link-symbol distinctness = qualify at the EMISSION BOUNDARY only — the final
+   FuncOp symbol name in mlir-gen + its call callees — with mono's internal
+   bookkeeping (dedup/lookup) staying bare. Because def-name and callee are
+   qualified by the SAME boundary fn, they match; mono_scan never parses a
+   qualified call (no garbling → no storm). The existing canonical() bridge can
+   reconcile bare-call→qualified-def for COHERENT builds during transition;
+   cross-module-same-pkg needs the calls qualified via the module-aware filter
+   (step 2) before the bridge is deleted (stage 4).
+
+So the explosion/​blowup both came from putting module in the KEY STRING. Keep
+keys bare; module lives in (a) the resolution filter and (b) the emission-time
+link name. This is the plan to execute — NOT re-qualifying concrete_struct_name.
+
+## Status
+Foundation committed (3823425f primitives; bfd85e0c + 3702a299 findings), on
+free-fn checkpoint 47199179 (L4 5733/5733). concrete_struct_name stays BARE.
+Methods exempt pending corrected-A. Branch module-system, green.

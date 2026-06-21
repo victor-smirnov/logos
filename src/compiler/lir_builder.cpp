@@ -28,6 +28,11 @@ lir::LExprPtr LirBuilder::lit_int(int64_t v, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_int(p, t, v); });
 }
 
+lir::LExprPtr LirBuilder::lit_int_128(uint64_t lo, uint64_t hi, TypeRef ty) {
+    return direct(prog_, ty,
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_int_128(p, t, lo, hi); });
+}
+
 lir::LExprPtr LirBuilder::lit_bool(bool v, TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_bool(p, t, v); });

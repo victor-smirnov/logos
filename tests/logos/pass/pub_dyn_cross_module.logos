@@ -1,0 +1,15 @@
+// Cross-module trait-object dispatch and generic-with-imported-trait-bound.
+package pub_dyn_cross_module;
+use mylib;
+
+fn via_dyn(d: &dyn Describe) -> i32 { return d.describe(); }
+fn via_generic<T: Describe>(x: &T) -> i32 { return x.describe(); }
+
+fn main() -> i32 {
+    let w: Gadget = Gadget { g: 42i32 };
+    let d: &dyn Describe = &w;
+    if d.describe() != 42i32 { return 1i32; }            // &dyn over imported type
+    if via_dyn(&w) != 42i32 { return 2i32; }             // dyn passed to a fn
+    if via_generic::<Gadget>(&w) != 42i32 { return 3i32; } // generic + imported bound
+    return 0i32;
+}

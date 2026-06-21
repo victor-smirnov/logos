@@ -1348,10 +1348,41 @@ static std::string mangle_type_for_name(TypeRef t);
 // is stable across the impl's TypeVars A,B,C. Toggled by function_signature_key.
 static bool g_mangle_erase_fnptr = false;
 
+// ── Type module-qualification (same-pkg-same-name coexistence) ───────────────
+//
+// Two modules can each declare the same `pkg::Type` (one per module — unique
+// within a module). Their *separately compiled* archives must not collide at
+// link, so every type-keyed symbol (generic mono instances, drop glue, vtables,
+// the type's own type_id helper) embeds the type's owning module_id.
+//
+// concrete_struct_name is a free function shared by sema/mono/mlir, so the
+// current phase's pkg→module map is threaded via a thread_local pointer (the
+// SAME map function-symbol mangling rides — proven populated for stdlib in
+// normal compiles). stdlib packages (`logos.*`) are globally unique and never
+// coexist, so they are NOT qualified → zero stdlib mangling churn. An empty map
+// (plain non-module compiles) likewise yields no suffix → byte-identical output.
+thread_local const std::unordered_map<std::string, std::string>* g_type_pkg_module_ids = nullptr;
+
+void set_type_module_map(const std::unordered_map<std::string, std::string>* m) {
+    g_type_pkg_module_ids = m;
+}
+const std::unordered_map<std::string, std::string>* get_type_module_map() {
+    return g_type_pkg_module_ids;
+}
+
+std::string type_module_suffix(std::string_view pkg) {
+    if (!g_type_pkg_module_ids || pkg.empty()) return {};
+    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: globally unique
+    auto it = g_type_pkg_module_ids->find(std::string(pkg));
+    if (it == g_type_pkg_module_ids->end() || it->second.empty()) return {};
+    return "$M" + it->second;
+}
+
 std::string concrete_struct_name(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return {};
     std::string base(TypeRef(t).struct_name());
+    base += type_module_suffix(TypeRef(t).pkg_name());  // coexistence: module-qualify
     if (!TypeRef(t).type_args().empty()) {
         base += "$G";
         base += std::to_string(TypeRef(t).type_args().size());
@@ -1360,10 +1391,16 @@ std::string concrete_struct_name(TypeRef t) {
     return base;
 }
 
+// pkg-aware variant: callers that build a name from a base string must pass the
+// owning package so the same module suffix is applied as the TypeRef path (else
+// definition≠use → link error). Empty pkg ⇒ no suffix (legacy callers).
 std::string concrete_struct_name_raw(std::string_view base_name,
-                                     const std::vector<TypeRef>& type_args) {
-    if (type_args.empty()) return std::string(base_name);
+                                     const std::vector<TypeRef>& type_args,
+                                     std::string_view pkg) {
+    std::string suffix = type_module_suffix(pkg);
+    if (type_args.empty()) return std::string(base_name) + suffix;
     std::string r(base_name);
+    r += suffix;
     r += "$G";
     r += std::to_string(type_args.size());
     for (auto a : type_args) { r += "$"; r += mangle_type_for_name(a); }
@@ -1384,6 +1421,10 @@ static std::string mangle_type_for_name(TypeRef t) {
     case LogosType::Kind::Struct:
     case LogosType::Kind::ZonedStruct:
         return concrete_struct_name(t);
+    case LogosType::Kind::Enum:
+        // Coexistence: module-qualify the enum's mangled name (as a type-arg)
+        // so two modules' same-named enums don't collide in generic symbols.
+        return type_str(t) + type_module_suffix(TypeRef(t).pkg_name());
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
         for (auto e : TypeRef(t).tuple_elems()) { r += "$"; r += mangle_type_for_name(e); }
@@ -1474,20 +1515,20 @@ std::string SemaChecker::function_symbol_name(std::string_view base_name,
     //   - extern fns: ABI symbols (malloc, printf) must keep their C name.
     //   - struct methods (base_name contains `__`): already disambiguated
     //     by their struct's pkg-qualified name in mlir_gen.
-    bool is_method = base_name.find("__") != std::string_view::npos;
-    bool with_pkg  = !info.package.empty() && !info.is_extern;
-
+    // Canonical link-symbol mangle: assemble the structured Sym and route it
+    // through the single sym::mangle encoder (lir.hpp). The module-qualification
+    // policy (incl. the methods-exempt carve-out) lives THERE, so it's the one
+    // flip point for the bridge-free rewrite. extern carve-out: bare ABI name.
     std::string key = function_signature_key(base_name, info.param_types, info.is_vararg);
-    auto suffix = key.substr(std::string(base_name).size() + 2);
-    std::string out;
-    if (with_pkg) {
-        out = info.package;
-        out += is_method ? '.' : '$';
-    }
-    out += std::string(base_name);
-    out += info.type_params.empty() ? "__f__" : "__g__";
-    out += suffix;
-    return out;
+    sym::Sym s;
+    s.module_id  = info.module_id;
+    s.package    = info.package;
+    s.base       = std::string(base_name);
+    s.sig        = key.substr(std::string(base_name).size() + 2);
+    s.is_generic = !info.type_params.empty();
+    s.is_method  = base_name.find("__") != std::string_view::npos;
+    s.is_extern  = info.is_extern;
+    return sym::mangle(s);
 }
 
 const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_symbol(std::string_view symbol) const {
@@ -1594,16 +1635,31 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     }
     std::vector<const SemaChecker::SemaFuncInfo*> out;
     out.reserve(all.size());
+    // §3: a `use pkg from <module>;` import is DELIBERATE exclusion — track it so
+    // the empty→all robustness fallback below doesn't silently re-admit a
+    // candidate the user explicitly scoped to a different module.
+    bool from_excluded_any = false;
     for (auto* fi : all) {
-        if (fi->package.empty() ||
-            fi->package == cur_package_ ||
-            std::find(cur_imports_.wildcard_packages.begin(),
-                      cur_imports_.wildcard_packages.end(),
-                      fi->package) != cur_imports_.wildcard_packages.end()) {
-            out.push_back(fi);
+        bool visible = fi->package.empty() ||
+                       fi->package == cur_package_ ||
+                       std::find(cur_imports_.wildcard_packages.begin(),
+                                 cur_imports_.wildcard_packages.end(),
+                                 fi->package) != cur_imports_.wildcard_packages.end();
+        if (!visible) continue;
+        if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
+            it != cur_imports_.pkg_from_module_id.end() &&
+            fi->module_id != it->second) {
+            from_excluded_any = true;
+            continue;   // imported `from` a different module → not visible here
         }
+        // §4: a `pub(module)` fn is left in the candidate set here; the visibility
+        // violation is diagnosed by check_pub_access at the call site (3-tier),
+        // giving a "module-private" error rather than a bare "undefined function".
+        out.push_back(fi);
     }
-    if (out.empty()) return all;
+    // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness
+    // is an intentional `from`-restriction (else the negative case never errors).
+    if (out.empty() && !from_excluded_any) return all;
     return out;
 }
 
@@ -2162,6 +2218,11 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
                                 const std::vector<bool>& from_binary) {
     filenames_ = &filenames;
     from_binary_ = from_binary.empty() ? nullptr : &from_binary;
+    // Coexistence: type-keyed symbol names (mono insts, drop glue, vtables,
+    // type_id helpers) qualify by the owning module. pkg_module_ids_ is filled
+    // during collect below; the guard holds a live pointer so post-collect
+    // mangling sees the complete map. Matches mono/mlir so def==use.
+    TypeModuleScope _type_module_scope(&pkg_module_ids_);
 
     const bool sema_phase_timing = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -2218,6 +2279,9 @@ lir::LProgram SemaChecker::run(const std::vector<hermes::Hermes>& asts,
     phase_ = SemaPhase::Collect;
     collect(asts);
     sema_tick("collect");
+    // Module system: hand the package→module-id map to mono for synthesised
+    // method-call qualification. Filled during collect() across all files.
+    prog.pkg_module_ids = pkg_module_ids_;
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -6637,6 +6701,17 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         prog.functions.insert              (prog.functions.end(),              c.functions.begin(),              c.functions.end());
         prog.specializations.insert        (prog.specializations.end(),        c.specializations.begin(),        c.specializations.end());
         prog.consts.insert                 (prog.consts.end(),                 c.consts.begin(),                 c.consts.end());
+        // Imported `pub static`s arrive via this cache merge, bypassing the
+        // collect STATIC_DEF path that registers a static in module_statics_.
+        // Without that registration a consumer's READ of an imported static
+        // isn't recognised as a static — it stays a bare VarRef that resolves to
+        // nothing (empty fn body → SIGSEGV). Register them here so reads lower to
+        // the static's global address (its already-qualified link symbol).
+        for (auto& cc : c.consts)
+            if (cc.is_static) {
+                module_statics_[cc.name] = cc.sym;
+                if (cc.is_mut) module_static_muts_.insert(cc.name);
+            }
         prog.type_aliases.insert           (prog.type_aliases.end(),           c.type_aliases.begin(),           c.type_aliases.end());
         prog.traits.insert                 (prog.traits.end(),                 c.traits.begin(),                 c.traits.end());
         prog.impls.insert                  (prog.impls.end(),                  c.impls.begin(),                  c.impls.end());
@@ -6682,9 +6757,12 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         file_ = (filenames_ && i < filenames_->size()) ? (*filenames_)[i] : std::string{};
         cur_from_binary_ = (from_binary_ && i < from_binary_->size()) ? (*from_binary_)[i] : false;
         cur_from_lazy_   = (is_lazy_     && i < is_lazy_->size())     ? (*is_lazy_)[i]     : false;
+        cur_module_id_   = (module_ids_  && i < module_ids_->size())  ? (*module_ids_)[i] : std::string{};
         auto root = asts[i].root_object().as_tiny_map();
         cur_root_ = root;
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         // M5 step 6: bundle hit → binary AST is already in prog; skip the
         // entire lower walk for it.
         if (m5_bundle_active && cur_from_binary_) {
@@ -6789,6 +6867,30 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
                                 auto bare = std::string(
                                     str_of(v.get(NAME.code)));
                                 cur_imports_.variant_aliases[bare] = enum_qual;
+                            }
+                        }
+                    }
+                    // §3: `use pkg from <module>;` — mirror sema_collect's
+                    // build_import_scope so the from-restriction is present during
+                    // LOWERING too (this loop rebuilds cur_imports_ independently;
+                    // without it find_func_candidates sees no restriction). Done
+                    // before the std::move(dotted) below.
+                    if (!dotted.empty() && use_node.has_key(mod::FROM_MODULE)) {
+                        std::string kw;
+                        if (use_node.has_key(mod::FROM_KW))
+                            kw = std::string(str_of(use_node.get(mod::FROM_KW.code)));
+                        if (kw == "from") {
+                            std::string mname;
+                            auto fm = map_of(use_node.get(mod::FROM_MODULE.code));
+                            if (fm.has_key(NAME))
+                                mname = std::string(str_of(fm.get(NAME.code)));
+                            if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                                mname = mname.substr(1, mname.size() - 2);
+                            if (!mname.empty() && module_name_to_id_ &&
+                                !module_name_to_id_->empty()) {
+                                if (auto it = module_name_to_id_->find(mname);
+                                    it != module_name_to_id_->end())
+                                    cur_imports_.pkg_from_module_id[dotted] = it->second;
                             }
                         }
                     }
@@ -7706,6 +7808,8 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             cd.is_mut    = item.has_key(la::IS_MUT);
             cd.is_extern = !item.has_key(la::VALUE);
             if (cd.is_extern) cd.value = nullptr;  // external: no initializer
+            // Symbol was registered (module-qualified) in module_statics_ during
+            // collect; non-static-collected statics fall back to pkg$name.
             auto sit = module_statics_.find(cd.name);
             cd.sym = sit != module_statics_.end()
                 ? sit->second
@@ -8087,7 +8191,8 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
                           const std::vector<std::string>& filenames,
                           const std::vector<bool>& from_binary,
                           SemaOptions opts,
-                          const std::vector<bool>& is_lazy) {
+                          const std::vector<bool>& is_lazy,
+                          const std::vector<std::string>& module_ids) {
     auto t_outer = std::chrono::steady_clock::now();
     const bool phase_dbg = []{
         const char* e = std::getenv("LOGOS_SEMA_PHASE_TIMING");
@@ -8121,6 +8226,12 @@ lir::LProgram sema_lower(const std::vector<logos::hermes::Hermes>& asts,
     // LFunction.from_lazy_module. Default empty → all lazy_=false → no
     // behaviour change (back-compat).
     checker.set_is_lazy(&is_lazy);
+    // Module system: per-AST owning-module id, parallel to from_binary.
+    // Empty default → module_ids_ stays effectively unused (inert) and the
+    // mangle is identical to the pre-module-system output.
+    checker.set_module_ids(&module_ids);
+    // §3: module NAME→id map for resolving `use pkg from <name>` clauses.
+    checker.set_module_name_to_id(&opts.module_name_to_id);
     auto prog = checker.run(asts, filenames, from_binary);
     if (phase_dbg) {
         auto t_after_run = std::chrono::steady_clock::now();

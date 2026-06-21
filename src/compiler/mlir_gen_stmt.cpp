@@ -880,8 +880,12 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
         // drop body's scope end. So call it and STOP — recursing the fields here
         // too would double-drop them (drop_glue_three_levels). Only a DROP-LESS
         // struct recurses its fields. Mirrors the enum branch.
+        // Resolve through find_func_op (THE chokepoint) so the module-qualified
+        // link form binds — resolve_method_symbol returns a BARE name, but the
+        // drop FuncOp is emitted module-qualified; a direct lookupSymbol(bare)
+        // would miss and SILENTLY SKIP the destructor (Rc/Box/RAII drop holes).
         if (auto ds = resolve_method_symbol(name, "drop"); !ds.empty())
-            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
+            if (auto fn = find_func_op(mod, ds)) {
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
                 // Owner (top_level) also drops the fields after the user drop
                 // (mirrors SDrop). Nested: stop (by-value self consumes them).
@@ -935,7 +939,7 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool top_lev
         // symbol to actually EXIST before treating it as a user drop; otherwise
         // fall through to the variant-switched payload recursion (G158-4 fix).
         if (auto ds = resolve_method_symbol(ename, "drop"); !ds.empty())
-            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(ds)) {
+            if (auto fn = find_func_op(mod, ds)) {  // chokepoint: bare→qualified
                 builder_.create<mlir::func::CallOp>(loc_, fn, mlir::ValueRange{value_ptr});
                 if (!top_level) return;
             }
@@ -1069,7 +1073,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
     //    `pkg.<concrete>__drop__[fg]__sig`. Bridge via resolve_method_symbol.
     std::string drop_fn(v.drop_fn());
     if (!drop_fn.empty()) {
-        auto fn = mod.lookupSymbol<mlir::func::FuncOp>(drop_fn);
+        // find_func_op (THE chokepoint) resolves the module-qualified link form:
+        // drop_fn is the LIR's bare-pkg symbol, but the drop FuncOp is emitted
+        // module-qualified, so a direct lookupSymbol(bare) would miss and SKIP
+        // the destructor entirely (Rc/Box/RAII scope-drop holes under modules).
+        auto fn = find_func_op(mod, drop_fn);
         if (!fn) {
             std::string_view dfn = drop_fn;
             // Strip a `pkg.` prefix if present, then `__drop[__...]`.
@@ -1078,7 +1086,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
                 auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop");
                 if (!resolved.empty())
-                    fn = mod.lookupSymbol<mlir::func::FuncOp>(resolved);
+                    fn = find_func_op(mod, resolved);
             }
         }
         if (fn)

@@ -1,0 +1,8 @@
+// §4: pub(module) `module_secret` is usable inside the mylib module — package
+// `mybridge` wraps it in a public `bridge_calls_secret`, which a consumer CAN
+// call even though `module_secret` itself is hidden.
+package pub_module_internal_use;
+use mybridge;
+fn main() -> i32 {
+    return bridge_calls_secret();
+}

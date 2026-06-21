@@ -2,3 +2,14 @@ package mybridge;
 
 // Re-export entire mylib public surface so clients only need `use mybridge;`.
 pub use mylib;
+
+// §4: a different package in the SAME module (mylib) CAN call a pub(module) fn.
+pub fn bridge_calls_secret() -> i32 {
+    return module_secret();
+}
+
+// §4.1b: within-module use of the pub(module) struct ModuleData.
+pub fn bridge_make_data() -> i32 {
+    let d: ModuleData = ModuleData { val: 7i32 };
+    return d.val;
+}

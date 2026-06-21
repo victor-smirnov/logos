@@ -155,6 +155,12 @@ public:
     // borrowed; caller (sema_lower) keeps the vector alive across run().
     // Null or empty → all asts treated as non-lazy (back-compat).
     void set_is_lazy(const std::vector<bool>* v) { is_lazy_ = v; }
+    // Module system: per-AST owning-module id (mangle key). Parallel to
+    // from_binary_/is_lazy_. Lifetime-borrowed; caller (sema_lower) keeps
+    // the vector alive across run(). Null/empty or a per-index empty string
+    // → no module-qualified mangling for that AST (plain user program).
+    void set_module_ids(const std::vector<std::string>* v) { module_ids_ = v; }
+    void set_module_name_to_id(const std::unordered_map<std::string, std::string>* m) { module_name_to_id_ = m; }
     bool fn_is_metaprog_keep(std::string_view name) const {
         // metacall_sites store the raw callee token (bare base name);
         // compare against the bare form of `name` (which may carry
@@ -1057,16 +1063,34 @@ private:
     // LFunction.from_lazy_module; consumed by post-mono reach analysis to
     // skip mlir-gen for lazy fns not reached from any non-lazy caller.
     const std::vector<bool>*        is_lazy_      = nullptr;
+    // Module system: per-AST owning-module id, parallel to from_binary_.
+    // Empty/null → no module (plain user program); a non-empty id is baked
+    // into the symbol mangle so same-named packages from different modules
+    // (or versions) get distinct symbols (C++ module-linkage model).
+    const std::vector<std::string>* module_ids_   = nullptr;
+    // Module system: package dotted-name → owning-module id, accumulated across
+    // all files (own + binary). Copied into LProgram::pkg_module_ids so mono
+    // can module-qualify synthesised method-call symbols. One package maps to
+    // one module in a coherent build.
+    std::unordered_map<std::string, std::string> pkg_module_ids_;
+    // §3: module canonical NAME → id (from SemaOptions; resolves `use pkg from
+    // <name>`). nullptr/empty → `from` clauses can't resolve.
+    const std::unordered_map<std::string, std::string>* module_name_to_id_ = nullptr;
     std::string  file_;
     std::string  cur_package_;
     lir::LProgram* cur_prog_ = nullptr;  // set during lower_module_items, used by lower_generic_call
     bool         cur_from_binary_ = false;   // current file is from a binary module
+    std::string  cur_module_id_;             // owning-module id of the current file (mangle key)
     bool         cur_from_lazy_   = false;   // current file is from a lazy archive
     uint32_t     node_line_ = 0;
 
     // Per-file import scope (wildcard: `use foo.bar;` makes all pub symbols of foo.bar visible)
     struct ImportScope {
         std::vector<std::string> wildcard_packages;
+        // §3: `use pkg from <module>;` — package dotted-name → REQUIRED owning
+        // module id. A candidate for such a package is visible only if its
+        // fi->module_id matches. Absent ⇒ plain `use pkg;` (any module).
+        std::unordered_map<std::string, std::string> pkg_from_module_id;
         // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` brings enum variants
         // into bare scope. Map keyed by the bare variant name → the dotted
         // enum-type qualifier so lookup paths can resolve `V1` as if it
@@ -1126,6 +1150,27 @@ private:
         using namespace sema_detail;
         if (av.is_null()) return TinyMapView{};
         return TinyMapView(av, holder_);
+    }
+
+    // §4 module system: read the `pub(module)` marker from an item decl node's
+    // VIS sub-node (set by the grammar `pub_vis` rule). Returns true for
+    // `pub(module)` (module-linkage); false for plain `pub` / no VIS / non-pub.
+    // Validates the contextual word == "module" (errors on e.g. `pub(crate)`).
+    bool read_module_vis(hermes::TinyMapView node) {
+        using namespace sema_detail;
+        if (!node.has_key(la::VIS)) return false;
+        auto vav = node.get(la::VIS.code);
+        if (vav.is_null() || !vav.is_pointer()) return false;
+        auto vis = map_of(vav);
+        if (!vis.has_key(la::NAME)) return false;           // plain `pub`
+        std::string w(str_of(vis.get(la::NAME.code)));
+        if (w.empty()) return false;
+        if (w != "module") {
+            error(std::format("unsupported visibility `pub({})` — only "
+                              "`pub(module)` is recognised", w));
+            return false;
+        }
+        return true;
     }
 
     hermes::ArrayView arr_of(hermes::AnyVal av) noexcept {
@@ -2310,8 +2355,11 @@ private:
                             // struct itself. Caller's outlives graph must satisfy
                             // these (under arg-type substitution) at construction.
                             std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-                            bool is_pub = false; std::string source_file;
+                            bool is_pub = false;
+                            bool is_module_only = false;  // §4: `pub(module)`
+                            std::string source_file;
                             std::string package;
+                            std::string module_id;  // owning-module id (mangle key); empty = no module
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
                             bool is_annotation_type = false;  // #[annotation] datatype (see LStructDef::is_annotation_type)
                             bool is_tuple_struct = false;  // B-ts-01: `struct Foo(T1, T2);` — positional fields, ctor is `Foo(a, b)` and pattern is `Foo(x, y)`
@@ -2412,6 +2460,10 @@ private:
                             // substitution induced by arg-type matching.
                             std::vector<std::pair<std::string, std::string>> lifetime_outlives;
                             bool is_pub = false; bool is_unsafe = false;
+                            // §4: `pub(module)` — exported within the owning module
+                            // only (module-linkage), not to consumers. Implies
+                            // is_pub (crosses package boundaries within the module).
+                            bool is_module_only = false;
                             bool is_extern = false;
                             bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
                             bool is_token_macro = false; // #[token_macro] callee (str RAW_TEXT)
@@ -2419,6 +2471,7 @@ private:
                             std::string signature_key;
                             std::string symbol_name;
                             std::string source_file; std::string package;
+                            std::string module_id;  // owning-module id (mangle key); empty = no module
                             std::string doc;     // outer `///` doc-comment
                             // Trait-aware method mangling: the trait this
                             // method implements (`impl Trait for X`), empty for
@@ -2461,7 +2514,9 @@ private:
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         bool is_pub = false;                 // T1-9: cross-pkg visibility
+        bool is_module_only = false;          // §4: `pub(module)`
         std::string package;                 // pkg this enum was declared in
+        std::string module_id;               // owning-module id (mangle key); empty = no module
         std::vector<TypeParam> type_params;  // for generic enums
         std::vector<std::string> lifetime_params;  // B65: enum lifetime params
         TypeRef backing_type = nullptr;  // null = default (i32)
@@ -2519,6 +2574,7 @@ private:
     struct SemaTraitInfo {
         std::string name;
         bool is_pub = false;                  // T1-9: cross-pkg visibility
+        bool is_module_only = false;           // §4: `pub(module)`
         std::string package;                  // pkg this trait was declared in (for B-mv-02 diag)
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
@@ -2987,9 +3043,28 @@ private:
         for (auto& pkg : effective_import_pkgs()) {
             auto it = m.find(sema_key(pkg, std::string(name)));
             if (it != m.end()) {
+                // §3.2b: `use pkg from <module>;` restricts a package's TYPES /
+                // enums / traits (not just its free fns) to the named module —
+                // skip a match imported `from` a different module than the one
+                // owning this package. (pkg_module_ids_[pkg] is the package's
+                // owning module.) Empty restriction map ⇒ no-op (common case).
+                if (auto rit = cur_imports_.pkg_from_module_id.find(pkg);
+                    rit != cur_imports_.pkg_from_module_id.end()) {
+                    auto mit = pkg_module_ids_.find(pkg);
+                    std::string pkg_mod =
+                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                    if (pkg_mod != rit->second) continue;
+                }
                 if constexpr (PubCheck) {
-                    check_pub_access(it->second.is_pub,
-                                     it->second.package, name);
+                    // §4: pass the module-linkage info so a `pub(module)` type
+                    // accessed from another module gets a "module-private"
+                    // diagnostic (pkg_module_ids_[pkg] = the package's owning
+                    // module — uniform across infos, incl. traits with no own id).
+                    auto mit = pkg_module_ids_.find(pkg);
+                    std::string pkg_mod =
+                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                    check_pub_access(it->second.is_pub, it->second.package, name,
+                                     it->second.is_module_only, pkg_mod);
                 }
                 return {pkg, &it->second};
             }
@@ -3433,7 +3508,9 @@ private:
         std::vector<std::string>& upcast_supers);
     std::string read_package_name(hermes::TinyMapView mod);
     void check_pub_access(bool is_pub, const std::string& def_package,
-                          std::string_view item_name);
+                          std::string_view item_name,
+                          bool is_module_only = false,
+                          const std::string& def_module_id = {});
     void check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args);
@@ -4487,6 +4564,55 @@ inline int64_t parse_int_literal(std::string_view sv) noexcept {
     // Raw bit-cast: preserve full 64-bit pattern for u64 literals whose value
     // exceeds INT64_MAX (e.g. FNV offset basis 0xcbf29ce484222325).
     return (int64_t)result;
+}
+
+// 128-bit magnitude parse (sign ignored — caller negates). Mirrors
+// parse_int_literal but accumulates into unsigned __int128, so `u128`/`i128`
+// literals whose value exceeds 64 bits round-trip intact. Stops at the suffix.
+inline unsigned __int128 parse_int_literal_u128(std::string_view sv) noexcept {
+    if (!sv.empty() && sv[0] == '-') sv = sv.substr(1);
+    int base = 10;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') { base = 16; sv = sv.substr(2); }
+        else if (sv[1] == 'b' || sv[1] == 'B') { base = 2;  sv = sv.substr(2); }
+        else if (sv[1] == 'o' || sv[1] == 'O') { base = 8;  sv = sv.substr(2); }
+    }
+    unsigned __int128 result = 0;
+    for (char c : sv) {
+        if (c == '_') continue;
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) break;  // suffix start
+        result = result * (unsigned __int128)base + (unsigned __int128)d;
+    }
+    return result;
+}
+
+// Does the literal's magnitude exceed 128 bits? (the wide analogue of
+// parse_int_literal_overflows, used for `u128`/`i128` suffixed literals).
+inline bool parse_int_literal_overflows_128(std::string_view sv) noexcept {
+    if (!sv.empty() && sv[0] == '-') sv = sv.substr(1);
+    int base = 10;
+    if (sv.size() >= 2 && sv[0] == '0') {
+        if (sv[1] == 'x' || sv[1] == 'X') { base = 16; sv = sv.substr(2); }
+        else if (sv[1] == 'b' || sv[1] == 'B') { base = 2;  sv = sv.substr(2); }
+        else if (sv[1] == 'o' || sv[1] == 'O') { base = 8;  sv = sv.substr(2); }
+    }
+    unsigned __int128 result = 0;
+    for (char c : sv) {
+        if (c == '_') continue;
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) break;
+        unsigned __int128 prev = result;
+        result = result * (unsigned __int128)base + (unsigned __int128)d;
+        if (result / (unsigned __int128)base != prev) return true;  // overflowed 128 bits
+    }
+    return false;
 }
 
 template <class Pred>

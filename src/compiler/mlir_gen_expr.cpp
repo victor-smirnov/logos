@@ -35,37 +35,106 @@ static mlir::func::FuncOp find_fn_matching(mlir::ModuleOp mod, Pred&& pred) {
     return {};
 }
 
-static mlir::func::FuncOp find_func_op(mlir::ModuleOp mod, std::string_view name) {
+}  // namespace
+
+// find_func_op — THE callee-resolution chokepoint. Resolve a callee symbol to
+// its FuncOp, tolerating the bare↔module-qualified and sig-stripped forms the
+// LIR/mono/bridge produce. A member (not a file-static) so it can consult the
+// per-package module map via link_name_str.
+mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
+                                             std::string_view name) const {
+    // Fast path: a direct symbol-table hit (free fns — already qualified in the
+    // LIR — and intra-module bare names). O(1); no cache key allocation.
     if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name))
         return fn;
-    auto found = find_fn_matching(mod,
-        [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; });
-    if (found) return found;
-    // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
-    // must also resolve the post-unify pkg-qualified + sig-suffixed form
-    // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
-    auto canonical = [](std::string_view nm) -> std::string_view {
-        // Strip free-fn `pkg$` prefix.
-        if (auto d = nm.find('$'); d != std::string_view::npos) {
-            bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
-                        nm[d + 2] >= '0' && nm[d + 2] <= '9');
-            if (!gen) nm = nm.substr(d + 1);
+    // Bare miss (the common case for a module-qualified METHOD callee). The
+    // remaining resolution is the expensive part (string-building + possible
+    // O(n) walks), and the SAME callee recurs across many call sites, so memoise
+    // it. Misses are NOT cached — a name may resolve once a later forward-decl
+    // is emitted; only stable HITS are stored (FuncOp defs never change name).
+    std::string key(name);
+    if (auto it = find_func_op_cache_.find(key); it != find_func_op_cache_.end())
+        return it->second;
+    auto resolve = [&]() -> mlir::func::FuncOp {
+        // Module system: the callee is BARE but its FuncOp is module-qualified.
+        // Try the EXACT qualified form via an O(1) symbol-table lookup IMMEDIATELY
+        // — BEFORE any O(n) find_fn_matching walk. Under modules nearly every
+        // method callee misses the bare lookup, so deferring the qualified hash
+        // probe past the linear walks would make resolution O(calls × functions)
+        // = O(n²). It also wins correctness: the exact qualified symbol beats the
+        // sig-stripping canonical fallback, which would collapse distinct-base /
+        // distinct-signature defs onto the wrong one (String::from→new, or
+        // set(_,HAny) for an i64 arg).
+        std::string qualified;
+        if (auto q = link_name_str(key); q != name) {
+            if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(q))
+                return fn;
+            qualified = std::move(q);
         }
-        // Strip method `pkg.` prefix (last dot before bare name).
-        if (auto d = nm.rfind('.'); d != std::string_view::npos)
-            nm = nm.substr(d + 1);
-        // Strip sig suffix.
-        if (auto p = nm.find("__f__"); p != std::string_view::npos)
-            nm = nm.substr(0, p);
-        else if (auto p = nm.find("__g__"); p != std::string_view::npos)
-            nm = nm.substr(0, p);
-        return nm;
+        if (auto found = find_fn_matching(mod,
+                [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; }))
+            return found;
+        if (!qualified.empty())
+            if (auto fn = find_fn_matching(mod,
+                    [&](mlir::func::FuncOp f) { return f.getName().str() == qualified; }))
+                return fn;
+        // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
+        // must also resolve the post-unify pkg-qualified + sig-suffixed form
+        // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
+        auto canonical = [](std::string_view in) -> std::string {
+            // Coexistence: a type-keyed name may carry a "$M<module_id>" suffix
+            // (type_module_suffix) on the base AND/OR on a nested type-arg, while
+            // the same method's REAL symbol is module-qualified by find_func_op's
+            // prefix scheme instead — so the two only match once the `$M…` runs
+            // are removed from both. Strip every "$M<alnum>" run first.
+            std::string s;
+            s.reserve(in.size());
+            for (size_t i = 0; i < in.size();) {
+                if (i + 1 < in.size() && in[i] == '$' && in[i + 1] == 'M') {
+                    i += 2;
+                    while (i < in.size() &&
+                           (std::isalnum((unsigned char)in[i]))) ++i;
+                } else {
+                    s.push_back(in[i++]);
+                }
+            }
+            std::string_view nm = s;
+            // Strip free-fn `pkg$` prefix.
+            if (auto d = nm.find('$'); d != std::string_view::npos) {
+                bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
+                            nm[d + 2] >= '0' && nm[d + 2] <= '9');
+                if (!gen) nm = nm.substr(d + 1);
+            }
+            // Strip method `pkg.` prefix (last dot before bare name).
+            if (auto d = nm.rfind('.'); d != std::string_view::npos)
+                nm = nm.substr(d + 1);
+            // Strip sig suffix.
+            if (auto p = nm.find("__f__"); p != std::string_view::npos)
+                nm = nm.substr(0, p);
+            else if (auto p = nm.find("__g__"); p != std::string_view::npos)
+                nm = nm.substr(0, p);
+            return std::string(nm);
+        };
+        // Symmetric canonical match: canonicalise BOTH the callee and each
+        // candidate (the deleted §P4 bridge did the same). A no-sig / differently
+        // -pkg'd callee (e.g. an assoc-const accessor `pkg.T__kassoc_C` with no
+        // `__f__sig`) only matches its real `…T__kassoc_C__f__sig` def once the
+        // input's pkg+sig are stripped too. Mirror the bridge's UNAMBIGUOUS-only
+        // rule: skip when >1 def shares the canonical (overloads) — first-match
+        // would bind the wrong one.
+        auto cname = canonical(name);
+        mlir::func::FuncOp match;
+        for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
+            if (canonical(fn.getName()) != cname) continue;
+            if (match) return {};  // ambiguous canonical → unresolved
+            match = fn;
+        }
+        return match;
     };
-    return find_fn_matching(mod, [&](mlir::func::FuncOp fn) {
-        return canonical(fn.getName()) == name;
-    });
+    auto resolved = resolve();
+    if (resolved) find_func_op_cache_.emplace(std::move(key), resolved);
+    return resolved;
 }
-}  // namespace
 
 // ---------------------------------------------------------------------------
 // gen_expr — main dispatcher
@@ -177,6 +246,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ELitIntView v, TypeRef type) {
             break;
         default: break;
         }
+    }
+    // 128-bit literal: assemble the full value from both halves (low = value,
+    // high = value_hi) — a bare int64 would lose the top 64 bits. APInt takes
+    // the words low-first.
+    if (width == 128) {
+        uint64_t words[2] = { (uint64_t)value, (uint64_t)v.value_hi() };
+        llvm::APInt big(128, llvm::ArrayRef<uint64_t>(words, 2));
+        return builder_.create<mlir::arith::ConstantOp>(
+            loc_, builder_.getIntegerType(128),
+            builder_.getIntegerAttr(builder_.getIntegerType(128), big));
     }
     return builder_.create<mlir::arith::ConstantIntOp>(loc_, value, width);
 }
@@ -2378,10 +2457,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             }
         }
         if (i < param_types.size()) {
-            // Aggregate returned by value but param expects pointer — spill to alloca.
+            // A by-value aggregate / tagged-enum param has ptr SSA repr
+            // (logos_to_mlir → ptr; the value lives in storage). When the arg
+            // arrives as a VALUE — a struct, or a niche-packed enum word (i64,
+            // e.g. an HAny read straight from `*zoned` storage) — spill it to an
+            // alloca and pass the pointer, matching the callee's ptr param.
+            // (Previously only structs spilled; a scalar niche word fell to
+            // coerce_numeric, which can't make a ptr → arg/param type mismatch.)
+            bool param_tagged_enum =
+                (fpit != fn_param_types_.end() && i < fpit->second.size() &&
+                 fpit->second[i] &&
+                 TypeRef(fpit->second[i]).kind() == LogosType::Kind::Enum &&
+                 resolve_tagged_enum(
+                     std::string(TypeRef(fpit->second[i]).enum_name()),
+                     fpit->second[i]) != nullptr);
             if (v.getType() != param_types[i] &&
                 param_types[i] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()))
+                v.getType() != ptr_type() &&
+                (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()) || param_tagged_enum))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
                 v = coerce_numeric(v, param_types[i], arg_refs[i].type(pool_impl()));
@@ -2513,6 +2606,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
 
     auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+    // find_func_op resolves the module-qualified link form internally (THE
+    // chokepoint), so the EXACT overload binds before the signature-blind suffix
+    // fallbacks below — no per-site qualification needed here.
     auto callee_fn   = find_func_op(parent_mod, callee_name);
     auto walk_prefix = [&](const std::string& cn) -> mlir::func::FuncOp {
         std::string generic_prefix = cn + "__g__";
@@ -2630,9 +2726,21 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             }
         }
         if (pi < param_types.size()) {
+            // See gen_call: a by-value aggregate / tagged-enum param is ptr-repr;
+            // spill a value arg (struct OR niche-enum word i64) to alloca so the
+            // pointer matches the callee param (else a scalar niche word would
+            // hit coerce_numeric, which can't make a ptr → type mismatch).
+            bool param_tagged_enum =
+                (m_fpit != fn_param_types_.end() && pi < m_fpit->second.size() &&
+                 m_fpit->second[pi] &&
+                 TypeRef(m_fpit->second[pi]).kind() == LogosType::Kind::Enum &&
+                 resolve_tagged_enum(
+                     std::string(TypeRef(m_fpit->second[pi]).enum_name()),
+                     m_fpit->second[pi]) != nullptr);
             if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
-                mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()))
+                val.getType() != ptr_type() &&
+                (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) || param_tagged_enum))
                 val = spill_to_alloca(val);
             else
                 val = coerce_numeric(val, param_types[pi], arg_refs[i].type(pool_impl()));
@@ -4907,8 +5015,9 @@ bool MLIRGenImpl::dstref_pointee_self_describing(TypeRef t) {
     // does for dst_len resolution), then fall back to the bare name (non-generic).
     auto targs = TypeRef(t).type_args();
     std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string concrete_pkg(TypeRef(t).pkg_name());
     std::string concrete = concrete_struct_name_raw(
-        std::string(TypeRef(t).struct_name()), targ_vec);
+        std::string(TypeRef(t).struct_name()), targ_vec, concrete_pkg);
     for (const std::string& nm : {concrete, std::string(TypeRef(t).struct_name())}) {
         auto it = all_struct_defs_.find(nm);
         if (it != all_struct_defs_.end() && it->second)
@@ -5019,8 +5128,9 @@ mlir::Value MLIRGenImpl::emit_dst_len(mlir::Value thin_ptr, TypeRef dstref_t) {
     // `Foo__dst_len` (which only exists for non-generic structs).
     auto targs = TypeRef(dstref_t).type_args();
     std::vector<TypeRef> targ_vec(targs.begin(), targs.end());
+    std::string dstref_pkg(TypeRef(dstref_t).pkg_name());
     std::string sname = concrete_struct_name_raw(
-        std::string(TypeRef(dstref_t).struct_name()), targ_vec);
+        std::string(TypeRef(dstref_t).struct_name()), targ_vec, dstref_pkg);
     auto sym = resolve_method_symbol(sname, "dst_len");
     auto parent_mod = builder_.getBlock()->getParent()
                           ->getParentOfType<mlir::ModuleOp>();

@@ -209,6 +209,40 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
                                  "(own package is always in scope)", dotted));
             }
             scope.wildcard_packages.push_back(dotted);
+            // §3: `use pkg from <module>;` — restrict this package's candidates
+            // to the named module. The contextual `from` keyword is matched as a
+            // bare IDENT in the grammar (so `From::from` stays valid), so validate
+            // it here; resolve the module NAME (bare or quoted) to its mangle id.
+            if (use_node.has_key(la::mod::FROM_MODULE)) {
+                std::string kw;
+                if (use_node.has_key(la::mod::FROM_KW))
+                    kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
+                if (kw != "from") {
+                    error(std::format("expected 'from' before the module name in "
+                                      "`use {} ...;`, found '{}'", dotted, kw));
+                } else {
+                    std::string mname;
+                    auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
+                    if (fm.has_key(la::NAME))
+                        mname = std::string(str_of(fm.get(la::NAME.code)));
+                    // The STRING token keeps its surrounding quotes — strip them.
+                    if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                        mname = mname.substr(1, mname.size() - 2);
+                    if (mname.empty()) {
+                        error(std::format("`use {} from`: missing module name", dotted));
+                    } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
+                        // Map not primed (e.g. a metaprog discovery pass before the
+                        // loaded-module set is threaded). Skip the restriction
+                        // silently here; the final pass carries the real map.
+                    } else if (auto it = module_name_to_id_->find(mname);
+                               it == module_name_to_id_->end()) {
+                        error(std::format("`use {} from {}`: no loaded module is "
+                                          "named '{}'", dotted, mname, mname));
+                    } else {
+                        scope.pkg_from_module_id[dotted] = it->second;
+                    }
+                }
+            }
             // `pub use pkg;` — register as re-export from current package
             bool is_pub = use_node.has_key(la::IS_PUB) &&
                           !use_node.get(la::IS_PUB.code).is_null() &&
@@ -299,6 +333,17 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
 
     // First pass: register names (so forward references work).
     for (size_t pass0_ai = 0; pass0_ai < asts.size(); ++pass0_ai) {
+        // Module system: record pkg→module for EVERY ast — including cached
+        // binary + delta-skipped ones — so LProgram::pkg_module_ids is COMPLETE
+        // downstream. Otherwise mlir-gen's link_name() can't recognise a binary
+        // stdlib method's module → it isn't binary-skipped → every stdlib method
+        // body is re-emitted in the consumer (O(n²) lookupSymbol blowup). Cheap
+        // (one package-name read); done before the skips below.
+        if (module_ids_ && pass0_ai < module_ids_->size() &&
+            !(*module_ids_)[pass0_ai].empty()) {
+            auto pk = read_package_name(asts[pass0_ai].root_object().as_tiny_map());
+            if (!pk.empty()) pkg_module_ids_[pk] = (*module_ids_)[pass0_ai];
+        }
         // M6.1: delta mode — skip asts already processed in a prior
         // sema_lower call within this same compile session.
         if (pass0_ai < delta_start_idx_) continue;
@@ -478,8 +523,11 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
+        cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         cur_imports_ = build_import_scope(root);
         maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 2);
@@ -503,8 +551,11 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         file_ = (filenames_ && ai < filenames_->size()) ? (*filenames_)[ai] : std::string{};
         cur_from_binary_ = (from_binary_ && ai < from_binary_->size()) ? (*from_binary_)[ai] : false;
         cur_from_lazy_   = (is_lazy_     && ai < is_lazy_->size())     ? (*is_lazy_)[ai]     : false;
+        cur_module_id_   = (module_ids_  && ai < module_ids_->size())  ? (*module_ids_)[ai] : std::string{};
         auto root = asts[ai].root_object().as_tiny_map();
         cur_package_ = read_package_name(root);
+        if (!cur_package_.empty() && !cur_module_id_.empty())
+            pkg_module_ids_[cur_package_] = cur_module_id_;
         cur_imports_ = build_import_scope(root);
         maybe_inject_implicit_prelude(root, cur_from_binary_);
         collect_module(root, 1);
@@ -714,9 +765,20 @@ std::string SemaChecker::read_package_name(TinyMapView mod) {
 }
 
 void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
-                          std::string_view item_name) {
-    if (is_pub || def_package.empty() || cur_package_.empty()) return;
-    if (def_package != cur_package_)
+                          std::string_view item_name,
+                          bool is_module_only, const std::string& def_module_id) {
+    if (def_package.empty() || cur_package_.empty()) return;  // no scope context
+    if (def_package == cur_package_) return;                  // own package: always OK
+    // §4: cross-package access. `pub(module)` has module-linkage — visible to other
+    // packages in its OWNING module, but not to a consumer in a different module.
+    // Checked BEFORE is_pub, since a pub(module) item also sets is_pub.
+    if (is_module_only) {
+        if (def_module_id != cur_module_id_)
+            error(std::format("'{}' is module-private (declared `pub(module)` in "
+                              "package '{}')", item_name, def_package));
+        return;
+    }
+    if (!is_pub)
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
 }
 
@@ -1824,9 +1886,19 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // No VALUE ⇒ extern-block decl: links against the BARE name.
                 collect_const(item);
                 auto sm_name = std::string(str_of(item.get(la::NAME.code)));
-                module_statics_[sm_name] = item.has_key(la::VALUE)
-                    ? std::string(cur_package_) + "$" + sm_name
-                    : sm_name;
+                // Coexistence: module-qualify the static's link symbol
+                // (`<module_id>.<pkg>$<name>`) like functions so two modules that
+                // each declare `pkg::NAME` don't collide at link. cur_module_id_
+                // is the symbol's OWNING module (own source or the binary AST it
+                // came from), so imported statics resolve to their definer's sym.
+                // extern statics (no VALUE) link against the BARE name — never qualify.
+                if (item.has_key(la::VALUE)) {
+                    std::string base = std::string(cur_package_) + "$" + sm_name;
+                    module_statics_[sm_name] = cur_module_id_.empty()
+                        ? base : cur_module_id_ + "." + base;
+                } else {
+                    module_statics_[sm_name] = sm_name;
+                }
                 // T1-13: extern statics (no VALUE) — every ACCESS requires
                 // `unsafe` (Rust items.extern.static), tracked separately
                 // from `static mut`.
@@ -1852,10 +1924,12 @@ void SemaChecker::collect_enum(TinyMapView node) {
     SemaEnumInfo info;
     // T1-9: cross-package visibility (lookup_qualified_<true> checks it).
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     if (node.has_key(la::IS_PUB)) {
         AnyVal pv = node.get(la::IS_PUB.code);
         info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);  // B65
@@ -2369,6 +2443,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
         AnyVal pv = node.get(la::IS_PUB.code);
         info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     info.doc = take_pending_doc();
     info.is_hermes = pending_trait_is_hermes_;
     pending_trait_is_hermes_ = false;
@@ -2377,10 +2452,26 @@ void SemaChecker::collect_trait(TinyMapView node) {
         AnyVal av = node.get(la::IS_AUTO);
         info.is_auto = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
-    // Validate: auto traits must have an empty body
+    // Validate: auto traits must declare no members.
+    //
+    // ITEMS holds more than just body members: the grammar's `$...` collector
+    // also slurps in non-member capture nodes from the rule's leading items —
+    // the `pub_vis` visibility node (`pub` / `pub(module)`), and the
+    // type-param / supertrait lists for `auto trait T<…>: … {}`. Those are not
+    // body items, so a raw `size() > 0` check spuriously rejects every auto
+    // trait that carries a visibility modifier, type params, or a supertrait
+    // (e.g. `pub auto trait Send {}`). Count only genuine trait members — the
+    // same FN / ASSOC_TYPE_DEF / ASSOC_CONST_DEF codes the member-collection
+    // loop below recognises.
     if (info.is_auto && node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
-        if (items.size() > 0) {
+        bool has_member = false;
+        for (uint64_t i = 0; i < items.size() && !has_member; ++i) {
+            auto code = code_of(map_of(items.get(i)));
+            has_member = (code == la::FN || code == la::ASSOC_TYPE_DEF
+                          || code == la::ASSOC_CONST_DEF);
+        }
+        if (has_member) {
             error(std::format("auto trait '{}' must have an empty body", tname));
             // Bug 1 fix: clean up Self and trait name before early return to
             // avoid polluting scope for subsequent trait collections.
@@ -2620,8 +2711,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (!trait_name.empty()) {
         auto [tpkg, tinfo] = find_trait_by_name(trait_name);
         (void)tpkg;
-        if (tinfo)
-            check_pub_access(tinfo->is_pub, tinfo->package, trait_name);
+        if (tinfo) {
+            auto mit = pkg_module_ids_.find(tinfo->package);  // §4: trait's module
+            check_pub_access(tinfo->is_pub, tinfo->package, trait_name,
+                             tinfo->is_module_only,
+                             mit != pkg_module_ids_.end() ? mit->second : std::string{});
+        }
     }
     bool impl_is_unsafe = false;
     if (node.has_key(la::IS_UNSAFE)) {
@@ -3760,6 +3855,7 @@ void SemaChecker::collect_struct_spec(TinyMapView node) {
 
     SemaStructInfo info;
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     info.base_name = sname;
     info.spec_patterns = spec_patterns;
     std::string spec_field_sweep_doc;
@@ -3794,11 +3890,13 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     info.is_annotation_type = is_annotation_type;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     push_type_params(info.type_params);
     std::string dt_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
@@ -3909,10 +4007,12 @@ void SemaChecker::collect_struct(TinyMapView node) {
         for (auto& p : where_outlives) info.lifetime_outlives.push_back(std::move(p));
     }
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     if (node.has_key(la::IS_PUB)) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     push_type_params(info.type_params);
     // Generic tuple-struct (`struct W<T>(T);`) grammar uses `$...` to
     // collect tuple_field results into FIELDS; the same `$...` collector
@@ -4471,6 +4571,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.base_name = base_name;
     info.source_file = file_;
     info.package = cur_package_;
+    info.module_id = cur_module_id_;
     // B-gn-05: warn when a type-param shadows a known type/trait — this
     // currently breaks fn-name resolution at the call site, surfacing as
     // a misleading "undefined function" error.  Use the qualified
@@ -4548,6 +4649,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE.code);
         info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

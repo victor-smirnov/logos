@@ -554,6 +554,8 @@ struct EMatchExprView {
 struct ELitIntView {
     ExprRef self;
     int64_t value() const noexcept { return detail::read_i64(self, ek::LIT_I64.code); }
+    // High 64 bits of a 128-bit literal (i128/u128); absent ⇒ 0.
+    int64_t value_hi() const noexcept { return detail::read_i64(self, ek::LIT_I64_HI.code); }
 };
 
 struct ELitFloatView {

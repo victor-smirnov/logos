@@ -1,0 +1,3 @@
+module coex2b
+version 0.1
+root tests/logos/coex2b/

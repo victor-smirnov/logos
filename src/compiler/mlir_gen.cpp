@@ -63,6 +63,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     prog_   = &prog;
     mirror_ = prog.mirror_table.get();
 
+    // Coexistence: module-qualify type-keyed symbol names (drop glue, vtables,
+    // mono insts) consistently with sema/mono so emitted defs match their uses.
+    TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
+
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
     for (auto& sd : prog.structs) {
@@ -74,6 +78,15 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         // qualified entry).
         if (!sd.pkg.empty() && !all_struct_defs_.count(sd.name))
             all_struct_defs_[sd.name] = &sd;
+        // Coexistence: concrete_struct_name lookups (field access, DST resolve)
+        // now carry the "$M<module_id>" suffix for non-stdlib module types, so
+        // register a matching alias. Generic-instance sd.name already carries it
+        // (built via concrete_struct_name in mono) → suffix is empty, no dup.
+        std::string msuffix = type_module_suffix(sd.pkg);
+        if (!msuffix.empty()) {
+            std::string qname = sd.name + msuffix;
+            if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = &sd;
+        }
     }
 
     // Pass 0.5: register enum types (needs all_struct_defs_ populated above).
@@ -190,9 +203,10 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // binary-module templates are NOT in the archive and must be
     // compiled, so we use binary_symbols rather than the
     // from_binary_module flag (mono erases the flag during clone).
-    auto is_binary_skip = [&prog](const lir::LFunction& fn) -> bool {
+    auto is_binary_skip = [&prog, this](const lir::LFunction& fn) -> bool {
         if (fn.is_extern || prog.binary_symbols.empty()) return false;
-        return prog.binary_symbols.count(fn.name) > 0;
+        // Module system: archive nm carries QUALIFIED link symbols → match on link_name.
+        return prog.binary_symbols.count(link_name(fn)) > 0;
     };
 
     // Phase 6 (multi-arena IR) item-level lazy reach analysis.
@@ -492,14 +506,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     for (auto& sd : prog.structs) {
         for (auto& m : sd.methods) {
             if (is_binary_skip(*m) || is_lazy_skip(*m)) continue;
-            auto func = mod.lookupSymbol<mlir::func::FuncOp>(m->name);
+            auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*m));
             if (!gen_function_body(func, *m)) return nullptr;
             ++method_bodies; ++bodies_emitted;
         }
     }
     for (auto& fn : prog.functions) {
         if (fn->is_extern || is_binary_skip(*fn) || is_lazy_skip(*fn)) continue;
-        auto func = mod.lookupSymbol<mlir::func::FuncOp>(fn->name);
+        auto func = mod.lookupSymbol<mlir::func::FuncOp>(link_name(*fn));
         if (!gen_function_body(func, *fn)) return nullptr;
         ++fn_bodies; ++bodies_emitted;
     }
@@ -561,107 +575,14 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     }
     pt.tick("pass3b static init");
 
-    // Canonical-form rename pass. Bridges callees produced in older bare
-    // forms (mono call rewrites, T → Concrete substitutions, blanket-impl
-    // emit) to the unified pkg-qualified fn symbols.
-    //
-    // Canonical form: strip leading `pkg.` and the `__f__sig`/`__g__sig`
-    // segment. To avoid arity mismatches when multiple actual fns share a
-    // canonical (overloads), only register canonicals that are UNAMBIGUOUS.
-    {
-        auto canonical = [](std::string_view name) -> std::string {
-            std::string s(name);
-            // Pkg may contain inner dots (`std.lang.datatypes.Buf`); split at
-            // the LAST dot to isolate the bare name.
-            if (auto dot = s.rfind('.'); dot != std::string::npos) {
-                bool looks_pkg = !s.empty() && s[0] != '_' && s[0] != '.';
-                if (looks_pkg) s = s.substr(dot + 1);
-            }
-            auto p = s.find("__f__");
-            if (p == std::string::npos) p = s.find("__g__");
-            if (p != std::string::npos) {
-                size_t after = p + 5;
-                auto next = s.find("__", after);
-                s = (next == std::string::npos)
-                    ? s.substr(0, p)
-                    : s.substr(0, p) + s.substr(next);
-            }
-            return s;
-        };
-
-        std::unordered_map<std::string, std::string> canon_to_actual;
-        std::unordered_set<std::string> ambiguous_canon;
-        std::unordered_set<std::string> existing_names;
-        mod.walk([&](mlir::func::FuncOp fn) {
-            auto nm = fn.getName().str();
-            existing_names.insert(nm);
-            auto c = canonical(nm);
-            // Store canonical → actual for every fn (incl. ones where
-            // canonical == name) so both bridging directions work:
-            // - bare callee → pkg-qualified actual
-            // - pkg-qualified callee → bare actual
-            auto [it, inserted] = canon_to_actual.try_emplace(c, nm);
-            if (!inserted && it->second != nm) ambiguous_canon.insert(c);
-        });
-
-        auto rewrite = [&](const std::string& callee) -> std::string {
-            if (existing_names.count(callee)) return callee;
-            auto c = canonical(callee);
-            auto try_lookup = [&](const std::string& key) -> const std::string* {
-                if (ambiguous_canon.count(key)) return nullptr;
-                auto it = canon_to_actual.find(key);
-                return it == canon_to_actual.end() ? nullptr : &it->second;
-            };
-            if (c != callee) if (auto* a = try_lookup(c)) return *a;
-            if (auto* a = try_lookup(callee)) return *a;
-            return callee;
-        };
-
-        mod.walk([&](mlir::func::CallOp call) {
-            auto callee = call.getCallee().str();
-            auto fixed = rewrite(callee);
-            if (fixed != callee) {
-                if (const char* d = std::getenv("LOGOS_RENAME_DBG"); d && *d == '1')
-                    std::fprintf(stderr, "[rename] %s -> %s\n",
-                                 callee.c_str(), fixed.c_str());
-                call.setCallee(fixed);
-            }
-        });
-        mod.walk([&](mlir::LLVM::AddressOfOp op) {
-            auto sym = op.getGlobalName().str();
-            auto fixed = rewrite(sym);
-            if (fixed != sym) op.setGlobalName(fixed);
-        });
-        mod.walk([&](mlir::func::ConstantOp op) {
-            auto sym = op.getValue().str();
-            auto fixed = rewrite(sym);
-            if (fixed != sym)
-                op.setValueAttr(mlir::FlatSymbolRefAttr::get(op.getContext(), fixed));
-        });
-        mod.walk([&](mlir::LLVM::GlobalOp gop) {
-            auto v = gop.getValueAttr();
-            if (!v) return;
-            auto arr = mlir::dyn_cast<mlir::ArrayAttr>(v);
-            if (!arr) return;
-            std::vector<mlir::Attribute> elems;
-            bool changed = false;
-            for (auto a : arr) {
-                if (auto sym = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(a)) {
-                    auto s = sym.getValue().str();
-                    auto fixed = rewrite(s);
-                    if (fixed != s) {
-                        elems.push_back(mlir::FlatSymbolRefAttr::get(
-                            gop.getContext(), fixed));
-                        changed = true;
-                        continue;
-                    }
-                }
-                elems.push_back(a);
-            }
-            if (changed) gop.setValueAttr(mlir::ArrayAttr::get(gop.getContext(), elems));
-        });
-    }
-    pt.tick("canon rename walk");
+    // §P4 (module system): the canonical() bare↔pkg rename bridge is DELETED.
+    // It used to rewrite callees/symbol-refs produced in older bare forms (mono
+    // call rewrites, T→Concrete, blanket-impl emit) to the unified pkg-qualified
+    // symbols POST-HOC. Now the find_func_op chokepoint binds every call/ref to
+    // the exact module-qualified FuncOp AT EMISSION, so the bridge was fully
+    // inert (verified: 0 rewrites across 450 pass+imported tests) and only cost 4
+    // whole-module walks. If a regression ever reintroduces a bare-callee leak,
+    // route that emission site through find_func_op rather than reviving this.
 
     // Carry the static-vtable specs to the pipeline tail (lower_and_emit_object):
     // after func→llvm lowering it materialises each placeholder `[N x ptr]`

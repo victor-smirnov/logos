@@ -452,10 +452,17 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         switch (eref.kind()) {
         // Stage 2: variant-free leaf-kind cases. Mirror emitted directly,
         // result->kind stays at default (unread by view-based readers).
-        case C::LitInt:
-            result->mirror_offset_ = lir_mirror_emit_lit_int(
-                out_, result->type, lir_view::ELitIntView{eref}.value());
+        case C::LitInt: {
+            // Preserve the HIGH half of a 128-bit literal (i128/u128) when
+            // cloning — re-emitting via the 64-bit path would silently drop it.
+            auto liv = lir_view::ELitIntView{eref};
+            int64_t lo = liv.value();
+            int64_t hi = liv.value_hi();
+            result->mirror_offset_ = (hi != 0)
+                ? lir_mirror_emit_lit_int_128(out_, result->type, (uint64_t)lo, (uint64_t)hi)
+                : lir_mirror_emit_lit_int(out_, result->type, lo);
             break;
+        }
         case C::LitFloat:
             result->mirror_offset_ = lir_mirror_emit_lit_float(
                 out_, result->type, lir_view::ELitFloatView{eref}.value());
@@ -1423,11 +1430,21 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__type_uid_of__") {
                 uint64_t uid = 0;
                 if (!nc.type_args.empty() && nc.type_args[0]) {
-                    uid = type_hash_64bit(type_hash_23(type_str(nc.type_args[0])));
+                    uid = type_hash_64bit(type_hash_23(type_id_canon(nc.type_args[0])));
                     uid_to_type_[uid] = nc.type_args[0];
                 }
                 result->mirror_offset_ = lir_mirror_emit_lit_int(
                     out_, result->type, (int64_t)uid);
+                break;
+            }
+            // High 64 bits of the 128-bit nominal UID (TypeId.hi). Same canon
+            // input as __type_uid_of__ (the low half) so the two halves agree.
+            if (nc.callee == "__type_uid_hi_of__") {
+                uint64_t uid_hi = 0;
+                if (!nc.type_args.empty() && nc.type_args[0])
+                    uid_hi = type_hash_hi64(type_hash_23(type_id_canon(nc.type_args[0])));
+                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                    out_, result->type, (int64_t)uid_hi);
                 break;
             }
             // Type-trait predicates: mono evaluates after substitution. Each
@@ -1671,7 +1688,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("size", b.size_of(ti, i64_t));
                 f.emplace_back("align", b.align_of(ti, i64_t));
                 {
-                    uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                    uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(ti)));
                     uid_to_type_[uid] = ti;
                     f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
                 }
@@ -1758,7 +1775,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         "type_of::<T>() or quote_ty! { T })\n");
                     std::abort();
                 }
-                uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(ti)));
                 uid_to_type_[uid] = ti;
                 TypeRef type_t = result->type;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
@@ -1877,7 +1894,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                         collect_type_for_structs(inst_t);
                         uint64_t uid = type_hash_64bit(
-                            type_hash_23(type_str(inst_t)));
+                            type_hash_23(type_id_canon(inst_t)));
                         uid_to_type_[uid] = inst_t;
                         TypeRef type_t = result->type;
                         LirBuilder b(out_);
@@ -2007,7 +2024,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);
-                uint64_t uid = type_hash_64bit(type_hash_23(type_str(inst_t)));
+                uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
                 TypeRef type_t = result->type;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
@@ -2163,7 +2180,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 sb.type_args = targs;
                 TypeRef inst_t = out_.type_pool.alloc(std::move(sb));
                 collect_type_for_structs(inst_t);
-                uint64_t uid = type_hash_64bit(type_hash_23(type_str(inst_t)));
+                uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
                 TypeRef type_t = result->type;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
@@ -2312,7 +2329,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     inst_t = out_.type_pool.alloc(std::move(ab));
                 }
                 collect_type_for_structs(inst_t);
-                uint64_t uid = type_hash_64bit(type_hash_23(type_str(inst_t)));
+                uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
                 TypeRef type_t = result->type;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
@@ -2395,7 +2412,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 TypeRef pty = subst_type(pt, s);
                                 if (!pty) pty = pt;
                                 uint64_t uid = type_hash_64bit(
-                                    type_hash_23(type_str(pty)));
+                                    type_hash_23(type_id_canon(pty)));
                                 uid_to_type_[uid] = pty;
                                 std::vector<std::pair<std::string,
                                     lir::LExprPtr>> f;
@@ -2799,7 +2816,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     f.emplace_back("align",
                         b.align_of(ti, i64_t));
                     {
-                        uint64_t uid = type_hash_64bit(type_hash_23(type_str(ti)));
+                        uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(ti)));
                         uid_to_type_[uid] = ti;
                         f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
                     }
@@ -3374,6 +3391,13 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     if (resolved) args = std::move(pargs);
                                 }
                             }
+                            // Method-call callee: the BASE struct name stays bare
+                            // (a generic type-arg still qualifies via mangle_type_for_name).
+                            // The method's module qualification is applied later by the
+                            // find_func_op chokepoint (§P3); qualifying the base here too
+                            // would double-apply and produce a symbol find_func_op can't
+                            // resolve (cross-module `&imported as &dyn`, generic method on
+                            // an imported type).
                             std::string cname = concrete_struct_name_raw(struct_part, args);
                             nc.callee = cname + method_part;
                             nc.type_args.clear();

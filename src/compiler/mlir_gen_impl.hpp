@@ -639,6 +639,38 @@ private:
         auto base = concrete_struct_name(t);
         return qualify_pkg(t.pkg_name(), base);
     }
+    // Module system (symbol-mangle rewrite, emission boundary): qualified LINK
+    // symbol of a def (methods gain `<module>..`; free fns unchanged).
+    std::string link_name(const LFunction& fn) const {
+        if (!prog_) return fn.name;
+        return sym::link_name(fn, prog_->pkg_module_ids);
+    }
+    // Qualify a (bare-module) method-CALL callee STRING to its exact link symbol
+    // (full signature preserved) — used by the canonical() bridge before its
+    // signature-stripping (ambiguous) fallback. Method shape: part before the
+    // first `__` carries a `.`; free fns use `$` / already `..` → unchanged.
+    // THE callee-resolution chokepoint (defined in mlir_gen_expr.cpp). Resolves
+    // a callee symbol to its FuncOp across the bare↔module-qualified and
+    // sig-stripped forms the LIR/mono/bridge produce.
+    mlir::func::FuncOp find_func_op(mlir::ModuleOp mod,
+                                    std::string_view name) const;
+    // Memoised SUCCESSFUL resolutions (callee string → FuncOp). FuncOp defs are
+    // stable once created (the bridge renames call sites, never defs), so caching
+    // hits is sound. Amortises the per-call bare-miss→link_name_str→qualified-hit
+    // work for popular callees (push/get/deref) on codegen-heavy bodies. Misses
+    // are NOT cached (a name may resolve once a later forward-decl is emitted).
+    mutable std::unordered_map<std::string, mlir::func::FuncOp> find_func_op_cache_;
+    std::string link_name_str(const std::string& callee) const {
+        if (!prog_ || callee.find("..") != std::string::npos) return callee;
+        auto us = callee.find("__");
+        if (us == std::string::npos) return callee;
+        auto dot = callee.rfind('.', us);
+        if (dot == std::string::npos) return callee;
+        std::string pkg = callee.substr(0, dot);
+        auto it = prog_->pkg_module_ids.find(pkg);
+        if (it == prog_->pkg_module_ids.end() || it->second.empty()) return callee;
+        return it->second + ".." + callee;
+    }
     bool register_struct(const LStructDef& sd);
     void register_tagged_enum(const LEnumDef& ed);
     uint64_t variant_payload_bytes(const LVariant& v);
