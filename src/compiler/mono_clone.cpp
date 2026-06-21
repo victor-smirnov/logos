@@ -452,10 +452,17 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         switch (eref.kind()) {
         // Stage 2: variant-free leaf-kind cases. Mirror emitted directly,
         // result->kind stays at default (unread by view-based readers).
-        case C::LitInt:
-            result->mirror_offset_ = lir_mirror_emit_lit_int(
-                out_, result->type, lir_view::ELitIntView{eref}.value());
+        case C::LitInt: {
+            // Preserve the HIGH half of a 128-bit literal (i128/u128) when
+            // cloning — re-emitting via the 64-bit path would silently drop it.
+            auto liv = lir_view::ELitIntView{eref};
+            int64_t lo = liv.value();
+            int64_t hi = liv.value_hi();
+            result->mirror_offset_ = (hi != 0)
+                ? lir_mirror_emit_lit_int_128(out_, result->type, (uint64_t)lo, (uint64_t)hi)
+                : lir_mirror_emit_lit_int(out_, result->type, lo);
             break;
+        }
         case C::LitFloat:
             result->mirror_offset_ = lir_mirror_emit_lit_float(
                 out_, result->type, lir_view::ELitFloatView{eref}.value());

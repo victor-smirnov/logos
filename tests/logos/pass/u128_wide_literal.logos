@@ -1,22 +1,30 @@
 // LIR 128-bit integer constants: a `u128`/`i128` literal whose magnitude
-// exceeds 64 bits must round-trip through the LIR (low+high halves) and
-// codegen to a full 128-bit constant — not get rejected or truncated.
+// exceeds 64 bits must round-trip through the LIR — emit (low+high halves),
+// mono CLONE (the high half must survive propagation), and codegen — without
+// truncation. The checks deliberately exercise the HIGH 64 bits, not just the
+// low half (a 2^100 literal has lo=0, so naive checks pass even when hi is lost).
 package u128_wide_literal;
 
+fn shl128(x: u128, n: u32) -> u128 { return x << n; }
+
 fn main() -> i32 {
-    // 2^100 and 2^100 + 5 — both need the high 64 bits.
-    let base: u128 = 1267650600228229401496703205376u128;   // 2^100
-    let plus5: u128 = 1267650600228229401496703205381u128;   // 2^100 + 5
-    if plus5 - base != 5u128 { return 1i32; }
-    if plus5 <= base { return 2i32; }
+    // 2^100 — lo=0, hi=2^36. Must equal the shifted form, and not be zero.
+    let lit: u128 = 1267650600228229401496703205376u128;
+    if lit != shl128(1u128, 100u32) { return 1i32; }
+    if lit == 0u128 { return 2i32; }
 
-    // Hex form, top bit of the high word set.
-    let hi: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0001u128;
-    if hi - 1u128 != 0x8000_0000_0000_0000_0000_0000_0000_0000u128 { return 3i32; }
+    // Distinct non-zero low AND high words.
+    let mixed: u128 = 0xDEADBEEFCAFEBABE0123456789ABCDEFu128;
+    if (mixed as u64) != 0x0123456789ABCDEFu64 { return 3i32; }
+    if ((mixed >> 64u32) as u64) != 0xDEADBEEFCAFEBABEu64 { return 4i32; }
 
-    // i128 negative literal beyond 64 bits.
-    let neg: i128 = -1267650600228229401496703205376i128;    // -(2^100)
-    if neg + plus5 as i128 != 5i128 { return 4i32; }
+    // Hex literal with the top bit of the high word set, minus one.
+    let hi1: u128 = 0x8000_0000_0000_0000_0000_0000_0000_0001u128;
+    if hi1 - 1u128 != 0x8000_0000_0000_0000_0000_0000_0000_0000u128 { return 5i32; }
+
+    // Negative i128 beyond 64 bits: -(2^100) + (2^100 + 5) == 5.
+    let neg: i128 = -1267650600228229401496703205376i128;
+    if neg + 1267650600228229401496703205381i128 != 5i128 { return 6i32; }
 
     return 0i32;
 }
