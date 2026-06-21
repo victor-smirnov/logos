@@ -1908,6 +1908,7 @@ void SemaChecker::collect_enum(TinyMapView node) {
         AnyVal pv = node.get(la::IS_PUB.code);
         info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     info.doc = take_pending_doc();
     info.type_params = read_type_params(node);
     info.lifetime_params = read_lifetime_params(node);  // B65
@@ -2421,6 +2422,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
         AnyVal pv = node.get(la::IS_PUB.code);
         info.is_pub = !pv.is_null() && pv.is_value() && pv.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     info.doc = take_pending_doc();
     info.is_hermes = pending_trait_is_hermes_;
     pending_trait_is_hermes_ = false;
@@ -3853,6 +3855,7 @@ void SemaChecker::collect_datatype(TinyMapView node, bool is_annotation_type) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     push_type_params(info.type_params);
     std::string dt_field_sweep_doc;
     if (node.has_key(la::FIELDS)) {
@@ -3968,6 +3971,7 @@ void SemaChecker::collect_struct(TinyMapView node) {
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     push_type_params(info.type_params);
     // Generic tuple-struct (`struct W<T>(T);`) grammar uses `$...` to
     // collect tuple_field results into FIELDS; the same `$...` collector
@@ -4604,6 +4608,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         AnyVal av = node.get(la::IS_PUB.code);
         info.is_pub = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;
     }
+    info.is_module_only = read_module_vis(node);  // §4: `pub(module)`
     if (node.has_key(la::IS_UNSAFE)) {
         AnyVal av = node.get(la::IS_UNSAFE.code);
         info.is_unsafe = !av.is_null() && av.is_value() && av.as_value<uint8_t>() != 0;

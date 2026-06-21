@@ -1,0 +1,7 @@
+// §4 module system: `pub(module)` symbols have module-linkage — a consumer in a
+// DIFFERENT module cannot resolve mylib's pub(module) `module_secret`.
+package pub_module_cross_module;
+use mylib;
+fn main() -> i32 {
+    return module_secret();  // pub(module) in mylib — not visible here
+}

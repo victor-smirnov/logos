@@ -1152,6 +1152,27 @@ private:
         return TinyMapView(av, holder_);
     }
 
+    // §4 module system: read the `pub(module)` marker from an item decl node's
+    // VIS sub-node (set by the grammar `pub_vis` rule). Returns true for
+    // `pub(module)` (module-linkage); false for plain `pub` / no VIS / non-pub.
+    // Validates the contextual word == "module" (errors on e.g. `pub(crate)`).
+    bool read_module_vis(hermes::TinyMapView node) {
+        using namespace sema_detail;
+        if (!node.has_key(la::VIS)) return false;
+        auto vav = node.get(la::VIS.code);
+        if (vav.is_null() || !vav.is_pointer()) return false;
+        auto vis = map_of(vav);
+        if (!vis.has_key(la::NAME)) return false;           // plain `pub`
+        std::string w(str_of(vis.get(la::NAME.code)));
+        if (w.empty()) return false;
+        if (w != "module") {
+            error(std::format("unsupported visibility `pub({})` — only "
+                              "`pub(module)` is recognised", w));
+            return false;
+        }
+        return true;
+    }
+
     hermes::ArrayView arr_of(hermes::AnyVal av) noexcept {
         using namespace sema_detail;
         return ArrayView(av, holder_);
@@ -2334,7 +2355,9 @@ private:
                             // struct itself. Caller's outlives graph must satisfy
                             // these (under arg-type substitution) at construction.
                             std::vector<std::pair<std::string, std::string>> lifetime_outlives;
-                            bool is_pub = false; std::string source_file;
+                            bool is_pub = false;
+                            bool is_module_only = false;  // §4: `pub(module)`
+                            std::string source_file;
                             std::string package;
                             std::string module_id;  // owning-module id (mangle key); empty = no module
                             bool is_data_plain = true;  // false if any field is Kind::ZonedStruct
@@ -2437,6 +2460,10 @@ private:
                             // substitution induced by arg-type matching.
                             std::vector<std::pair<std::string, std::string>> lifetime_outlives;
                             bool is_pub = false; bool is_unsafe = false;
+                            // §4: `pub(module)` — exported within the owning module
+                            // only (module-linkage), not to consumers. Implies
+                            // is_pub (crosses package boundaries within the module).
+                            bool is_module_only = false;
                             bool is_extern = false;
                             bool is_fn_macro = false;  // #[fn_macro] callee for name!(...)
                             bool is_token_macro = false; // #[token_macro] callee (str RAW_TEXT)
@@ -2487,6 +2514,7 @@ private:
     struct SemaEnumInfo   {
         std::vector<SemaVariantInfo> variants;
         bool is_pub = false;                 // T1-9: cross-pkg visibility
+        bool is_module_only = false;          // §4: `pub(module)`
         std::string package;                 // pkg this enum was declared in
         std::string module_id;               // owning-module id (mangle key); empty = no module
         std::vector<TypeParam> type_params;  // for generic enums
@@ -2546,6 +2574,7 @@ private:
     struct SemaTraitInfo {
         std::string name;
         bool is_pub = false;                  // T1-9: cross-pkg visibility
+        bool is_module_only = false;           // §4: `pub(module)`
         std::string package;                  // pkg this trait was declared in (for B-mv-02 diag)
         std::vector<TypeParam> type_params;  // e.g. trait Into<T> has T
         std::vector<SemaTraitMethodInfo> methods;
@@ -3025,6 +3054,16 @@ private:
                     std::string pkg_mod =
                         (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
                     if (pkg_mod != rit->second) continue;
+                }
+                // §4: a `pub(module)` type/enum/trait has module-linkage — visible
+                // only within its owning module, never to a consumer in another
+                // module. (pkg_module_ids_[pkg] = the package's owning module;
+                // uniform across infos, incl. traits which carry no module_id.)
+                if (it->second.is_module_only && pkg != cur_package_) {
+                    auto mit = pkg_module_ids_.find(pkg);
+                    std::string pkg_mod =
+                        (mit != pkg_module_ids_.end()) ? mit->second : std::string{};
+                    if (pkg_mod != cur_module_id_) continue;
                 }
                 if constexpr (PubCheck) {
                     check_pub_access(it->second.is_pub,

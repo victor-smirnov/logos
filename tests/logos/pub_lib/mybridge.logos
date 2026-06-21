@@ -2,3 +2,8 @@ package mybridge;
 
 // Re-export entire mylib public surface so clients only need `use mybridge;`.
 pub use mylib;
+
+// §4: a different package in the SAME module (mylib) CAN call a pub(module) fn.
+pub fn bridge_calls_secret() -> i32 {
+    return module_secret();
+}

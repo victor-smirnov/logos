@@ -80,6 +80,7 @@
     DOC            = 50    // doc-comment text on item-level decls (reuses HI_NEG slot — PAT_RANGE never appears at item level)
     TYPE_NAME      = 3     // CP-cm-02: enum-type name in USE_VARIANTS (`use pkg.Path.Type.{V1,…}`). Reuses TYPE slot — USE never carries a type AST node.
     VARIANTS       = 22    // CP-cm-02: array of variant-name sub-nodes (each with NAME field) in USE_VARIANTS. Reuses FIELDS slot — USE never carries struct fields.
+    VIS            = 10    // §4 module system: visibility sub-node on item decls (FN/STRUCT/ENUM/TRAIT/CONST/…) from the `pub_vis` rule. NAME="module" → `pub(module)` (module-linkage); absent NAME → plain `pub`. Reuses ELSE slot — item decls never carry an else-branch.
     // ── Group: mod ────────────────────────────────────────────────────────
     // Fields scoped to MODULE and USE nodes.  Slot numbers in a group reuse
     // the same 0..51 space as global fields; peg_gen resolves action field
@@ -1272,30 +1273,40 @@
     // ── Public function ──────────────────────────────────────────
     // Antiquot alts (NAME_VAR holds an expr-TOM; only valid inside quote_*! body —
     // sema gates) come first; they omit where_clause? since NAME_VAR/WHERE share slot 38.
-    pub_fn_def <- KW_PUB KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, RET_TYPE: $13, BODY: $14 }
-                / KW_PUB KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
-               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, BODY: $12 }
-                / KW_PUB KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
-               => { CODE: FN, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
-                / KW_PUB KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
-               => { CODE: FN, IS_PUB: 1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
-                / KW_PUB KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
-               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
-                / KW_PUB KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
-               => { CODE: FN, IS_PUB: 1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
-                / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / KW_PUB KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-                / KW_PUB KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / KW_PUB KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
-                / KW_PUB KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
-                / KW_PUB KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
-               => { CODE: FN, IS_PUB: 1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
+    // §4 module system: visibility marker shared by all `pub_*` item rules.
+    // `pub(module)` = module-linkage (visible to other packages in the SAME
+    // module, NOT exported to consumers); plain `pub` = fully exported. The
+    // `module` word is a CONTEXTUAL keyword (matched as a bare IDENT, validated
+    // == "module" in sema). Used in place of bare KW_PUB so the trailing $N
+    // capture indices in each rule's action stay put; the action stores it as
+    // `VIS: $1` and sema reads VIS.NAME.
+    pub_vis <- KW_PUB LPAREN IDENT RPAREN  => { NAME: $3 }
+             / KW_PUB                       => { }
+
+    pub_fn_def <- pub_vis KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, RET_TYPE: $13, BODY: $14 }
+                / pub_vis KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME_VAR: $6, TYPE_PARAMS: $8, PARAMS: $10, BODY: $12 }
+                / pub_vis KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, RET_TYPE: $12, BODY: $13 }
+                / pub_vis KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME_VAR: $5, TYPE_PARAMS: $7, PARAMS: $9, BODY: $11 }
+                / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, RET_TYPE: $10, WHERE: $11, BODY: $12 }
+                / pub_vis KW_UNSAFE KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, IS_UNSAFE: 1, NAME: $4, TYPE_PARAMS: $5, PARAMS: $7, WHERE: $9, BODY: $10 }
+                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / pub_vis KW_FN IDENT type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
+                / pub_vis KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / pub_vis KW_FN KW_NEW type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
+                / pub_vis KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RET_TYPE: $9, WHERE: $10, BODY: $11 }
+                / pub_vis KW_FN KW_NULL type_param_list? LPAREN param_list? RPAREN where_clause? block
+               => { CODE: FN, IS_PUB: 1, VIS: $1, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, WHERE: $8, BODY: $9 }
 
     // ── Private function ─────────────────────────────────────────
     fn_def <- KW_UNSAFE KW_FN HASH LPAREN expr RPAREN type_param_list? LPAREN param_list? RPAREN ARROW type_ref block

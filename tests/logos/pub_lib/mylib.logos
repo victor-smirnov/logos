@@ -25,3 +25,9 @@ pub enum PubEnum { QA, QB }
 trait PrivTrait { fn ph(&self) -> i32; }
 
 pub trait PubTrait { fn qh(&self) -> i32; }
+
+// §4 module system: `pub(module)` — visible to other packages in the SAME module
+// (here package `mybridge`), but NOT to consumers of the mylib module.
+pub(module) fn module_secret() -> i32 {
+    return 99i32;
+}

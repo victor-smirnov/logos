@@ -1,1 +1,1 @@
-syntax error near 'pub'
+unsupported visibility `pub(crate)`

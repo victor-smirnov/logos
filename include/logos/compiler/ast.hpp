@@ -34,6 +34,11 @@ inline constexpr Key VALUE    {"VALUE",     7};  // initializer / literal value
 inline constexpr Key COND     {"COND",      8};  // condition (if/while)
 inline constexpr Key THEN     {"THEN",      9};  // then branch
 inline constexpr Key ELSE     {"ELSE",     10};  // else branch
+// §4 module system: visibility sub-node on item decls (FN/STRUCT/ENUM/TRAIT/
+// CONST/…) produced by the grammar `pub_vis` rule. NAME=="module" → pub(module)
+// (module-linkage); present-but-no-NAME → plain pub. Reuses the ELSE slot — item
+// decls never carry an else-branch.
+inline constexpr Key VIS      {"VIS",      10};
 inline constexpr Key OP       {"OP",       11};  // operator string ("+", "==", etc.)
 inline constexpr Key LHS      {"LHS",      12};  // left-hand side
 inline constexpr Key RHS      {"RHS",      13};  // right-hand side
