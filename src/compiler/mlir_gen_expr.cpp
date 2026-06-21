@@ -98,9 +98,21 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
                 nm = nm.substr(0, p);
             return nm;
         };
-        return find_fn_matching(mod, [&](mlir::func::FuncOp fn) {
-            return canonical(fn.getName()) == name;
-        });
+        // Symmetric canonical match: canonicalise BOTH the callee and each
+        // candidate (the deleted §P4 bridge did the same). A no-sig / differently
+        // -pkg'd callee (e.g. an assoc-const accessor `pkg.T__kassoc_C` with no
+        // `__f__sig`) only matches its real `…T__kassoc_C__f__sig` def once the
+        // input's pkg+sig are stripped too. Mirror the bridge's UNAMBIGUOUS-only
+        // rule: skip when >1 def shares the canonical (overloads) — first-match
+        // would bind the wrong one.
+        auto cname = canonical(name);
+        mlir::func::FuncOp match;
+        for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
+            if (canonical(fn.getName()) != cname) continue;
+            if (match) return {};  // ambiguous canonical → unresolved
+            match = fn;
+        }
+        return match;
     };
     auto resolved = resolve();
     if (resolved) find_func_op_cache_.emplace(std::move(key), resolved);
