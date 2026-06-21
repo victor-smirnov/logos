@@ -5021,6 +5021,19 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         return builder().call("__type_uid_of__", std::move(ts), {},
                               prim(LogosType::Kind::U64));
     }
+    // type_uid_hi::<T>() — the HIGH 64 bits of the 128-bit nominal type UID
+    // (type_uid is the low half). Together they form `TypeId { lo, hi }`,
+    // making cross-type collision 2^-128 instead of 2^-64. Folded at mono via
+    // __type_uid_hi_of__.
+    if (callee == "type_uid_hi") {
+        auto ts = collect_type_args(node);
+        if (ts.size() != 1 || !ts[0]) {
+            error("type_uid_hi::<T>() requires exactly one type argument");
+            return error_expr();
+        }
+        return builder().call("__type_uid_hi_of__", std::move(ts), {},
+                              prim(LogosType::Kind::U64));
+    }
     // Phase 1B-14: `dst_from_raw_parts::<DstStruct>(ptr, len)` — unsafe
     // builtin that materialises a `*const DstStruct` fat pointer from a
     // raw data pointer and an i64 tail length. DstStruct must be a

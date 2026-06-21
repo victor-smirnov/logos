@@ -137,4 +137,15 @@ inline uint64_t type_hash_64bit(const std::array<uint8_t, 23>& hash) {
     return v;
 }
 
+// Extract the NEXT 8 bytes (bits 64..127) of the type hash as uint64_t. Paired
+// with type_hash_64bit (bytes 0..7 = low half) it yields a 128-bit TypeUID
+// (`logos.lang.any::TypeId { lo, hi }`), dropping the collision risk from 2^-64
+// to 2^-128. The 23-byte hash has ample entropy for both halves.
+inline uint64_t type_hash_hi64(const std::array<uint8_t, 23>& hash) {
+    uint64_t v = 0;
+    for (int i = 8; i < 16; ++i)
+        v = (v << 8) | hash[i];
+    return v;
+}
+
 } // namespace logos::compiler

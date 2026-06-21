@@ -28,21 +28,28 @@ package logos.lang.any;
 use logos.lang.option;
 use logos.lang.cmp;
 
-// Opaque, comparable type identity. `code` is the compiler's nominal type UID.
+// Opaque, comparable type identity — the compiler's 128-bit nominal type UID,
+// carried as two u64 halves (`lo` = bits 0..63, `hi` = bits 64..127). 128 bits
+// drops the cross-type collision probability from 2^-64 to 2^-128 (matching
+// Rust's TypeId), which matters because a collision = an unsound `downcast`.
 pub struct TypeId {
-    pub code: u64,
+    pub lo: u64,
+    pub hi: u64,
 }
 
 impl Copy for TypeId {}
 
 impl Eq for TypeId {
-    fn eq(self: &Self, other: &Self) -> bool { return self.code == other.code; }
+    fn eq(self: &Self, other: &Self) -> bool {
+        return self.lo == other.lo && self.hi == other.hi;
+    }
 }
 
-// `TypeId::of::<T>()` analogue. `type_uid::<T>()` is the compiler's nominal
-// type UID (hash of the canonical named type string); folded at mono.
+// `TypeId::of::<T>()` analogue. `type_uid` / `type_uid_hi` are the low/high 64
+// bits of the compiler's nominal type UID (hash of the canonical named type
+// string); both folded at mono.
 pub fn type_id_of<T>() -> TypeId {
-    return TypeId { code: type_uid::<T>() };
+    return TypeId { lo: type_uid::<T>(), hi: type_uid_hi::<T>() };
 }
 
 // The `Any` trait. The blanket impl makes every type `Any` (Rust shape).
@@ -58,7 +65,9 @@ impl<T> Any for T {
 // Sound for struct / enum erased values (see the primitive caveat in the
 // module header).
 pub fn any_is<T>(a: &dyn Any) -> bool {
-    return a.type_id().code == type_id_of::<T>().code;
+    let lhs: TypeId = a.type_id();
+    let rhs: TypeId = type_id_of::<T>();
+    return lhs.lo == rhs.lo && lhs.hi == rhs.hi;
 }
 
 // NOTE: downcast_ref / downcast_mut intentionally omitted until the

@@ -1430,6 +1430,16 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     out_, result->type, (int64_t)uid);
                 break;
             }
+            // High 64 bits of the 128-bit nominal UID (TypeId.hi). Same canon
+            // input as __type_uid_of__ (the low half) so the two halves agree.
+            if (nc.callee == "__type_uid_hi_of__") {
+                uint64_t uid_hi = 0;
+                if (!nc.type_args.empty() && nc.type_args[0])
+                    uid_hi = type_hash_hi64(type_hash_23(type_id_canon(nc.type_args[0])));
+                result->mirror_offset_ = lir_mirror_emit_lit_int(
+                    out_, result->type, (int64_t)uid_hi);
+                break;
+            }
             // Type-trait predicates: mono evaluates after substitution. Each
             // returns a lit_bool of the answer for the concrete substituted T.
             {
