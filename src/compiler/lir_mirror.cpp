@@ -1081,23 +1081,25 @@ public:
     }
     hermes::arena_offset_t emit_pat_at_direct(std::string_view name,
                                                const std::vector<lir::Pattern>& sub,
-                                               TypeRef type) {
+                                               TypeRef type, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
         auto sub_av  = pat_array(sub);
         auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::At));
         put(map_off, pk::NAME, name_av);
         put(map_off, pk::SUB,  sub_av);
         put(map_off, pk::TYPE, type_av(type));
+        if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
         return map_off;
     }
     hermes::arena_offset_t emit_pat_ref_bind_direct(std::string_view name,
                                                      bool is_mut,
-                                                     TypeRef bind_type) {
+                                                     TypeRef bind_type, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
         auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::RefBind));
         put(map_off, pk::NAME,      name_av);
         put(map_off, pk::IS_MUT,    put_bool(is_mut));
         put(map_off, pk::BIND_TYPE, type_av(bind_type));
+        if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
         return map_off;
     }
     hermes::arena_offset_t emit_pat_ref_pat_direct(const std::vector<lir::Pattern>& inner,
@@ -2145,15 +2147,15 @@ hermes::arena_offset_t lir_mirror_emit_pat_slice(lir::LProgram& prog, const std:
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_slice_direct(prefix, rest, suffix);
 }
-hermes::arena_offset_t lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type) {
+hermes::arena_offset_t lir_mirror_emit_pat_at(lir::LProgram& prog, std::string_view name, const std::vector<lir::Pattern>& sub, TypeRef type, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_at_direct(name, sub, type);
+    return em.emit_pat_at_direct(name, sub, type, slot);
 }
-hermes::arena_offset_t lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type) {
+hermes::arena_offset_t lir_mirror_emit_pat_ref_bind(lir::LProgram& prog, std::string_view name, bool is_mut, TypeRef bind_type, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_ref_bind_direct(name, is_mut, bind_type);
+    return em.emit_pat_ref_bind_direct(name, is_mut, bind_type, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_ref_pat(lir::LProgram& prog, const std::vector<lir::Pattern>& inner, bool is_mut) {
     auto& arena = prog.type_pool.arena_or_init();

@@ -1490,6 +1490,10 @@ struct PatAtView {
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::pat_type(self, pk::TYPE.code, pool);
     }
+    uint32_t bind_slot() const noexcept {  // Phase-1
+        auto v = detail::read_i64_opt(self, pk::BIND_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
+    }
 };
 
 // PatRefBind { name, is_mut, bind_type }
@@ -1499,6 +1503,10 @@ struct PatRefBindView {
     bool             is_mut() const noexcept { return detail::read_bool(self, pk::IS_MUT.code); }
     TypeRef          bind_type(const TypePoolImpl* pool) const noexcept {
         return detail::pat_type(self, pk::BIND_TYPE.code, pool);
+    }
+    uint32_t bind_slot() const noexcept {  // Phase-1
+        auto v = detail::read_i64_opt(self, pk::BIND_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
     }
 };
 

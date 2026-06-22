@@ -4734,7 +4734,9 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         // bind_pattern can always define the variable (even with error type).
         pa.type = scrut_type ? scrut_type : error_t();
         pa.sub.push_back(std::move(sub_pat));
-        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type);
+        uint32_t _at_slot = (pa.name == "_" || pa.name.empty())  // Phase-1
+                          ? 0xFFFFFFFFu : reserve_pat_slot(pa.name);
+        auto mo = lir_mirror_emit_pat_at(*cur_prog_, pa.name, pa.sub, pa.type, _at_slot);
         lir::Pattern p_;
         p_.mirror_offset_ = mo;
         return p_;
@@ -4785,8 +4787,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             ref_t.kind    = is_mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
             ref_t.pointee = scrut_type;
             TypeRef btype = pool_->alloc(std::move(ref_t));
+            uint32_t _rb_slot = (bname == "_" || bname.empty())  // Phase-1
+                              ? 0xFFFFFFFFu : reserve_pat_slot(bname);
             lir::Pattern p_;
-            p_.mirror_offset_ = lir_mirror_emit_pat_ref_bind(*cur_prog_, bname, is_mut, btype);
+            p_.mirror_offset_ = lir_mirror_emit_pat_ref_bind(*cur_prog_, bname, is_mut, btype, _rb_slot);
             return p_;
         }
         // A bare identifier that names a NO-PAYLOAD variant of the scrutinee's
@@ -4905,9 +4909,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                             TypeRef bt = make_ref(fld_is_mut,
                                 (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
                                     ? ftype : error_t());
+                            uint32_t _rb_slot = (fname == "_" || fname.empty())  // Phase-1
+                                              ? 0xFFFFFFFFu : reserve_pat_slot(fname);
                             lir::Pattern rp;
                             rp.mirror_offset_ = lir_mirror_emit_pat_ref_bind(
-                                *cur_prog_, fname, fld_is_mut, bt);
+                                *cur_prog_, fname, fld_is_mut, bt, _rb_slot);
                             pfb.sub.push_back(std::move(rp));
                             ps.fields.push_back(std::move(pfb));
                             continue;
@@ -5727,12 +5733,12 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         }
     } else if (k == ps::Code::RefBind) {
         lir_view::PatRefBindView v{pr};
-        define(std::string(v.name()), v.bind_type(pool));
+        define(std::string(v.name()), v.bind_type(pool), false, v.bind_slot());  // Phase-1
     } else if (k == ps::Code::At) {
         lir_view::PatAtView v{pr};
         TypeRef ty = v.type(pool);
         auto n = v.name();
-        if (ty && n != "_") define(std::string(n), ty);
+        if (ty && n != "_") define(std::string(n), ty, false, v.bind_slot());  // Phase-1
         if (auto sub = v.sub()) bind_pattern_ref(sub, ty);
     } else if (k == ps::Code::RefPat) {
         lir_view::PatRefPatView v{pr};
