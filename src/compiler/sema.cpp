@@ -209,12 +209,12 @@ public:
             v_mut_ptr = hermes::AnyVal::from_value<uint8_t>(1, hermes::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
-            auto av = hermes::anyval_put<uint64_t>(arena(), t.arr_size);
+            auto av = ctr_.box<uint64_t>(t.arr_size);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "arr_size put failed");
             v_arr_size = *av;
         }
         if (t.const_val.has_value()) {
-            auto av = hermes::anyval_put<int64_t>(arena(), *t.const_val);
+            auto av = ctr_.box<int64_t>(*t.const_val);
             LOGOS_ASSERT(av.has_value(), "SEMA-TYPEPOOL-003", "const_val put failed");
             v_const_val = *av;
         }
@@ -241,12 +241,11 @@ public:
 
         // Create the map last so it doesn't get moved around by sub-allocs
         // (the map's own grow() handles relocation internally during put()).
-        auto map_exp = ctr_.make_tiny_map(/*capacity=*/8);
+        auto map_exp = ctr_.make_tiny_map_view(/*capacity=*/8);
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
-        hermes::arena_offset_t map_off = offset_of(*map_exp);
-        at(map_off).set_schema_type_code(
-            hermes::schema::type(int32_t(t.kind)));
+        map_exp->set_schema_type_code(hermes::schema::type(int32_t(t.kind)));
+        hermes::arena_offset_t map_off = map_exp->offset();
 
         auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
             if (val.is_null()) return;

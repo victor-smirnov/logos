@@ -47,14 +47,14 @@ static AnyVal hval_str(Hermes& doc, std::string_view s) {
 
 // u64: store in arena with U64 tag (type_code=27); readable via get_u64().
 static AnyVal hval_u64(Hermes& doc, uint64_t v) {
-    return anyval_put<uint64_t>(HermesAccess::arena(doc), v).get();
+    return doc.box<uint64_t>(v).get();
 }
 
 // i64: inline if fits in i24, else arena.
 static AnyVal hval_i64(Hermes& doc, int64_t v) {
     if (v >= -8388608LL && v <= 8388607LL)
         return AnyVal::from_value<int32_t>(static_cast<int32_t>(v));
-    return anyval_put<int64_t>(HermesAccess::arena(doc), v).get();
+    return doc.box<int64_t>(v).get();
 }
 
 // bool: type_hash=37, inline value mode.
@@ -96,7 +96,7 @@ static AnyVal annot_val_to_hval(Hermes& doc, const lir::LAnnotationValue& v) {
     using K = lir::LAnnotationValue::Kind;
     switch (v.kind) {
     case K::Int:   return hval_i64(doc, v.i);
-    case K::Float: return anyval_put<double>(HermesAccess::arena(doc), v.f).get();
+    case K::Float: return doc.box<double>(v.f).get();
     case K::Bool:  return hval_bool(doc, v.i != 0);
     case K::Str:   return hval_str(doc, v.s);
     case K::Enum:  return hval_str(doc, v.enum_name + "::" + v.enum_variant);

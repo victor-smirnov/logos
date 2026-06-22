@@ -5860,12 +5860,10 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
         int64_t iv = lir_view::HVIntView{v}.value();
         if (iv >= -8388608LL && iv <= 8388607LL)
             return AnyVal::from_value<int32_t>(static_cast<int32_t>(iv));
-        return anyval_put<int64_t>(HermesAccess::arena(doc), iv).get();
+        return doc.box<int64_t>(iv).get();
     }
     case HC::Float:
-        return anyval_put<double>(
-            HermesAccess::arena(doc),
-            lir_view::HVFloatView{v}.value()).get();
+        return doc.box<double>(lir_view::HVFloatView{v}.value()).get();
     case HC::Str: {
         auto sv = lir_view::HVStrView{v}.value();
         auto* s = ArenaString::create(
@@ -5897,7 +5895,7 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
             reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
 
         AnyVal kind_av = AnyVal::from_value<uint32_t>(tv.kind());
-        AnyVal uid_av  = anyval_put<uint64_t>(arena, tv.uid()).get();
+        AnyVal uid_av  = doc.box<uint64_t>(tv.uid()).get();
         auto*  s       = ArenaString::create(arena, std::string(tv.name())).get();
         AnyVal name_av = AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(static_cast<uint32_t>(
             reinterpret_cast<uint8_t*>(s) - HermesAccess::base(doc))));

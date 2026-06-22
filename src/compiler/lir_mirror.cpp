@@ -1145,17 +1145,17 @@ private:
         return v->to_anyval();
     }
     hermes::AnyVal put_i64(int64_t v) {
-        auto av = hermes::anyval_put<int64_t>(arena_, v);
+        auto av = ctr_.box<int64_t>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "i64 anyval put failed");
         return *av;
     }
     hermes::AnyVal put_u64(uint64_t v) {
-        auto av = hermes::anyval_put<uint64_t>(arena_, v);
+        auto av = ctr_.box<uint64_t>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "u64 anyval put failed");
         return *av;
     }
     hermes::AnyVal put_f64(double v) {
-        auto av = hermes::anyval_put<double>(arena_, v);
+        auto av = ctr_.box<double>(v);
         LOGOS_ASSERT(av.has_value(), "LIR-MIRROR-002", "f64 anyval put failed");
         return *av;
     }
@@ -1301,12 +1301,11 @@ private:
 
     hermes::arena_offset_t make_map(uint64_t schema_code, uint64_t cap = 8) {
         if (dry_run_) return hermes::arena_offset_t{};
-        auto m = ctr_.make_tiny_map(cap);
+        auto m = ctr_.make_tiny_map_view(cap);
         LOGOS_ASSERT(m.has_value(), "LIR-MIRROR-004",
             "TinyObjectMap allocation failed");
-        auto off = offset_of(*m);
-        tom_at(off).set_schema_type_code(schema_code);
-        return off;
+        m->set_schema_type_code(schema_code);
+        return m->offset();
     }
     void put(hermes::arena_offset_t map_off,
              const lir_schema::Key& key, hermes::AnyVal val) {

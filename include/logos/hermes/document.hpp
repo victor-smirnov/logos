@@ -5,6 +5,7 @@
 #include <new>
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 
 #include <logos/hermes/mem_holder.hpp>
 #include <logos/hermes/any_val.hpp>
@@ -124,6 +125,12 @@ public:
     [[nodiscard]] logos::expected<TinyObjectMap*> make_tiny_map(uint64_t cap = 4) noexcept {
         return TinyObjectMap::create(arena(), cap);
     }
+    // View-returning tiny-map producer (the node-builder path that wants the
+    // wrapper rather than the raw pointer — use .offset()/.put()/.to_anyval()).
+    [[nodiscard]] logos::expected<TinyMapView> make_tiny_map_view(uint64_t cap = 4) noexcept {
+        LOGOS_TRY(auto* m, TinyObjectMap::create(arena(), cap));
+        return TinyMapView(m, holder_);
+    }
     [[nodiscard]] logos::expected<ArrayView> make_array(uint64_t cap = 4) noexcept {
         LOGOS_TRY(auto* a, ObjectArray::create(arena(), cap));
         return ArrayView(a, holder_);
@@ -135,6 +142,23 @@ public:
     [[nodiscard]] logos::expected<StringView> make_string(std::string_view s) noexcept {
         LOGOS_TRY(auto* s2, ArenaString::create(arena(), s));
         return StringView(s2, holder_);
+    }
+
+    // Box a wide scalar (i64/u64/f32/f64 — doesn't fit AnyVal's inline Pod niche)
+    // into this document and return a Ref AnyVal to it. The HermesCtr-encapsulated
+    // successor of the free anyval_put(arena, v) — producers box through the
+    // document, never the raw arena.
+    template <typename T>
+    [[nodiscard]] logos::expected<AnyVal> box(T v) noexcept {
+        uint64_t code;
+        if constexpr (std::is_same_v<T, double>)     code = tc::F64;
+        else if constexpr (std::is_same_v<T, float>) code = tc::F32;
+        else if constexpr (std::is_unsigned_v<T>)    code = tc::U64;
+        else                                         code = tc::I64;
+        LOGOS_TRY(void* mem, arena().allocate(sizeof(T),
+                                              alignof(T) < 2 ? 2 : alignof(T), TypeTag(code)));
+        std::memcpy(mem, &v, sizeof(T));
+        AnyVal a; a.set_ref(mem); return a;
     }
 
     // The single-segment blob bytes (valid only when this doc is single-chunk, e.g.
