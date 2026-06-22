@@ -74,6 +74,49 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
     }
 }
 
+// Prune-mode (entry_points_) helpers. enqueue_free_fn records a reachable
+// non-generic free fn once; drain_free_fn_queue clones each queued fn (same
+// body-clone / binary-symbol-stub logic as the eager root loop), and scan_fn
+// — run on each cloned body — calls enqueue_free_fn again for its direct
+// callees, so the queue grows to the full reachable free-fn closure.
+void Mono::enqueue_free_fn(const std::string& name) {
+    // Only names that are actually non-generic free fns of this program are
+    // reachability roots. Extern intrinsics, methods (Struct__method) and
+    // generic instances aren't in the index — those flow through the
+    // method/generic worklists or resolve from a linked archive.
+    if (!free_fn_index_.count(name)) return;
+    if (!free_fn_queued_.insert(name).second) return;
+    free_fn_queue_.push_back(name);
+}
+
+void Mono::drain_free_fn_queue() {
+    while (!free_fn_queue_.empty()) {
+        std::string name = std::move(free_fn_queue_.back());
+        free_fn_queue_.pop_back();
+        auto it = free_fn_index_.find(name);
+        if (it == free_fn_index_.end()) continue;
+        const lir::LFunction& fn = *it->second;
+        if (has_prev_out_ && done_.count(fn.name)) continue;
+        // Binary-symbol fast path (mirrors the eager loop): the body lives in
+        // a linked archive, so emit a signature-only stub and skip the scan —
+        // the archive is self-contained for this fn's transitive closure.
+        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
+            auto stub = clone_fn_signature(fn, {}, {});
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+            if (has_prev_out_) done_.insert(fn.name);
+            ++stats_.fn_clones;
+            continue;
+        }
+        auto cloned = clone_fn(fn, {});
+        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
+        auto& fn_ref = *out_.functions.back();
+        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+        scan_fn(fn_ref);
+        if (has_prev_out_) done_.insert(fn.name);
+        ++stats_.fn_clones;
+    }
+}
+
 lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     in_ = std::move(in);
 
@@ -493,44 +536,60 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& ss : in_.struct_specializations)
         struct_specs_[ss.name].push_back(&ss);
 
-    // Process non-generic free functions. Every non-generic free fn is a
-    // clone root; the lazy_methods_ path handles struct methods separately.
-    // Reachability-mode filtering (entry_points_) is intentionally NOT
-    // applied here — generic-struct method instantiations (e.g.
-    // Vec$G1$Foo__push) need to be materialised whenever any user fn uses
-    // them, even if no direct call appears in the entry-point's body.
-    // Future work: thread reachability through mlir_gen's binary-skip set
-    // instead, so mono keeps producing the full LProgram but mlir_gen only
-    // emits bodies the entry-point closure transitively needs.
-    for (auto& fn_up : in_.functions) {
-        auto& fn = *fn_up;
-        if (!fn.type_params.empty()) continue;
-        // M6.2: skip when prev_out_ already cloned this fn (done_ seed).
-        // Gated on has_prev_out_ so the default-mode walk doesn't acquire
-        // the new done_ insert side-effect (which would shift state for
-        // unrelated code paths consulting done_ later).
-        if (has_prev_out_ && done_.count(fn.name)) continue;
-        // Binary-symbol fast path: the body lives in liblstdlib.a (or a user
-        // -L archive). mlir_gen would skip body emission anyway, so the deep
-        // body clone + mirror emit + scan_fn are pure waste here. All
-        // transitive generic instantiations referenced by this body are
-        // already pre-baked in the same archive (otherwise the archive
-        // wouldn't link), so dropping the scan can't leave the worklist
-        // missing a required instantiation.
-        if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
-            auto stub = clone_fn_signature(fn, {}, {});
-            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+    // Process non-generic free functions. The lazy_methods_ path handles
+    // struct methods separately.
+    //
+    // Default (eager) mode: every non-generic free fn is a clone root.
+    //
+    // Prune mode (entry_points_ non-empty — the metacall-thunk JIT): only fns
+    // transitively reachable from the entry points are cloned. We index every
+    // non-generic free fn, seed free_fn_queue_ with the entry points, and
+    // drain_free_fn_queue() clones each + runs scan_fn, which enqueues its
+    // direct free-fn callees (here), its generic instances (worklist_) and its
+    // method calls (method_worklist_). Those drains converge in the fixpoint
+    // loop below, so the whole reachable closure — and nothing else — is
+    // materialised. This is the reachability-through-mono realisation of the
+    // long-standing "metacall JIT shouldn't process the whole stdlib" TODO:
+    // the user's test fns + their iterator monomorphizations, never called by
+    // a macro thunk, are simply never cloned.
+    if (!entry_points_.empty()) {
+        for (auto& fn_up : in_.functions) {
+            if (!fn_up || !fn_up->type_params.empty()) continue;
+            free_fn_index_.emplace(fn_up->name, fn_up.get());
+        }
+        for (auto& ep : entry_points_) enqueue_free_fn(ep);
+        drain_free_fn_queue();
+    } else {
+        for (auto& fn_up : in_.functions) {
+            auto& fn = *fn_up;
+            if (!fn.type_params.empty()) continue;
+            // M6.2: skip when prev_out_ already cloned this fn (done_ seed).
+            // Gated on has_prev_out_ so the default-mode walk doesn't acquire
+            // the new done_ insert side-effect (which would shift state for
+            // unrelated code paths consulting done_ later).
+            if (has_prev_out_ && done_.count(fn.name)) continue;
+            // Binary-symbol fast path: the body lives in liblstdlib.a (or a
+            // user -L archive). mlir_gen would skip body emission anyway, so
+            // the deep body clone + mirror emit + scan_fn are pure waste here.
+            // All transitive generic instantiations referenced by this body
+            // are already pre-baked in the same archive (otherwise the archive
+            // wouldn't link), so dropping the scan can't leave the worklist
+            // missing a required instantiation.
+            if (!in_.binary_symbols.empty() && in_.binary_symbols.count(fn.name)) {
+                auto stub = clone_fn_signature(fn, {}, {});
+                out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(stub)));
+                if (has_prev_out_) done_.insert(fn.name);
+                ++stats_.fn_clones;
+                continue;
+            }
+            auto cloned = clone_fn(fn, {});
+            out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
+            auto& fn_ref = *out_.functions.back();
+            lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
+            scan_fn(fn_ref);
             if (has_prev_out_) done_.insert(fn.name);
             ++stats_.fn_clones;
-            continue;
         }
-        auto cloned = clone_fn(fn, {});
-        out_.functions.push_back(std::make_unique<lir::LFunction>(std::move(cloned)));
-        auto& fn_ref = *out_.functions.back();
-        lir_mirror_emit_function(out_, *out_.mirror_table, fn_ref);
-        scan_fn(fn_ref);
-        if (has_prev_out_) done_.insert(fn.name);
-        ++stats_.fn_clones;
     }
 
     // Process function work-list.
@@ -578,7 +637,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // type satisfies any bound; done_ dedups types the eager loop already did).
     // The collected TypeRef drives the substitution directly, so the target need
     // not yet exist in out_.structs. Then drain the new worklist items.
-    if (entry_points_.empty() && !dyn_coerced_targets_.empty()) {
+    // (Runs in prune mode too: dyn_coerced_targets_ is populated by scan_fn
+    // over the reachable closure, so this instantiates blanket methods only
+    // for types actually coerced to `dyn` by reachable code — needed or the
+    // vtable slot stays null and dispatch jumps to 0x0.)
+    if (!dyn_coerced_targets_.empty()) {
         for (auto& bi : blanket_impls_) {
             auto pit = dyn_coerced_targets_.find(bi.trait_name);
             if (pit == dyn_coerced_targets_.end()) continue;
@@ -711,7 +774,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // method body may also reference new generic struct types — re-run
     // instantiate_struct_templates / _enums to drain those.
     while (!method_worklist_.empty() || !worklist_.empty() ||
-           !needed_struct_insts_.empty()) {
+           !needed_struct_insts_.empty() || !free_fn_queue_.empty()) {
+        // Prune mode: method/generic bodies cloned in this fixpoint may call
+        // further non-generic free fns — clone those before the rest so their
+        // own scan_fn can feed the same iteration's worklists.
+        drain_free_fn_queue();
         drain_method_worklist();
         while (!worklist_.empty()) {
             auto item = std::move(worklist_.back());

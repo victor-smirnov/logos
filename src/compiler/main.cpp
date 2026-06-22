@@ -3649,7 +3649,35 @@ int main(int argc, char** argv) {
             mc_prog.binary_symbols = binary_symbols;
             mc_prog = logos::compiler::reflection_emit(std::move(mc_prog));
             mc_stat_step(_mc_t, "reflection", mi);
-            mc_prog = logos::compiler::mono_pass(std::move(mc_prog));
+            // Reachability prune: the metacall JIT only executes the thunks,
+            // so monomorphize from those roots only. Without this, mono clones
+            // the whole user program (test fns + their iterator
+            // monomorphizations) the JIT never calls, and mlir_gen pays to
+            // lower every dead body. The GlobalDCE below then drops them at the
+            // LLVM level — far too late. Entry points = the `__metacall_thunk_*`
+            // names; mono's scan cascade pulls in their (all-metaprog) closure.
+            {
+                // Prune only when EVERY site is an AST-returning macro
+                // (ExprBlob/ItemBlob): those thunks call metaprog that
+                // manipulates syntax trees, a self-contained closure we can
+                // monomorphize from the thunk roots. A value-returning
+                // expression metacall (`metacall build_cfg()` → HermesStatic,
+                // …) instead JIT-executes arbitrary USER runtime code whose
+                // dynamic-dispatch deps (vtables, Hermes TypeCode tag tables)
+                // a static call-graph can't see — pruning there drops a
+                // dispatch target and the JIT jumps to 0x0. Leave those eager.
+                using MCRetTag = logos::compiler::lir::LProgram::MetacallSite::RetTag;
+                bool all_macro = !saved_metacall_sites.empty();
+                for (const auto& site : saved_metacall_sites)
+                    if (site.ret_tag != MCRetTag::ExprBlob &&
+                        site.ret_tag != MCRetTag::ItemBlob) { all_macro = false; break; }
+                logos::compiler::MonoOpts mc_mopts;
+                if (all_macro && !std::getenv("LOGOS_NO_MC_PRUNE"))
+                    for (const auto& site : saved_metacall_sites)
+                        if (!site.thunk_name.empty())
+                            mc_mopts.entry_points.insert(site.thunk_name);
+                mc_prog = logos::compiler::mono_pass(std::move(mc_prog), std::move(mc_mopts));
+            }
             mc_stat_step(_mc_t, "mono", mi);
             if (!mc_prog.ok()) { mc_prog.print_diags(stderr); return 1; }
             mc_prog = logos::compiler::borrow_check(std::move(mc_prog));

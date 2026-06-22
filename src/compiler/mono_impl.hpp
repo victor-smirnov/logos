@@ -507,11 +507,24 @@ private:
     // restores eager codegen — only used for bisecting regressions.
     bool lazy_methods_ = true;
 
-    // Opt-in reachability filter. Stored on the Mono instance for future
-    // use (currently not consulted — the mlir_gen-side binary-skip path
-    // is preferred, since mono needs the full LProgram for struct-method
-    // instantiation to converge). MonoOpts API kept stable.
+    // Opt-in reachability filter (set via MonoOpts.entry_points). When
+    // non-empty, run() switches the non-generic free-fn loop from "clone
+    // every fn" to "clone only fns transitively reachable from these names":
+    // entry points seed free_fn_queue_, scan_fn discovers callees, and the
+    // existing generic-fn / lazy-method drains pull in the rest of the
+    // closure. Used by the metacall-thunk JIT compile (entry_points = the
+    // `__metacall_thunk_*` names) so it stops cloning the whole user program
+    // (test fns + their iterator monomorphizations) it never executes.
     StrSet entry_points_;
+
+    // Prune-mode (entry_points_ non-empty) free-fn reachability worklist.
+    // free_fn_index_ maps every non-generic free fn's name to its template;
+    // enqueue_free_fn pushes a name once; drain_free_fn_queue clones each.
+    std::unordered_map<std::string, const lir::LFunction*> free_fn_index_;
+    std::vector<std::string> free_fn_queue_;
+    StrSet free_fn_queued_;
+    void enqueue_free_fn(const std::string& name);
+    void drain_free_fn_queue();
 
     // ── Type substitution (large — defined in mono_subst.cpp) ────────────
     TypeRef subst_type(TypeRef tv, const SubstMap& s) noexcept;

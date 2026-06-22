@@ -146,6 +146,12 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         if (v.has_type_args()) {
             // Post-substitution generic call: callee is already mangled.
             enqueue_if_needed(std::string(v.callee()), v.type_args(out_.type_pool.impl()));
+        } else if (!entry_points_.empty()) {
+            // Prune mode: a direct (non-generic) call to a free fn makes that
+            // fn reachable. No-op for callees that aren't non-generic free fns
+            // (externs, methods, generic instances) — those flow through the
+            // method/generic worklists or a linked archive.
+            enqueue_free_fn(std::string(v.callee()));
         }
         if (lazy_methods_) {
             // L1.5: sema may lower `recv.method()` directly to ECall
@@ -221,6 +227,15 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::Cast: {
         lir_view::ECastView cv{e};
         scan_expr(cv.operand());
+        // Prune mode: a Hermes container cast (`&[T] as <I32>[]`, comprehension
+        // `@{...}` with captures) lowers to a call to a named builder fn
+        // (hermes_build_map_*/hermes_build_arr_*) — see mlir_gen's ECast path.
+        // It's not a Call node, so make it reachable explicitly or the JIT
+        // calls a forward-decl-only symbol → NULL.
+        if (!entry_points_.empty()) {
+            auto bf = cv.hermes_build_fn();
+            if (!bf.empty()) enqueue_free_fn(std::string(bf));
+        }
         // `&prim as &dyn Trait` / `box prim as Box<dyn Trait>`: record the
         // PRIMITIVE→trait coercion so the post-drain pass can instantiate the
         // blanket impl for that primitive (the eager blanket pass skips
@@ -284,6 +299,14 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         scan_block(lir_view::EClosureBoxView{e}.body());
         break;
     }
+    case ECode::HermesLit:
+        // Captured runtime sub-expressions of a `@{...}` literal (e.g. the
+        // values folded into the blob) may themselves contain calls; scan them
+        // so prune mode keeps their callees. (The builder fn for the capture
+        // path is enqueued at the wrapping ECast — see above.)
+        lir_view::EHermesLitView{e}.each_capture_expr(
+            [&](lir_view::ExprRef c) { scan_expr(c); });
+        break;
     case ECode::ClosureCall: {
         lir_view::EClosureCallView v{e};
         scan_expr(v.callee());
@@ -364,7 +387,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     case ECode::AlignOf:
     case ECode::GenericRef:  // rewritten to VarRef during subst_expr; never reaches here
     case ECode::TypeCodeOf:
-    case ECode::HermesLit:
     case ECode::PtrArith:
     case ECode::PtrDiff:
     case ECode::ReflectOf:
