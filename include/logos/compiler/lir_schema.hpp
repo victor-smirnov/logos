@@ -416,6 +416,7 @@ inline constexpr Key IS_MUT            {"IS_MUT",          20};   // u8 (PatRefB
 // Type fields
 inline constexpr Key BIND_TYPE         {"BIND_TYPE",       21};   // RelPtr<LogosType> (PatRefBind)
 inline constexpr Key TYPE              {"TYPE",            22};   // RelPtr<LogosType> (PatAt)
+inline constexpr Key BIND_SLOTS        {"BIND_SLOTS",      23};   // Array<u32> — Phase-1 dense slots, parallel to BINDINGS (0xFFFFFFFF = none, e.g. `_`)
 } // namespace pat_keys
 
 } // namespace logos::compiler::lir_schema

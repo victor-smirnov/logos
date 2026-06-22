@@ -4210,10 +4210,11 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         v.each_binding([&](std::string_view s) { n.bindings.emplace_back(s); });
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
         auto off = lir_mirror_emit_pat_variant_data(
-            *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types);
-        lir::Pattern p;
-        p.mirror_offset_ = off;
-        return p;
+            *prog_, n.enum_name, n.variant, n.disc, n.bindings, n.binding_types,
+            v.bind_slots());  // Phase-1: carry slots
+        lir::Pattern p_;
+        p_.mirror_offset_ = off;
+        return p_;
     }
     case pc::Code::Or: {
         lir::PatOr n;

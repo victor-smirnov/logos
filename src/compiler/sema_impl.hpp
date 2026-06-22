@@ -2299,6 +2299,7 @@ private:
     // Build-local name→slot map; cleared at each top-level pattern build entry
     // so Or-pattern alternatives (`Some(x)|Other(x)`) share ONE slot for `x`.
     std::unordered_map<std::string, uint32_t> pat_bind_slots_;
+    uint32_t pattern_build_depth_ = 0;  // 0 at top-level pattern build (clear point)
     uint32_t reserve_pat_slot(std::string_view name) {
         std::string sn(name);
         auto it = pat_bind_slots_.find(sn);

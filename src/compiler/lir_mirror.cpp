@@ -1011,17 +1011,20 @@ public:
                                                          std::string_view variant,
                                                          int64_t disc,
                                                          const std::vector<std::string>& bindings,
-                                                         const std::vector<TypeRef>& binding_types) {
+                                                         const std::vector<TypeRef>& binding_types,
+                                                         const std::vector<uint32_t>& bind_slots = {}) {
         auto enum_av     = put_string(enum_name);
         auto variant_av  = put_string(variant);
         auto bindings_av = string_array(bindings);
         auto btypes_av   = type_array(binding_types);
+        auto slots_av    = u32_array(bind_slots);
         auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::VariantData));
         put(map_off, pk::ENUM_NAME,      enum_av);
         put(map_off, pk::VARIANT,        variant_av);
         put(map_off, pk::DISC,           put_i64(disc));
         put(map_off, pk::BINDINGS,       bindings_av);
         put(map_off, pk::BINDING_TYPES,  btypes_av);
+        if (!slots_av.is_null()) put(map_off, pk::BIND_SLOTS, slots_av);
         return map_off;
     }
     hermes::arena_offset_t emit_pat_or_direct(const std::vector<lir::Pattern>& alts) {
@@ -2107,10 +2110,10 @@ hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_wild_direct(name);
 }
-hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types) {
+hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types);
+    return em.emit_pat_variant_data_direct(enum_name, variant, disc, bindings, binding_types, bind_slots);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_or(lir::LProgram& prog, const std::vector<lir::Pattern>& alts) {
     auto& arena = prog.type_pool.arena_or_init();

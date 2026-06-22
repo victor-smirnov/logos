@@ -1270,6 +1270,20 @@ struct PatVariantDataView {
             f(detail::make_child_typeref(self, el, pool));
         }
     }
+    // Phase-1: dense slots parallel to each_binding (0xFFFFFFFF = none / `_`).
+    std::vector<uint32_t> bind_slots() const noexcept {
+        std::vector<uint32_t> out;
+        auto av = self.mirror()->get(pk::BIND_SLOTS.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const hermes::ObjectArray>();
+        uint64_t n = arr->size();
+        out.reserve(n);
+        for (uint64_t i = 0; i < n; ++i) {
+            auto el = arr->get(i);
+            out.push_back(el.is_null() ? 0xFFFFFFFFu : el.as_value<uint32_t>());
+        }
+        return out;
+    }
 };
 
 // PatVariant { enum_name, variant, disc }

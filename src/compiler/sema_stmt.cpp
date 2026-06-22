@@ -1628,9 +1628,11 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
                 std::vector<TypeRef> types;
                 v.each_binding([&](std::string_view n) { names.push_back(n); });
                 v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+                auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
                 for (size_t i = 0; i < names.size() && i < types.size(); ++i)
                     if (names[i] != "_")
-                        define(std::string(names[i]), types[i]);
+                        define(std::string(names[i]), types[i], false,
+                               i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
             } else if (pr.kind() == ps::Code::Tuple) {
                 lir_view::PatTupleView v{pr};
                 std::vector<std::string_view> names;
@@ -3009,6 +3011,13 @@ lir::Pattern SemaChecker::make_pat_wild(std::string_view name) {
 lir::Pattern SemaChecker::build_pattern(TinyMapView pnode, TypeRef scrut_type) {
     // build_pattern_impl now sets mirror_offset_ directly via per-kind direct
     // emitters; no bulk lir_mirror_emit_pat_node call needed here.
+    //
+    // Phase-1: reset the build-local pat_bind_slots_ at the TOP-level pattern
+    // (depth 0) so Or-pattern alternatives within ONE pattern share slots while
+    // distinct patterns (separate match arms / lets) start fresh. A depth guard
+    // auto-detects the top entry regardless of caller.
+    if (pattern_build_depth_++ == 0) clear_pat_bind_slots();
+    struct DepthGuard { uint32_t& d; ~DepthGuard() { --d; } } _g{pattern_build_depth_};
     return build_pattern_impl(pnode, scrut_type);
 }
 
@@ -3938,8 +3947,14 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     binding_types[k]);
         }
     }
+    // Phase-1: reserve a dense slot per binding (NO_SLOT for `_`), parallel to
+    // `bindings`. reserve_pat_slot dedups repeated names across Or-alternatives.
+    std::vector<uint32_t> bind_slots;
+    bind_slots.reserve(bindings.size());
+    for (auto& b : bindings)
+        bind_slots.push_back(b == "_" ? 0xFFFFFFFFu : reserve_pat_slot(b));
     auto mo = lir_mirror_emit_pat_variant_data(
-        *cur_prog_, pename, pvname, disc, bindings, binding_types);
+        *cur_prog_, pename, pvname, disc, bindings, binding_types, bind_slots);
     lir::Pattern p_;
     p_.mirror_offset_ = mo;
     return p_;
@@ -5651,6 +5666,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         std::vector<TypeRef> types;
         v.each_binding([&](std::string_view n) { names.push_back(n); });
         v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+        auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
         // CP-cm-17: skip `_` payload bindings. Without this, `Some(_)`
         // pulls a "_" binding into scope; collect_drops at scope end
         // then emits a drop on the payload (Vec.drop, String.drop, …)
@@ -5658,7 +5674,8 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // branch's filter below.
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
             if (names[i] != "_")
-                define(std::string(names[i]), types[i]);
+                define(std::string(names[i]), types[i], false,
+                       i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
     } else if (k == ps::Code::Tuple) {
         lir_view::PatTupleView v{pr};
         std::vector<std::string_view> names;
@@ -7798,8 +7815,10 @@ void SemaChecker::emit_nested_variant_lets(
             std::vector<std::string_view> names; std::vector<TypeRef> types;
             v.each_binding([&](std::string_view n){ names.push_back(n); });
             v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
+            auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
             for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i]);
+                if (names[i] != "_") define(std::string(names[i]), types[i], false,
+                                            i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
         } else if (k == ps::Code::Tuple) {
             lir_view::PatTupleView v{pr};
             std::vector<std::string_view> names; std::vector<TypeRef> types;
