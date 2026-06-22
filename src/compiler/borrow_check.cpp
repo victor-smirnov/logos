@@ -58,6 +58,14 @@ struct TypeSets {
     // (`Held<HArray<HAny>>`). Mirror of the holds_residency_holder exemption,
     // consulted by the use-site type walk too.
     std::unordered_set<std::string> residency_exempt;
+    // Name → def indices (built once in build_type_sets). Replace the per-type
+    // linear scans of prog.structs / struct_specializations / enums that made
+    // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
+    // and, called per variable across every function, the whole borrow pass
+    // O(n²) in program size. First-def-wins, matching the scans' short-circuit.
+    std::unordered_map<std::string, const lir::LStructDef*> struct_by_name;
+    std::unordered_map<std::string, const lir::LStructDef*> spec_by_name;
+    std::unordered_map<std::string, const lir::LEnumDef*>   enum_by_name;
 };
 
 static TypeSets build_type_sets(const lir::LProgram& prog) {
@@ -211,6 +219,10 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             }
         }
     }
+    // Name → def indices for O(1) by-name lookup (first-def-wins).
+    for (auto& sd : prog.structs)               ts.struct_by_name.emplace(sd.name, &sd);
+    for (auto& sd : prog.struct_specializations) ts.spec_by_name.emplace(sd.name, &sd);
+    for (auto& ed : prog.enums)                 ts.enum_by_name.emplace(ed.name, &ed);
     return ts;
 }
 
@@ -232,16 +244,17 @@ static bool has_droppable_fields(TypeRef t, const lir::LProgram& prog,
     // slipped through for generic containers). concrete_struct_name == base for
     // non-generic structs, so this also covers the plain case.
     std::string want = concrete_struct_name(t);
-    auto check = [&](const std::vector<LStructDef>& defs) -> bool {
-        for (auto& sd : defs) {
-            if (sd.name != want) continue;
-            for (auto& f : sd.fields)
-                if (needs_drop(f.type, prog, ts)) return true;
-            return false;
-        }
+    auto def_has_drop = [&](const lir::LStructDef* sd) -> bool {
+        if (!sd) return false;
+        for (auto& f : sd->fields)
+            if (needs_drop(f.type, prog, ts)) return true;
         return false;
     };
-    return check(prog.structs) || check(prog.struct_specializations);
+    auto sit = ts.struct_by_name.find(want);
+    if (sit != ts.struct_by_name.end() && def_has_drop(sit->second)) return true;
+    auto pit = ts.spec_by_name.find(want);
+    if (pit != ts.spec_by_name.end() && def_has_drop(pit->second)) return true;
+    return false;
 }
 
 // A value is a "move type" for borrow-check purposes (consuming it invalidates
@@ -286,9 +299,9 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         std::string en(TypeRef(x).enum_name());
         if (ts.copy_types.count(en)) return false;     // explicitly Copy enum
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
-        for (auto& ed : prog.enums) {                   // any move-typed payload
-            if (ed.name != en) continue;
-            for (auto& v : ed.variants)
+        auto eit = ts.enum_by_name.find(en);            // any move-typed payload
+        if (eit != ts.enum_by_name.end()) {
+            for (auto& v : eit->second->variants)
                 for (auto& pt : v.payload_types)
                     if (is_move_type(pt, prog, ts, copy_tvs)) return true;
             return false;
@@ -768,15 +781,14 @@ class BorrowChecker {
         if (!needs_drop(t, prog_, ts_)) return false;
         std::string sname(t.struct_name());
         // Check the post-mono struct (preserves lifetime_params via the
-        // B87 clone_struct_def change).
-        auto check = [&](const std::vector<lir::LStructDef>& defs) -> bool {
-            for (auto& sd : defs)
-                if (sd.name == sname && !sd.lifetime_params.empty())
-                    return true;
-            return false;
+        // B87 clone_struct_def change). O(1) via ts_'s name→def index.
+        auto has_lt = [](const lir::LStructDef* sd) {
+            return sd && !sd->lifetime_params.empty();
         };
-        if (check(prog_.structs)) return true;
-        if (check(prog_.struct_specializations)) return true;
+        auto sit = ts_.struct_by_name.find(sname);
+        if (sit != ts_.struct_by_name.end() && has_lt(sit->second)) return true;
+        auto pit = ts_.spec_by_name.find(sname);
+        if (pit != ts_.spec_by_name.end() && has_lt(pit->second)) return true;
         // Also honor explicit lifetime_args on the TypeRef (paranoia).
         return !t.lifetime_args().empty();
     }
@@ -3072,6 +3084,21 @@ public:
         param_names_.clear();
         param_lifetimes_.clear();
         last_use_line_.clear();
+        // Per-body ref / dropck / dangling tracking. Borrow-checking is
+        // strictly per-function (Rust never crosses fn bodies), so these are
+        // per-function state — but they were never reset between functions.
+        // That (1) leaked entries across EVERY function in the program, so
+        // pop_scope's full-map scans over ref_borrow_sources_ /
+        // dropck_borrow_sources_ grew O(n²) in total program size, and (2)
+        // was a latent soundness hole: a stale entry from a prior function
+        // with a colliding variable name could mis-fire (or suppress) a
+        // dangling/dropck diagnostic. Clear them per function.
+        ref_borrow_sources_.clear();
+        ref_borrow_line_.clear();
+        dangling_.clear();
+        dropck_borrow_sources_.clear();
+        dropck_binding_line_.clear();
+        param_inner_lifetimes_.clear();
         // Type-params carrying an explicit `Copy` bound — a bare TypeVar is
         // move UNLESS it is Copy (Rust generic-body semantics). Drives
         // is_move_type's TypeVar leaf so the partial-move tracker fires on
