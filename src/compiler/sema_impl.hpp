@@ -2294,7 +2294,25 @@ private:
         }
     }
 
-    void define(std::string_view name, TypeRef t, bool is_mut = false) {
+    // Phase-1: pattern bindings reserve their slot at BUILD time (before the
+    // pat node is emitted, since define() runs after via define_bindings).
+    // Build-local name→slot map; cleared at each top-level pattern build entry
+    // so Or-pattern alternatives (`Some(x)|Other(x)`) share ONE slot for `x`.
+    std::unordered_map<std::string, uint32_t> pat_bind_slots_;
+    uint32_t reserve_pat_slot(std::string_view name) {
+        std::string sn(name);
+        auto it = pat_bind_slots_.find(sn);
+        if (it != pat_bind_slots_.end()) return it->second;  // Or-dedup
+        uint32_t s = next_slot_++;
+        pat_bind_slots_.emplace(std::move(sn), s);
+        return s;
+    }
+    void clear_pat_bind_slots() { pat_bind_slots_.clear(); }
+
+    // reuse_slot != NO_SLOT → bind reuses an already-reserved slot (pattern
+    // bindings, set at build time) instead of consuming a fresh one.
+    void define(std::string_view name, TypeRef t, bool is_mut = false,
+                uint32_t reuse_slot = 0xFFFFFFFFu) {
         // Zone Step 4 (pin): a non-movable (location-anchored) type may never
         // occupy a by-value slot — a `let` local, a parameter, or a `match` /
         // `for` / closure / destructure binding. define() is the SINGLE registrar
@@ -2317,8 +2335,9 @@ private:
             auto sname = std::string(name);
             if (!scope_.back().vars.count(sname))
                 scope_.back().var_order.push_back(sname);
-            // Phase-1: fresh dense slot per binding (shadowing → new slot).
-            uint32_t slot = next_slot_++;
+            // Phase-1: fresh dense slot per binding (shadowing → new slot),
+            // unless a pattern pre-reserved one at build time.
+            uint32_t slot = (reuse_slot == 0xFFFFFFFFu) ? next_slot_++ : reuse_slot;
             scope_.back().vars[sname] = {t, is_mut, false, slot};
         }
     }
