@@ -864,8 +864,8 @@ class BorrowChecker {
         scopes_.pop_back();
     }
 
-    void declare_var(const std::string& name) {
-        var_at(NO_SLOT, name) = VarState{};
+    void declare_var(const std::string& name, uint32_t slot = NO_SLOT) {
+        var_at(slot, name) = VarState{};  // Phase-1: real slot → dense slot_
         if (!scopes_.empty()) scopes_.back().declared.push_back(name);
     }
 
@@ -1340,8 +1340,8 @@ class BorrowChecker {
         }
     }
 
-    bool consume(const std::string& name, uint32_t line) {
-        auto it = var_find(NO_SLOT, name);
+    bool consume(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
+        auto it = var_find(slot, name);
         if (it == nullptr) return true;
         if (!it->moved_fields.empty()) {
             auto& [fld, ln] = *it->moved_fields.begin();
@@ -1390,7 +1390,7 @@ class BorrowChecker {
         in_addr_source_ = saved;
     }
 
-    void check_live(const std::string& name, uint32_t line) {
+    void check_live(const std::string& name, uint32_t line, uint32_t slot = NO_SLOT) {
         // §B6 (E0597): using a reference whose referent has gone out of scope.
         if (auto dit = dangling_.find(name); dit != dangling_.end()) {
             report(line, std::format(
@@ -1399,7 +1399,7 @@ class BorrowChecker {
                 dit->second.source, name, dit->second.source));
             dangling_.erase(dit);   // report once per binding
         }
-        auto it = var_find(NO_SLOT, name);
+        auto it = var_find(slot, name);
         if (it == nullptr) return;
         if (it->moved) {
             uint32_t prev = it->moved_line;
@@ -1453,14 +1453,19 @@ class BorrowChecker {
         using Code = lir_schema::pat::Code;
         switch (pr.kind()) {
             case Code::VariantData: {
-                lir_view::PatVariantDataView{pr}.each_binding([&](std::string_view b) {
-                    declare_var(std::string(b));
+                lir_view::PatVariantDataView v{pr};
+                auto slots = v.bind_slots();  // Phase-1
+                size_t i = 0;
+                v.each_binding([&](std::string_view b) {
+                    declare_var(std::string(b), i < slots.size() ? slots[i] : NO_SLOT);
+                    ++i;
                 });
                 break;
             }
             case Code::Wild: {
-                std::string n(lir_view::PatWildView{pr}.name());
-                if (!n.empty() && n != "_") declare_var(n);
+                lir_view::PatWildView wv{pr};
+                std::string n(wv.name());
+                if (!n.empty() && n != "_") declare_var(n, wv.bind_slot());  // Phase-1
                 break;
             }
             default: break;
@@ -2697,8 +2702,8 @@ class BorrowChecker {
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
                 }
-                declare_var(name);
-                if (auto it = var_find(NO_SLOT, name); it != nullptr)
+                declare_var(name, v.var_slot());  // Phase-1
+                if (auto it = var_find(v.var_slot(), name); it != nullptr)
                     it->is_mut_binding = v.is_mut();
                 if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
                     RefProv vp = prov_of(val);
@@ -3184,7 +3189,7 @@ public:
     bool exclusivity_only_ = false;
 
     void check(const LFunction& fn) {
-        states_.clear();
+        states_.reset(fn.local_count);  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();
         param_names_.clear();
@@ -3276,9 +3281,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             EVarRefView v{e};
             std::string name(v.name());
             if (consuming && is_move_type(e.type(pool), prog_, ts_, &copy_tvs_))
-                consume(name, line);
+                consume(name, line, v.var_slot());  // Phase-1
             else {
-                check_live(name, line);
+                check_live(name, line, v.var_slot());  // Phase-1
                 // A whole-value READ while one of its fields is MUT-borrowed is
                 // E0503 ("cannot use `s` because `s.a` was mutably borrowed").
                 // A shared field borrow leaves whole reads legal, so this is a
@@ -3287,7 +3292,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // bare VarRef reached while walking a projection's receiver is
                 // not a whole-value use (that's why `w.buf` as an arg of
                 // `w.writer.wr(..)` must not flag whole-`w`).
-                if (auto it = var_find(NO_SLOT, name);
+                if (auto it = var_find(v.var_slot(), name);
                     it != nullptr && !in_addr_source_)
                     field_borrow_conflicts((*it), name, /*path=*/"",
                                            /*need_exclusive=*/false, line, "use");
