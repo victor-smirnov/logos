@@ -15621,14 +15621,13 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     auto& dst_arena = HermesAccess::arena(doc);
 
     // Build ITEMS array in dst, deep-copying each item AnyVal.
-    auto items_arr_e = ObjectArray::create(dst_arena,
+    auto items_arr_e = doc.make_array(
             std::max<uint64_t>(4, src_items.is_null() ? 0 : src_items.size()));
     if (!items_arr_e) {
         error("quote_item!: items array alloc failed");
         return error_expr();
     }
-    uint32_t items_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(items_arr_e.get()) - HermesAccess::base(doc));
+    uint32_t items_off = items_arr_e->offset().value();
 
     if (!src_items.is_null()) {
         // Mirror walk_src on the dst arena: every NAME_VAR-bearing TOM
@@ -15757,21 +15756,19 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
 
     // Empty PATH_PARTS and USES arrays. Snapshot offsets between
     // allocations because the arena may rebase across grows.
-    auto paths_e = ObjectArray::create(dst_arena, 4);
+    auto paths_e = doc.make_array(4);
     if (!paths_e) {
         error("quote_item!: aux array alloc failed");
         return error_expr();
     }
-    uint32_t paths_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(paths_e.get()) - HermesAccess::base(doc));
+    uint32_t paths_off = paths_e->offset().value();
 
-    auto uses_e  = ObjectArray::create(dst_arena, 4);
+    auto uses_e  = doc.make_array(4);
     if (!uses_e) {
         error("quote_item!: aux array alloc failed");
         return error_expr();
     }
-    uint32_t uses_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(uses_e.get()) - HermesAccess::base(doc));
+    uint32_t uses_off = uses_e->offset().value();
 
     // MC2.2: source-site name resolution. Inherit the metafn's import scope
     // into the synth module so unqualified names in quoted items resolve
@@ -15787,44 +15784,37 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                 use_pkgs.push_back(cur_package_);
         }
         for (const auto& pkg : use_pkgs) {
-            auto pname_e = ArenaString::create(dst_arena, std::string_view(pkg));
+            auto pname_e = doc.make_string(std::string_view(pkg));
             if (!pname_e) {
                 error("quote_item!: USE name alloc failed");
                 return error_expr();
             }
-            uint32_t pname_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(pname_e.get()) - HermesAccess::base(doc));
-            auto use_tom_e = HermesAccess::raw_tiny_map(doc, 4);
+            uint32_t pname_off = pname_e->offset().value();
+            auto use_tom_e = doc.make_tiny_map_view(4);
             if (!use_tom_e) {
                 error("quote_item!: USE tom alloc failed");
                 return error_expr();
             }
-            uint32_t use_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(use_tom_e.get()) - HermesAccess::base(doc));
+            uint32_t use_off = use_tom_e->offset().value();
             auto use_tom = [&]() {
-                return reinterpret_cast<TinyObjectMap*>(
-                    HermesAccess::base(doc) + use_off);
+                return TinyMapView(arena_offset_t(use_off), doc.holder());
             };
-            (void)use_tom()->put(la::CODE.code,
-                AnyVal::from_value(static_cast<int32_t>(la::USE.code)),
-                dst_arena);
-            (void)use_tom()->put(la::NAME.code,
-                AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(pname_off)), dst_arena);
-            auto* uses_arr = reinterpret_cast<ObjectArray*>(
-                HermesAccess::base(doc) + uses_off);
-            (void)uses_arr->push_back(
-                AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(use_off)), dst_arena);
+            (void)use_tom().put(la::CODE.code,
+                AnyVal::from_value(static_cast<int32_t>(la::USE.code)));
+            (void)use_tom().put(la::NAME.code,
+                AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(pname_off)));
+            (void)ArrayView(arena_offset_t(uses_off), doc.holder()).push_back(
+                AnyVal::from_offset(dst_arena.head().data(), arena_offset_t(use_off)));
         }
     }
 
     // NAME = "main".
-    auto name_e = ArenaString::create(dst_arena, std::string_view("main"));
+    auto name_e = doc.make_string(std::string_view("main"));
     if (!name_e) {
         error("quote_item!: name alloc failed");
         return error_expr();
     }
-    uint32_t name_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(name_e.get()) - HermesAccess::base(doc));
+    uint32_t name_off = name_e->offset().value();
 
     // Root TinyObjectMap — fields: CODE, NAME, PATH_PARTS, USES, ITEMS, SRC_LINE.
     auto root_e = HermesAccess::raw_tiny_map(doc, 8);
@@ -16738,14 +16728,12 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     if (N > 0) {
         // Build placeholders array (ObjectArray of int32 AnyVals carrying
         // dst-offsets of placeholder VAR_REF TOMs).
-        auto ph_arr_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, N));
+        auto ph_arr_e = doc.make_array(std::max<uint64_t>(4, N));
         if (!ph_arr_e) {
             error("quote_expr!: placeholders array alloc failed");
             return error_expr();
         }
-        uint32_t ph_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(ph_arr_e.get())
-            - HermesAccess::base(doc));
+        uint32_t ph_off = ph_arr_e->offset().value();
         // Store as pointer AnyVals (offsets into the same VAR_REF TOMs that
         // live inside the expr tree). clone() dedupes via remember() so both
         // the wrapper.ITEMS slot and the parent expr edge resolve to the
@@ -16753,11 +16741,8 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
         // for us. Storing an int32 of the source offset would leave a stale
         // value after clone.
         for (auto& ph : placeholders) {
-            auto* arr = reinterpret_cast<ObjectArray*>(
-                HermesAccess::base(doc) + ph_off);
-            (void)arr->push_back(
-                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(ph.dst_offset)),
-                dst_arena);
+            (void)ArrayView(arena_offset_t(ph_off), doc.holder()).push_back(
+                AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(ph.dst_offset)));
         }
 
         // Wrapper TOM. CODE absent (signals "wrapped" to the runtime shim).
