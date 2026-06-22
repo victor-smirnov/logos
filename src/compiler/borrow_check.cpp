@@ -718,7 +718,7 @@ class BorrowChecker {
         auto& frame = scopes_.back();
         // Release borrows held by this scope.
         for (auto& br : frame.borrows) {
-            auto it = var_find(NO_SLOT, br.target);
+            auto it = var_find(br.target_slot, br.target);
             if (it != nullptr) {
                 if (br.is_mut) {
                     // B82: release either an activated mut borrow or an
@@ -734,7 +734,7 @@ class BorrowChecker {
         }
         // B83: release field-path borrows.
         for (auto& fb : frame.field_borrows) {
-            auto it = var_find(NO_SLOT, fb.target);
+            auto it = var_find(fb.target_slot, fb.target);
             if (it == nullptr) continue;
             if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
             else {
@@ -1053,11 +1053,12 @@ class BorrowChecker {
         }
         return false;
     }
-    void take_field_borrow(const std::string& target, std::string path,
+    void take_field_borrow(const std::string& target, uint32_t target_slot,
+                           std::string path,
                            bool is_mut, uint32_t line,
                            TypeRef root_type = nullptr,
                            const std::string& holder = "") {
-        auto it = var_find(NO_SLOT, target);
+        auto it = var_find(target_slot, target);
         if (it == nullptr) return;
         std::string self_disp = fmt_path(target, path);
         // Whole-value borrows still block everything.
@@ -1119,16 +1120,17 @@ class BorrowChecker {
         else        it->shared_field_borrows[path]++;
         if (!scopes_.empty())
             scopes_.back().field_borrows.push_back(
-                {target, std::move(path), is_mut, holder});
+                {target, std::move(path), is_mut, holder, target_slot});
     }
 
     // ── Borrow operations ─────────────────────────────────────────────────
 
     // Take a borrow of 'target'. Registers it in the current scope for cleanup.
-    void take_borrow(const std::string& target, bool is_mut, uint32_t line,
+    void take_borrow(const std::string& target, uint32_t target_slot,
+                     bool is_mut, uint32_t line,
                      const std::string& holder = "",
                      bool skip_mut_binding_check = false) {
-        auto it = var_find(NO_SLOT, target);
+        auto it = var_find(target_slot, target);
         if (it == nullptr) return;  // unknown / extern
         if (it->moved) {
             report(line, std::format(
@@ -1204,7 +1206,7 @@ class BorrowChecker {
                 }
                 it->mut_reservations++;
                 if (!scopes_.empty())
-                    scopes_.back().borrows.push_back({target, is_mut, holder});
+                    scopes_.back().borrows.push_back({target, is_mut, holder, target_slot});
                 return;
             }
             if (it->shared_borrows > 0) {
@@ -1230,7 +1232,7 @@ class BorrowChecker {
             ++it->shared_borrows;
         }
         if (!scopes_.empty())
-            scopes_.back().borrows.push_back({target, is_mut, holder});
+            scopes_.back().borrows.push_back({target, is_mut, holder, target_slot});
     }
 
     // ── Ownership operations ───────────────────────────────────────────────
@@ -1901,7 +1903,7 @@ class BorrowChecker {
         switch (e.kind()) {
             case Code::AddrOf: {
                 EAddrOfView v{e};
-                take_borrow(std::string(v.var_name()), is_mut_ref(e.type(pool)),
+                take_borrow(std::string(v.var_name()), NO_SLOT, is_mut_ref(e.type(pool)),
                              line, holder);
                 break;
             }
@@ -1919,7 +1921,8 @@ class BorrowChecker {
                 if (ExprRef inner_var; lir_view::is_reborrow_shape(e, &inner_var)
                     && is_ref_kind(inner_var.type(pool))) {
                     std::string rname(EVarRefView{inner_var}.name());
-                    if (auto sit = var_find(NO_SLOT, rname); sit != nullptr) {
+                    uint32_t rname_slot = EVarRefView{inner_var}.var_slot();  // Phase-1
+                    if (auto sit = var_find(rname_slot, rname); sit != nullptr) {
                         // Route through take_borrow so two-phase reservation
                         // (B82) and prefix-aware diagnostics kick in. Bypass
                         // the is_mut_binding check (reborrow draws from r's
@@ -1930,7 +1933,7 @@ class BorrowChecker {
                         bool fake_param = !sit->is_mut_binding &&
                                           !param_names_.count(rname);
                         if (fake_param) param_names_.insert(rname);
-                        take_borrow(rname, v.is_mut(), line, holder);
+                        take_borrow(rname, rname_slot, v.is_mut(), line, holder);
                         if (fake_param) param_names_.erase(rname);
                         break;
                     }
@@ -1964,6 +1967,7 @@ class BorrowChecker {
                 // borrow rule). See `extract_borrow_place`.
                 BorrowPlace bp = extract_borrow_place(inner, pool);
                 std::string root = bp.root;
+                uint32_t root_slot = bp.root_slot;  // Phase-1
                 std::string path = bp.path;
                 bool index_in_chain = bp.index_in_chain;
                 if (!root.empty()) {
@@ -1990,10 +1994,10 @@ class BorrowChecker {
                         // borrowed → spurious self-conflict.
                         if (inner) visit(inner, /*consuming=*/false, line);
                         if (!path.empty() && !root_is_union)
-                            take_field_borrow(root, std::move(path), v.is_mut(), line,
+                            take_field_borrow(root, root_slot, std::move(path), v.is_mut(), line,
                                               bp.root_type, holder);
                         else
-                            take_borrow(root, v.is_mut(), line, holder);
+                            take_borrow(root, root_slot, v.is_mut(), line, holder);
                         break;
                     }
                     if (!path.empty()) {
@@ -2010,9 +2014,9 @@ class BorrowChecker {
                         // shape: visit inner FIRST for both branches.
                         if (inner) visit(inner, /*consuming=*/false, line);
                         if (root_is_union)
-                            take_borrow(root, is_mut, line, holder);
+                            take_borrow(root, root_slot, is_mut, line, holder);
                         else
-                            take_field_borrow(root, std::move(path), is_mut, line,
+                            take_field_borrow(root, root_slot, std::move(path), is_mut, line,
                                               bp.root_type, holder);
                         break;
                     }
@@ -2067,7 +2071,7 @@ class BorrowChecker {
                     bool root_is_rawptr = bp.root_type &&
                         bp.root_type.kind() == LogosType::Kind::Ptr;
                     if (!bp.root.empty() && !root_is_rawptr && var_has(bp.root_slot, bp.root))
-                        take_borrow(bp.root, av.is_mut() || force_mut, line, holder);
+                        take_borrow(bp.root, bp.root_slot, av.is_mut() || force_mut, line, holder);
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
                     // AddrOfTemp (`v.iter_mut()` with v a value local). Same
@@ -2102,10 +2106,10 @@ class BorrowChecker {
                         // of self) — whole-root would falsely lock sibling
                         // field uses for the holder's lifetime.
                         if (!bp.path.empty())
-                            take_field_borrow(bp.root, bp.path, m, line,
+                            take_field_borrow(bp.root, bp.root_slot, bp.path, m, line,
                                               bp.root_type, holder);
                         else
-                            take_borrow(bp.root, m, line, holder,
+                            take_borrow(bp.root, bp.root_slot, m, line, holder,
                                         /*skip_mut_binding_check=*/true);
                     }
                 } else if (recv && is_ref_kind(recv.type(pool))) {
@@ -2171,11 +2175,11 @@ class BorrowChecker {
                         // borrow (mut_field_borrows on path="" is not checked
                         // on a bare variable read).
                         if (is_mut)
-                            take_borrow(root, /*is_mut=*/true, line, holder);
+                            take_borrow(root, NO_SLOT, /*is_mut=*/true, line, holder);
                         else
                             check_live(root, line);
                     } else {
-                        take_field_borrow(root, rel, is_mut, line);
+                        take_field_borrow(root, NO_SLOT, rel, is_mut, line);
                         check_live(root, line);
                     }
                     ++i;
@@ -2516,7 +2520,7 @@ class BorrowChecker {
             auto luit = last_use_line_.find(it->holder);
             if (luit != last_use_line_.end()) lu = luit->second;
             if (lu <= cur_line) {
-                auto sit = var_find(NO_SLOT, it->target);
+                auto sit = var_find(it->target_slot, it->target);
                 if (sit != nullptr) {
                     if (it->is_mut) sit->mut_borrowed = false;
                     else if (sit->shared_borrows > 0)
@@ -2535,7 +2539,7 @@ class BorrowChecker {
             if (auto luit = last_use_line_.find(fit2->holder);
                 luit != last_use_line_.end()) lu = luit->second;
             if (lu <= cur_line) {
-                if (auto sit = var_find(NO_SLOT, fit2->target); sit != nullptr) {
+                if (auto sit = var_find(fit2->target_slot, fit2->target); sit != nullptr) {
                     if (fit2->is_mut)
                         sit->mut_field_borrows.erase(fit2->path);
                     else if (auto sb = sit->shared_field_borrows.find(fit2->path);
