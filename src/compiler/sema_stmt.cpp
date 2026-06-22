@@ -1639,9 +1639,11 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
                 std::vector<TypeRef> types;
                 v.each_binding([&](std::string_view n) { names.push_back(n); });
                 v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+                auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
                 for (size_t i = 0; i < names.size() && i < types.size(); ++i)
                     if (names[i] != "_")
-                        define(std::string(names[i]), types[i]);
+                        define(std::string(names[i]), types[i], false,
+                               i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
             } else if (pr.kind() == ps::Code::Wild) {
                 lir_view::PatWildView v{pr};
                 auto n = v.name();
@@ -4639,7 +4641,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 et = make_ref(default_mut, et);
             pt.binding_types.push_back(et);
         }
-        auto mo = lir_mirror_emit_pat_tuple(*cur_prog_, pt.bindings, pt.binding_types, pt.subs);
+        // Phase-1: reserve a dense slot per binding (NO_SLOT for `_`).
+        std::vector<uint32_t> bind_slots;
+        bind_slots.reserve(pt.bindings.size());
+        for (auto& b : pt.bindings)
+            bind_slots.push_back(b == "_" ? 0xFFFFFFFFu : reserve_pat_slot(b));
+        auto mo = lir_mirror_emit_pat_tuple(*cur_prog_, pt.bindings, pt.binding_types, pt.subs, bind_slots);
         lir::Pattern p_;
         p_.mirror_offset_ = mo;
         return p_;
@@ -5682,9 +5689,11 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         std::vector<TypeRef> types;
         v.each_binding([&](std::string_view n) { names.push_back(n); });
         v.each_binding_type(pool, [&](TypeRef t) { types.push_back(t); });
+        auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
         for (size_t i = 0; i < names.size() && i < types.size(); ++i)
             if (names[i] != "_")
-                define(std::string(names[i]), types[i]);
+                define(std::string(names[i]), types[i], false,
+                       i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
         // P4-pm-24 / G144-1: recurse into refutable sub-patterns so any nested
         // bindings (`(E::Foo { x }, _)`, `((true,y)|(y,true), z)`, `((a,b), w)`)
         // reach the outer arm scope. Codegen (pat_test/pat_bind) extracts them.
@@ -7824,8 +7833,10 @@ void SemaChecker::emit_nested_variant_lets(
             std::vector<std::string_view> names; std::vector<TypeRef> types;
             v.each_binding([&](std::string_view n){ names.push_back(n); });
             v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
+            auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
             for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i]);
+                if (names[i] != "_") define(std::string(names[i]), types[i], false,
+                                            i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
         } else if (k == ps::Code::Wild) {
             auto n = lir_view::PatWildView{pr}.name();
             if (n != "_") define(std::string(n), synth_t);

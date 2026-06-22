@@ -4232,7 +4232,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         v.each_binding_type(pool_, [&](TypeRef t) { n.binding_types.push_back(st_(t)); });
         v.each_sub([&](lir_view::PatRef sp) { n.subs.push_back(walk(sp)); });
         auto off = lir_mirror_emit_pat_tuple(
-            *prog_, n.bindings, n.binding_types, n.subs);
+            *prog_, n.bindings, n.binding_types, n.subs, v.bind_slots());  // Phase-1
         lir::Pattern p;
         p.mirror_offset_ = off;
         return p;

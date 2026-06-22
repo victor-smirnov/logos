@@ -1035,14 +1035,17 @@ public:
     }
     hermes::arena_offset_t emit_pat_tuple_direct(const std::vector<std::string>& bindings,
                                                   const std::vector<TypeRef>& binding_types,
-                                                  const std::vector<lir::Pattern>& subs) {
+                                                  const std::vector<lir::Pattern>& subs,
+                                                  const std::vector<uint32_t>& bind_slots = {}) {
         auto bindings_av = string_array(bindings);
         auto btypes_av   = type_array(binding_types);
         auto subs_av     = pat_array(subs);
+        auto slots_av    = u32_array(bind_slots);
         auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Tuple));
         put(map_off, pk::BINDINGS,      bindings_av);
         put(map_off, pk::BINDING_TYPES, btypes_av);
         put(map_off, pk::SUBS,          subs_av);
+        if (!slots_av.is_null()) put(map_off, pk::BIND_SLOTS, slots_av);
         return map_off;
     }
     hermes::arena_offset_t emit_pat_range_direct(int64_t lo, int64_t hi) {
@@ -2120,10 +2123,10 @@ hermes::arena_offset_t lir_mirror_emit_pat_or(lir::LProgram& prog, const std::ve
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_or_direct(alts);
 }
-hermes::arena_offset_t lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs) {
+hermes::arena_offset_t lir_mirror_emit_pat_tuple(lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs, const std::vector<uint32_t>& bind_slots) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_tuple_direct(bindings, binding_types, subs);
+    return em.emit_pat_tuple_direct(bindings, binding_types, subs, bind_slots);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_range(lir::LProgram& prog, int64_t lo, int64_t hi) {
     auto& arena = prog.type_pool.arena_or_init();
