@@ -467,6 +467,12 @@ public:
 struct EVarRefView {
     ExprRef self;
     std::string_view name() const noexcept { return detail::read_string(self, ek::NAME.code); }
+    // Phase-1: dense per-function variable slot assigned by sema (0xFFFFFFFF =
+    // no slot — a synthesized/module-const ref that downstream must name-key).
+    uint32_t var_slot() const noexcept {
+        auto v = detail::read_i64_opt(self, ek::VAR_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
+    }
 };
 
 // EAddrOf { var_name: Varchar }

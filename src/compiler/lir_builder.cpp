@@ -38,9 +38,9 @@ lir::LExprPtr LirBuilder::lit_bool(bool v, TypeRef ty) {
         [&](auto& p, TypeRef t){ return lir_mirror_emit_lit_bool(p, t, v); });
 }
 
-lir::LExprPtr LirBuilder::var_ref(std::string name, TypeRef ty) {
+lir::LExprPtr LirBuilder::var_ref(std::string name, TypeRef ty, uint32_t slot) {
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_var_ref(p, t, name); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_var_ref(p, t, name, slot); });
 }
 
 lir::LExprPtr LirBuilder::lit_str(std::string v, TypeRef ty) {

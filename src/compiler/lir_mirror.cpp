@@ -125,10 +125,12 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
-    hermes::arena_offset_t emit_var_ref_direct(TypeRef ty, std::string_view name) {
+    hermes::arena_offset_t emit_var_ref_direct(TypeRef ty, std::string_view name,
+                                               uint32_t slot = 0xFFFFFFFFu) {
         auto n_av = put_string(name);
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::VarRef));
         put(map_off, ek::NAME, n_av);
+        if (slot != 0xFFFFFFFFu) put(map_off, ek::VAR_SLOT, put_i64((int64_t)slot));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -1725,10 +1727,11 @@ hermes::arena_offset_t lir_mirror_emit_lit_str(lir::LProgram& prog, TypeRef ty, 
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_lit_str_direct(ty, v);
 }
-hermes::arena_offset_t lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::string_view name) {
+hermes::arena_offset_t lir_mirror_emit_var_ref(lir::LProgram& prog, TypeRef ty, std::string_view name,
+                                               uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_var_ref_direct(ty, name);
+    return em.emit_var_ref_direct(ty, name, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& arena = prog.type_pool.arena_or_init();

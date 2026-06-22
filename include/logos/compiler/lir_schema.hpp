@@ -172,7 +172,11 @@ inline constexpr Key ENUM_NAME         {"ENUM_NAME",        6};   // Varchar
 inline constexpr Key VARIANT           {"VARIANT",          7};   // Varchar
 inline constexpr Key DISC              {"DISC",             8};   // i64 (discriminant)
 inline constexpr Key STRUCT_NAME       {"STRUCT_NAME",      9};   // Varchar
-// 10 retired (was CLASS_NAME, used by the removed C++-style `new` expr)
+// 10 reused: VAR_SLOT (was CLASS_NAME). Per-function dense variable slot index
+// assigned by sema (shadowing/scope-aware), so borrow-check / mlir-gen can key
+// var state on an integer instead of the variable NAME string. Absent (key not
+// present) ⇒ -1 / unresolved (synthesized refs without a slot).
+inline constexpr Key VAR_SLOT          {"VAR_SLOT",        10};   // Int
 
 // Operators
 inline constexpr Key OP                {"OP",              11};   // Varchar (binop, unary)

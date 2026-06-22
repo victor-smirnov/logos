@@ -548,7 +548,10 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     break;
                 }
             }
-            result->mirror_offset_ = lir_mirror_emit_var_ref(out_, result->type, n);
+            // Phase-1: carry the var slot across monomorphization (else
+            // post-mono borrow/mlir lose it and fall back to name-keying).
+            result->mirror_offset_ = lir_mirror_emit_var_ref(
+                out_, result->type, n, lir_view::EVarRefView{eref}.var_slot());
             break;
         }
         case C::AddrOf: {

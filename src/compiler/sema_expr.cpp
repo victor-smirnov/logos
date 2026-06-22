@@ -605,7 +605,9 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                                       make_ptr(smut, t));
         return builder().deref(std::move(addr), t);
     }
-    return builder().var_ref(std::string(name), t);
+    // Phase-1: attach the resolved dense variable slot (shadowing-correct via
+    // the scope stack). NO_SLOT for anything not a current local binding.
+    return builder().var_ref(std::string(name), t, lookup_slot(name));
 }
 
 bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {

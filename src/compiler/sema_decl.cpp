@@ -493,6 +493,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                        "type parameter", "fn " + mangled);
 
     scope_.clear();
+    next_slot_ = 0;   // Phase-1: dense var slots are per-function.
     push_scope();
     // Reset move-tracking at each function boundary. Without this, a synthetic
     // variable name reused across functions — notably format!'s `__buf` — keeps

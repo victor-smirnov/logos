@@ -31,7 +31,7 @@ public:
     lir::LExprPtr lit_bool  (bool v,    TypeRef ty);
     lir::LExprPtr lit_str   (std::string v, TypeRef ty);
     lir::LExprPtr lit_float (double v,  TypeRef ty);
-    lir::LExprPtr var_ref   (std::string name, TypeRef ty);
+    lir::LExprPtr var_ref   (std::string name, TypeRef ty, uint32_t slot = 0xFFFFFFFFu);
     lir::LExprPtr addr_of   (std::string var_name, TypeRef ty);
     lir::LExprPtr pack_expand(std::string var_name, TypeRef ty);
     lir::LExprPtr size_of   (TypeRef elem_type, TypeRef ty);

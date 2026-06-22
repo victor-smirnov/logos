@@ -1828,7 +1828,8 @@ private:
 
     // ── Scope management ─────────────────────────────────────────
 
-    struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false; };
+    struct VarInfo { TypeRef type; bool is_mut = false; bool owning_dyn = false;
+                     uint32_t slot = 0; };
     struct Frame {
         logos::compiler::StrMap<VarInfo> vars;  // O(1) lookup
         std::vector<std::string> var_order;              // declaration order
@@ -1847,6 +1848,13 @@ private:
         bool loop_boundary = false;
     };
     std::vector<Frame> scope_;
+    // Phase-1 string-interning: per-function dense variable SLOT counter. Each
+    // call to define() (let / param / pattern / for / closure binding — the
+    // single registrar) hands out the next slot; the final value is the
+    // function's local_count. Reset per function in lower_fn. Shadowing gives a
+    // NEW slot, so slots uniquely identify bindings and downstream (borrow,
+    // mlir) can key var state on the integer instead of the name string.
+    uint32_t next_slot_ = 0;
     // G167-4: armed by while/loop/for right before lowering the body block;
     // consumed by the next push_scope (lower_block) to tag its frame as the
     // loop body for break/continue drop-glue.
@@ -2303,7 +2311,9 @@ private:
             auto sname = std::string(name);
             if (!scope_.back().vars.count(sname))
                 scope_.back().var_order.push_back(sname);
-            scope_.back().vars[sname] = {t, is_mut};
+            // Phase-1: fresh dense slot per binding (shadowing → new slot).
+            uint32_t slot = next_slot_++;
+            scope_.back().vars[sname] = {t, is_mut, false, slot};
         }
     }
 
@@ -2315,6 +2325,19 @@ private:
         auto cit = module_consts_.find(std::string(name));
         if (cit != module_consts_.end()) return cit->second;
         return nullptr;
+    }
+
+    // Phase-1: resolve a NAME to its current in-scope variable slot (innermost
+    // wins → shadowing-correct). Returns UINT32_MAX for names that aren't a
+    // local binding (module consts, unresolved/synthesized refs); such EVarRefs
+    // carry no slot and downstream falls back to name-keying.
+    static constexpr uint32_t NO_SLOT = 0xFFFFFFFFu;
+    uint32_t lookup_slot(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            auto f = it->vars.find(std::string(name));
+            if (f != it->vars.end()) return f->second.slot;
+        }
+        return NO_SLOT;
     }
 
     bool lookup_is_mut(std::string_view name) const {
