@@ -1662,7 +1662,8 @@ class BorrowChecker {
         }
         if (cur && cur.kind() == Code::VarRef) {
             std::string rn(EVarRefView{cur}.name());
-            if (var_has(NO_SLOT, rn) && !param_names_.count(rn) &&
+            uint32_t rn_slot = EVarRefView{cur}.var_slot();  // Phase-1
+            if (var_has(rn_slot, rn) && !param_names_.count(rn) &&
                 prov_.find(rn) == prov_.end())
                 return rn;
         }
@@ -2925,7 +2926,8 @@ class BorrowChecker {
                     }
                     if (saw_index && cur && cur.kind() == EC::VarRef) {
                         std::string root(EVarRefView{cur}.name());
-                        if (auto it = var_find(NO_SLOT, root); it != nullptr) {
+                        uint32_t root_slot = EVarRefView{cur}.var_slot();  // Phase-1
+                        if (auto it = var_find(root_slot, root); it != nullptr) {
                             if (it->shared_borrows > 0)
                                 report(ln, std::format(
                                     "cannot assign through '{}[..]' because '{}' is borrowed",
@@ -2957,12 +2959,13 @@ class BorrowChecker {
                         }
                         if (cur && cur.kind() == EC::VarRef) {
                             std::string root(EVarRefView{cur}.name());
+                            uint32_t root_slot = EVarRefView{cur}.var_slot();  // Phase-1
                             std::string fpath;
                             for (auto it2 = segs.rbegin(); it2 != segs.rend(); ++it2) {
                                 if (!fpath.empty()) fpath.push_back('.');
                                 fpath += *it2;
                             }
-                            if (auto it = var_find(NO_SLOT, root); it != nullptr)
+                            if (auto it = var_find(root_slot, root); it != nullptr)
                                 erase_reinit(it->moved_fields, fpath);
                         }
                     }
@@ -2980,7 +2983,8 @@ class BorrowChecker {
                     if (c && c.kind() == EC::VarRef &&
                         atv.inner().kind() != EC::VarRef) {
                         std::string root(EVarRefView{c}.name());
-                        if (var_has(NO_SLOT, root) && !param_names_.count(root))
+                        uint32_t root_slot = EVarRefView{c}.var_slot();  // Phase-1
+                        if (var_has(root_slot, root) && !param_names_.count(root))
                             add_ref_sources(root, v.value(), ln);
                     }
                 }
@@ -3557,7 +3561,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (auto recv = v.receiver();
                 recv && recv.kind() == Code::VarRef && method_self_kind(v) == 2) {
                 std::string rn(lir_view::EVarRefView{recv}.name());
-                if (var_has(NO_SLOT, rn)) {
+                uint32_t rn_slot = lir_view::EVarRefView{recv}.var_slot();  // Phase-1
+                if (var_has(rn_slot, rn)) {
                     RefProv cap = {};
                     // §B6: element types of the receiver container (`Vec<&T>` →
                     // [&T]). A by-value arg whose type IS an element type is being
