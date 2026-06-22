@@ -95,18 +95,27 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
 // per-package module map via link_name_str.
 mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
                                              std::string_view name) const {
-    // Fast path: a direct symbol-table hit (free fns — already qualified in the
-    // LIR — and intra-module bare names). O(1); no cache key allocation.
-    if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name))
-        return fn;
-    // Bare miss (the common case for a module-qualified METHOD callee). The
-    // remaining resolution is the expensive part (string-building + possible
-    // O(n) walks), and the SAME callee recurs across many call sites, so memoise
-    // it. Misses are NOT cached — a name may resolve once a later forward-decl
-    // is emitted; only stable HITS are stored (FuncOp defs never change name).
+    // The cache covers BOTH resolution paths below, keyed by the raw callee name.
+    // CRITICAL: MLIR's mod.lookupSymbol is NOT O(1) — it is a LINEAR SCAN of the
+    // module's ops, reading each FuncOp's sym_name attribute (getInherentAttr).
+    // The same callee recurs across many call sites, so without caching even the
+    // "fast" direct-hit path every call paid O(functions) → O(calls × functions)
+    // = O(n²) (profile: getInherentAttr 17% + lookupSymbolIn 8.5%). Caching every
+    // HIT makes each distinct callee pay the scan ONCE, then O(1). Misses are NOT
+    // cached — a name may resolve once a later forward-decl is emitted; cached
+    // HITS stay valid (FuncOp defs are never renamed/removed during body-gen).
     std::string key(name);
     if (auto it = find_func_op_cache_.find(key); it != find_func_op_cache_.end())
         return it->second;
+    // Direct symbol-table hit (free fns — already qualified in the LIR — and
+    // intra-module bare names). The common case; now memoised like the rest.
+    if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(name)) {
+        find_func_op_cache_.emplace(std::move(key), fn);
+        return fn;
+    }
+    // Bare miss (the common case for a module-qualified METHOD callee). The
+    // remaining resolution is the expensive part (string-building + possible
+    // O(n) walks).
     auto resolve = [&]() -> mlir::func::FuncOp {
         // Module system: the callee is BARE but its FuncOp is module-qualified.
         // Try the EXACT qualified form via an O(1) symbol-table lookup IMMEDIATELY
