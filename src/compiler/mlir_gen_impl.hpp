@@ -660,6 +660,17 @@ private:
     // work for popular callees (push/get/deref) on codegen-heavy bodies. Misses
     // are NOT cached (a name may resolve once a later forward-decl is emitted).
     mutable std::unordered_map<std::string, mlir::func::FuncOp> find_func_op_cache_;
+
+    // find_func_op's canonical-match index (see find_func_op). Maps each def's
+    // canonical key → its FuncOp; ambiguous keys (shared by >1 def) live in the
+    // set and resolve to nothing. Rebuilt lazily when the module's FuncOp count
+    // changes (stable during body-gen, so built once). Replaces a per-call O(n)
+    // canonicalising walk.
+    mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_canon_index_;
+    mutable std::unordered_set<std::string> ffo_canon_ambig_;
+    mutable long ffo_canon_built_n_ = -1;
+    void ensure_ffo_canon_index(mlir::ModuleOp mod) const;
+
     std::string link_name_str(const std::string& callee) const {
         if (!prog_ || callee.find("..") != std::string::npos) return callee;
         auto us = callee.find("__");

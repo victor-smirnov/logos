@@ -35,7 +35,59 @@ static mlir::func::FuncOp find_fn_matching(mlir::ModuleOp mod, Pred&& pred) {
     return {};
 }
 
+// Canonicalise a callee/def symbol to its bare comparison key: strip every
+// "$M<alnum>" coexistence run, the free-fn `pkg$` prefix, the method `pkg.`
+// prefix, and the `__f__`/`__g__` signature suffix. find_func_op's fuzzy
+// fallback matches a callee to a def when their canonical keys are equal.
+// Lifted out of find_func_op so the per-call O(n) walk can be replaced by a
+// canonical→FuncOp index that canonicalises each def name exactly once.
+static std::string ffo_canonical(std::string_view in) {
+    std::string s;
+    s.reserve(in.size());
+    for (size_t i = 0; i < in.size();) {
+        if (i + 1 < in.size() && in[i] == '$' && in[i + 1] == 'M') {
+            i += 2;
+            while (i < in.size() && std::isalnum((unsigned char)in[i])) ++i;
+        } else {
+            s.push_back(in[i++]);
+        }
+    }
+    std::string_view nm = s;
+    if (auto d = nm.find('$'); d != std::string_view::npos) {
+        bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
+                    nm[d + 2] >= '0' && nm[d + 2] <= '9');
+        if (!gen) nm = nm.substr(d + 1);
+    }
+    if (auto d = nm.rfind('.'); d != std::string_view::npos)
+        nm = nm.substr(d + 1);
+    if (auto p = nm.find("__f__"); p != std::string_view::npos)
+        nm = nm.substr(0, p);
+    else if (auto p = nm.find("__g__"); p != std::string_view::npos)
+        nm = nm.substr(0, p);
+    return std::string(nm);
+}
+
 }  // namespace
+
+// (Re)build the canonical→FuncOp index if the module's FuncOp set changed.
+// Canonicalises every def name once (vs find_func_op's former per-call walk).
+void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
+    long n = 0;
+    for (auto fn : mod.getOps<mlir::func::FuncOp>()) { (void)fn; ++n; }
+    if (n == ffo_canon_built_n_) return;
+    ffo_canon_index_.clear();
+    ffo_canon_ambig_.clear();
+    for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
+        std::string c = ffo_canonical(fn.getName());
+        if (ffo_canon_ambig_.count(c)) continue;
+        auto [it, ins] = ffo_canon_index_.emplace(c, fn);
+        if (!ins && it->second != fn) {
+            ffo_canon_ambig_.insert(c);   // overload collision → unresolved
+            ffo_canon_index_.erase(it);
+        }
+    }
+    ffo_canon_built_n_ = n;
+}
 
 // find_func_op — THE callee-resolution chokepoint. Resolve a callee symbol to
 // its FuncOp, tolerating the bare↔module-qualified and sig-stripped forms the
@@ -65,71 +117,36 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         // sig-stripping canonical fallback, which would collapse distinct-base /
         // distinct-signature defs onto the wrong one (String::from→new, or
         // set(_,HAny) for an i64 arg).
-        std::string qualified;
-        if (auto q = link_name_str(key); q != name) {
+        if (auto q = link_name_str(key); q != name)
             if (auto fn = mod.lookupSymbol<mlir::func::FuncOp>(q))
                 return fn;
-            qualified = std::move(q);
-        }
-        if (auto found = find_fn_matching(mod,
-                [&](mlir::func::FuncOp fn) { return fn.getName().str() == name; }))
-            return found;
-        if (!qualified.empty())
-            if (auto fn = find_fn_matching(mod,
-                    [&](mlir::func::FuncOp f) { return f.getName().str() == qualified; }))
-                return fn;
+        // (The former exact-name / exact-qualified find_fn_matching walks here
+        // were O(n) and redundant: lookupSymbol above and at the top of
+        // find_func_op already resolve those exact names in O(1) — a
+        // func::FuncOp's getName() IS its symbol-table key.)
         // Hardcoded stdlib intrinsic lookups (e.g. `hermes_build_from_template`)
         // must also resolve the post-unify pkg-qualified + sig-suffixed form
-        // (`std.hermes.ctr$<bare>__f__<sig>`). Walk fns and canonicalise.
-        auto canonical = [](std::string_view in) -> std::string {
-            // Coexistence: a type-keyed name may carry a "$M<module_id>" suffix
-            // (type_module_suffix) on the base AND/OR on a nested type-arg, while
-            // the same method's REAL symbol is module-qualified by find_func_op's
-            // prefix scheme instead — so the two only match once the `$M…` runs
-            // are removed from both. Strip every "$M<alnum>" run first.
-            std::string s;
-            s.reserve(in.size());
-            for (size_t i = 0; i < in.size();) {
-                if (i + 1 < in.size() && in[i] == '$' && in[i + 1] == 'M') {
-                    i += 2;
-                    while (i < in.size() &&
-                           (std::isalnum((unsigned char)in[i]))) ++i;
-                } else {
-                    s.push_back(in[i++]);
-                }
-            }
-            std::string_view nm = s;
-            // Strip free-fn `pkg$` prefix.
-            if (auto d = nm.find('$'); d != std::string_view::npos) {
-                bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
-                            nm[d + 2] >= '0' && nm[d + 2] <= '9');
-                if (!gen) nm = nm.substr(d + 1);
-            }
-            // Strip method `pkg.` prefix (last dot before bare name).
-            if (auto d = nm.rfind('.'); d != std::string_view::npos)
-                nm = nm.substr(d + 1);
-            // Strip sig suffix.
-            if (auto p = nm.find("__f__"); p != std::string_view::npos)
-                nm = nm.substr(0, p);
-            else if (auto p = nm.find("__g__"); p != std::string_view::npos)
-                nm = nm.substr(0, p);
-            return std::string(nm);
-        };
+        // (`std.hermes.ctr$<bare>__f__<sig>`). Match callee↔def by canonical key.
+        //
         // Symmetric canonical match: canonicalise BOTH the callee and each
         // candidate (the deleted §P4 bridge did the same). A no-sig / differently
         // -pkg'd callee (e.g. an assoc-const accessor `pkg.T__kassoc_C` with no
         // `__f__sig`) only matches its real `…T__kassoc_C__f__sig` def once the
-        // input's pkg+sig are stripped too. Mirror the bridge's UNAMBIGUOUS-only
-        // rule: skip when >1 def shares the canonical (overloads) — first-match
-        // would bind the wrong one.
-        auto cname = canonical(name);
-        mlir::func::FuncOp match;
-        for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
-            if (canonical(fn.getName()) != cname) continue;
-            if (match) return {};  // ambiguous canonical → unresolved
-            match = fn;
-        }
-        return match;
+        // input's pkg+sig are stripped too. UNAMBIGUOUS-only: a canonical key
+        // shared by >1 def (overloads) resolves to nothing — first-match would
+        // bind the wrong one.
+        //
+        // Indexed: canonicalising every def name on every call was O(calls ×
+        // functions) — ~5M string-builds / 1.1s on a 56-test batch. Build a
+        // canonical→FuncOp index (with an ambiguous-key set) ONCE and reuse it;
+        // it's rebuilt only if the module's FuncOp count changes (it doesn't
+        // during body-gen — pass 1 forward-declared everything).
+        ensure_ffo_canon_index(mod);
+        auto cname = ffo_canonical(name);
+        if (ffo_canon_ambig_.count(cname)) return {};
+        if (auto it = ffo_canon_index_.find(cname); it != ffo_canon_index_.end())
+            return it->second;
+        return {};
     };
     auto resolved = resolve();
     if (resolved) find_func_op_cache_.emplace(std::move(key), resolved);
