@@ -140,6 +140,7 @@ public:
     uint64_t schema_type_code() const noexcept { return obj_ ? obj_->schema_type_code() : 0; }
     void set_schema_type_code(uint64_t c) noexcept { if (obj_) obj_->set_schema_type_code(c); }
     uint64_t bitmap() const noexcept { return obj_ ? obj_->bitmap() : 0; }
+    bool remove(uint8_t key) noexcept { return obj_ ? obj_->remove(key) : false; }
 };
 
 class MapView : public View<ObjectMap> {
