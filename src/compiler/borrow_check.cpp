@@ -3226,7 +3226,7 @@ public:
 
         push_scope();  // function scope
         for (auto& p : fn.params) {
-            declare_var(p.name);
+            declare_var(p.name, p.slot);  // Phase-1
             param_names_.insert(p.name);
             if (is_ref_kind(p.type)) {
                 param_lifetimes_[p.name] = std::string(TypeRef(p.type).lifetime());

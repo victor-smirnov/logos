@@ -4738,7 +4738,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
                 }
             }
         } else {
-            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn});
+            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn, p.slot});
         }
     }
     // Phase 5.B step 2: cross-arena body source. When sema skipped this fn's
@@ -4811,7 +4811,7 @@ lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
                 }
             }
         } else {
-            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn});
+            nf.params.push_back({p.name, subst_type(p.type, s), p.is_variadic, p.owning_box_dyn, p.slot});
         }
     }
     return nf;

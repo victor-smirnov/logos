@@ -650,6 +650,7 @@ struct LParam {
     // __box_dyn__drop). Call sites must coerce the arg to a HEAP fat handle
     // (not a stack fat pair) so the callee's free() is valid.
     bool             owning_box_dyn = false;
+    uint32_t         slot = 0xFFFFFFFFu;   // Phase-1: dense var slot (sema-assigned)
 };
 
 // EClosure — defined after LParam and LBlock (both needed).

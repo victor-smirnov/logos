@@ -726,6 +726,7 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                         p_owning_box_dyn = true;
                     }
                     fn.params.push_back({std::string(pname), pt, p_variadic, p_owning_box_dyn});
+                    fn.params.back().slot = lookup_slot(pname);  // Phase-1
                 }
             }
         }
