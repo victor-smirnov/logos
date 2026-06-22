@@ -4189,9 +4189,10 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
         return p;
     }
     case pc::Code::Wild: {
-        std::string name(lir_view::PatWildView{pref}.name());
+        lir_view::PatWildView wv{pref};
+        std::string name(wv.name());
         lir::Pattern p;
-        p.mirror_offset_ = lir_mirror_emit_pat_wild(*prog_, name);
+        p.mirror_offset_ = lir_mirror_emit_pat_wild(*prog_, name, wv.bind_slot());  // Phase-1
         return p;
     }
     case pc::Code::Range: {

@@ -184,7 +184,7 @@ hermes::arena_offset_t lir_mirror_emit_hv_type    (lir::LProgram& prog, uint32_t
 hermes::arena_offset_t lir_mirror_emit_pat_variant      (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc);
 hermes::arena_offset_t lir_mirror_emit_pat_int          (lir::LProgram& prog, int64_t value);
 hermes::arena_offset_t lir_mirror_emit_pat_bool         (lir::LProgram& prog, bool value);
-hermes::arena_offset_t lir_mirror_emit_pat_wild         (lir::LProgram& prog, std::string_view name);
+hermes::arena_offset_t lir_mirror_emit_pat_wild         (lir::LProgram& prog, std::string_view name, uint32_t slot = 0xFFFFFFFFu);
 hermes::arena_offset_t lir_mirror_emit_pat_variant_data (lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots = {});
 hermes::arena_offset_t lir_mirror_emit_pat_or           (lir::LProgram& prog, const std::vector<lir::Pattern>& alts);
 hermes::arena_offset_t lir_mirror_emit_pat_tuple        (lir::LProgram& prog, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<lir::Pattern>& subs, const std::vector<uint32_t>& bind_slots = {});

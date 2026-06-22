@@ -1240,6 +1240,10 @@ struct PatBoolView {
 struct PatWildView {
     PatRef self;
     std::string_view name() const noexcept { return detail::read_string(self, pk::NAME.code); }
+    uint32_t bind_slot() const noexcept {  // Phase-1 (0xFFFFFFFF = none)
+        auto v = detail::read_i64_opt(self, pk::BIND_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
+    }
 };
 
 // PatVariantData { enum_name, variant, disc, bindings: Array<Varchar>, binding_types }

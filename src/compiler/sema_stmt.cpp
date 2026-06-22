@@ -1648,7 +1648,7 @@ lir::LStmt SemaChecker::lower_let_else(TinyMapView node) {
                 lir_view::PatWildView v{pr};
                 auto n = v.name();
                 if (n != "_")
-                    define(std::string(n), scrut_type);
+                    define(std::string(n), scrut_type, false, v.bind_slot());  // Phase-1
             } else if (pr.kind() == ps::Code::Or) {
                 // G144-3a: `let A(x) | B(x) = v else …`. All alts bind the same
                 // names+types (build_pattern_or enforced this), so define from
@@ -3006,7 +3006,9 @@ lir::LStmt SemaChecker::lower_return(TinyMapView node) {
 
 lir::Pattern SemaChecker::make_pat_wild(std::string_view name) {
     lir::Pattern p;
-    p.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, name);
+    // Phase-1: a named wild is a binding — reserve its dense slot (`_` = none).
+    uint32_t slot = (name == "_" || name.empty()) ? 0xFFFFFFFFu : reserve_pat_slot(name);
+    p.mirror_offset_ = lir_mirror_emit_pat_wild(*cur_prog_, name, slot);
     return p;
 }
 
@@ -5721,7 +5723,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
             // P4-pm-12: `mut x` patterns flagged via current_pat_mut_names_.
             bool is_mut = current_pat_mut_names_ &&
                           current_pat_mut_names_->count(std::string(n));
-            define(std::string(n), scrut_type, is_mut);
+            define(std::string(n), scrut_type, is_mut, v.bind_slot());  // Phase-1
         }
     } else if (k == ps::Code::RefBind) {
         lir_view::PatRefBindView v{pr};
@@ -7838,8 +7840,9 @@ void SemaChecker::emit_nested_variant_lets(
                 if (names[i] != "_") define(std::string(names[i]), types[i], false,
                                             i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
         } else if (k == ps::Code::Wild) {
-            auto n = lir_view::PatWildView{pr}.name();
-            if (n != "_") define(std::string(n), synth_t);
+            lir_view::PatWildView wv{pr};
+            auto n = wv.name();
+            if (n != "_") define(std::string(n), synth_t, false, wv.bind_slot());  // Phase-1
         }
     };
     define_binds(pat_ref_of(lpat));

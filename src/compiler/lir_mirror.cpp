@@ -1001,10 +1001,12 @@ public:
         put(map_off, pk::BOOL_VALUE, put_bool(value));
         return map_off;
     }
-    hermes::arena_offset_t emit_pat_wild_direct(std::string_view name) {
+    hermes::arena_offset_t emit_pat_wild_direct(std::string_view name,
+                                                uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = name.empty() ? hermes::AnyVal{} : put_string(name);
         auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Code::Wild));
         put(map_off, pk::NAME, name_av);
+        if (slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)slot));
         return map_off;
     }
     hermes::arena_offset_t emit_pat_variant_data_direct(std::string_view enum_name,
@@ -2108,10 +2110,10 @@ hermes::arena_offset_t lir_mirror_emit_pat_bool(lir::LProgram& prog, bool value)
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_pat_bool_direct(value);
 }
-hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name) {
+hermes::arena_offset_t lir_mirror_emit_pat_wild(lir::LProgram& prog, std::string_view name, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_pat_wild_direct(name);
+    return em.emit_pat_wild_direct(name, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_pat_variant_data(lir::LProgram& prog, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<std::string>& bindings, const std::vector<TypeRef>& binding_types, const std::vector<uint32_t>& bind_slots) {
     auto& arena = prog.type_pool.arena_or_init();
