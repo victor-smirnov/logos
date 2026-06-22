@@ -105,6 +105,7 @@ struct PatTuple {
 struct PatFieldBinding {
     std::string          field_name;
     std::vector<Pattern> sub;   // 0 = shorthand, 1 = explicit
+    uint32_t             slot = 0xFFFFFFFFu;  // Phase-1: shorthand binding's slot
 };
 struct PatStruct {
     std::string                   struct_name;

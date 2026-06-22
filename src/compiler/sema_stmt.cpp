@@ -4971,6 +4971,11 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                       "not yet supported");
                             pfb.sub.push_back(std::move(sub));
                         }
+                        // Phase-1: a plain shorthand field `{ a }` (no sub) binds
+                        // the field name — reserve its slot. Explicit/ref-bind
+                        // subs carry their own slot.
+                        if (pfb.sub.empty() && pfb.field_name != "_")
+                            pfb.slot = reserve_pat_slot(pfb.field_name);
                         ps.fields.push_back(std::move(pfb));
                     }
                 }
@@ -5811,7 +5816,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                     TypeRef(ftype).kind() != LogosType::Kind::TypeVar &&
                     is_move_type(ftype))
                     bt = make_ref(default_mut, ftype);
-                define(std::string(fname), bt);
+                define(std::string(fname), bt, false, fv.bind_slot());  // Phase-1
             }
             else bind_pattern_ref(sub, ftype);
         });

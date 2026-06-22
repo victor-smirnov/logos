@@ -1421,6 +1421,7 @@ hermes::arena_offset_t LirMirrorEmitter::emit_field_binding(
     auto map_off = make_map(hermes::schema::lir_pat(lir_schema::pat::Count));
     put(map_off, pk::FIELD_NAME, name_av);
     put(map_off, pk::SUB,        subs_av);
+    if (fb.slot != 0xFFFFFFFFu) put(map_off, pk::BIND_SLOT, put_i64((int64_t)fb.slot));
     return map_off;
 }
 

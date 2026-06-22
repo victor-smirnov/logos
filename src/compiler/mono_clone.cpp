@@ -4247,6 +4247,7 @@ lir::Pattern PatSubstWalker::walk(lir_view::PatRef pref) const {
             lir::PatFieldBinding pfb;
             pfb.field_name = std::string(fbv.field_name());
             if (auto sub = fbv.sub()) pfb.sub.push_back(walk(sub));
+            pfb.slot = fbv.bind_slot();  // Phase-1
             n.fields.push_back(std::move(pfb));
         });
         auto off = lir_mirror_emit_pat_struct(
