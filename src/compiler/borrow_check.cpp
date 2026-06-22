@@ -642,6 +642,38 @@ static void merge_moves(StateMap& base, StateMap& other) {
     });
 }
 
+// ── Function index (escape analysis) ────────────────────────────────────────
+// Program-global symbol→callee maps consulted by escape analysis
+// (`result_borrows_self` / `method_self_kind`). The index depends ONLY on the
+// program, not on the function being checked — so it is built ONCE per compile
+// in borrow_check() and shared (const) across every per-function BorrowChecker.
+// (It used to be a per-instance `mutable` map rebuilt lazily inside each of the
+// N BorrowCheckers → O(N × total_fns) rebuild storm, the top malloc cost.)
+struct FnIndex {
+    std::unordered_map<std::string, const LFunction*>              by_name;
+    std::unordered_map<std::string, std::vector<const LFunction*>> by_base;
+};
+
+static FnIndex build_fn_index(const lir::LProgram& prog) {
+    FnIndex idx;
+    {   // post-mono this indexes thousands of fns; reserve to skip the rehashes.
+        size_t cnt = prog.functions.size() + prog.specializations.size();
+        for (auto& sd : prog.structs) cnt += sd.methods.size();
+        for (auto& im : prog.impls)   cnt += im.methods.size();
+        idx.by_name.reserve(cnt);
+    }
+    auto add = [&](const LFunctionPtr& f) {
+        if (!f) return;
+        idx.by_name.emplace(f->name, f.get());
+        if (!f->method_base.empty()) idx.by_base[f->method_base].push_back(f.get());
+    };
+    for (auto& f  : prog.functions)       add(f);
+    for (auto& f  : prog.specializations) add(f);
+    for (auto& sd : prog.structs) for (auto& m : sd.methods) add(m);
+    for (auto& im : prog.impls)   for (auto& m : im.methods) add(m);  // trait-impl methods (Index, Deref, …)
+    return idx;
+}
+
 // ── BorrowChecker ───────────────────────────────────────────────────────────
 
 class BorrowChecker {
@@ -649,6 +681,7 @@ class BorrowChecker {
     std::string          fn_name_;
     const lir::LProgram& prog_;
     const TypeSets&      ts_;
+    const FnIndex&       fn_index_;
 
     StateMap                 states_;
     // Phase-1 string-interning migration — accessor chokepoint over states_.
@@ -687,12 +720,9 @@ class BorrowChecker {
     // the desugared index_mut (returns 0 ⇒ would record a SHARED borrow ⇒ two
     // `&mut v[i]` alias undetected). The MethodCall recorder ORs this in.
     bool                                 reborrow_force_mut_ = false;
-    // Escape-analysis Front (a): resolved-symbol → callee, for `result_borrows_self`.
-    mutable std::unordered_map<std::string, const LFunction*> fn_by_name_;
-    // Fallback index by unmangled method name — for operator-desugared / trait
-    // calls (`v[i]` → index) whose resolved_symbol is empty.
-    mutable std::unordered_map<std::string, std::vector<const LFunction*>> fn_by_base_;
-    mutable bool                         fn_map_built_ = false;
+    // Escape-analysis callee lookups (`result_borrows_self` / `method_self_kind`)
+    // go through the shared, program-global `fn_index_` (built once in
+    // borrow_check()).
     // B82: depth of nested call-arg evaluation. While >0, new &mut borrows
     // are taken as reservations (don't conflict with shared reads of the
     // same target during the remaining arg evaluation).
@@ -1499,29 +1529,6 @@ class BorrowChecker {
         }
     }
 
-    // Escape-analysis Front (a) support. Lazily index every callee by its mangled
-    // symbol (functions + specializations + struct methods) so a MethodCall's
-    // `resolved_symbol` resolves to its LFunction signature.
-    void build_fn_map_() const {
-        if (fn_map_built_) return;
-        fn_map_built_ = true;
-        {   // Phase-1: reserve up front — post-mono this indexes thousands of
-            // fns; default growth rehashes ~log2(n) times.
-            size_t cnt = prog_.functions.size() + prog_.specializations.size();
-            for (auto& sd : prog_.structs) cnt += sd.methods.size();
-            for (auto& im : prog_.impls)   cnt += im.methods.size();
-            fn_by_name_.reserve(cnt);
-        }
-        auto add = [&](const LFunctionPtr& f) {
-            if (!f) return;
-            fn_by_name_.emplace(f->name, f.get());
-            if (!f->method_base.empty()) fn_by_base_[f->method_base].push_back(f.get());
-        };
-        for (auto& f : prog_.functions)      add(f);
-        for (auto& f : prog_.specializations) add(f);
-        for (auto& sd : prog_.structs) for (auto& m : sd.methods) add(m);
-        for (auto& im : prog_.impls)   for (auto& m : im.methods) add(m);  // trait-impl methods (Index, Deref, …)
-    }
 
     // Is this callee self-borrowing — reference `self`, reference result, AND no
     // explicit lifetime params (fully elided → Rust ties the output lifetime to
@@ -1541,17 +1548,16 @@ class BorrowChecker {
 
     // Does this method-call's RESULT reference borrow its receiver (by elision)?
     bool result_borrows_self(lir_view::EMethodCallView v) {
-        build_fn_map_();
-        if (auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
-            it != fn_by_name_.end())
+        if (auto it = fn_index_.by_name.find(std::string(v.resolved_symbol()));
+            it != fn_index_.by_name.end())
             return is_self_borrowing(it->second);
         // Operator-desugared / trait calls (`v[i]` → index, `*p` → deref) carry an
         // EMPTY resolved_symbol. Fall back to the unmangled method name: if EVERY
         // method with that name is self-borrowing, the result borrows self (the
         // Index/Deref/etc. trait contract). Conservative — any disagreeing
         // same-named method, or no match, → false.
-        if (auto it = fn_by_base_.find(std::string(v.method()));
-            it != fn_by_base_.end() && !it->second.empty()) {
+        if (auto it = fn_index_.by_base.find(std::string(v.method()));
+            it != fn_index_.by_base.end() && !it->second.empty()) {
             for (const LFunction* f : it->second)
                 if (!is_self_borrowing(f)) return false;
             return true;
@@ -1564,13 +1570,12 @@ class BorrowChecker {
     // (all same-named methods must agree, else 0). Used to conflict-check bare-
     // place (VarRef) receivers, which the AddrOfTemp path doesn't see.
     int method_self_kind(lir_view::EMethodCallView v) const {
-        build_fn_map_();
         const LFunction* f = nullptr;
-        if (auto it = fn_by_name_.find(std::string(v.resolved_symbol()));
-            it != fn_by_name_.end())
+        if (auto it = fn_index_.by_name.find(std::string(v.resolved_symbol()));
+            it != fn_index_.by_name.end())
             f = it->second;
-        else if (auto it = fn_by_base_.find(std::string(v.method()));
-                 it != fn_by_base_.end() && !it->second.empty()) {
+        else if (auto it = fn_index_.by_base.find(std::string(v.method()));
+                 it != fn_index_.by_base.end() && !it->second.empty()) {
             f = it->second.front();
             auto kind0 = f->params.empty() ? LogosType::Kind::Void
                                            : f->params[0].type.kind();
@@ -3187,10 +3192,11 @@ class BorrowChecker {
 public:
     BorrowChecker(SemaResult& diags, std::string fn_name,
                   const lir::LProgram& prog, const TypeSets& ts,
+                  const FnIndex& fn_index,
                   bool exclusivity_only = false,
                   const RegionInferer* ri = nullptr)
         : diags_(diags), fn_name_(std::move(fn_name)), prog_(prog), ts_(ts),
-          ri_(ri), exclusivity_only_(exclusivity_only) {}
+          fn_index_(fn_index), ri_(ri), exclusivity_only_(exclusivity_only) {}
     // P2-10: when checking GENERIC templates pre-mono, move/use-after-move
     // tracking is imprecise (TypeVar values + generic method-call move
     // semantics → false positives like a spurious "use of moved 'out'"). In
@@ -3783,6 +3789,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
 lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
     const TypeSets ts = build_type_sets(prog);
+    // Escape-analysis callee index — built ONCE here, shared (const) by every
+    // per-function BorrowChecker below (was a per-instance map rebuilt N times).
+    const FnIndex fn_index = build_fn_index(prog);
 
     auto check = [&](const LFunction& fn) {
         if (fn.is_extern)             return;
@@ -3812,7 +3821,7 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         if (!generic_templates_only)
             ri.analyze(fn, prog);
         BorrowChecker(prog.diags, "fn " + std::string(bare_fn_name(fn.name)),
-                      prog, ts, /*exclusivity_only=*/generic_templates_only,
+                      prog, ts, fn_index, /*exclusivity_only=*/generic_templates_only,
                       generic_templates_only ? nullptr : &ri).check(fn);
         if (generic_templates_only) return;
         if (std::getenv("LOGOS_DUMP_REGIONS"))
