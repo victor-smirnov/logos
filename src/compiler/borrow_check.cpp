@@ -433,6 +433,7 @@ struct BorrowRecord {
     // `holder`'s last_use_line < current stmt line, the borrow is
     // released — making the borrow non-lexical.
     std::string holder;
+    uint32_t    target_slot = 0xFFFFFFFFu;  // Phase-1: dense slot of `target`
 };
 
 // B83: a tracked field borrow recorded in the current scope. On pop,
@@ -444,6 +445,7 @@ struct FieldBorrow {
     // Phase 9 (NLL) — same contract as BorrowRecord::holder: released once
     // the holder's last use has passed (empty = lexical, released at pop).
     std::string holder;
+    uint32_t    target_slot = 0xFFFFFFFFu;  // Phase-1: dense slot of `target`
 };
 
 struct ScopeFrame {
@@ -477,6 +479,7 @@ struct BorrowPlace {
     std::string path;             // dotted, outermost-inside-root first
     bool        index_in_chain = false;
     TypeRef     root_type = nullptr;   // for raw-ptr / &mut root classification
+    uint32_t    root_slot = 0xFFFFFFFFu;  // Phase-1: dense slot of `root`
 };
 
 static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
@@ -550,6 +553,7 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
     }
     if (cur && cur.kind() == Code::VarRef) {
         bp.root = std::string(EVarRefView{cur}.name());
+        bp.root_slot = EVarRefView{cur}.var_slot();  // Phase-1
         bp.root_type = cur.type(pool);
         for (auto it = path_parts.rbegin(); it != path_parts.rend(); ++it) {
             if (!bp.path.empty()) bp.path.push_back('.');
@@ -925,7 +929,7 @@ class BorrowChecker {
                 // `&x.f`, `&x[i]`, `&*r` → root local via the shared place walker.
                 BorrowPlace bp = extract_borrow_place(
                     lir_view::EAddrOfTempView{e}.inner(), pool);
-                if (!bp.root.empty() && var_has(NO_SLOT, bp.root) &&
+                if (!bp.root.empty() && var_has(bp.root_slot, bp.root) &&
                     !param_names_.count(bp.root))
                     out.push_back(bp.root);
                 return;
@@ -1507,7 +1511,7 @@ class BorrowChecker {
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
         if (bp.root.empty() || !bp.path.empty()) return;
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
-        auto sit = var_find(NO_SLOT, bp.root);
+        auto sit = var_find(bp.root_slot, bp.root);
         if (sit == nullptr) return;
         if (sit->mut_borrowed)
             report(line, std::format(
@@ -2062,7 +2066,7 @@ class BorrowChecker {
                     // is tracked); only RAW pointers are unchecked (Rust parity).
                     bool root_is_rawptr = bp.root_type &&
                         bp.root_type.kind() == LogosType::Kind::Ptr;
-                    if (!bp.root.empty() && !root_is_rawptr && var_has(NO_SLOT, bp.root))
+                    if (!bp.root.empty() && !root_is_rawptr && var_has(bp.root_slot, bp.root))
                         take_borrow(bp.root, av.is_mut() || force_mut, line, holder);
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
@@ -2091,7 +2095,7 @@ class BorrowChecker {
                         root_is_rc = rn == "Rc" || rn == "Arc";
                     }
                     if (!bp.root.empty() && !root_is_rawptr && !root_is_rc &&
-                        var_has(NO_SLOT, bp.root)) {
+                        var_has(bp.root_slot, bp.root)) {
                         bool m = method_self_kind(v) == 2 || force_mut;
                         // Field-precise when the receiver is a field chain
                         // (`self.arc.deref_mut()` borrows self.arc, not all
