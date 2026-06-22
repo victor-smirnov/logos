@@ -718,6 +718,12 @@ struct LFunction {
     std::vector<LParam>      params;
     TypeRef         ret_type  = nullptr;
     LBlock                   body;
+    // Phase-1 string-interning: number of dense variable SLOTS sema assigned in
+    // this function (params + every let/pattern/for/closure binding; shadowing
+    // counts separately). Lets borrow-check / mlir-gen size a vector<VarState>
+    // / vector<Value> and key it on EVarRefView::var_slot() instead of hashing
+    // the variable name. 0 ⇒ slots not assigned (synthetic/extern fn).
+    uint32_t                 local_count = 0;
     bool                     is_extern = false;
     bool                     is_vararg = false;
     bool                     is_pub    = false;

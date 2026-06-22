@@ -4695,6 +4695,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
     nf.method_base        = fn.method_base;
     nf.package            = fn.package;
     nf.is_extern          = fn.is_extern;
+    nf.local_count        = fn.local_count;   // Phase-1: preserve slot count.
     nf.is_vararg          = fn.is_vararg;
     // Never propagate from_binary_module to cloned functions: clone_fn is
     // called by mono to create instantiations, which are new functions not
@@ -4784,6 +4785,7 @@ lir::LFunction Mono::clone_fn_signature(const lir::LFunction& fn,
     nf.method_base        = fn.method_base;
     nf.package            = fn.package;
     nf.is_extern          = fn.is_extern;
+    nf.local_count        = fn.local_count;   // Phase-1: preserve slot count.
     nf.is_vararg          = fn.is_vararg;
     nf.from_lazy_module   = fn.from_lazy_module;  // Phase 6 — see clone_fn.
     nf.ret_type           = subst_type(fn.ret_type, s);

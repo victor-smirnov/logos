@@ -1064,6 +1064,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
     inside_unsafe_ = was_unsafe;
     pop_scope();
     pop_type_params(fn.type_params);
+    // Phase-1: total dense variable slots assigned in this function body.
+    fn.local_count = next_slot_;
     return fn;
 }
 
