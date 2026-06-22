@@ -24,12 +24,11 @@ namespace logos::compiler {
 
 using logos::hermes::Hermes;
 using logos::hermes::HermesAccess;
-using logos::hermes::ObjectMap;
-using logos::hermes::ObjectArray;
 using logos::hermes::ArenaString;
+using logos::hermes::MapView;
+using logos::hermes::ArrayView;
 using logos::hermes::AnyVal;
 using logos::hermes::arena_offset_t;
-using logos::hermes::anyval_put;
 using logos::hermes::make_doc;
 using logos::hermes::clone;
 
@@ -64,8 +63,7 @@ static uint32_t begin_map(Hermes& doc, uint8_t log2 = 3) {
 }
 
 static void map_put(Hermes& doc, uint32_t m_off, std::string_view key, AnyVal val) {
-    auto* m = reinterpret_cast<ObjectMap*>(HermesAccess::base(doc) + m_off);
-    m->put(std::string(key), val, HermesAccess::arena(doc)).get();
+    MapView(arena_offset_t(m_off), doc.holder()).put(key, val).get();
 }
 
 static uint32_t begin_array(Hermes& doc) {
@@ -73,8 +71,7 @@ static uint32_t begin_array(Hermes& doc) {
 }
 
 static void array_push(Hermes& doc, uint32_t a_off, AnyVal val) {
-    auto* a = reinterpret_cast<ObjectArray*>(HermesAccess::base(doc) + a_off);
-    a->push_back(val, HermesAccess::arena(doc)).get();
+    ArrayView(arena_offset_t(a_off), doc.holder()).push_back(val).get();
 }
 
 // Self-relative Ref to an in-arena object at byte offset `off` (the arena is a

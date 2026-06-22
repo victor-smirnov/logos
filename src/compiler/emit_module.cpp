@@ -568,12 +568,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                         auto stamp_export_id =
                             [&](hermes::arena_offset_t off, uint32_t oid) {
                             if (off == hermes::arena_offset_t{}) return;
-                            auto* base = arena->head().data();
-                            auto* m = reinterpret_cast<hermes::TinyObjectMap*>(
-                                base + off.value());
                             auto av = hermes::AnyVal::from_value<uint32_t>(
                                 oid, static_cast<uint8_t>(hermes::type_hash::U24));
-                            (void) m->put(lir_schema::stmt_keys::EXPORT_ID.code, av, *arena);
+                            (void) hermes::TinyMapView(off, holder)
+                                .put(lir_schema::stmt_keys::EXPORT_ID.code, av);
                         };
                         auto try_publish = [&](const lir::LFunction& fn) {
                             if (fn.is_extern) return;
@@ -1015,10 +1013,9 @@ bool emit_module(const ModuleManifest& manifest,
             if (root_map.has_key(logos::compiler::ast::mod::PATH_PARTS)) {
                 auto pp = root_map.get(logos::compiler::ast::mod::PATH_PARTS.code);
                 if (!pp.is_null() && pp.is_pointer()) {
-                    auto* arr = reinterpret_cast<const hermes::ObjectArray*>(
-                        pp.resolve());
-                    for (uint64_t j = 0; j < arr->size(); ++j) {
-                        auto part_av = arr->get(j, asts[i].holder()->base());
+                    auto arr = hermes::as_array(pp, asts[i].holder());
+                    for (uint64_t j = 0; j < arr.size(); ++j) {
+                        auto part_av = arr.get(j);
                         if (!part_av.is_pointer()) continue;
                         auto part_map = hermes::TinyMapView(
                             part_av, asts[i].holder());

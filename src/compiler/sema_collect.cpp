@@ -29,67 +29,47 @@ using hermes::MemHolder;
 // HermesString by view; conservative on unknown Data-tag objects.
 namespace {
 bool ast_anyval_equal(AnyVal a, AnyVal b,
-                      const uint8_t* base_a, const uint8_t* base_b);
+                      hermes::MemHolder* ha, hermes::MemHolder* hb);
 
-bool ast_tom_equal(const hermes::TinyObjectMap* a,
-                   const hermes::TinyObjectMap* b,
-                   const uint8_t* base_a, const uint8_t* base_b) {
+bool ast_tom_equal(hermes::TinyMapView a, hermes::TinyMapView b,
+                   hermes::MemHolder* ha, hermes::MemHolder* hb) {
     // SRC_LINE is purely diagnostic; ignore it in ODR equality so items
     // emitted from quote_item! at different source lines still dedup.
     constexpr uint64_t skip_mask = 1ULL << la::SRC_LINE.code;
-    if ((a->bitmap() & ~skip_mask) != (b->bitmap() & ~skip_mask)) return false;
-    auto* ma = const_cast<hermes::TinyObjectMap*>(a);
-    auto* mb = const_cast<hermes::TinyObjectMap*>(b);
-    auto* ba = const_cast<uint8_t*>(base_a);
-    auto* bb = const_cast<uint8_t*>(base_b);
+    if ((a.bitmap() & ~skip_mask) != (b.bitmap() & ~skip_mask)) return false;
     for (uint8_t k = 0; k < hermes::TinyObjectMap::MAX_KEYS; ++k) {
-        if (!a->has_key(k) || k == la::SRC_LINE.code) continue;
-        if (!ast_anyval_equal(ma->get(k), mb->get(k), base_a, base_b))
+        if (!a.has_key(k) || k == la::SRC_LINE.code) continue;
+        if (!ast_anyval_equal(a.get(k), b.get(k), ha, hb))
             return false;
     }
     return true;
 }
 
-bool ast_array_equal(const hermes::ObjectArray* a,
-                     const hermes::ObjectArray* b,
-                     const uint8_t* base_a, const uint8_t* base_b) {
-    if (a->size() != b->size()) return false;
-    auto* aa = const_cast<hermes::ObjectArray*>(a);
-    auto* ab = const_cast<hermes::ObjectArray*>(b);
-    auto* ba = const_cast<uint8_t*>(base_a);
-    auto* bb = const_cast<uint8_t*>(base_b);
-    for (uint64_t i = 0; i < a->size(); ++i) {
-        if (!ast_anyval_equal(aa->get(i), ab->get(i), base_a, base_b))
+bool ast_array_equal(hermes::ArrayView a, hermes::ArrayView b,
+                     hermes::MemHolder* ha, hermes::MemHolder* hb) {
+    if (a.size() != b.size()) return false;
+    for (uint64_t i = 0; i < a.size(); ++i) {
+        if (!ast_anyval_equal(a.get(i), b.get(i), ha, hb))
             return false;
     }
     return true;
 }
 
 bool ast_anyval_equal(AnyVal a, AnyVal b,
-                      const uint8_t* base_a, const uint8_t* base_b) {
+                      hermes::MemHolder* ha, hermes::MemHolder* hb) {
     if (a.is_null() && b.is_null()) return true;
     if (a.is_null() || b.is_null()) return false;
     if (a.is_value() != b.is_value()) return false;
     if (a.is_value()) return a.raw() == b.raw();
-    const uint8_t* pa = a.resolve();
-    const uint8_t* pb = b.resolve();
-    auto ta = hermes::TypeTag::read_before(pa);
-    auto tb = hermes::TypeTag::read_before(pb);
+    auto ta = hermes::TypeTag::read_before(a.resolve());
+    auto tb = hermes::TypeTag::read_before(b.resolve());
     if (ta.type_code() != tb.type_code()) return false;
-    if (ta.type_code() == hermes::type_hash::TinyObjectMap) {
-        return ast_tom_equal(reinterpret_cast<const hermes::TinyObjectMap*>(pa),
-                             reinterpret_cast<const hermes::TinyObjectMap*>(pb),
-                             base_a, base_b);
-    }
-    if (ta.type_code() == hermes::type_hash::Array) {
-        return ast_array_equal(reinterpret_cast<const hermes::ObjectArray*>(pa),
-                               reinterpret_cast<const hermes::ObjectArray*>(pb),
-                               base_a, base_b);
-    }
-    if (ta.type_code() == hermes::type_hash::HermesString) {
-        return reinterpret_cast<const hermes::ArenaString*>(pa)->view()
-            == reinterpret_cast<const hermes::ArenaString*>(pb)->view();
-    }
+    if (ta.type_code() == hermes::type_hash::TinyObjectMap)
+        return ast_tom_equal(hermes::as_tinymap(a, ha), hermes::as_tinymap(b, hb), ha, hb);
+    if (ta.type_code() == hermes::type_hash::Array)
+        return ast_array_equal(hermes::as_array(a, ha), hermes::as_array(b, hb), ha, hb);
+    if (ta.type_code() == hermes::type_hash::HermesString)
+        return hermes::StringView(a, ha).view() == hermes::StringView(b, hb).view();
     // Unknown data tag — be conservative and treat as not equal.
     return false;
 }
@@ -295,11 +275,10 @@ void SemaChecker::collect(const std::vector<hermes::Hermes>& asts) {
         return static_cast<uint32_t>(t.offset().value());
     };
     auto items_equal = [](FirstSeen a, hermes::MemHolder* hb, uint32_t off_b) {
-        const uint8_t* ba = a.holder->base();
-        const uint8_t* bb = hb->base();
-        auto* tom_a = reinterpret_cast<const hermes::TinyObjectMap*>(ba + a.off);
-        auto* tom_b = reinterpret_cast<const hermes::TinyObjectMap*>(bb + off_b);
-        return ast_tom_equal(tom_a, tom_b, ba, bb);
+        return ast_tom_equal(
+            hermes::TinyMapView(hermes::arena_offset_t(a.off), a.holder),
+            hermes::TinyMapView(hermes::arena_offset_t(off_b), hb),
+            a.holder, hb);
     };
 
     // Pre-scan: collect every declared type name (struct/datatype/enum) across

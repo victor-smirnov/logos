@@ -1749,13 +1749,10 @@ std::string render_module_source_for_dump(hermes::MemHolder* holder,
     SemaChecker checker;
     checker.set_holder_for_render(holder);
     checker.set_render_syntactic(true);
-    auto* base = holder->base();
-    auto* root = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-                    base + root_offset.value());
-    auto code_av = root->get(la::CODE.code);
+    TinyMapView root_view{root_offset, holder};
+    auto code_av = root_view.get(la::CODE.code);
     int32_t c = (!code_av.is_null() && code_av.is_value())
                 ? code_av.as_value<int32_t>() : -1;
-    TinyMapView root_view{root_offset, holder};
     if (c == la::MODULE.code) return checker.render_module_src(root_view);
     return checker.render_item_src(root_view);
 }
@@ -1767,7 +1764,7 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
     auto* base = holder->base();
 
     auto map_at = [&](hermes::arena_offset_t off) {
-        return reinterpret_cast<hermes::TinyObjectMap*>(base + off.value());
+        return hermes::TinyMapView(off, holder);
     };
     auto str_at = [&](hermes::AnyVal av) -> std::string {
         if (av.is_null()) return {};
@@ -1780,12 +1777,12 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
         return hermes::ArrayView(av, holder);
     };
 
-    auto get_fn_or_impl_items = [&](hermes::TinyObjectMap* tom, std::string prefix) {
-        auto code_av = tom->get(la::CODE.code);
+    auto get_fn_or_impl_items = [&](hermes::TinyMapView tom, std::string prefix) {
+        auto code_av = tom.get(la::CODE.code);
         int32_t c = (!code_av.is_null() && code_av.is_value())
                     ? code_av.as_value<int32_t>() : -1;
         if (c == la::FN.code || c == la::EXTERN_FN.code || c == la::STATIC_FN.code) {
-            auto name = str_at(tom->get(la::NAME.code));
+            auto name = str_at(tom.get(la::NAME.code));
             if (name.empty()) return;
             // Emit BOTH the bare method name AND the impl receiver type
             // (when present) as separate index entries. Mono mangles
@@ -1797,21 +1794,21 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
         }
     };
 
-    auto* root_tom = map_at(root_offset);
-    auto root_code = root_tom->get(la::CODE.code);
+    auto root_tom = map_at(root_offset);
+    auto root_code = root_tom.get(la::CODE.code);
     int32_t rc = (!root_code.is_null() && root_code.is_value())
                  ? root_code.as_value<int32_t>() : -1;
 
-    std::function<void(hermes::TinyObjectMap*, std::string)> walk_items =
-        [&](hermes::TinyObjectMap* tom, std::string prefix) {
-        auto items_av = tom->get(la::ITEMS.code);
+    std::function<void(hermes::TinyMapView, std::string)> walk_items =
+        [&](hermes::TinyMapView tom, std::string prefix) {
+        auto items_av = tom.get(la::ITEMS.code);
         if (items_av.is_null()) return;
         auto items = arr_at(items_av);
         for (uint64_t i = 0; i < items.size(); ++i) {
             auto child_av = items.get(i);
             if (child_av.is_null()) continue;
-            auto* child = map_at(child_av.to_offset(base));
-            auto code_av = child->get(la::CODE.code);
+            auto child = map_at(child_av.to_offset(base));
+            auto code_av = child.get(la::CODE.code);
             int32_t cc = (!code_av.is_null() && code_av.is_value())
                          ? code_av.as_value<int32_t>() : -1;
             if (cc == la::IMPL_BLOCK.code) {
@@ -1819,13 +1816,13 @@ std::vector<std::string> collect_fn_names_for_dump(hermes::MemHolder* holder,
                 // a TYPE_REF / GENERIC_INST with NAME. Otherwise use the
                 // trait name (NAME field on impl_block).
                 std::string recv;
-                auto type_av = child->get(la::TYPE.code);
+                auto type_av = child.get(la::TYPE.code);
                 if (!type_av.is_null()) {
-                    auto* ty_tom = map_at(type_av.to_offset(base));
-                    auto nm_av = ty_tom->get(la::NAME.code);
+                    auto ty_tom = map_at(type_av.to_offset(base));
+                    auto nm_av = ty_tom.get(la::NAME.code);
                     if (!nm_av.is_null()) recv = str_at(nm_av);
                 }
-                if (recv.empty()) recv = str_at(child->get(la::NAME.code));
+                if (recv.empty()) recv = str_at(child.get(la::NAME.code));
                 walk_items(child, recv);
             } else {
                 get_fn_or_impl_items(child, prefix);
