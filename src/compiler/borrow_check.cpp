@@ -1505,6 +1505,13 @@ class BorrowChecker {
     void build_fn_map_() const {
         if (fn_map_built_) return;
         fn_map_built_ = true;
+        {   // Phase-1: reserve up front — post-mono this indexes thousands of
+            // fns; default growth rehashes ~log2(n) times.
+            size_t cnt = prog_.functions.size() + prog_.specializations.size();
+            for (auto& sd : prog_.structs) cnt += sd.methods.size();
+            for (auto& im : prog_.impls)   cnt += im.methods.size();
+            fn_by_name_.reserve(cnt);
+        }
         auto add = [&](const LFunctionPtr& f) {
             if (!f) return;
             fn_by_name_.emplace(f->name, f.get());
