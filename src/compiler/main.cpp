@@ -596,14 +596,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                             const auto* pods = reinterpret_cast<const IdentPod*>(
                                 cursors_base + ch.pods_offset);
                             const auto& pod = pods[pod_idx];
-                            auto str_e = ArenaString::create(arena,
+                            auto str_e = doc.make_string(
                                 std::string_view(
                                     reinterpret_cast<const char*>(pod.ptr),
                                     pod.len));
                             if (str_e) {
-                                uint32_t name_off = static_cast<uint32_t>(
-                                    reinterpret_cast<uint8_t*>(str_e.get())
-                                    - HermesAccess::base(doc));
+                                uint32_t name_off = str_e->offset().value();
                                 dbase = HermesAccess::base(doc);
                                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
                                 // LIT_STR placeholder (`##field`) → ident text
@@ -792,10 +790,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 src_els.push_back({false, eoff, 0});
             }
         }
-        auto new_arr_e = ObjectArray::create(arena, std::max<uint64_t>(4, n_src));
+        auto new_arr_e = doc.make_array( std::max<uint64_t>(4, n_src));
         if (!new_arr_e) { subst_failed = true; return 0; }
         uint32_t new_arr_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(new_arr_e.get()) - HermesAccess::base(doc));
+            new_arr_e->offset().value());
         for (uint64_t i = 0; i < src_els.size(); ++i) {
             auto* na = reinterpret_cast<ObjectArray*>(
                 HermesAccess::base(doc) + new_arr_off);
@@ -863,7 +861,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         "logos_emit_item_blob_subst: ident[%d] is empty\n", idx);
                     subst_failed = true; return;
                 }
-                auto str_e = ArenaString::create(arena,
+                auto str_e = doc.make_string(
                     std::string_view(reinterpret_cast<const char*>(idp.ptr),
                                      idp.len));
                 if (!str_e) {
@@ -872,8 +870,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     subst_failed = true; return;
                 }
                 uint32_t name_off = static_cast<uint32_t>(
-                    reinterpret_cast<uint8_t*>(str_e.get())
-                    - HermesAccess::base(doc));
+                    str_e->offset().value());
                 dbase = HermesAccess::base(doc);
                 tom = reinterpret_cast<TinyObjectMap*>(dbase + off);
                 // `##name` antiquot parses as a LIT_STR node carrying
@@ -1013,11 +1010,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
             if (!nm_av.is_null() && nm_av.is_pointer()) {
                 auto user_name = logos::hermes::StringView(
                     nm_av, user_holder_pkg).view();
-                auto sv_e = ArenaString::create(arena, std::string_view(user_name));
+                auto sv_e = doc.make_string( std::string_view(user_name));
                 if (sv_e) {
                     auto sv_off = static_cast<uint32_t>(
-                        reinterpret_cast<uint8_t*>(sv_e.get())
-                        - HermesAccess::base(doc));
+                        sv_e->offset().value());
                     (void)root_ptr()->put(la::NAME.code,
                         AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(sv_off)),
                         arena);
@@ -1031,11 +1027,10 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                 auto* user_pp = reinterpret_cast<const ObjectArray*>(
                     pp_av.resolve());
                 uint64_t pn = user_pp->size();
-                auto a_e = ObjectArray::create(arena, std::max<uint64_t>(1, pn));
+                auto a_e = doc.make_array( std::max<uint64_t>(1, pn));
                 if (a_e) {
                     auto pp_off = static_cast<uint32_t>(
-                        reinterpret_cast<uint8_t*>(a_e.get())
-                        - HermesAccess::base(doc));
+                        a_e->offset().value());
                     auto pp_arr_ptr = [&]() {
                         return reinterpret_cast<ObjectArray*>(
                             HermesAccess::base(doc) + pp_off);
@@ -1047,8 +1042,7 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                         auto cp_e = copy_object_into(part_obj, user_base_pkg, doc);
                         if (!cp_e) continue;
                         uint32_t cp_off = static_cast<uint32_t>(
-                            reinterpret_cast<uint8_t*>(cp_e.get())
-                            - HermesAccess::base(doc));
+                            reinterpret_cast<uint8_t*>(cp_e.get()) - HermesAccess::base(doc));
                         (void)pp_arr_ptr()->push_back(
                             AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(cp_off)),
                             arena);
@@ -1082,13 +1076,12 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                                                       HermesAccess::base(doc));
                 uint32_t synth_uses_off = 0;
                 if (synth_uses_av.is_null() || !synth_uses_av.is_pointer()) {
-                    auto a_e = ObjectArray::create(arena, std::max<uint64_t>(4, un));
+                    auto a_e = doc.make_array( std::max<uint64_t>(4, un));
                     if (!a_e) {
                         blob_seen.erase(key); return 0;
                     }
                     synth_uses_off = static_cast<uint32_t>(
-                        reinterpret_cast<uint8_t*>(a_e.get())
-                        - HermesAccess::base(doc));
+                        a_e->offset().value());
                     (void)root_ptr()->put(la::USES.code,
                         AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(synth_uses_off)),
                         arena);
@@ -1153,16 +1146,14 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
                     }
                     if (already) continue;
                     // Allocate name string + USE TOM.
-                    auto pname_e = ArenaString::create(arena, std::string_view(dotted));
+                    auto pname_e = doc.make_string( std::string_view(dotted));
                     if (!pname_e) { blob_seen.erase(key); return 0; }
                     uint32_t pname_off = static_cast<uint32_t>(
-                        reinterpret_cast<uint8_t*>(pname_e.get())
-                        - HermesAccess::base(doc));
-                    auto utom_e = HermesAccess::raw_tiny_map(doc, 4);
+                        pname_e->offset().value());
+                    auto utom_e = doc.make_tiny_map_view( 4);
                     if (!utom_e) { blob_seen.erase(key); return 0; }
                     uint32_t utom_off = static_cast<uint32_t>(
-                        reinterpret_cast<uint8_t*>(utom_e.get())
-                        - HermesAccess::base(doc));
+                        utom_e->offset().value());
                     auto utom_ptr = [&]() {
                         return reinterpret_cast<TinyObjectMap*>(
                             HermesAccess::base(doc) + utom_off);
@@ -1569,13 +1560,12 @@ extern "C" const uint8_t* logos_quote_expr_subst(
 
     auto str_for_ident = [&](const IdentPod* idp) -> uint32_t {
         if (!idp || !idp->ptr || idp->len == 0) return 0;
-        auto str_e = ArenaString::create(dst_arena,
+        auto str_e = dst_doc.make_string(
             std::string_view(reinterpret_cast<const char*>(idp->ptr),
                              idp->len));
         if (!str_e) return 0;
         return static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(str_e.get())
-            - HermesAccess::base(dst_doc));
+            str_e->offset().value());
     };
 
     // Forward decl.
@@ -1649,20 +1639,18 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         uint64_t tc = tag.type_code();
         if (tc == 130) {
             const auto* s = reinterpret_cast<const ArenaString*>(sb + off);
-            auto se = ArenaString::create(dst_arena, s->view());
+            auto se = dst_doc.make_string( s->view());
             if (!se) return 0;
             return static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(se.get())
-                - HermesAccess::base(dst_doc));
+                se->offset().value());
         }
         if (tc == 100) {
             const auto* arr = reinterpret_cast<const ObjectArray*>(sb + off);
             uint64_t n = arr->size();
-            auto dst_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, n));
+            auto dst_e = dst_doc.make_array( std::max<uint64_t>(4, n));
             if (!dst_e) return 0;
             uint32_t dst_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(dst_e.get())
-                - HermesAccess::base(dst_doc));
+                dst_e->offset().value());
             auto dst_arr = [&]() {
                 return reinterpret_cast<ObjectArray*>(
                     HermesAccess::base(dst_doc) + dst_off);
@@ -1687,11 +1675,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         const auto* tom = reinterpret_cast<const TinyObjectMap*>(sb + off);
         uint8_t cap = tom->capacity();
         if (cap < 4) cap = 4;
-        auto dst_e = HermesAccess::raw_tiny_map(dst_doc, cap);
+        auto dst_e = dst_doc.make_tiny_map_view( cap);
         if (!dst_e) return 0;
         uint32_t dst_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_e.get())
-            - HermesAccess::base(dst_doc));
+            dst_e->offset().value());
         auto dst_tom = [&]() {
             return reinterpret_cast<TinyObjectMap*>(
                 HermesAccess::base(dst_doc) + dst_off);
@@ -1730,22 +1717,20 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             cursor_i = static_cast<int64_t>(i);
             uint32_t rhs = copy_expr(body_off);
             // Build BinOp { CODE: BINOP, OP: "&&", LHS: acc, RHS: rhs }.
-            auto bin_e = HermesAccess::raw_tiny_map(dst_doc, 4);
+            auto bin_e = dst_doc.make_tiny_map_view( 4);
             if (!bin_e) return 0;
             uint32_t bin_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(bin_e.get())
-                - HermesAccess::base(dst_doc));
+                bin_e->offset().value());
             auto bin = [&]() {
                 return reinterpret_cast<TinyObjectMap*>(
                     HermesAccess::base(dst_doc) + bin_off);
             };
             (void)bin()->put(la::CODE.code,
                 AnyVal::from_value<int32_t>(la::BINOP.code), dst_arena);
-            auto op_e = ArenaString::create(dst_arena, std::string_view("&&"));
+            auto op_e = dst_doc.make_string( std::string_view("&&"));
             if (!op_e) return 0;
             uint32_t op_off = static_cast<uint32_t>(
-                reinterpret_cast<uint8_t*>(op_e.get())
-                - HermesAccess::base(dst_doc));
+                op_e->offset().value());
             (void)bin()->put(la::OP.code,
                 AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(op_off)), dst_arena);
             (void)bin()->put(la::LHS.code,
@@ -1864,11 +1849,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         // Allocate a fresh dst TOM for this node; copy keys.
         uint8_t cap = src_tom->capacity();
         if (cap < 4) cap = 4;
-        auto dst_e = HermesAccess::raw_tiny_map(dst_doc, cap);
+        auto dst_e = dst_doc.make_tiny_map_view( cap);
         if (!dst_e) return 0;
         uint32_t dst_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_e.get())
-            - HermesAccess::base(dst_doc));
+            dst_e->offset().value());
         auto dst_tom = [&]() {
             return reinterpret_cast<TinyObjectMap*>(
                 HermesAccess::base(dst_doc) + dst_off);
@@ -1969,11 +1953,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
             if (tc == 130) {
                 const auto* s = reinterpret_cast<const ArenaString*>(
                     src_base + child_off);
-                auto se = ArenaString::create(dst_arena, s->view());
+                auto se = dst_doc.make_string( s->view());
                 if (!se) return 0;
                 uint32_t s_off = static_cast<uint32_t>(
-                    reinterpret_cast<uint8_t*>(se.get())
-                    - HermesAccess::base(dst_doc));
+                    se->offset().value());
                 (void)dst_tom()->put(k,
                     AnyVal::from_offset(HermesAccess::base(dst_doc), arena_offset_t(s_off)), dst_arena);
             } else if (tc == 100) {
@@ -1999,11 +1982,10 @@ extern "C" const uint8_t* logos_quote_expr_subst(
         const auto* src_arr = reinterpret_cast<const ObjectArray*>(
             src_base + src_off);
         uint64_t n_src = src_arr->size();
-        auto dst_e = ObjectArray::create(dst_arena, std::max<uint64_t>(4, n_src));
+        auto dst_e = dst_doc.make_array( std::max<uint64_t>(4, n_src));
         if (!dst_e) return 0;
         uint32_t dst_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(dst_e.get())
-            - HermesAccess::base(dst_doc));
+            dst_e->offset().value());
         auto dst_arr = [&]() {
             return reinterpret_cast<ObjectArray*>(
                 HermesAccess::base(dst_doc) + dst_off);
@@ -2147,14 +2129,12 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     auto& arena = HermesAccess::arena(doc);
 
     auto build_lit_int = [&](int64_t v) -> uint32_t {
-        auto tm_e = HermesAccess::raw_tiny_map(doc, 4);
+        auto tm_e = doc.make_tiny_map_view( 4);
         if (!tm_e) return 0;
-        uint32_t tm_off = uint32_t(reinterpret_cast<uint8_t*>(tm_e.get())
-                                   - HermesAccess::base(doc));
-        auto str_e = ArenaString::create(arena, std::to_string(v));
+        uint32_t tm_off = uint32_t(tm_e->offset().value());
+        auto str_e = doc.make_string( std::to_string(v));
         if (!str_e) return 0;
-        uint32_t str_off = uint32_t(reinterpret_cast<uint8_t*>(str_e.get())
-                                    - HermesAccess::base(doc));
+        uint32_t str_off = uint32_t(str_e->offset().value());
         auto tm = [&]() {
             return reinterpret_cast<TinyObjectMap*>(
                 HermesAccess::base(doc) + tm_off);
@@ -2174,15 +2154,13 @@ extern "C" const uint8_t* logos_test_make_bin_op_blob() {
     uint32_t rhs_off = build_lit_int(2);
     if (!lhs_off || !rhs_off) return nullptr;
 
-    auto op_e = ArenaString::create(arena, std::string_view("+"));
+    auto op_e = doc.make_string( std::string_view("+"));
     if (!op_e) return nullptr;
-    uint32_t op_off = uint32_t(reinterpret_cast<uint8_t*>(op_e.get())
-                               - HermesAccess::base(doc));
+    uint32_t op_off = uint32_t(op_e->offset().value());
 
-    auto root_e = HermesAccess::raw_tiny_map(doc, 8);
+    auto root_e = doc.make_tiny_map_view( 8);
     if (!root_e) return nullptr;
-    uint32_t root_off = uint32_t(reinterpret_cast<uint8_t*>(root_e.get())
-                                 - HermesAccess::base(doc));
+    uint32_t root_off = uint32_t(root_e->offset().value());
     auto root = [&]() {
         return reinterpret_cast<TinyObjectMap*>(
             HermesAccess::base(doc) + root_off);
