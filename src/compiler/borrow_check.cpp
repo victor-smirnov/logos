@@ -714,29 +714,29 @@ class BorrowChecker {
         auto& frame = scopes_.back();
         // Release borrows held by this scope.
         for (auto& br : frame.borrows) {
-            auto it = states_.find(br.target);
-            if (it != states_.end()) {
+            auto it = var_find(NO_SLOT, br.target);
+            if (it != nullptr) {
                 if (br.is_mut) {
                     // B82: release either an activated mut borrow or an
                     // outstanding reservation taken via in_call_args_.
-                    if (it->second.mut_borrowed)
-                        it->second.mut_borrowed = false;
-                    else if (it->second.mut_reservations > 0)
-                        it->second.mut_reservations--;
+                    if (it->mut_borrowed)
+                        it->mut_borrowed = false;
+                    else if (it->mut_reservations > 0)
+                        it->mut_reservations--;
                 }
-                else if (it->second.shared_borrows > 0)
-                    --it->second.shared_borrows;
+                else if (it->shared_borrows > 0)
+                    --it->shared_borrows;
             }
         }
         // B83: release field-path borrows.
         for (auto& fb : frame.field_borrows) {
-            auto it = states_.find(fb.target);
-            if (it == states_.end()) continue;
-            if (fb.is_mut) it->second.mut_field_borrows.erase(fb.path);
+            auto it = var_find(NO_SLOT, fb.target);
+            if (it == nullptr) continue;
+            if (fb.is_mut) it->mut_field_borrows.erase(fb.path);
             else {
-                auto sit = it->second.shared_field_borrows.find(fb.path);
-                if (sit != it->second.shared_field_borrows.end() && --sit->second <= 0)
-                    it->second.shared_field_borrows.erase(sit);
+                auto sit = it->shared_field_borrows.find(fb.path);
+                if (sit != it->shared_field_borrows.end() && --sit->second <= 0)
+                    it->shared_field_borrows.erase(sit);
             }
         }
         // B87 dropck: before erasing this scope's declared locals, check
@@ -1053,17 +1053,17 @@ class BorrowChecker {
                            bool is_mut, uint32_t line,
                            TypeRef root_type = nullptr,
                            const std::string& holder = "") {
-        auto it = states_.find(target);
-        if (it == states_.end()) return;
+        auto it = var_find(NO_SLOT, target);
+        if (it == nullptr) return;
         std::string self_disp = fmt_path(target, path);
         // Whole-value borrows still block everything.
-        if (it->second.mut_borrowed) {
+        if (it->mut_borrowed) {
             report(line, std::format(
                 "cannot borrow '{}': '{}' is already mutably borrowed",
                 self_disp, target));
             return;
         }
-        if (is_mut && it->second.shared_borrows > 0) {
+        if (is_mut && it->shared_borrows > 0) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' has shared borrows",
                 self_disp, target));
@@ -1086,14 +1086,14 @@ class BorrowChecker {
         }
         // Mut binding check — N/A for reference-typed roots.
         if (is_mut && !root_is_mut_ref && !root_is_shared_ref &&
-            !it->second.is_mut_binding && !param_names_.count(target)) {
+            !it->is_mut_binding && !param_names_.count(target)) {
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' not declared as mut",
                 self_disp, target));
             return;
         }
         // Check against tracked field borrows.
-        for (auto& [p, c] : it->second.shared_field_borrows) {
+        for (auto& [p, c] : it->shared_field_borrows) {
             if (c <= 0) continue;
             if (paths_overlap(path, p) && is_mut) {
                 report(line, std::format(
@@ -1102,7 +1102,7 @@ class BorrowChecker {
                 return;
             }
         }
-        for (auto& p : it->second.mut_field_borrows) {
+        for (auto& p : it->mut_field_borrows) {
             if (paths_overlap(path, p)) {
                 report(line, std::format(
                     "cannot borrow '{}': '{}' is already mutably borrowed",
@@ -1111,8 +1111,8 @@ class BorrowChecker {
             }
         }
         // Record.
-        if (is_mut) it->second.mut_field_borrows.insert(path);
-        else        it->second.shared_field_borrows[path]++;
+        if (is_mut) it->mut_field_borrows.insert(path);
+        else        it->shared_field_borrows[path]++;
         if (!scopes_.empty())
             scopes_.back().field_borrows.push_back(
                 {target, std::move(path), is_mut, holder});
@@ -1124,9 +1124,9 @@ class BorrowChecker {
     void take_borrow(const std::string& target, bool is_mut, uint32_t line,
                      const std::string& holder = "",
                      bool skip_mut_binding_check = false) {
-        auto it = states_.find(target);
-        if (it == states_.end()) return;  // unknown / extern
-        if (it->second.moved) {
+        auto it = var_find(NO_SLOT, target);
+        if (it == nullptr) return;  // unknown / extern
+        if (it->moved) {
             report(line, std::format(
                 "cannot borrow moved value '{}'", target));
             return;
@@ -1141,27 +1141,27 @@ class BorrowChecker {
             // receivers stays the (permissive) status quo, the stdlib's
             // `arc.deref_mut()` on a non-mut Arc binding relies on it.
             if (!skip_mut_binding_check &&
-                !it->second.is_mut_binding && !param_names_.count(target)) {
+                !it->is_mut_binding && !param_names_.count(target)) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: not declared as mut", target));
                 return;
             }
             // B83: any tracked field-path borrow blocks a whole-value mut.
-            if (!it->second.mut_field_borrows.empty() ||
-                !it->second.shared_field_borrows.empty()) {
+            if (!it->mut_field_borrows.empty() ||
+                !it->shared_field_borrows.empty()) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: field of '{}' is already borrowed",
                     target, target));
                 return;
             }
-            if (it->second.mut_borrowed) {
+            if (it->mut_borrowed) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: already mutably borrowed", target));
                 return;
             }
             // B82: another mut reservation in flight is still a conflict —
             // Rust rejects f(&mut x, &mut x) too.
-            if (it->second.mut_reservations > 0) {
+            if (it->mut_reservations > 0) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: already mutably borrowed", target));
                 return;
@@ -1179,14 +1179,14 @@ class BorrowChecker {
                 // frame (pushed by visit_args); if shared_borrows > 0
                 // and any of them was registered in an OUTER scope (not
                 // current frame), reject.
-                if (it->second.shared_borrows > 0) {
+                if (it->shared_borrows > 0) {
                     bool outer_shared = false;
                     if (!scopes_.empty()) {
                         // Count shared borrows recorded in the top frame.
                         int in_top = 0;
                         for (auto& br : scopes_.back().borrows)
                             if (br.target == target && !br.is_mut) ++in_top;
-                        if (in_top < it->second.shared_borrows)
+                        if (in_top < it->shared_borrows)
                             outer_shared = true;
                     } else {
                         outer_shared = true;
@@ -1194,36 +1194,36 @@ class BorrowChecker {
                     if (outer_shared) {
                         report(line, std::format(
                             "cannot borrow '{}' as mutable: {} shared borrow(s) active",
-                            target, it->second.shared_borrows));
+                            target, it->shared_borrows));
                         return;
                     }
                 }
-                it->second.mut_reservations++;
+                it->mut_reservations++;
                 if (!scopes_.empty())
                     scopes_.back().borrows.push_back({target, is_mut, holder});
                 return;
             }
-            if (it->second.shared_borrows > 0) {
+            if (it->shared_borrows > 0) {
                 report(line, std::format(
                     "cannot borrow '{}' as mutable: {} shared borrow(s) active",
-                    target, it->second.shared_borrows));
+                    target, it->shared_borrows));
                 return;
             }
-            it->second.mut_borrowed = true;
+            it->mut_borrowed = true;
         } else {
-            if (it->second.mut_borrowed) {
+            if (it->mut_borrowed) {
                 report(line, std::format(
                     "cannot borrow '{}' as shared: already mutably borrowed", target));
                 return;
             }
             // B83: a mut field borrow blocks whole-value shared borrows.
-            if (!it->second.mut_field_borrows.empty()) {
+            if (!it->mut_field_borrows.empty()) {
                 report(line, std::format(
                     "cannot borrow '{}' as shared: field of '{}' is mutably borrowed",
                     target, target));
                 return;
             }
-            ++it->second.shared_borrows;
+            ++it->shared_borrows;
         }
         if (!scopes_.empty())
             scopes_.back().borrows.push_back({target, is_mut, holder});
@@ -1265,17 +1265,17 @@ class BorrowChecker {
     }
 
     bool consume(const std::string& name, uint32_t line) {
-        auto it = states_.find(name);
-        if (it == states_.end()) return true;
-        if (!it->second.moved_fields.empty()) {
-            auto& [fld, ln] = *it->second.moved_fields.begin();
+        auto it = var_find(NO_SLOT, name);
+        if (it == nullptr) return true;
+        if (!it->moved_fields.empty()) {
+            auto& [fld, ln] = *it->moved_fields.begin();
             report(line, std::format(
                 "use of partially moved value '{}' (field '{}' moved on line {})",
                 name, fld, ln));
             return false;
         }
-        if (it->second.moved) {
-            uint32_t prev = it->second.moved_line;
+        if (it->moved) {
+            uint32_t prev = it->moved_line;
             if (prev)
                 report(line, std::format(
                     "use of moved value '{}' (moved on line {})", name, prev));
@@ -1283,19 +1283,19 @@ class BorrowChecker {
                 report(line, std::format("use of moved value '{}'", name));
             return false;
         }
-        if (it->second.mut_borrowed || it->second.shared_borrows > 0 ||
-            it->second.mut_reservations > 0) {
+        if (it->mut_borrowed || it->shared_borrows > 0 ||
+            it->mut_reservations > 0) {
             report(line, std::format("cannot move '{}' while it is borrowed", name));
             return false;
         }
         // A live borrow of ANY field of `name` also blocks moving the whole
         // value (rustc E0505) — the move would invalidate the field reference.
-        if (field_borrow_conflicts(it->second, name, /*path=*/"",
+        if (field_borrow_conflicts((*it), name, /*path=*/"",
                                    /*need_exclusive=*/true, line, "move"))
             return false;
-        it->second = VarState{};
-        it->second.moved = true;
-        it->second.moved_line = line;
+        (*it) = VarState{};
+        it->moved = true;
+        it->moved_line = line;
         return true;
     }
 
@@ -1323,17 +1323,17 @@ class BorrowChecker {
                 dit->second.source, name, dit->second.source));
             dangling_.erase(dit);   // report once per binding
         }
-        auto it = states_.find(name);
-        if (it == states_.end()) return;
-        if (it->second.moved) {
-            uint32_t prev = it->second.moved_line;
+        auto it = var_find(NO_SLOT, name);
+        if (it == nullptr) return;
+        if (it->moved) {
+            uint32_t prev = it->moved_line;
             if (prev)
                 report(line, std::format(
                     "use of moved value '{}' (moved on line {})", name, prev));
             else
                 report(line, std::format("use of moved value '{}'", name));
         }
-        if (it->second.mut_borrowed) {
+        if (it->mut_borrowed) {
             report(line, std::format(
                 "cannot use '{}' while it is mutably borrowed", name));
         }
@@ -1507,18 +1507,18 @@ class BorrowChecker {
     void check_recv_conflict(const BorrowPlace& bp, bool is_mut, uint32_t line) {
         if (bp.root.empty() || !bp.path.empty()) return;
         if (bp.root_type && bp.root_type.kind() == LogosType::Kind::Ptr) return;
-        auto sit = states_.find(bp.root);
-        if (sit == states_.end()) return;
-        if (sit->second.mut_borrowed)
+        auto sit = var_find(NO_SLOT, bp.root);
+        if (sit == nullptr) return;
+        if (sit->mut_borrowed)
             report(line, std::format(
                 "cannot borrow '{}': '{}' is already mutably borrowed",
                 bp.root, bp.root));
-        else if (is_mut && sit->second.shared_borrows > 0)
+        else if (is_mut && sit->shared_borrows > 0)
             report(line, std::format(
                 "cannot borrow '{}' as mutable: '{}' has shared borrows",
                 bp.root, bp.root));
-        else if (is_mut && (!sit->second.shared_field_borrows.empty() ||
-                            !sit->second.mut_field_borrows.empty()))
+        else if (is_mut && (!sit->shared_field_borrows.empty() ||
+                            !sit->mut_field_borrows.empty()))
             report(line, std::format(
                 "cannot borrow '{}' as mutable: field of '{}' is already borrowed",
                 bp.root, bp.root));
@@ -1915,7 +1915,7 @@ class BorrowChecker {
                 if (ExprRef inner_var; lir_view::is_reborrow_shape(e, &inner_var)
                     && is_ref_kind(inner_var.type(pool))) {
                     std::string rname(EVarRefView{inner_var}.name());
-                    if (auto sit = states_.find(rname); sit != states_.end()) {
+                    if (auto sit = var_find(NO_SLOT, rname); sit != nullptr) {
                         // Route through take_borrow so two-phase reservation
                         // (B82) and prefix-aware diagnostics kick in. Bypass
                         // the is_mut_binding check (reborrow draws from r's
@@ -1923,7 +1923,7 @@ class BorrowChecker {
                         // `&mut`-ness comes from r's type, which sema has
                         // already verified) via a temporary param_names_
                         // insertion.
-                        bool fake_param = !sit->second.is_mut_binding &&
+                        bool fake_param = !sit->is_mut_binding &&
                                           !param_names_.count(rname);
                         if (fake_param) param_names_.insert(rname);
                         take_borrow(rname, v.is_mut(), line, holder);
@@ -1963,12 +1963,12 @@ class BorrowChecker {
                 std::string path = bp.path;
                 bool index_in_chain = bp.index_in_chain;
                 if (!root.empty()) {
-                    auto sit = states_.find(root);
-                    if (sit != states_.end() && !path.empty()) {
+                    auto sit = var_find(NO_SLOT, root);
+                    if (sit != nullptr && !path.empty()) {
                         // T1-10/B78: full dotted-path overlap (equal /
                         // either-prefix) — disjoint siblings borrow fine.
                         if (auto* hit = find_moved_overlap(
-                                sit->second.moved_fields, path)) {
+                                sit->moved_fields, path)) {
                             report(line, std::format(
                                 "use of moved field '{}.{}' (moved on line {})",
                                 root, hit->first, hit->second));
@@ -2512,11 +2512,11 @@ class BorrowChecker {
             auto luit = last_use_line_.find(it->holder);
             if (luit != last_use_line_.end()) lu = luit->second;
             if (lu <= cur_line) {
-                auto sit = states_.find(it->target);
-                if (sit != states_.end()) {
-                    if (it->is_mut) sit->second.mut_borrowed = false;
-                    else if (sit->second.shared_borrows > 0)
-                        --sit->second.shared_borrows;
+                auto sit = var_find(NO_SLOT, it->target);
+                if (sit != nullptr) {
+                    if (it->is_mut) sit->mut_borrowed = false;
+                    else if (sit->shared_borrows > 0)
+                        --sit->shared_borrows;
                 }
                 it = frame.borrows.erase(it);
             } else {
@@ -2531,11 +2531,11 @@ class BorrowChecker {
             if (auto luit = last_use_line_.find(fit2->holder);
                 luit != last_use_line_.end()) lu = luit->second;
             if (lu <= cur_line) {
-                if (auto sit = states_.find(fit2->target); sit != states_.end()) {
+                if (auto sit = var_find(NO_SLOT, fit2->target); sit != nullptr) {
                     if (fit2->is_mut)
-                        sit->second.mut_field_borrows.erase(fit2->path);
-                    else if (auto sb = sit->second.shared_field_borrows.find(fit2->path);
-                             sb != sit->second.shared_field_borrows.end() && sb->second > 0)
+                        sit->mut_field_borrows.erase(fit2->path);
+                    else if (auto sb = sit->shared_field_borrows.find(fit2->path);
+                             sb != sit->shared_field_borrows.end() && sb->second > 0)
                         --sb->second;
                 }
                 fit2 = frame.field_borrows.erase(fit2);
@@ -2619,8 +2619,8 @@ class BorrowChecker {
                     visit(val, /*consuming=*/true, ln);
                 }
                 declare_var(name);
-                if (auto it = states_.find(name); it != states_.end())
-                    it->second.is_mut_binding = v.is_mut();
+                if (auto it = var_find(NO_SLOT, name); it != nullptr)
+                    it->is_mut_binding = v.is_mut();
                 if (is_ref_kind(t) || is_borrow_carrying_type(t)) {
                     RefProv vp = prov_of(val);
                     // E0716: a `let`-bound reference outlives its statement, but
@@ -2668,11 +2668,11 @@ class BorrowChecker {
                 // borrow violates exclusivity. mut_borrowed already errored
                 // via check_live elsewhere; the missing case was shared
                 // borrows. Catch them here.
-                if (auto it = states_.find(name); it != states_.end()) {
-                    if (it->second.shared_borrows > 0)
+                if (auto it = var_find(NO_SLOT, name); it != nullptr) {
+                    if (it->shared_borrows > 0)
                         report(ln, std::format(
                             "cannot assign to '{}' because it is borrowed", name));
-                    if (it->second.mut_borrowed)
+                    if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}' while it is mutably borrowed", name));
                 }
@@ -2737,10 +2737,10 @@ class BorrowChecker {
                 std::string recv_nm(v.receiver());
                 std::string field_nm(v.field());
                 if (!recv_nm.empty() && !field_nm.empty()) {
-                    if (auto it = states_.find(recv_nm); it != states_.end())
+                    if (auto it = var_find(NO_SLOT, recv_nm); it != nullptr)
                         // T1-10/B78: reinit clears the path AND anything
                         // under it (writing `o.i` refills `o.i.s`).
-                        erase_reinit(it->second.moved_fields, field_nm);
+                        erase_reinit(it->moved_fields, field_nm);
                 }
                 check_live(recv_nm, ln);
                 visit(v.value(), /*consuming=*/true, ln);
@@ -2760,12 +2760,12 @@ class BorrowChecker {
             case Code::IndexWrite: {
                 SIndexWriteView v{sr};
                 std::string nm(v.arr());
-                if (auto it = states_.find(nm); it != states_.end()) {
-                    if (it->second.shared_borrows > 0)
+                if (auto it = var_find(NO_SLOT, nm); it != nullptr) {
+                    if (it->shared_borrows > 0)
                         report(ln, std::format(
                             "cannot assign to '{}[..]' because '{}' is borrowed",
                             nm, nm));
-                    if (it->second.mut_borrowed)
+                    if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}[..]' while '{}' is mutably borrowed",
                             nm, nm));
@@ -2782,12 +2782,12 @@ class BorrowChecker {
             case Code::FieldIndexWrite: {
                 SFieldIndexWriteView v{sr};
                 std::string nm(v.receiver());
-                if (auto it = states_.find(nm); it != states_.end()) {
-                    if (it->second.shared_borrows > 0)
+                if (auto it = var_find(NO_SLOT, nm); it != nullptr) {
+                    if (it->shared_borrows > 0)
                         report(ln, std::format(
                             "cannot assign to '{}.{}[..]' because '{}' is borrowed",
                             nm, std::string(v.field()), nm));
-                    if (it->second.mut_borrowed)
+                    if (it->mut_borrowed)
                         report(ln, std::format(
                             "cannot assign to '{}.{}[..]' while '{}' is mutably borrowed",
                             nm, std::string(v.field()), nm));
@@ -2841,12 +2841,12 @@ class BorrowChecker {
                     }
                     if (saw_index && cur && cur.kind() == EC::VarRef) {
                         std::string root(EVarRefView{cur}.name());
-                        if (auto it = states_.find(root); it != states_.end()) {
-                            if (it->second.shared_borrows > 0)
+                        if (auto it = var_find(NO_SLOT, root); it != nullptr) {
+                            if (it->shared_borrows > 0)
                                 report(ln, std::format(
                                     "cannot assign through '{}[..]' because '{}' is borrowed",
                                     root, root));
-                            if (it->second.mut_borrowed)
+                            if (it->mut_borrowed)
                                 report(ln, std::format(
                                     "cannot assign through '{}[..]' while '{}' is mutably borrowed",
                                     root, root));
@@ -2878,8 +2878,8 @@ class BorrowChecker {
                                 if (!fpath.empty()) fpath.push_back('.');
                                 fpath += *it2;
                             }
-                            if (auto it = states_.find(root); it != states_.end())
-                                erase_reinit(it->second.moved_fields, fpath);
+                            if (auto it = var_find(NO_SLOT, root); it != nullptr)
+                                erase_reinit(it->moved_fields, fpath);
                         }
                     }
                     // §B6: `root.f = &x` / `root.0 = &x` stores a borrow into
@@ -3206,9 +3206,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // bare VarRef reached while walking a projection's receiver is
                 // not a whole-value use (that's why `w.buf` as an arg of
                 // `w.writer.wr(..)` must not flag whole-`w`).
-                if (auto it = states_.find(name);
-                    it != states_.end() && !in_addr_source_)
-                    field_borrow_conflicts(it->second, name, /*path=*/"",
+                if (auto it = var_find(NO_SLOT, name);
+                    it != nullptr && !in_addr_source_)
+                    field_borrow_conflicts((*it), name, /*path=*/"",
                                            /*need_exclusive=*/false, line, "use");
             }
             break;
@@ -3222,8 +3222,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             std::string vname(EAddrOfView{e}.var_name());
             check_live(vname, line);
             if (is_mut_ref(e.type(pool))) {
-                if (auto it = states_.find(vname); it != states_.end()) {
-                    if (!it->second.is_mut_binding && !param_names_.count(vname))
+                if (auto it = var_find(NO_SLOT, vname); it != nullptr) {
+                    if (!it->is_mut_binding && !param_names_.count(vname))
                         report(line, std::format(
                             "cannot borrow '{}' as mutable: not declared as mut",
                             vname));
@@ -3264,9 +3264,9 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 (bp.root_type.kind() == LogosType::Kind::Ref ||
                  bp.root_type.kind() == LogosType::Kind::MutRef);
             if (!root.empty() && !root_is_rawptr && var_has(NO_SLOT, root)) {
-                auto sit = states_.find(root);
+                auto sit = var_find(NO_SLOT, root);
                 // Mut-binding check (root-level) — skipped for reference roots.
-                if (is_mut && !root_is_ref && !sit->second.is_mut_binding
+                if (is_mut && !root_is_ref && !sit->is_mut_binding
                     && !param_names_.count(root))
                     report(line, std::format(
                         "cannot borrow '{}' as mutable: not declared as mut",
@@ -3275,7 +3275,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // full dotted-path overlap).
                 if (!path.empty()) {
                     if (auto* hit = find_moved_overlap(
-                            sit->second.moved_fields, path)) {
+                            sit->moved_fields, path)) {
                         report(line, std::format(
                             "use of moved field '{}.{}' (moved on line {})",
                             root, hit->first, hit->second));
@@ -3292,19 +3292,19 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 // happens via take_ref_borrows from the Let handler.
                 {
                     std::string self_disp = fmt_path(root, path);
-                    if (sit->second.mut_borrowed) {
+                    if (sit->mut_borrowed) {
                         report(line, std::format(
                             "cannot borrow '{}': '{}' is already mutably borrowed",
                             self_disp, root));
                         break;
                     }
-                    if (is_mut && sit->second.shared_borrows > 0) {
+                    if (is_mut && sit->shared_borrows > 0) {
                         report(line, std::format(
                             "cannot borrow '{}' as mutable: '{}' has shared borrows",
                             self_disp, root));
                         break;
                     }
-                    for (auto& [p, c] : sit->second.shared_field_borrows) {
+                    for (auto& [p, c] : sit->shared_field_borrows) {
                         if (c <= 0) continue;
                         if (paths_overlap(path, p) && is_mut) {
                             report(line, std::format(
@@ -3313,7 +3313,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                             goto addrof_temp_done;
                         }
                     }
-                    for (auto& p : sit->second.mut_field_borrows) {
+                    for (auto& p : sit->mut_field_borrows) {
                         if (paths_overlap(path, p)) {
                             report(line, std::format(
                                 "cannot borrow '{}': '{}' is already mutably borrowed",
@@ -3381,8 +3381,8 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 }
             }
             if (!root.empty()) {
-                if (auto it = states_.find(root); it != states_.end()) {
-                    if (auto* hit = find_moved_overlap(it->second.moved_fields, path)) {
+                if (auto it = var_find(NO_SLOT, root); it != nullptr) {
+                    if (auto* hit = find_moved_overlap(it->moved_fields, path)) {
                         // Two overlap directions: (1) `path` reads INTO moved
                         // data (a moved entry is a prefix of path, e.g. read
                         // `o.i.s.x` after `o.i.s` moved) — always an error; (2)
@@ -3408,12 +3408,12 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     // Skipped in borrow-source position (`&root.path`) — the
                     // AddrOf site already decided the conflict.
                     if (!in_addr_source_ &&
-                        field_borrow_conflicts(it->second, root, path,
+                        field_borrow_conflicts((*it), root, path,
                                                /*need_exclusive=*/moving, line,
                                                moving ? "move" : "use"))
                         break;
                     if (moving) {
-                        it->second.moved_fields[path] = line;
+                        it->moved_fields[path] = line;
                         break;
                     }
                 }
