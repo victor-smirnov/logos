@@ -128,11 +128,14 @@ public:
             arena().head().data() + off.value());
     }
 
-    // Allocate an ArenaString and return an AnyVal pointing at it.
+    // Allocate an ArenaString and return an AnyVal pointing at it. Object
+    // creation goes through the HermesCtr producer API — never ArenaString::
+    // create(arena()) directly (that would break encapsulation by pulling the
+    // raw arena). make_string's view yields the self-relative AnyVal directly.
     hermes::AnyVal put_string(std::string_view s) {
-        auto p = hermes::ArenaString::create(arena(), s);
-        LOGOS_ASSERT(p.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
-        return hermes::AnyVal::from_offset(arena().head().data(), offset_of(*p));
+        auto v = ctr_.make_string(s);
+        LOGOS_ASSERT(v.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
+        return v->to_anyval();
     }
 
     // Translate a TypeRef to an AnyVal pointing at its mirror.
@@ -141,34 +144,40 @@ public:
         return hermes::AnyVal::from_offset(arena().head().data(), p.offset());
     }
 
-    // Build an ObjectArray from a vector<TypeRef> and return AnyVal.
+    // Build an ObjectArray from a vector<TypeRef> and return AnyVal. Created via
+    // the HermesCtr producer API (not ObjectArray::create(arena())). The array is
+    // pre-sized to the exact element count and ptr_to_mirror does NOT allocate, so
+    // no arena growth happens between pushes — the array view stays valid.
     hermes::AnyVal put_type_vec(const std::vector<TypeRef>& v) {
-        auto arr = hermes::ObjectArray::create(arena(), v.empty() ? 1 : v.size());
+        auto arr = ctr_.make_array(v.empty() ? 1 : v.size());
         LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
-        auto arr_off = offset_of(*arr);
         for (auto elem : v) {
-            auto v_any = ptr_to_mirror(elem);
-            auto r = reinterpret_cast<hermes::ObjectArray*>(
-                         arena().head().data() + arr_off.value())
-                     ->push_back(v_any, arena());
+            auto r = arr->push_back(ptr_to_mirror(elem));
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
-        return hermes::AnyVal::from_offset(arena().head().data(), arr_off);
+        return arr->to_anyval();
     }
 
-    // Build an ObjectArray from a vector<std::string> (lifetime_args).
+    // Build an ObjectArray from a vector<std::string> (lifetime_args). Created via
+    // the HermesCtr producer API. Strings are built FIRST, tracking their offsets
+    // (offsets survive a GrowableSingleChunk realloc; a held AnyVal would not);
+    // then the pre-sized array is created, so no allocation happens during the
+    // pushes and the array view stays valid.
     hermes::AnyVal put_string_vec(const std::vector<std::string>& v) {
-        auto arr = hermes::ObjectArray::create(arena(), v.empty() ? 1 : v.size());
-        LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
-        auto arr_off = offset_of(*arr);
+        std::vector<hermes::arena_offset_t> offs;
+        offs.reserve(v.size());
         for (const auto& s : v) {
-            auto v_any = put_string(s);
-            auto r = reinterpret_cast<hermes::ObjectArray*>(
-                         arena().head().data() + arr_off.value())
-                     ->push_back(v_any, arena());
+            auto sv = ctr_.make_string(s);
+            LOGOS_ASSERT(sv.has_value(), "SEMA-TYPEPOOL-003", "ArenaString alloc failed");
+            offs.push_back(sv->offset());
+        }
+        auto arr = ctr_.make_array(v.empty() ? 1 : v.size());
+        LOGOS_ASSERT(arr.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray alloc failed");
+        for (auto off : offs) {
+            auto r = arr->push_back(hermes::AnyVal::from_offset(arena().head().data(), off));
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003", "ObjectArray push failed");
         }
-        return hermes::AnyVal::from_offset(arena().head().data(), arr_off);
+        return arr->to_anyval();
     }
 
     // Build a Hermes mirror for `t` and return its arena offset.
@@ -230,7 +239,7 @@ public:
 
         // Create the map last so it doesn't get moved around by sub-allocs
         // (the map's own grow() handles relocation internally during put()).
-        auto map_exp = hermes::TinyObjectMap::create(arena(), /*capacity=*/8);
+        auto map_exp = ctr_.make_tiny_map(/*capacity=*/8);
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
         hermes::arena_offset_t map_off = offset_of(*map_exp);
