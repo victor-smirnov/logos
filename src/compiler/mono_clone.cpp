@@ -4385,7 +4385,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir_mirror_emit_block_node(out_, *body);
         std::string label(v.label());
         ns.mirror_offset_ = lir_mirror_emit_for(
-            out_, ns.line, var, lo, hi, inclusive, body, label);
+            out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot());  // Phase-1
         break;
     }
     case SCode::Loop: {
@@ -4659,7 +4659,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
         lir_mirror_emit_block_node(out_, *body);
         ns.mirror_offset_ = lir_mirror_emit_for_each(
-            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body);
+            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot());  // Phase-1
         break;
     }
     case SCode::LetElse: {

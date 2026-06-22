@@ -621,7 +621,8 @@ public:
                                             const lir::LExprPtr& hi,
                                             bool inclusive,
                                             const lir::LBlock* body,
-                                            std::string_view label) {
+                                            std::string_view label,
+                                            uint32_t slot = 0xFFFFFFFFu) {
         auto var_av  = put_string(var);
         auto lo_av   = expr_av(lo);
         auto hi_av   = expr_av(hi);
@@ -635,6 +636,7 @@ public:
         put(map_off, sk::INCLUSIVE, put_bool(inclusive));
         put(map_off, sk::BODY,      body_av);
         put(map_off, sk::LABEL,     label_av);
+        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
         put_line(map_off, line);
         return map_off;
     }
@@ -754,7 +756,8 @@ public:
                                                  TypeRef elem_type,
                                                  int64_t arr_size,
                                                  bool is_slice,
-                                                 const lir::LBlock* body) {
+                                                 const lir::LBlock* body,
+                                                 uint32_t slot = 0xFFFFFFFFu) {
         auto var_av  = put_string(var);
         auto iter_av = expr_av(iter);
         auto body_av = block_av_raw(body);
@@ -765,6 +768,7 @@ public:
         put(map_off, sk::ARR_SIZE,  put_i64(arr_size));
         put(map_off, sk::IS_SLICE,  put_bool(is_slice));
         put(map_off, sk::BODY,      body_av);
+        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
         put_line(map_off, line);
         return map_off;
     }
@@ -1949,10 +1953,10 @@ hermes::arena_offset_t lir_mirror_emit_while(lir::LProgram& prog, uint32_t line,
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_while_direct(line, cond, body, label);
 }
-hermes::arena_offset_t lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& lo, const lir::LExprPtr& hi, bool inclusive, const lir::LBlock* body, std::string_view label) {
+hermes::arena_offset_t lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& lo, const lir::LExprPtr& hi, bool inclusive, const lir::LBlock* body, std::string_view label, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_for_direct(line, var, lo, hi, inclusive, body, label);
+    return em.emit_for_direct(line, var, lo, hi, inclusive, body, label, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, const lir::LBlock* body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
     auto& arena = prog.type_pool.arena_or_init();
@@ -1999,10 +2003,10 @@ hermes::arena_offset_t lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t 
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
 }
-hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body) {
+hermes::arena_offset_t lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, const lir::LExprPtr& iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body);
+    return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_deref_write(lir::LProgram& prog, uint32_t line, const lir::LExprPtr& ptr, const lir::LExprPtr& value, bool drop_old) {
     auto& arena = prog.type_pool.arena_or_init();

@@ -986,7 +986,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
                 s.mirror_offset_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SFor>) {
-                s.mirror_offset_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label);
+                s.mirror_offset_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot);
             } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
                 s.mirror_offset_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
             } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
@@ -1006,7 +1006,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
                 s.mirror_offset_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
             } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
-                s.mirror_offset_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body);
+                s.mirror_offset_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
                 s.mirror_offset_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {

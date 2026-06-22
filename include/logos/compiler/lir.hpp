@@ -515,6 +515,7 @@ struct SFor {
     bool             inclusive;
     LBlockPtr        body = nullptr;
     std::string      label;  // optional loop label, empty = unlabeled
+    uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
 };
 
 struct SLoop {
@@ -588,6 +589,7 @@ struct SForEach {
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
     LBlockPtr        body = nullptr;
+    uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
 };
 
 struct SMatch {

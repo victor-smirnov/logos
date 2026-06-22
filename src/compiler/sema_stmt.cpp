@@ -6265,6 +6265,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
 
     push_scope();
     define(var_name, var_t, true);
+    uint32_t _for_slot = lookup_slot(var_name);  // Phase-1: capture before pop_scope
     auto body = lir::alloc_block(*cur_prog_);
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
@@ -6285,6 +6286,7 @@ lir::LStmt SemaChecker::lower_for(TinyMapView node) {
     sf.inclusive = inclusive;
     sf.body      = std::move(body);
     sf.label     = std::move(my_label);
+    sf.slot      = _for_slot;
     return make_stmt_emit(node_line_, std::move(sf));
 }
 
@@ -6376,6 +6378,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
         push_scope();
         define(var_name, elem_type, false);
+        uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(elem_type);
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
@@ -6395,6 +6398,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sfe.elem_type = elem_type;
         sfe.arr_size  = arr_size;
         sfe.body      = std::move(body);
+        sfe.slot      = _fe_slot;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
 
@@ -6408,6 +6412,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         // `elem_type` still flows to sfe.elem_type for the GEP stride.
         // G161-2: `for x in &mut arr` yields `&mut T` (mutable element ref).
         define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref);
+        uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(make_ref(for_mut_ref, elem_type));
         auto body = lir::alloc_block(*cur_prog_);
         if (node.has_key(la::BODY)) {
@@ -6427,6 +6432,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
         sfe.arr_size  = 0;
         sfe.is_slice  = true;
         sfe.body      = std::move(body);
+        sfe.slot      = _fe_slot;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
 
@@ -6460,6 +6466,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
 
             push_scope();
             define(var_name, make_ref(false, elem_t), false);  // yields &T
+            uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
             auto pat_pro = build_for_pat(make_ref(false, elem_t));
             auto body = lir::alloc_block(*cur_prog_);
             if (node.has_key(la::BODY)) {
@@ -6479,6 +6486,7 @@ lir::LStmt SemaChecker::lower_for_each(TinyMapView node) {
             sfe.arr_size  = 0;
             sfe.is_slice  = true;
             sfe.body      = std::move(body);
+            sfe.slot      = _fe_slot;
             return make_stmt_emit(node_line_, std::move(sfe));
         }
     }
