@@ -137,6 +137,8 @@ public:
     bool has_key(uint8_t key) const noexcept { return obj_ && obj_->has_key(key); }
     AnyVal get(uint8_t key) const noexcept { return obj_ ? obj_->get(key) : AnyVal{}; }
     [[nodiscard]] logos::expected<void> put(uint8_t key, AnyVal v) noexcept { return obj_->put(key, v, arena()); }
+    uint64_t schema_type_code() const noexcept { return obj_ ? obj_->schema_type_code() : 0; }
+    void set_schema_type_code(uint64_t c) noexcept { if (obj_) obj_->set_schema_type_code(c); }
 };
 
 class MapView : public View<ObjectMap> {

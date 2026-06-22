@@ -592,6 +592,11 @@ public:
     // emitter when the program contains no LogosType allocations.
     hermes::Arena&       arena_or_init();
 
+    // The pool's Hermes document, initialising it if needed. THE handle for all
+    // object creation (ctr.make_string / make_array / make_tiny_map …) — callers
+    // route producer work through this instead of pulling the raw arena.
+    hermes::HermesCtr&   ctr_or_init();
+
     // Phase 3d: expose the impl pointer so lir_view callers can wrap a raw
     // arena offset into a TypeRef (TypeRef stores pool* for trait/method
     // resolution; nullptr-pool TypeRefs work for kind/name accessors only).

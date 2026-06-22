@@ -123,9 +123,11 @@ public:
         return hermes::arena_offset_t{off};
     }
 
-    hermes::TinyObjectMap* at(hermes::arena_offset_t off) noexcept {
-        return reinterpret_cast<hermes::TinyObjectMap*>(
-            arena().head().data() + off.value());
+    // Raw arena access encapsulated in a view: the view re-resolves obj from the
+    // offset against the holder's base each call (valid as long as it isn't held
+    // past the next allocation — Stage C / MultiChunk removes the discipline).
+    hermes::TinyMapView at(hermes::arena_offset_t off) noexcept {
+        return hermes::TinyMapView(off, ctr_.holder());
     }
 
     // Allocate an ArenaString and return an AnyVal pointing at it. Object
@@ -243,12 +245,12 @@ public:
         LOGOS_ASSERT(map_exp.has_value(), "SEMA-TYPEPOOL-002",
             "TinyObjectMap allocation failed");
         hermes::arena_offset_t map_off = offset_of(*map_exp);
-        (*map_exp)->set_schema_type_code(
+        at(map_off).set_schema_type_code(
             hermes::schema::type(int32_t(t.kind)));
 
         auto put = [&](const sema_schema::Key& key, hermes::AnyVal val) {
             if (val.is_null()) return;
-            auto r = at(map_off)->put(key.code, val, arena());
+            auto r = at(map_off).put(key.code, val);
             LOGOS_ASSERT(r.has_value(), "SEMA-TYPEPOOL-003",
                 "TinyObjectMap put failed");
         };
@@ -1045,6 +1047,10 @@ const hermes::Arena* TypePool::arena() const noexcept {
 hermes::Arena& TypePool::arena_or_init() {
     if (!impl_) impl_ = TypePoolImpl::make();
     return impl_->arena();
+}
+hermes::HermesCtr& TypePool::ctr_or_init() {
+    if (!impl_) impl_ = TypePoolImpl::make();
+    return impl_->ctr_;
 }
 hermes::MemHolder* TypePool::holder() noexcept {
     return impl_ ? impl_->holder() : nullptr;
