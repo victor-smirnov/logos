@@ -4333,7 +4333,7 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         if (rhs) type_let_inits_[name] = rhs;
         auto value = subst_child_expr(rhs);
         ns.mirror_offset_ = lir_mirror_emit_let(
-            out_, ns.line, name, ty, value, is_mut);
+            out_, ns.line, name, ty, value, is_mut, v.var_slot());  // Phase-1: carry slot
         break;
     }
     case SCode::Assign: {

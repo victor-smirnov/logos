@@ -140,7 +140,7 @@ hermes::arena_offset_t lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRe
 // Stage B.6 — LStmt direct mirror writers. Allocate a fresh mirror map for a
 // single stmt kind from primitive args, without reading LStmt::kind. Caller
 // assigns the returned offset to LStmt::mirror_offset_.
-hermes::arena_offset_t lir_mirror_emit_let               (lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut);
+hermes::arena_offset_t lir_mirror_emit_let               (lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut, uint32_t slot = 0xFFFFFFFFu);
 hermes::arena_offset_t lir_mirror_emit_assign            (lir::LProgram& prog, uint32_t line, std::string_view name, const lir::LExprPtr& value, bool drop_old = false);
 hermes::arena_offset_t lir_mirror_emit_return            (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& value);
 hermes::arena_offset_t lir_mirror_emit_if_stmt           (lir::LProgram& prog, uint32_t line, const lir::LExprPtr& cond, const lir::LBlock* then_blk, const lir::LBlock* else_blk);

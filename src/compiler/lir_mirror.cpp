@@ -554,7 +554,7 @@ public:
     }
     hermes::arena_offset_t emit_let_direct(uint32_t line, std::string_view name,
                                             TypeRef ty, const lir::LExprPtr& value,
-                                            bool is_mut) {
+                                            bool is_mut, uint32_t slot = 0xFFFFFFFFu) {
         auto name_av = put_string(name);
         auto val_av  = expr_av(value);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Let));
@@ -562,6 +562,7 @@ public:
         put(map_off, sk::TYPE,   type_av(ty));
         put(map_off, sk::VALUE,  val_av);
         put(map_off, sk::IS_MUT, put_bool(is_mut));
+        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
         put_line(map_off, line);
         return map_off;
     }
@@ -1923,10 +1924,10 @@ hermes::arena_offset_t lir_mirror_emit_closure_box(lir::LProgram& prog, TypeRef 
 }
 
 // ── Stage B.6 — LStmt direct mirror writers ──────────────────────────────
-hermes::arena_offset_t lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut) {
+hermes::arena_offset_t lir_mirror_emit_let(lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, const lir::LExprPtr& value, bool is_mut, uint32_t slot) {
     auto& arena = prog.type_pool.arena_or_init();
     LirMirrorEmitter em(arena, *prog.mirror_table, prog.type_pool);
-    return em.emit_let_direct(line, name, ty, value, is_mut);
+    return em.emit_let_direct(line, name, ty, value, is_mut, slot);
 }
 hermes::arena_offset_t lir_mirror_emit_assign(lir::LProgram& prog, uint32_t line, std::string_view name, const lir::LExprPtr& value, bool drop_old) {
     auto& arena = prog.type_pool.arena_or_init();

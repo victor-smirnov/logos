@@ -364,6 +364,7 @@ inline constexpr Key ARR_SIZE          {"ARR_SIZE",        34};   // i64
 inline constexpr Key EXTRA_MIDS        {"EXTRA_MIDS",      35};   // Array<Varchar> — middle segments (between MID_FIELD and FIELD) in N-deep ChainFieldWrite
 inline constexpr Key MOVED_FIELDS      {"MOVED_FIELDS",    36};   // Array<Varchar> — SDrop: field names of `var_name` that were moved out and must not be auto-dropped
 inline constexpr Key DROP_OLD          {"DROP_OLD",        39};   // u8 — SAssign: drop the LHS's old value before storing (B8 drop-before-replace)
+inline constexpr Key VAR_SLOT          {"VAR_SLOT",        40};   // Int — SLet/SFor binding's dense var slot (see expr_keys::VAR_SLOT). Absent ⇒ no slot.
 
 // Multi-arena IR: dedicated per-element export ID. Stamped onto the
 // TinyObjectMap of every externally-referenceable element (the published

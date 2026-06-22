@@ -1533,6 +1533,11 @@ struct SLetView {
     TypeRef          type(const TypePoolImpl* pool) const noexcept {
         return detail::stmt_type(self, sk::TYPE.code, pool);
     }
+    // Phase-1: dense variable slot of this binding (0xFFFFFFFF = no slot).
+    uint32_t var_slot() const noexcept {
+        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
+        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
+    }
 };
 
 struct SAssignView {

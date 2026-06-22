@@ -969,7 +969,13 @@ private:
             using KT = std::decay_t<K>;
             auto& p = *cur_prog_;
             if constexpr (std::is_same_v<KT, lir::SLet>) {
-                s.mirror_offset_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value, k.is_mut);
+                // Phase-1: resolve the binding's dense slot here (single SLet→
+                // mirror chokepoint), so every lower_let* site is covered at
+                // once. define() ran before this for the binding, so lookup_slot
+                // returns the just-assigned slot; NO_SLOT for un-define()'d
+                // synthetic temps (downstream name-keys those).
+                s.mirror_offset_ = lir_mirror_emit_let(p, line, k.name, k.type, k.value,
+                                                       k.is_mut, lookup_slot(k.name));
             } else if constexpr (std::is_same_v<KT, lir::SAssign>) {
                 s.mirror_offset_ = lir_mirror_emit_assign(p, line, k.name, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
