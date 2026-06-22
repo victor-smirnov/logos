@@ -48,18 +48,20 @@ namespace logos::compiler {
 
 class TypePoolImpl {
 public:
-    // Owning ref to MemHolder: refcount==1 at init, dropped in dtor. Views
+    // The output mirror / type-pool document. Owns its MemHolder ref (the
+    // HermesCtr holds refcount==1 at init, drops it in its dtor); views
     // (StringView et al.) take additional refs via Own<>. The arena moves on
-    // grow() — never cache base pointers; always re-fetch via holder_->base().
-    hermes::MemHolder*                                     holder_ = nullptr;
+    // grow() — never cache base pointers; always re-fetch via ctr_.arena().
+    // Encapsulates what was a hand-rolled MemHolder + manual DocumentHeader.
+    hermes::HermesCtr                                      ctr_;
 
     // Phase 7 lite: latch so the 3.5 GB warning fires at most once per
     // TypePool instance (TypePool::alloc is the hot path).
     bool                                                   size_warned_ = false;
 
-    hermes::Arena&       arena()       noexcept { return holder_->arena(); }
-    const hermes::Arena& arena() const noexcept { return holder_->arena(); }
-    hermes::MemHolder*   holder() const noexcept { return holder_; }
+    hermes::Arena&       arena()       noexcept { return ctr_.arena(); }
+    const hermes::Arena& arena() const noexcept { return ctr_.arena(); }
+    hermes::MemHolder*   holder() const noexcept { return ctr_.holder(); }
 
     // 2c.5.4: intern table keyed by TypeUID (32-byte SHA-256-derived).
     // Bucket walk via builder_equals_typeref preserves byte-strict equality
@@ -88,29 +90,22 @@ public:
     }
 
     TypePoolImpl(logos::InitTag& tag) {
-        // hermes2 MemHolder::make returns a holder with refcount 1 (owning); the
-        // GrowableSingleChunk arena is the mirror/TypePool's single segment.
-        auto h = hermes::MemHolder::make(512ull * 1024 * 1024, hermes::ArenaMode::GrowableSingleChunk);
-        if (!h) {
-            tag.fail(std::move(h.error()));
+        // HermesCtr::make builds the MemHolder (refcount 1, owned by ctr_) AND the
+        // DocumentHeader at offset 0 — so a zero offset reads as the canonical
+        // "null" sentinel for AnyVal / RelativePtr. GrowableSingleChunk: a single
+        // segment whose RelativePtrs resolve against arena.head().data() (the
+        // MultiChunk flip is a later stage). 512 MB reserved up front, lazily
+        // paged, so the single chunk never reallocs in practice.
+        auto c = hermes::HermesCtr::make(512ull * 1024 * 1024,
+                                         hermes::ArenaMode::GrowableSingleChunk);
+        if (!c) {
+            tag.fail(std::move(c.error()));
             return;
         }
-        holder_ = *h;  // initial owning reference (refcount 1)
-        // Reserve offset 0 for the DocumentHeader so a zero offset reads as
-        // the canonical "null" sentinel for AnyVal / RelativePtr.
-        auto hdr_exp = arena().allocate_raw(sizeof(hermes::DocumentHeader),
-                                            alignof(hermes::DocumentHeader));
-        if (!hdr_exp) {
-            tag.fail(std::move(hdr_exp.error()));
-            return;
-        }
-        auto* hdr = static_cast<hermes::DocumentHeader*>(*hdr_exp);
-        hdr->root = hermes::AnyVal{};
+        ctr_ = std::move(*c);  // owns the initial MemHolder reference (refcount 1)
     }
 
-    ~TypePoolImpl() {
-        if (holder_) holder_->unref();
-    }
+    ~TypePoolImpl() = default;  // ctr_ drops its MemHolder ref
     TypePoolImpl(const TypePoolImpl&) = delete;
     TypePoolImpl& operator=(const TypePoolImpl&) = delete;
 

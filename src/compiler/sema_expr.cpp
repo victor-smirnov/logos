@@ -160,8 +160,6 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     // (Rust's autoref-on-unsized). `&Target` for an unsized Target canonicalises
     // to exactly that fat form.
     auto tgt_kind = TypeRef(target).kind();
-    bool tgt_unsized = tgt_kind == LogosType::Kind::UnsizedDyn ||
-                       tgt_kind == LogosType::Kind::UnsizedSlice;
     TypeRef ref_t;
     if (tgt_kind == LogosType::Kind::UnsizedDyn)
         // type_args() returns a FRESH vector per call — never iterate
