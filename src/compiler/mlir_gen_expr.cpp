@@ -2315,7 +2315,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             std::string fn_prefix_pkg = base_with_pkg + "__f__";
             callee_fn = find_fn_matching(parent_mod,
                 [&](mlir::func::FuncOp fn) {
-                    return fn.getName().str().rfind(fn_prefix_pkg, 0) == 0;
+                    return fn.getName().starts_with(fn_prefix_pkg);
                 });
             if (!callee_fn) {
                 auto dollar = base_with_pkg.rfind('$');
@@ -2324,7 +2324,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
                         base_with_pkg.substr(dollar + 1) + "__f__";
                     callee_fn = find_fn_matching(parent_mod,
                         [&](mlir::func::FuncOp fn) {
-                            return fn.getName().str().rfind(fn_prefix_bare, 0) == 0;
+                            return fn.getName().starts_with(fn_prefix_bare);
                         });
                 }
             }
@@ -2334,9 +2334,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             std::string fn_prefix      = callee + "__f__";
             callee_fn = find_fn_matching(parent_mod,
                 [&](mlir::func::FuncOp fn) {
-                    auto n = fn.getName().str();
-                    return n.rfind(generic_prefix, 0) == 0 ||
-                           n.rfind(fn_prefix, 0) == 0;
+                    llvm::StringRef n = fn.getName();
+                    return n.starts_with(generic_prefix) ||
+                           n.starts_with(fn_prefix);
                 });
         }
         if (!callee_fn) {
@@ -2345,20 +2345,17 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             std::string ends_dot = "." + callee;
             callee_fn = find_fn_matching(parent_mod,
                 [&](mlir::func::FuncOp fn) {
-                    auto n = fn.getName().str();
-                    bool ends = n.size() >= ends_dot.size() &&
-                                n.compare(n.size() - ends_dot.size(),
-                                          ends_dot.size(), ends_dot) == 0;
-                    return ends ||
-                           n.find(contains_f) != std::string::npos ||
-                           n.find(contains_g) != std::string::npos;
+                    llvm::StringRef n = fn.getName();
+                    return n.ends_with(ends_dot) ||
+                           n.contains(contains_f) ||
+                           n.contains(contains_g);
                 });
         }
         if (!callee_fn) {
             std::string callee_prefix = callee + "__";
             callee_fn = find_fn_matching(parent_mod,
                 [&](mlir::func::FuncOp fn) {
-                    return fn.getName().str().rfind(callee_prefix, 0) == 0;
+                    return fn.getName().starts_with(callee_prefix);
                 });
         }
     }
@@ -2640,10 +2637,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         std::string generic_prefix = cn + "__g__";
         std::string fn_prefix = cn + "__f__";
         return find_fn_matching(parent_mod,
-            [&](mlir::func::FuncOp fn) {
-                auto n = fn.getName().str();
-                return n.rfind(generic_prefix, 0) == 0 ||
-                       n.rfind(fn_prefix, 0) == 0;
+            [&](mlir::func::FuncOp f) {
+                llvm::StringRef n = f.getName();
+                return n.starts_with(generic_prefix) || n.starts_with(fn_prefix);
             });
     };
     if (!callee_fn) callee_fn = walk_prefix(callee_name);
@@ -2663,13 +2659,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         std::string contains_g = "." + bare_mangled + "__g__";
         callee_fn = find_fn_matching(parent_mod,
             [&](mlir::func::FuncOp fn) {
-                auto n = fn.getName().str();
-                bool ends = n.size() >= suffix1.size() &&
-                            n.compare(n.size() - suffix1.size(),
-                                      suffix1.size(), suffix1) == 0;
-                return ends ||
-                       n.find(contains_f) != std::string::npos ||
-                       n.find(contains_g) != std::string::npos;
+                llvm::StringRef n = fn.getName();
+                return n.ends_with(suffix1) ||
+                       n.contains(contains_f) ||
+                       n.contains(contains_g);
             });
         if (callee_fn) callee_name = callee_fn.getName().str();
     }
