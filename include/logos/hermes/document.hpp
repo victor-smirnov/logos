@@ -139,6 +139,14 @@ public:
         LOGOS_TRY(auto* m, ObjectMap::create(arena(), cap));
         return MapView(m, holder_);
     }
+    // Producer for a typed container with a static create(Arena&, cap) but no
+    // dedicated owning view (TypedArray<T> / TypedMap<T>) — returns the raw
+    // pointer. Routes creation through the document even where rule-3 view access
+    // doesn't apply. M is resolved at the call site (no extra include needed here).
+    template <typename M>
+    [[nodiscard]] logos::expected<M*> make_typed(uint64_t cap) noexcept {
+        return M::create(arena(), cap);
+    }
     [[nodiscard]] logos::expected<StringView> make_string(std::string_view s) noexcept {
         LOGOS_TRY(auto* s2, ArenaString::create(arena(), s));
         return StringView(s2, holder_);

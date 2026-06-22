@@ -5747,15 +5747,11 @@ static AnyVal ptr_anyval(const void* obj) {
 static uint32_t build_object_array(lir_view::HVArrayView arr,
                                    logos::hermes::Hermes& doc) {
     uint64_t n = arr.size();
-    auto* a = ObjectArray::create(HermesAccess::arena(doc),
-                                  n ? n : uint64_t{4}).get();
-    uint32_t a_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(a) - HermesAccess::base(doc));
+    uint32_t a_off = doc.make_array(n ? n : uint64_t{4}).get().offset().value();
     for (uint64_t i = 0; i < n; ++i) {
-        AnyVal elem_av = build_hermes_val(arr.elem(i), doc);   // may alloc → re-fetch cur
-        auto* cur = reinterpret_cast<ObjectArray*>(
-            HermesAccess::base(doc) + a_off);
-        cur->push_back(elem_av, HermesAccess::arena(doc)).get();
+        AnyVal elem_av = build_hermes_val(arr.elem(i), doc);   // may alloc → re-fetch view
+        logos::hermes::ArrayView(arena_offset_t(a_off), doc.holder())
+            .push_back(elem_av).get();
     }
     return a_off;
 }
@@ -5764,8 +5760,7 @@ template <typename T>
 static uint32_t build_typed_array_scalar(lir_view::HVArrayView arr,
                                          logos::hermes::Hermes& doc) {
     uint64_t n = arr.size();
-    auto* a = TypedArray<T>::create(HermesAccess::arena(doc),
-                                    n ? n : uint64_t{4}).get();
+    auto* a = doc.make_typed<TypedArray<T>>(n ? n : uint64_t{4}).get();
     uint32_t a_off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(a) - HermesAccess::base(doc));
     for (uint64_t i = 0; i < n; ++i) {
@@ -5802,17 +5797,14 @@ static uint32_t build_object_map(lir_view::HVMapView map,
     uint64_t n = map.size();
     uint32_t cap = 8;
     while (cap < n * 2 || cap < 8) cap <<= 1;
-    auto* m = ObjectMap::create(HermesAccess::arena(doc), cap).get();
-    uint32_t m_off = static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
+    uint32_t m_off = doc.make_object_map(cap).get().offset().value();
     for (uint64_t i = 0; i < n; ++i) {
         std::string key_str = map.int_keyed()
             ? std::to_string(map.int_key(i))
             : std::string(map.str_key(i));
         AnyVal val_av = build_hermes_val(map.value(i), doc);
-        auto* cur = reinterpret_cast<ObjectMap*>(
-            HermesAccess::base(doc) + m_off);
-        cur->put(key_str, val_av, HermesAccess::arena(doc)).get();
+        logos::hermes::MapView(arena_offset_t(m_off), doc.holder())
+            .put(key_str, val_av).get();
     }
     return m_off;
 }
@@ -5822,7 +5814,7 @@ static uint32_t build_typed_map_anyval(lir_view::HVMapView map,
                                        logos::hermes::Hermes& doc) {
     uint64_t n = map.size();
     uint32_t cap = n == 0 ? 1 : static_cast<uint32_t>(n);
-    auto* m = Map::create(HermesAccess::arena(doc), cap).get();
+    auto* m = doc.make_typed<Map>(cap).get();
     uint32_t m_off = static_cast<uint32_t>(
         reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
     for (uint64_t i = 0; i < n; ++i) {
@@ -5866,9 +5858,7 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
         return doc.box<double>(lir_view::HVFloatView{v}.value()).get();
     case HC::Str: {
         auto sv = lir_view::HVStrView{v}.value();
-        auto* s = ArenaString::create(
-            HermesAccess::arena(doc), std::string(sv)).get();
-        return ptr_anyval(s);
+        return doc.make_string(std::string(sv)).get().to_anyval();
     }
     case HC::Array: {
         uint32_t off = build_array(lir_view::HVArrayView{v}, doc);   // build FIRST (may realloc)
@@ -5888,29 +5878,24 @@ static AnyVal build_hermes_val(lir_view::HermesValRef v,
         //   key 1: uid  (u64, ptr-mode AnyVal)
         //   key 2: name (ArenaString ptr-mode AnyVal)
         lir_view::HVTypeView tv{v};
-        auto& arena = HermesAccess::arena(doc);
-        auto* m = logos::hermes::TinyObjectMap::create(arena, /*cap=*/4).get();
-        m->set_schema_type_code(logos::hermes::type_hash::Type);
-        uint32_t m_off = static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
+        auto mv = doc.make_tiny_map_view(/*cap=*/4).get();
+        mv.set_schema_type_code(logos::hermes::type_hash::Type);
+        uint32_t m_off = mv.offset().value();
 
         AnyVal kind_av = AnyVal::from_value<uint32_t>(tv.kind());
         AnyVal uid_av  = doc.box<uint64_t>(tv.uid()).get();
-        auto*  s       = ArenaString::create(arena, std::string(tv.name())).get();
-        AnyVal name_av = AnyVal::from_offset(HermesAccess::base(doc), arena_offset_t(static_cast<uint32_t>(
-            reinterpret_cast<uint8_t*>(s) - HermesAccess::base(doc))));
+        AnyVal name_av = doc.make_string(std::string(tv.name())).get().to_anyval();
 
-        auto* cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-            HermesAccess::base(doc) + m_off);
-        cur->put(0, kind_av, arena).get();
-        cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-            HermesAccess::base(doc) + m_off);
-        cur->put(1, uid_av, arena).get();
-        cur = reinterpret_cast<logos::hermes::TinyObjectMap*>(
-            HermesAccess::base(doc) + m_off);
-        cur->put(2, name_av, arena).get();
+        // Re-fetch the map by offset each put (a build_*/box alloc above may have
+        // relocated under GrowableSingleChunk); the TinyMapView wraps the resolve.
+        auto map_at = [&] {
+            return logos::hermes::TinyMapView(arena_offset_t(m_off), doc.holder());
+        };
+        map_at().put(0, kind_av).get();
+        map_at().put(1, uid_av).get();
+        map_at().put(2, name_av).get();
 
-        return ptr_anyval(HermesAccess::base(doc) + m_off);
+        return map_at().to_anyval();
     }
     }
     return AnyVal::null();
