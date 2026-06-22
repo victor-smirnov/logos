@@ -38,11 +38,8 @@ namespace {
 // ── Hermes building helpers ───────────────────────────────────────────────
 
 static AnyVal hval_str(Hermes& doc, std::string_view s) {
-    auto* as = ArenaString::create(HermesAccess::arena(doc), s).get();
-    // Hermes AnyVal is SELF-relative: build the Ref via set_ref(absolute ptr), NOT
-    // from_raw(offset) (the Hermes1 base-relative convention — resolve() would then be
-    // &slot+offset = garbage). The returned temporary re-anchors when stored.
-    AnyVal r; r.set_ref(as); return r;
+    // make_string yields a self-relative StringView; to_anyval() is its Ref.
+    return doc.make_string(s).get().to_anyval();
 }
 
 // u64: store in arena with U64 tag (type_code=27); readable via get_u64().
@@ -63,9 +60,7 @@ static AnyVal hval_bool([[maybe_unused]] Hermes& doc, bool v) {
 }
 
 static uint32_t begin_map(Hermes& doc, uint8_t log2 = 3) {
-    auto* m = ObjectMap::create(HermesAccess::arena(doc), log2).get();
-    return static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(m) - HermesAccess::base(doc));
+    return doc.make_object_map(log2).get().offset().value();
 }
 
 static void map_put(Hermes& doc, uint32_t m_off, std::string_view key, AnyVal val) {
@@ -74,9 +69,7 @@ static void map_put(Hermes& doc, uint32_t m_off, std::string_view key, AnyVal va
 }
 
 static uint32_t begin_array(Hermes& doc) {
-    auto* a = ObjectArray::create(HermesAccess::arena(doc), 4).get();
-    return static_cast<uint32_t>(
-        reinterpret_cast<uint8_t*>(a) - HermesAccess::base(doc));
+    return doc.make_array(4).get().offset().value();
 }
 
 static void array_push(Hermes& doc, uint32_t a_off, AnyVal val) {
