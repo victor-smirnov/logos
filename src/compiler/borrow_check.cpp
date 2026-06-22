@@ -575,6 +575,31 @@ class BorrowChecker {
     const TypeSets&      ts_;
 
     StateMap                 states_;
+    // Phase-1 string-interning migration — accessor chokepoint over states_.
+    // STEP 1 (this form): everything routes by NAME onto states_ (the `slot`
+    // argument is accepted but ignored), so converting access sites to these
+    // methods is behaviour-preserving and can proceed incrementally (converted
+    // and not-yet-converted sites hit the same map). STEP 3 will replace
+    // states_ with a hybrid {vector<VarState> by slot + name fallback} and
+    // rewrite ONLY these methods + the branch-merge sites — the call sites stay.
+    static constexpr uint32_t NO_SLOT = 0xFFFFFFFFu;
+    VarState* var_find(uint32_t /*slot*/, std::string_view name) {
+        auto it = states_.find(std::string(name));
+        return it == states_.end() ? nullptr : &it->second;
+    }
+    const VarState* var_find(uint32_t /*slot*/, std::string_view name) const {
+        auto it = states_.find(std::string(name));
+        return it == states_.end() ? nullptr : &it->second;
+    }
+    bool var_has(uint32_t /*slot*/, std::string_view name) const {
+        return states_.count(std::string(name)) != 0;
+    }
+    VarState& var_at(uint32_t /*slot*/, std::string_view name) {  // operator[] equiv
+        return states_[std::string(name)];
+    }
+    void var_erase(uint32_t /*slot*/, std::string_view name) {
+        states_.erase(std::string(name));
+    }
     std::vector<ScopeFrame>  scopes_;
     // Phase 4: provenance tracking for reference-typed variables.
     ProvMap                              prov_;
@@ -754,7 +779,7 @@ class BorrowChecker {
         }
         // Remove variables declared in this scope.
         for (auto& name : frame.declared) {
-            states_.erase(name);
+            var_erase(NO_SLOT, name);
             prov_.erase(name);
             dropck_borrow_sources_.erase(name);
             dropck_binding_line_.erase(name);
@@ -766,7 +791,7 @@ class BorrowChecker {
     }
 
     void declare_var(const std::string& name) {
-        states_[name] = VarState{};
+        var_at(NO_SLOT, name) = VarState{};
         if (!scopes_.empty()) scopes_.back().declared.push_back(name);
     }
 
@@ -818,7 +843,7 @@ class BorrowChecker {
         switch (e.kind()) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
-                if (states_.count(n) && !param_names_.count(n))
+                if (var_has(NO_SLOT, n) && !param_names_.count(n))
                     out.push_back(std::move(n));
                 return;
             }
@@ -892,7 +917,7 @@ class BorrowChecker {
         switch (e.kind()) {
             case EC::AddrOf: {
                 std::string n(lir_view::EAddrOfView{e}.var_name());
-                if (states_.count(n) && !param_names_.count(n))
+                if (var_has(NO_SLOT, n) && !param_names_.count(n))
                     out.push_back(std::move(n));
                 return;
             }
@@ -900,7 +925,7 @@ class BorrowChecker {
                 // `&x.f`, `&x[i]`, `&*r` → root local via the shared place walker.
                 BorrowPlace bp = extract_borrow_place(
                     lir_view::EAddrOfTempView{e}.inner(), pool);
-                if (!bp.root.empty() && states_.count(bp.root) &&
+                if (!bp.root.empty() && var_has(NO_SLOT, bp.root) &&
                     !param_names_.count(bp.root))
                     out.push_back(bp.root);
                 return;
@@ -1556,7 +1581,7 @@ class BorrowChecker {
         }
         if (cur && cur.kind() == Code::VarRef) {
             std::string rn(EVarRefView{cur}.name());
-            if (states_.count(rn) && !param_names_.count(rn) &&
+            if (var_has(NO_SLOT, rn) && !param_names_.count(rn) &&
                 prov_.find(rn) == prov_.end())
                 return rn;
         }
@@ -1585,7 +1610,7 @@ class BorrowChecker {
                 if (is_materialized_temp_name(name))
                     return {{}, /*is_local=*/false, /*is_temp=*/true};
                 if (param_names_.count(name)) return {{name}, false};
-                if (states_.count(name))      return {{},     true};
+                if (var_has(NO_SLOT, name))      return {{},     true};
                 return {};
             }
             case Code::AddrOfTemp: {
@@ -2037,7 +2062,7 @@ class BorrowChecker {
                     // is tracked); only RAW pointers are unchecked (Rust parity).
                     bool root_is_rawptr = bp.root_type &&
                         bp.root_type.kind() == LogosType::Kind::Ptr;
-                    if (!bp.root.empty() && !root_is_rawptr && states_.count(bp.root))
+                    if (!bp.root.empty() && !root_is_rawptr && var_has(NO_SLOT, bp.root))
                         take_borrow(bp.root, av.is_mut() || force_mut, line, holder);
                 } else if (recv && result_borrows_self(v)) {
                     // Bare VarRef / place receiver — sema didn't wrap it in
@@ -2066,7 +2091,7 @@ class BorrowChecker {
                         root_is_rc = rn == "Rc" || rn == "Arc";
                     }
                     if (!bp.root.empty() && !root_is_rawptr && !root_is_rc &&
-                        states_.count(bp.root)) {
+                        var_has(NO_SLOT, bp.root)) {
                         bool m = method_self_kind(v) == 2 || force_mut;
                         // Field-precise when the receiver is a field chain
                         // (`self.arc.deref_mut()` borrows self.arc, not all
@@ -2547,7 +2572,7 @@ class BorrowChecker {
         prov_   = pre_p;
         for (auto& [name, st] : post_s)
             if (st.moved && pre_s.count(name))
-                states_[name] = st;
+                var_at(NO_SLOT, name) = st;
         merge_provs(prov_, post_p);
     }
 
@@ -2662,8 +2687,8 @@ class BorrowChecker {
                 } else if (val) {
                     visit(val, /*consuming=*/true, ln);
                 }
-                if (states_.count(name))
-                    states_[name] = VarState{};  // re-own
+                if (var_has(NO_SLOT, name))
+                    var_at(NO_SLOT, name) = VarState{};  // re-own
                 if (is_ref_assign)
                     prov_[name] = prov_of(val);
                 // B87 dropck: record on (re-)assign too.
@@ -2871,7 +2896,7 @@ class BorrowChecker {
                     if (c && c.kind() == EC::VarRef &&
                         atv.inner().kind() != EC::VarRef) {
                         std::string root(EVarRefView{c}.name());
-                        if (states_.count(root) && !param_names_.count(root))
+                        if (var_has(NO_SLOT, root) && !param_names_.count(root))
                             add_ref_sources(root, v.value(), ln);
                     }
                 }
@@ -3035,7 +3060,7 @@ class BorrowChecker {
                     states_ = saved_s;
                     prov_   = saved_p;
                     for (auto& [name, st] : *merged_s)
-                        if (saved_s.count(name)) states_[name] = st;
+                        if (saved_s.count(name)) var_at(NO_SLOT, name) = st;
                     merge_provs(prov_, *merged_p);
                     ref_borrow_sources_ = std::move(acc_rbs);
                     ref_borrow_line_    = std::move(acc_rbl);
@@ -3238,7 +3263,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                 bp.root_type &&
                 (bp.root_type.kind() == LogosType::Kind::Ref ||
                  bp.root_type.kind() == LogosType::Kind::MutRef);
-            if (!root.empty() && !root_is_rawptr && states_.count(root)) {
+            if (!root.empty() && !root_is_rawptr && var_has(NO_SLOT, root)) {
                 auto sit = states_.find(root);
                 // Mut-binding check (root-level) — skipped for reference roots.
                 if (is_mut && !root_is_ref && !sit->second.is_mut_binding
@@ -3446,7 +3471,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             if (auto recv = v.receiver();
                 recv && recv.kind() == Code::VarRef && method_self_kind(v) == 2) {
                 std::string rn(lir_view::EVarRefView{recv}.name());
-                if (states_.count(rn)) {
+                if (var_has(NO_SLOT, rn)) {
                     RefProv cap = {};
                     // §B6: element types of the receiver container (`Vec<&T>` →
                     // [&T]). A by-value arg whose type IS an element type is being
@@ -3589,7 +3614,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
             });
             if (merged_s) {
                 for (auto& [name, st] : *merged_s)
-                    if (saved_s.count(name)) states_[name] = st;
+                    if (saved_s.count(name)) var_at(NO_SLOT, name) = st;
                 merge_provs(prov_, *merged_p);
             }
             break;
