@@ -341,7 +341,78 @@ struct VarState {
     std::unordered_set<std::string>       mut_field_borrows;     // path
 };
 
-using StateMap = std::unordered_map<std::string, VarState>;
+// Phase-1 string-interning flip: the per-function variable-state store. A var
+// that sema assigned a dense SLOT lives in slot_[slot] (declared_[slot]=1), and
+// name2slot_ maps its name → slot so a residual by-NAME access still finds it.
+// Vars with no slot (synthesised refs, captures with no node) live in name_.
+// Copyable, so branch save/restore is a plain struct copy and merge iterates
+// declared slots + name_. Replaces the old unordered_map<string,VarState>,
+// killing the per-access string hash + node alloc for slotted vars (the bulk).
+struct VarStore {
+    static constexpr uint32_t NO_SLOT = 0xFFFFFFFFu;
+    std::vector<VarState>                      slot_;       // by slot index
+    std::vector<char>                          declared_;   // slot live?
+    std::unordered_map<std::string, VarState>  name_;       // unslotted vars
+    std::unordered_map<std::string, uint32_t>  name2slot_;  // name → slot (slotted)
+
+    void reset(uint32_t n) {
+        slot_.assign(n, VarState{}); declared_.assign(n, 0);
+        name_.clear(); name2slot_.clear();
+    }
+    void clear() { reset(static_cast<uint32_t>(slot_.size())); }
+
+    uint32_t resolve(uint32_t slot, std::string_view name) const {
+        if (slot != NO_SLOT) return slot;
+        auto it = name2slot_.find(std::string(name));
+        return it == name2slot_.end() ? NO_SLOT : it->second;
+    }
+    VarState* find(uint32_t slot, std::string_view name) {
+        uint32_t s = resolve(slot, name);
+        if (s != NO_SLOT && s < declared_.size() && declared_[s]) return &slot_[s];
+        auto it = name_.find(std::string(name));
+        return it == name_.end() ? nullptr : &it->second;
+    }
+    const VarState* find(uint32_t slot, std::string_view name) const {
+        uint32_t s = resolve(slot, name);
+        if (s != NO_SLOT && s < declared_.size() && declared_[s]) return &slot_[s];
+        auto it = name_.find(std::string(name));
+        return it == name_.end() ? nullptr : &it->second;
+    }
+    bool has(uint32_t slot, std::string_view name) const { return find(slot, name) != nullptr; }
+    // operator[] equivalent: access-or-declare. A real slot (declare site) or a
+    // resolvable name routes to slot_; otherwise a fresh name_ entry.
+    VarState& at(uint32_t slot, std::string_view name) {
+        uint32_t s = (slot != NO_SLOT) ? slot : resolve(slot, name);
+        if (s != NO_SLOT && s < slot_.size()) {
+            declared_[s] = 1;
+            if (!name.empty()) name2slot_[std::string(name)] = s;
+            return slot_[s];
+        }
+        return name_[std::string(name)];
+    }
+    void erase(uint32_t slot, std::string_view name) {
+        uint32_t s = resolve(slot, name);
+        if (s != NO_SLOT && s < declared_.size()) declared_[s] = 0;
+        name2slot_.erase(std::string(name));
+        name_.erase(std::string(name));
+    }
+    // Branch-merge support: iterate every live var as (slot, name, state) — slot
+    // vars yield an empty name, name_ vars yield NO_SLOT. has_id/at_id match a
+    // var across two stores by slot (or name for unslotted).
+    template <class F> void for_each(F&& f) {
+        for (uint32_t s = 0; s < slot_.size(); ++s) if (declared_[s]) f(s, std::string_view{}, slot_[s]);
+        for (auto& [n, st] : name_) f(NO_SLOT, std::string_view(n), st);
+    }
+    bool has_id(uint32_t slot, std::string_view name) const {
+        if (slot != NO_SLOT) return slot < declared_.size() && declared_[slot];
+        return name_.count(std::string(name)) != 0;
+    }
+    VarState& at_id(uint32_t slot, std::string_view name) {
+        if (slot != NO_SLOT) { declared_[slot] = 1; return slot_[slot]; }
+        return name_[std::string(name)];
+    }
+};
+using StateMap = VarStore;
 
 // Phase 4 — lifetime provenance.
 // For each reference-typed variable, tracks which function parameters it
@@ -565,9 +636,10 @@ static BorrowPlace extract_borrow_place(lir_view::ExprRef inner,
 
 // Merge Phase-1 move state from 'other' into 'base' (union of moved sets).
 // Borrows are scope-local and do not survive merges.
-static void merge_moves(StateMap& base, const StateMap& other) {
-    for (auto& [name, st] : other)
-        if (st.moved) base[name] = st;
+static void merge_moves(StateMap& base, StateMap& other) {
+    other.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+        if (st.moved) base.at_id(slot, name) = st;
+    });
 }
 
 // ── BorrowChecker ───────────────────────────────────────────────────────────
@@ -586,23 +658,21 @@ class BorrowChecker {
     // and not-yet-converted sites hit the same map). STEP 3 will replace
     // states_ with a hybrid {vector<VarState> by slot + name fallback} and
     // rewrite ONLY these methods + the branch-merge sites — the call sites stay.
-    static constexpr uint32_t NO_SLOT = 0xFFFFFFFFu;
-    VarState* var_find(uint32_t /*slot*/, std::string_view name) {
-        auto it = states_.find(std::string(name));
-        return it == states_.end() ? nullptr : &it->second;
+    static constexpr uint32_t NO_SLOT = VarStore::NO_SLOT;
+    VarState* var_find(uint32_t slot, std::string_view name) {
+        return states_.find(slot, name);
     }
-    const VarState* var_find(uint32_t /*slot*/, std::string_view name) const {
-        auto it = states_.find(std::string(name));
-        return it == states_.end() ? nullptr : &it->second;
+    const VarState* var_find(uint32_t slot, std::string_view name) const {
+        return states_.find(slot, name);
     }
-    bool var_has(uint32_t /*slot*/, std::string_view name) const {
-        return states_.count(std::string(name)) != 0;
+    bool var_has(uint32_t slot, std::string_view name) const {
+        return states_.has(slot, name);
     }
-    VarState& var_at(uint32_t /*slot*/, std::string_view name) {  // operator[] equiv
-        return states_[std::string(name)];
+    VarState& var_at(uint32_t slot, std::string_view name) {
+        return states_.at(slot, name);
     }
-    void var_erase(uint32_t /*slot*/, std::string_view name) {
-        states_.erase(std::string(name));
+    void var_erase(uint32_t slot, std::string_view name) {
+        states_.erase(slot, name);
     }
     std::vector<ScopeFrame>  scopes_;
     // Phase 4: provenance tracking for reference-typed variables.
@@ -2578,9 +2648,10 @@ class BorrowChecker {
         auto post_p = prov_;
         states_ = pre_s;
         prov_   = pre_p;
-        for (auto& [name, st] : post_s)
-            if (st.moved && pre_s.count(name))
-                var_at(NO_SLOT, name) = st;
+        post_s.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+            if (st.moved && pre_s.has_id(slot, name))
+                states_.at_id(slot, name) = st;
+        });
         merge_provs(prov_, post_p);
     }
 
@@ -3058,17 +3129,19 @@ class BorrowChecker {
                         merged_s = states_;
                         merged_p = prov_;
                     } else {
-                        for (auto& [name, st] : states_)
-                            if (st.moved && saved_s.count(name))
-                                (*merged_s)[name] = st;
+                        states_.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                            if (st.moved && saved_s.has_id(slot, name))
+                                merged_s->at_id(slot, name) = st;
+                        });
                         merge_provs(*merged_p, prov_);
                     }
                 });
                 if (merged_s) {
                     states_ = saved_s;
                     prov_   = saved_p;
-                    for (auto& [name, st] : *merged_s)
-                        if (saved_s.count(name)) var_at(NO_SLOT, name) = st;
+                    merged_s->for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                        if (saved_s.has_id(slot, name)) states_.at_id(slot, name) = st;
+                    });
                     merge_provs(prov_, *merged_p);
                     ref_borrow_sources_ = std::move(acc_rbs);
                     ref_borrow_line_    = std::move(acc_rbl);
@@ -3614,15 +3687,17 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
                     merged_s = states_;
                     merged_p = prov_;
                 } else {
-                    for (auto& [name, st] : states_)
-                        if (st.moved && saved_s.count(name))
-                            (*merged_s)[name] = st;
+                    states_.for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                        if (st.moved && saved_s.has_id(slot, name))
+                            merged_s->at_id(slot, name) = st;
+                    });
                     merge_provs(*merged_p, prov_);
                 }
             });
             if (merged_s) {
-                for (auto& [name, st] : *merged_s)
-                    if (saved_s.count(name)) var_at(NO_SLOT, name) = st;
+                merged_s->for_each([&](uint32_t slot, std::string_view name, VarState& st) {
+                    if (saved_s.has_id(slot, name)) states_.at_id(slot, name) = st;
+                });
                 merge_provs(prov_, *merged_p);
             }
             break;
