@@ -15,6 +15,7 @@
 #pragma once
 
 #include <logos/compiler/sema.hpp>   // LogosType, TypePool, SemaResult
+#include <logos/compiler/lir_view.hpp> // ExprRef/StmtRef/BlockRef (Stage D bridge)
 #include <logos/compiler/str_map.hpp>
 #include <logos/hermes/compat.hpp>    // arena_offset_t
 #include <logos/hermes/compat.hpp>  // ExternalRef (Phase 4.A: LFunction.body_external_ref)
@@ -481,6 +482,13 @@ struct LExpr {
     // payload — the variant kind has been dropped, all readers go through the
     // mirror via lir_view::ExprRef.
     mutable const uint8_t* mirror_ptr_ = nullptr;
+    // Stage D bridge (TRANSIENT): the arena this node's mirror lives in, so an
+    // LExpr* converts to a lir_view::ExprRef for free during the LExprPtr→ExprRef
+    // migration. Dropped together with this whole struct once the skeleton is gone.
+    const hermes::Arena* arena = nullptr;
+    operator lir_view::ExprRef() const noexcept {
+        return lir_view::ExprRef(arena, mirror_ptr_);
+    }
 };
 
 // ── Statement node payloads ───────────────────────────────────────────────
@@ -1285,7 +1293,9 @@ struct LProgram {
 inline LExpr* alloc_expr(LProgram& prog) {
     if (!prog.expr_pool_) prog.expr_pool_ = std::make_shared<std::vector<std::unique_ptr<LExpr>>>();
     prog.expr_pool_->push_back(std::make_unique<LExpr>());
-    return prog.expr_pool_->back().get();
+    LExpr* e = prog.expr_pool_->back().get();
+    e->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
+    return e;
 }
 
 // Slice 1c allocators. Forward Args... so callers can `alloc_block(prog, std::move(inner))`
