@@ -1331,17 +1331,17 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
         lc.value = lower_expr(map_of(node.get(la::VALUE.code)));
         // B-ca-02: typecheck initializer against declared const type at sema
         // so the diagnostic surfaces here rather than at MLIR-verifier time.
-        if (lc.type && lc.value && lc.value->type &&
+        if (lc.type && lc.value && expr_type(lc.value) &&
             TypeRef(lc.type).kind() != LogosType::Kind::Error &&
-            TypeRef(lc.value->type).kind() != LogosType::Kind::Error &&
-            !types_compatible(lc.value->type, lc.type)) {
+            TypeRef(expr_type(lc.value)).kind() != LogosType::Kind::Error &&
+            !types_compatible(expr_type(lc.value), lc.type)) {
             // HermesStatic special-case: literal evaluates to HStaticLit,
             // which is treated as compatible with HermesStatic at higher level.
             bool hs_ok = TypeRef(lc.type).kind() == LogosType::Kind::Struct &&
                          is_hermes_static(lc.type) &&
-                         TypeRef(lc.value->type).kind() == LogosType::Kind::HStaticLit;
+                         TypeRef(expr_type(lc.value)).kind() == LogosType::Kind::HStaticLit;
             if (!hs_ok) {
-                auto [es, gs] = type_str_pair(lc.type, lc.value->type);
+                auto [es, gs] = type_str_pair(lc.type, expr_type(lc.value));
                 error(std::format(
                     "const '{}': initializer type mismatch — expected {}, got {}",
                     name, es, gs));
@@ -1967,7 +1967,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     acc.method_base = "kassoc_" + cname;
                     acc.package     = cur_package_;
                     acc.ret_type    = ctype ? ctype
-                                            : (val ? val->type : void_t());
+                                            : (val ? expr_type(val) : void_t());
                     acc.is_pub      = true;
                     acc.source_file = file_;
                     acc.body.stmts.push_back(builder().stmt_return(val, 0));

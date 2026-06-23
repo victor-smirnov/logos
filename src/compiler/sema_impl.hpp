@@ -855,6 +855,13 @@ private:
         if (s.mirror_ptr_ == nullptr) return {};
         return lir_view::StmtRef(cur_prog_->type_pool.arena(), s.mirror_ptr_);
     }
+    // Stage D4.1 chokepoint: the type of an L-IR expression read from its Hermes
+    // mirror (replaces the husk LExpr::type cache field, which goes away with the
+    // skeleton). Null-safe via lir::eref. The single place to memoize if the
+    // per-read TinyObjectMap lookup ever shows up in a profile ("optimize later").
+    TypeRef expr_type(const lir::LExpr* e) const noexcept {
+        return lir::eref(e).type(cur_prog_->type_pool.impl());
+    }
     // E0507: is `e` a place from which a MOVE-typed value cannot be moved out by
     // value — `*r` (deref of a `&`/`&mut` reference VARIABLE), `v[i]`/`s[i]`
     // (index of a NON-raw container, incl. `v[i]` over a user Index trait which
