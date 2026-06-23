@@ -432,8 +432,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     // Module constant: re-evaluate inline. (Statics are NOT inlined — they have
     // real storage and never reach here as a bare VarRef.)
     auto cit = module_consts_.find(name);
-    if (cit != module_consts_.end() && !cit->second->is_static)
-        return gen_expr(cit->second->value);
+    if (cit != module_consts_.end() && !cit->second.is_static())
+        return gen_expr(cit->second.value());
 
     auto it = scope_.find(name);
     if (it == scope_.end()) {
@@ -1388,7 +1388,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfView v, TypeRef) {
         // and store the const value, then return the slot address.
         auto cit = module_consts_.find(var_name);
         if (cit != module_consts_.end()) {
-            auto val = gen_expr(cit->second->value);
+            auto val = gen_expr(cit->second.value());
             if (!val) {
                 std::fprintf(stderr, "mlir_gen: & const '%s' eval failed\n", var_name.c_str());
                 return nullptr;
@@ -2845,9 +2845,9 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
         // value as a fresh on-stack alloca, walk into it like a normal
         // local. The const's TypeRef is what drives elem_type.
         if (auto cit = module_consts_.find(name); cit != module_consts_.end()) {
-            arr_ptr = gen_expr(cit->second->value);
+            arr_ptr = gen_expr(cit->second.value());
             if (!arr_ptr) return nullptr;
-            TypeRef ct = cit->second->type;
+            TypeRef ct = cit->second.type(pool_impl());
             if (ct && TypeRef(ct).elem()) {
                 elem_type = logos_to_mlir(TypeRef(ct).elem());
             }

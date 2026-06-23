@@ -4303,7 +4303,7 @@ private:
     void compute_fn_lifetime_outlives(hermes::TinyMapView node, lir::LFunction& fn);
     lir::LStructDef lower_struct_def(hermes::TinyMapView node);
     lir::LEnumDef lower_enum_def(hermes::TinyMapView node);
-    lir::LConst lower_const_def(hermes::TinyMapView node);
+    lir::ConstDraft lower_const_def(hermes::TinyMapView node);
     std::pair<std::string, TypeRef> lower_type_alias_def(hermes::TinyMapView node);
     lir::LTraitDef lower_trait_def(hermes::TinyMapView node);
     void lower_impl_block(hermes::TinyMapView node, lir::LProgram& prog);

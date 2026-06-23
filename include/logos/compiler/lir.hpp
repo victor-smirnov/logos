@@ -1029,20 +1029,15 @@ struct LImplBlock {
     std::string doc;
 };
 
-struct LConst {
+// Stage E: struct LConst deleted — consts/statics live ONLY as Hermes mirror
+// nodes (lir_schema::decl::Code::Const), read via lir_view::ConstView. The
+// transient fields lower_const_def computes (name/type/value) are returned in
+// this small draft; the push site adds doc + the static-path flags/sym, emits
+// the mirror, and stores a ConstView.
+struct ConstDraft {
     std::string      name;
-    TypeRef type;
+    TypeRef          type;
     LExprPtr         value = {};
-    // Outer doc-comment on the const declaration.
-    std::string      doc;
-    // §6.2 statics (S25): a `static [mut]` item gets REAL global storage —
-    // mlir-gen emits one llvm.mlir.global per item keyed by `sym` and never
-    // const-inlines it. Plain `const` keeps is_static=false (inline at use).
-    bool             is_static = false;
-    bool             is_mut    = false;  // `static mut`
-    bool             is_extern = false;  // extern-block decl: no initializer,
-                                         // external linkage, sym = bare name
-    std::string      sym;                // link symbol ("<pkg>$<NAME>")
 };
 
 // Stage E: struct LTypeAlias deleted — type aliases live ONLY as Hermes mirror
@@ -1140,7 +1135,7 @@ struct LProgram {
     std::vector<LEnumDef>        enums;
     std::vector<LFunctionPtr>    functions;        // free functions and extern fn
     std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)
-    std::vector<LConst>          consts;
+    std::vector<lir_view::ConstView> consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<LTraitDef>       traits;
     std::vector<LImplBlock>      impls;

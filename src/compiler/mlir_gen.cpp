@@ -171,8 +171,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         type_aliases_[std::string(tav.name())] =
             logos_to_mlir(tav.type(prog.type_pool.impl()));
 
-    for (auto& c : prog.consts)
-        module_consts_[c.name] = &c;
+    for (auto& cv : prog.consts)  // Stage E: ConstView over the Hermes mirror
+        module_consts_[std::string(cv.name())] = cv;
 
     // Declare malloc and free for 'new' and 'delete'.
     ensure_malloc_free(mod);

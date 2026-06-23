@@ -207,7 +207,7 @@ private:
     std::unordered_map<std::string, const LEnumDef*>   enum_types_;
     std::unordered_map<std::string, TaggedEnumInfo>    tagged_enums_;
     std::unordered_map<std::string, mlir::Type>        type_aliases_;
-    std::unordered_map<std::string, const LConst*>     module_consts_;
+    std::unordered_map<std::string, lir_view::ConstView> module_consts_;
     // logos_to_mlir cache keyed by TypeRef offset. Same TypeRef
     // value appears in many fn signatures (e.g. `&self` across 50+
     // methods on the same struct); without the cache, make_fn_type

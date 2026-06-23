@@ -403,6 +403,11 @@ namespace decl_keys {
 inline constexpr Key NAME     {"NAME",     1};   // Varchar
 inline constexpr Key TYPE_REF {"TYPE_REF", 2};   // RelPtr<LogosType>  (alias/const/param type, ret type)
 inline constexpr Key DOC      {"DOC",      3};   // Varchar (outer doc-comment)
+inline constexpr Key VALUE     {"VALUE",     4};  // RelPtr<LExpr>  (const/static initializer)
+inline constexpr Key IS_STATIC {"IS_STATIC", 5};  // bool (sparse: present only when true)
+inline constexpr Key IS_MUT    {"IS_MUT",    6};  // bool (sparse) — `static mut`
+inline constexpr Key IS_EXTERN {"IS_EXTERN", 7};  // bool (sparse) — extern-block decl
+inline constexpr Key SYM       {"SYM",       8};  // Varchar — link symbol
 } // namespace decl_keys
 
 // ── Pattern sparse keys ───────────────────────────────────────────────────

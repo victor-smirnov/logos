@@ -373,6 +373,15 @@ public:
         if (is_external())      return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, arena_id());
         return TypeRef(loc.arena, loc.av, pool);
     }
+    // Read a RelPtr<LExpr> field as an ExprRef (cross-arena aware, mirroring
+    // ExprRef::sub_expr) — shared by every decl view's sub-expression accessor.
+    ExprRef decl_expr(uint8_t key) const noexcept {
+        auto av = mirror()->get(key);
+        auto loc = detail::resolve_child(*this, av);
+        if (!loc) return {};
+        if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.av, loc.aid);
+        return detail::make_sub_ref<ExprRef>(*this, loc.av);
+    }
 };
 
 // LTypeAlias { name: Varchar, type: RelPtr<LogosType>, doc: Varchar }
@@ -386,6 +395,36 @@ struct TypeAliasView {
     }
     TypeRef type(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::decl_keys::TYPE_REF.code, pool);
+    }
+};
+
+// LConst { name: Varchar, type: RelPtr<LogosType>, value: RelPtr<LExpr>,
+//          doc: Varchar, is_static/is_mut/is_extern: bool (sparse), sym: Varchar }
+struct ConstView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::NAME.code);
+    }
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::decl_keys::TYPE_REF.code, pool);
+    }
+    ExprRef value() const noexcept {
+        return self.decl_expr(lir_schema::decl_keys::VALUE.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::DOC.code);
+    }
+    bool is_static() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::IS_STATIC.code);
+    }
+    bool is_mut() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::IS_MUT.code);
+    }
+    bool is_extern() const noexcept {
+        return detail::read_bool(self, lir_schema::decl_keys::IS_EXTERN.code);
+    }
+    std::string_view sym() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::SYM.code);
     }
 };
 

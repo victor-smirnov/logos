@@ -658,7 +658,7 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 // ---------------------------------------------------------------------------
 void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) {
     bool any = false;
-    for (auto& c : prog.consts) if (c.is_static) { any = true; break; }
+    for (auto& c : prog.consts) if (c.is_static()) { any = true; break; }
     if (!any) return;
 
     // A LIBRARY build (`--emit-module`, no `main`) does NOT own its statics'
@@ -681,17 +681,18 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     // Pass A: emit the globals (skip if already present — stdlib precompiled +
     // current TU can both see a `pub static`).
     for (auto& c : prog.consts) {
-        if (!c.is_static) continue;
-        if (mod.lookupSymbol(c.sym)) continue;
-        auto llty = logos_to_mlir(c.type);
+        if (!c.is_static()) continue;
+        std::string c_sym(c.sym());
+        if (mod.lookupSymbol(c_sym)) continue;
+        auto llty = logos_to_mlir(c.type(pool_impl()));
         if (!llty) llty = builder_.getI32Type();
         set_end();
-        if (c.is_extern || is_library) {
+        if (c.is_extern() || is_library) {
             // External declaration — defined in another object (FFI, or — for a
             // library build — the final executable that links it).
             builder_.create<mlir::LLVM::GlobalOp>(
                 loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
-                c.sym, mlir::Attribute{}, /*alignment=*/0);
+                c_sym, mlir::Attribute{}, /*alignment=*/0);
             continue;
         }
         // Defined here: zero-initialised, runtime-filled at startup. NOT marked
@@ -700,7 +701,7 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         // enforced at sema (write to non-mut static rejected).
         auto g = builder_.create<mlir::LLVM::GlobalOp>(
             loc_, llty, /*isConstant=*/false, mlir::LLVM::Linkage::External,
-            c.sym, mlir::Attribute{}, /*alignment=*/0);
+            c_sym, mlir::Attribute{}, /*alignment=*/0);
         auto& region = g.getInitializerRegion();
         auto* blk = builder_.createBlock(&region);
         builder_.setInsertionPointToStart(blk);
@@ -712,9 +713,9 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     // its global address. A library build emits no initializer (see above) —
     // the final executable owns it.
     if (is_library) return;
-    std::vector<const LConst*> with_init;
+    std::vector<lir_view::ConstView> with_init;
     for (auto& c : prog.consts)
-        if (c.is_static && !c.is_extern && c.value) with_init.push_back(&c);
+        if (c.is_static() && !c.is_extern() && c.value()) with_init.push_back(c);
     if (with_init.empty()) return;
 
     auto void_fn_type = mlir::FunctionType::get(builder_.getContext(), {}, {});
@@ -726,11 +727,13 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     builder_.setInsertionPointToStart(entry);
     auto save_fn = cur_fn_name_;
     cur_fn_name_ = "__logos_static_init";
-    for (auto* c : with_init) {
-        auto val = gen_expr(c->value);
+    for (auto& c : with_init) {
+        auto val = gen_expr(c.value());
         if (!val) continue;
-        auto addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), c->sym);
-        TypeRef vt(c->type);
+        std::string c_sym(c.sym());
+        TypeRef c_type = c.type(pool_impl());
+        auto addr = builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), c_sym);
+        TypeRef vt(c_type);
         auto vk = vt.kind();
         bool aggregate = vk == LogosType::Kind::Struct ||
                          vk == LogosType::Kind::ZonedStruct ||
@@ -739,10 +742,10 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
                          vk == LogosType::Kind::Slice ||
                          vk == LogosType::Kind::Closure ||
                          (vk == LogosType::Kind::Enum &&
-                          resolve_tagged_enum(std::string(vt.enum_name()), c->type));
+                          resolve_tagged_enum(std::string(vt.enum_name()), c_type));
         if (aggregate && val.getType() == ptr_type()) {
             builder_.create<mlir::LLVM::MemcpyOp>(loc_, addr, val,
-                                                  size_const(c->type),
+                                                  size_const(c_type),
                                                   /*isVolatile=*/false);
         } else {
             builder_.create<mlir::LLVM::StoreOp>(loc_, val, addr);

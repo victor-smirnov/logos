@@ -26,7 +26,6 @@ using lir::Pattern;
 using lir::HermesVal;
 using lir::EClosure;
 using lir::LFunction;
-using lir::LConst;
 using lir::LStructDef;
 using lir::LImplBlock;
 using lir::LTraitDef;
@@ -157,6 +156,26 @@ public:
         put(map_off, dk::NAME, n_av);
         if (type) put(map_off, dk::TYPE_REF, type_av(type));
         if (!d_av.is_null()) put(map_off, dk::DOC, d_av);
+        return map_off;
+    }
+    const uint8_t* emit_const_direct(std::string_view name, TypeRef type,
+                                     lir_view::ExprRef value, std::string_view doc,
+                                     bool is_static, bool is_mut, bool is_extern,
+                                     std::string_view sym) {
+        auto n_av   = put_string(name);
+        auto val_av = value ? expr_av(value) : hermes::AnyVal{};
+        auto d_av   = doc.empty() ? hermes::AnyVal{} : put_string(doc);
+        auto s_av   = sym.empty() ? hermes::AnyVal{} : put_string(sym);
+        auto map_off = make_map(hermes::schema::lir_stmt(
+            int32_t(lir_schema::decl::Code::Const)));
+        put(map_off, dk::NAME, n_av);
+        if (type)              put(map_off, dk::TYPE_REF,  type_av(type));
+        if (!val_av.is_null()) put(map_off, dk::VALUE,     val_av);
+        if (!d_av.is_null())   put(map_off, dk::DOC,       d_av);
+        if (is_static)         put(map_off, dk::IS_STATIC, put_bool(true));
+        if (is_mut)            put(map_off, dk::IS_MUT,    put_bool(true));
+        if (is_extern)         put(map_off, dk::IS_EXTERN, put_bool(true));
+        if (!s_av.is_null())   put(map_off, dk::SYM,       s_av);
         return map_off;
     }
     const uint8_t* emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
@@ -1721,6 +1740,15 @@ const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view 
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_type_alias_direct(name, type, doc);
+}
+const uint8_t* lir_mirror_emit_const(lir::LProgram& prog, std::string_view name,
+                                     TypeRef type, lir_view::ExprRef value,
+                                     std::string_view doc, bool is_static,
+                                     bool is_mut, bool is_extern,
+                                     std::string_view sym) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    return em.emit_const_direct(name, type, value, doc, is_static, is_mut, is_extern, sym);
 }
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& ctr = prog.type_pool.ctr_or_init();

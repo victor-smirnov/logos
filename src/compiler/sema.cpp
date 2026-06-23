@@ -331,7 +331,7 @@ struct LirBundle {
     std::vector<lir::LEnumDef>        enums;
     std::vector<lir::LFunctionPtr>    functions;
     std::vector<lir::LFunctionPtr>    specializations;
-    std::vector<lir::LConst>          consts;
+    std::vector<lir_view::ConstView>  consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir::LTraitDef>       traits;
     std::vector<lir::LImplBlock>      impls;
@@ -6659,9 +6659,9 @@ void SemaChecker::lower_program(const std::vector<hermes::Hermes>& asts, lir::LP
         // nothing (empty fn body → SIGSEGV). Register them here so reads lower to
         // the static's global address (its already-qualified link symbol).
         for (auto& cc : c.consts)
-            if (cc.is_static) {
-                module_statics_[cc.name] = cc.sym;
-                if (cc.is_mut) module_static_muts_.insert(cc.name);
+            if (cc.is_static()) {
+                module_statics_[std::string(cc.name())] = std::string(cc.sym());
+                if (cc.is_mut()) module_static_muts_.insert(std::string(cc.name()));
             }
         prog.type_aliases.insert           (prog.type_aliases.end(),           c.type_aliases.begin(),           c.type_aliases.end());
         prog.traits.insert                 (prog.traits.end(),                 c.traits.begin(),                 c.traits.end());
@@ -7745,27 +7745,36 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             }
         }
         else if (c == la::CONST_DEF) {
+            // Stage E: emit the const's Hermes mirror and store a ConstView
+            // (struct LConst is gone — the mirror is the sole representation).
             auto cd = lower_const_def(item);
-            cd.doc = take_pending_doc();
-            prog.consts.push_back(std::move(cd));
+            auto doc = take_pending_doc();
+            auto mp = lir_mirror_emit_const(prog, cd.name, cd.type, cd.value, doc,
+                                            /*is_static=*/false, /*is_mut=*/false,
+                                            /*is_extern=*/false, /*sym=*/{});
+            prog.consts.push_back(
+                lir_view::ConstView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
         }
         else if (c == la::STATIC_DEF) {
             // §6.2 statics (S25): real global storage. mlir-gen emits one
             // llvm.mlir.global per item (keyed by sym) instead of inlining
             // the value at each use like a const.
             auto cd = lower_const_def(item);
-            cd.doc = take_pending_doc();
-            cd.is_static = true;
-            cd.is_mut    = item.has_key(la::IS_MUT);
-            cd.is_extern = !item.has_key(la::VALUE);
-            if (cd.is_extern) cd.value = nullptr;  // external: no initializer
+            auto doc = take_pending_doc();
+            bool is_mut    = item.has_key(la::IS_MUT);
+            bool is_extern = !item.has_key(la::VALUE);
+            // External: no initializer (empty ExprRef == old null LConst.value).
+            lir_view::ExprRef value = is_extern ? lir_view::ExprRef{} : cd.value;
             // Symbol was registered (module-qualified) in module_statics_ during
             // collect; non-static-collected statics fall back to pkg$name.
             auto sit = module_statics_.find(cd.name);
-            cd.sym = sit != module_statics_.end()
+            std::string sym = sit != module_statics_.end()
                 ? sit->second
                 : std::string(cur_package_) + "$" + cd.name;
-            prog.consts.push_back(std::move(cd));
+            auto mp = lir_mirror_emit_const(prog, cd.name, cd.type, value, doc,
+                                            /*is_static=*/true, is_mut, is_extern, sym);
+            prog.consts.push_back(
+                lir_view::ConstView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
         }
         else if (c == la::TYPE_ALIAS) {
             // Stage E: emit the alias's Hermes mirror and store a TypeAliasView

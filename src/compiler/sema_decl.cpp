@@ -1297,9 +1297,9 @@ lir::LEnumDef SemaChecker::lower_enum_def(TinyMapView node) {
 }
 
 
-lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
+lir::ConstDraft SemaChecker::lower_const_def(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
-    lir::LConst lc;
+    lir::ConstDraft lc;
     lc.name = name;
     auto cit = module_consts_.find(name);
     lc.type = (cit != module_consts_.end()) ? cit->second : error_t();
