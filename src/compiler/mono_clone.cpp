@@ -425,7 +425,7 @@ bool Mono::mono_dst_prefix_field(TypeRef dstref, std::string_view field,
     return false;
 }
 
-lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
+lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                           const PackMap& /*unused*/) {
     // packs are stored in cur_packs_ (set by clone_fn)
     if (!eref) {
@@ -433,20 +433,35 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             "mono.subst_expr: input ExprRef is null\n");
         std::abort();
     }
-    auto* result = lir::alloc_expr(out_);
+    // No husk: build the mirror directly and return an ExprRef over it. `rt_`
+    // is the (substituted) node type passed to the emitters; `mp_` is the
+    // absolute address of the emitted mirror in out_'s arena.
+    TypeRef rt_{};
+    const uint8_t* mp_ = nullptr;
     // Phase 5.B: read type from the mirror via the view. Sema keeps mirror's
     // TYPE in sync with C++ LExpr.type via lir_mirror_update_type at the 5
     // post-construction sites (sema_stmt:1244, sema_expr:629/1419/4408/12216).
     // View-based read works for local refs AND for cross-arena refs (where
     // there is no local LExpr to dereference at all).
-    result->type = subst_type(eref.type(out_.type_pool.impl()), s);
+    rt_ = subst_type(eref.type(out_.type_pool.impl()), s);
 
     {
-        auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
-            return er ? subst_expr(er, s) : nullptr;
+        auto subst_child_expr = [&](lir_view::ExprRef er) -> lir_view::ExprRef {
+            return er ? subst_expr(er, s) : lir_view::ExprRef{};
         };
         auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
             return br ? subst_block(br, s) : lir::LBlock{};
+        };
+        // Bridge: a few metaprog intrinsic branches build their result entirely
+        // through LirBuilder (which speaks LExprPtr husks). Wrap an already-
+        // emitted ExprRef (from subst_child_expr) as a thin husk so it can be
+        // fed into those LirBuilder chains. The mirror is shared, not re-emitted.
+        auto child_husk = [&](lir_view::ExprRef e) -> lir::LExprPtr {
+            if (!e) return nullptr;
+            auto* h = lir::alloc_expr(out_);
+            h->type = e.type(out_.type_pool.impl());
+            h->mirror_ptr_ = e.addr();
+            return h;
         };
         using C = lir_schema::expr::Code;
         switch (eref.kind()) {
@@ -458,24 +473,24 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto liv = lir_view::ELitIntView{eref};
             int64_t lo = liv.value();
             int64_t hi = liv.value_hi();
-            result->mirror_ptr_ = (hi != 0)
-                ? lir_mirror_emit_lit_int_128(out_, result->type, (uint64_t)lo, (uint64_t)hi)
-                : lir_mirror_emit_lit_int(out_, result->type, lo);
+            mp_ = (hi != 0)
+                ? lir_mirror_emit_lit_int_128(out_, rt_, (uint64_t)lo, (uint64_t)hi)
+                : lir_mirror_emit_lit_int(out_, rt_, lo);
             break;
         }
         case C::LitFloat:
-            result->mirror_ptr_ = lir_mirror_emit_lit_float(
-                out_, result->type, lir_view::ELitFloatView{eref}.value());
+            mp_ = lir_mirror_emit_lit_float(
+                out_, rt_, lir_view::ELitFloatView{eref}.value());
             break;
         case C::LitBool:
-            result->mirror_ptr_ = lir_mirror_emit_lit_bool(
-                out_, result->type, lir_view::ELitBoolView{eref}.value());
+            mp_ = lir_mirror_emit_lit_bool(
+                out_, rt_, lir_view::ELitBoolView{eref}.value());
             break;
         case C::LitStr: {
             // Copy to std::string: lir_mirror_emit_* may grow the arena,
             // which invalidates string_view pointers into it.
             std::string v(lir_view::ELitStrView{eref}.value());
-            result->mirror_ptr_ = lir_mirror_emit_lit_str(out_, result->type, v);
+            mp_ = lir_mirror_emit_lit_str(out_, rt_, v);
             break;
         }
         case C::VarRef: {
@@ -517,63 +532,62 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             SubstMap empty;
                             lir_view::ExprRef src_eref(
                                 out_.type_pool.arena(),
-                                rit->second->mirror_ptr_);
+                                lir::eref(rit->second).addr());
                             auto cloned = subst_expr(src_eref, empty);
                             if (cloned) {
-                                result->mirror_ptr_ = cloned->mirror_ptr_;
-                                result->type           = cloned->type;
+                                mp_ = cloned.addr();
                                 break;
                             }
                         }
                     }
                     if (sit->second.const_val()) {
                         int64_t v = *sit->second.const_val();
-                        result->mirror_ptr_ = lir_mirror_emit_lit_int(
-                            out_, result->type, v);
+                        mp_ = lir_mirror_emit_lit_int(
+                            out_, rt_, v);
                         break;
                     }
                 }
             }
             // T2-24 (B): const-arg specialization — a param baked to a
-            // compile-time literal in this spec clone. `result->type` is the
+            // compile-time literal in this spec clone. `rt_` is the
             // param's (substituted) type, so the emitted literal is well-typed.
             if (!current_const_args_.empty()) {
                 if (auto cit = current_const_args_.find(n);
                     cit != current_const_args_.end()) {
                     const ConstArgVal& cv = cit->second;
-                    result->mirror_ptr_ = cv.is_enum
-                        ? lir_mirror_emit_enum_lit(out_, result->type,
+                    mp_ = cv.is_enum
+                        ? lir_mirror_emit_enum_lit(out_, rt_,
                               cv.enum_name, cv.variant, cv.ival)
-                        : lir_mirror_emit_lit_int(out_, result->type, cv.ival);
+                        : lir_mirror_emit_lit_int(out_, rt_, cv.ival);
                     break;
                 }
             }
             // Phase-1: carry the var slot across monomorphization (else
             // post-mono borrow/mlir lose it and fall back to name-keying).
-            result->mirror_ptr_ = lir_mirror_emit_var_ref(
-                out_, result->type, n, lir_view::EVarRefView{eref}.var_slot());
+            mp_ = lir_mirror_emit_var_ref(
+                out_, rt_, n, lir_view::EVarRefView{eref}.var_slot());
             break;
         }
         case C::AddrOf: {
             std::string n(lir_view::EAddrOfView{eref}.var_name());
-            result->mirror_ptr_ = lir_mirror_emit_addr_of(out_, result->type, n);
+            mp_ = lir_mirror_emit_addr_of(out_, rt_, n);
             break;
         }
         case C::PackExpand: {
             std::string n(lir_view::EPackExpandView{eref}.var_name());
-            result->mirror_ptr_ = lir_mirror_emit_pack_expand(out_, result->type, n);
+            mp_ = lir_mirror_emit_pack_expand(out_, rt_, n);
             break;
         }
         case C::SizeOf: {
             auto t = lir_view::ESizeOfView{eref}.elem_type(out_.type_pool.impl());
-            result->mirror_ptr_ = lir_mirror_emit_size_of(
-                out_, result->type, subst_type(t, s));
+            mp_ = lir_mirror_emit_size_of(
+                out_, rt_, subst_type(t, s));
             break;
         }
         case C::AlignOf: {
             auto t = lir_view::EAlignOfView{eref}.elem_type(out_.type_pool.impl());
-            result->mirror_ptr_ = lir_mirror_emit_align_of(
-                out_, result->type, subst_type(t, s));
+            mp_ = lir_mirror_emit_align_of(
+                out_, rt_, subst_type(t, s));
             break;
         }
         case C::GenericRef: {
@@ -590,14 +604,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string mangled = mangle(base, sargs);
             // Enqueue the instantiation if not already scheduled.
             enqueue_if_needed(mangled, sargs);
-            result->mirror_ptr_ = lir_mirror_emit_var_ref(
-                out_, result->type, mangled);
+            mp_ = lir_mirror_emit_var_ref(
+                out_, rt_, mangled);
             break;
         }
         case C::Deref: {
             auto op = subst_child_expr(lir_view::EDerefView{eref}.operand());
-            result->mirror_ptr_ = lir_mirror_emit_deref(
-                out_, result->type, op);
+            mp_ = lir_mirror_emit_deref(
+                out_, rt_, op);
             break;
         }
         case C::FieldRead: {
@@ -613,10 +627,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // path): a sized PREFIX field → typed offset deref; the unsized TAIL
             // → fat-pair {data+off, carried metadata} reusing the DstRef's own
             // len (slice tail) or vtable (dyn tail).
-            if (rcv && rcv->type &&
-                TypeRef(rcv->type).kind() == LogosType::Kind::DstRef) {
+            TypeRef rcv_type = rcv ? rcv.type(out_.type_pool.impl()) : TypeRef{};
+            if (rcv && rcv_type &&
+                TypeRef(rcv_type).kind() == LogosType::Kind::DstRef) {
                 uint64_t off = 0; TypeRef ftype;
-                if (mono_dst_prefix_field(rcv->type, field, off, ftype) && ftype) {
+                if (mono_dst_prefix_field(rcv_type, field, off, ftype) && ftype) {
                     auto fk = TypeRef(ftype).kind();
                     LogosTypeBuilder u8b; u8b.kind = LogosType::Kind::U8;
                     TypeRef u8t = out_.type_pool.alloc(std::move(u8b));
@@ -629,8 +644,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     LogosTypeBuilder i64b; i64b.kind = LogosType::Kind::I64;
                     TypeRef i64t = out_.type_pool.alloc(std::move(i64b));
                     auto mk_node = [&](TypeRef ty, const uint8_t* mo) {
-                        auto* e = lir::alloc_expr(out_);
-                        e->type = ty; e->mirror_ptr_ = mo; return e;
+                        (void)ty;  // mirror already carries the type
+                        return lir_view::ExprRef(out_.type_pool.arena(), mo);
                     };
                     // data half (field 0) + tail/field pointer = data + off.
                     auto data = mk_node(u8p, lir_mirror_emit_slice_ptr(out_, u8p, rcv));
@@ -657,8 +672,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         tb.type_args = TypeRef(ftype).type_args();
                         TypeRef to_t = out_.type_pool.alloc(std::move(tb));
                         auto vtbl = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
-                        result->type = to_t;
-                        result->mirror_ptr_ =
+                        rt_ = to_t;
+                        mp_ =
                             lir_mirror_emit_slice_lit(out_, to_t, fpu8, vtbl);
                         break;
                     }
@@ -670,45 +685,45 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto fpe = mk_node(mk_ptr(elem),
                             lir_mirror_emit_cast(out_, mk_ptr(elem), fpu8, ""));
                         auto len = mk_node(i64t, lir_mirror_emit_slice_len(out_, i64t, rcv));
-                        result->type = sl_t;
-                        result->mirror_ptr_ =
+                        rt_ = sl_t;
+                        mp_ =
                             lir_mirror_emit_slice_lit(out_, sl_t, fpe, len);
                         break;
                     }
                     // sized prefix field → typed offset deref.
                     auto fpft = mk_node(mk_ptr(ftype),
                         lir_mirror_emit_cast(out_, mk_ptr(ftype), fpu8, ""));
-                    result->type = ftype;
-                    result->mirror_ptr_ = lir_mirror_emit_deref(out_, ftype, fpft);
+                    rt_ = ftype;
+                    mp_ = lir_mirror_emit_deref(out_, ftype, fpft);
                     break;
                 }
             }
-            result->mirror_ptr_ = lir_mirror_emit_field_read(
-                out_, result->type, rcv, field);
+            mp_ = lir_mirror_emit_field_read(
+                out_, rt_, rcv, field);
             break;
         }
         case C::TupleIndex: {
             lir_view::ETupleIndexView v{eref};
             uint32_t idx = v.index();
             auto rcv = subst_child_expr(v.receiver());
-            result->mirror_ptr_ = lir_mirror_emit_tuple_index(
-                out_, result->type, rcv, idx);
+            mp_ = lir_mirror_emit_tuple_index(
+                out_, rt_, rcv, idx);
             break;
         }
         case C::IndexRead: {
             lir_view::EIndexReadView v{eref};
             auto rcv = subst_child_expr(v.receiver());
             auto idx = subst_child_expr(v.index());
-            result->mirror_ptr_ = lir_mirror_emit_index_read(
-                out_, result->type, rcv, idx);
+            mp_ = lir_mirror_emit_index_read(
+                out_, rt_, rcv, idx);
             break;
         }
         case C::Cast: {
             lir_view::ECastView v{eref};
             std::string hbf(v.hermes_build_fn());
             auto op = subst_child_expr(v.operand());
-            result->mirror_ptr_ = lir_mirror_emit_cast(
-                out_, result->type, op, hbf);
+            mp_ = lir_mirror_emit_cast(
+                out_, rt_, op, hbf);
             break;
         }
         case C::Try: {
@@ -716,34 +731,34 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             int32_t ok_disc  = v.ok_disc();
             int32_t err_disc = v.err_disc();
             auto inner = subst_child_expr(v.inner());
-            result->mirror_ptr_ = lir_mirror_emit_try(
-                out_, result->type, inner, ok_disc, err_disc);
+            mp_ = lir_mirror_emit_try(
+                out_, rt_, inner, ok_disc, err_disc);
             break;
         }
         case C::SliceLit: {
             lir_view::ESliceLitView v{eref};
             auto base = subst_child_expr(v.base());
             auto len  = subst_child_expr(v.len());
-            result->mirror_ptr_ = lir_mirror_emit_slice_lit(
-                out_, result->type, base, len);
+            mp_ = lir_mirror_emit_slice_lit(
+                out_, rt_, base, len);
             break;
         }
         case C::SliceIndex: {
             lir_view::ESliceIndexView v{eref};
             auto slice = subst_child_expr(v.slice());
             auto idx   = subst_child_expr(v.index());
-            result->mirror_ptr_ = lir_mirror_emit_slice_index(
-                out_, result->type, slice, idx);
+            mp_ = lir_mirror_emit_slice_index(
+                out_, rt_, slice, idx);
             break;
         }
         case C::SliceLen: {
             auto sl = subst_child_expr(lir_view::ESliceLenView{eref}.slice());
-            result->mirror_ptr_ = lir_mirror_emit_slice_len(out_, result->type, sl);
+            mp_ = lir_mirror_emit_slice_len(out_, rt_, sl);
             break;
         }
         case C::SlicePtr: {
             auto sl = subst_child_expr(lir_view::ESlicePtrView{eref}.slice());
-            result->mirror_ptr_ = lir_mirror_emit_slice_ptr(out_, result->type, sl);
+            mp_ = lir_mirror_emit_slice_ptr(out_, rt_, sl);
             break;
         }
         case C::IfExpr: {
@@ -751,20 +766,20 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto cond = subst_child_expr(v.cond());
             auto thn  = subst_child_expr(v.then_val());
             auto els  = subst_child_expr(v.else_val());
-            result->mirror_ptr_ = lir_mirror_emit_if_expr(
-                out_, result->type, cond, thn, els);
+            mp_ = lir_mirror_emit_if_expr(
+                out_, rt_, cond, thn, els);
             break;
         }
         case C::TupleLit: {
-            std::vector<lir::LExprPtr> elems;
+            std::vector<lir_view::ExprRef> elems;
             lir_view::ETupleLitView{eref}.each_elem(
                 [&](lir_view::ExprRef er) { elems.push_back(subst_child_expr(er)); });
-            result->mirror_ptr_ = lir_mirror_emit_tuple_lit(
-                out_, result->type, elems);
+            mp_ = lir_mirror_emit_tuple_lit(
+                out_, rt_, elems);
             break;
         }
         case C::ArrLit: {
-            std::vector<lir::LExprPtr> elems;
+            std::vector<lir_view::ExprRef> elems;
             // Track the single source ref so we can re-substitute the value
             // N times for `[v; sizeof...(P)]` fill-literals.
             lir_view::ExprRef fill_src;
@@ -807,20 +822,20 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // length to N. Repeat the value N times by re-substituting from
             // the original source expr.
             if (src_count == 1 && elems.size() == 1 &&
-                result->type && result->type.kind() == LogosType::Kind::Array &&
-                result->type.arr_size() > 1) {
-                uint64_t target = result->type.arr_size();
+                rt_ && rt_.kind() == LogosType::Kind::Array &&
+                rt_.arr_size() > 1) {
+                uint64_t target = rt_.arr_size();
                 while (elems.size() < target)
                     elems.push_back(subst_child_expr(fill_src));
             }
-            result->mirror_ptr_ = lir_mirror_emit_arr_lit(
-                out_, result->type, elems);
+            mp_ = lir_mirror_emit_arr_lit(
+                out_, rt_, elems);
             break;
         }
         case C::ClosureCall: {
             lir_view::EClosureCallView v{eref};
             auto callee = subst_child_expr(v.callee());
-            std::vector<lir::LExprPtr> args;
+            std::vector<lir_view::ExprRef> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
             // Sprint 5.7 follow-up: if the synth-closure path in
             // sema_expr::lower_call emitted ClosureCall for a generic
@@ -829,11 +844,11 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // var-ref now carries the substituted type (sema emitted
             // var_ref with TypeVar F; mono's subst_type rewrites it
             // to the concrete instantiation).
-            TypeRef ct = callee ? TypeRef(callee->type) : TypeRef{};
+            TypeRef ct = callee ? callee.type(out_.type_pool.impl()) : TypeRef{};
             auto k = ct ? ct.kind() : LogosType::Kind::Error;
             if (LogosType::is_fn_value_kind(k)) {
-                result->mirror_ptr_ = lir_mirror_emit_fn_ptr_call(
-                    out_, result->type, callee, args);
+                mp_ = lir_mirror_emit_fn_ptr_call(
+                    out_, rt_, callee, args);
             } else if (k == LogosType::Kind::Struct ||
                        k == LogosType::Kind::ZonedStruct) {
                 // Deferred-2: F was bound by Fn / FnMut / FnOnce and
@@ -896,34 +911,34 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     ? struct_name + "__" + picked
                     : pkg + "." + struct_name + "__" + picked;
                 // Method-style: prepend the receiver as the self arg.
-                std::vector<lir::LExprPtr> call_args;
+                std::vector<lir_view::ExprRef> call_args;
                 call_args.push_back(std::move(callee));
                 for (auto& a : args) call_args.push_back(std::move(a));
-                result->mirror_ptr_ = lir_mirror_emit_call(
-                    out_, result->type, callee_name, {}, call_args);
+                mp_ = lir_mirror_emit_call(
+                    out_, rt_, callee_name, {}, call_args);
             } else {
-                result->mirror_ptr_ = lir_mirror_emit_closure_call(
-                    out_, result->type, callee, args);
+                mp_ = lir_mirror_emit_closure_call(
+                    out_, rt_, callee, args);
             }
             break;
         }
         case C::FnPtrCall: {
             lir_view::EFnPtrCallView v{eref};
             auto callee = subst_child_expr(v.callee());
-            std::vector<lir::LExprPtr> args;
+            std::vector<lir_view::ExprRef> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
-            result->mirror_ptr_ = lir_mirror_emit_fn_ptr_call(
-                out_, result->type, callee, args);
+            mp_ = lir_mirror_emit_fn_ptr_call(
+                out_, rt_, callee, args);
             break;
         }
         case C::FormatCall: {
             lir_view::EFormatCallView v{eref};
             auto fmt = subst_child_expr(v.fmt());
             auto arg_types = v.arg_types(out_.type_pool.impl());
-            std::vector<lir::LExprPtr> args;
+            std::vector<lir_view::ExprRef> args;
             v.each_arg([&](lir_view::ExprRef er) { args.push_back(subst_child_expr(er)); });
-            result->mirror_ptr_ = lir_mirror_emit_format_call(
-                out_, result->type, fmt, args, arg_types);
+            mp_ = lir_mirror_emit_format_call(
+                out_, rt_, fmt, args, arg_types);
             break;
         }
         case C::PtrArith: {
@@ -931,8 +946,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             uint8_t op = v.op_code();
             auto ptr = subst_child_expr(v.ptr());
             auto off = subst_child_expr(v.offset());
-            result->mirror_ptr_ = lir_mirror_emit_ptr_arith(
-                out_, result->type, op, ptr, off);
+            mp_ = lir_mirror_emit_ptr_arith(
+                out_, rt_, op, ptr, off);
             break;
         }
         case C::PtrDiff: {
@@ -940,29 +955,29 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             bool by_byte = v.by_byte();
             auto lhs = subst_child_expr(v.lhs());
             auto rhs = subst_child_expr(v.rhs());
-            result->mirror_ptr_ = lir_mirror_emit_ptr_diff(
-                out_, result->type, by_byte, lhs, rhs);
+            mp_ = lir_mirror_emit_ptr_diff(
+                out_, rt_, by_byte, lhs, rhs);
             break;
         }
         case C::BlockExpr: {
             lir_view::EBlockExprView v{eref};
             lir::LBlock* nb_block = nullptr;
-            lir::LExprPtr nb_result = nullptr;
+            lir_view::ExprRef nb_result{};
             if (auto br = v.block(); br) {
                 nb_block = lir::alloc_block(out_, subst_child_block(br));
                 lir_mirror_emit_block_node(out_, *nb_block);
             }
             if (auto rr = v.result(); rr)
                 nb_result = subst_child_expr(rr);
-            result->mirror_ptr_ = lir_mirror_emit_block_expr(
-                out_, result->type, nb_block, nb_result);
+            mp_ = lir_mirror_emit_block_expr(
+                out_, rt_, nb_block, nb_result);
             break;
         }
         case C::ReflectOf: {
             auto resolved = subst_type(
                 lir_view::EReflectOfView{eref}.type(out_.type_pool.impl()), s);
-            result->mirror_ptr_ = lir_mirror_emit_reflect_of(
-                out_, result->type, resolved);
+            mp_ = lir_mirror_emit_reflect_of(
+                out_, rt_, resolved);
             if (resolved && TypeRef(resolved).kind() == LogosType::Kind::ZonedStruct &&
                 TypeRef(resolved).type_args().empty()) {
                 std::string pkg{TypeRef(resolved).pkg_name()};
@@ -976,7 +991,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EUnaryView v{eref};
             std::string op{v.op()};
             auto new_op = subst_child_expr(v.operand());
-            auto vt = new_op ? new_op->type : TypeRef{};
+            auto vt = new_op ? new_op.type(out_.type_pool.impl()) : TypeRef{};
             if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (op == "-") method_name = "neg";
@@ -985,14 +1000,14 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string bare = concrete_struct_name(vt) + "__" + method_name;
                     std::string pkg{vt.pkg_name()};
                     std::string callee = pkg.empty() ? bare : pkg + "." + bare;
-                    std::vector<lir::LExprPtr> args; args.push_back(std::move(new_op));
-                    result->mirror_ptr_ = lir_mirror_emit_call(
-                        out_, result->type, callee, {}, args);
+                    std::vector<lir_view::ExprRef> args; args.push_back(std::move(new_op));
+                    mp_ = lir_mirror_emit_call(
+                        out_, rt_, callee, {}, args);
                     break;
                 }
             }
-            result->mirror_ptr_ = lir_mirror_emit_unary(
-                out_, result->type, op, new_op);
+            mp_ = lir_mirror_emit_unary(
+                out_, rt_, op, new_op);
             break;
         }
         case C::BinOp: {
@@ -1000,7 +1015,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string op{v.op()};
             auto new_lhs = subst_child_expr(v.lhs());
             auto new_rhs = subst_child_expr(v.rhs());
-            auto lt = new_lhs ? new_lhs->type : TypeRef{};
+            auto lt = new_lhs ? new_lhs.type(out_.type_pool.impl()) : TypeRef{};
             if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
                 if      (op == "+")  method_name = "add";
@@ -1018,24 +1033,24 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string bare = concrete_struct_name(lt) + "__" + method_name;
                     std::string pkg{lt.pkg_name()};
                     std::string callee = pkg.empty() ? bare : pkg + "." + bare;
-                    std::vector<lir::LExprPtr> args;
+                    std::vector<lir_view::ExprRef> args;
                     args.push_back(std::move(new_lhs));
                     args.push_back(std::move(new_rhs));
-                    result->mirror_ptr_ = lir_mirror_emit_call(
-                        out_, result->type, callee, {}, args);
+                    mp_ = lir_mirror_emit_call(
+                        out_, rt_, callee, {}, args);
                     break;
                 }
             }
-            result->mirror_ptr_ = lir_mirror_emit_bin_op(
-                out_, result->type, op, new_lhs, new_rhs);
+            mp_ = lir_mirror_emit_bin_op(
+                out_, rt_, op, new_lhs, new_rhs);
             break;
         }
         case C::AddrOfTemp: {
             lir_view::EAddrOfTempView v{eref};
             bool is_mut = v.is_mut();
             auto inner = subst_child_expr(v.inner());
-            result->mirror_ptr_ = lir_mirror_emit_addr_of_temp(
-                out_, result->type, inner, is_mut);
+            mp_ = lir_mirror_emit_addr_of_temp(
+                out_, rt_, inner, is_mut);
             break;
         }
         case C::EnumLit: {
@@ -1043,16 +1058,16 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string enum_name(v.enum_name());
             std::string variant(v.variant());
             int64_t disc = v.disc();
-            TypeRef rt(result->type);
+            TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
                 std::string cname = std::string(rt.enum_name());
                 for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
                 enum_name = std::move(cname);
-                record_needed_enum(result->type);
+                record_needed_enum(rt_);
             }
-            result->mirror_ptr_ = lir_mirror_emit_enum_lit(
-                out_, result->type, enum_name, variant, disc);
+            mp_ = lir_mirror_emit_enum_lit(
+                out_, rt_, enum_name, variant, disc);
             break;
         }
         case C::EnumLitData: {
@@ -1060,51 +1075,51 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string variant(v.variant());
             int64_t disc = v.disc();
             std::string enum_name;
-            TypeRef rt(result->type);
+            TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
                 std::string cname = std::string(rt.enum_name());
                 for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
                 enum_name = std::move(cname);
-                record_needed_enum(result->type);
+                record_needed_enum(rt_);
             } else {
                 enum_name = std::string(v.enum_name());
             }
-            std::vector<lir::LExprPtr> payload;
+            std::vector<lir_view::ExprRef> payload;
             v.each_payload([&](lir_view::ExprRef er) {
                 payload.push_back(subst_child_expr(er));
             });
-            result->mirror_ptr_ = lir_mirror_emit_enum_lit_data(
-                out_, result->type, enum_name, variant, disc, payload);
+            mp_ = lir_mirror_emit_enum_lit_data(
+                out_, rt_, enum_name, variant, disc, payload);
             break;
         }
         case C::StructLit: {
             lir_view::EStructLitView v{eref};
             std::string name;
-            TypeRef rt2(result->type);
+            TypeRef rt2(rt_);
             if (rt2 && (rt2.kind() == LogosType::Kind::Struct ||
                         rt2.kind() == LogosType::Kind::ZonedStruct) &&
                 !rt2.type_args().empty())
-                name = concrete_struct_name(result->type);
+                name = concrete_struct_name(rt_);
             else
                 name = std::string(v.name());
-            std::vector<std::pair<std::string, lir::LExprPtr>> fields;
+            std::vector<std::pair<std::string, lir_view::ExprRef>> fields;
             v.each_field([&](std::string_view fname, lir_view::ExprRef er) {
                 fields.push_back({std::string(fname), subst_child_expr(er)});
             });
-            record_needed_struct(result->type);
-            result->mirror_ptr_ = lir_mirror_emit_struct_lit(
-                out_, result->type, name, fields);
+            record_needed_struct(rt_);
+            mp_ = lir_mirror_emit_struct_lit(
+                out_, rt_, name, fields);
             break;
         }
         case C::MatchExpr: {
             lir_view::EMatchExprView v{eref};
             auto scrut = subst_child_expr(v.scrut());
-            std::vector<lir::EMatchArm> arms;
+            std::vector<lir::EMatchArmView> arms;
             PatSubstWalker pw([&](TypeRef t) { return subst_type(t, s); },
                               out_.type_pool.impl(), &out_);
             v.each_arm([&](lir_view::EMatchArmRef arm) {
-                lir::EMatchArm na;
+                lir::EMatchArmView na;
                 if (auto pr = arm.pat(); pr) na.pat = pw.walk(pr);
                 else                         na.pat = lir::Pattern{};
                 if (auto gr = arm.guard(); gr)
@@ -1112,8 +1127,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 na.value = subst_child_expr(arm.value());
                 arms.push_back(std::move(na));
             });
-            result->mirror_ptr_ = lir_mirror_emit_match_expr(
-                out_, result->type, scrut, arms);
+            mp_ = lir_mirror_emit_match_expr(
+                out_, rt_, scrut, arms);
             break;
         }
         case C::TypeCodeOf: {
@@ -1129,8 +1144,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             };
             walk(resolved);
             if (has_tv || !resolved) {
-                result->mirror_ptr_ = lir_mirror_emit_type_code_of(
-                    out_, result->type, resolved);
+                mp_ = lir_mirror_emit_type_code_of(
+                    out_, rt_, resolved);
             } else {
                 uint64_t code = 0;
                 if (TypeRef(resolved).kind() == LogosType::Kind::Struct ||
@@ -1151,8 +1166,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     uint64_t raw = type_hash_56bit(hash);
                     code = (raw < 128) ? (raw + 128) : raw;
                 }
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(
-                    out_, result->type, (int64_t)code);
+                mp_ = lir_mirror_emit_lit_int(
+                    out_, rt_, (int64_t)code);
             }
             break;
         }
@@ -1235,7 +1250,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (auto root_ref = v.root()) root = clone_hv(root_ref);
             bool has_captures = v.has_captures();
             uint32_t capture_param_count = v.capture_param_count();
-            std::vector<lir::LExprPtr> capture_exprs;
+            std::vector<lir_view::ExprRef> capture_exprs;
             std::vector<TypeRef> capture_types;
             v.each_capture_expr([&](lir_view::ExprRef er) {
                 capture_exprs.push_back(subst_child_expr(er));
@@ -1247,8 +1262,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // out_), and growth invalidates the source-side string_view.
             // Same pattern used at line 908 for HVStrView.
             std::string static_blob_copy(v.static_blob());
-            result->mirror_ptr_ = lir_mirror_emit_hermes_lit(
-                out_, result->type, root, has_captures,
+            mp_ = lir_mirror_emit_hermes_lit(
+                out_, rt_, root, has_captures,
                 capture_exprs, capture_types, capture_param_count,
                 static_blob_copy);
             break;
@@ -1384,7 +1399,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // nc.type_args holds the concrete pack types — emit their count.
             if (nc.callee == "__sizeof_pack__") {
                 int64_t n = (int64_t)nc.type_args.size();
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, n);
+                mp_ = lir_mirror_emit_lit_int(out_, rt_, n);
                 break;
             }
             // type_of::<T>() intrinsic: sema lowered to magic call with T in
@@ -1393,7 +1408,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__type_kind_of__") {
                 int64_t k = nc.type_args.empty() ? 0
                           : (int64_t)nc.type_args[0].kind();
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, k);
+                mp_ = lir_mirror_emit_lit_int(out_, rt_, k);
                 break;
             }
             // hstatic_hash_of::<CFG>() — byte-hash identity of CFG as u64.
@@ -1403,7 +1418,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 int64_t v = (nc.type_args.empty() || !nc.type_args[0])
                           ? 0
                           : (int64_t)(uint64_t)nc.type_args[0].const_val().value_or(0);
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(out_, result->type, v);
+                mp_ = lir_mirror_emit_lit_int(out_, rt_, v);
                 break;
             }
             // type_hash::<T>() — structural FNV-1a-64 hash of T.
@@ -1414,8 +1429,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 uint64_t h = (nc.type_args.empty())
                            ? 0
                            : compute_type_hash(nc.type_args[0], seen);
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(
-                    out_, result->type, (int64_t)h);
+                mp_ = lir_mirror_emit_lit_int(
+                    out_, rt_, (int64_t)h);
                 break;
             }
             // type_of::<T>().name — magic intrinsic that mono replaces with
@@ -1423,7 +1438,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__type_name_of__") {
                 std::string s = nc.type_args.empty() ? std::string()
                               : type_str(nc.type_args[0]);
-                result->mirror_ptr_ = lir_mirror_emit_lit_str(out_, result->type, s);
+                mp_ = lir_mirror_emit_lit_str(out_, rt_, s);
                 break;
             }
             // type_of::<T>().uid — TypeUID = first 8 bytes of
@@ -1436,8 +1451,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     uid = type_hash_64bit(type_hash_23(type_id_canon(nc.type_args[0])));
                     uid_to_type_[uid] = nc.type_args[0];
                 }
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(
-                    out_, result->type, (int64_t)uid);
+                mp_ = lir_mirror_emit_lit_int(
+                    out_, rt_, (int64_t)uid);
                 break;
             }
             // High 64 bits of the 128-bit nominal UID (TypeId.hi). Same canon
@@ -1446,8 +1461,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 uint64_t uid_hi = 0;
                 if (!nc.type_args.empty() && nc.type_args[0])
                     uid_hi = type_hash_hi64(type_hash_23(type_id_canon(nc.type_args[0])));
-                result->mirror_ptr_ = lir_mirror_emit_lit_int(
-                    out_, result->type, (int64_t)uid_hi);
+                mp_ = lir_mirror_emit_lit_int(
+                    out_, rt_, (int64_t)uid_hi);
                 break;
             }
             // Type-trait predicates: mono evaluates after substitution. Each
@@ -1455,8 +1470,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             {
                 using K = LogosType::Kind;
                 auto bool_of = [&](bool r) {
-                    result->mirror_ptr_ =
-                        lir_mirror_emit_lit_bool(out_, result->type, r);
+                    mp_ =
+                        lir_mirror_emit_lit_bool(out_, rt_, r);
                 };
                 if (nc.callee == "__is_same__") {
                     bool r = (nc.type_args.size() == 2 &&
@@ -1508,8 +1523,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
-                result->type = i64_t;
-                result->mirror_ptr_ = lit->mirror_ptr_;
+                rt_ = i64_t;
+                mp_ = lit->mirror_ptr_;
                 break;
             }
             // has_trait::<T, Trait>() — bool. Recursive lookup against
@@ -1548,8 +1563,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
-                result->type = bool_t;
-                result->mirror_ptr_ =
+                rt_ = bool_t;
+                mp_ =
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
@@ -1617,8 +1632,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
-                result->type = bool_t;
-                result->mirror_ptr_ =
+                rt_ = bool_t;
+                mp_ =
                     lir_mirror_emit_lit_bool(out_, bool_t, answer);
                 break;
             }
@@ -1633,8 +1648,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
-                result->type = i64_t;
-                result->mirror_ptr_ = lit->mirror_ptr_;
+                rt_ = i64_t;
+                mp_ = lit->mirror_ptr_;
                 break;
             }
             // typelist_head::<L>() / typelist_nth::<L>(i) — emit a single
@@ -1672,7 +1687,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::abort();
                 }
                 TypeRef ti = pack[idx];
-                TypeRef type_t = result->type;  // sema set this to struct Type
+                TypeRef type_t = rt_;  // sema set this to struct Type
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -1696,8 +1711,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     f.emplace_back("uid", b.lit_int((int64_t)uid, u64_t));
                 }
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
-                result->type = type_t;
-                result->mirror_ptr_ = sl->mirror_ptr_;
+                rt_ = type_t;
+                mp_ = sl->mirror_ptr_;
                 break;
             }
             // reify_type(t: Type) -> Type — recover source TypeRef from
@@ -1780,7 +1795,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(ti)));
                 uid_to_type_[uid] = ti;
-                TypeRef type_t = result->type;
+                TypeRef type_t = rt_;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -1800,8 +1815,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("align", b.align_of(ti, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
-                result->type = type_t;
-                result->mirror_ptr_ = sl->mirror_ptr_;
+                rt_ = type_t;
+                mp_ = sl->mirror_ptr_;
                 break;
             }
             // apply(name: &[u8], args: [Type; N]) -> Type — instantiate a
@@ -1899,7 +1914,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         uint64_t uid = type_hash_64bit(
                             type_hash_23(type_id_canon(inst_t)));
                         uid_to_type_[uid] = inst_t;
-                        TypeRef type_t = result->type;
+                        TypeRef type_t = rt_;
                         LirBuilder b(out_);
                         LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                         TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
@@ -1931,8 +1946,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         f.emplace_back("uid",  std::move(uid_e));
                         auto sl = b.struct_lit("Type",
                                                std::move(f), type_t);
-                        result->type = type_t;
-                        result->mirror_ptr_ = sl->mirror_ptr_;
+                        rt_ = type_t;
+                        mp_ = sl->mirror_ptr_;
                         break;
                     }
                 }
@@ -2029,7 +2044,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 collect_type_for_structs(inst_t);
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
-                TypeRef type_t = result->type;
+                TypeRef type_t = rt_;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -2049,8 +2064,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
-                result->type = type_t;
-                result->mirror_ptr_ = sl->mirror_ptr_;
+                rt_ = type_t;
+                mp_ = sl->mirror_ptr_;
                 break;
             }
             // __apply_generic__(g: Type, args: [Type; N]) — instantiate
@@ -2185,7 +2200,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 collect_type_for_structs(inst_t);
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
-                TypeRef type_t = result->type;
+                TypeRef type_t = rt_;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -2205,8 +2220,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
-                result->type = type_t;
-                result->mirror_ptr_ = sl->mirror_ptr_;
+                rt_ = type_t;
+                mp_ = sl->mirror_ptr_;
                 break;
             }
             // __tuple_type_apply__([Type; N]) and __array_type_apply__(Type, N) —
@@ -2334,7 +2349,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 collect_type_for_structs(inst_t);
                 uint64_t uid = type_hash_64bit(type_hash_23(type_id_canon(inst_t)));
                 uid_to_type_[uid] = inst_t;
-                TypeRef type_t = result->type;
+                TypeRef type_t = rt_;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -2354,8 +2369,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
                 auto sl = b.struct_lit("Type", std::move(f), type_t);
-                result->type = type_t;
-                result->mirror_ptr_ = sl->mirror_ptr_;
+                rt_ = type_t;
+                mp_ = sl->mirror_ptr_;
                 break;
             }
             // variant_count_of::<E>() / variant_names_of::<E>() /
@@ -2382,12 +2397,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                     TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                     auto lit = b.lit_int(n, i64_t);
-                    result->type = i64_t;
-                    result->mirror_ptr_ = lit->mirror_ptr_;
+                    rt_ = i64_t;
+                    mp_ = lit->mirror_ptr_;
                     break;
                 }
-                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
-                std::vector<lir::LExprPtr> elems;
+                TypeRef elem_t = rt_ ? rt_.elem() : nullptr;
+                std::vector<lir_view::ExprRef> elems;
                 if (nc.callee == "__variant_names_of__") {
                     if (edef)
                         for (auto& vr : edef->variants)
@@ -2439,8 +2454,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 ab.elem = elem_t;
                 ab.arr_size = (int64_t)elems.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
-                result->type = new_arr_t;
-                result->mirror_ptr_ =
+                rt_ = new_arr_t;
+                mp_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -2460,13 +2475,13 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 TypeRef bool_t = out_.type_pool.alloc(std::move(bb));
                 std::vector<lir::LExprPtr> sub_args;
                 v.each_arg([&](lir_view::ExprRef ar) {
-                    sub_args.push_back(subst_child_expr(ar));
+                    sub_args.push_back(child_husk(subst_child_expr(ar)));
                 });
                 if (!T || T.kind() != LogosType::Kind::Tuple ||
                     sub_args.size() < 2) {
                     auto lit = lb.lit_bool(true, bool_t);
-                    result->type = bool_t;
-                    result->mirror_ptr_ = lit->mirror_ptr_;
+                    rt_ = bool_t;
+                    mp_ = lit->mirror_ptr_;
                     break;
                 }
                 // Recursive chain builder: handles nested tuple elements
@@ -2547,8 +2562,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     return ch;
                 };
                 auto chain = build_chain(T, sub_args[0], sub_args[1]);
-                result->type = bool_t;
-                result->mirror_ptr_ = chain->mirror_ptr_;
+                rt_ = bool_t;
+                mp_ = chain->mirror_ptr_;
                 break;
             }
             // __tuple_each_field_debug__::<T>(self, f) — expand the variadic
@@ -2559,10 +2574,10 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (nc.callee == "__tuple_each_field_debug__") {
                 TypeRef T = nc.type_args.empty() ? TypeRef{} : nc.type_args[0];
                 LirBuilder lb(out_);
-                TypeRef res_t = result->type;  // Result<(), Error>
+                TypeRef res_t = rt_;  // Result<(), Error>
                 std::vector<lir::LExprPtr> sub_args;
                 v.each_arg([&](lir_view::ExprRef ar) {
-                    sub_args.push_back(subst_child_expr(ar));
+                    sub_args.push_back(child_husk(subst_child_expr(ar)));
                 });
                 auto resolve_fn = [&](const std::string& base) -> std::string {
                     std::string prefix = base + "__f__";
@@ -2596,8 +2611,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (!T || T.kind() != LogosType::Kind::Tuple || sub_args.size() < 2) {
                     auto cl = lb.call(close_sym, {},
                         { sub_args.empty() ? nullptr : sub_args.back() }, res_t);
-                    result->type = res_t;
-                    result->mirror_ptr_ = cl->mirror_ptr_;
+                    rt_ = res_t;
+                    mp_ = cl->mirror_ptr_;
                     break;
                 }
                 auto self_r = sub_args[0];
@@ -2645,8 +2660,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     return chain;
                 };
                 auto chain = build(T, self_r);
-                result->type = res_t;
-                result->mirror_ptr_ = chain->mirror_ptr_;
+                rt_ = res_t;
+                mp_ = chain->mirror_ptr_;
                 break;
             }
             // tuple_count_of::<T>() — emit lit_int N for tuple T, 0 otherwise.
@@ -2661,8 +2676,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
-                result->type = i64_t;
-                result->mirror_ptr_ = lit->mirror_ptr_;
+                rt_ = i64_t;
+                mp_ = lit->mirror_ptr_;
                 break;
             }
             // field_count_of::<T>() — emit lit_int N for struct T (0 for
@@ -2692,8 +2707,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 auto lit = b.lit_int(n, i64_t);
-                result->type = i64_t;
-                result->mirror_ptr_ = lit->mirror_ptr_;
+                rt_ = i64_t;
+                mp_ = lit->mirror_ptr_;
                 break;
             }
             // field_names_of::<T>() — emit [&[u8]; N] of struct field names.
@@ -2720,17 +2735,17 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 field_names.push_back(f.name);
                     }
                 }
-                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
+                TypeRef elem_t = rt_ ? rt_.elem() : nullptr;
                 LirBuilder b(out_);
-                std::vector<lir::LExprPtr> elems;
+                std::vector<lir_view::ExprRef> elems;
                 for (auto& nm : field_names)
                     elems.push_back(b.lit_str(nm, elem_t));
                 LogosTypeBuilder ab; ab.kind = LogosType::Kind::Array;
                 ab.elem = elem_t;
                 ab.arr_size = (int64_t)field_names.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
-                result->type = new_arr_t;
-                result->mirror_ptr_ =
+                rt_ = new_arr_t;
+                mp_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -2794,7 +2809,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 } else {
                     elem_types = nc.type_args;
                 }
-                TypeRef elem_t = result->type ? result->type.elem() : nullptr;
+                TypeRef elem_t = rt_ ? rt_.elem() : nullptr;
                 LogosTypeBuilder u32_b; u32_b.kind = LogosType::Kind::U32;
                 TypeRef u32_t = out_.type_pool.alloc(std::move(u32_b));
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
@@ -2807,7 +2822,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
                 TypeRef u64_t = out_.type_pool.alloc(std::move(u64_b));
                 LirBuilder b(out_);
-                std::vector<lir::LExprPtr> elems;
+                std::vector<lir_view::ExprRef> elems;
                 for (auto& ti : elem_types) {
                     std::vector<std::pair<std::string, lir::LExprPtr>> f;
                     f.emplace_back("kind",
@@ -2829,8 +2844,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 ab.elem = elem_t;
                 ab.arr_size = (int64_t)elem_types.size();
                 TypeRef new_arr_t = out_.type_pool.alloc(std::move(ab));
-                result->type = new_arr_t;
-                result->mirror_ptr_ =
+                rt_ = new_arr_t;
+                mp_ =
                     lir_mirror_emit_arr_lit(out_, new_arr_t, elems);
                 break;
             }
@@ -2869,7 +2884,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         }
                     }
                 } else {
-                    nc.args.push_back(subst_child_expr(ar));
+                    nc.args.push_back(child_husk(subst_child_expr(ar)));
                 }
             });
             // Generic static-trait-dispatch: rewrite "[pkg.]DT__method" prefix
@@ -3414,15 +3429,19 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // T2-24 (B): redirect to a const-arg specialization when the
             // callee's const-want params got compile-time literals here.
             maybe_const_specialize(nc);
-            result->mirror_ptr_ = lir_mirror_emit_call(
-                out_, result->type, nc.callee, nc.type_args, nc.args);
+            mp_ = lir_mirror_emit_call(
+                out_, rt_, nc.callee, nc.type_args, nc.args);
             break;
         }
         case C::MethodCall: {
             lir_view::EMethodCallView v{eref};
             auto recv_ref = v.receiver();
             auto orig_recv_type = recv_ref.type(out_.type_pool.impl());
-            auto new_recv = subst_child_expr(recv_ref);
+            // Receiver kept as a husk: this case may RE-TYPE it in place
+            // (TypeVar→TraitObject dyn-receiver retarget) and threads it into
+            // EMethodCall (which holds LExprPtr). The husk is a thin handle
+            // over the already-emitted mirror.
+            lir::LExprPtr new_recv = child_husk(subst_child_expr(recv_ref));
             std::string method{v.method()};
             std::string resolved_symbol{v.resolved_symbol()};
             std::string resolved_type{v.resolved_type()};
@@ -3468,12 +3487,12 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         tob.trait_name = tname;
                         tob.type_args = TypeRef(nrt).type_args();
                         new_recv->type = out_.type_pool.alloc(std::move(tob));
-                        std::vector<lir::LExprPtr> mc_args;
+                        std::vector<lir_view::ExprRef> mc_args;
                         v.each_arg([&](lir_view::ExprRef ar) {
                             mc_args.push_back(subst_child_expr(ar));
                         });
-                        result->mirror_ptr_ = lir_mirror_emit_method_call(
-                            out_, result->type, new_recv, method, "",
+                        mp_ = lir_mirror_emit_method_call(
+                            out_, rt_, new_recv, method, "",
                             {}, mc_args, slot, "", "", "");
                         break;
                     }
@@ -3821,7 +3840,7 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     nc.callee = tmpl_key;
                     nc.args.push_back(std::move(new_recv));
                     v.each_arg([&](lir_view::ExprRef ar) {
-                        nc.args.push_back(subst_child_expr(ar));
+                        nc.args.push_back(child_husk(subst_child_expr(ar)));
                     });
                     for (auto ta : v.type_args(out_.type_pool.impl())) {
                         if (ta && ta.kind() == LogosType::Kind::TypeVar) {
@@ -3912,17 +3931,17 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // call (producing a broken body). Enqueue it explicitly.
                         enqueue_if_needed(nc.callee, nc.type_args);
                     }
-                    result->mirror_ptr_ = lir_mirror_emit_call(
-                        out_, result->type, nc.callee, nc.type_args, nc.args);
+                    mp_ = lir_mirror_emit_call(
+                        out_, rt_, nc.callee, nc.type_args, nc.args);
                     break;
                 }
                 // Fallback: keep as method call
-                std::vector<lir::LExprPtr> mc_args;
+                std::vector<lir_view::ExprRef> mc_args;
                 v.each_arg([&](lir_view::ExprRef ar) {
                     mc_args.push_back(subst_child_expr(ar));
                 });
-                result->mirror_ptr_ = lir_mirror_emit_method_call(
-                    out_, result->type, new_recv, method, resolved_symbol,
+                mp_ = lir_mirror_emit_method_call(
+                    out_, rt_, new_recv, method, resolved_symbol,
                     {}, mc_args, vtable_index, resolved_type,
                     tag_system, tag_trait);
                 break;
@@ -3993,18 +4012,18 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     std::string mono_base = pick_mono_template_key();
                     if (auto* spec = find_best_spec(mono_base.empty() ? base_name : mono_base,
                                                     combined_args)) {
-                        std::vector<lir::LExprPtr> args;
-                        args.push_back(std::move(nm.receiver));
+                        std::vector<lir_view::ExprRef> args;
+                        args.push_back(lir::eref(nm.receiver));
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
-                        result->mirror_ptr_ = lir_mirror_emit_call(
-                            out_, result->type, spec->name, {}, args);
+                        mp_ = lir_mirror_emit_call(
+                            out_, rt_, spec->name, {}, args);
                         rewritten = true;
                     } else if (!combined_args.empty() && !mono_base.empty()) {
                         std::string callee = mangle(mono_base, combined_args);
-                        std::vector<lir::LExprPtr> args;
-                        args.push_back(std::move(nm.receiver));
+                        std::vector<lir_view::ExprRef> args;
+                        args.push_back(lir::eref(nm.receiver));
                         v.each_arg([&](lir_view::ExprRef ar) {
                             args.push_back(subst_child_expr(ar));
                         });
@@ -4014,8 +4033,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         // trait-default method calling another method-generic
                         // method on `self`.
                         enqueue_if_needed(callee, combined_args);
-                        result->mirror_ptr_ = lir_mirror_emit_call(
-                            out_, result->type, callee, combined_args, args);
+                        mp_ = lir_mirror_emit_call(
+                            out_, rt_, callee, combined_args, args);
                         rewritten = true;
                     }
                 }
@@ -4067,19 +4086,19 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (tmpl && !tmpl->type_params.empty()) {
                     std::string callee = mangle(resolved_symbol, nm.type_args);
                     enqueue_if_needed(callee, nm.type_args);
-                    std::vector<lir::LExprPtr> args;
-                    args.push_back(std::move(nm.receiver));
+                    std::vector<lir_view::ExprRef> args;
+                    args.push_back(lir::eref(nm.receiver));
                     v.each_arg([&](lir_view::ExprRef ar) {
                         args.push_back(subst_child_expr(ar));
                     });
-                    result->mirror_ptr_ = lir_mirror_emit_call(
-                        out_, result->type, callee, nm.type_args, args);
+                    mp_ = lir_mirror_emit_call(
+                        out_, rt_, callee, nm.type_args, args);
                     rewritten = true;
                 }
             }
             if (!rewritten) {
                 v.each_arg([&](lir_view::ExprRef ar) {
-                    nm.args.push_back(subst_child_expr(ar));
+                    nm.args.push_back(child_husk(subst_child_expr(ar)));
                 });
                 // T2-24 (B): const-arg spec for a concrete method kept as a
                 // method call. The receiver is `self` (param 0) but isn't in
@@ -4094,8 +4113,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     nm.resolved_symbol =
                         const_specialize_callee(nm.resolved_symbol, combined);
                 }
-                result->mirror_ptr_ = lir_mirror_emit_method_call(
-                    out_, result->type, nm.receiver, nm.method, nm.resolved_symbol,
+                mp_ = lir_mirror_emit_method_call(
+                    out_, rt_, nm.receiver, nm.method, nm.resolved_symbol,
                     nm.type_args, nm.args, nm.vtable_index, resolved_type,
                     nm.tag_system, nm.tag_trait);
             }
@@ -4105,8 +4124,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             lir_view::EClosureBoxView v{eref};
             auto br = v.body();
             if (!br) {
-                result->mirror_ptr_ = lir_mirror_emit_closure_box(
-                    out_, result->type, nullptr);
+                mp_ = lir_mirror_emit_closure_box(
+                    out_, rt_, nullptr);
                 break;
             }
             auto nc = lir::alloc_closure(out_);
@@ -4144,8 +4163,8 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 auto ft = v.capture_field_type(out_.type_pool.impl(), i);
                 nc->capture_field_types[i] = ft ? subst_type(ft, s) : TypeRef{};
             }
-            result->mirror_ptr_ = lir_mirror_emit_closure_box(
-                out_, result->type, nc);
+            mp_ = lir_mirror_emit_closure_box(
+                out_, rt_, nc);
             break;
         }
         default:
@@ -4156,8 +4175,10 @@ lir::LExprPtr Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         }
     }
 
-    lir_mirror_emit_expr_node(out_, *result);
-    return result;
+    // Mirror already emitted by the per-kind direct emitters above; mp_ is its
+    // absolute address in out_'s arena. Return a view over it (null mp_ → null
+    // ExprRef, equivalent to the old null-mirror husk).
+    return lir_view::ExprRef(out_.type_pool.arena(), mp_);
 }
 
 
@@ -4316,8 +4337,16 @@ lir::LStmt Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     // Phase 5.B: read line from the mirror via the view (cross-arena safe).
     ns.line = lir_view::stmt_line(sref);
 
+    // subst_stmt still builds lir::LStmt with LExprPtr husk members; bridge the
+    // ExprRef that subst_expr now returns into a thin husk over its mirror.
     auto subst_child_expr = [&](lir_view::ExprRef er) -> lir::LExprPtr {
-        return er ? subst_expr(er, s) : nullptr;
+        if (!er) return nullptr;
+        auto child = subst_expr(er, s);
+        if (!child) return nullptr;
+        auto* h = lir::alloc_expr(out_);
+        h->type = child.type(out_.type_pool.impl());
+        h->mirror_ptr_ = child.addr();
+        return h;
     };
     auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
         return br ? subst_block(br, s) : lir::LBlock{};

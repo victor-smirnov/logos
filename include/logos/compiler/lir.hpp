@@ -336,6 +336,15 @@ struct EMatchArm {
     LExprPtr                 value = nullptr;
 };
 
+// Mirror-view form of an expression match arm: value/guard reference an
+// already-emitted mirror (mono's subst_expr returns ExprRef, no husk). The
+// pattern stays a real lir::Pattern (PatSubstWalker builds it).
+struct EMatchArmView {
+    Pattern           pat;
+    lir_view::ExprRef guard{};
+    lir_view::ExprRef value{};
+};
+
 // match expr { pat => val, ... } — produces a value
 struct EMatchExpr {
     LExprPtr               scrut = nullptr;

@@ -815,7 +815,7 @@ private:
     // Requires sema to keep mirror's TYPE field in sync with C++ LExpr.type
     // — see lir_mirror_update_type call sites for the 5 post-construction
     // type modifications.
-    lir::LExprPtr subst_expr(lir_view::ExprRef eref, const SubstMap& s,
+    lir_view::ExprRef subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                               const PackMap& /*unused*/ = {});
     lir::LStmt    subst_stmt(lir_view::StmtRef sref, const SubstMap& s);
 

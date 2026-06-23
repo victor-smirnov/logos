@@ -99,14 +99,19 @@ const uint8_t* lir_mirror_emit_reflect_of   (lir::LProgram& prog, TypeRef ty, Ty
 // the cache-hit fast path.
 const uint8_t* lir_mirror_emit_enum_lit     (lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc);
 const uint8_t* lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir::LExprPtr>& payload);
+const uint8_t* lir_mirror_emit_enum_lit_data(lir::LProgram& prog, TypeRef ty, std::string_view enum_name, std::string_view variant, int64_t disc, const std::vector<lir_view::ExprRef>& payload);
 const uint8_t* lir_mirror_emit_struct_lit   (lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir::LExprPtr>>& fields);
+const uint8_t* lir_mirror_emit_struct_lit   (lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<std::pair<std::string, lir_view::ExprRef>>& fields);
 const uint8_t* lir_mirror_emit_call         (lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args);
+const uint8_t* lir_mirror_emit_call         (lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_method_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir::LExprPtr>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait);
+const uint8_t* lir_mirror_emit_method_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait);
 const uint8_t* lir_mirror_emit_unary        (lir::LProgram& prog, TypeRef ty, std::string_view op, lir_view::ExprRef operand);
 const uint8_t* lir_mirror_emit_bin_op       (lir::LProgram& prog, TypeRef ty, std::string_view op, lir_view::ExprRef lhs, lir_view::ExprRef rhs);
 const uint8_t* lir_mirror_emit_field_read   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view field);
 const uint8_t* lir_mirror_emit_index_read   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, lir_view::ExprRef index);
 const uint8_t* lir_mirror_emit_hermes_lit   (lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir::LExprPtr>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob = {});
+const uint8_t* lir_mirror_emit_hermes_lit   (lir::LProgram& prog, TypeRef ty, const lir::HermesValPtr& root, bool has_captures, const std::vector<lir_view::ExprRef>& capture_exprs, const std::vector<TypeRef>& capture_types, uint32_t capture_param_count, std::string_view static_blob = {});
 const uint8_t* lir_mirror_emit_deref        (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef operand);
 const uint8_t* lir_mirror_emit_cast         (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef operand, std::string_view hermes_build_fn);
 const uint8_t* lir_mirror_emit_try          (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, int32_t ok_disc, int32_t err_disc);
@@ -122,11 +127,16 @@ const uint8_t* lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, co
 const uint8_t* lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems);
 const uint8_t* lir_mirror_emit_tuple_index  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, uint32_t index);
 const uint8_t* lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, const std::vector<lir::LExprPtr>& elems);
+const uint8_t* lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems);
 const uint8_t* lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, lir_view::ExprRef result);
 const uint8_t* lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir::LExprPtr>& args);
+const uint8_t* lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir::LExprPtr>& args);
+const uint8_t* lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef scrut, const std::vector<lir::EMatchArm>& arms);
+const uint8_t* lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef scrut, const std::vector<lir::EMatchArmView>& arms);
 const uint8_t* lir_mirror_emit_format_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef fmt, const std::vector<lir::LExprPtr>& args, const std::vector<TypeRef>& arg_types);
+const uint8_t* lir_mirror_emit_format_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef fmt, const std::vector<lir_view::ExprRef>& args, const std::vector<TypeRef>& arg_types);
 const uint8_t* lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRef ty, const lir::EClosure* inner);
 
 // Stage B.6 — LStmt direct mirror writers. Allocate a fresh mirror map for a
