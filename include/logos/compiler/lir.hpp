@@ -503,27 +503,27 @@ struct SLet {
     lir_view::ExprRef value;
 };
 
-struct SAssign    { std::string name; LExprPtr value = nullptr; };
+struct SAssign    { std::string name; lir_view::ExprRef value; };
 
-struct SReturn    { LExprPtr value = nullptr; };   // value is null for void return
+struct SReturn    { lir_view::ExprRef value; };   // value is null for void return
 
 // else_: null → no else; block with single SIf → else-if chain
 struct SIf {
-    LExprPtr                  cond = nullptr;
+    lir_view::ExprRef                  cond;
     LBlockPtr                 then_ = nullptr;
     std::optional<LBlockPtr>  else_;
 };
 
 struct SWhile {
-    LExprPtr  cond = nullptr;
+    lir_view::ExprRef  cond;
     LBlockPtr body = nullptr;
     std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
 struct SFor {
     std::string      var;
-    LExprPtr         lo = nullptr;
-    LExprPtr         hi = nullptr;
+    lir_view::ExprRef         lo;
+    lir_view::ExprRef         hi;
     bool             inclusive;
     LBlockPtr        body = nullptr;
     std::string      label;  // optional loop label, empty = unlabeled
@@ -536,28 +536,28 @@ struct SLoop {
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
-struct SBreak     { LExprPtr value = nullptr; std::string label; };  // label: target loop label (may be empty)
+struct SBreak     { lir_view::ExprRef value; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
 struct SBlock     { LBlockPtr body = nullptr; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
     std::string field;
-    LExprPtr    value = nullptr;
+    lir_view::ExprRef    value;
 };
 
 struct SIndexWrite {
     std::string arr;
-    LExprPtr    index = nullptr;
-    LExprPtr    value = nullptr;
+    lir_view::ExprRef    index;
+    lir_view::ExprRef    value;
 };
 
 // a.field[index] = value — field index write (e.g. self.ptr[i] = val)
 struct SFieldIndexWrite {
     std::string receiver;   // struct/class variable
     std::string field;      // pointer-typed field name
-    LExprPtr    index = nullptr;
-    LExprPtr    value = nullptr;
+    lir_view::ExprRef    index;
+    lir_view::ExprRef    value;
 };
 
 // (*ptr_var).field = value  — field write through a named pointer variable
@@ -565,7 +565,7 @@ struct SDerefFieldWrite {
     std::string receiver;    // variable name (holds *mut ClassName)
     std::string type_name;   // class or struct name of the pointee
     std::string field;
-    LExprPtr    value = nullptr;
+    lir_view::ExprRef    value;
 };
 
 // a.b.c.…z = value  — chained field write (2+ levels deep, N-ary).
@@ -577,26 +577,26 @@ struct SChainFieldWrite {
     std::string              mid_field;   // first intermediate field
     std::vector<std::string> extras;      // additional intermediates between mid_field and field
     std::string              field;       // final field name (write target)
-    LExprPtr                 value = nullptr;
+    lir_view::ExprRef                 value;
 };
 
-struct SExprStmt  { LExprPtr expr = nullptr; };
+struct SExprStmt  { lir_view::ExprRef expr; };
 
 // *ptr = value;  — write through a raw pointer
-struct SDerefWrite { LExprPtr ptr = nullptr; LExprPtr value = nullptr; };
+struct SDerefWrite { lir_view::ExprRef ptr; lir_view::ExprRef value; };
 
 // var.N = value;  — tuple field write (N is a small integer index)
 struct STupleWrite {
     std::string      receiver;      // local variable holding the tuple
     uint32_t         index;         // field index (0, 1, ...)
-    LExprPtr         value = nullptr;
+    lir_view::ExprRef         value;
     TypeRef recv_type = nullptr;  // LogosType of the tuple variable
 };
 
 // for item in array { body } — iterates over a fixed-size array
 struct SForEach {
     std::string      var;         // loop variable name (item)
-    LExprPtr         iter = nullptr;        // the array or slice expression
+    lir_view::ExprRef         iter;        // the array or slice expression
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
@@ -605,7 +605,7 @@ struct SForEach {
 };
 
 struct SMatch {
-    LExprPtr               scrut = nullptr;
+    lir_view::ExprRef               scrut;
     std::vector<LMatchArm> arms;
 };
 
@@ -613,7 +613,7 @@ struct SMatch {
 // After this statement, the pattern's bindings are in scope.
 struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
-    LExprPtr              scrut = nullptr;      // scrutinee expression
+    lir_view::ExprRef              scrut;      // scrutinee expression
     LBlockPtr             else_block = nullptr; // must-diverge block
     // G161-3: refutable-inner guard exprs (e.g. `__refut_0 == 1` for
     // `let Some(1) = … else`). Each must hold after the pattern's bindings are
