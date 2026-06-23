@@ -54,6 +54,12 @@ protected:
         return (a && o != hermes::NULL_OFFSET) ? a->head().data() + o.value() : nullptr;
     }
 
+public:
+    // Ctors are public so the typed views can inherit them verbatim via
+    // `using RefBase::RefBase;` (an inherited ctor keeps its base access, and
+    // make_sub_ref/navigation construct views from free functions in `detail`).
+    // RefBase lives in `detail` and is never the public handle, so exposing
+    // construction here costs no encapsulation.
     RefBase() = default;
     // (arena, offset) — resolve against the single-chunk base (valid pre-MultiChunk;
     // the stored mirror_offset_ bridge path. Stage C/D removes the offset source).
@@ -109,66 +115,55 @@ public:
 // fails (unknown arena_id, out-of-range obj_id, etc.).
 struct ChildLoc {
     const hermes::Arena*   arena;
-    hermes::arena_offset_t off;
+    hermes::AnyVal         av;   // resolvable child value-form Ref (re-anchored on copy)
     hermes::arena_id_t     aid;  // INVALID for local refs
 
-    static ChildLoc null() noexcept { return {nullptr, hermes::NULL_OFFSET, hermes::INVALID_ARENA_ID}; }
+    static ChildLoc null() noexcept { return {nullptr, hermes::AnyVal{}, hermes::INVALID_ARENA_ID}; }
     constexpr explicit operator bool() const noexcept {
-        return arena != nullptr && off != hermes::NULL_OFFSET;
+        return arena != nullptr && !av.is_null();
     }
 };
 
 inline ChildLoc resolve_child(const RefBase& parent, hermes::AnyVal av) noexcept {
     if (av.is_null()) return ChildLoc::null();
     if (!hermes::is_external_ref_av(av)) [[likely]] {
-        return ChildLoc{parent.arena(), av.to_offset(parent.base()), hermes::INVALID_ARENA_ID};
+        // Local ref — the child av already resolves self-relatively (no base).
+        return ChildLoc{parent.arena(), av, hermes::INVALID_ARENA_ID};
     }
     // Cross-arena dispatch — hermes2 ExternalRef is an AnyVal Pod niche (no arena
     // object): decode (arena_id, obj_id) inline and resolve via the global pool.
     hermes::ExternalRef ref = hermes::decode_external_ref(av);
     auto r = hermes::resolve_external_ref(ref);
     if (!r.ok()) return ChildLoc::null();
-    const uint8_t* rbase = r.mem->arena().head().data();
-    return ChildLoc{&r.mem->arena(),
-                    hermes::arena_offset_t(static_cast<uint32_t>(r.obj - rbase)),
-                    ref.aid};
+    // Re-anchor the resolved foreign object as a value-form Ref so downstream
+    // construction stays base-free (the AnyVal re-lowers on copy into the ref).
+    hermes::AnyVal child; child.set_ref(r.obj);
+    return ChildLoc{&r.mem->arena(), child, ref.aid};
 }
 
-// Construct a child TypeRef from (parent, child AnyVal, caller's pool). The child's
-// within-arena offset is computed from the AnyVal against the parent's base. When the
-// parent ref is itself cross-arena the child inherits the parent's arena_id (and drops
-// the local pool) so downstream TypeRef accessors route through ArenaPool's MemHolder.
+// Construct a child TypeRef from (parent, child AnyVal, caller's pool). The child
+// resolves self-relatively (no base). When the parent ref is itself cross-arena the
+// child inherits the parent's arena_id (and drops the local pool) so downstream
+// TypeRef accessors route through ArenaPool's MemHolder.
 inline TypeRef make_child_typeref(const RefBase& parent,
                                   hermes::AnyVal av,
                                   const TypePoolImpl* pool) noexcept {
-    auto off = av.to_offset(parent.base());
     if (parent.is_external()) {
-        return TypeRef(parent.arena(), off, /*pool=*/nullptr, parent.arena_id());
+        return TypeRef(parent.arena(), av, /*pool=*/nullptr, parent.arena_id());
     }
-    return TypeRef(parent.arena(), off, pool);
+    return TypeRef(parent.arena(), av, pool);
 }
 
-// Construct a same-kind child Ref from (parent, child AnyVal). Inherits parent's
-// arena_id when the parent is cross-arena so the foreign-arena context isn't lost.
+// Construct a same-kind child Ref from (parent, child AnyVal). The child av resolves
+// self-relatively (no base). Inherits parent's arena_id when the parent is cross-arena
+// so the foreign-arena context isn't lost.
 template <class TargetRef>
 inline TargetRef make_sub_ref(const RefBase& parent,
                               hermes::AnyVal av) noexcept {
-    auto off = av.to_offset(parent.base());
     if (parent.is_external()) {
-        return TargetRef(parent.arena(), off, parent.arena_id());
+        return TargetRef(parent.arena(), av, parent.arena_id());
     }
-    return TargetRef(parent.arena(), off);
-}
-
-// Overload for a within-arena offset already in hand (e.g. a stored mirror_offset_):
-// no AnyVal/base round-trip needed.
-template <class TargetRef>
-inline TargetRef make_sub_ref(const RefBase& parent,
-                              hermes::arena_offset_t off) noexcept {
-    if (parent.is_external()) {
-        return TargetRef(parent.arena(), off, parent.arena_id());
-    }
-    return TargetRef(parent.arena(), off);
+    return TargetRef(parent.arena(), av);
 }
 
 // Read primitives shared by every view struct. Each takes a ref and a
@@ -234,12 +229,9 @@ class HermesValRef;
 class ExprRef : public detail::RefBase {
 public:
     ExprRef() = default;
-    ExprRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    // Phase 2.B: cross-arena constructor (used by sub_*() dispatchers).
-    ExprRef(const hermes::Arena* a, hermes::arena_offset_t o,
-            hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    // Inherit RefBase's (arena,offset[,aid]) and the self-relative (arena,AnyVal[,aid])
+    // ctors — the latter make child navigation base-free (av.resolve(), MultiChunk-ready).
+    using RefBase::RefBase;
 
     lir_schema::expr::Code kind() const noexcept {
         return lir_schema::expr::Code(
@@ -261,12 +253,12 @@ public:
         auto loc = detail::resolve_child(*this, av);
         if (!loc) return TypeRef{};
         if (loc.aid.is_valid()) {
-            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+            return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, loc.aid);
         }
         if (is_external()) {
-            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, arena_id());
+            return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, arena_id());
         }
-        return TypeRef(loc.arena, loc.off, pool);
+        return TypeRef(loc.arena, loc.av, pool);
     }
 
     // Helper: reach a sub-expression via a sparse key (used by view structs).
@@ -279,12 +271,12 @@ public:
         auto loc = detail::resolve_child(*this, av);
         if (!loc) return TypeRef{};
         if (loc.aid.is_valid()) {
-            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, loc.aid);
+            return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, loc.aid);
         }
         if (is_external()) {
-            return TypeRef(loc.arena, loc.off, /*pool=*/nullptr, arena_id());
+            return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, arena_id());
         }
-        return TypeRef(loc.arena, loc.off, pool);
+        return TypeRef(loc.arena, loc.av, pool);
     }
 };
 
@@ -293,11 +285,7 @@ public:
 class StmtRef : public detail::RefBase {
 public:
     StmtRef() = default;
-    StmtRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    StmtRef(const hermes::Arena* a, hermes::arena_offset_t o,
-            hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    using RefBase::RefBase;
 
     lir_schema::stmt::Code kind() const noexcept {
         return lir_schema::stmt::Code(
@@ -313,11 +301,7 @@ public:
 class PatRef : public detail::RefBase {
 public:
     PatRef() = default;
-    PatRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    PatRef(const hermes::Arena* a, hermes::arena_offset_t o,
-           hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    using RefBase::RefBase;
 
     lir_schema::pat::Code kind() const noexcept {
         return lir_schema::pat::Code(
@@ -330,11 +314,7 @@ public:
 class BlockRef : public detail::RefBase {
 public:
     BlockRef() = default;
-    BlockRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    BlockRef(const hermes::Arena* a, hermes::arena_offset_t o,
-             hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    using RefBase::RefBase;
 
     // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
     // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.
@@ -345,11 +325,7 @@ public:
 class HermesValRef : public detail::RefBase {
 public:
     HermesValRef() = default;
-    HermesValRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    HermesValRef(const hermes::Arena* a, hermes::arena_offset_t o,
-                 hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    using RefBase::RefBase;
 
     lir_schema::hermes_val::Code kind() const noexcept {
         return lir_schema::hermes_val::Code(
@@ -374,24 +350,24 @@ inline ExprRef ExprRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key);
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.off, loc.aid);
-    return detail::make_sub_ref<ExprRef>(*this, loc.off);
+    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.av, loc.aid);
+    return detail::make_sub_ref<ExprRef>(*this, loc.av);
 }
 
 inline ExprRef StmtRef::sub_expr(uint8_t key) const noexcept {
     auto av = mirror()->get(key);
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.off, loc.aid);
-    return detail::make_sub_ref<ExprRef>(*this, loc.off);
+    if (loc.aid.is_valid()) return ExprRef(loc.arena, loc.av, loc.aid);
+    return detail::make_sub_ref<ExprRef>(*this, loc.av);
 }
 
 inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     auto av = mirror()->get(key);
     auto loc = detail::resolve_child(*this, av);
     if (!loc) return {};
-    if (loc.aid.is_valid()) return StmtRef(loc.arena, loc.off, loc.aid);
-    return detail::make_sub_ref<StmtRef>(*this, loc.off);
+    if (loc.aid.is_valid()) return StmtRef(loc.arena, loc.av, loc.aid);
+    return detail::make_sub_ref<StmtRef>(*this, loc.av);
 }
 
 // Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24),
@@ -405,8 +381,8 @@ inline void BlockRef::each_stmt(F&& f) const noexcept {
         auto el = av.as_ptr<const hermes::ObjectArray>()->get(i);
         auto loc = detail::resolve_child(*this, el);
         if (!loc) continue;
-        if (loc.aid.is_valid()) f(StmtRef(loc.arena, loc.off, loc.aid));
-        else                    f(detail::make_sub_ref<StmtRef>(*this, loc.off));
+        if (loc.aid.is_valid()) f(StmtRef(loc.arena, loc.av, loc.aid));
+        else                    f(detail::make_sub_ref<StmtRef>(*this, loc.av));
     }
 }
 
@@ -445,13 +421,7 @@ void for_each_expr(const RefBase& r, uint8_t key, F&& f) noexcept {
 class EMatchArmRef : public detail::RefBase {
 public:
     EMatchArmRef() = default;
-    EMatchArmRef(const hermes::Arena* a, hermes::arena_offset_t o) noexcept
-        : RefBase(a, o) {}
-    // Phase 5.B step 3: cross-arena constructor so each_arm can carry
-    // the parent's arena_id across into per-arm reads.
-    EMatchArmRef(const hermes::Arena* a, hermes::arena_offset_t o,
-                 hermes::arena_id_t aid) noexcept
-        : RefBase(a, o, aid) {}
+    using RefBase::RefBase;
 
     PatRef  pat() const noexcept {
         auto av = mirror()->get(ak::PAT.code);
