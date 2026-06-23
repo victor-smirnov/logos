@@ -379,6 +379,32 @@ inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 An
 inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPtr<LExpr>>
 } // namespace stmt_keys
 
+// ── Declaration variant codes (Stage E: LProgram decl layer → Hermes mirror) ─
+//
+// Coarse top-level declarations (LFunction/LStructDef/LEnumDef/LConst/LTraitDef/
+// LImplBlock/LTypeAlias). Encoded via the lir_stmt category with a DECL_BASE
+// offset (out-of-band of real stmt codes 0..22 and the block Count=23), the same
+// trick hermes_val uses (HV_BASE=200). Schema grows as each kind migrates.
+namespace decl {
+inline constexpr int32_t DECL_BASE = 300;
+enum class Code : int32_t {
+    TypeAlias = DECL_BASE + 0,
+    Const     = DECL_BASE + 1,
+    Func      = DECL_BASE + 2,
+    Struct    = DECL_BASE + 3,
+    Enum      = DECL_BASE + 4,
+    Trait     = DECL_BASE + 5,
+    Impl      = DECL_BASE + 6,
+};
+} // namespace decl
+
+// ── Declaration sparse keys (shared across decl kinds; grows per kind) ───────
+namespace decl_keys {
+inline constexpr Key NAME     {"NAME",     1};   // Varchar
+inline constexpr Key TYPE_REF {"TYPE_REF", 2};   // RelPtr<LogosType>  (alias/const/param type, ret type)
+inline constexpr Key DOC      {"DOC",      3};   // Varchar (outer doc-comment)
+} // namespace decl_keys
+
 // ── Pattern sparse keys ───────────────────────────────────────────────────
 
 namespace pat_keys {

@@ -7770,6 +7770,9 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
         else if (c == la::TYPE_ALIAS) {
             auto ta = lower_type_alias_def(item);
             ta.doc = take_pending_doc();
+            // Stage E: emit the alias's Hermes mirror; readers go via TypeAliasView.
+            ta.mirror_ptr_ = lir_mirror_emit_type_alias(prog, ta.name, ta.type, ta.doc);
+            ta.arena       = prog.type_pool.arena();
             prog.type_aliases.push_back(std::move(ta));
         }
         else if (c == la::TRAIT_DEF) {

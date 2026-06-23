@@ -349,6 +349,46 @@ public:
     }
 };
 
+// ── Declaration views (Stage E: LProgram decl layer → Hermes mirror) ────────
+//
+// DeclRef is the shared fat-handle for top-level declaration mirrors; the
+// per-kind views (TypeAliasView, …) wrap it and decode sparse fields lazily,
+// mirroring the LExpr variant-view pattern above.
+class DeclRef : public detail::RefBase {
+public:
+    DeclRef() = default;
+    using RefBase::RefBase;
+    lir_schema::decl::Code kind() const noexcept {
+        return lir_schema::decl::Code(
+            int32_t(hermes::schema::variant_of(schema_type_code())));
+    }
+    // Read a RelPtr<LogosType> field as a TypeRef (cross-arena aware, like
+    // ExprRef::sub_type) — shared by every decl view's type accessors.
+    TypeRef decl_type(uint8_t key, const TypePoolImpl* pool) const noexcept {
+        auto av = mirror()->get(key);
+        if (av.is_null()) return TypeRef{};
+        auto loc = detail::resolve_child(*this, av);
+        if (!loc) return TypeRef{};
+        if (loc.aid.is_valid()) return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, loc.aid);
+        if (is_external())      return TypeRef(loc.arena, loc.av, /*pool=*/nullptr, arena_id());
+        return TypeRef(loc.arena, loc.av, pool);
+    }
+};
+
+// LTypeAlias { name: Varchar, type: RelPtr<LogosType>, doc: Varchar }
+struct TypeAliasView {
+    DeclRef self;
+    std::string_view name() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::NAME.code);
+    }
+    std::string_view doc() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::DOC.code);
+    }
+    TypeRef type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::decl_keys::TYPE_REF.code, pool);
+    }
+};
+
 // ── Inline accessors that need the above forward decls ───────────────────
 //
 // Phase 2.B: each sub_* method routes through detail::resolve_child() which

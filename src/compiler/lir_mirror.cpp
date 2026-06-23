@@ -37,6 +37,7 @@ namespace ek = lir_schema::expr_keys;
 namespace ec = lir_schema::expr_common;
 namespace sk = lir_schema::stmt_keys;
 namespace sc = lir_schema::stmt_common;
+namespace dk = lir_schema::decl_keys;
 namespace pk = lir_schema::pat_keys;
 namespace ak = lir_schema::arm_keys;
 namespace hl = lir_schema::hermes_lit_keys;
@@ -143,6 +144,19 @@ public:
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::AddrOf));
         put(map_off, ek::NAME, n_av);
         if (ty) put(map_off, ec::TYPE, type_av(ty));
+        return map_off;
+    }
+
+    // Stage E: declaration-layer mirror writers.
+    const uint8_t* emit_type_alias_direct(std::string_view name, TypeRef type,
+                                          std::string_view doc) {
+        auto n_av = put_string(name);
+        auto d_av = doc.empty() ? hermes::AnyVal{} : put_string(doc);
+        auto map_off = make_map(hermes::schema::lir_stmt(
+            int32_t(lir_schema::decl::Code::TypeAlias)));
+        put(map_off, dk::NAME, n_av);
+        if (type) put(map_off, dk::TYPE_REF, type_av(type));
+        if (!d_av.is_null()) put(map_off, dk::DOC, d_av);
         return map_off;
     }
     const uint8_t* emit_pack_expand_direct(TypeRef ty, std::string_view var_name) {
@@ -1700,6 +1714,13 @@ const uint8_t* lir_mirror_emit_addr_of(lir::LProgram& prog, TypeRef ty, std::str
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_addr_of_direct(ty, var_name);
+}
+
+const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
+                                          TypeRef type, std::string_view doc) {
+    auto& ctr = prog.type_pool.ctr_or_init();
+    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
+    return em.emit_type_alias_direct(name, type, doc);
 }
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name) {
     auto& ctr = prog.type_pool.ctr_or_init();

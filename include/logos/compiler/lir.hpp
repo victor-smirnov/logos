@@ -1050,6 +1050,13 @@ struct LTypeAlias {
     TypeRef type;
     // Outer doc-comment on the type alias.
     std::string      doc;
+    // Stage E (decl layer → Hermes): back-pointer to this alias's mirror map +
+    // the arena it lives in (carried so cache/cross-arena aliases resolve against
+    // the correct base, mirroring the old LExpr bridge). Readers go through
+    // lir_view::TypeAliasView{DeclRef(arena, mirror_ptr_)}. Transient — dropped
+    // when the C++ struct is deleted (storage flips to views).
+    mutable const uint8_t* mirror_ptr_ = nullptr;
+    const hermes::Arena*   arena       = nullptr;
 };
 
 // ── Program ───────────────────────────────────────────────────────────────

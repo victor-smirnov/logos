@@ -87,6 +87,10 @@ const uint8_t* lir_mirror_emit_var_ref  (lir::LProgram& prog, TypeRef ty, std::s
                                                  uint32_t slot = 0xFFFFFFFFu);
 const uint8_t* lir_mirror_emit_addr_of  (lir::LProgram& prog, TypeRef ty, std::string_view var_name);
 const uint8_t* lir_mirror_emit_pack_expand(lir::LProgram& prog, TypeRef ty, std::string_view var_name);
+
+// Stage E — declaration-layer mirror writers.
+const uint8_t* lir_mirror_emit_type_alias(lir::LProgram& prog, std::string_view name,
+                                          TypeRef type, std::string_view doc);
 const uint8_t* lir_mirror_emit_size_of      (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 const uint8_t* lir_mirror_emit_align_of     (lir::LProgram& prog, TypeRef ty, TypeRef elem);
 const uint8_t* lir_mirror_emit_generic_ref  (lir::LProgram& prog, TypeRef ty, std::string_view name, const std::vector<TypeRef>& type_args);
