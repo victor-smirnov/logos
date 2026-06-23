@@ -1351,15 +1351,15 @@ lir::LConst SemaChecker::lower_const_def(TinyMapView node) {
     return lc;
 }
 
-lir::LTypeAlias SemaChecker::lower_type_alias_def(TinyMapView node) {
+// Stage E: returns (name, type); the caller adds the doc-comment, emits the
+// Hermes mirror, and stores a TypeAliasView (struct LTypeAlias is gone).
+std::pair<std::string, TypeRef> SemaChecker::lower_type_alias_def(TinyMapView node) {
     auto name = std::string(str_of(node.get(la::NAME.code)));
-    lir::LTypeAlias ta;
-    ta.name = name;
     auto ait = type_aliases_.find(name);
     // Generic aliases have no concrete LIR type (they're inlined at use sites).
-    ta.type = (ait != type_aliases_.end() && ait->second.type_params.empty())
-              ? ait->second.type : error_t();
-    return ta;
+    TypeRef type = (ait != type_aliases_.end() && ait->second.type_params.empty())
+                   ? ait->second.type : error_t();
+    return {std::move(name), type};
 }
 
 lir::LTraitDef SemaChecker::lower_trait_def(TinyMapView node) {

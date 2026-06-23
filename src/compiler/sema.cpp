@@ -332,7 +332,7 @@ struct LirBundle {
     std::vector<lir::LFunctionPtr>    functions;
     std::vector<lir::LFunctionPtr>    specializations;
     std::vector<lir::LConst>          consts;
-    std::vector<lir::LTypeAlias>      type_aliases;
+    std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir::LTraitDef>       traits;
     std::vector<lir::LImplBlock>      impls;
     std::vector<lir::LInstAnnotation> inst_annotations;
@@ -7768,12 +7768,13 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
             prog.consts.push_back(std::move(cd));
         }
         else if (c == la::TYPE_ALIAS) {
-            auto ta = lower_type_alias_def(item);
-            ta.doc = take_pending_doc();
-            // Stage E: emit the alias's Hermes mirror; readers go via TypeAliasView.
-            ta.mirror_ptr_ = lir_mirror_emit_type_alias(prog, ta.name, ta.type, ta.doc);
-            ta.arena       = prog.type_pool.arena();
-            prog.type_aliases.push_back(std::move(ta));
+            // Stage E: emit the alias's Hermes mirror and store a TypeAliasView
+            // (struct LTypeAlias is gone — the mirror is the sole representation).
+            auto [aname, atype] = lower_type_alias_def(item);
+            auto adoc = take_pending_doc();
+            auto mp = lir_mirror_emit_type_alias(prog, aname, atype, adoc);
+            prog.type_aliases.push_back(
+                lir_view::TypeAliasView{lir_view::DeclRef(prog.type_pool.arena(), mp)});
         }
         else if (c == la::TRAIT_DEF) {
             // Explicit genos specialization decl: `#[type_code=N] pub genos Array<i32>;`.

@@ -167,12 +167,9 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!register_struct(sd)) return nullptr;
     pt.tick("pass0 register_struct");
 
-    for (auto& ta : prog.type_aliases) {
-        // Stage E: read the alias from its Hermes mirror via TypeAliasView.
-        lir_view::TypeAliasView tav{lir_view::DeclRef(ta.arena, ta.mirror_ptr_)};
+    for (auto& tav : prog.type_aliases)  // Stage E: TypeAliasView over the Hermes mirror
         type_aliases_[std::string(tav.name())] =
             logos_to_mlir(tav.type(prog.type_pool.impl()));
-    }
 
     for (auto& c : prog.consts)
         module_consts_[c.name] = &c;

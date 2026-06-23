@@ -1045,19 +1045,8 @@ struct LConst {
     std::string      sym;                // link symbol ("<pkg>$<NAME>")
 };
 
-struct LTypeAlias {
-    std::string      name;
-    TypeRef type;
-    // Outer doc-comment on the type alias.
-    std::string      doc;
-    // Stage E (decl layer → Hermes): back-pointer to this alias's mirror map +
-    // the arena it lives in (carried so cache/cross-arena aliases resolve against
-    // the correct base, mirroring the old LExpr bridge). Readers go through
-    // lir_view::TypeAliasView{DeclRef(arena, mirror_ptr_)}. Transient — dropped
-    // when the C++ struct is deleted (storage flips to views).
-    mutable const uint8_t* mirror_ptr_ = nullptr;
-    const hermes::Arena*   arena       = nullptr;
-};
+// Stage E: struct LTypeAlias deleted — type aliases live ONLY as Hermes mirror
+// nodes (lir_schema::decl::Code::TypeAlias), read via lir_view::TypeAliasView.
 
 // ── Program ───────────────────────────────────────────────────────────────
 //
@@ -1152,7 +1141,7 @@ struct LProgram {
     std::vector<LFunctionPtr>    functions;        // free functions and extern fn
     std::vector<LFunctionPtr>    specializations;  // fn specialisations (consumed by mono)
     std::vector<LConst>          consts;
-    std::vector<LTypeAlias>      type_aliases;
+    std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<LTraitDef>       traits;
     std::vector<LImplBlock>      impls;
     std::vector<LInstAnnotation> inst_annotations; // explicit instantiation declarations
