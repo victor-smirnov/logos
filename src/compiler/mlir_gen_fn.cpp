@@ -409,9 +409,9 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, const LFunction& fn
     // maintain its flag from its very first assignment, which is lowered before
     // we'd otherwise discover a later conditional assignment.
     { std::unordered_map<std::string, int> decl_depth;
-      prescan_uninit_flags(block_ref_of(fn.body), 0, decl_depth); }
+      prescan_uninit_flags(fn.body, 0, decl_depth); }
 
-    gen_block(block_ref_of(fn.body));
+    gen_block(fn.body);
 
     if (!is_terminated(builder_.getBlock())) {
         if (ret_types.empty()) {

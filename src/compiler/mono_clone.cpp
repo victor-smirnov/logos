@@ -449,8 +449,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         auto subst_child_expr = [&](lir_view::ExprRef er) -> lir_view::ExprRef {
             return er ? subst_expr(er, s) : lir_view::ExprRef{};
         };
-        auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
-            return br ? subst_block(br, s) : lir::LBlock{};
+        auto subst_child_block = [&](lir_view::BlockRef br) -> lir_view::BlockRef {
+            return br ? subst_block(br, s) : lir_view::BlockRef{};
         };
         // Bridge: a few metaprog intrinsic branches build their result entirely
         // through LirBuilder (which speaks LExprPtr husks). Wrap an already-
@@ -959,11 +959,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
         }
         case C::BlockExpr: {
             lir_view::EBlockExprView v{eref};
-            lir::LBlock* nb_block = nullptr;
+            lir_view::BlockRef nb_block{};
             lir_view::ExprRef nb_result{};
             if (auto br = v.block(); br) {
-                nb_block = lir::alloc_block(out_, subst_child_block(br));
-                lir_mirror_emit_block_node(out_, *nb_block);
+                nb_block = subst_child_block(br);
             }
             if (auto rr = v.result(); rr)
                 nb_result = subst_child_expr(rr);
@@ -4136,7 +4135,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 });
             nc->ret_type  = subst_type(v.ret_type(out_.type_pool.impl()), s);
             nc->body      = subst_child_block(br);
-            lir_mirror_emit_block_node(out_, nc->body);
             nc->is_move   = v.is_move();
             nc->as_fn_ptr = v.as_fn_ptr();
             nc->escapes   = v.escapes();  // G167-3b: preserve heap-env flag
@@ -4343,8 +4341,8 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         // subst_expr returns an ExprRef into out_; LExprPtr now IS ExprRef.
         return subst_expr(er, s);
     };
-    auto subst_child_block = [&](lir_view::BlockRef br) -> lir::LBlock {
-        return br ? subst_block(br, s) : lir::LBlock{};
+    auto subst_child_block = [&](lir_view::BlockRef br) -> lir_view::BlockRef {
+        return br ? subst_block(br, s) : lir_view::BlockRef{};
     };
 
     using SCode = lir_schema::stmt::Code;
@@ -4381,12 +4379,10 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     case SCode::If: {
         lir_view::SIfView v{sref};
         auto cond = subst_child_expr(v.cond());
-        auto* then_blk = lir::alloc_block(out_, subst_child_block(v.then_block()));
-        lir_mirror_emit_block_node(out_, *then_blk);
-        lir::LBlock* else_blk = nullptr;
+        auto then_blk = subst_child_block(v.then_block());
+        lir_view::BlockRef else_blk{};
         if (auto eb = v.else_block()) {
-            else_blk = lir::alloc_block(out_, subst_child_block(eb));
-            lir_mirror_emit_block_node(out_, *else_blk);
+            else_blk = subst_child_block(eb);
         }
         ns.mirror_ptr_ = lir_mirror_emit_if_stmt(
             out_, ns.line, cond, then_blk, else_blk);
@@ -4395,8 +4391,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     case SCode::While: {
         lir_view::SWhileView v{sref};
         auto cond = subst_child_expr(v.cond());
-        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *body);
+        auto body = subst_child_block(v.body());
         std::string label(v.label());
         ns.mirror_ptr_ = lir_mirror_emit_while(
             out_, ns.line, cond, body, label);
@@ -4408,8 +4403,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         auto lo = subst_child_expr(v.lo());
         auto hi = subst_child_expr(v.hi());
         bool inclusive = v.inclusive();
-        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *body);
+        auto body = subst_child_block(v.body());
         std::string label(v.label());
         ns.mirror_ptr_ = lir_mirror_emit_for(
             out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot());  // Phase-1
@@ -4417,8 +4411,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     }
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
-        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *body);
+        auto body = subst_child_block(v.body());
         TypeRef result_type = v.result_type(pool);
         std::string break_slot(v.break_slot());
         std::string label(v.label());
@@ -4428,8 +4421,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     }
     case SCode::Block: {
         lir_view::SBlockView v{sref};
-        auto* blk = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *blk);
+        auto blk = subst_child_block(v.body());
         ns.mirror_ptr_ = lir_mirror_emit_block_stmt(
             out_, ns.line, blk);
         break;
@@ -4661,8 +4653,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         v.each_arm([&](lir_view::EMatchArmRef arm) {
             lir::LMatchArm na;
             if (auto pref = arm.pat()) na.pat = subst_pattern(pref, s);
-            na.body = lir::alloc_block(out_, subst_child_block(arm.body()));
-            lir_mirror_emit_block_node(out_, *na.body);
+            na.body = subst_child_block(arm.body());
             if (auto g = arm.guard()) na.guard = subst_child_expr(g);
             arms.push_back(std::move(na));
         });
@@ -4684,8 +4675,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         if (arr_size == 0 && !is_slice && iter && iter_t &&
             iter_t.kind() == LogosType::Kind::Array)
             arr_size = (int64_t)iter_t.arr_size();
-        auto* body = lir::alloc_block(out_, subst_child_block(v.body()));
-        lir_mirror_emit_block_node(out_, *body);
+        auto body = subst_child_block(v.body());
         ns.mirror_ptr_ = lir_mirror_emit_for_each(
             out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot());  // Phase-1
         break;
@@ -4695,8 +4685,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         lir::Pattern pat;
         if (auto pref = v.pat()) pat = subst_pattern(pref, s);
         auto scrut = subst_child_expr(v.scrut());
-        auto* else_block = lir::alloc_block(out_, subst_child_block(v.else_block()));
-        lir_mirror_emit_block_node(out_, *else_block);
+        auto else_block = subst_child_block(v.else_block());
         std::vector<lir::LExprPtr> guards;   // G161-3
         v.each_guard([&](lir_view::ExprRef g){ guards.push_back(subst_child_expr(g)); });
         ns.mirror_ptr_ = lir_mirror_emit_let_else(
@@ -4786,7 +4775,7 @@ lir::LFunction Mono::clone_fn(const lir::LFunction& fn, const SubstMap& s,
         }
     }
     if (!src_body) {
-        src_body = block_ref_of(fn.body);
+        src_body = fn.body;
     }
     nf.body = subst_block(src_body, s, packs);
     src_arena_ = saved_src_arena;
@@ -5386,9 +5375,9 @@ void Mono::collect_struct_needs_from_output() {
     for (auto& fn : out_.functions) {
         collect_type_for_structs(fn->ret_type);
         for (auto& p : fn->params) collect_type_for_structs(p.type);
-        if (fn->body.mirror_ptr_ != nullptr)
+        if ((bool)fn->body)
             collect_struct_needs_from_block(
-                lir_view::BlockRef(&arena, fn->body.mirror_ptr_));
+                fn->body);
     }
     // Also walk already-instantiated structs (field types may reference more).
     for (auto& sd : out_.structs)

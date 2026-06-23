@@ -259,7 +259,7 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
     // scope. Drops are emitted in REVERSE binding order. (The drop convention is
     // explicit SDrop statements inserted by sema — mlir-gen does not auto-drop
     // block-scoped locals — so we must emit them here.)
-    auto blk = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> blk;
     std::vector<lir_view::StmtRef> drops;
     for (auto& h : hoisted) {
         std::string nm = std::move(std::get<0>(h));
@@ -267,7 +267,7 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
         lir::SLet sl;
         sl.name = nm; sl.type = ty; sl.is_mut = std::get<3>(h);
         sl.value = std::move(std::get<2>(h));
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         if (auto d = make_drop_stmt(nm, VarInfo{ty, false}))
             drops.push_back(std::move(*d));
     }
@@ -280,16 +280,16 @@ lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
         rb.type = std::get<1>(*ret_bind);
         rb.is_mut = false;
         rb.value = std::get<2>(*ret_bind);
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(rb)));
+        blk.push_back(make_stmt_emit(node_line_, std::move(rb)));
         for (auto it = drops.rbegin(); it != drops.rend(); ++it)
-            blk->stmts.push_back(std::move(*it));
-        blk->stmts.push_back(std::move(s));   // `return __rv` — terminator last
+            blk.push_back(std::move(*it));
+        blk.push_back(std::move(s));   // `return __rv` — terminator last
     } else {
-        blk->stmts.push_back(std::move(s));
+        blk.push_back(std::move(s));
         for (auto it = drops.rbegin(); it != drops.rend(); ++it)
-            blk->stmts.push_back(std::move(*it));
+            blk.push_back(std::move(*it));
     }
-    lir::SBlock sb; sb.body = std::move(blk);
+    lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
@@ -355,13 +355,13 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             if (!is_place) {
                 std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
                 if (auto drop = make_drop_stmt(synth, VarInfo{expr_type(e), false})) {
-                    auto blk = lir::alloc_block(*cur_prog_);
+                    std::vector<lir_view::StmtRef> blk;
                     lir::SLet sl;
                     sl.name = synth; sl.type = expr_type(e); sl.is_mut = false;
                     sl.value = std::move(e);
-                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                    blk->stmts.push_back(std::move(*drop));
-                    lir::SBlock sb; sb.body = std::move(blk);
+                    blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                    blk.push_back(std::move(*drop));
+                    lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
                     return make_stmt_emit(node_line_, std::move(sb));
                 }
             }
@@ -643,24 +643,24 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     if (c == la::UNSAFE_BLOCK) {
         bool was = inside_unsafe_;
         inside_unsafe_ = true;
-        auto inner = stmt.has_key(la::BODY)
+        lir_view::BlockRef inner = stmt.has_key(la::BODY)
             ? lower_block(map_of(stmt.get(la::BODY.code)))
-            : lir::LBlock{};
+            : lir_mirror_block(*cur_prog_, {});
         inside_unsafe_ = was;
-        return make_stmt_emit(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+        return make_stmt_emit(node_line_, lir::SBlock{inner});
     }
     if (c == la::BLOCK_STMT) {
-        auto inner = stmt.has_key(la::BODY)
+        lir_view::BlockRef inner = stmt.has_key(la::BODY)
             ? lower_block(map_of(stmt.get(la::BODY.code)))
-            : lir::LBlock{};
-        return make_stmt_emit(node_line_, lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+            : lir_mirror_block(*cur_prog_, {});
+        return make_stmt_emit(node_line_, lir::SBlock{inner});
     }
     // Unknown stmt — emit dummy expr stmt
     return builder().stmt_expr(error_expr(), node_line_);
 }
 
-lir::LBlock SemaChecker::lower_block(TinyMapView block) {
-    lir::LBlock result;
+lir_view::BlockRef SemaChecker::lower_block(TinyMapView block) {
+    std::vector<lir_view::StmtRef> result;
     push_scope();
     // G167-4: if a loop just armed this, tag the body frame as the loop
     // boundary for break/continue drop-glue (consume the one-shot flag).
@@ -681,8 +681,8 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                 // Diagnose only when the previous lowered stmt was a hard
                 // terminator (Return/Break/Continue) — Panic doesn't have a
                 // dedicated AST code; skip those.
-                if (i > 0 && !result.stmts.empty()) {
-                    auto prev_ref = stmt_ref_of(result.stmts.back());
+                if (i > 0 && !result.empty()) {
+                    auto prev_ref = stmt_ref_of(result.back());
                     if (prev_ref) {
                         auto pk = prev_ref.kind();
                         if ((pk == lir_schema::stmt::Code::Return ||
@@ -712,16 +712,16 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                     lir::SLet sl;
                     sl.name = tmp; sl.type = rt; sl.is_mut = false;
                     sl.value = val_ref;
-                    result.stmts.push_back(
+                    result.push_back(
                         make_stmt_emit(node_line_, std::move(sl)));
                     for (auto& d : drops)
-                        result.stmts.push_back(std::move(d));
-                    result.stmts.push_back(
+                        result.push_back(std::move(d));
+                    result.push_back(
                         builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
                     continue;
                 }
                 for (auto& d : drops)
-                    result.stmts.push_back(std::move(d));
+                    result.push_back(std::move(d));
             } else {
                 auto term_ref = stmt_ref_of(lowered);
                 if (term_ref && (term_ref.kind() == lir_schema::stmt::Code::Break ||
@@ -730,16 +730,16 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
                     // body — a break/continue nested in an `if` exits via the
                     // loop edge, bypassing the body block's normal end drops.
                     for (auto& d : collect_drops_to_loop())
-                        result.stmts.push_back(std::move(d));
+                        result.push_back(std::move(d));
                 }
             }
-            result.stmts.push_back(std::move(lowered));
+            result.push_back(std::move(lowered));
         }
     }
     // Insert drops for normal block exit (no return/break/continue)
     bool ends_with_terminator = false;
-    if (!result.stmts.empty()) {
-        auto br = stmt_ref_of(result.stmts.back());
+    if (!result.empty()) {
+        auto br = stmt_ref_of(result.back());
         if (br) {
             auto k = br.kind();
             ends_with_terminator = (k == lir_schema::stmt::Code::Return ||
@@ -749,10 +749,10 @@ lir::LBlock SemaChecker::lower_block(TinyMapView block) {
     }
     if (!ends_with_terminator) {
         for (auto& d : collect_drops())
-            result.stmts.push_back(std::move(d));
+            result.push_back(std::move(d));
     }
     pop_scope();
-    return result;
+    return lir_mirror_block(*cur_prog_, result);
 }
 
 lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
@@ -766,7 +766,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
         return builder().stmt_expr(std::move(rhs), node_line_);
     }
 
-    auto blk = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> blk;
 
     // let __destruct_N = rhs
     std::string tmp = std::format("__destruct_{}", destruct_counter_++);
@@ -776,7 +776,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
     tmp_let.type    = rhs_type;
     tmp_let.is_mut  = false;
     tmp_let.value   = std::move(rhs);
-    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(tmp_let)));
+    blk.push_back(make_stmt_emit(node_line_, std::move(tmp_let)));
 
     // Recursively bind a tuple-binding list against a source expr of tuple type.
     // Each element is either a PAT_WILD (leaf name binding) or a PAT_TUPLE
@@ -819,7 +819,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
         define(src_tmp, src_ty);
         lir::SLet sl;
         sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         // names after the rest occupy the tail: first such name maps to
         // position (arity - trailing_count).
         size_t trailing = rest_idx < 0 ? 0 : (arr.size() - 1 - (size_t)rest_idx);
@@ -850,7 +850,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
                 if (is_move_type(elem_t)) mark_moved_expr(expr_ref_of(elem_expr));
                 lir::SLet el;
                 el.name = nm; el.type = elem_t; el.is_mut = false; el.value = std::move(elem_expr);
-                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
+                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
             }
         }
     };
@@ -863,7 +863,7 @@ lir_view::StmtRef SemaChecker::lower_let_destruct(TinyMapView node) {
                        "binding", "let (...) destructure");
 
     lir::SBlock sb;
-    sb.body = std::move(blk);
+    sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
@@ -884,18 +884,18 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
     TypeRef rhs_type = expr_type(rhs);
-    auto blk = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> blk;
     std::string tmp = std::format("__da_{}", destruct_counter_++);
     define(tmp, rhs_type);
     {
         lir::SLet sl;
         sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.value = std::move(rhs);
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
     }
     // Assign an accessor expr into a place name (or discard for `_`).
     auto assign_place = [&](const std::string& nm, lir::LExprPtr acc) {
         if (nm == "_" || nm.empty()) {
-            blk->stmts.push_back(builder().stmt_expr(std::move(acc), node_line_));
+            blk.push_back(builder().stmt_expr(std::move(acc), node_line_));
             return;
         }
         auto vt = lookup(nm);
@@ -908,7 +908,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
         // `lower_assign` would (this path bypasses lower_assign by going
         // through builder().stmt_assign directly).
         currently_uninit_vars_.erase(nm);
-        blk->stmts.push_back(builder().stmt_assign(nm, std::move(acc), node_line_));
+        blk.push_back(builder().stmt_assign(nm, std::move(acc), node_line_));
     };
 
     if (op == 2) {
@@ -993,7 +993,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
             {
                 lir::SLet sl;
                 sl.name = src_tmp; sl.type = src_ty; sl.is_mut = false; sl.value = std::move(src);
-                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
             for (uint64_t i = 0; i < arr.size(); ++i) {
                 auto bnode = map_of(arr.get(i));
@@ -1040,7 +1040,7 @@ lir_view::StmtRef SemaChecker::lower_destructure_assign(TinyMapView node) {
     }
 
     lir::SBlock sb;
-    sb.body = std::move(blk);
+    sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
@@ -1141,14 +1141,14 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         // outer-scope uninit lets + SAssign (which would force `mut`).
         // Bindings come in shorthand (`f` → bind name = field name) or
         // `f: x` rename form.
-        auto blk = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> blk;
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);
         {
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
             sl.value = std::move(rhs);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         // Walk the user's PAT_FIELD list: per entry, validate the field
         // exists in the variant and pick the user-visible binding name.
@@ -1222,10 +1222,10 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             lir::SLet sl;
             sl.name = uf.bind; sl.type = uf.ftype; sl.is_mut = false;
             sl.value = std::move(match_expr);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         lir::SBlock sb;
-        sb.body = std::move(blk);
+        sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
     if (is_array_slice_pat) {
@@ -1260,7 +1260,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 arr_n, sub_pats.size()));
             return builder().stmt_expr(std::move(rhs), node_line_);
         }
-        auto blk = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> blk;
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);
         // P4-pm-15 Drop case: when element type carries Drop, the bytewise
@@ -1273,7 +1273,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
             sl.value = std::move(rhs);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         mark_moved(tmp);
         for (size_t j = 0; j < sub_pats.size(); ++j) {
@@ -1300,7 +1300,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                     builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)),
                     elem_t);
                 define(vname, elem_t);
-                blk->stmts.push_back(
+                blk.push_back(
                     make_stmt_emit(node_line_, std::move(sl)));
             } else {
                 error(std::format(
@@ -1309,7 +1309,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             }
         }
         lir::SBlock sb;
-        sb.body = std::move(blk);
+        sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
     if (is_tuple_struct_pat) {
@@ -1321,14 +1321,14 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                   sname, type_str(rhs_type)));
             return builder().stmt_expr(std::move(rhs), node_line_);
         }
-        auto blk = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> blk;
         std::string tmp = std::format("__dst_{}", destruct_counter_++);
         define(tmp, rhs_type);
         {
             lir::SLet sl;
             sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
             sl.value = std::move(rhs);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         size_t arg_n = 0;
         if (pat_node.has_key(la::ARGS)) {
@@ -1377,7 +1377,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                                 builder().var_ref(tmp, rhs_type),
                                 std::to_string(fpos), ftype);
                             define(vname, ftype);
-                            blk->stmts.push_back(
+                            blk.push_back(
                                 make_stmt_emit(node_line_, std::move(sl)));
                         } else {
                             error(std::format(
@@ -1394,7 +1394,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 "tuple-struct pattern '{}': expected {} fields, got {}",
                 sname, tsi_let->fields.size(), arg_n));
         lir::SBlock sb;
-        sb.body = std::move(blk);
+        sb.body = lir_mirror_block(*cur_prog_, blk);
         return make_stmt_emit(node_line_, std::move(sb));
     }
     if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
@@ -1458,7 +1458,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                     sname, nf));
         }
     }
-    auto blk = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> blk;
     std::string tmp = std::format("__dst_{}", destruct_counter_++);
     define(tmp, rhs_type);
     // `let __dst = rhs` consumes rhs — mark the source moved (lower_let does
@@ -1469,7 +1469,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         lir::SLet sl;
         sl.name = tmp; sl.type = rhs_type; sl.is_mut = false;
         sl.value = std::move(rhs);
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
     }
     // B98: helper that destructures a struct-pattern into the block.
     // Recursive (handles nested PAT_STRUCT in field values).
@@ -1532,7 +1532,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
                 lir::SLet sl;
                 sl.name = fvar; sl.type = ft; sl.is_mut = false;
                 sl.value = std::move(fr);
-                blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
             // If sub is a nested struct pattern, recurse.
             if (has_sub && code_of(sub) == la::PAT_STRUCT) {
@@ -1564,7 +1564,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     // scope-exit Drop is suppressed; the field bindings own + drop the data).
     if (is_move_type(rhs_type)) mark_moved(tmp);
     lir::SBlock sb;
-    sb.body = std::move(blk);
+    sb.body = lir_mirror_block(*cur_prog_, blk);
     return make_stmt_emit(node_line_, std::move(sb));
 }
 
@@ -1605,7 +1605,7 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
 
     // 3. Lower else block in nested scope (must diverge — closes B-st-03).
     push_scope();
-    lir::LBlock else_blk;
+    lir_view::BlockRef else_blk;
     if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
         if (!block_always_diverts(body_node)) {
@@ -1667,7 +1667,7 @@ lir_view::StmtRef SemaChecker::lower_let_else(TinyMapView node) {
     lir::SLetElse sle;
     sle.pat        = std::move(pat);
     sle.scrut      = std::move(scrut);
-    sle.else_block = lir::alloc_block(*cur_prog_, std::move(else_blk));
+    sle.else_block = else_blk;
     sle.guards     = std::move(refut_guards);   // G161-3
     return make_stmt_emit(node_line_, std::move(sle));
 }
@@ -1866,7 +1866,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     define(std::string(name),
                            ann ? ann : make_ref(ext_mut, lit_type), is_mut);
 
-                    auto blk = lir::alloc_block(*cur_prog_);
+                    std::vector<lir_view::StmtRef> blk;
 
                     // synth: `let [mut] __lit_temp_N = <rvalue>;`
                     lir::SLet sl_tmp;
@@ -1874,7 +1874,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     sl_tmp.type   = lit_type;
                     sl_tmp.is_mut = ext_mut;
                     sl_tmp.value  = std::move(lit_expr);
-                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl_tmp)));
+                    blk.push_back(make_stmt_emit(node_line_, std::move(sl_tmp)));
 
                     // user:  `let name = &[mut] __lit_temp_N;`
                     auto addr = builder().addr_of(tmp, make_ref(ext_mut, lit_type));
@@ -1883,14 +1883,14 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     sl_user.type   = ann ? ann : expr_type(addr);
                     sl_user.is_mut = is_mut;
                     sl_user.value  = std::move(addr);
-                    blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl_user)));
+                    blk.push_back(make_stmt_emit(node_line_, std::move(sl_user)));
 
                     hint_enum_type_ = saved_hint;
                     hint_struct_type_ = saved_struct_hint;
                     hint_call_return_type_ = saved_ret_hint;
                     hint_closure_formal_ = saved_closure_hint;
                     hint_tuple_type_ = saved_tuple_hint;
-                    return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
+                    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)});
                 }
             }
         }
@@ -5893,35 +5893,35 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
                 std::vector<lir_view::StmtRef> gd;
                 emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
                 if (!gd.empty()) {
-                    auto gblk = lir::alloc_block(*cur_prog_);
-                    gblk->stmts = std::move(gd);
+                    std::vector<lir_view::StmtRef> gblk;
+                    gblk = std::move(gd);
                     TypeRef gt = expr_type(chain_guard);
-                    chain_guard = builder().block_expr(std::move(gblk),
+                    chain_guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk),
                                       std::move(chain_guard), gt);
                 }
             }
         }
-        lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::THEN))
-            *then_body = lower_block(map_of(node.get(la::THEN.code)));
+            lower_block(map_of(node.get(la::THEN.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
         if (!nested_destructure.empty()) {
             std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
             merged.insert(merged.end(),
-                          std::make_move_iterator(then_body->stmts.begin()),
-                          std::make_move_iterator(then_body->stmts.end()));
-            then_body->stmts = std::move(merged);
+                          std::make_move_iterator(then_body.begin()),
+                          std::make_move_iterator(then_body.end()));
+            then_body = std::move(merged);
         }
         pop_scope();
 
         // Else arm: wildcard → else block (or empty)
-        lir::LBlockPtr else_body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> else_body;
         if (node.has_key(la::ELSE)) {
             auto else_node = map_of(node.get(la::ELSE.code));
             if (code_of(else_node) == la::BLOCK) {
-                *else_body = lower_block(else_node);
+                lower_block(else_node).each_stmt([&](lir_view::StmtRef s){ else_body.push_back(s); });
             } else {
                 // else if: wrap in block
-                else_body->stmts.push_back(lower_if(else_node));
+                else_body.push_back(lower_if(else_node));
             }
         }
 
@@ -5946,8 +5946,8 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
 
         lir::SMatch sm;
         sm.scrut = std::move(scrut);
-        sm.arms.push_back({std::move(pat), std::move(then_body), std::move(guard)});
-        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
+        sm.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, then_body), std::move(guard)});
+        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
         return make_stmt_emit(node_line_, std::move(sm));
     }
 
@@ -5967,9 +5967,9 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     auto if_pre_moves = moved_vars_;
     std::set<std::string> if_post_moves;
     bool if_any_non_diverging = false;
-    auto branch_diverges = [&](const lir::LBlock& b) {
-        if (b.stmts.empty()) return false;
-        auto br = stmt_ref_of(b.stmts.back());
+    auto branch_diverges = [&](const std::vector<lir_view::StmtRef>& b) {
+        if (b.empty()) return false;
+        auto br = stmt_ref_of(b.back());
         if (!br) return false;
         auto k = br.kind();
         return k == lir_schema::stmt::Code::Return ||
@@ -5987,12 +5987,12 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
     std::set<std::string> if_post_uninit;
     bool if_post_uninit_initialized = false;
 
-    auto then_block = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> then_block;
     if (node.has_key(la::THEN)) {
         moved_vars_ = if_pre_moves;
         currently_uninit_vars_ = if_pre_uninit;
-        *then_block = lower_block(map_of(node.get(la::THEN.code)));
-        if (!branch_diverges(*then_block)) {
+        lower_block(map_of(node.get(la::THEN.code))).each_stmt([&](lir_view::StmtRef s){ then_block.push_back(s); });
+        if (!branch_diverges(then_block)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
             for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
@@ -6006,21 +6006,23 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         if_post_uninit_initialized = true;
     }
 
-    std::optional<lir::LBlockPtr> else_opt;
+    std::optional<std::vector<lir_view::StmtRef>> else_opt;
     if (node.has_key(la::ELSE)) {
         auto else_node = map_of(node.get(la::ELSE.code));
         moved_vars_ = if_pre_moves;
         currently_uninit_vars_ = if_pre_uninit;
         if (code_of(else_node) == la::BLOCK) {
-            else_opt = lir::alloc_block(*cur_prog_, lower_block(else_node));
+            std::vector<lir_view::StmtRef> eb;
+            lower_block(else_node).each_stmt([&](lir_view::StmtRef s){ eb.push_back(s); });
+            else_opt = std::move(eb);
         } else {
             // else if: wrap single SIf in a block
             auto inner_if = lower_if(else_node);
-            auto b = lir::alloc_block(*cur_prog_);
-            b->stmts.push_back(std::move(inner_if));
+            std::vector<lir_view::StmtRef> b;
+            b.push_back(std::move(inner_if));
             else_opt = std::move(b);
         }
-        if (!branch_diverges(**else_opt)) {
+        if (!branch_diverges(*else_opt)) {
             if_any_non_diverging = true;
             for (auto& m : moved_vars_) if_post_moves.insert(m);
             for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
@@ -6039,8 +6041,8 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
 
     lir::SIf sif;
     sif.cond  = std::move(cond);
-    sif.then_ = std::move(then_block);
-    sif.else_ = std::move(else_opt);
+    sif.then_ = lir_mirror_block(*cur_prog_, then_block);
+    if (else_opt) sif.else_ = lir_mirror_block(*cur_prog_, *else_opt);
     return make_stmt_emit(node_line_, std::move(sif));
 }
 
@@ -6148,21 +6150,21 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
                 std::vector<lir_view::StmtRef> gd;
                 emit_nested_pat_destructure(nested_subs, gd, /*for_guard=*/true);
                 if (!gd.empty()) {
-                    auto gblk = lir::alloc_block(*cur_prog_);
-                    gblk->stmts = std::move(gd);
+                    std::vector<lir_view::StmtRef> gblk;
+                    gblk = std::move(gd);
                     TypeRef gt = expr_type(chain_guard);
-                    chain_guard = builder().block_expr(std::move(gblk),
+                    chain_guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk),
                                       std::move(chain_guard), gt);
                 }
             }
         }
-        lir::LBlockPtr then_body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-            *then_body = lower_block(map_of(node.get(la::BODY.code)));
+            lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
@@ -6170,15 +6172,15 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
         if (!nested_destructure.empty()) {
             std::vector<lir_view::StmtRef> merged = std::move(nested_destructure);
             merged.insert(merged.end(),
-                          std::make_move_iterator(then_body->stmts.begin()),
-                          std::make_move_iterator(then_body->stmts.end()));
-            then_body->stmts = std::move(merged);
+                          std::make_move_iterator(then_body.begin()),
+                          std::make_move_iterator(then_body.end()));
+            then_body = std::move(merged);
         }
         pop_scope();
 
         // Else arm: wildcard → break
-        lir::LBlockPtr else_body = lir::alloc_block(*cur_prog_);
-        else_body->stmts.push_back(builder().stmt_break(nullptr, "", node_line_));
+        std::vector<lir_view::StmtRef> else_body;
+        else_body.push_back(builder().stmt_break(nullptr, "", node_line_));
 
         std::optional<lir::LExprPtr> guard;
         for (auto& rg : refut_guards) {
@@ -6198,12 +6200,12 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
 
         lir::SMatch sm;
         sm.scrut = std::move(scrut);
-        sm.arms.push_back({std::move(pat), std::move(then_body), std::move(guard)});
-        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
+        sm.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, then_body), std::move(guard)});
+        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
 
-        auto loop_body = lir::alloc_block(*cur_prog_);
-        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
-        lir::SLoop sl; sl.body = std::move(loop_body);
+        std::vector<lir_view::StmtRef> loop_body;
+        loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
+        lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body);
         sl.label = std::move(my_label);
         return make_stmt_emit(node_line_, std::move(sl));
     }
@@ -6221,20 +6223,20 @@ lir_view::StmtRef SemaChecker::lower_while(TinyMapView node) {
             error(std::format("while condition must be bool, got {}", type_str(expr_type(cond))));
     } else { cond = error_expr(); }
 
-    auto body = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-        *body = lower_block(map_of(node.get(la::BODY.code)));
+        lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
     lir::SWhile sw;
     sw.cond  = std::move(cond);
-    sw.body  = std::move(body);
+    sw.body  = lir_mirror_block(*cur_prog_, body);
     sw.label = std::move(my_label);
     return make_stmt_emit(node_line_, std::move(sw));
 }
@@ -6304,13 +6306,13 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     push_scope();
     define(var_name, var_t, true);
     uint32_t _for_slot = lookup_slot(var_name);  // Phase-1: capture before pop_scope
-    auto body = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-        *body = lower_block(map_of(node.get(la::BODY.code)));
+        lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         loop_break_frames_.pop_back();
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
@@ -6322,7 +6324,7 @@ lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     sf.lo        = std::move(lo);
     sf.hi        = std::move(hi);
     sf.inclusive = inclusive;
-    sf.body      = std::move(body);
+    sf.body      = lir_mirror_block(*cur_prog_, body);
     sf.label     = std::move(my_label);
     sf.slot      = _for_slot;
     return make_stmt_emit(node_line_, std::move(sf));
@@ -6368,11 +6370,11 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         if (for_has_pat) emit_for_pattern_destructure(for_pat, var_name, bind_t, pro);
         return pro;
     };
-    auto prepend_for_pat = [&](lir::LBlockPtr& body, std::vector<lir_view::StmtRef>& pro) {
+    auto prepend_for_pat = [&](std::vector<lir_view::StmtRef>& body, std::vector<lir_view::StmtRef>& pro) {
         if (pro.empty()) return;
-        pro.insert(pro.end(), std::make_move_iterator(body->stmts.begin()),
-                   std::make_move_iterator(body->stmts.end()));
-        body->stmts = std::move(pro);
+        pro.insert(pro.end(), std::make_move_iterator(body.begin()),
+                   std::make_move_iterator(body.end()));
+        body = std::move(pro);
     };
 
     // G161-2: `for x in &mut arr` — a bare `&mut <array-var>` lowers to a thin
@@ -6418,12 +6420,12 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         define(var_name, elem_type, false);
         uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(elem_type);
-        auto body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-            *body = lower_block(map_of(node.get(la::BODY.code)));
+            lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
@@ -6435,7 +6437,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         sfe.iter      = std::move(iter);
         sfe.elem_type = elem_type;
         sfe.arr_size  = arr_size;
-        sfe.body      = std::move(body);
+        sfe.body      = lir_mirror_block(*cur_prog_, body);
         sfe.slot      = _fe_slot;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
@@ -6452,12 +6454,12 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         define(var_name, make_ref(for_mut_ref, elem_type), for_mut_ref);
         uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
         auto pat_pro = build_for_pat(make_ref(for_mut_ref, elem_type));
-        auto body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-            *body = lower_block(map_of(node.get(la::BODY.code)));
+            lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
@@ -6469,7 +6471,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         sfe.elem_type = elem_type;
         sfe.arr_size  = 0;
         sfe.is_slice  = true;
-        sfe.body      = std::move(body);
+        sfe.body      = lir_mirror_block(*cur_prog_, body);
         sfe.slot      = _fe_slot;
         return make_stmt_emit(node_line_, std::move(sfe));
     }
@@ -6506,12 +6508,12 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             define(var_name, make_ref(false, elem_t), false);  // yields &T
             uint32_t _fe_slot = lookup_slot(var_name);  // Phase-1: before pop_scope
             auto pat_pro = build_for_pat(make_ref(false, elem_t));
-            auto body = lir::alloc_block(*cur_prog_);
+            std::vector<lir_view::StmtRef> body;
             if (node.has_key(la::BODY)) {
                 ++loop_depth_;
                 loop_break_frames_.push_back({"", nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-                *body = lower_block(map_of(node.get(la::BODY.code)));
+                lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
                 loop_break_frames_.pop_back();
                 --loop_depth_;
             }
@@ -6523,7 +6525,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             sfe.elem_type = elem_t;
             sfe.arr_size  = 0;
             sfe.is_slice  = true;
-            sfe.body      = std::move(body);
+            sfe.body      = lir_mirror_block(*cur_prog_, body);
             sfe.slot      = _fe_slot;
             return make_stmt_emit(node_line_, std::move(sfe));
         }
@@ -6773,8 +6775,8 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         let_iter.value  = std::move(iter);
 
         // Build outer block: { let mut __iter = iter; loop { match __iter.next() ... } }
-        auto outer_block = lir::alloc_block(*cur_prog_);
-        outer_block->stmts.push_back(make_stmt_emit(node_line_, std::move(let_iter)));
+        std::vector<lir_view::StmtRef> outer_block;
+        outer_block.push_back(make_stmt_emit(node_line_, std::move(let_iter)));
 
         // Synthesize __iter.next() call expression (inside the loop)
         auto make_next_call = [&]() -> lir::LExprPtr {
@@ -6794,12 +6796,12 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         define(iter_var, iter_type, true);
         define(std::string(var_name), elem_type, false);
         auto pat_pro = build_for_pat(elem_type);
-        auto then_body = lir::alloc_block(*cur_prog_);
+        std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
             ++loop_depth_;
             loop_break_frames_.push_back({"", nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-            *then_body = lower_block(map_of(node.get(la::BODY.code)));
+            lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ then_body.push_back(s); });
             loop_break_frames_.pop_back();
             --loop_depth_;
         }
@@ -6807,8 +6809,8 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         pop_scope();
 
         // Else arm: _ → break
-        auto else_body = lir::alloc_block(*cur_prog_);
-        else_body->stmts.push_back(builder().stmt_break(nullptr, "", node_line_));
+        std::vector<lir_view::StmtRef> else_body;
+        else_body.push_back(builder().stmt_break(nullptr, "", node_line_));
 
         lir::SMatch sm;
         sm.scrut = make_next_call();
@@ -6817,16 +6819,16 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             some_pat.bindings, some_pat.binding_types);
         lir::Pattern some_pattern;
         some_pattern.mirror_ptr_ = some_mo;
-        sm.arms.push_back({std::move(some_pattern), std::move(then_body), std::nullopt});
-        sm.arms.push_back({make_pat_wild("_"), std::move(else_body), std::nullopt});
+        sm.arms.push_back({std::move(some_pattern), lir_mirror_block(*cur_prog_, then_body), std::nullopt});
+        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
 
-        auto loop_body = lir::alloc_block(*cur_prog_);
-        loop_body->stmts.push_back(make_stmt_emit(node_line_, std::move(sm)));
-        lir::SLoop sl; sl.body = std::move(loop_body);
-        outer_block->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        std::vector<lir_view::StmtRef> loop_body;
+        loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
+        lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body);
+        outer_block.push_back(make_stmt_emit(node_line_, std::move(sl)));
 
         // Wrap in a block statement
-        return make_stmt_emit(node_line_, lir::SBlock{std::move(outer_block)});
+        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, outer_block)});
     }
 
     return builder().stmt_break(nullptr, "", node_line_);
@@ -6837,7 +6839,7 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     std::string my_label = std::move(pending_loop_label_);
     pending_loop_label_.clear();
 
-    auto body = lir::alloc_block(*cur_prog_);
+    std::vector<lir_view::StmtRef> body;
     TypeRef frame_value_type = nullptr;
     bool frame_break_reached = false;
     // logos-core 2.7: loops are CONSERVATIVE — the body may run zero times,
@@ -6849,7 +6851,7 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         loop_break_frames_.push_back({my_label, nullptr, false});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
-        *body = lower_block(map_of(node.get(la::BODY.code)));
+        lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         frame_value_type    = loop_break_frames_.back().value_type;
         frame_break_reached = (frame_value_type != nullptr) ||
                                loop_break_frames_.back().without_value;
@@ -6862,7 +6864,7 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     // (logos-core 1.1). Communicated to the caller via last_loop_diverged_.
     last_loop_diverged_ = !frame_break_reached;
     lir::SLoop sl;
-    sl.body  = std::move(body);
+    sl.body  = lir_mirror_block(*cur_prog_, body);
     sl.label = std::move(my_label);
     if (frame_value_type) {
         sl.result_type = frame_value_type;
@@ -7193,11 +7195,11 @@ std::optional<lir_view::StmtRef> SemaChecker::try_dataref_field_write(
     dfw.type_name = concrete_struct_name(T);
     dfw.field     = field_name;
     dfw.value     = std::move(val);
-    lir::LBlock inner;
-    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(let_s)));
-    inner.stmts.push_back(make_stmt_emit(node_line_, std::move(dfw)));
+    std::vector<lir_view::StmtRef> inner;
+    inner.push_back(make_stmt_emit(node_line_, std::move(let_s)));
+    inner.push_back(make_stmt_emit(node_line_, std::move(dfw)));
     return make_stmt_emit(node_line_,
-        lir::SBlock{lir::alloc_block(*cur_prog_, std::move(inner))});
+        lir::SBlock{lir_mirror_block(*cur_prog_, inner)});
 }
 
 lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
@@ -7860,10 +7862,10 @@ void SemaChecker::emit_nested_variant_lets(
     lir::SLetElse sle;
     sle.pat   = std::move(lpat);
     sle.scrut = builder().var_ref(synth_name, synth_t);
-    lir::LBlock eblk;
-    lir::SLoop lp; lp.body = lir::alloc_block(*cur_prog_);
-    eblk.stmts.push_back(make_stmt_emit(node_line_, std::move(lp)));
-    sle.else_block = lir::alloc_block(*cur_prog_, std::move(eblk));
+    std::vector<lir_view::StmtRef> eblk;
+    lir::SLoop lp; lp.body = lir_mirror_block(*cur_prog_, {});
+    eblk.push_back(make_stmt_emit(node_line_, std::move(lp)));
+    sle.else_block = lir_mirror_block(*cur_prog_, eblk);
     // No guards: the owning arm's guard already proved the FULL nested match,
     // so this let-else is a pure extraction (its own variant-tag check + the
     // dead else suffice). Re-checking via `le_guards` would also spuriously
@@ -8238,11 +8240,11 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
         if (!temp_scrut_hoisted) return stmt;
         auto ft_drops = collect_drops();
         pop_scope();
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(temp_scrut_let));
-        blk->stmts.push_back(std::move(stmt));
-        for (auto& d : ft_drops) blk->stmts.push_back(std::move(d));
-        return make_stmt_emit(node_line_, lir::SBlock{std::move(blk)});
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(temp_scrut_let));
+        blk.push_back(std::move(stmt));
+        for (auto& d : ft_drops) blk.push_back(std::move(d));
+        return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)});
     };
 
     // A whole-value binding arm (`x => …` — an UNGUARDED `PAT_WILD` that
@@ -8549,9 +8551,9 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     effective_lhs(arm, alt_idx), root_var, anyval_t, base_var,
                     g_stmts, g_binds);
                 if (!g_stmts.empty() && raw) {
-                    auto blk = lir::alloc_block(*cur_prog_);
-                    blk->stmts = std::move(g_stmts);
-                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
+                    std::vector<lir_view::StmtRef> blk;
+                    blk = std::move(g_stmts);
+                    synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -8698,31 +8700,31 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 std::vector<lir_view::StmtRef> guard_destructure;
                 build_nested_destructure(guard_destructure, /*for_guard=*/true);
                 if (!guard_destructure.empty()) {
-                    auto gblk = lir::alloc_block(*cur_prog_);
-                    gblk->stmts = std::move(guard_destructure);
+                    std::vector<lir_view::StmtRef> gblk;
+                    gblk = std::move(guard_destructure);
                     TypeRef gt = expr_type(*guard);
-                    guard = builder().block_expr(std::move(gblk), std::move(*guard), gt);
+                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk), std::move(*guard), gt);
                 }
             }
 
-            lir::LBlockPtr body = lir::alloc_block(*cur_prog_);
+            std::vector<lir_view::StmtRef> body;
             if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
                 if (code_of(body_node) == la::BLOCK) {
-                    *body = lower_block(body_node);
+                    lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
                 } else {
-                    body->stmts.push_back(lower_stmt(body_node));
+                    body.push_back(lower_stmt(body_node));
                 }
             } else if (arm.has_key(la::EXPR)) {
                 auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
                 if (match_in_tail_position_) {
                     // Tail-position match: EXPR arms produce the function's return value.
                     lir::SReturn ret; ret.value = std::move(val);
-                    body->stmts.push_back(make_stmt_emit(node_line_, std::move(ret)));
+                    body.push_back(make_stmt_emit(node_line_, std::move(ret)));
                 } else {
                     // Statement-position match: EXPR arms are evaluated for side effects.
                     lir::SExprStmt es; es.expr = std::move(val);
-                    body->stmts.push_back(make_stmt_emit(node_line_, std::move(es)));
+                    body.push_back(make_stmt_emit(node_line_, std::move(es)));
                 }
             }
             // P4-pm-02: prepend nested-pat destructure stmts so user
@@ -8730,9 +8732,9 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             if (!nested_destructure_stmts.empty()) {
                 std::vector<lir_view::StmtRef> merged = std::move(nested_destructure_stmts);
                 merged.insert(merged.end(),
-                              std::make_move_iterator(body->stmts.begin()),
-                              std::make_move_iterator(body->stmts.end()));
-                body->stmts = std::move(merged);
+                              std::make_move_iterator(body.begin()),
+                              std::make_move_iterator(body.end()));
+                body = std::move(merged);
             }
             // Prepend Hermes @-pattern prologue (helper __hp_N lets + user
             // binding lets) to body so bindings are live inside the arm body.
@@ -8744,7 +8746,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     sl.value = builder().var_ref(b.av_var, anyval_t);
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
-                body->stmts.insert(body->stmts.begin(),
+                body.insert(body.begin(),
                     std::make_move_iterator(prologue.begin()),
                     std::make_move_iterator(prologue.end()));
             }
@@ -8771,8 +8773,8 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
             {
                 bool body_returns = false;
                 lir_view::StmtRef last_stmt_ref;
-                if (!body->stmts.empty()) {
-                    last_stmt_ref = stmt_ref_of(body->stmts.back());
+                if (!body.empty()) {
+                    last_stmt_ref = stmt_ref_of(body.back());
                     if (last_stmt_ref && last_stmt_ref.kind() == lir_schema::stmt::Code::Return)
                         body_returns = true;
                 }
@@ -8785,15 +8787,15 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                         mark_moved_in_expr_recursive(er);
                     }
                     for (auto& d : collect_drops())
-                        body->stmts.push_back(std::move(d));
+                        body.push_back(std::move(d));
                 }
             }
             pop_scope();
 
             // Detect divergence: arm body's last stmt is a terminator.
             bool arm_diverges = false;
-            if (!body->stmts.empty()) {
-                auto br = stmt_ref_of(body->stmts.back());
+            if (!body.empty()) {
+                auto br = stmt_ref_of(body.back());
                 if (br) {
                     auto k = br.kind();
                     arm_diverges = (k == lir_schema::stmt::Code::Return ||
@@ -8810,7 +8812,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 post_uninit_initialized = true;
             }
 
-            smatch.arms.push_back({std::move(pat), std::move(body), std::move(guard)});
+            smatch.arms.push_back({std::move(pat), lir_mirror_block(*cur_prog_, body), std::move(guard)});
         }
         // Merge per-arm contributions back into moved_vars_.
         moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
@@ -8835,21 +8837,21 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     check_match_exhaustiveness(smatch, scrut_type, ast_exh);
 
     if (has_hoist_let) {
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(hoist_let_view));
-        blk->stmts.push_back(std::move(hoist_let_root));
-        blk->stmts.push_back(std::move(hoist_let_base));
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return finalize(make_stmt_emit(node_line_, lir::SBlock{std::move(blk)}));
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(hoist_let_view));
+        blk.push_back(std::move(hoist_let_root));
+        blk.push_back(std::move(hoist_let_base));
+        blk.push_back(make_stmt_emit(node_line_, std::move(smatch)));
+        return finalize(make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
     }
     // G172-1: wrap the str-pattern match in a block that first hoists the
     // scrutinee into `__smatch`, which each arm's `str_eq(__smatch, …)` guard
     // references (so the scrutinee is evaluated exactly once).
     if (has_str_hoist) {
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(str_hoist_let));
-        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(smatch)));
-        return finalize(make_stmt_emit(node_line_, lir::SBlock{std::move(blk)}));
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(str_hoist_let));
+        blk.push_back(make_stmt_emit(node_line_, std::move(smatch)));
+        return finalize(make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk)}));
     }
     return finalize(make_stmt_emit(node_line_, std::move(smatch)));
 }
@@ -8903,25 +8905,25 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
         if (!temp_scrut_hoisted) return me;
         auto ft_drops = collect_drops();
         pop_scope();
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(temp_scrut_let));
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(temp_scrut_let));
         bool valueful = rty && TypeRef(rty).kind() != LogosType::Kind::Void &&
                         TypeRef(rty).kind() != LogosType::Kind::Never &&
                         TypeRef(rty).kind() != LogosType::Kind::Error;
         if (!valueful) {
             // No value to thread; the match is the block result (diverges if
             // never). __ms is dropped by the returning arm's collect_all_drops.
-            return builder().block_expr(std::move(blk), std::move(me), rty);
+            return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me), rty);
         }
         std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
         {
             lir::SLet sl;
             sl.name = res_var; sl.type = rty; sl.is_mut = false;
             sl.value = std::move(me);
-            blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        for (auto& d : ft_drops) blk->stmts.push_back(std::move(d));
-        return builder().block_expr(std::move(blk),
+        for (auto& d : ft_drops) blk.push_back(std::move(d));
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
                                     builder().var_ref(res_var, rty), rty);
     };
     // G156-2: a match-EXPRESSION that binds+moves a payload out of a by-value
@@ -9149,9 +9151,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     effective_lhs(arm, alt_idx), root_var, anyval_t,
                     base_var, g_stmts, g_binds);
                 if (!g_stmts.empty() && raw) {
-                    auto blk = lir::alloc_block(*cur_prog_);
-                    blk->stmts = std::move(g_stmts);
-                    synth_guard = builder().block_expr(std::move(blk), std::move(raw), bool_t());
+                    std::vector<lir_view::StmtRef> blk;
+                    blk = std::move(g_stmts);
+                    synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(raw), bool_t());
                 } else {
                     synth_guard = std::move(raw);
                 }
@@ -9385,10 +9387,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 std::vector<lir_view::StmtRef> guard_destructure;
                 build_nested_destructure(guard_destructure, /*for_guard=*/true);
                 if (!guard_destructure.empty()) {
-                    auto gblk = lir::alloc_block(*cur_prog_);
-                    gblk->stmts = std::move(guard_destructure);
+                    std::vector<lir_view::StmtRef> gblk;
+                    gblk = std::move(guard_destructure);
                     TypeRef gt = expr_type(*guard);
-                    guard = builder().block_expr(std::move(gblk), std::move(*guard), gt);
+                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, gblk), std::move(*guard), gt);
                 }
             }
 
@@ -9413,18 +9415,20 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     // Block always returns — lower it as a block of stmts;
                     // the tail expression is unreachable so we use error_expr()
                     // (skipped by type unification).
-                    lir::LBlock blk;
-                    if (code_of(body_node) == la::BLOCK)
-                        blk = lower_block(body_node);
-                    else
-                        blk.stmts.push_back(lower_stmt(body_node));
-                    auto blk_ptr = lir::alloc_block(*cur_prog_, std::move(blk));
-                    val = builder().block_expr(std::move(blk_ptr), error_expr(), error_t());
+                    lir_view::BlockRef blk_ref;
+                    if (code_of(body_node) == la::BLOCK) {
+                        blk_ref = lower_block(body_node);
+                    } else {
+                        std::vector<lir_view::StmtRef> blk;
+                        blk.push_back(lower_stmt(body_node));
+                        blk_ref = lir_mirror_block(*cur_prog_, blk);
+                    }
+                    val = builder().block_expr(blk_ref, error_expr(), error_t());
                 } else if (code_of(body_node) == la::BLOCK &&
                            body_node.has_key(la::ITEMS)) {
                     // Non-diverging block: last item must be an expression.
                     auto stmts = arr_of(body_node.get(la::ITEMS.code));
-                    auto blk = lir::alloc_block(*cur_prog_);
+                    std::vector<lir_view::StmtRef> blk;
                     lir::LExprPtr last_expr = nullptr;
                     for (uint64_t si = 0; si < stmts.size(); ++si) {
                         auto s = map_of(stmts.get(si));
@@ -9436,9 +9440,9 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                                      sc != la::LET_DESTRUCT && sc != la::RETURN)
                                 last_expr = lower_expr(s);
                             else
-                                blk->stmts.push_back(lower_stmt(s));
+                                blk.push_back(lower_stmt(s));
                         } else {
-                            blk->stmts.push_back(lower_stmt(s));
+                            blk.push_back(lower_stmt(s));
                         }
                     }
                     if (!last_expr) {
@@ -9446,7 +9450,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                         last_expr = error_expr();
                     }
                     TypeRef vt = expr_type(last_expr);
-                    val = builder().block_expr(std::move(blk), std::move(last_expr), vt);
+                    val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(last_expr), vt);
                 } else {
                     error("match expression: block arm must end with an expression or always return");
                     val = error_expr();
@@ -9458,10 +9462,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
             }
             // P4-pm-02: wrap arm value with nested-pat destructure stmts.
             if (!nested_destructure_stmts.empty()) {
-                auto blk = lir::alloc_block(*cur_prog_);
-                blk->stmts = std::move(nested_destructure_stmts);
+                std::vector<lir_view::StmtRef> blk;
+                blk = std::move(nested_destructure_stmts);
                 TypeRef vt = val ? expr_type(val) : error_t();
-                val = builder().block_expr(std::move(blk), std::move(val), vt);
+                val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(val), vt);
             }
             // Wrap arm value with Hermes @-pattern prologue so bindings are
             // live during evaluation.
@@ -9473,10 +9477,10 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                     sl.value = builder().var_ref(b.av_var, anyval_t);
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
-                auto blk = lir::alloc_block(*cur_prog_);
-                blk->stmts = std::move(prologue);
+                std::vector<lir_view::StmtRef> blk;
+                blk = std::move(prologue);
                 TypeRef vt = expr_type(val);
-                val = builder().block_expr(std::move(blk), std::move(val), vt);
+                val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(val), vt);
             }
             // A diverging arm (Never = `!`) contributes no type — the match's
             // type is that of the non-diverging arms (Never is a subtype of
@@ -9555,24 +9559,24 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 auto arm_drops = collect_drops();
                 if (!arm_drops.empty()) {
                     TypeRef vt = expr_type(val);
-                    auto blk = lir::alloc_block(*cur_prog_);
+                    std::vector<lir_view::StmtRef> blk;
                     if (TypeRef(vt).kind() == LogosType::Kind::Void) {
                         // Void: evaluate val for effect, then drops.
                         lir::SExprStmt es; es.expr = std::move(val);
-                        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(es)));
+                        blk.push_back(make_stmt_emit(node_line_, std::move(es)));
                         for (auto& d : arm_drops)
-                            blk->stmts.push_back(std::move(d));
-                        val = builder().block_expr(std::move(blk), error_expr(), vt);
+                            blk.push_back(std::move(d));
+                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
                     } else {
                         std::string tmp = "__match_arm_tmp_" +
                                           std::to_string(tmp_var_count_++);
                         lir::SLet sl;
                         sl.name = tmp; sl.type = vt; sl.is_mut = false;
                         sl.value = std::move(val);
-                        blk->stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
                         for (auto& d : arm_drops)
-                            blk->stmts.push_back(std::move(d));
-                        val = builder().block_expr(std::move(blk),
+                            blk.push_back(std::move(d));
+                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
                             builder().var_ref(tmp, vt), vt);
                     }
                 }
@@ -9683,17 +9687,17 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
 
     auto me_expr = builder().match_expr_v(std::move(me), result_type);
     if (has_hoist_let) {
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(hoist_let_view));
-        blk->stmts.push_back(std::move(hoist_let_root));
-        blk->stmts.push_back(std::move(hoist_let_base));
-        return finalize_expr(builder().block_expr(std::move(blk), std::move(me_expr), result_type), result_type);
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(hoist_let_view));
+        blk.push_back(std::move(hoist_let_root));
+        blk.push_back(std::move(hoist_let_base));
+        return finalize_expr(builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), result_type), result_type);
     }
     // G172-1: hoist the str-match scrutinee into `__smatch` before the match.
     if (has_str_hoist) {
-        auto blk = lir::alloc_block(*cur_prog_);
-        blk->stmts.push_back(std::move(str_hoist_let));
-        return finalize_expr(builder().block_expr(std::move(blk), std::move(me_expr), result_type), result_type);
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(std::move(str_hoist_let));
+        return finalize_expr(builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), result_type), result_type);
     }
     return finalize_expr(std::move(me_expr), result_type);
 }

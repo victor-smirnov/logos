@@ -140,10 +140,6 @@ protected:
     lir_view::StmtRef stmt_ref_of(const lir_view::StmtRef& s) const noexcept {
         return s;
     }
-    lir_view::BlockRef block_ref_of(const lir::LBlock& b) const noexcept {
-        if (b.mirror_ptr_ == nullptr) return {};
-        return lir_view::BlockRef(effective_src_arena(), b.mirror_ptr_);
-    }
     lir_view::HermesValRef hv_ref_of(const lir::HermesVal& v) const noexcept {
         if (v.mirror_ptr_ == nullptr) return {};
         return lir_view::HermesValRef(effective_src_arena(), v.mirror_ptr_);
@@ -814,14 +810,14 @@ private:
                               const PackMap& /*unused*/ = {});
     lir_view::StmtRef subst_stmt(lir_view::StmtRef sref, const SubstMap& s);
 
-    lir::LBlock subst_block(lir_view::BlockRef bref, const SubstMap& s,
+    lir_view::BlockRef subst_block(lir_view::BlockRef bref, const SubstMap& s,
                              const PackMap& /*unused*/ = {}) {
-        lir::LBlock nb;
-        if (!bref) return nb;
+        std::vector<lir_view::StmtRef> nb;
+        if (!bref) return lir_mirror_block(out_, nb);
         bref.each_stmt([&](lir_view::StmtRef sref) {
-            nb.stmts.push_back(subst_stmt(sref, s));
+            nb.push_back(subst_stmt(sref, s));
         });
-        return nb;
+        return lir_mirror_block(out_, nb);
     }
 
     lir::LFunction clone_fn(const lir::LFunction& fn, const SubstMap& s,

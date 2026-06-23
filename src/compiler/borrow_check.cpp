@@ -1457,13 +1457,6 @@ class BorrowChecker {
         return e;
     }
 
-    // Stage D: a block as a mirror view (replaces the block_by_addr reverse
-    // lookup). fn.body and nested block children both yield a BlockRef directly.
-    lir_view::BlockRef block_ref(const LBlock& b) const {
-        if (b.mirror_ptr_ == nullptr) return {};
-        return lir_view::BlockRef(prog_.type_pool.arena(), b.mirror_ptr_);
-    }
-
     lir_view::PatRef pat_ref(const Pattern& p) const {
         auto& tbl = *prog_.mirror_table;
         auto it = tbl.pat.find(&p);
@@ -3178,7 +3171,7 @@ public:
         // No body mirror ⇒ a body-less function (extern / metaprog stub /
         // from_binary_module — emit_function skips these). Nothing to borrow-check;
         // skip before any block walk so block_ref(fn.body) is never a null view.
-        if (fn.body.mirror_ptr_ == nullptr) return;
+        if (!fn.body) return;
         states_.reset(fn.local_count);  // Phase-1: size the dense slot vector
         scopes_.clear();
         prov_.clear();
@@ -3212,7 +3205,7 @@ public:
         outlives_adj_ = outlives_adj(fn.lifetime_outlives);
         ret_type_ = fn.ret_type;
 
-        scan_uses_block(block_ref(fn.body));
+        scan_uses_block(fn.body);
 
         push_scope();  // function scope
         for (auto& p : fn.params) {
@@ -3238,7 +3231,7 @@ public:
             }
         }
 
-        visit_block(block_ref(fn.body));
+        visit_block(fn.body);
         pop_scope();
     }
 };

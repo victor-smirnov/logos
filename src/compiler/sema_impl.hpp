@@ -982,7 +982,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SReturn>) {
                 s.mirror_ptr_ = lir_mirror_emit_return(p, line, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SIf>) {
-                const lir::LBlock* eb = k.else_.has_value() ? *k.else_ : nullptr;
+                lir_view::BlockRef eb = k.else_.has_value() ? *k.else_ : lir_view::BlockRef{};
                 s.mirror_ptr_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
             } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
                 s.mirror_ptr_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
@@ -4077,7 +4077,7 @@ private:
 
     lir_view::StmtRef lower_stmt(hermes::TinyMapView stmt);
     lir_view::StmtRef lower_stmt_inner(hermes::TinyMapView stmt);
-    lir::LBlock lower_block(hermes::TinyMapView block);
+    lir_view::BlockRef lower_block(hermes::TinyMapView block);
     lir_view::StmtRef lower_let_destruct(hermes::TinyMapView node);
     lir_view::StmtRef lower_let_pat(hermes::TinyMapView node);
     lir_view::StmtRef lower_let(hermes::TinyMapView node);

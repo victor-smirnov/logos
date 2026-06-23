@@ -37,14 +37,13 @@ namespace logos::compiler::lir {
 
 // ── Forward declarations ──────────────────────────────────────────────────
 
-struct LBlock;
 struct LFunction;
 
 // The husk LExpr skeleton struct is gone — expression handles are mirror VIEWS.
 using LExprPtr     = lir_view::ExprRef;
-// ADR 0007 slice 1c: LBlock is pool-owned by LProgram::block_pool_.
-// LBlockPtr is a non-owning raw handle — allocate via lir::alloc_block(prog, ...).
-using LBlockPtr    = LBlock*;
+// Stage D: blocks are eager-emitted mirror VIEWS. LBlockPtr is a BlockRef
+// handle (each IS its mirror); complete a block via lir_mirror_block(prog, vec).
+using LBlockPtr    = lir_view::BlockRef;
 // M5 step 6: shared_ptr so SemaCache can hold per-binary-AST cached
 // LFunctions across sema_lower invocations. Refcount-cheap copy on
 // install (no per-fn deep-clone). All call sites that `push_back`
@@ -138,7 +137,7 @@ struct Pattern {
 
 struct LMatchArm {
     Pattern                  pat;
-    LBlockPtr                body = nullptr;   // arm body (single stmts are wrapped in a 1-stmt block)
+    LBlockPtr                body = {};   // arm body (single stmts are wrapped in a 1-stmt block)
     std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
 };
 
@@ -471,7 +470,7 @@ struct ETry {
 
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
-    LBlockPtr block = nullptr;
+    LBlockPtr block = {};
     LExprPtr result = {}; // may be null if it evaluates to void
 };
 
@@ -500,13 +499,13 @@ struct SReturn    { lir_view::ExprRef value; };   // value is null for void retu
 // else_: null → no else; block with single SIf → else-if chain
 struct SIf {
     lir_view::ExprRef                  cond;
-    LBlockPtr                 then_ = nullptr;
+    LBlockPtr                 then_ = {};
     std::optional<LBlockPtr>  else_;
 };
 
 struct SWhile {
     lir_view::ExprRef  cond;
-    LBlockPtr body = nullptr;
+    LBlockPtr body = {};
     std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
 };
 
@@ -515,20 +514,20 @@ struct SFor {
     lir_view::ExprRef         lo;
     lir_view::ExprRef         hi;
     bool             inclusive;
-    LBlockPtr        body = nullptr;
+    LBlockPtr        body = {};
     std::string      label;  // optional loop label, empty = unlabeled
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
 };
 
 struct SLoop {
-    LBlockPtr        body = nullptr;
+    LBlockPtr        body = {};
     TypeRef result_type = nullptr;  // non-null when loop yields a value
     std::string      break_slot;             // alloca name for the break value (non-empty ↔ result_type != null)
     std::string      label;                  // optional loop label, empty = unlabeled
 };
 struct SBreak     { lir_view::ExprRef value; std::string label; };  // label: target loop label (may be empty)
 struct SContinue  { std::string label; };                   // label: target loop label (may be empty)
-struct SBlock     { LBlockPtr body = nullptr; };  // scoping block statement
+struct SBlock     { LBlockPtr body = {}; };  // scoping block statement
 
 struct SFieldWrite {
     std::string receiver;
@@ -590,7 +589,7 @@ struct SForEach {
     TypeRef elem_type;   // element type
     int64_t          arr_size;    // static array size; 0 for slices
     bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
-    LBlockPtr        body = nullptr;
+    LBlockPtr        body = {};
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
 };
 
@@ -604,7 +603,7 @@ struct SMatch {
 struct SLetElse {
     Pattern               pat;        // the irrefutable-or-test pattern
     lir_view::ExprRef              scrut;      // scrutinee expression
-    LBlockPtr             else_block = nullptr; // must-diverge block
+    LBlockPtr             else_block = {}; // must-diverge block
     // G161-3: refutable-inner guard exprs (e.g. `__refut_0 == 1` for
     // `let Some(1) = … else`). Each must hold after the pattern's bindings are
     // bound, else the else block runs. Empty for a plain variant/literal test.
@@ -621,15 +620,10 @@ struct SDrop {
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────
-
-struct LBlock {
-    std::vector<lir_view::StmtRef> stmts;
-    mutable const uint8_t* mirror_ptr_ = nullptr;  // Stage 3g.2 back-pointer
-    const hermes::Arena* arena = nullptr;   // Stage D bridge (transient)
-    operator lir_view::BlockRef() const noexcept {
-        return lir_view::BlockRef(arena, mirror_ptr_);
-    }
-};
+//
+// Stage D: the husk `struct LBlock` is gone — block handles are eager-emitted
+// mirror VIEWS (lir_view::BlockRef). Build a block at its completion point via
+// lir_mirror_block(prog, vector<StmtRef>).
 
 // ── Top-level declarations ────────────────────────────────────────────────
 
@@ -650,7 +644,7 @@ struct EClosure {
     std::string                     closure_id;
     std::vector<LParam>             params;
     TypeRef                ret_type = nullptr;
-    LBlock                          body;
+    lir_view::BlockRef              body;
     bool                            is_move = false;
     std::vector<std::string>        captures;
     std::vector<TypeRef>   capture_types;
@@ -713,7 +707,7 @@ struct LFunction {
     std::vector<std::pair<std::string, std::string>> lifetime_outlives;
     std::vector<LParam>      params;
     TypeRef         ret_type  = nullptr;
-    LBlock                   body;
+    lir_view::BlockRef       body;
     // Phase-1 string-interning: number of dense variable SLOTS sema assigned in
     // this function (params + every let/pattern/for/closure binding; shadowing
     // counts separately). Lets borrow-check / mlir-gen size a vector<VarState>
@@ -1131,12 +1125,12 @@ struct LProgram {
     // global module → no module qualification (byte-identical legacy mangle).
     std::unordered_map<std::string, std::string> pkg_module_ids;
 
-    // ADR 0007 slice 1c: pools for LBlock / HermesVal / EClosure. Append-only,
+    // ADR 0007 slice 1c: pools for HermesVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
     // underlying deque (SemaCache holds a ref so cached raw handles survive past
     // mono's out_ destruction); deque never moves elements, so handles never
     // dangle. Mono moves these from in_ to out_ to keep raw handles valid.
-    std::shared_ptr<std::deque<LBlock>>     block_pool_;
+    // (LBlock pool deleted in Stage D — blocks are eager-emitted mirror views.)
     std::shared_ptr<std::deque<HermesVal>>  hermes_val_pool_;
     std::shared_ptr<std::deque<EClosure>>   closure_pool_;
 
@@ -1255,16 +1249,7 @@ struct LProgram {
     LProgram& operator=(const LProgram&) = delete;
 };
 
-// Slice 1c allocators. Forward Args... so callers can `alloc_block(prog, std::move(inner))`
-// or `alloc_block(prog)` for default-construction.
-template <class... Args>
-inline LBlock* alloc_block(LProgram& prog, Args&&... args) {
-    if (!prog.block_pool_) prog.block_pool_ = std::make_shared<std::deque<LBlock>>();
-    prog.block_pool_->emplace_back(std::forward<Args>(args)...);
-    LBlock* b = &prog.block_pool_->back();
-    b->arena = &prog.type_pool.arena_or_init();  // Stage D bridge (transient; never-move arena)
-    return b;
-}
+// Slice 1c allocators (LBlock allocator deleted in Stage D).
 template <class... Args>
 inline HermesVal* alloc_hermes_val(LProgram& prog, Args&&... args) {
     if (!prog.hermes_val_pool_) prog.hermes_val_pool_ = std::make_shared<std::deque<HermesVal>>();
@@ -1278,17 +1263,9 @@ inline EClosure* alloc_closure(LProgram& prog, Args&&... args) {
     return &prog.closure_pool_->back();
 }
 
-// Stage D bridge (transient): wrap a raw skeleton handle as a mirror VIEW.
-inline lir_view::BlockRef bref(const LBlock* b) noexcept { return b ? lir_view::BlockRef(*b) : lir_view::BlockRef{}; }
-
 } // namespace logos::compiler::lir
 
 namespace logos::compiler {
-
-// Stage D bridge (transient): out-of-line defs of the implicit View ctors that
-// take a raw skeleton handle (declared in lir_view.hpp; need LExpr/LBlock layout).
-inline lir_view::BlockRef::BlockRef(const lir::LBlock* b) noexcept
-    : RefBase(b ? b->arena : nullptr, b ? b->mirror_ptr_ : nullptr) {}
 
 // Strip `function_symbol_name` mangling layers
 // (`pkg$base__f__sig` / `pkg$base__g__sig`) and return the bare base

@@ -150,10 +150,6 @@ private:
         if (it == mirror_->pat.end()) return {};
         return lir_view::PatRef(prog_->type_pool.arena(), it->second);
     }
-    lir_view::BlockRef block_ref_of(const LBlock& b) const noexcept {
-        if (!prog_ || b.mirror_ptr_ == nullptr) return {};
-        return lir_view::BlockRef(prog_->type_pool.arena(), b.mirror_ptr_);
-    }
     // Resolve `<struct>__<method>` to the actual mangled fn symbol in
     // prog_->structs (sema may append `__f__sig` / `__g__sig` under
     // overload mangling). Returns the bare convention name as fallback

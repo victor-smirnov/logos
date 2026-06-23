@@ -454,8 +454,8 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
         // archive providing them. The mirror_ptr_ guard below catches
         // the genuine "already published" case (mirror missing means
         // body never lowered locally → nothing to publish).
-        if (fn.body.mirror_ptr_ == nullptr) return;
-        dst.push_back({fn.name, fn.body.mirror_ptr_});
+        if (!fn.body) return;
+        dst.push_back({fn.name, fn.body.addr()});
     };
     for (auto& fn : prog.functions) {
         if (fn && !fn->type_params.empty()) stash_template(generic_fn_templates, *fn);
@@ -580,10 +580,10 @@ static bool compile_to_object(std::vector<hermes::Hermes>& asts,
                             if (fn.is_specialization) return;
                             if (!fn.type_params.empty()) return;
                             if (fn.from_binary_module) return;
-                            if (fn.body.mirror_ptr_ == nullptr) return;
-                            hermes::AnyVal av; av.set_ref(fn.body.mirror_ptr_);
+                            if (!fn.body) return;
+                            hermes::AnyVal av; av.set_ref(fn.body.addr());
                             if (auto r = hermes::arena_publish_named(*bld, fn.name, av)) {
-                                stamp_export_id(fn.body.mirror_ptr_, *r);
+                                stamp_export_id(fn.body.addr(), *r);
                                 ++published;
                             }
                         };

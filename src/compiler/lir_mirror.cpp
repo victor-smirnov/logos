@@ -21,7 +21,6 @@
 
 namespace logos::compiler {
 
-using lir::LBlock;
 using lir::LMatchArm;
 using lir::Pattern;
 using lir::HermesVal;
@@ -81,13 +80,14 @@ public:
     void run(lir::LProgram& prog);
 
     void emit_function(LFunction& f) {
-        if (f.is_extern || f.is_metaprog_stub || f.from_binary_module) return;
-        emit_block(f.body);
+        // Stage D: f.body is a pre-emitted BlockRef (eager). Nothing to walk —
+        // the body + all its statements/sub-blocks were mirrored at sema time.
+        (void)f;
     }
 
     // Public per-node entry points (Stage 3g.1). Called from
     // lir_mirror_emit_*_node free functions; idempotent via table cache.
-    const uint8_t* emit_block_public(const LBlock& b)   { return emit_block(b); }
+    const uint8_t* emit_block_stmts_public(const std::vector<lir_view::StmtRef>& s) { return emit_block_stmts(s); }
     const uint8_t* emit_pat_public  (const Pattern& p)  { return emit_pat(p); }
     const uint8_t* emit_hv_public   (const HermesVal& v){ return emit_hv(v); }
 
@@ -487,9 +487,9 @@ public:
         return map_off;
     }
     const uint8_t* emit_block_expr_direct(TypeRef ty,
-                                                   const lir::LBlock* block,
+                                                   lir_view::BlockRef block,
                                                    lir_view::ExprRef result) {
-        auto b_av = block_av_raw(block);
+        auto b_av = block ? mref_addr(block.addr()) : hermes::AnyVal{};
         auto r_av = expr_av(result);
         auto map_off = make_map(hermes::schema::lir_expr(lir_schema::expr::Code::BlockExpr));
         put(map_off, ek::BLOCK,  b_av);
@@ -611,12 +611,12 @@ public:
     }
     const uint8_t* emit_if_stmt_direct(uint32_t line,
                                                 lir_view::ExprRef cond,
-                                                const lir::LBlock* then_blk,
-                                                const lir::LBlock* else_blk) {
+                                                lir_view::BlockRef then_blk,
+                                                lir_view::BlockRef else_blk) {
         auto cond_av = expr_av(cond);
-        auto then_av = block_av_raw(then_blk);
+        auto then_av = then_blk ? mref_addr(then_blk.addr()) : hermes::AnyVal{};
         hermes::AnyVal else_av;
-        if (else_blk) else_av = block_av_raw(else_blk);
+        if (else_blk) else_av = mref_addr(else_blk.addr());
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::If));
         put(map_off, sk::COND,       cond_av);
         put(map_off, sk::THEN_BLOCK, then_av);
@@ -626,10 +626,10 @@ public:
     }
     const uint8_t* emit_while_direct(uint32_t line,
                                               lir_view::ExprRef cond,
-                                              const lir::LBlock* body,
+                                              lir_view::BlockRef body,
                                               std::string_view label) {
         auto cond_av = expr_av(cond);
-        auto body_av = block_av_raw(body);
+        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
         hermes::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::While));
@@ -644,13 +644,13 @@ public:
                                             lir_view::ExprRef lo,
                                             lir_view::ExprRef hi,
                                             bool inclusive,
-                                            const lir::LBlock* body,
+                                            lir_view::BlockRef body,
                                             std::string_view label,
                                             uint32_t slot = 0xFFFFFFFFu) {
         auto var_av  = put_string(var);
         auto lo_av   = expr_av(lo);
         auto hi_av   = expr_av(hi);
-        auto body_av = block_av_raw(body);
+        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
         hermes::AnyVal label_av;
         if (!label.empty()) label_av = put_string(label);
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::For));
@@ -665,11 +665,11 @@ public:
         return map_off;
     }
     const uint8_t* emit_loop_direct(uint32_t line,
-                                             const lir::LBlock* body,
+                                             lir_view::BlockRef body,
                                              std::string_view label,
                                              std::string_view break_slot,
                                              TypeRef result_type) {
-        auto body_av = block_av_raw(body);
+        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
         hermes::AnyVal label_av, slot_av;
         if (!label.empty())      label_av = put_string(label);
         if (!break_slot.empty()) slot_av  = put_string(break_slot);
@@ -703,8 +703,8 @@ public:
         return map_off;
     }
     const uint8_t* emit_block_stmt_direct(uint32_t line,
-                                                   const lir::LBlock* body) {
-        auto body_av = block_av_raw(body);
+                                                   lir_view::BlockRef body) {
+        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::Block));
         put(map_off, sk::BODY, body_av);
         put_line(map_off, line);
@@ -780,11 +780,11 @@ public:
                                                  TypeRef elem_type,
                                                  int64_t arr_size,
                                                  bool is_slice,
-                                                 const lir::LBlock* body,
+                                                 lir_view::BlockRef body,
                                                  uint32_t slot = 0xFFFFFFFFu) {
         auto var_av  = put_string(var);
         auto iter_av = expr_av(iter);
-        auto body_av = block_av_raw(body);
+        auto body_av = body ? mref_addr(body.addr()) : hermes::AnyVal{};
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::ForEach));
         put(map_off, sk::VAR,       var_av);
         put(map_off, sk::ITER,      iter_av);
@@ -865,11 +865,11 @@ public:
     const uint8_t* emit_let_else_direct(uint32_t line,
                                                  const lir::Pattern& pat,
                                                  lir_view::ExprRef scrut,
-                                                 const lir::LBlock* else_block,
+                                                 lir_view::BlockRef else_block,
                                                  const std::vector<lir::LExprPtr>& guards) {
         auto pat_off  = emit_pat(pat);
         auto scrut_av = expr_av(scrut);
-        auto eb_av    = block_av_raw(else_block);
+        auto eb_av    = else_block ? mref_addr(else_block.addr()) : hermes::AnyVal{};
         auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Code::LetElse));
         put(map_off, sk::PAT,           mref_addr(pat_off));
         put(map_off, sk::SCRUT,         scrut_av);
@@ -1202,11 +1202,6 @@ private:
     // Stage D: EXPR children are eagerly direct-emitted, so their mirror_ptr_ is
     // already set — reference by address via the view (no emit_expr re-walk).
     hermes::AnyVal expr_av(lir_view::ExprRef e)  { return e ? mref_addr(e.addr()) : hermes::AnyVal{}; }
-    // BLOCKS are NOT eagerly emitted: emit_block lazily builds the block's mirror
-    // (walking its stmts) from the C++ LBlock, so block_av MUST keep the LBlock and
-    // call emit_block — a BlockRef would be null here (mirror not built yet).
-    hermes::AnyVal block_av(const lir::LBlockPtr& b) { return b ? mref_addr(emit_block(*b)) : hermes::AnyVal{}; }
-    hermes::AnyVal block_av_raw(const lir::LBlock* b){ return b ? mref_addr(emit_block(*b)) : hermes::AnyVal{}; }
     hermes::AnyVal pat_av(const Pattern& p) {
         return mref_addr(emit_pat(p));
     }
@@ -1345,7 +1340,22 @@ private:
 
     // ── expression emit ────────────────────────────────────────────────────
 
-    const uint8_t* emit_block(const LBlock& b);
+    // EAGER block emit: build a block container mirror from an already-emitted
+    // stmt-ref vector (the core of emit_block, no husk/cache). Called at each
+    // block's completion point via lir_mirror_block.
+    const uint8_t* emit_block_stmts(const std::vector<lir_view::StmtRef>& stmts) {
+        std::vector<hermes::AnyVal> elems; elems.reserve(stmts.size());
+        for (auto& s : stmts) elems.push_back(mref_addr(s.addr()));
+        hermes::AnyVal stmts_av;
+        if (!elems.empty()) {
+            auto arr_off = make_array(elems.size());
+            for (auto av : elems) array_push(arr_off, av);
+            stmts_av = mref_addr(arr_off);
+        }
+        auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
+        if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);
+        return map_off;
+    }
     const uint8_t* emit_pat(const Pattern& p);
     const uint8_t* emit_hv(const HermesVal& v);
     const uint8_t* emit_arm(const LMatchArm& a);
@@ -1358,56 +1368,13 @@ private:
 // Block / function body
 // ──────────────────────────────────────────────────────────────────────────
 
-const uint8_t* LirMirrorEmitter::emit_block(const LBlock& b) {
-    bool backfill_only = false;
-    if (b.mirror_ptr_ != nullptr) {
-        if (auto it = table_.block.find(&b); it != table_.block.end()) {
-            return it->second;
-        }
-        table_.block[&b] = b.mirror_ptr_;
-        backfill_only = true;
-    } else if (auto it = table_.block.find(&b); it != table_.block.end()) {
-        // Heap-address recycling: stale cache entry for a freed LBlock.
-        // Invalidate and fall through to emit a fresh mirror.
-        table_.block.erase(it);
-    }
-
-    bool save_dry = dry_run_;
-    if (backfill_only) dry_run_ = true;
-
-    // Pre-emit statements so child offsets exist before we create the array.
-    std::vector<hermes::AnyVal> stmt_elems;
-    stmt_elems.reserve(b.stmts.size());
-    // Each StmtRef IS the already-emitted statement mirror; reference it directly.
-    for (auto& s : b.stmts) stmt_elems.push_back(mref_addr(s.addr()));
-
-    hermes::AnyVal stmts_av;
-    if (!stmt_elems.empty()) {
-        auto arr_off = make_array(stmt_elems.size());
-        for (auto av : stmt_elems) array_push(arr_off, av);
-        stmts_av = mref_addr(arr_off);
-    }
-
-    // Block uses lir_stmt category with a synthetic "Count" code (== stmt::Count)
-    // — out-of-band of real stmt codes — to keep the category space simple.
-    auto map_off = make_map(hermes::schema::lir_stmt(lir_schema::stmt::Count));
-    if (!stmts_av.is_null()) put(map_off, sk::ARMS, stmts_av);  // reuse ARMS key as STMTS list
-
-    dry_run_ = save_dry;
-    if (backfill_only) return b.mirror_ptr_;
-
-    b.mirror_ptr_ = map_off;
-    table_.block[&b] = map_off;
-    return map_off;
-}
-
 // ──────────────────────────────────────────────────────────────────────────
 // LMatchArm / EMatchArm / PatFieldBinding / EClosure
 // ──────────────────────────────────────────────────────────────────────────
 
 const uint8_t* LirMirrorEmitter::emit_arm(const LMatchArm& a) {
     auto pat_off    = emit_pat(a.pat);
-    auto body_off   = emit_block(*a.body);
+    auto body_off   = a.body.addr();   // Stage D: arm body pre-emitted BlockRef
     hermes::AnyVal guard_av;
     if (a.guard.has_value()) guard_av = expr_av(*a.guard);
 
@@ -1497,8 +1464,8 @@ hermes::AnyVal LirMirrorEmitter::field_binding_array(
 }
 
 const uint8_t* LirMirrorEmitter::emit_closure(const EClosure& c) {
-    // Body first
-    auto body_off = emit_block(c.body);
+    // Body first — Stage D: c.body is a pre-emitted BlockRef.
+    auto body_off = c.body.addr();
 
     // Capture types as type-array
     auto cap_types_av = type_array(c.capture_types);
@@ -1638,7 +1605,8 @@ void LirMirrorEmitter::run(lir::LProgram& prog) {
         // mono — their EPackExpand/etc. must be mirrored so subst_expr can
         // dispatch via lir_view.
         if (f.is_extern || f.is_metaprog_stub) return;
-        emit_block(f.body);
+        // Stage D: f.body is a pre-emitted BlockRef — nothing to walk.
+        (void)f;
     };
     for (auto& f : prog.functions)        walk_fn(*f);
     for (auto& f : prog.specializations)  walk_fn(*f);
@@ -1886,7 +1854,7 @@ const uint8_t* lir_mirror_emit_arr_lit(lir::LProgram& prog, TypeRef ty, const st
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_arr_lit_direct(ty, elems);
 }
-const uint8_t* lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, lir_view::ExprRef result) {
+const uint8_t* lir_mirror_emit_block_expr(lir::LProgram& prog, TypeRef ty, lir_view::BlockRef block, lir_view::ExprRef result) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_block_expr_direct(ty, block, result);
@@ -1938,22 +1906,22 @@ const uint8_t* lir_mirror_emit_return(lir::LProgram& prog, uint32_t line, lir_vi
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_return_direct(line, value);
 }
-const uint8_t* lir_mirror_emit_if_stmt(lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, const lir::LBlock* then_blk, const lir::LBlock* else_blk) {
+const uint8_t* lir_mirror_emit_if_stmt(lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef then_blk, lir_view::BlockRef else_blk) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_if_stmt_direct(line, cond, then_blk, else_blk);
 }
-const uint8_t* lir_mirror_emit_while(lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, const lir::LBlock* body, std::string_view label) {
+const uint8_t* lir_mirror_emit_while(lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef body, std::string_view label) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_while_direct(line, cond, body, label);
 }
-const uint8_t* lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef lo, lir_view::ExprRef hi, bool inclusive, const lir::LBlock* body, std::string_view label, uint32_t slot) {
+const uint8_t* lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef lo, lir_view::ExprRef hi, bool inclusive, lir_view::BlockRef body, std::string_view label, uint32_t slot) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_for_direct(line, var, lo, hi, inclusive, body, label, slot);
 }
-const uint8_t* lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, const lir::LBlock* body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
+const uint8_t* lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_loop_direct(line, body, label, break_slot, result_type);
@@ -1968,7 +1936,7 @@ const uint8_t* lir_mirror_emit_continue(lir::LProgram& prog, uint32_t line, std:
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_continue_direct(line, label);
 }
-const uint8_t* lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, const lir::LBlock* body) {
+const uint8_t* lir_mirror_emit_block_stmt(lir::LProgram& prog, uint32_t line, lir_view::BlockRef body) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_block_stmt_direct(line, body);
@@ -1998,7 +1966,7 @@ const uint8_t* lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, li
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_match_stmt_direct(line, scrut, arms);
 }
-const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body, uint32_t slot) {
+const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_for_each_direct(line, var, iter, elem_type, arr_size, is_slice, body, slot);
@@ -2023,7 +1991,7 @@ const uint8_t* lir_mirror_emit_tuple_write(lir::LProgram& prog, uint32_t line, s
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_write_direct(line, receiver, index, value, recv_type);
 }
-const uint8_t* lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, const lir::LBlock* else_block, const std::vector<lir::LExprPtr>& guards) {
+const uint8_t* lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block, const std::vector<lir::LExprPtr>& guards) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_let_else_direct(line, pat, scrut, else_block, guards);
@@ -2180,10 +2148,14 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
 // lir_mirror_emit_function — which keeps existing post-sema and per-clone
 // passes correct without modification.
 
-const uint8_t* lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock& b) {
+// EAGER block completion primitive: emit a block container from its collected
+// statement refs and return a BlockRef handle. Call at each block's TRUE
+// completion point (after the LAST push into the block).
+lir_view::BlockRef lir_mirror_block(lir::LProgram& prog,
+                                    const std::vector<lir_view::StmtRef>& stmts) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_block_public(b);
+    return lir_view::BlockRef(prog.type_pool.arena(), em.emit_block_stmts_public(stmts));
 }
 const uint8_t* lir_mirror_emit_pat_node(lir::LProgram& prog, const lir::Pattern& p) {
     auto& ctr = prog.type_pool.ctr_or_init();

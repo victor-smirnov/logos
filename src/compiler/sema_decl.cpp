@@ -932,10 +932,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                     prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
                 }
             }
-            prologue.insert(prologue.end(),
-                            std::make_move_iterator(fn.body.stmts.begin()),
-                            std::make_move_iterator(fn.body.stmts.end()));
-            fn.body.stmts = std::move(prologue);
+            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            fn.body = lir_mirror_block(*cur_prog_, prologue);
         }
         // logos-core 4.5: pattern fn-params (struct + slice) — prepend
         // a destructure-let for each binding so the body sees the user-
@@ -985,10 +983,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 // with index reads + rest handling; deferred to a focused
                 // follow-up alongside the §4.3 multi-level binding work.
             }
-            prologue.insert(prologue.end(),
-                            std::make_move_iterator(fn.body.stmts.begin()),
-                            std::make_move_iterator(fn.body.stmts.end()));
-            fn.body.stmts = std::move(prologue);
+            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            fn.body = lir_mirror_block(*cur_prog_, prologue);
         }
         // `mut x: T` params — prepend `let mut x = synth;` so the body's
         // mutable local is materialized from the (immutable) synth parameter.
@@ -1002,10 +998,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
                 sl.value  = builder().var_ref(mp.synth, mp.ty);
                 prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
             }
-            prologue.insert(prologue.end(),
-                            std::make_move_iterator(fn.body.stmts.begin()),
-                            std::make_move_iterator(fn.body.stmts.end()));
-            fn.body.stmts = std::move(prologue);
+            fn.body.each_stmt([&](lir_view::StmtRef s){ prologue.push_back(s); });
+            fn.body = lir_mirror_block(*cur_prog_, prologue);
         }
         // Resolve impl Trait return type to the concrete type inferred from returns.
         if (fn.ret_type && TypeRef(fn.ret_type).kind() == LogosType::Kind::ImplTrait) {
@@ -1037,9 +1031,11 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
         // params via collect_all_drops (walks all scopes), but a void fn
         // (or any fn falling off the end) misses them. Emit drops for the
         // params scope here so `fn consume(_x: Move) {}` correctly drops _x.
+        std::vector<lir_view::StmtRef> body_stmts;
+        fn.body.each_stmt([&](lir_view::StmtRef s){ body_stmts.push_back(s); });
         bool body_terminated = false;
-        if (!fn.body.stmts.empty()) {
-            auto br = stmt_ref_of(fn.body.stmts.back());
+        if (!body_stmts.empty()) {
+            auto br = stmt_ref_of(body_stmts.back());
             if (br) {
                 auto k = br.kind();
                 body_terminated = (k == lir_schema::stmt::Code::Return ||
@@ -1057,7 +1053,8 @@ lir::LFunction SemaChecker::lower_fn(TinyMapView node, std::string_view struct_c
             std::vector<lir_view::StmtRef> epilogue_drops;
             emit_frame_drops(frame, epilogue_drops, &body_ever_moved_);
             for (auto& d : epilogue_drops)
-                fn.body.stmts.push_back(std::move(d));
+                body_stmts.push_back(std::move(d));
+            fn.body = lir_mirror_block(*cur_prog_, body_stmts);
         }
         body_ever_moved_.clear();
     }
@@ -1970,7 +1967,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                             : (val ? expr_type(val) : void_t());
                     acc.is_pub      = true;
                     acc.source_file = file_;
-                    acc.body.stmts.push_back(builder().stmt_return(val, 0));
+                    {
+                        std::vector<lir_view::StmtRef> acc_body;
+                        acc_body.push_back(builder().stmt_return(val, 0));
+                        acc.body = lir_mirror_block(*cur_prog_, acc_body);
+                    }
                     prog.functions.push_back(
                         std::make_unique<lir::LFunction>(std::move(acc)));
                 }

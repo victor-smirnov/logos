@@ -29,8 +29,6 @@
 #include <string_view>
 #include <vector>
 
-namespace logos::compiler::lir { struct LBlock; }
-
 namespace logos::compiler::lir_view {
 
 // ── Fat-handle base ───────────────────────────────────────────────────────
@@ -333,7 +331,6 @@ class BlockRef : public detail::RefBase {
 public:
     BlockRef() = default;
     using RefBase::RefBase;
-    BlockRef(const lir::LBlock* b) noexcept;
 
     // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
     // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.

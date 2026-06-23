@@ -62,7 +62,7 @@ public:
                        std::vector<TypeRef> type_args,
                        std::vector<lir_view::ExprRef> args,
                        TypeRef ty);
-    lir_view::ExprRef block_expr(lir::LBlock* block,
+    lir_view::ExprRef block_expr(lir_view::BlockRef block,
                              lir_view::ExprRef result, TypeRef ty);
     lir_view::ExprRef struct_lit(std::string name,
                              std::vector<std::pair<std::string, lir_view::ExprRef>> fields,

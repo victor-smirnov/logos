@@ -161,7 +161,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.hstatic_registry_   = std::move(in_.hstatic_registry_);
-    out_.block_pool_         = std::move(in_.block_pool_);
     out_.hermes_val_pool_    = std::move(in_.hermes_val_pool_);
     out_.closure_pool_       = std::move(in_.closure_pool_);
     out_.consts              = std::move(in_.consts);

@@ -33,7 +33,6 @@ struct LirMirrorTable {
     // re-emission across multiple table instances — sema's prog.mirror_table vs
     // mono's out_.mirror_table). Consumer reads go straight through the node's
     // own mirror_ptr_ / a lir_view ref, not these maps.
-    std::unordered_map<const lir::LBlock*,   const uint8_t*> block;
     std::unordered_map<const lir::Pattern*,  const uint8_t*> pat;
     std::unordered_map<const lir::HermesVal*, const uint8_t*> hermes_val;
 
@@ -46,7 +45,7 @@ struct LirMirrorTable {
     std::unordered_map<const uint8_t*, lir::EClosure*> closure_box_inner;
 
     bool empty() const noexcept {
-        return block.empty() && pat.empty()
+        return pat.empty()
             && hermes_val.empty();
     }
 };
@@ -121,7 +120,9 @@ const uint8_t* lir_mirror_emit_if_expr      (lir::LProgram& prog, TypeRef ty, li
 const uint8_t* lir_mirror_emit_tuple_lit    (lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems);
 const uint8_t* lir_mirror_emit_tuple_index  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, uint32_t index);
 const uint8_t* lir_mirror_emit_arr_lit      (lir::LProgram& prog, TypeRef ty, const std::vector<lir_view::ExprRef>& elems);
-const uint8_t* lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, const lir::LBlock* block, lir_view::ExprRef result);
+const uint8_t* lir_mirror_emit_block_expr   (lir::LProgram& prog, TypeRef ty, lir_view::BlockRef block, lir_view::ExprRef result);
+// EAGER block completion: emit a block container from collected stmt refs.
+lir_view::BlockRef lir_mirror_block         (lir::LProgram& prog, const std::vector<lir_view::StmtRef>& stmts);
 const uint8_t* lir_mirror_emit_closure_call (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_fn_ptr_call  (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef callee, const std::vector<lir_view::ExprRef>& args);
 const uint8_t* lir_mirror_emit_match_expr   (lir::LProgram& prog, TypeRef ty, lir_view::ExprRef scrut, const std::vector<lir::EMatchArm>& arms);
@@ -135,24 +136,24 @@ const uint8_t* lir_mirror_emit_closure_box  (lir::LProgram& prog, TypeRef ty, co
 const uint8_t* lir_mirror_emit_let               (lir::LProgram& prog, uint32_t line, std::string_view name, TypeRef ty, lir_view::ExprRef value, bool is_mut, uint32_t slot = 0xFFFFFFFFu);
 const uint8_t* lir_mirror_emit_assign            (lir::LProgram& prog, uint32_t line, std::string_view name, lir_view::ExprRef value, bool drop_old = false);
 const uint8_t* lir_mirror_emit_return            (lir::LProgram& prog, uint32_t line, lir_view::ExprRef value);
-const uint8_t* lir_mirror_emit_if_stmt           (lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, const lir::LBlock* then_blk, const lir::LBlock* else_blk);
-const uint8_t* lir_mirror_emit_while             (lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, const lir::LBlock* body, std::string_view label);
-const uint8_t* lir_mirror_emit_for               (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef lo, lir_view::ExprRef hi, bool inclusive, const lir::LBlock* body, std::string_view label, uint32_t slot = 0xFFFFFFFFu);
-const uint8_t* lir_mirror_emit_loop              (lir::LProgram& prog, uint32_t line, const lir::LBlock* body, std::string_view label, std::string_view break_slot, TypeRef result_type);
+const uint8_t* lir_mirror_emit_if_stmt           (lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef then_blk, lir_view::BlockRef else_blk);
+const uint8_t* lir_mirror_emit_while             (lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef body, std::string_view label);
+const uint8_t* lir_mirror_emit_for               (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef lo, lir_view::ExprRef hi, bool inclusive, lir_view::BlockRef body, std::string_view label, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_loop              (lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, std::string_view label, std::string_view break_slot, TypeRef result_type);
 const uint8_t* lir_mirror_emit_break             (lir::LProgram& prog, uint32_t line, lir_view::ExprRef value, std::string_view label);
 const uint8_t* lir_mirror_emit_continue          (lir::LProgram& prog, uint32_t line, std::string_view label);
-const uint8_t* lir_mirror_emit_block_stmt        (lir::LProgram& prog, uint32_t line, const lir::LBlock* body);
+const uint8_t* lir_mirror_emit_block_stmt        (lir::LProgram& prog, uint32_t line, lir_view::BlockRef body);
 const uint8_t* lir_mirror_emit_field_write       (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_index_write       (lir::LProgram& prog, uint32_t line, std::string_view arr, lir_view::ExprRef index, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_field_index_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view field, lir_view::ExprRef index, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_expr_stmt         (lir::LProgram& prog, uint32_t line, lir_view::ExprRef expr);
 const uint8_t* lir_mirror_emit_match_stmt        (lir::LProgram& prog, uint32_t line, lir_view::ExprRef scrut, const std::vector<lir::LMatchArm>& arms);
-const uint8_t* lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, const lir::LBlock* body, uint32_t slot = 0xFFFFFFFFu);
+const uint8_t* lir_mirror_emit_for_each          (lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot = 0xFFFFFFFFu);
 const uint8_t* lir_mirror_emit_deref_write       (lir::LProgram& prog, uint32_t line, lir_view::ExprRef ptr, lir_view::ExprRef value, bool drop_old = false);
 const uint8_t* lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {});
 const uint8_t* lir_mirror_emit_deref_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_tuple_write       (lir::LProgram& prog, uint32_t line, std::string_view receiver, uint32_t index, lir_view::ExprRef value, TypeRef recv_type);
-const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, const lir::LBlock* else_block, const std::vector<lir::LExprPtr>& guards = {});
+const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block, const std::vector<lir::LExprPtr>& guards = {});
 const uint8_t* lir_mirror_emit_chain_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, lir_view::ExprRef value);
 
 // Stage B.6 — HermesVal direct mirror writers. Allocate a fresh mirror map for
@@ -208,7 +209,6 @@ void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table);
 //
 // All four require `prog.mirror_table` to be non-null (LProgram() now
 // initializes it eagerly). The arena is `prog.type_pool.arena_or_init()`.
-const uint8_t* lir_mirror_emit_block_node(lir::LProgram& prog, const lir::LBlock&    b);
 const uint8_t* lir_mirror_emit_pat_node  (lir::LProgram& prog, const lir::Pattern&   p);
 const uint8_t* lir_mirror_emit_hv_node   (lir::LProgram& prog, const lir::HermesVal& v);
 

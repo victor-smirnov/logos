@@ -26,7 +26,7 @@
 #include <logos/compiler/lir_view.hpp>  // lir_view::BlockRef/StmtRef (Stage D)
 
 namespace logos::compiler::lir {
-    struct LFunction; struct LBlock;
+    struct LFunction;
     struct LProgram;
 }
 

@@ -72,7 +72,7 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
     if (auto reg = const_intrinsic_positions(base); !reg.empty()) {
         result = std::move(reg);
     } else if (const lir::LFunction* fn = find_fn_def_by_base(base);
-               fn && fn->body.mirror_ptr_ != nullptr) {
+               fn && (bool)fn->body) {
         std::unordered_map<std::string, size_t> pidx;
         for (size_t i = 0; i < fn->params.size(); ++i) pidx[fn->params[i].name] = i;
         std::set<size_t> want;
@@ -136,7 +136,7 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
             b.each_stmt([&](lir_view::StmtRef s) { visit_stmt(s); });
         };
 
-        visit_block(lir_view::BlockRef(&arena, fn->body.mirror_ptr_));
+        visit_block(fn->body);
         result.assign(want.begin(), want.end());
     }
 
@@ -158,7 +158,7 @@ std::string Mono::const_specialize_callee(
     const auto& cw = compute_const_want(callee);
     if (cw.empty()) return callee;
     const lir::LFunction* fn = find_fn_def_by_base(callee);
-    if (!fn || fn->body.mirror_ptr_ == nullptr)
+    if (!fn || !fn->body)
         return callee;  // extern / bodyless / unknown — can't clone
 
     std::vector<std::pair<std::string, ConstArgVal>> binds;

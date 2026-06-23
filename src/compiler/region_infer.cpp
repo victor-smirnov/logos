@@ -28,7 +28,7 @@ bool is_mut_ref_type(TypeRef t) {
 void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog) {
     // Body-less function (extern / stub / from_binary) — no mirror, nothing to
     // infer; skip so the BlockRef built from fn.body is never null.
-    if (fn.body.mirror_ptr_ == nullptr) return;
+    if (!fn.body) return;
     cfg_.blocks.clear();
     borrows_.clear();
     constraints_.clear();
@@ -67,7 +67,7 @@ void RegionInferer::analyze(const lir::LFunction& fn, const lir::LProgram& prog)
     }
 
     cfg_.blocks.emplace_back();
-    walk_block(lir_view::BlockRef(prog.type_pool.arena(), fn.body.mirror_ptr_), /*blk_id=*/0, prog);
+    walk_block(fn.body, /*blk_id=*/0, prog);
     // After CFG construction, also walk every block one more time to
     // populate use_/def_ per StmtPoint. This is independent of the
     // borrow-walker (which targets AddrOf nodes only).

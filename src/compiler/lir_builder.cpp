@@ -156,7 +156,7 @@ lir_view::ExprRef LirBuilder::call(std::string callee,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_call(p, t, callee, type_args, args); });
 }
 
-lir_view::ExprRef LirBuilder::block_expr(lir::LBlock* block,
+lir_view::ExprRef LirBuilder::block_expr(lir_view::BlockRef block,
                                       lir::LExprPtr result, TypeRef ty) {
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_block_expr(p, t, block, result); });
